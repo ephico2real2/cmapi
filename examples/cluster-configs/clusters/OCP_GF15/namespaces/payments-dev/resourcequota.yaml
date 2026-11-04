@@ -1,6 +1,8 @@
-# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# Source: docs/02-technical-design-v2.md, "Tiers"
 # clusters/OCP_GF15/namespaces/payments-dev/resourcequota.yaml
-# Values written out from config/tiers.yaml (dev, medium); a custom tier writes the approved values.
+# Rendered by cmapi.core.tiers.render() from config/tiers.yaml (dev, medium).
+# cmapi.net/tier-hash is the hash of the resolved tier; a different current hash marks the
+# namespace tier-outdated until the tiers-rerender operation re-renders it.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -8,13 +10,18 @@ metadata:
   namespace: payments-dev
   labels:
     cmapi.net/cluster-id: OCP_GF15
-    cmapi.net/managed: "true"
+    cmapi.net/managed: 'true'
     cmapi.net/tier: medium
   annotations:
     cmapi.net/instance: nonprod
     cmapi.net/request-id: req-20261104-2b17
+    cmapi.net/tier-hash: dec3e603bf8d
 spec:
   hard:
-    requests.cpu: "16"
+    requests.cpu: '16'
     requests.memory: 32Gi
-    pods: "100"
+    pods: '100'
+    persistentvolumeclaims: '30'
+    requests.storage: 500Gi
+    services.loadbalancers: '0'
+    services.nodeports: '0'

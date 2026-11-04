@@ -8,7 +8,9 @@ came from. Where two documents show the same file, the copy in
 | Path | What it is | Origin |
 | --- | --- | --- |
 | `config/instance.yaml` | One instance's identity: name, allowedEnvironments, URLs, Keycloak audience, requester identity and DirectoryProvider settings, Git repository, directory of the other instances | Updated |
-| `config/tiers.yaml` | ResourceQuota and LimitRange values per tier, written out by the raw manifest renderer (replaces namespace-configuration-operator's quota and LimitRange configs) | New; values are proposals |
+| `config/tiers.yaml` | The tier catalog (combined reference): sizable keys, defaults, small/medium/large/custom, custom bounds and per-environment overrides. Read only by `cmapi.core.tiers` | Values are proposals |
+| `instances/<instance>/tiers.yaml` | Each instance's catalog: the same tiers, only its own environments | Derived |
+| `src/cmapi/core/tiers.py`, `tests/test_tiers.py` | Reference implementation of the tier module (load, validate, resolve, custom checks, normalise, compare, render, describe) and its 28 tests. Run from `examples/`: `PYTHONPATH=src python -m pytest -q tests/test_tiers.py` | Reference code |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
 | `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |
 | `config/authz-scopes.yaml` | Role-to-scope bindings (shape reference) | Verbatim |

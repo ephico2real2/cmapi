@@ -1,0 +1,73 @@
+# Source: docs/02-technical-design-v2.md, "Tiers"
+# config/tiers.yaml for the prod instance (allowedEnvironments: prod).
+# Generated from examples/config/tiers.yaml: same catalog, only this instance's environments.
+# Read by cmapi.core.tiers at startup and on change (ConfigMap cmapi-tiers). Owned by
+# platform-leads in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
+# rendered cmapi.net/tier-hash differs show as tier-outdated until the tiers-rerender
+# operation opens a normal, approved request for each.
+#
+# Resolution for (environment, tier), later wins, maps merged key by key:
+#   defaults  ->  tiers.<tier>  ->  environments.<env>.tiers.<tier>
+# Custom bounds:  custom  ->  environments.<env>.custom
+apiVersion: cmapi.net/v1
+kind: TierCatalog
+
+# The only quota keys a request may size (a custom tier, or PATCH .../quota). Every other
+# quota key comes from the catalog. These are also the three the Quotas view tracks.
+sizable: [requests.cpu, requests.memory, pods]
+
+defaults:                        # every tier gets these unless it overrides them
+  quota:
+    persistentvolumeclaims: "20"
+    requests.storage: 200Gi
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+  limitRange:
+    container:
+      defaultRequest: {cpu: 100m, memory: 256Mi}
+      default:        {cpu: 500m, memory: 512Mi}
+      max:            {cpu: "2",  memory: 4Gi}
+    pvc:
+      max: {storage: 50Gi}
+
+tiers:
+  small:
+    order: 1
+    description: A team sandbox or a single service
+    quota: {requests.cpu: "8", requests.memory: 16Gi, pods: "50"}
+  medium:
+    order: 2
+    description: A service with a few components
+    quota: {requests.cpu: "16", requests.memory: 32Gi, pods: "100",
+            persistentvolumeclaims: "30", requests.storage: 500Gi}
+    limitRange:
+      container: {max: {cpu: "4", memory: 8Gi}}
+  large:
+    order: 3
+    description: A platform team or a data workload
+    quota: {requests.cpu: "32", requests.memory: 64Gi, pods: "200",
+            persistentvolumeclaims: "50", requests.storage: 1Ti}
+    limitRange:
+      container:
+        defaultRequest: {cpu: 250m, memory: 512Mi}
+        default:        {cpu: "1",  memory: 1Gi}
+        max:            {cpu: "8",  memory: 16Gi}
+      pvc: {max: {storage: 200Gi}}
+  custom:
+    order: 4
+    custom: true                 # requests.cpu, requests.memory and pods come from the approved request
+    description: Sized to the request, within the environment's bounds
+
+custom:                          # bounds for custom values; min must cover the custom tier's container max
+  min:  {requests.cpu: "2",   requests.memory: 4Gi,   pods: "10"}
+  max:  {requests.cpu: "64",  requests.memory: 256Gi, pods: "500"}
+  step: {requests.cpu: "1",   requests.memory: 1Gi,   pods: "10"}
+
+environments:
+  prod:
+    offered: [small, medium, large, custom]
+    tiers:
+      medium: {limitRange: {container: {max: {cpu: "8", memory: 16Gi}}}}
+      large:  {limitRange: {container: {max: {cpu: "16", memory: 32Gi}}}}
+    custom:
+      max:  {requests.cpu: "128", requests.memory: 512Gi, pods: "1000"}

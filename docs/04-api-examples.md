@@ -268,6 +268,24 @@ curl -s -X POST "$CMAPI/capacity:place" \
 # → {"placementId": "pl-20261103-5e17", "ranked": [{"clusterId": "OCP_GF6", "score": 78, "reserved": true}, ...], "excluded": [...]}
 ```
 
+### 2a. See the tiers you can choose
+
+`GET /tiers` returns every tier this instance offers per environment, resolved: the full ResourceQuota and LimitRange values, the tier's hash, and the bounds a `custom` quota must stay within. The portal's tier picker reads the same call; the response's `ETag` changes only when the catalog does.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/tiers?environment=rnd"
+# → {"catalogHash": "618ae03a131d6626", "sizable": ["requests.cpu", "requests.memory", "pods"],
+#    "environments": {"rnd": {"tiers": [{"name": "small", "quota": {"requests.cpu": "8", ...}, ...}, ...],
+#                             "custom": {"min": {...}, "max": {"requests.cpu": "32", ...}, "step": {...}}}}}
+```
+
+Pick `small`, `medium` or `large` and send no quota, or pick `custom` and send all three sizable keys, each within `min` and `max` and on `step`:
+
+```json
+"tier": "custom",
+"quota": {"requests.cpu": "20", "requests.memory": "40Gi", "pods": "120"}
+```
+
 ### 3. Dry run a create
 
 Returns the Plan (validation results, rendered YAML, diff, approval requirement, capacity check). No PR, no reservation and no database row are created.
@@ -477,6 +495,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies/rejections?since=7d" 
 | 429 | `rate-limited` | Too many calls, or too many active placements for your team | Honour `Retry-After` |
 | 422 | `environment-not-served` | This instance does not serve that environment | Use the instance URL in the response's `instanceUrl` |
 | 422 | `identity-incomplete` / `unknown-user` / `invalid-team-dl` | Your token has no employee ID claim; `onBehalfOf` names nobody (or a disabled user); the team DL is not in one of the configured email domains | Sign in again or ask the platform team to check your directory entry; fix `onBehalfOf`; fix the DL |
+| 422 | `tier-unknown` / `tier-not-offered` / `quota-with-named-tier` / `quota-key-not-sizable` / `custom-quota-required` / `custom-out-of-bounds` | The tier does not exist or is not offered in that environment; a quota sent with a named tier; a quota key other than requests.cpu, requests.memory or pods; a custom quota missing a key, or outside the bounds or off the step (each offending key is listed with its min, max and step) | Check `GET /tiers?environment=` and resend |
 | 422 | `cluster-not-writable` | The cluster is imported but has no clusters.yaml entry yet | Wait for its cluster-onboard PR to merge |
 | 503 | `cluster-unreachable` / `idp-unavailable` | Cluster API or Keycloak keys unreachable | Honour `Retry-After` |
 | 503 | `capacity-service-unavailable` | cmapi-capacity is down; capacity and usage reads cannot be served | Honour `Retry-After`; creates still place from stored snapshots |
