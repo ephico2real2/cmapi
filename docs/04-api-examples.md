@@ -219,15 +219,34 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### 2. Read its quota and usage
 
-The first call lists every namespace in your scope on this instance with its ResourceQuota (hard and used for `requests.cpu`, `requests.memory` and `pods`), tier and latest usage verdict. It is what the portal's Quotas tab shows. `used` is the sum of pod requests, read from the watch cache; it is not real consumption and never calls Thanos.
+`GET /quotas` pages through every namespace in your scope on this instance with its ResourceQuota (hard and used for `requests.cpu`, `requests.memory` and `pods`), tier and latest usage verdict. It is what the portal's Quotas tab shows. `used` is the sum of pod requests, read from the watch cache; it is not real consumption and never calls Thanos. Pages are sorted A to Z by default, 50 at a time; follow `page.nextCursor` until it is null.
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "$CMAPI/quotas?environment=rnd&state=near-limit"
-# → {"items": [{"clusterId": "OCP_GF8", "namespace": "ledger-rnd", "tier": "small",
+# First page, A to Z, with the attention counts and letter counts
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/quotas?env=rnd&limit=50"
+# → {"items": [{"clusterId": "OCP_GF8", "namespace": "ledger-rnd", "team": "ledger", "tier": "small",
 #      "hard": {"requests.cpu": "8", "requests.memory": "16Gi", "pods": "50"},
 #      "used": {"requests.cpu": "7400m", "requests.memory": "13.9Gi", "pods": "41"},
-#      "verdict": "quota-tight", "recommendation": "rec-ledger-rnd-0412"}, ...]}
+#      "verdict": "quota-tight", "recommendation": "rec-ledger-rnd-0412"}, ...],
+#    "page": {"limit": 50, "total": 263, "from": 1, "to": 50, "nextCursor": "eyJrIjpb...", "prevCursor": null},
+#    "facets": {"attention": {"quotaTight": 13, "nearLimit": 28, "recommendation": 11, "oversized": 16, "idle": 3, "openRequest": 0},
+#               "letters": {"a": 21, "b": 18, ...}}}
+
+# Next page: pass the cursor back with the same filters (changing a filter or the sort returns 400 invalid-cursor)
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/quotas?env=rnd&limit=50&cursor=eyJrIjpb..."
+
+# Jump to the first namespace starting with "p"
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/quotas?env=rnd&startsWith=p"
+
+# Only what needs attention, most urgent first
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/quotas?state=quotaTight&sort=severity"
+
+# Type-ahead: from 2 characters, up to 10 matches (name prefix, then contains, then team or app label)
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/quotas:suggest?q=pay"
+# → [{"namespace": "payments-admin-rnd", "clusterId": "OCP_GF6", "environment": "rnd", "team": "payments", "match": "prefix"}, ...]
+
+# Every matching row as CSV (same filters, not just one page; capped at 10,000 rows, audited)
+curl -s -H "Authorization: Bearer $TOKEN" -o quotas-rnd.csv "$CMAPI/quotas:export?format=csv&env=rnd&q=payments"
 
 curl -s -i -H "Authorization: Bearer $TOKEN" \
   "$CMAPI/clusters/$CLUSTER/namespaces/$NS/quota"      # -i shows the ETag header

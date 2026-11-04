@@ -173,7 +173,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | core | GET /api/v1/me; GET /api/v1/admin/plugins; POST /api/v1/admin/reload; POST /api/v1/admin/clusters:propose; POST /api/v1/webhooks/git; POST /api/v1/webhooks/argocd; POST, GET /api/v1/operations, GET /api/v1/operations/{id}, POST /api/v1/operations/{id}:cancel; GET /api/v1/admin/integrations | API |
 | namespaces | GET /namespaces, GET, POST, PATCH, DELETE /namespaces/{ns} | Read live; write Git |
 | metadata | GET, PATCH, PUT /namespaces/{ns}/metadata; GET, PATCH, PUT /namespaces/{ns}/serviceaccounts/{sa}/metadata | Write Git |
-| quotas | GET, PUT, PATCH /namespaces/{ns}/quota; GET /api/v1/quotas?environment=&clusterId=&team=&state= (every namespace in scope: hard and used for requests.cpu, requests.memory and pods, tier, verdict) | Read live; write Git |
+| quotas | GET, PUT, PATCH /namespaces/{ns}/quota; GET /api/v1/quotas?q=&env=&clusterId=&team=&tier=&verdict=&state=&sort=name\|used\|severity&limit=50&cursor=&startsWith= (one page of namespaces in scope: hard and used for requests.cpu, requests.memory and pods, tier, verdict; with total, cursors, attention counts and letter counts); GET /api/v1/quotas:suggest?q= (up to 10 type-ahead matches); GET /api/v1/quotas:export?format=csv (every matching row) | Read live; write Git |
 | limitranges | GET, PUT, PATCH /namespaces/{ns}/limitrange | Read live; write Git |
 | expiration | GET /namespaces/{ns}/expiration, POST .../expiration:extend, POST .../expiration:makePermanent, GET /namespaces?expiring=7d or ?expired=true | Read live; write Git |
 | serviceaccounts | GET, POST /namespaces/{ns}/serviceaccounts, GET, DELETE .../{sa} | Read live; write Git |

@@ -43,7 +43,8 @@ the final design and the source of truth: where another document disagrees, it w
 | Capacity | Cluster snapshots every `capacity.snapshotInterval` (30 min default, 15 to 60). Thanos is never queried on namespace creation or onboarding; namespace usage is read live (14 days) only for a quota change on an existing namespace, plus a daily off-peak sweep. |
 | cmapi-capacity | Internal microservice reached only through cmapi's scoped endpoints; no separate user auth. |
 | Placement | From stored snapshots, with reservations and zone-failure headroom; CPU and memory checked separately, a cluster is as full as its fuller resource. Overcommit CPU rnd 2.0 / qa 1.5 / uat 1.25 / prod 1.0; memory 1.25 / 1.1 / 1.0 / 1.0. |
-| Quotas | GET /api/v1/quotas lists every namespace's quota (CPU, memory, pods; used vs hard) from the watch cache; the portal's Quotas tab plans and submits tier or custom changes. |
+| Quotas | GET /api/v1/quotas pages through every namespace's quota (CPU, memory, pods; used vs hard) from the watch cache: A to Z, 50 per page, keyset cursor, letter jump, type-ahead by name, team or app, filters, sort by name, % used or attention, attention counts and CSV export. The portal's Quotas tab plans and submits tier or custom changes. |
+| Lists | One paging, search, filter, sort and export contract in cmapi-core and one PagedTable in cmapi-portal-ui, reused by Quotas, Requests and Approvals. |
 | Approvals | Per-environment rules; auto-approval with master, per-policy and kill switches plus fixed guards. |
 | Modularity | Plugins, adapters, services, instances; 11 extension points; shared `cmapi-core`, `cmapi-ops`, `cmapi-sdk`, `cmapi-portal-ui`, Kyverno bundle and Helm chart. |
 | API docs | Swagger UI at `/docs`, ReDoc at `/redoc`, `/openapi.json` and `.yaml`; an undocumented route or model stops startup and fails CI. |

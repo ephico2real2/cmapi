@@ -174,6 +174,35 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
 .res tr.sel td { background: #f4f8ff; }
 .qgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; align-items: start; }
 .callout.bad { background: #fbe5e3; }
+.qtools { gap: 14px; }
+.attn { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.attn .flabel, .fgroup .flabel { font-weight: 600; font-size: 0.8rem; color: #5b6779; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid #c9d0db; background: #ffffff; border-radius: 999px; padding: 4px 11px; cursor: pointer; font-size: 0.8rem; min-height: 32px; display: inline-flex; gap: 6px; align-items: center; }
+.chip b { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 600; font-size: 0.76rem; }
+.chip:hover { border-color: #1f5fd1; }
+.chip.on { border-color: #1f5fd1; background: #e5edfc; color: #1647a0; box-shadow: inset 0 0 0 1px #1f5fd1; }
+.chip.bad b { color: #b02f26; } .chip.warn b { color: #8a5a10; }
+.searchrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.combo { position: relative; flex: 1 1 320px; min-width: 0; }
+.combo input { font: inherit; font-size: 0.92rem; padding: 9px 12px; border: 1px solid #c9d0db; border-radius: 8px; background: #ffffff; color: #142030; min-height: 42px; width: 100%; }
+.sugg { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); list-style: none; margin: 0; padding: 4px; background: #ffffff; border: 1px solid #c9d0db; border-radius: 10px; box-shadow: 0 8px 24px rgba(20, 32, 48, 0.12); display: grid; gap: 2px; }
+.sugg button { width: 100%; border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 6px; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+.sugg button:hover, .sugg button:focus-visible { background: #f4f8ff; }
+.sugg b { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.86rem; font-weight: 600; overflow-wrap: anywhere; }
+.sugg span { font-size: 0.76rem; color: #5b6779; grid-column: 1; }
+.sugg em { font-style: normal; font-size: 0.72rem; color: #1f5fd1; grid-column: 2; grid-row: 1 / span 2; align-self: center; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.sugg .none { padding: 8px 10px; color: #5b6779; font-size: 0.86rem; }
+.frow { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.fgroup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.az { display: flex; flex-wrap: wrap; gap: 3px; }
+.azb { border: 1px solid #dde2ea; background: #ffffff; border-radius: 6px; min-width: 30px; min-height: 30px; cursor: pointer; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.78rem; text-transform: uppercase; }
+.azb:hover { border-color: #1f5fd1; }
+.azb.on { background: #1f5fd1; border-color: #1f5fd1; color: #ffffff; }
+.azb.off { color: #b4bcc8; background: #f6f7fa; cursor: default; }
+.pager { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+.pager .meta { font-size: 0.82rem; }
+.rowbtn.off { color: #b4bcc8; cursor: default; }
 .codebox { background: #f6f7fa; border: 1px solid #dde2ea; border-radius: 8px; padding: 10px 12px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.76rem; white-space: pre; overflow-x: auto; margin: 0; }
 @media (max-width: 1100px) {
   .qgrid { grid-template-columns: minmax(0, 1fr); }
@@ -487,11 +516,51 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <h1>Quotas</h1>
             <p class="lede">The ResourceQuota of every namespace your scope covers on the {{inst.label}} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.</p>
           </div>
-          <div class="seg" role="group" aria-label="Filter">
-            <sc-for list="{{qFilters}}" as="o" hint-placeholder-count="3"><button type="button" class="segbtn {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}"><b>{{o.label}}</b></button></sc-for>
+          <span class="pill">{{qHead}}</span>
+        </div>
+        <div class="card qtools">
+          <div class="attn">
+            <span class="flabel">Needs attention</span>
+            <sc-for list="{{qAttn}}" as="a" hint-placeholder-count="6"><button type="button" class="chip {{a.cls}}" aria-pressed="{{a.on}}" onClick="{{a.pick}}">{{a.label}} <b>{{a.n}}</b></button></sc-for>
           </div>
+          <form class="searchrow" role="search" onSubmit="{{qSug.go}}">
+            <div class="combo">
+              <input id="q-search" type="search" autocomplete="off" role="combobox" aria-label="Find a namespace, team or app" aria-autocomplete="list" aria-controls="q-sug" aria-expanded="{{qSug.expanded}}" placeholder="Find a namespace, team or app (type 2+ characters)" value="{{qSug.text}}" onChange="{{qSug.onType}}">
+              <sc-if value="{{qSug.open}}" hint-placeholder-val="{{false}}">
+                <ul class="sugg" id="q-sug" role="listbox">
+                  <sc-for list="{{qSug.items}}" as="s" hint-placeholder-count="5"><li role="option" aria-selected="false"><button type="button" onClick="{{s.pick}}"><b>{{s.ns}}</b><span>{{s.where}}</span><em>{{s.why}}</em></button></li></sc-for>
+                  <sc-if value="{{qSug.none}}" hint-placeholder-val="{{false}}"><li class="none">No namespace in your scope matches "{{qSug.text}}".</li></sc-if>
+                </ul>
+              </sc-if>
+            </div>
+            <button type="submit" class="btn">Show all matches</button>
+            <sc-if value="{{qSug.applied}}" hint-placeholder-val="{{false}}"><button type="button" class="chip on" onClick="{{qSug.clear}}">matching "{{qSug.appliedText}}" ✕</button></sc-if>
+            <button type="button" class="btn" onClick="{{qExp.go}}">Export CSV</button>
+          </form>
+          <div class="frow">
+            <div class="fgroup"><span class="flabel">Env</span><div class="chips"><sc-for list="{{qEnvOpts}}" as="o" hint-placeholder-count="3"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
+            <div class="fgroup"><span class="flabel">Cluster</span><div class="chips"><sc-for list="{{qClusterOpts}}" as="o" hint-placeholder-count="4"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
+            <div class="fgroup"><span class="flabel">Tier</span><div class="chips"><sc-for list="{{qTierOpts}}" as="o" hint-placeholder-count="4"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
+            <div class="fgroup"><span class="flabel">Sort</span><div class="chips"><sc-for list="{{qSortOpts}}" as="o" hint-placeholder-count="3"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
+            <div class="fgroup"><span class="flabel">Per page</span><div class="chips"><sc-for list="{{qSizeOpts}}" as="o" hint-placeholder-count="3"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
+          </div>
+          <div class="az" role="group" aria-label="Jump to the first namespace starting with a letter">
+            <sc-for list="{{qAz}}" as="l" hint-placeholder-count="26"><button type="button" class="azb {{l.cls}}" aria-disabled="{{l.dis}}" aria-label="{{l.aria}}" onClick="{{l.pick}}">{{l.t}}</button></sc-for>
+          </div>
+          <sc-if value="{{qExp.show}}" hint-placeholder-val="{{false}}">
+            <div class="callout info"><b>{{qExp.title}}</b><span style="font-size: 0.88rem">{{qExp.text}}</span></div>
+            <pre class="codebox">{{qExp.preview}}</pre>
+            <div class="actions"><button type="button" class="rowbtn" onClick="{{qExp.close}}">Close</button></div>
+          </sc-if>
         </div>
         <div class="card">
+          <div class="pager">
+            <span class="meta">{{qPage.range}}</span>
+            <div class="chips">
+              <button type="button" class="rowbtn {{qPage.prevCls}}" aria-disabled="{{qPage.prevDis}}" onClick="{{qPage.prev}}">‹ Previous</button>
+              <button type="button" class="rowbtn {{qPage.nextCls}}" aria-disabled="{{qPage.nextDis}}" onClick="{{qPage.next}}">Next ›</button>
+            </div>
+          </div>
           <div class="tablebox">
             <table class="res">
               <thead><tr><th>Namespace</th><th>Cluster</th><th>Env</th><th>Tier</th><th>CPU requests</th><th>Memory requests</th><th>Pods</th><th>Verdict</th><th></th></tr></thead>
@@ -502,8 +571,15 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
               </tbody>
             </table>
           </div>
-          <sc-if value="{{noQuotas}}" hint-placeholder-val="{{false}}"><p class="empty">No namespaces match this filter on the {{inst.label}} instance.</p></sc-if>
-          <p class="foot">GET /api/v1/quotas?environment={{inst.envs}} · quota status from the watch cache, verdicts from the 02:00 usage sweep. Bars turn amber at 80% and red at 95% of the hard limit.</p>
+          <sc-if value="{{noQuotas}}" hint-placeholder-val="{{false}}"><p class="empty">No namespace on the {{inst.label}} instance matches these filters.</p></sc-if>
+          <div class="pager">
+            <span class="meta">{{qPage.call}}</span>
+            <div class="chips">
+              <button type="button" class="rowbtn {{qPage.prevCls}}" aria-disabled="{{qPage.prevDis}}" onClick="{{qPage.prev}}">‹ Previous</button>
+              <button type="button" class="rowbtn {{qPage.nextCls}}" aria-disabled="{{qPage.nextDis}}" onClick="{{qPage.next}}">Next ›</button>
+            </div>
+          </div>
+          <p class="foot">Quota status from the watch cache, verdicts from the 02:00 usage sweep; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.</p>
         </div>
 
         <div class="qgrid">
@@ -587,11 +663,21 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <h1>Requests</h1>
             <p class="lede">Every write you or your team started, newest first. Open one to replay it step by step in the workflow.</p>
           </div>
-          <div class="seg" role="group" aria-label="Filter">
-            <sc-for list="{{reqFilters}}" as="o" hint-placeholder-count="3"><button type="button" class="segbtn {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}"><b>{{o.label}}</b></button></sc-for>
+        </div>
+        <div class="card qtools">
+          <div class="searchrow">
+            <div class="combo"><input type="search" aria-label="Find a request" placeholder="Find by request ID, namespace or cluster" value="{{reqList.text}}" onChange="{{reqList.onType}}"></div>
+            <div class="fgroup"><span class="flabel">Status</span><div class="chips"><sc-for list="{{reqFilters}}" as="o" hint-placeholder-count="3"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
           </div>
         </div>
         <div class="card">
+          <div class="pager">
+            <span class="meta">{{reqList.range}}</span>
+            <div class="chips">
+              <button type="button" class="rowbtn {{reqList.prevCls}}" aria-disabled="{{reqList.prevDis}}" onClick="{{reqList.prev}}">‹ Previous</button>
+              <button type="button" class="rowbtn {{reqList.nextCls}}" aria-disabled="{{reqList.nextDis}}" onClick="{{reqList.next}}">Next ›</button>
+            </div>
+          </div>
           <div class="tablebox">
             <table class="res">
               <thead><tr><th>Request</th><th>Cluster</th><th>Namespace</th><th>Action</th><th>Status</th><th>Where it is</th><th>Approval</th><th>PR</th><th>Updated</th><th></th></tr></thead>
@@ -602,7 +688,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
               </tbody>
             </table>
           </div>
-          <sc-if value="{{noRequests}}" hint-placeholder-val="{{false}}"><p class="empty">No requests match this filter on the {{inst.label}} instance.</p></sc-if>
+          <sc-if value="{{noRequests}}" hint-placeholder-val="{{false}}"><p class="empty">No requests on the {{inst.label}} instance match this search and filter.</p></sc-if>
           <p class="foot">This list shows the {{inst.label}} instance only; requests for other environments live in their own instance. A request refused before it is stored (a policy rejection or the wrong instance) never appears here.
             <sc-if value="{{showReject}}" hint-placeholder-val="{{false}}"><button type="button" class="rowbtn" onClick="{{openReject}}">Replay a policy rejection</button></sc-if>
             <button type="button" class="rowbtn" onClick="{{openWrong}}">Replay a wrong-instance request</button></p>
@@ -1430,24 +1516,121 @@ function level(x, env) { if (x == null) return 0; var tg = TARGETS[env]; return 
 /* Namespace quotas per instance, as GET /api/v1/quotas returns them: ResourceQuota status from the watch
    cache (used = sum of pod requests), plus the latest verdict from the daily sweep. usage = live 14-day
    figures cmapi-capacity returns when a change is planned: [now, 7d avg, p95, peak]. */
-var QUOTAS = {
+var HAND_QUOTAS = {
   nonprod: [
-    { ns: "ledger-rnd", cluster: "OCP_GF8", env: "rnd", tier: "small", cpu: [7.4, 8], mem: [13.9, 16], pods: [41, 50], etag: "51c0e9a2b7d4", verdict: "quota-tight", vTone: "bad", vNote: "Requests use 93% of the CPU quota and 87% of memory, and the 14-day CPU peak reached 7.3 of 8 cores. New pods will soon be refused at admission.", rec: { id: "rec-ledger-rnd-0412", tier: "medium", text: "Raise to tier medium (16 cores, 32 Gi): peak plus the rnd buffer of 1.10." }, usage: { cpu: [5.9, 5.2, 6.8, 7.3], mem: [12.1, 11.6, 13.4, 14.0] }, rid: "req-20261103-a7e1" },
-    { ns: "payments-dev", cluster: "OCP_GF15", env: "dev", tier: "medium", cpu: [3.0, 16], mem: [27.5, 32], pods: [30, 100], etag: "e2a91c07f3b5", verdict: "quota-tight · memory", vTone: "warn", vNote: "CPU has plenty of room (19% requested), but memory requests are at 86% of the quota with a 14-day peak of 27 Gi. This namespace is limited by memory, not CPU.", rec: { id: "rec-payments-dev-0388", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. A bigger tier would also double CPU it does not use." }, usage: { cpu: [0.9, 0.8, 1.3, 1.6], mem: [24.1, 23.5, 26.2, 27.0] }, rid: "req-20261103-b204" },
-    { ns: "ledger-dev", cluster: "OCP_GF15", env: "dev", tier: "small", cpu: [1.1, 8], mem: [3.2, 16], pods: [9, 50], etag: "0c7d2e9a14f8", verdict: "idle", vTone: "info", vNote: "CPU p95 under 0.05 cores and memory p95 under 128 MiB for 7 days, rnd's idle period. Lowering the quota returns capacity to the cluster.", rec: null, usage: { cpu: [0.02, 0.03, 0.04, 0.05], mem: [0.09, 0.10, 0.11, 0.12] }, rid: "req-20261103-c91f" }
+    { ns: "ledger-rnd", team: "ledger", app: "core", cluster: "OCP_GF8", env: "rnd", tier: "small", cpu: [7.4, 8], mem: [13.9, 16], pods: [41, 50], etag: "51c0e9a2b7d4", verdict: "quota-tight", vTone: "bad", vNote: "Requests use 93% of the CPU quota and 87% of memory, and the 14-day CPU peak reached 7.3 of 8 cores. New pods will soon be refused at admission.", rec: { id: "rec-ledger-rnd-0412", tier: "medium", text: "Raise to tier medium (16 cores, 32 Gi): peak plus the rnd buffer of 1.10." }, usage: { cpu: [5.9, 5.2, 6.8, 7.3], mem: [12.1, 11.6, 13.4, 14.0] }, rid: "req-20261103-a7e1" },
+    { ns: "payments-dev", team: "payments", app: "api", cluster: "OCP_GF15", env: "dev", tier: "medium", cpu: [3.0, 16], mem: [27.5, 32], pods: [30, 100], etag: "e2a91c07f3b5", verdict: "quota-tight · memory", vTone: "warn", vNote: "CPU has plenty of room (19% requested), but memory requests are at 86% of the quota with a 14-day peak of 27 Gi. This namespace is limited by memory, not CPU.", rec: { id: "rec-payments-dev-0388", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. A bigger tier would also double CPU it does not use." }, usage: { cpu: [0.9, 0.8, 1.3, 1.6], mem: [24.1, 23.5, 26.2, 27.0] }, rid: "req-20261103-b204" },
+    { ns: "ledger-dev", team: "ledger", app: "core", cluster: "OCP_GF15", env: "dev", tier: "small", cpu: [1.1, 8], mem: [3.2, 16], pods: [9, 50], etag: "0c7d2e9a14f8", verdict: "idle", vTone: "info", vNote: "CPU p95 under 0.05 cores and memory p95 under 128 MiB for 7 days, rnd's idle period. Lowering the quota returns capacity to the cluster.", rec: null, usage: { cpu: [0.02, 0.03, 0.04, 0.05], mem: [0.09, 0.10, 0.11, 0.12] }, rid: "req-20261103-c91f" }
   ],
   staging: [
-    { ns: "ledger-qa", cluster: "OCP_GF11", env: "qa", tier: "medium", cpu: [9.8, 16], mem: [21.0, 32], pods: [44, 100], etag: "7b3f0d21c9e4", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the qa thresholds.", rec: null, usage: { cpu: [6.0, 5.5, 7.9, 8.6], mem: [16.3, 15.8, 18.9, 19.6] }, rid: "req-20261103-d3a8" },
-    { ns: "payments-uat", cluster: "OCP_GF13", env: "uat", tier: "large", cpu: [11.0, 32], mem: [30.2, 64], pods: [52, 200], etag: "93e1a5f0b2c6", verdict: "quota-oversized", vTone: "warn", vNote: "The 14-day peak is 5.2 cores and 18.4 Gi, under half of the large tier on both. uat decreases are never auto-approved.", rec: { id: "rec-payments-uat-0201", tier: "medium", text: "Lower to tier medium (16 cores, 32 Gi): still 3× the CPU peak and 1.7× the memory peak." }, usage: { cpu: [3.1, 2.8, 4.6, 5.2], mem: [14.0, 13.1, 17.5, 18.4] }, rid: "req-20261103-e57b" },
-    { ns: "ledger-uat", cluster: "OCP_GF13", env: "uat", tier: "small", cpu: [6.4, 8], mem: [15.1, 16], pods: [27, 50], etag: "4d8c2b6e0a19", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 94% of the quota. The next rollout surge will be refused at admission.", rec: { id: "rec-ledger-uat-0117", cpu: 8, mem: 24, text: "Custom: keep 8 cores, raise memory to 24 Gi." }, usage: { cpu: [3.0, 2.7, 4.1, 4.4], mem: [13.2, 12.9, 14.6, 14.9] }, rid: "req-20261103-f0c2" }
+    { ns: "ledger-qa", team: "ledger", app: "core", cluster: "OCP_GF11", env: "qa", tier: "medium", cpu: [9.8, 16], mem: [21.0, 32], pods: [44, 100], etag: "7b3f0d21c9e4", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the qa thresholds.", rec: null, usage: { cpu: [6.0, 5.5, 7.9, 8.6], mem: [16.3, 15.8, 18.9, 19.6] }, rid: "req-20261103-d3a8" },
+    { ns: "payments-uat", team: "payments", app: "api", cluster: "OCP_GF13", env: "uat", tier: "large", cpu: [11.0, 32], mem: [30.2, 64], pods: [52, 200], etag: "93e1a5f0b2c6", verdict: "quota-oversized", vTone: "warn", vNote: "The 14-day peak is 5.2 cores and 18.4 Gi, under half of the large tier on both. uat decreases are never auto-approved.", rec: { id: "rec-payments-uat-0201", tier: "medium", text: "Lower to tier medium (16 cores, 32 Gi): still 3× the CPU peak and 1.7× the memory peak." }, usage: { cpu: [3.1, 2.8, 4.6, 5.2], mem: [14.0, 13.1, 17.5, 18.4] }, rid: "req-20261103-e57b" },
+    { ns: "ledger-uat", team: "ledger", app: "core", cluster: "OCP_GF13", env: "uat", tier: "small", cpu: [6.4, 8], mem: [15.1, 16], pods: [27, 50], etag: "4d8c2b6e0a19", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 94% of the quota. The next rollout surge will be refused at admission.", rec: { id: "rec-ledger-uat-0117", cpu: 8, mem: 24, text: "Custom: keep 8 cores, raise memory to 24 Gi." }, usage: { cpu: [3.0, 2.7, 4.1, 4.4], mem: [13.2, 12.9, 14.6, 14.9] }, rid: "req-20261103-f0c2" }
   ],
   prod: [
-    { ns: "payments-prod", cluster: "OCP_GF1", env: "prod", tier: "medium", cpu: [14.0, 16], mem: [28.0, 32], pods: [61, 100], etag: "9b2e4f1c8a7d", verdict: "requests-oversized", vTone: "warn", vNote: "Pods request 14 cores but used at most 9.6 over 14 days. Lowering pod requests would free quota without a bigger tier.", rec: null, usage: { cpu: [6.1, 5.4, 8.2, 9.6], mem: [11.8, 10.9, 15.9, 17.2] }, rid: "req-20261103-9c02", lock: { id: "req-20261103-9c02", what: "tier medium → large", approval: "prod-change · 0 of 2" } },
-    { ns: "ledger-prod", cluster: "OCP_GF2", env: "prod", tier: "large", cpu: [18.0, 32], mem: [51.0, 64], pods: [120, 200], etag: "2f6a0c9e7d13", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the prod thresholds.", rec: null, usage: { cpu: [11.2, 10.4, 14.8, 16.1], mem: [38.0, 37.1, 44.2, 46.0] }, rid: "req-20261103-1a4d" },
-    { ns: "payments-batch-prod", cluster: "OCP_GF5", env: "prod", tier: "medium", cpu: [6.0, 16], mem: [30.5, 32], pods: [22, 100], etag: "c4e8b1a07f29", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 95% of the quota and the 14-day peak is 30.1 Gi. CPU is not the problem: 6 of 16 cores requested.", rec: { id: "rec-payments-batch-prod-0093", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. OCP_GF5 is itself memory-bound, so this needs the zone-failure check." }, usage: { cpu: [2.2, 2.0, 3.9, 4.5], mem: [26.8, 25.9, 29.4, 30.1] }, rid: "req-20261103-6b3e" }
+    { ns: "payments-prod", team: "payments", app: "api", cluster: "OCP_GF1", env: "prod", tier: "medium", cpu: [14.0, 16], mem: [28.0, 32], pods: [61, 100], etag: "9b2e4f1c8a7d", verdict: "requests-oversized", vTone: "warn", vNote: "Pods request 14 cores but used at most 9.6 over 14 days. Lowering pod requests would free quota without a bigger tier.", rec: null, usage: { cpu: [6.1, 5.4, 8.2, 9.6], mem: [11.8, 10.9, 15.9, 17.2] }, rid: "req-20261103-9c02", lock: { id: "req-20261103-9c02", what: "tier medium → large", approval: "prod-change · 0 of 2" } },
+    { ns: "ledger-prod", team: "ledger", app: "core", cluster: "OCP_GF2", env: "prod", tier: "large", cpu: [18.0, 32], mem: [51.0, 64], pods: [120, 200], etag: "2f6a0c9e7d13", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the prod thresholds.", rec: null, usage: { cpu: [11.2, 10.4, 14.8, 16.1], mem: [38.0, 37.1, 44.2, 46.0] }, rid: "req-20261103-1a4d" },
+    { ns: "payments-batch-prod", team: "payments", app: "batch", cluster: "OCP_GF5", env: "prod", tier: "medium", cpu: [6.0, 16], mem: [30.5, 32], pods: [22, 100], etag: "c4e8b1a07f29", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 95% of the quota and the 14-day peak is 30.1 Gi. CPU is not the problem: 6 of 16 cores requested.", rec: { id: "rec-payments-batch-prod-0093", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. OCP_GF5 is itself memory-bound, so this needs the zone-failure check." }, usage: { cpu: [2.2, 2.0, 3.9, 4.5], mem: [26.8, 25.9, 29.4, 30.1] }, rid: "req-20261103-6b3e" }
   ]
 };
 var CHANGE_RULE = { rnd: 0, dev: 0, qa: 1, uat: 1, prod: 1 };
+
+/* Mock fleet: hundreds of namespaces per instance, generated deterministically so every load shows the same
+   data. The hand-written rows above keep their exact figures and stories. */
+var GEN_TEAMS = ["accounts", "analytics", "billing", "catalog", "checkout", "claims", "data", "fraud", "gateway", "identity", "inventory", "kyc", "ledger", "loyalty", "marketing", "notifications", "orders", "payments", "pricing", "quotes", "risk", "search", "shipping", "tax", "underwriting", "vendor", "warehouse"];
+var GEN_APPS = ["api", "worker", "batch", "web", "events", "scheduler", "cache", "etl", "reports", "sync", "admin", "edge", "ml", "stream", "notify", "audit"];
+var GEN_PLAN = { nonprod: [["rnd", 180, ["OCP_GF6", "OCP_GF8"]], ["dev", 80, ["OCP_GF15"]]], staging: [["qa", 110, ["OCP_GF11", "OCP_GF12"]], ["uat", 70, ["OCP_GF13"]]], prod: [["prod", 420, ["OCP_GF1", "OCP_GF2", "OCP_GF5"]]] };
+function rng(seed) { return function () { seed = (seed + 0x6D2B79F5) | 0; var x = Math.imul(seed ^ (seed >>> 15), 1 | seed); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; }
+function hex(r, n) { var s = ""; while (s.length < n) s += Math.floor(r() * 16).toString(16); return s; }
+function r1(n) { return Math.round(n * 10) / 10; }
+function genRow(r, env, cluster, team, app, ns) {
+  var tierKey = r() < 0.35 ? "small" : (r() < 0.7 ? "medium" : "large"), tier = TIERS[tierKey];
+  var hot = r(), kind = r(), cf = hot < 0.035 ? 0.92 + r() * 0.07 : (hot < 0.09 ? 0.8 + r() * 0.1 : 0.45 + r() * 0.33);
+  var mf = r() < 0.03 ? 0.9 + r() * 0.08 : Math.min(0.78, cf * (0.85 + r() * 0.25));
+  var idle = kind < 0.02, small = kind >= 0.02 && kind < 0.08, fat = kind >= 0.08 && kind < 0.13;
+  if (small) { cf = 0.3 + r() * 0.15; mf = 0.25 + r() * 0.15; }
+  var cu = r1(tier.cpu * cf), mu = r1(tier.memGi * mf), pu = Math.round(tier.pods * (0.15 + r() * 0.55));
+  var pk = idle ? 0.04 : r1(cu * (small ? 0.4 + r() * 0.3 : (fat ? 0.4 + r() * 0.25 : 0.74 + r() * 0.21))), pm = idle ? 0.1 : r1(mu * (small ? 0.6 + r() * 0.3 : 0.8 + r() * 0.15));
+  var usage = { cpu: [r1(pk * 0.6), r1(pk * 0.55), r1(pk * 0.85), pk], mem: [r1(pm * 0.85), r1(pm * 0.8), r1(pm * 0.93), pm] };
+  var verdict = "right-sized", vTone = "ok", vNote = "Quota, requests and real usage agree within the " + env + " thresholds.", rec = null, id = "rec-" + ns + "-" + hex(r, 4);
+  var up = { small: "medium", medium: "large" }[tierKey], down = { large: "medium", medium: "small" }[tierKey];
+  if (cf >= 0.9 || mf >= 0.9) {
+    var memOnly = mf >= 0.9 && cf < 0.9;
+    verdict = memOnly ? "quota-tight · memory" : "quota-tight"; vTone = "bad";
+    vNote = memOnly ? "Memory requests are at " + Math.round(mf * 100) + "% of the quota while CPU is at " + Math.round(cf * 100) + "%. This namespace is limited by memory." : "Requests use " + Math.round(cf * 100) + "% of the CPU quota and " + Math.round(mf * 100) + "% of memory. New pods will be refused at admission once it is full.";
+    if (r() < 0.6) rec = memOnly ? { id: id, cpu: tier.cpu, mem: tier.memGi + Math.max(8, Math.round(tier.memGi / 16) * 8), text: "Custom: keep " + tier.cpu + " cores, raise memory to " + (tier.memGi + Math.max(8, Math.round(tier.memGi / 16) * 8)) + " Gi." } : (up ? { id: id, tier: up, text: "Raise to tier " + up + " (" + TIERS[up].cpu + " cores, " + TIERS[up].mem + "): peak plus the " + env + " buffer." } : null);
+  } else if (idle) {
+    verdict = "idle"; vTone = "info"; vNote = "CPU p95 under 0.05 cores and memory p95 under 128 MiB for the " + env + " idle period.";
+    if (down) rec = { id: id, tier: "small", text: "Lower to tier small, or delete the namespace if it is no longer used." };
+  } else if (pk < 0.3 * tier.cpu && pm < 0.3 * tier.memGi) {
+    verdict = "quota-oversized"; vTone = "warn"; vNote = "The 14-day peak is " + pk + " cores and " + pm + " Gi, under 30% of the quota on both.";
+    if (down && r() < 0.6) rec = { id: id, tier: down, text: "Lower to tier " + down + " (" + TIERS[down].cpu + " cores, " + TIERS[down].mem + "): still above the peak with the " + env + " buffer." };
+  } else if (cu > 1.4 * pk && cu > 4) {
+    verdict = "requests-oversized"; vTone = "warn"; vNote = "Pods request " + cu + " cores but used at most " + pk + " over 14 days. Lowering pod requests would free quota without changing the tier.";
+  }
+  return { ns: ns, team: team, app: app, cluster: cluster, env: env, tier: tierKey, cpu: [cu, tier.cpu], mem: [mu, tier.memGi], pods: [pu, tier.pods], etag: hex(r, 12), verdict: verdict, vTone: vTone, vNote: vNote, rec: rec, usage: usage, rid: "req-20261103-" + hex(r, 4) };
+}
+var QUOTAS = {};
+Object.keys(GEN_PLAN).forEach(function (inst) {
+  var r = rng({ nonprod: 11, staging: 23, prod: 37 }[inst]), rows = HAND_QUOTAS[inst].slice(), taken = {};
+  rows.forEach(function (x) { taken[x.ns] = true; });
+  GEN_PLAN[inst].forEach(function (plan) {
+    var env = plan[0], combos = [];
+    GEN_TEAMS.forEach(function (tm) { GEN_APPS.forEach(function (ap) { combos.push([tm, ap]); }); });
+    for (var k = combos.length - 1; k > 0; k--) { var j = Math.floor(r() * (k + 1)), tmp = combos[k]; combos[k] = combos[j]; combos[j] = tmp; }
+    var made = 0;
+    for (var c = 0; c < combos.length && made < plan[1]; c++) {
+      var ns = combos[c][0] + "-" + combos[c][1] + "-" + env;
+      if (taken[ns]) continue;
+      taken[ns] = true; made++;
+      rows.push(genRow(r, env, plan[2][Math.floor(r() * plan[2].length)], combos[c][0], combos[c][1], ns));
+    }
+  });
+  QUOTAS[inst] = rows;
+});
+
+/* Shared list engine (cmapi-core paginate + SearchIndex; cmapi-portal-ui PagedTable): the same rules serve
+   GET /api/v1/quotas, /requests and /approvals. Keyset cursor on the sort key; the cursor carries a hash of
+   the filters and sort, so a stale cursor is refused instead of returning a wrong page. */
+function cmpKey(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; }
+function strHash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+function encCursor(o) { return btoa(JSON.stringify(o)); }
+function decCursor(c) { try { return JSON.parse(atob(c)); } catch (e) { return null; } }
+function firstIndex(list, test) { for (var i = 0; i < list.length; i++) if (test(list[i])) return i; return list.length; }
+function listQuery(rows, o) {
+  var sorted = rows.filter(o.filter).sort(function (a, b) { return cmpKey(o.key(a), o.key(b)); });
+  var total = sorted.length, limit = o.limit, start = 0, cur = o.cursor ? decCursor(o.cursor) : null;
+  if (o.cursor && (!cur || cur.h !== o.hash)) return { error: "invalid-cursor", items: [], total: total, from: 0, to: 0, next: null, prev: null, sorted: sorted };
+  if (cur && cur.d === "next") start = firstIndex(sorted, function (x) { return cmpKey(o.key(x), cur.k) > 0; });
+  else if (cur && cur.d === "prev") start = Math.max(0, firstIndex(sorted, function (x) { return cmpKey(o.key(x), cur.k) >= 0; }) - limit);
+  else if (o.at) start = firstIndex(sorted, function (x) { return cmpKey(o.key(x), o.at) >= 0; });
+  else if (o.startsWith) start = firstIndex(sorted, function (x) { return o.name(x).toLowerCase() >= o.startsWith; });
+  if (start >= total && total > 0 && !cur) start = Math.max(0, total - limit);
+  var items = sorted.slice(start, start + limit);
+  return { items: items, total: total, from: items.length ? start + 1 : 0, to: start + items.length, sorted: sorted,
+    next: start + limit < total ? encCursor({ k: o.key(items[items.length - 1]), h: o.hash, d: "next" }) : null,
+    prev: start > 0 && items.length ? encCursor({ k: o.key(items[0]), h: o.hash, d: "prev" }) : null };
+}
+function qkey(x) { return x.cluster + "/" + x.ns; }
+function maxUse(x) { return Math.max(x.cpu[0] / x.cpu[1], x.mem[0] / x.mem[1], x.pods[0] / x.pods[1]); }
+function severity(x) { var u = maxUse(x); if (/^quota-tight/.test(x.verdict) || u >= 0.95) return 3; if (u >= 0.8) return 2; if (x.rec || x.verdict === "idle" || /oversized/.test(x.verdict)) return 1; return 0; }
+var ATTN = [
+  ["quotaTight", "Quota tight", "bad", function (x) { return /^quota-tight/.test(x.verdict); }],
+  ["nearLimit", "Near limit ≥ 80%", "warn", function (x) { return maxUse(x) >= 0.8; }],
+  ["recommendation", "Recommendation", "", function (x) { return !!x.rec; }],
+  ["oversized", "Oversized", "warn", function (x) { return /oversized/.test(x.verdict); }],
+  ["idle", "Idle", "", function (x) { return x.verdict === "idle"; }],
+  ["openRequest", "Open request", "", function (x) { return !!x.lock; }]
+];
+function nameMatch(x, q) { var n = x.ns.toLowerCase(); return n.indexOf(q) === 0 ? 0 : (n.indexOf(q) > 0 ? 1 : (x.team.indexOf(q) === 0 ? 2 : (x.app.indexOf(q) === 0 ? 3 : -1))); }
+function suggest(rows, text) {
+  var q = (text || "").trim().toLowerCase();
+  if (q.length < 2) return [];
+  var why = ["name starts with", "name contains", "team", "app"];
+  return rows.map(function (x) { return { x: x, m: nameMatch(x, q) }; }).filter(function (s) { return s.m >= 0; })
+    .sort(function (a, b) { return a.m - b.m || cmpKey([a.x.ns, a.x.cluster], [b.x.ns, b.x.cluster]); }).slice(0, 10)
+    .map(function (s) { return { x: s.x, why: why[s.m] + (s.m >= 2 ? " " + (s.m === 2 ? s.x.team : s.x.app) : "") }; });
+}
 function fmt(n) { return (Math.round(n * 10) / 10).toString(); }
 function pctBar(used, hard) { var r = hard ? used / hard : 0; return { pct: Math.min(100, Math.round(r * 100)) + "%", bar: r >= 0.95 ? "crit" : (r >= 0.8 ? "warn" : ""), text: fmt(used) + " / " + fmt(hard), r: r }; }
 var PENDING = { nonprod: 0, staging: 1, prod: 1 };
@@ -1507,7 +1690,7 @@ class Component extends DCLogic {
   constructor(props) {
     super(props);
     var inst = (props && props.instance) || "nonprod";
-    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all", qns: null, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false, qfilter: "all" };
+    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all", qns: null, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qsort: "name", qlimit: 50, qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null };
     this._cache = {};
   }
   componentWillUnmount() { if (this._timer) clearInterval(this._timer); }
@@ -1515,7 +1698,7 @@ class Component extends DCLogic {
   stopPlay() { if (this._timer) { clearInterval(this._timer); this._timer = null; } }
   openScn(id, at, reqId) { this.stopPlay(); this.setState({ tab: "workflow", scn: id, i: at || 0, pos: at != null ? { scn: id, i: at, id: reqId } : null, playing: false }); }
   go(i) { var n = this.data(this.state.scn).steps.length; this.setState({ i: Math.max(0, Math.min(i, n - 1)) }); }
-  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "", qns: null, qsize: null, qplan: false, qsent: false }); }
+  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "", qns: null, qsize: null, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null }); }
 
   workflow() {
     var self = this, st = this.state, d = this.data(st.scn), n = d.steps.length, i = Math.min(st.i, n - 1), step = d.steps[i];
@@ -1570,15 +1753,67 @@ class Component extends DCLogic {
 
   quotaView(me) {
     var self = this, st = this.state, all = QUOTAS[st.inst];
-    var cur = all.filter(function (x) { return x.ns === st.qns; })[0] || all[0];
-    var near = function (x) { return x.cpu[0] / x.cpu[1] >= 0.8 || x.mem[0] / x.mem[1] >= 0.8 || x.pods[0] / x.pods[1] >= 0.8; };
-    var filters = [["all", "All"], ["near", "Near limit"], ["flagged", "Flagged by sweep"]].map(function (f) { return { label: f[1], cls: f[0] === st.qfilter ? "on" : "", on: f[0] === st.qfilter ? "true" : "false", pick: function () { self.setState({ qfilter: f[0] }); } }; });
-    var pick = function (x) { self.setState({ qns: x.ns, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false }); };
-    var list = all.filter(function (x) { return st.qfilter === "all" || (st.qfilter === "near" ? near(x) : x.verdict !== "right-sized"); }).map(function (x) {
-      var c = pctBar(x.cpu[0], x.cpu[1]), m = pctBar(x.mem[0], x.mem[1]);
-      return { ns: x.ns, cluster: x.cluster, env: x.env, tier: x.tier, cpuPct: c.pct, cpuBar: c.bar, cpuText: c.text + " cores", memPct: m.pct, memBar: m.bar, memText: m.text + " Gi",
-        pods: x.pods[0] + " / " + x.pods[1], verdict: x.verdict, vTone: x.vTone, cls: x === cur ? "sel" : "", btn: x === cur ? "Selected" : "Manage", pick: function () { pick(x); } };
+    var RESET = { qcursor: null, qstarts: null, qat: null, qexport: false };
+    function set(o) { var x = {}; for (var k in RESET) x[k] = RESET[k]; for (var j in o) x[j] = o[j]; self.setState(x); }
+    var applied = (st.qapplied || "").trim().toLowerCase();
+    var base = function (x) { return (st.qenv === "all" || x.env === st.qenv) && (st.qcluster === "all" || x.cluster === st.qcluster) && (st.qtier === "all" || x.tier === st.qtier) && (!applied || nameMatch(x, applied) >= 0); };
+    var stateTest = st.qstate === "all" ? null : ATTN.filter(function (a) { return a[0] === st.qstate; })[0][3];
+    var scoped = all.filter(base);
+    var KEYS = { name: function (x) { return [x.ns, x.cluster]; }, used: function (x) { return [-Math.round(maxUse(x) * 1000), x.ns, x.cluster]; }, severity: function (x) { return [-severity(x), x.ns, x.cluster]; } };
+    var hash = strHash(JSON.stringify([st.qenv, st.qcluster, st.qtier, st.qstate, applied, st.qsort, st.qlimit]));
+    var page = listQuery(all, { filter: function (x) { return base(x) && (!stateTest || stateTest(x)); }, key: KEYS[st.qsort], hash: hash, limit: st.qlimit, cursor: st.qcursor,
+      startsWith: st.qsort === "name" ? st.qstarts : null, at: st.qat, name: function (x) { return x.ns; } });
+    var cur = all.filter(function (x) { return qkey(x) === st.qns; })[0] || page.items[0] || all[0];
+    var attnCount = scoped.filter(function (x) { return severity(x) > 0; }).length;
+    var qAttn = [{ label: "All", n: String(scoped.length), cls: st.qstate === "all" ? "on" : "", on: st.qstate === "all" ? "true" : "false", pick: function () { set({ qstate: "all" }); } }].concat(ATTN.map(function (a) {
+      var n = scoped.filter(a[3]).length, on = st.qstate === a[0];
+      return { label: a[1], n: String(n), cls: (on ? "on " : "") + a[2], on: on ? "true" : "false", pick: function () { set({ qstate: on ? "all" : a[0] }); } };
+    }));
+    var chip = function (key, val, label) { var on = st[key] === val; return { label: label, cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { var o = {}; o[key] = val; set(o); } }; };
+    var clustersHere = []; all.forEach(function (x) { if (clustersHere.indexOf(x.cluster) < 0) clustersHere.push(x.cluster); }); clustersHere.sort();
+    var qEnvOpts = [chip("qenv", "all", "All")].concat(me.envs.map(function (e) { return chip("qenv", e, e); }));
+    var qClusterOpts = [chip("qcluster", "all", "All")].concat(clustersHere.map(function (c) { return chip("qcluster", c, c); }));
+    var qTierOpts = [chip("qtier", "all", "All"), chip("qtier", "small", "small"), chip("qtier", "medium", "medium"), chip("qtier", "large", "large")];
+    var qSortOpts = [chip("qsort", "name", "Name A–Z"), chip("qsort", "used", "% used"), chip("qsort", "severity", "Needs attention")];
+    var qSizeOpts = [25, 50, 100].map(function (n) { return chip("qlimit", n, String(n)); });
+    var letters = {}; page.sorted.forEach(function (x) { var l = x.ns.charAt(0); letters[l] = (letters[l] || 0) + 1; });
+    var firstOnPage = page.items[0] ? page.items[0].ns.charAt(0) : "";
+    var qAz = "abcdefghijklmnopqrstuvwxyz".split("").map(function (l) {
+      var n = letters[l] || 0;
+      return { t: l, cls: !n ? "off" : (st.qsort === "name" && firstOnPage === l ? "on" : ""), dis: n ? "false" : "true", aria: l.toUpperCase() + ": " + n + " namespace" + (n === 1 ? "" : "s"),
+        pick: function () { if (n) set({ qsort: "name", qstarts: l }); } };
     });
+    var pick = function (x) { self.setState({ qns: qkey(x), qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false }); };
+    var list = page.items.map(function (x) {
+      var c = pctBar(x.cpu[0], x.cpu[1]), m = pctBar(x.mem[0], x.mem[1]), sel = x === cur;
+      return { ns: x.ns, cluster: x.cluster, env: x.env, tier: x.tier, cpuPct: c.pct, cpuBar: c.bar, cpuText: c.text + " cores", memPct: m.pct, memBar: m.bar, memText: m.text + " Gi",
+        pods: x.pods[0] + " / " + x.pods[1], verdict: x.verdict, vTone: x.vTone, cls: sel ? "sel" : "", btn: sel ? "Selected" : "Manage", pick: function () { pick(x); } };
+    });
+    var params = [];
+    if (applied) params.push("q=" + encodeURIComponent(applied));
+    if (st.qenv !== "all") params.push("env=" + st.qenv);
+    if (st.qcluster !== "all") params.push("clusterId=" + st.qcluster);
+    if (st.qtier !== "all") params.push("tier=" + st.qtier);
+    if (st.qstate !== "all") params.push("state=" + st.qstate);
+    if (st.qsort !== "name") params.push("sort=" + st.qsort);
+    var callParams = params.concat(["limit=" + st.qlimit]).concat(st.qcursor ? ["cursor=" + st.qcursor.slice(0, 10) + "…"] : (st.qstarts && st.qsort === "name" ? ["startsWith=" + st.qstarts] : []));
+    var qPage = { range: page.total ? page.from + "–" + page.to + " of " + page.total + (page.total !== all.length ? " (filtered from " + all.length + ")" : "") + " · " + { name: "A–Z", used: "most used first", severity: "most urgent first" }[st.qsort] : "0 namespaces",
+      call: "GET /api/v1/quotas?" + callParams.join("&"),
+      prevCls: page.prev ? "" : "off", prevDis: page.prev ? "false" : "true", nextCls: page.next ? "" : "off", nextDis: page.next ? "false" : "true",
+      prev: function () { if (page.prev) self.setState({ qcursor: page.prev, qstarts: null, qat: null }); }, next: function () { if (page.next) self.setState({ qcursor: page.next, qstarts: null, qat: null }); } };
+    var sugg = st.qsugOpen ? suggest(all, st.qq) : [];
+    var qSug = { text: st.qq, open: st.qsugOpen && st.qq.trim().length >= 2, expanded: st.qsugOpen && st.qq.trim().length >= 2 ? "true" : "false", none: sugg.length === 0,
+      items: sugg.map(function (s) { var x = s.x; return { ns: x.ns, where: x.cluster + " · " + x.env + " · team " + x.team + " · tier " + x.tier, why: s.why,
+        pick: function () { self.setState({ qns: qkey(x), qq: "", qsugOpen: false, qapplied: "", qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qsort: "name", qcursor: null, qstarts: null, qat: [x.ns, x.cluster], qexport: false, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false }); } }; }),
+      onType: function (e) { self.setState({ qq: e.target.value, qsugOpen: true }); },
+      go: function (e) { if (e && e.preventDefault) e.preventDefault(); set({ qapplied: st.qq.trim(), qsugOpen: false }); },
+      applied: !!applied, appliedText: st.qapplied, clear: function () { set({ qapplied: "", qq: "" }); } };
+    var csvHead = "cluster_id,namespace,environment,team,app,tier,cpu_used,cpu_hard,memory_used_gi,memory_hard_gi,pods_used,pods_hard,verdict,recommendation";
+    var qExp = { show: st.qexport, go: function () { self.setState({ qexport: true }); }, close: function () { self.setState({ qexport: false }); },
+      title: "quotas-" + me.label + "-2026-11-03.csv · " + page.total + " rows",
+      text: "GET /api/v1/quotas:export?format=csv" + (params.length ? "&" + params.join("&") : "") + " streams every row matching the current filters, not only this page, in the current sort order. Capped at 10,000 rows and recorded in the audit log.",
+      preview: [csvHead].concat(page.sorted.slice(0, 4).map(function (x) { return [x.cluster, x.ns, x.env, x.team, x.app, x.tier, x.cpu[0], x.cpu[1], x.mem[0], x.mem[1], x.pods[0], x.pods[1], x.verdict, x.rec ? x.rec.id : ""].join(","); })).join("\n") + (page.total > 4 ? "\n… " + (page.total - 4) + " more rows" : "") };
+    var qHead = all.length + " namespaces in scope · " + attnCount + " need attention";
     var rows = [["requests.cpu", x2(cur.cpu), " cores"], ["requests.memory", x2(cur.mem), " Gi"], ["pods", x2(cur.pods), ""]].map(function (r) {
       var b = pctBar(r[1][0], r[1][1]); return { k: r[0], used: fmt(r[1][0]) + r[2], hard: fmt(r[1][1]) + r[2], pct: b.pct, bar: b.bar, pctText: Math.round(b.r * 100) + "%" };
     });
@@ -1587,14 +1822,14 @@ class Component extends DCLogic {
     var detail = { title: cur.ns + " on " + cur.cluster, ns: cur.ns, cluster: cur.cluster, env: cur.env, tier: cur.tier, etag: cur.etag, verdict: cur.verdict, vTone: cur.vTone, vNote: cur.vNote,
       meta: cur.env + " · tier " + cur.tier + " · ResourceQuota namespace-quota · read from the watch cache, current to the second", rows: rows,
       hasRec: !!rec, recId: rec ? rec.id : "", recText: rec ? rec.text : "",
-      useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: cur.ns, qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: cur.ns, qsize: "custom", qcpu: rec.cpu, qmem: rec.mem, qplan: false, qsent: false }); } };
+      useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: qkey(cur), qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: qkey(cur), qsize: "custom", qcpu: rec.cpu, qmem: rec.mem, qplan: false, qsent: false }); } };
 
     var size = st.qsize || cur.tier;
     var newC = size === "custom" ? (st.qcpu != null ? st.qcpu : cur.cpu[1]) : TIERS[size].cpu;
     var newM = size === "custom" ? (st.qmem != null ? st.qmem : cur.mem[1]) : TIERS[size].memGi;
     var sizes = ["small", "medium", "large", "custom"].map(function (k) {
       var sub = k === "custom" ? "set cpu and memory" : TIERS[k].cpu + " cores · " + TIERS[k].mem + (k === cur.tier ? " · current" : "");
-      return { label: k, sub: sub, cls: k === size ? "on" : "", on: k === size ? "true" : "false", pick: function () { self.setState({ qns: cur.ns, qsize: k, qplan: false, qsent: false, qcpu: k === "custom" ? cur.cpu[1] : null, qmem: k === "custom" ? cur.mem[1] : null }); } };
+      return { label: k, sub: sub, cls: k === size ? "on" : "", on: k === size ? "true" : "false", pick: function () { self.setState({ qns: qkey(cur), qsize: k, qplan: false, qsent: false, qcpu: k === "custom" ? cur.cpu[1] : null, qmem: k === "custom" ? cur.mem[1] : null }); } };
     });
     var same = newC === cur.cpu[1] && newM === cur.mem[1];
     var dC = newC - cur.cpu[1], dM = newM - cur.mem[1];
@@ -1634,15 +1869,15 @@ class Component extends DCLogic {
     var change = { locked: !!lock, open: !lock, lockTitle: lock ? "Change in progress: " + lock.id : "", lockText: lock ? lock.what + " is waiting on approval (" + lock.approval + "). cmapi holds one open request per namespace, so another change is refused with 409 conflict until this one closes." : "",
       openLock: function () { if (lock) self.openScn("quota-change", stepIndex("quota-change", REQUESTS.prod[0].at), lock.id); },
       sizes: sizes, custom: size === "custom", cpu: String(newC), mem: String(newM),
-      onCpu: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: cur.ns, qcpu: isNaN(v) ? cur.cpu[1] : v, qplan: false, qsent: false }); },
-      onMem: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: cur.ns, qmem: isNaN(v) ? cur.mem[1] : v, qplan: false, qsent: false }); },
+      onCpu: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: qkey(cur), qcpu: isNaN(v) ? cur.cpu[1] : v, qplan: false, qsent: false }); },
+      onMem: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: qkey(cur), qmem: isNaN(v) ? cur.mem[1] : v, qplan: false, qsent: false }); },
       nothing: (st.qplan || st.qsent) && same, planned: st.qplan && !same, sent: st.qsent && !same,
       usage: [["cpu (cores)", u.cpu, cur.cpu[1], newC, rC], ["memory (Gi)", u.mem, cur.mem[1], newM, rM]].map(function (r) { return { k: r[0], now: fmt(r[1][0]), avg: fmt(r[1][1]), p95: fmt(r[1][2]), peak: fmt(r[1][3]), quota: fmt(r[2]) + " → " + fmt(r[3]), ratio: fmt(r[4]) + "×" }; }),
       checks: checks, apprTone: appr.tone, apprTitle: appr.title, apprDetail: appr.detail,
       sentTone: fits ? "ok" : "bad", sentTitle: fits ? "202 Accepted · " + cur.rid : "422 capacity-exceeded · nothing written",
       sentText: fits ? (need === 0 ? "The request is validated and the worker opens the pull request; it merges when CI passes and Argo CD re-stamps the quota on " + cur.cluster + "." : "The worker opens the pull request and waits for " + need + " approval" + (need > 1 ? "s" : "") + ".") : "No request was stored and no pull request was opened.",
       sentBody: body };
-    return { list: list, filters: filters, detail: detail, change: change };
+    return { list: list, detail: detail, change: change, qAttn: qAttn, qEnvOpts: qEnvOpts, qClusterOpts: qClusterOpts, qTierOpts: qTierOpts, qSortOpts: qSortOpts, qSizeOpts: qSizeOpts, qAz: qAz, qPage: qPage, qSug: qSug, qExp: qExp, qHead: qHead };
   }
 
   renderVals() {
@@ -1683,12 +1918,21 @@ class Component extends DCLogic {
       { s: autoOk ? "pass" : "warn", mark: autoOk ? MARK.pass : MARK.warn, l: "Approval", n: appr.rule }
     ] };
 
-    var requests = REQUESTS[st.inst].filter(function (x) { return st.filter === "all" || (st.filter === "open" ? x.open : !x.open); }).map(function (x) {
+    var rText = (st.rq || "").trim().toLowerCase();
+    var rHash = strHash(JSON.stringify([st.filter, rText]));
+    var rAll = REQUESTS[st.inst].map(function (x, n) { x._n = n; return x; });
+    var rPage = listQuery(rAll, { filter: function (x) { return (st.filter === "all" || (st.filter === "open" ? x.open : !x.open)) && (!rText || (x.id + " " + x.ns + " " + x.cluster).toLowerCase().indexOf(rText) >= 0); },
+      key: function (x) { return [x._n, x.id]; }, hash: rHash, limit: 25, cursor: st.rcursor, name: function (x) { return x.id; } });
+    var requests = rPage.items.map(function (x) {
       var at = stepIndex(x.scn, x.at), total = self.data(x.scn).steps.length;
       return { id: x.id, cluster: x.cluster, ns: x.ns, action: x.action, status: x.status, tone: x.tone, approval: x.approval, pr: x.pr, when: x.when,
         where: x.at, whereN: "step " + (at + 1) + " of " + total, open: function () { self.openScn(x.scn, at, x.id); } };
     });
-    var reqFilters = [["all", "All"], ["open", "Open"], ["done", "Closed"]].map(function (f) { return { label: f[1], cls: f[0] === st.filter ? "on" : "", on: f[0] === st.filter ? "true" : "false", pick: function () { self.setState({ filter: f[0] }); } }; });
+    var reqList = { text: st.rq, onType: function (e) { self.setState({ rq: e.target.value, rcursor: null }); },
+      range: rPage.total ? rPage.from + "–" + rPage.to + " of " + rPage.total + " · newest first" : "0 requests",
+      prevCls: rPage.prev ? "" : "off", prevDis: rPage.prev ? "false" : "true", nextCls: rPage.next ? "" : "off", nextDis: rPage.next ? "false" : "true",
+      prev: function () { if (rPage.prev) self.setState({ rcursor: rPage.prev }); }, next: function () { if (rPage.next) self.setState({ rcursor: rPage.next }); } };
+    var reqFilters = [["all", "All"], ["open", "Open"], ["done", "Closed"]].map(function (f) { return { label: f[1], cls: f[0] === st.filter ? "on" : "", on: f[0] === st.filter ? "true" : "false", pick: function () { self.setState({ filter: f[0], rcursor: null }); } }; });
 
     var capData = CAPACITY[st.inst];
     var BARCLS = ["", "warn", "crit"];
@@ -1730,7 +1974,7 @@ class Component extends DCLogic {
       onName: function (e) { self.setState({ name: e.target.value }); },
       nsDry: function () { self.setState({ dry: true }); },
       nsSubmit: function (e) { if (e && e.preventDefault) e.preventDefault(); self.openScn({ nonprod: "rnd-create", staging: "qa-create", prod: "prod-create" }[st.inst]); },
-      requests: requests, reqFilters: reqFilters, noRequests: requests.length === 0,
+      requests: requests, reqFilters: reqFilters, reqList: reqList, noRequests: requests.length === 0,
       openReject: function () { self.openScn("policy-reject"); },
       openWrong: function () { self.openScn("wrong-" + st.inst); },
       showReject: st.inst === "prod",
@@ -1738,7 +1982,8 @@ class Component extends DCLogic {
       openQuota: function () { self.openScn("quota-change", stepIndex("quota-change", prodQ.at), prodQ.id); },
       openQa: function () { self.openScn("qa-create", stepIndex("qa-create", stagQ.at), stagQ.id); },
       groups: capData.groups, clusters: clusters, capFoot: capFoot,
-      isQuotas: tab === "quotas", quotas: quotaView.list, noQuotas: quotaView.list.length === 0, qFilters: quotaView.filters, qd: quotaView.detail, qc: quotaView.change,
+      isQuotas: tab === "quotas", quotas: quotaView.list, noQuotas: quotaView.list.length === 0, qd: quotaView.detail, qc: quotaView.change,
+      qAttn: quotaView.qAttn, qEnvOpts: quotaView.qEnvOpts, qClusterOpts: quotaView.qClusterOpts, qTierOpts: quotaView.qTierOpts, qSortOpts: quotaView.qSortOpts, qSizeOpts: quotaView.qSizeOpts, qAz: quotaView.qAz, qPage: quotaView.qPage, qSug: quotaView.qSug, qExp: quotaView.qExp, qHead: quotaView.qHead,
       qPlan: function () { self.setState({ qplan: true, qsent: false }); },
       qSubmit: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ qplan: true, qsent: true }); },
       isKpis: tab === "kpis", kpis: KPIS[st.inst], dashboards: DASHBOARDS

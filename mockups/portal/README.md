@@ -13,7 +13,10 @@ What it shows, per instance (nonprod, staging, prod; switched with the `instance
 - **New namespace:** schema-driven form limited to the instance's allowedEnvironments, with
   placement and plan preview.
 - **Quotas:** every namespace's ResourceQuota (requests.cpu, requests.memory, pods; used
-  vs hard) with its usage verdict and any recommendation. Pick one to plan a tier or custom
+  vs hard) with its usage verdict and any recommendation, for a few hundred generated namespaces
+  per instance: A to Z, 25/50/100 per page with previous/next, a letter bar, type-ahead search
+  (name prefix, then contains, then team or app), env/cluster/tier filters, sort by name, % used
+  or attention, attention counts as one-click filters, and CSV export. Pick one to plan a tier or custom
   change: live 14-day usage, CPU and memory checks against the cluster (zone-failure in prod),
   the approval that will apply, and the 202 or 422 that submitting returns.
 - **Requests:** drill-down that opens the workflow at the request's current step.
