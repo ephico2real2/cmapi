@@ -7,7 +7,8 @@ came from. Where two documents show the same file, the copy in
 
 | Path | What it is | Origin |
 | --- | --- | --- |
-| `config/instance.yaml` | One instance's identity: name, allowedEnvironments, URLs, Keycloak audience, Git repository, directory of the other instances | Verbatim |
+| `config/instance.yaml` | One instance's identity: name, allowedEnvironments, URLs, Keycloak audience, requester identity and DirectoryProvider settings, Git repository, directory of the other instances | Updated |
+| `config/tiers.yaml` | ResourceQuota and LimitRange values per tier, written out by the raw manifest renderer (replaces namespace-configuration-operator's quota and LimitRange configs) | New; values are proposals |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
 | `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |
 | `config/authz-scopes.yaml` | Role-to-scope bindings (shape reference) | Verbatim |
@@ -18,9 +19,10 @@ came from. Where two documents show the same file, the copy in
 | `cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml` | Kyverno ValidatingPolicy: prod namespaces never carry expiry metadata | Starter: check the apiVersion against your Kyverno release |
 | `config/integrations.yaml` | Optional SyncSignal, OperationsEngine and EventPublisher | Verbatim |
 | `config/operations/cluster-onboard.yaml` | Operation template run by the built-in engine or Argo Workflows | Verbatim |
-| `cmapi-sso/realm/ephico2real.yaml` | Keycloak realm as code (keycloak-config-cli) | Verbatim |
-| `cluster-configs/policies/metadata-keys.yaml` | Governed, team and sensitive metadata keys | Verbatim |
-| `cluster-configs/clusters/OCP_GF15/...` | A rendered dev project-meta file with optional expiry | Updated |
+| `cmapi-sso/realm/ephico2real.yaml` | Keycloak realm as code (keycloak-config-cli), with the employee ID and middle-name mappers, User Profile declarations and the cmapi-identity client scope | Updated: check key names against your keycloak-config-cli release |
+| `cluster-configs/policies/metadata-keys.yaml` | Governed, team and sensitive metadata keys (cmapi.net/team-dl required; cmapi.net/owner retired) | Updated |
+| `cluster-configs/clusters/OCP_GF15/namespaces/payments-dev/` | One namespace as cmapi writes it: namespace.yaml, resourcequota.yaml, limitrange.yaml, serviceaccounts.yaml, rolebindings.yaml, token-issuer-rolebinding.yaml (plain manifests, dev, optional expiry) | New |
+| `cluster-configs/clusters/OCP_GF15/argocd/root-application.yaml` | The cluster's root Application: syncs every namespace folder with directory recurse | New; set repoURL and the AppProject |
 | `cluster-configs/clusters/OCP_GF1/bootstrap/notifications.yaml` | Argo CD Notifications with a per-cluster token and cluster ID | Updated |
 | `baseline/cmapi-reader-rbac.yaml` | The read-only cmapi-reader ServiceAccount the baseline process applies to every cluster, now with Kyverno policy reports | Updated |
 | `hub/cmapi-imports-secret.yaml` | The import contract: one Secret per cluster in cmapi-imports | Verbatim |
@@ -35,5 +37,7 @@ Notes:
 - Each instance's files hold only its own allowedEnvironments: nonprod rnd and dev, staging qa
   and uat, prod prod. The files under `config/` that list every environment are references;
   deploy the ones under `instances/`.
+- cmapi writes plain Kubernetes manifests, one folder per namespace; nothing on the cluster expands them.
+  Who asked comes from the token; employee ID and names stay in cmapi's database, never in these files.
 - Approvals are recorded in cmapi (`POST /requests/{id}:approve`); nothing in these files relies on
   Git reviews or approval labels.

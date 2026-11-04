@@ -21,3 +21,38 @@ clients:
     optionalClientScopes: [offline_access]
     attributes:
       oauth2.device.authorization.grant.enabled: "true"
+
+# Identity additions (docs/02-technical-design-v2.md, "Identity claims")
+components:
+  org.keycloak.storage.ldap.mappers.LDAPStorageMapper:   # under the LDAP provider
+    - name: employee-id
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [employeeNumber]       # employeeID in Active Directory
+        user.model.attribute: [employeeId]
+        read.only: ["true"]
+        always.read.value.from.ldap: ["true"]
+    - name: middle-name
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [middleName]
+        user.model.attribute: [middleName]
+        read.only: ["true"]
+userProfile:                                    # declared, or Keycloak 24+ drops them
+  attributes:
+    - name: employeeId
+      permissions: {view: [admin], edit: []}
+    - name: middleName
+      permissions: {view: [admin, user], edit: []}
+clientScopes:
+  - name: cmapi-identity
+    protocol: openid-connect
+    protocolMappers:
+      - name: employee_id
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: employeeId, claim.name: employee_id, access.token.claim: "true", id.token.claim: "false", jsonType.label: String}
+      - name: middle_name
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: middleName, claim.name: middle_name, access.token.claim: "true", id.token.claim: "true", jsonType.label: String}
+# each instance client (cmapi-nonprod, cmapi-staging, cmapi-prod) lists cmapi-identity in defaultClientScopes;
+# the directory's admin client cmapi-directory holds realm-management view-users and query-users only

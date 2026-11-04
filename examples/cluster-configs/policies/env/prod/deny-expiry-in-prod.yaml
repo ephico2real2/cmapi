@@ -1,8 +1,8 @@
 # Source: docs/01-design-and-architecture.md, "Namespace expiration"
 # cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml
 # Synced only to prod clusters (their root Application includes policies/env/prod) and run by CI
-# against the expanded Namespace manifests of every clusters/<prod cluster>/ folder (after kustomize
-# build), so a hand edit cannot add expiry metadata either.
+# against every clusters/<prod cluster>/namespaces/*/namespace.yaml (plain manifests, nothing to
+# expand), so a hand edit cannot add expiry metadata either.
 # Kyverno CEL policy; apiVersion policies.kyverno.io/v1alpha1 on Kyverno releases before v1.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy

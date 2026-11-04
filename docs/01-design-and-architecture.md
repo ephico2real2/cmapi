@@ -135,7 +135,8 @@ Each layer only calls the one below it through a published interface: clients th
 | Interface | Default | Alternatives | Chosen in |
 | --- | --- | --- | --- |
 | Authenticator | OIDC against the Keycloak realm | Any OIDC issuer | instance.yaml auth |
-| Renderer | project-meta.yml | Raw manifests, Kustomize overlay | plugins.yaml, per plugin |
+| DirectoryProvider | Keycloak admin API (users, read-only) | Direct LDAP read, Microsoft Graph | instance.yaml identity |
+| Renderer | Raw Kubernetes manifests, one folder per namespace | project-meta.yml, Kustomize overlay | plugins.yaml, per plugin |
 | GitProvider | GitHub REST | GitLab REST, GitPython clone over HTTPS or SSH | instance.yaml git |
 | Validator | Kyverno CLI + kubeconform | conftest (OPA) | policy-bundle.yaml |
 | CapacityBackend | remote (cmapi-capacity) | embedded | capacity.yaml mode |
@@ -236,11 +237,67 @@ Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the
 
 **Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by platform-leads and need two of them.
 
+**What cmapi writes to Git.** Plain Kubernetes manifests, one folder per namespace inside the cluster's folder. No project-meta file, CRD or operator turns them into objects: what a reviewer sees in the PR diff is exactly what Argo CD applies, and Kyverno, kubeconform and the plan hash all run on those same files. The raw manifest renderer is the default; project-meta and Kustomize stay available behind the Renderer extension point.
+
+```
+cluster-configs-nonprod/
+└── clusters/
+    └── OCP_GF15/                          # gitopsPath from the cluster registry
+        ├── argocd/root-application.yaml   # bootstrap; not written by cmapi
+        └── namespaces/
+            └── payments-dev/
+                ├── namespace.yaml
+                ├── resourcequota.yaml
+                ├── limitrange.yaml
+                ├── serviceaccounts.yaml            # when the namespace has SAs
+                ├── rolebindings.yaml               # SA grants and SCC grants
+                └── token-issuer-rolebinding.yaml   # lets cmapi issue SA tokens here
+```
+
+- **One file per kind.** Keys are sorted with system labels first, so a quota change is a small diff to one file. An SCC grant is a RoleBinding to the ClusterRole system:openshift:scc:\<name>; cmapi never creates an SCC.
+- **Tiers live in cmapi.** config/tiers.yaml holds the ResourceQuota and LimitRange values per tier and environment, and the renderer writes them out, so the diff shows real numbers; a custom tier writes the approved values. Changing a tier definition changes no namespace by itself: the tiers:rerender operation opens one request per affected namespace, in batches, through the normal approval rules.
+- **Metadata on every object.** Labels cmapi.net/cluster-id and cmapi.net/managed; annotations cmapi.net/request-id and cmapi.net/instance. The Namespace also carries cmapi.net/env, cmapi.net/tier, cmapi.net/team, cmapi.net/requested-by-user, cmapi.net/team-dl, cmapi.net/requested-by, the optional expiry keys (never in prod) and argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true.
+- **Argo CD.** Each cluster's root Application syncs clusters/\<clusterId>/namespaces with directory recurse. Removing a folder makes Argo CD prune its objects, and Prune=confirm holds the Namespace until an operator confirms. One Application per namespace from an ApplicationSet was considered and not used: when a folder disappears, the ApplicationSet deletes that Application and by default its resources with it, which bypasses Prune=confirm.
+- **namespace-configuration-operator.** Its quota and LimitRange NamespaceConfigs are retired, and cmapi owns ResourceQuota and LimitRange for every namespace. Order: adopt existing namespaces first (adoption writes their live quota and LimitRange into their folders), then remove those NamespaceConfigs, after confirming whether the operator deletes the objects it stamped when a NamespaceConfig is removed.
+
+```yaml
+# clusters/OCP_GF15/namespaces/payments-dev/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/env: dev
+    cmapi.net/expiry: managed            # non-prod only, when an expiry was asked for
+    cmapi.net/managed: "true"
+    cmapi.net/requested-by-user: ola     # preferred_username from the token
+    cmapi.net/tier: medium
+    cmapi.net/cost-center: cc-4410       # governed
+    cmapi.net/team: payments
+    app.ephico2real.com/component: api   # team
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true
+    cmapi.net/expires-at: "2026-12-15"
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+    cmapi.net/requested-by: ola@ephico2real.com   # email from the token
+    cmapi.net/team-dl: payments-team@ephico2real.com
+```
+
 ## Identity and access
 
 Keycloak is the only identity provider cmapi trusts. Roles in the token decide what a caller may do; scope bindings in Git decide where. cmapi stores no passwords, mints no tokens and never asks a cluster about a person.
 
 **Keycloak.** Red Hat build of Keycloak on the hub, namespace cmapi-sso, realm ephico2real, issuer https://sso.ephico2real.com/realms/ephico2real. One read-only LDAP provider. Only groups named cmapi-\* are imported, under /cmapi, and each carries its client-role mapping. Adding a person to an LDAP group is the whole onboarding step.
+
+**Requester identity.** Who asked is read from the validated token, never from the request body. preferred\_username becomes the label cmapi.net/requested-by-user and email the annotation cmapi.net/requested-by; given\_name, middle\_name, family\_name and the employee\_id claim are stored with the request in the database. These are system keys: a request that sets them is refused (422 reserved\_key). Employee ID and names never reach Git or the cluster, because the repository and namespace metadata are readable by many people; the username already identifies the person, and the directory maps a username to an employee ID when a report needs one. A token without employee\_id is refused with 422 identity-incomplete.
+
+**Claims in Keycloak.** Three settings put the extra claims in the token: LDAP user-attribute mappers (read-only) for employeeNumber (employeeID in Active Directory) and the middle-name attribute; the same attributes declared under Realm settings, User Profile, since Keycloak 24 and later ignores attributes the profile does not declare; and a client scope cmapi-identity whose user-attribute mappers add employee\_id and middle\_name to the access token, assigned to every instance's client.
+
+**Directory.** The DirectoryProvider extension point looks people up. Its first implementation, keycloak, calls the admin API with a read-only client (realm-management roles view-users and query-users), caches results for 15 minutes and keeps serving the cached copy when Keycloak is unreachable. It serves three things. Service callers (the ServiceNow relay, CI) must send onBehalfOf with a username or employee ID; cmapi resolves it to an enabled person and records both the service client and the person, or answers 422 unknown-user. The portal's people picker uses GET /api/v1/directory/users?q=, which returns name, username and email, and employee ID only to cmapi-operator and above. GET /api/v1/me returns the caller's own identity.
+
+**Team DL.** Every namespace names its team's distribution list in the required annotation cmapi.net/team-dl (an email address, so it cannot be a label). It replaces the individual owner email; cmapi.net/owner is retired. cmapi checks the format only, an address at ephico2real.com (422 invalid-team-dl otherwise). It does not look the DL up or check membership: DLs are not reliably present in Keycloak, and a person can belong to many. Expiry notices, approval requests and rightsizing recommendations go to the DL.
 
 | Client | Flow | Used by |
 | --- | --- | --- |
@@ -451,7 +508,7 @@ An auto-approved request is approved at plan time by approver auto:\<policy>, sk
 
 Expiration is optional, and prod never has it. A namespace in rnd, dev, qa or uat may be created with an expiry date or without one; a prod namespace can never carry expiration metadata.
 
-- **Where it lives.** The renderer writes the annotation cmapi.net/expires-at (a date) and the label cmapi.net/expiry=managed into the project-meta file; both are system keys nobody sets by hand. cleanup.kyverno.io/ttl is not used: a Kyverno delete would leave the folder in Git, and Argo CD would recreate the namespace.
+- **Where it lives.** The renderer writes the annotation cmapi.net/expires-at (a date) and the label cmapi.net/expiry=managed onto the Namespace manifest (namespace.yaml); both are system keys nobody sets by hand. cleanup.kyverno.io/ttl is not used: a Kyverno delete would leave the folder in Git, and Argo CD would recreate the namespace.
 - **Never in prod.** A prod request with any expiry field gets 422 expiration-not-allowed, the renderer never writes the keys for prod, and the Kyverno ValidatingPolicy deny-expiry-in-prod refuses them in CI and at admission, so a hand edit cannot add them either.
 - **Limits.** Set per environment in config/expiration.yaml. An extension within the limits follows the environment's change rule; going past them, or making a namespace permanent, adds platform-leads.
 
@@ -465,7 +522,7 @@ Expiration is optional, and prod never has it. A namespace in rnd, dev, qa or ua
 | Grace after the date | 7 days | 7 days | — |
 
 - **API.** GET /api/v1/clusters/{clusterId}/namespaces/{ns}/expiration; POST …/expiration:extend {days or until, justification}; POST …/expiration:set (give a permanent non-prod namespace a date); POST …/expiration:makePermanent; GET /api/v1/expirations?state=expiring|grace|pending\_delete|active|permanent&within=14d&env=&team= (paged and searched like quotas). Every write is a normal request: plan, approval, bot PR. The portal's Expiration tab is built on these calls.
-- **The daily expire\_check.** The worker notifies the owner and the team through the Notifier at 14, 7 and 1 days. On the date the namespace enters grace: it keeps running, can still be extended, and is flagged on the Expiration tab. After grace, cmapi opens a delete request approved by the expired-namespace policy, whose guards are no open request on the namespace, not protected, no extension in the last 24 hours, and at least two notices sent. The delete thresholds (age, pods, PVCs) and namespace patterns do not apply to an expiry delete: these guards and the operator's prune confirmation stand in for them. The bot PR removes the folder and Argo CD waits for an operator to confirm the prune (awaiting\_prune), so data and PVCs are never removed by a timer alone.
+- **The daily expire\_check.** The worker notifies the team DL (cmapi.net/team-dl) through the Notifier at 14, 7 and 1 days. On the date the namespace enters grace: it keeps running, can still be extended, and is flagged on the Expiration tab. After grace, cmapi opens a delete request approved by the expired-namespace policy, whose guards are no open request on the namespace, not protected, no extension in the last 24 hours, and at least two notices sent. The delete thresholds (age, pods, PVCs) and namespace patterns do not apply to an expiry delete: these guards and the operator's prune confirmation stand in for them. The bot PR removes the folder and Argo CD waits for an operator to confirm the prune (awaiting\_prune), so data and PVCs are never removed by a timer alone.
 - **Deletes in general.** Namespaces are rendered with the Argo CD sync option Prune=confirm, so every namespace delete, by request or by expiry, waits for an operator. CI refuses a PR that removes more than one namespace folder, or any folder without a matching approved delete request.
 
 ## Policy reports (Kyverno)
@@ -756,14 +813,16 @@ One PostgreSQL, two schemas, each owned by one service: cmapi (API and worker) o
 
 Indexes that carry correctness: one open request per namespace (partial unique index on cluster and namespace), idempotency per caller, and active reservations per cluster. Namespace usage samples are never stored.
 
+change\_requests keeps the requester's identity as the token showed it at submit time: username, email, first, middle and last name, employee ID, and the service client when a service submitted on someone's behalf. These columns stay in the database and the audit trail; they are never rendered into Git.
+
 In embedded mode the worker writes the capacity schema; the one-writer rule still holds. The outbox table exists only when an event publisher is on. Field-level schemas are in the [v2 design](02-technical-design-v2.md).
 
 ## Delivery plan
 
 Five phases to launch and one after it. Each phase ends in something a team can use, and none starts until the previous exit check passes. This sequence replaces the one in v2.
 
-1. **Core, identity and reads.** App factory and plugin discovery; instance configuration with allowedEnvironments, deployed first as the nonprod instance; the documentation layer (core/docs.py) with /docs, /redoc and the spec lint, snapshot and oasdiff gates in CI; Keycloak realm as code, LDAP federation, token verification, roles and scope bindings; cluster import from cmapi-imports with the six checks; clusters.yaml policy and metadata with selectors; problem errors, metrics and logs; ServiceMonitors, the PrometheusRule and the Service health, System resources, Access and Fleet dependencies dashboards (Perses); self-reported system metrics (cmapi.core.kpi) and GET /api/v1/admin/kpi. Read plugins: namespaces, rbac-read, identity-read, sync. *Exit:* every read endpoint live on two clusters, imported with no manual step.
-2. **First write path and approvals.** Pipeline, idempotency and lock; Kyverno bundle at plan, CI and admission; project-meta renderer; Git provider; status worker with polling (Notifications where a cluster opts in); the request state table with :retry and :revert; approval of record (:approve, :reject) with the portal and email channels; bot PRs merged on CI with the cmapi check and the plan hash; approval rules, and auto-approval with its three switches and guards (switched on in Phase 3, once placement gives it fresh capacity data); namespaces and metadata writes; the Change flow and Approvals dashboards with the KPI recording rules. *Exit:* an rnd namespace goes from POST to synced with one approval in the portal and no manual Git step, and a PR edited after approval is refused by the cmapi check.
+1. **Core, identity and reads.** App factory and plugin discovery; instance configuration with allowedEnvironments, deployed first as the nonprod instance; the documentation layer (core/docs.py) with /docs, /redoc and the spec lint, snapshot and oasdiff gates in CI; Keycloak realm as code, LDAP federation with the employee ID and middle-name mappers and the cmapi-identity client scope, token verification, the directory module (DirectoryProvider, keycloak), roles and scope bindings; cluster import from cmapi-imports with the six checks; clusters.yaml policy and metadata with selectors; problem errors, metrics and logs; ServiceMonitors, the PrometheusRule and the Service health, System resources, Access and Fleet dependencies dashboards (Perses); self-reported system metrics (cmapi.core.kpi) and GET /api/v1/admin/kpi. Read plugins: namespaces, rbac-read, identity-read, sync. *Exit:* every read endpoint live on two clusters, imported with no manual step.
+2. **First write path and approvals.** Pipeline, idempotency and lock; Kyverno bundle at plan, CI and admission; raw manifest renderer with config/tiers.yaml; Git provider; status worker with polling (Notifications where a cluster opts in); the request state table with :retry and :revert; approval of record (:approve, :reject) with the portal and email channels; bot PRs merged on CI with the cmapi check and the plan hash; approval rules, and auto-approval with its three switches and guards (switched on in Phase 3, once placement gives it fresh capacity data); namespaces and metadata writes; the Change flow and Approvals dashboards with the KPI recording rules. *Exit:* an rnd namespace goes from POST to synced with one approval in the portal and no manual Git step, and a PR edited after approval is refused by the cmapi check.
 3. **Capacity and placement.** cmapi-capacity in remote mode with snapshots every capacity.snapshotInterval; cluster and fleet capacity endpoints through the gateway; placement with reservations and zone-failure headroom; quotas and limitranges planners; live 14-day namespace usage for quota changes; the Capacity and placement dashboard. *Exit:* a prod create is placed from stored snapshots with no Thanos call, a medium rnd namespace is auto-approved end to end, and an oversized quota increase is flagged and routed to platform approval.
 4. **Service account access.** serviceaccounts, sa-grants and scc-grants with allowlists; sa-tokens. *Exit:* a team SA with a namespace edit grant and the anyuid SCC created through the API, audited end to end.
 5. **Lifecycle and launch.** Adoption; optional expiration (never in prod) with extend, set, make permanent, notices, grace and expired-namespace deletes, and the Expiration tab; deletes with extra approvals, Prune=confirm and operator confirmation; the Policies tab from Kyverno policy reports; daily usage sweep and verdicts with a 30-day shadow period, and the Namespace efficiency dashboard; reports, notifier, operations engine (built-in by default) with cluster-onboard and rebuild-verify; portal integration, generated CLI, runbooks, alerts, database backups with a tested restore; the staging and prod instances stood up from the same chart. *Exit:* every KPI in the KPI table reported from its dashboard and the monthly export for one month; v1 contract frozen.
@@ -793,6 +852,8 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | Expiration optional; never in prod | A TTL on every namespace | Production namespaces must not carry anything that could remove them on a date |
 | Namespace deletes wait for an operator to confirm the prune | Argo CD prunes on merge | A bad commit or renderer bug cannot remove namespaces and their data |
 | dev small and medium creates auto-approved, like rnd | A person approves every dev create | dev and rnd carry the same risk |
+| cmapi writes plain Kubernetes manifests, one folder per namespace; tiers in config/tiers.yaml; namespace-configuration-operator's quota and LimitRange configs retired | project-meta.yml expanded on the cluster by an operator | No extra renderer or CRD to maintain; the PR diff, CI checks and plan hash cover exactly what Argo CD applies |
+| Requester identity from the token; employee ID and names in the database only; required team DL, format-checked | Individual owner email in the request body; employee ID on the namespace; DL lookup in the directory | Callers cannot misstate who asked; personal data stays out of Git; DLs are not reliably in Keycloak |
 
 **Open questions.**
 

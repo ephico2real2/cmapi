@@ -1,0 +1,20 @@
+# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# clusters/OCP_GF15/namespaces/payments-dev/resourcequota.yaml
+# Values written out from config/tiers.yaml (dev, medium); a custom tier writes the approved values.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: payments-dev-quota
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: "true"
+    cmapi.net/tier: medium
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    pods: "100"

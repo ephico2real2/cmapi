@@ -1,0 +1,21 @@
+# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# clusters/OCP_GF15/namespaces/payments-dev/limitrange.yaml
+# Tier defaults from config/tiers.yaml (dev, medium).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: payments-dev-limits
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: "true"
+    cmapi.net/tier: medium
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+spec:
+  limits:
+  - type: Container
+    defaultRequest: {cpu: 100m, memory: 256Mi}
+    default: {cpu: 500m, memory: 512Mi}
+    max: {cpu: "4", memory: 8Gi}

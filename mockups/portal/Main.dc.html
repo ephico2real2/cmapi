@@ -466,12 +466,13 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
               <div class="seg" role="group" aria-label="Tier">
                 <sc-for list="{{tierOpts}}" as="o" hint-placeholder-count="3"><button type="button" class="segbtn {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}"><b>{{o.label}}</b><span>{{o.sub}}</span></button></sc-for>
               </div>
-              <span class="hint">namespace-configuration-operator stamps the quota and LimitRange for the tier.</span>
+              <span class="hint">cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.</span>
             </div>
             <div class="row2">
               <div class="field">
-                <label for="ns-owner">Owner</label>
-                <input id="ns-owner" value="ola@ephico2real.com">
+                <label for="ns-dl">Team DL (required)</label>
+                <input id="ns-dl" type="email" value="payments-team@ephico2real.com">
+                <span class="hint">Your team's distribution list at ephico2real.com; checked for format only. Requested by ola (ola@ephico2real.com), from your sign-in.</span>
               </div>
               <div class="field">
                 <sc-if value="{{nsExp.allowed}}" hint-placeholder-val="{{true}}">
@@ -629,7 +630,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <sc-if value="{{qd.hasRec}}" hint-placeholder-val="{{false}}">
               <div class="callout info"><b>Recommendation {{qd.recId}}</b><span style="font-size: 0.88rem">{{qd.recText}}</span><div><button type="button" class="rowbtn" onClick="{{qd.useRec}}">Use this size</button></div></div>
             </sc-if>
-            <p class="foot">GET /api/v1/clusters/{{qd.cluster}}/namespaces/{{qd.ns}}/quota · ETag {{qd.etag}} · LimitRange namespace-limits stamped for tier {{qd.tier}} by namespace-configuration-operator.</p>
+            <p class="foot">GET /api/v1/clusters/{{qd.cluster}}/namespaces/{{qd.ns}}/quota · ETag {{qd.etag}} · ResourceQuota and LimitRange for tier {{qd.tier}} live in the namespace folder in Git.</p>
           </div>
 
           <form class="card" onSubmit="{{qSubmit}}" style="gap: 16px">
@@ -1049,7 +1050,7 @@ function baseNodes(prev) {
 
 function createScenario(o) {
   var prod = o.env === "prod", auto = o.env === "rnd" || o.env === "dev", group = APPROVER[o.env];
-  var file = "clusters/" + o.cluster + "/namespaces/" + o.ns + "/" + o.ns + "-" + o.env + "-project-meta.yml";
+  var dir = "clusters/" + o.cluster + "/namespaces/" + o.ns + "/"; var file = dir + "namespace.yaml";
   var T = o.times;
   var init = {
     cluster: o.cluster, node: baseNodes(o.prevSha), req: null, pr: null, cap: null,
@@ -1104,19 +1105,19 @@ function createScenario(o) {
   steps.push({
     lane: "caller", title: "Submit the create with the placement",
     body: "The portal now creates <b>" + o.ns + "</b> on <b>" + top.cluster + "</b>, carrying the placementId so the reservation becomes this request's own. The cluster ID sits in the path and in the body; a mismatch would be rejected with 422.",
-    code: { label: "POST /api/v1/clusters/" + o.cluster + "/namespaces", text: 'curl -s -X POST "$CMAPI/clusters/' + o.cluster + '/namespaces" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: ' + o.idem + '" \\\n' + "  -d '{\n" + '    "clusterId": "' + o.cluster + '",\n    "namespace": "' + o.ns + '",\n    "env": "' + o.env + '",\n    "tier": "medium",\n    "placementId": "' + o.placementId + '",\n    "labels": {"cmapi.net/team": "payments"},\n    "annotations": {"cmapi.net/owner": "ola@ephico2real.com"}\n' + "  }'" },
+    code: { label: "POST /api/v1/clusters/" + o.cluster + "/namespaces", text: 'curl -s -X POST "$CMAPI/clusters/' + o.cluster + '/namespaces" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: ' + o.idem + '" \\\n' + "  -d '{\n" + '    "clusterId": "' + o.cluster + '",\n    "namespace": "' + o.ns + '",\n    "env": "' + o.env + '",\n    "tier": "medium",\n    "placementId": "' + o.placementId + '",\n    "labels": {"cmapi.net/team": "payments"},\n    "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}\n' + "  }'" },
     apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
   });
   steps.push({
     lane: "api", title: "Plan: idempotency, lock, validate, render",
-    body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the project-meta file; the Kyverno policy bundle and kubeconform run on it offline. The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
+    body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the namespace folder as plain manifests: the Namespace, the ResourceQuota and LimitRange written out from tiers.yaml (medium), and the token-issuer RoleBinding. The Kyverno policy bundle and kubeconform run on those files offline. Who asked comes from the token (ola, ola@ephico2real.com), not from the body; the employee ID is stored with the request, never in Git. The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
     checks: [
       { s: "pass", l: "Idempotency key new, object lock free", n: "" },
       { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 policies pass" },
       { s: "pass", l: "kubeconform", n: o.cluster + " OpenAPI" },
       { s: "pass", l: "Capacity: fits on fresh data", n: "reservation " + o.placementId }
     ],
-    code: { label: "Plan diff · " + file, diff: true, text: "+++ " + file + "\n+namespace: " + o.ns + "\n+env: " + o.env + "\n+labels:\n+  cmapi.net/cluster-id: " + o.cluster + '\n+  cmapi.net/managed: "true"\n+  cmapi.net/tier: medium\n+  cmapi.net/team: payments\n+annotations:\n+  cmapi.net/owner: ola@ephico2real.com\n+  cmapi.net/request-id: ' + o.reqId },
+    code: { label: "Plan diff · " + file, diff: true, text: "+++ " + file + "\n+apiVersion: v1\n+kind: Namespace\n+metadata:\n+  name: " + o.ns + "\n+  labels:\n+    cmapi.net/cluster-id: " + o.cluster + "\n+    cmapi.net/env: " + o.env + '\n+    cmapi.net/managed: "true"\n+    cmapi.net/requested-by-user: ola\n+    cmapi.net/tier: medium\n+    cmapi.net/team: payments\n+  annotations:\n+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n+    cmapi.net/request-id: ' + o.reqId + '\n+    cmapi.net/requested-by: ola@ephico2real.com\n+    cmapi.net/team-dl: payments-team@ephico2real.com\n\n+++ ' + dir + 'resourcequota.yaml   requests.cpu 16 · requests.memory 32Gi · pods 100\n+++ ' + dir + 'limitrange.yaml      tier medium defaults\n+++ ' + dir + 'token-issuer-rolebinding.yaml' },
     apply: function (s) {
       s.node.api = "Plan ready";
       s.req = { id: o.reqId, status: "validated", cluster: o.cluster, ns: o.ns, action: "create Namespace", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
@@ -1170,7 +1171,7 @@ steps.push({
   apply: function (s) {
     s.req.status = "pr_open"; s.req.pr = "#" + o.pr; s.prMsg = "";
     s.pr = { num: o.pr, title: "Create namespace " + o.ns + " on " + o.cluster, branch: o.branch, state: "open", label: "cmapi/" + o.reqId, auto: true,
-      files: [{ path: file, add: 11, del: 0 }],
+      files: [{ path: dir + "namespace.yaml", add: 19, del: 0 }, { path: dir + "resourcequota.yaml", add: 16, del: 0 }, { path: dir + "limitrange.yaml", add: 17, del: 0 }, { path: dir + "token-issuer-rolebinding.yaml", add: 17, del: 0 }],
       checks: [{ n: "kyverno-bundle", s: "pending" }, { n: "kubeconform", s: "pending" }, { n: "cmapi-check", s: "pending", note: "approved · hash" }],
       reviewers: [] };
     s.node.git = "PR #" + o.pr + " open"; s.node.api = "Tracking";
@@ -1195,19 +1196,19 @@ steps.push({
 });
   steps.push({
     lane: "argo", title: "Argo CD on " + o.cluster + " syncs",
-    body: "The cluster's own Argo CD watches only <code>clusters/" + o.cluster + "/</code>. It finds " + o.sha + ", creates the Namespace, and Kyverno admission checks it against the same bundle. namespace-configuration-operator sees <code>cmapi.net/tier: medium</code> and stamps the ResourceQuota and LimitRange. cmapi learns the result " + (prod ? "from Argo CD Notifications (syncSignal: notify on " + o.cluster + ")." : "by polling the root Application every 30 seconds (syncSignal: poll)."),
+    body: "The cluster's own Argo CD watches only <code>clusters/" + o.cluster + "/</code>. It finds " + o.sha + ", creates the Namespace, and Kyverno admission checks it against the same bundle. The ResourceQuota, LimitRange and token-issuer RoleBinding come from the same folder, so what syncs is exactly what was reviewed and hashed; nothing on the cluster expands them. cmapi learns the result " + (prod ? "from Argo CD Notifications (syncSignal: notify on " + o.cluster + ")." : "by polling the root Application every 30 seconds (syncSignal: poll)."),
     checks: [
       { s: "pass", l: "Kyverno admission", n: "bundle v1.4.0, Enforce" },
       { s: "pass", l: "Namespace created", n: "wave 0" },
-      { s: "pass", l: "Quota and limits stamped", n: "namespace-configuration-operator" }
+      { s: "pass", l: "Quota, limits and RoleBinding synced", n: "from the namespace folder" }
     ],
-    code: { label: "Live ResourceQuota on " + o.cluster, text: "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: namespace-quota\n  namespace: " + o.ns + "\n  labels:\n    cmapi.net/cluster-id: " + o.cluster + "\n    cmapi.net/tier: medium\nspec:\n  hard:\n    requests.cpu: \"16\"\n    requests.memory: 32Gi\n    pods: \"100\"" },
+    code: { label: "Live ResourceQuota on " + o.cluster, text: "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: " + o.ns + "-quota\n  namespace: " + o.ns + "\n  labels:\n    cmapi.net/cluster-id: " + o.cluster + "\n    cmapi.net/tier: medium\nspec:\n  hard:\n    requests.cpu: \"16\"\n    requests.memory: 32Gi\n    pods: \"100\"" },
     apply: function (s) {
       s.argo.rev = o.sha; s.argo.sync = "OutOfSync"; s.argo.health = "Progressing";
       s.argo.resources = [
         { wave: "0", kind: "Namespace", name: o.ns, by: "Argo CD", st: "Synced" },
-        { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Created" },
-        { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Created" }
+        { wave: "—", kind: "ResourceQuota", name: o.ns + "-quota", by: "Argo CD", st: "Created" },
+        { wave: "—", kind: "LimitRange", name: o.ns + "-limits", by: "Argo CD", st: "Created" }
       ];
       s.node.argo = "Syncing @ " + o.sha;
     }
@@ -1232,15 +1233,15 @@ steps.push({
 function quotaScenario() {
   var c = "OCP_GF1", ns = "payments-prod", req = "req-20261103-9c02", pr = 418, sha = "c7d21f0", prev = "a41c9e2";
   var branch = c + "/" + ns + "/" + req;
-  var file = "clusters/" + c + "/namespaces/" + ns + "/" + ns + "-prod-project-meta.yml";
+  var dir = "clusters/" + c + "/namespaces/" + ns + "/"; var file = dir + "resourcequota.yaml";
   var init = {
     cluster: c, node: baseNodes(prev), req: null, pr: null, cap: null,
     capNote: "No usage read yet. Namespace usage is never stored per interval; it is read live only when a plan needs it.",
     argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
       resources: [
         { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: medium" },
-        { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 · memory 32Gi" },
-        { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
+        { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 16 · memory 32Gi" },
+        { wave: "—", kind: "LimitRange", name: ns + "-limits", by: "Argo CD", st: "Synced", ch: "" }
       ] },
     events: [], blocked: {}
   };
@@ -1253,13 +1254,13 @@ function quotaScenario() {
   });
   steps.push({
     lane: "api", title: "Authenticate, authorize, lock",
-    body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write, and the payments binding covers " + c + " prod. The If-Match ETag equals the Git blob SHA of the project-meta file, and no other request is open on this namespace.",
+    body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write, and the payments binding covers " + c + " prod. The If-Match ETag equals the Git blob SHA of resourcequota.yaml, and no other request is open on this namespace.",
     checks: [
       { s: "pass", l: "JWT, role and scope binding", n: "cmapi-requester · " + c + " · prod" },
       { s: "pass", l: "If-Match matches current ETag", n: "9b2e4f1c8a7d" },
       { s: "pass", l: "Object lock free", n: "Namespace " + ns }
     ],
-    code: { label: "Pre-checks", text: "etag (git blob of project-meta)   9b2e4f1c8a7d   matches If-Match\nopen request (" + c + ", Namespace, " + ns + ")   none\nidempotency key 3d9e0b7a…   new" },
+    code: { label: "Pre-checks", text: "etag (git blob of resourcequota.yaml)   9b2e4f1c8a7d   matches If-Match\nopen request (" + c + ", Namespace, " + ns + ")   none\nidempotency key 3d9e0b7a…   new" },
     apply: function (s) { s.node.api = "Lock free"; s.node.keycloak = "Not contacted (JWKS cached)"; }
   });
   steps.push({
@@ -1283,14 +1284,14 @@ function quotaScenario() {
 
 steps.push({
   lane: "api", title: "Plan and capacity check",
-  body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota and active reservations leaves 64 cores and 192 Gi of quota headroom, 48 cores and 160 Gi after this change, so it fits. But commitment rises from 78% to 84% on CPU and from 76% to 80% on memory, past prod's 80% warning line. The +16 cores and +32 Gi are reserved so no other request can take them while this one waits.",
+  body: "The tier change renders as the tier label on namespace.yaml and the large values from tiers.yaml in resourcequota.yaml and limitrange.yaml, and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota and active reservations leaves 64 cores and 192 Gi of quota headroom, 48 cores and 160 Gi after this change, so it fits. But commitment rises from 78% to 84% on CPU and from 76% to 80% on memory, past prod's 80% warning line. The +16 cores and +32 Gi are reserved so no other request can take them while this one waits.",
   checks: [
     { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
     { s: "warn", l: "Capacity fits, at warn", n: "cpu 78% → 84% · memory 76% → 80% (prod warns at 80%)" },
     { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" },
     { s: "pass", l: "Delta reserved", n: "+16 cores, +32 Gi on " + c }
   ],
-  code: { label: "Diff · " + file, diff: true, text: "@@ labels @@\n   cmapi.net/cluster-id: " + c + "\n-  cmapi.net/tier: medium\n+  cmapi.net/tier: large\n   cmapi.net/team: payments" },
+  code: { label: "Diff · " + file, diff: true, text: "--- a/" + file + "\n+++ b/" + file + "\n   metadata:\n     labels:\n-      cmapi.net/tier: medium\n+      cmapi.net/tier: large\n   spec:\n     hard:\n-      requests.cpu: \"16\"\n+      requests.cpu: \"32\"\n-      requests.memory: 32Gi\n+      requests.memory: 64Gi\n-      pods: \"100\"\n+      pods: \"200\"\n\n(namespace.yaml: the tier label · limitrange.yaml: tier large defaults)" },
   apply: function (s) {
     s.req = { id: req, status: "validated", cluster: c, ns: ns, action: "patch Namespace (tier)", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
     s.node.api = "Plan ready, 2 warnings";
@@ -1327,7 +1328,7 @@ steps.push({
   apply: function (s) {
     s.req.status = "merged"; s.req.pr = "#" + pr; s.prMsg = "";
     s.pr = { num: pr, title: "Change tier of " + ns + " to large on " + c, branch: branch, state: "merged", label: "cmapi/" + req, auto: true,
-      files: [{ path: file, add: 1, del: 1 }],
+      files: [{ path: dir + "namespace.yaml", add: 1, del: 1 }, { path: file, add: 4, del: 4 }, { path: dir + "limitrange.yaml", add: 3, del: 3 }],
       checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "cmapi-check", s: "pass", note: "approved 3 of 3 · hash matches" }],
       reviewers: [] };
     s.node.git = "main @ " + sha;
@@ -1337,13 +1338,13 @@ steps.push({
   }
 });
   steps.push({
-    lane: "argo", title: "Sync: label applied, quota re-stamped",
-    body: "Argo CD on " + c + " patches the tier label; namespace-configuration-operator matches the large template and raises the ResourceQuota to 32 cores and 64Gi. Kyverno admission passes both. The request closes as synced after " + dur(3900) + ". The daily sweep keeps reading this namespace; if its peak stays near 9.6 cores it will record quota-oversized and propose a smaller quota, which still goes through a normal request.",
+    lane: "argo", title: "Sync: label and quota applied",
+    body: "Argo CD on " + c + " applies the three changed files: the tier label, the ResourceQuota at 32 cores and 64Gi and the large LimitRange, exactly as written in Git. Kyverno admission passes both. The request closes as synced after " + dur(3900) + ". The daily sweep keeps reading this namespace; if its peak stays near 9.6 cores it will record quota-oversized and propose a smaller quota, which still goes through a normal request.",
     code: { label: "Live ResourceQuota on " + c, diff: true, text: "spec:\n  hard:\n-   requests.cpu: \"16\"\n+   requests.cpu: \"32\"\n-   requests.memory: 32Gi\n+   requests.memory: 64Gi" },
     apply: function (s) {
       s.argo.rev = sha;
       s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: large" };
-      s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32 · memory 32Gi → 64Gi" };
+      s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 16 → 32 · memory 32Gi → 64Gi" };
       s.req.status = "synced"; s.req.lead = dur(3900);
       s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
       ev(s, 3900, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
@@ -1576,21 +1577,21 @@ function expiryScenario() {
   var c = "OCP_GF6", ns = "payments-perf-rnd", req = "req-20261103-e7d0", pr = 437, sha = "5b8e1aa", prev = "e90b3d4";
   var file = "clusters/" + c + "/namespaces/" + ns + "/";
   var init = {
-    cluster: c, laneNames: { caller: { name: "Owner and operator", sub: "notified; confirms the prune" }, api: { name: "cmapi-api", sub: "nonprod instance" } },
+    cluster: c, laneNames: { caller: { name: "Team DL and operator", sub: "notified; confirms the prune" }, api: { name: "cmapi-api", sub: "nonprod instance" } },
     node: baseNodes(prev), req: null, pr: null, cap: null,
     capNote: "Nothing to place. When the namespace is gone its quota returns to " + c + "'s headroom.",
     argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
       resources: [
         { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "expires-at 2026-10-27" },
-        { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 8 · memory 16Gi" },
-        { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
+        { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 8 · memory 16Gi" },
+        { wave: "—", kind: "LimitRange", name: ns + "-limits", by: "Argo CD", st: "Synced", ch: "" }
       ] },
     events: [], blocked: {}
   };
   var steps = [];
   steps.push({
     lane: "api", also: ["caller"], title: "Notices at 14, 7 and 1 days",
-    body: "<b>" + ns + "</b> was created on Sep 15 with an optional expiry of Oct 27 (rnd allows it; prod never does). The worker's daily <code>expire_check</code> sent notices to the owner and the payments team on Oct 13, Oct 20 and Oct 26, each with a link to the Expiration tab where Extend is one click. Nobody extended.",
+    body: "<b>" + ns + "</b> was created on Sep 15 with an optional expiry of Oct 27 (rnd allows it; prod never does). The worker's daily <code>expire_check</code> sent notices to the payments team DL (payments-team@ephico2real.com) on Oct 13, Oct 20 and Oct 26, each with a link to the Expiration tab where Extend is one click. Nobody extended.",
     checks: [
       { s: "pass", l: "Expiry is optional and non-prod", n: "rnd" },
       { s: "pass", l: "Notices sent", n: "14, 7 and 1 days before" },
@@ -1624,11 +1625,11 @@ function expiryScenario() {
   steps.push({
     lane: "git", title: "Bot PR removes the folder, merged on CI",
     body: "The worker opens PR #" + pr + " as the bot, removing <code>" + file + "</code>. CI's delete guard checks that exactly one namespace folder is removed and that it matches an approved delete request; the cmapi check confirms the plan hash; the bot merges as <code>" + sha + "</code>.",
-    code: { label: "Diff · " + file, diff: true, text: "--- " + file + ns + "-rnd-project-meta.yml\n-namespace: " + ns + "\n-env: rnd\n-labels:\n-  cmapi.net/cluster-id: " + c + "\n-  cmapi.net/expiry: managed\n-annotations:\n-  cmapi.net/expires-at: \"2026-10-27\"" },
+    code: { label: "Diff · " + file, diff: true, text: "--- " + file + "namespace.yaml\n-apiVersion: v1\n-kind: Namespace\n-metadata:\n-  name: " + ns + "\n-  labels:\n-    cmapi.net/cluster-id: " + c + "\n-    cmapi.net/env: rnd\n-    cmapi.net/expiry: managed\n-  annotations:\n-    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n-    cmapi.net/expires-at: \"2026-10-27\"\n-    cmapi.net/team-dl: payments-team@ephico2real.com\n\n--- " + file + "resourcequota.yaml · limitrange.yaml · token-issuer-rolebinding.yaml (whole folder removed)" },
     apply: function (s) {
       s.req.status = "merged"; s.req.pr = "#" + pr;
       s.pr = { num: pr, title: "Delete expired namespace " + ns + " on " + c, branch: c + "/" + ns + "/" + req, state: "merged", label: "cmapi/" + req, auto: true,
-        files: [{ path: file + ns + "-rnd-project-meta.yml", add: 0, del: 9 }],
+        files: [{ path: file + "namespace.yaml", add: 0, del: 21 }, { path: file + "resourcequota.yaml", add: 0, del: 16 }, { path: file + "limitrange.yaml", add: 0, del: 17 }, { path: file + "token-issuer-rolebinding.yaml", add: 0, del: 17 }],
         checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "delete-guard", s: "pass", note: "1 folder, matching request" }, { n: "cmapi-check", s: "pass", note: "approved · hash matches" }],
         reviewers: [] };
       s.node.git = "main @ " + sha;
@@ -1648,7 +1649,7 @@ function expiryScenario() {
   });
   steps.push({
     lane: "argo", also: ["caller", "api"], title: "An operator confirms the prune",
-    body: "A platform operator checks the namespace (no PVCs worth keeping, owner notified three times) and confirms the prune in Argo CD. The Namespace and its quota go; cmapi confirms with a direct read and the request is synced. The 8 cores and 16 Gi return to " + c + "'s headroom.",
+    body: "A platform operator checks the namespace (no PVCs worth keeping, team DL notified three times) and confirms the prune in Argo CD. The Namespace and its quota go; cmapi confirms with a direct read and the request is synced. The 8 cores and 16 Gi return to " + c + "'s headroom.",
     code: { label: "GET /api/v1/requests/" + req, text: J({ requestId: req, status: "synced", action: "delete", reason: "expired", prune: { confirmedBy: "platform-operator@ephico2real.com" }, mergeCommit: sha }) },
     apply: function (s) {
       s.req.status = "synced"; s.req.lead = dur(5400);
@@ -1991,7 +1992,7 @@ var APPROVALS = {
       reasons: ["rnd changes need no approval, but making a namespace permanent adds one platform-lead.", "ledger-rnd has been extended twice and expires in 28 days, 178 days after it was created; the team says it is now their shared integration space."],
       elig: [["pass", "Role cmapi-approver", "Keycloak token"], ["pass", "Group /cmapi/cmapi-platform-leads", "counts toward platform-leads"], ["pass", "Not the requester", "requested by ledger-lead"]],
       can: true, exp: "ledger-rnd", channels: "Portal Approvals tab · email to platform-leads",
-      foot: "Approving removes cmapi.net/expires-at and cmapi.net/expiry from ledger-rnd's project-meta file through a bot PR." }
+      foot: "Approving removes cmapi.net/expires-at and cmapi.net/expiry from ledger-rnd's namespace.yaml through a bot PR." }
   ],
   staging: [
     { id: "req-20261103-3d51", title: "req-20261103-3d51 · payments-qa on OCP_GF11", meta: "create · tier medium · placed by pl-20261103-91aa · requested by ola@ephico2real.com · 17:07", need: 1, groups: "qa-leads",
@@ -2017,7 +2018,7 @@ var APV_RECENT = {
 };
 
 var POLICY_DEFS = [
-  { name: "require-team-owner-labels", kind: "ValidatingPolicy", what: "Managed namespaces carry cmapi.net/team and cmapi.net/owner" },
+  { name: "require-team-labels", kind: "ValidatingPolicy", what: "Managed namespaces carry the cmapi.net/team label and the cmapi.net/team-dl annotation" },
   { name: "deny-reserved-label-keys", kind: "ValidatingPolicy", what: "Teams never set platform prefixes such as kubernetes.io/ or openshift.io/" },
   { name: "restrict-sa-role-grants", kind: "ValidatingPolicy", what: "ServiceAccounts are bound only to view, edit or allow-listed roles, never cluster-admin" },
   { name: "disallow-privileged-scc", kind: "ValidatingPolicy", what: "No privileged or anyuid SCC without an approved grant" },
@@ -2046,7 +2047,7 @@ var POL_FAILS = {
   nonprod: [
     { ns: "checkout-web-rnd", res: "RoleBinding/ci-bot-admin", policy: "restrict-sa-role-grants", result: "fail", msg: "ServiceAccount ci-bot is bound to ClusterRole admin; allowed: view, edit", cluster: "OCP_GF6" },
     { ns: "search-ml-rnd", res: "Pod/train-0", policy: "disallow-privileged-scc", result: "fail", msg: "The pod asks for the privileged SCC with no approved grant", cluster: "OCP_GF6" },
-    { ns: "analytics-ml-dev", res: "Namespace/analytics-ml-dev", policy: "require-team-owner-labels", result: "fail", msg: "cmapi.net/owner is missing: the namespace was adopted before the rule", cluster: "OCP_GF15" },
+    { ns: "analytics-ml-dev", res: "Namespace/analytics-ml-dev", policy: "require-team-labels", result: "fail", msg: "cmapi.net/team-dl is missing: the namespace was adopted before the rule", cluster: "OCP_GF15" },
     { ns: "ledger-rnd", res: "Deployment/ledger-core", policy: "require-container-limits", result: "warn", msg: "Container sidecar has no memory limit", cluster: "OCP_GF8" },
     { ns: "orders-etl-rnd", res: "CronJob/nightly-load", policy: "require-container-limits", result: "warn", msg: "Container loader has no memory limit", cluster: "OCP_GF8" },
     { ns: "payments-dev", res: "Deployment/payments-api", policy: "verify-image-signatures", result: "warn", msg: "quay.ephico2real.com/payments/api:1.8.2 is not signed", cluster: "OCP_GF15" }
@@ -2305,7 +2306,7 @@ class Component extends DCLogic {
     function x2(a) { return a; }
     var rec = cur.rec;
     var detail = { title: cur.ns + " on " + cur.cluster, ns: cur.ns, cluster: cur.cluster, env: cur.env, tier: cur.tier, etag: cur.etag, verdict: cur.verdict, vTone: cur.vTone, vNote: cur.vNote,
-      meta: cur.env + " · tier " + cur.tier + " · ResourceQuota namespace-quota · read from the watch cache, current to the second", rows: rows,
+      meta: cur.env + " · tier " + cur.tier + " · ResourceQuota " + cur.ns + "-quota · read from the watch cache, current to the second", rows: rows,
       hasRec: !!rec, recId: rec ? rec.id : "", recText: rec ? rec.text : "",
       useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: qkey(cur), qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: qkey(cur), qsize: "custom", qcpu: rec.cpu, qmem: rec.mem, qplan: false, qsent: false }); } };
 

@@ -1,0 +1,28 @@
+# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# clusters/OCP_GF15/argocd/root-application.yaml
+# Bootstrap, applied by the baseline process (not written by cmapi). One Application per cluster
+# syncs every namespace folder. Removing a folder prunes its objects; the Namespace's own
+# Prune=confirm annotation holds the delete until an operator confirms it.
+# Not an ApplicationSet with one Application per folder: removing a folder would delete that
+# Application and, by default, its resources with it, bypassing Prune=confirm.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ocp-gf15-namespaces
+  namespace: openshift-gitops
+spec:
+  project: cmapi-namespaces            # AppProject allowing Namespace plus the namespaced kinds cmapi writes
+  source:
+    repoURL: https://git.ephico2real.com/caas/cluster-configs-nonprod.git
+    targetRevision: main
+    path: clusters/OCP_GF15/namespaces
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

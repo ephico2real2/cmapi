@@ -134,7 +134,7 @@ A waste or risk verdict with enough data produces a recommendation: the requests
 
 1. POST /api/v1/analysis/recommendations/{id}:apply opens an ordinary quota PATCH through the pipeline, with the evidence (verdict, window, p95, peak, thresholds) in the PR body.
 2. The normal approval rules apply. A rightsizing-decrease auto-approval policy covers rnd and qa decreases only; its guards are no risk verdict and at most 50%.
-3. The weekly rightsizing loop applies open rnd and qa decreases for namespaces whose team opted in with the governed label cmapi.net/rightsizing: auto. For everyone else it sends the recommendation to the cmapi.net/owner contact.
+3. The weekly rightsizing loop applies open rnd and qa decreases for namespaces whose team opted in with the governed label cmapi.net/rightsizing: auto. For everyone else it sends the recommendation to the cmapi.net/team-dl contact.
 4. A team can dismiss a recommendation with a reason and an end date. It comes back after that date if the verdict still holds.
 
 Recommendation states: open, applied (with its request ID), dismissed, superseded (newer data changed it) and expired (not acted on within 14 days and recomputed).
