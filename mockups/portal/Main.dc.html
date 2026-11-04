@@ -167,7 +167,16 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
 .bar i.warn { background: #c27c12; }
 .bar i.crit { background: #c0372e; }
 .bar i.none { background: transparent; }
+.stats.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat small { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.74rem; color: #5b6779; overflow-wrap: anywhere; }
+.use { display: grid; gap: 3px; min-width: 120px; }
+.use .meta { font-size: 0.74rem; }
+.res tr.sel td { background: #f4f8ff; }
+.qgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; align-items: start; }
+.callout.bad { background: #fbe5e3; }
+.codebox { background: #f6f7fa; border: 1px solid #dde2ea; border-radius: 8px; padding: 10px 12px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.76rem; white-space: pre; overflow-x: auto; margin: 0; }
 @media (max-width: 1100px) {
+  .qgrid { grid-template-columns: minmax(0, 1fr); }
   .wmain { grid-template-columns: 240px minmax(0, 1fr); }
   .state { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -471,6 +480,106 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
       </div>
     </sc-if>
 
+    <sc-if value="{{isQuotas}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; gap: 18px">
+        <div class="head">
+          <div>
+            <h1>Quotas</h1>
+            <p class="lede">The ResourceQuota of every namespace your scope covers on the {{inst.label}} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.</p>
+          </div>
+          <div class="seg" role="group" aria-label="Filter">
+            <sc-for list="{{qFilters}}" as="o" hint-placeholder-count="3"><button type="button" class="segbtn {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}"><b>{{o.label}}</b></button></sc-for>
+          </div>
+        </div>
+        <div class="card">
+          <div class="tablebox">
+            <table class="res">
+              <thead><tr><th>Namespace</th><th>Cluster</th><th>Env</th><th>Tier</th><th>CPU requests</th><th>Memory requests</th><th>Pods</th><th>Verdict</th><th></th></tr></thead>
+              <tbody>
+                <sc-for list="{{quotas}}" as="q" hint-placeholder-count="3">
+                  <tr class="{{q.cls}}"><td>{{q.ns}}</td><td>{{q.cluster}}</td><td>{{q.env}}</td><td>{{q.tier}}</td><td><div class="use"><div class="bar"><i class="{{q.cpuBar}}" style="width: {{q.cpuPct}}"></i></div><span class="meta">{{q.cpuText}}</span></div></td><td><div class="use"><div class="bar"><i class="{{q.memBar}}" style="width: {{q.memPct}}"></i></div><span class="meta">{{q.memText}}</span></div></td><td>{{q.pods}}</td><td><span class="pill {{q.vTone}}">{{q.verdict}}</span></td><td><button type="button" class="rowbtn" onClick="{{q.pick}}">{{q.btn}}</button></td></tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <sc-if value="{{noQuotas}}" hint-placeholder-val="{{false}}"><p class="empty">No namespaces match this filter on the {{inst.label}} instance.</p></sc-if>
+          <p class="foot">GET /api/v1/quotas?environment={{inst.envs}} · quota status from the watch cache, verdicts from the 02:00 usage sweep. Bars turn amber at 80% and red at 95% of the hard limit.</p>
+        </div>
+
+        <div class="qgrid">
+          <div class="card">
+            <div class="panel-head"><div class="ptitle">{{qd.title}}</div><span class="pill {{qd.vTone}}">{{qd.verdict}}</span></div>
+            <div class="meta">{{qd.meta}}</div>
+            <div class="tablebox">
+              <table class="res">
+                <thead><tr><th>ResourceQuota</th><th>Used</th><th>Hard</th><th></th></tr></thead>
+                <tbody>
+                  <sc-for list="{{qd.rows}}" as="r" hint-placeholder-count="3"><tr><td>{{r.k}}</td><td>{{r.used}}</td><td>{{r.hard}}</td><td><div class="use"><div class="bar"><i class="{{r.bar}}" style="width: {{r.pct}}"></i></div><span class="meta">{{r.pctText}}</span></div></td></tr></sc-for>
+                </tbody>
+              </table>
+            </div>
+            <h3 class="lbl">Usage verdict</h3>
+            <p class="muted" style="font-size: 0.88rem">{{qd.vNote}}</p>
+            <sc-if value="{{qd.hasRec}}" hint-placeholder-val="{{false}}">
+              <div class="callout info"><b>Recommendation {{qd.recId}}</b><span style="font-size: 0.88rem">{{qd.recText}}</span><div><button type="button" class="rowbtn" onClick="{{qd.useRec}}">Use this size</button></div></div>
+            </sc-if>
+            <p class="foot">GET /api/v1/clusters/{{qd.cluster}}/namespaces/{{qd.ns}}/quota · ETag {{qd.etag}} · LimitRange namespace-limits stamped for tier {{qd.tier}} by namespace-configuration-operator.</p>
+          </div>
+
+          <form class="card" onSubmit="{{qSubmit}}" style="gap: 16px">
+            <div class="panel-head"><h3 class="lbl">Change quota · {{qd.ns}}</h3><span class="pill">{{qd.env}} · {{qd.cluster}}</span></div>
+            <sc-if value="{{qc.locked}}" hint-placeholder-val="{{false}}">
+              <div class="callout warn"><b>{{qc.lockTitle}}</b><span style="font-size: 0.88rem">{{qc.lockText}}</span><div><button type="button" class="rowbtn" onClick="{{qc.openLock}}">Open at current step</button></div></div>
+            </sc-if>
+            <sc-if value="{{qc.open}}" hint-placeholder-val="{{true}}">
+              <div class="field">
+                <span class="flabel">New size</span>
+                <div class="seg" role="group" aria-label="New size">
+                  <sc-for list="{{qc.sizes}}" as="o" hint-placeholder-count="4"><button type="button" class="segbtn {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}"><b>{{o.label}}</b><span>{{o.sub}}</span></button></sc-for>
+                </div>
+                <span class="hint">A tier changes one label and the operator re-stamps the quota (PATCH …/namespaces/{ns}). Custom sets requests.cpu and requests.memory directly (PATCH …/namespaces/{ns}/quota).</span>
+              </div>
+              <sc-if value="{{qc.custom}}" hint-placeholder-val="{{false}}">
+                <div class="row2">
+                  <div class="field"><label for="q-cpu">requests.cpu (cores)</label><input id="q-cpu" class="mono" type="number" min="1" step="1" value="{{qc.cpu}}" onChange="{{qc.onCpu}}"></div>
+                  <div class="field"><label for="q-mem">requests.memory (Gi)</label><input id="q-mem" class="mono" type="number" min="1" step="1" value="{{qc.mem}}" onChange="{{qc.onMem}}"></div>
+                </div>
+              </sc-if>
+              <div class="field">
+                <label for="q-why">Justification</label>
+                <textarea id="q-why" placeholder="Why this size is needed, for example the load test or launch it supports"></textarea>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn" onClick="{{qPlan}}">Plan change</button>
+                <button type="submit" class="btn primary">Submit change</button>
+              </div>
+              <sc-if value="{{qc.nothing}}" hint-placeholder-val="{{false}}"><p class="empty">The new size equals the current quota; pick another tier or custom values.</p></sc-if>
+              <sc-if value="{{qc.planned}}" hint-placeholder-val="{{false}}">
+                <div style="display: grid; gap: 12px">
+                  <h3 class="lbl">Live usage · last 14 days</h3>
+                  <div class="tablebox">
+                    <table class="res">
+                      <thead><tr><th>Resource</th><th>Now</th><th>7d avg</th><th>p95</th><th>Peak</th><th>Quota</th><th>New / peak</th></tr></thead>
+                      <tbody><sc-for list="{{qc.usage}}" as="u" hint-placeholder-count="2"><tr><td>{{u.k}}</td><td>{{u.now}}</td><td>{{u.avg}}</td><td>{{u.p95}}</td><td>{{u.peak}}</td><td>{{u.quota}}</td><td>{{u.ratio}}</td></tr></sc-for></tbody>
+                    </table>
+                  </div>
+                  <p class="foot">Read live from {{qd.cluster}}'s Thanos by cmapi-capacity for this plan; cached 10 minutes and not stored. Cluster headroom comes from the 17:00 snapshot, committed quota and reservations, with no Thanos call.</p>
+                  <ul class="checks">
+                    <sc-for list="{{qc.checks}}" as="c" hint-placeholder-count="6"><li><span class="mark {{c.s}}">{{c.mark}}</span><span>{{c.l}}<span class="note">{{c.n}}</span></span></li></sc-for>
+                  </ul>
+                  <div class="callout {{qc.apprTone}}"><b>{{qc.apprTitle}}</b><span style="font-size: 0.88rem">{{qc.apprDetail}}</span></div>
+                </div>
+              </sc-if>
+              <sc-if value="{{qc.sent}}" hint-placeholder-val="{{false}}">
+                <div class="callout {{qc.sentTone}}"><b>{{qc.sentTitle}}</b><span style="font-size: 0.88rem">{{qc.sentText}}</span></div>
+                <pre class="codebox">{{qc.sentBody}}</pre>
+              </sc-if>
+            </sc-if>
+          </form>
+        </div>
+      </div>
+    </sc-if>
+
     <sc-if value="{{isRequests}}" hint-placeholder-val="{{false}}">
       <div style="display: grid; gap: 18px">
         <div class="head">
@@ -530,7 +639,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
                 </tbody>
               </table>
             </div>
-            <p class="foot">Read live from OCP_GF1's Thanos by cmapi-capacity when the change was planned; not stored. Cluster quota headroom 64 → 48 cores, fits.</p>
+            <p class="foot">Read live from OCP_GF1's Thanos by cmapi-capacity when the change was planned; not stored. Cluster quota headroom cpu 64 → 48 cores, memory 192 → 160 Gi, fits.</p>
             <div class="actions">
               <button type="button" class="btn" onClick="{{openQuota}}">Replay in workflow</button>
               <a class="btn primary" href="https://git.ephico2real.com/caas/cluster-configs/pull/418" style="text-decoration: none; display: inline-flex; align-items: center">Review PR #418</a>
@@ -592,7 +701,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
         <div class="head">
           <div>
             <h1>Capacity</h1>
-            <p class="lede">Cluster capacity from the latest complete snapshots, grouped by clusters.yaml metadata. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.</p>
+            <p class="lede">Cluster capacity from the latest complete snapshots, grouped by clusters.yaml metadata. CPU and memory are measured, committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.</p>
           </div>
           <span class="pill">snapshot 17:00 · every 30 min</span>
         </div>
@@ -601,10 +710,11 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <div class="card">
               <div class="panel-head"><div class="ptitle">{{g.name}}</div><span class="pill {{g.tone}}">{{g.status}}</span></div>
               <div class="meta">{{g.meta}}</div>
-              <div class="stats">
-                <div class="stat"><span>Commitment</span><b>{{g.commit}}</b></div>
-                <div class="stat"><span>Quota headroom</span><b>{{g.head}}</b></div>
-                <div class="stat"><span>Largest placement</span><b>{{g.largest}}</b></div>
+              <div class="stats two">
+                <div class="stat"><span>CPU commitment</span><b>{{g.cpuCommit}}</b><small>quota headroom {{g.cpuHead}}</small></div>
+                <div class="stat"><span>Memory commitment</span><b>{{g.memCommit}}</b><small>quota headroom {{g.memHead}}</small></div>
+                <div class="stat"><span>Largest placement</span><b>{{g.largest}}</b><small>{{g.largestOn}}</small></div>
+                <div class="stat"><span>Bound by</span><b>{{g.bound}}</b><small>{{g.boundWhy}}</small></div>
               </div>
               <p class="foot">{{g.note}}</p>
             </div>
@@ -614,15 +724,15 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
           <h3 class="lbl">Clusters in your scope</h3>
           <div class="tablebox">
             <table class="res">
-              <thead><tr><th>Cluster</th><th>Env</th><th>Region</th><th>Zones</th><th>CPU commitment</th><th></th><th>Quota headroom</th><th>Snapshot</th><th>Status</th></tr></thead>
+              <thead><tr><th>Cluster</th><th>Env</th><th>Zones</th><th>CPU commitment</th><th>Memory commitment</th><th>Quota headroom</th><th>Bound by</th><th>Snapshot</th><th>Status</th></tr></thead>
               <tbody>
                 <sc-for list="{{clusters}}" as="c" hint-placeholder-count="6">
-                  <tr><td>{{c.id}}</td><td>{{c.env}}</td><td>{{c.region}}</td><td>{{c.zones}}</td><td><div class="bar"><i class="{{c.barCls}}" style="width: {{c.pct}}"></i></div></td><td>{{c.commit}}</td><td>{{c.head}}</td><td>{{c.snap}}</td><td><span class="pill {{c.tone}}">{{c.status}}</span></td></tr>
+                  <tr><td>{{c.id}}</td><td>{{c.env}}</td><td>{{c.zones}}</td><td><div class="use"><div class="bar"><i class="{{c.cpuBar}}" style="width: {{c.cpuPct}}"></i></div><span class="meta">{{c.cpuCommit}}</span></div></td><td><div class="use"><div class="bar"><i class="{{c.memBar}}" style="width: {{c.memPct}}"></i></div><span class="meta">{{c.memCommit}}</span></div></td><td>{{c.head}}</td><td>{{c.bound}}</td><td>{{c.snap}}</td><td><span class="pill {{c.tone}}">{{c.status}}</span></td></tr>
                 </sc-for>
               </tbody>
             </table>
           </div>
-          <p class="foot">Prod targets: commitment warns at 80% and is critical at 90%. Overcommit: CPU rnd 2.0, prod 1.0; memory rnd 1.25, prod 1.0.</p>
+          <p class="foot">{{capFoot}}</p>
         </div>
       </div>
     </sc-if>
@@ -665,7 +775,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"instance":{"editor":"enum","options":["nonprod","staging","prod"],"default":"nonprod"},"startTab":{"editor":"enum","options":["workflow","new","requests","approvals","capacity"],"default":"workflow"},"$preview":{"width":1320,"height":1720}}'>
+<script type="text/x-dc" data-dc-script data-props='{"instance":{"editor":"enum","options":["nonprod","staging","prod"],"default":"nonprod"},"startTab":{"editor":"enum","options":["workflow","new","quotas","requests","approvals","capacity","kpis"],"default":"workflow"},"$preview":{"width":1320,"height":1720}}'>
 var BASE = Date.parse("2026-11-03T17:05:00Z");
 function clock(t) { return new Date(BASE + t * 1000).toISOString().slice(11, 19); }
 function dur(t) { var m = Math.floor(t / 60), s = t % 60; return (m ? m + " min " : "") + s + " s"; }
@@ -732,13 +842,13 @@ function createScenario(o) {
       { s: "pass", l: top.cluster + " ranked first, reserved", n: "score " + top.score },
       o.excluded.length ? { s: "warn", l: o.excluded.length + " cluster" + (o.excluded.length > 1 ? "s" : "") + " excluded with a reason", n: o.excluded.map(function (x) { return x.reason; }).join(", ") } : { s: "pass", l: "No cluster excluded", n: "" }
     ],
-    code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 } }; if (prod) c.cpu.zoneFailureHeadroomAfter = r.zf; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
+    code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 }, memory: { quotaHeadroomBefore: r.mem + "Gi", quotaHeadroomAfter: (r.mem - 32) + "Gi" } }; if (prod) { c.cpu.zoneFailureHeadroomAfter = r.zf; c.memory.zoneFailureHeadroomAfter = r.zfMem + "Gi"; } c.boundBy = (r.before - 16) / r.before <= (r.mem - 32) / r.mem ? "cpu" : "memory"; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
     apply: function (s) {
       s.node.api = "Reserved on " + top.cluster; s.node.capacity = "Rows read (no Thanos call)"; s.node.caller = "Placement received";
       s.cap = { title: "Placement · " + o.placementId, pill: { t: "reserved 15 min", tone: "info" },
-        meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit,
-        cols: prod ? ["Cluster", "Score", "CPU headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "p95"],
-        rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16)]; if (prod) row.push(String(r.zf)); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason]; if (prod) row.push("—"); row.push("—"); return row; })),
+        meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit + ", memory " + { rnd: "1.25", dev: "1.25", qa: "1.1", uat: "1.0", prod: "1.0" }[o.env],
+        cols: prod ? ["Cluster", "Score", "CPU headroom", "Memory headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "Memory headroom", "p95"],
+        rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16), r.mem + " → " + (r.mem - 32) + " Gi"]; if (prod) row.push(r.zf + " cores · " + r.zfMem + " Gi"); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason, "—"]; if (prod) row.push("—"); row.push("—"); return row; })),
         note: o.excluded.length ? "Excluded: " + o.excluded.map(function (x) { return x.cluster + " " + x.detail; }).join("; ") + "." : "Every candidate passed the hard filters." };
       ev(s, 0, "placed", "api-bot", o.placementId + ": " + top.cluster + " reserved for 15 min", "ok");
     }
@@ -875,7 +985,7 @@ function quotaScenario() {
     argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
       resources: [
         { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: medium" },
-        { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16" },
+        { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 · memory 32Gi" },
         { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
       ] },
     events: [], blocked: {}
@@ -883,7 +993,7 @@ function quotaScenario() {
   var steps = [];
   steps.push({
     lane: "caller", title: "Ask for a bigger tier",
-    body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its CPU quota from 16 to 32 cores. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
+    body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its quota from 16 to 32 cores and from 32 to 64 Gi of memory. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
     code: { label: "PATCH /api/v1/clusters/" + c + "/namespaces/" + ns, text: 'curl -s -X PATCH "$CMAPI/clusters/' + c + '/namespaces/' + ns + '" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/merge-patch+json" \\\n  -H "Idempotency-Key: 3d9e0b7a-55c1-4f0e-8a2b-6f1d9c4e2a77" \\\n' + "  -H 'If-Match: \"9b2e4f1c8a7d\"' \\\n  -d '{\"clusterId\": \"" + c + "\", \"tier\": \"large\",\n       \"justification\": \"Peak-season load test\"}'" },
     apply: function (s) { s.node.caller = "PATCH sent"; s.node.api = "Receiving"; }
   });
@@ -906,7 +1016,7 @@ function quotaScenario() {
       { s: "pass", l: "Coverage 98% of 14 days", n: "minimum 80%" },
       { s: "warn", l: "32 cores is 3.3× the 14-day peak", n: "threshold 3×" }
     ],
-    code: { label: "GET /v1/clusters/" + c + "/namespaces/" + ns + "/usage?window=14d (internal)", text: "                 now    7d avg   14d p95   14d peak   quota\ncpu (cores)      6.1    5.4      8.2       9.6        16 → 32\nmemory (Gi)      11.8   10.9     15.9      17.2       32 → 64\nrequest / peak   32 / 9.6 = 3.3   > 3, flagged" },
+    code: { label: "GET /v1/clusters/" + c + "/namespaces/" + ns + "/usage?window=14d (internal)", text: "                 now    7d avg   14d p95   14d peak   quota\ncpu (cores)      6.1    5.4      8.2       9.6        16 → 32\nmemory (Gi)      11.8   10.9     15.9      17.2       32 → 64\nrequest / peak   cpu 32 / 9.6 = 3.3 · memory 64 / 17.2 = 3.7   > 3, flagged" },
     apply: function (s) {
       s.node.capacity = "Thanos read, cached 10 min"; s.node.api = "Planning";
       s.cap = { title: "Live usage · " + ns + " · 14 days", pill: { t: "not stored", tone: "info" },
@@ -918,10 +1028,10 @@ function quotaScenario() {
   });
   steps.push({
     lane: "api", title: "Plan and capacity check",
-    body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores of quota headroom, 48 after this change.",
+    body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores and 192 Gi of quota headroom: 48 cores and 160 Gi after this change. CPU and memory are checked separately, and either one alone can refuse a change.",
     checks: [
       { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
-      { s: "pass", l: "Cluster capacity fits", n: "headroom 64 → 48 cores, prod overcommit 1.0" },
+      { s: "pass", l: "Cluster capacity fits", n: "cpu 64 → 48 cores · memory 192 → 160 Gi · overcommit 1.0" },
       { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" }
     ],
     code: { label: "Diff · " + file, diff: true, text: "@@ labels @@\n   cmapi.net/cluster-id: " + c + "\n-  cmapi.net/tier: medium\n+  cmapi.net/tier: large\n   cmapi.net/team: payments" },
@@ -940,7 +1050,7 @@ function quotaScenario() {
   steps.push({
     lane: "git", title: "Pull request with the evidence",
     body: "The worker opens PR #" + pr + " with the one-line change and the usage table in its body, so reviewers see the numbers next to the diff. CI re-runs the bundle and kubeconform; approval-count waits for two eligible reviews.",
-    code: { label: "PR #" + pr + " body (excerpt)", text: "cmapi plan · " + c + " · " + ns + " (tier medium → large)\n                 now    7d avg   14d peak   quota\ncpu (cores)      6.1    5.4      9.6        16 → 32\nmemory (Gi)      11.8   10.9     17.2       32 → 64\nflag             request 3.3× 14-day peak (threshold 3×)\ncluster          quota headroom 64 → 48 cores, fits\napproval         prod-change · 2 (prod-approvers, platform-leads)" },
+    code: { label: "PR #" + pr + " body (excerpt)", text: "cmapi plan · " + c + " · " + ns + " (tier medium → large)\n                 now    7d avg   14d peak   quota\ncpu (cores)      6.1    5.4      9.6        16 → 32\nmemory (Gi)      11.8   10.9     17.2       32 → 64\nflag             request 3.3× 14-day peak (threshold 3×)\ncluster          quota headroom cpu 64 → 48 cores, memory 192 → 160 Gi, fits\napproval         prod-change · 2 (prod-approvers, platform-leads)" },
     apply: function (s) {
       s.req.status = "pr_open"; s.req.pr = "#" + pr;
       s.pr = { num: pr, title: "Change tier of " + ns + " to large on " + c, branch: branch, state: "open", label: "approval/prod-change-2",
@@ -972,7 +1082,7 @@ function quotaScenario() {
     apply: function (s) {
       s.argo.rev = sha;
       s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: large" };
-      s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32" };
+      s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32 · memory 32Gi → 64Gi" };
       s.req.status = "synced"; s.req.lead = dur(3720);
       s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
       ev(s, 3720, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
@@ -1201,19 +1311,19 @@ var SCENARIOS = [
   { id: "rnd-create", label: "New namespace · rnd", meta: "placed · auto-approved", build: function () {
     return createScenario({ inst: "nonprod", aud: "cmapi-nonprod", env: "rnd", cluster: "OCP_GF6", ns: "payments-rnd", reqId: "req-20261103-81bd", idem: "c41b77e0-9e2a-4d61-8b3f-2a6d0e5c9b18",
       placementId: "pl-20261103-5e17", overcommit: "2.0", pr: 413, branch: "OCP_GF6/payments-rnd/req-20261103-81bd", sha: "e90b3d4", prevSha: "4c1f8a2",
-      ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, p95: 0.62 }],
+      ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, mem: 410, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
       excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
       times: { validated: 3, pr: 5, ci: 120, merged: 124, synced: 300 } }); } },
   { id: "prod-create", label: "New namespace · prod", meta: "placed · 1 approval", build: function () {
     return createScenario({ inst: "prod", aud: "cmapi-prod", env: "prod", cluster: "OCP_GF1", ns: "payments-prod", reqId: "req-20261103-7f3a", idem: "7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40",
       placementId: "pl-20261103-2c81", overcommit: "1.0", pr: 412, branch: "OCP_GF1/payments-prod/req-20261103-7f3a", sha: "a41c9e2", prevSha: "5f02b1d", reviewer: "sre-lead@ephico2real.com",
-      ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, zf: 21, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, zf: 3, p95: 0.58 }],
+      ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, mem: 192, zf: 21, zfMem: 78, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, mem: 230, zf: 3, zfMem: 88, p95: 0.58 }],
       excluded: [{ cluster: "OCP_GF4", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }, { cluster: "OCP_GF5", reason: "zone-failure-headroom", detail: "needs 16 cores, 9 left without zone c" }],
       times: { validated: 3, pr: 5, ci: 130, approved: 2640, merged: 2760, synced: 2980 } }); } },
   { id: "qa-create", label: "New namespace · qa", meta: "placed · 1 approval", build: function () {
     return createScenario({ inst: "staging", aud: "cmapi-staging", env: "qa", cluster: "OCP_GF11", ns: "payments-qa", reqId: "req-20261103-3d51", idem: "3d51e0a2-77c4-4b19-a0f6-5e2b8c1d9f03",
       placementId: "pl-20261103-91aa", overcommit: "1.5", pr: 431, branch: "OCP_GF11/payments-qa/req-20261103-3d51", sha: "b72e019", prevSha: "7aa0c13", reviewer: "qa-lead@ephico2real.com",
-      ranked: [{ cluster: "OCP_GF11", score: 74, before: 70, p95: 0.38 }, { cluster: "OCP_GF12", score: 58, before: 44, p95: 0.55 }],
+      ranked: [{ cluster: "OCP_GF11", score: 74, before: 70, mem: 150, p95: 0.38 }, { cluster: "OCP_GF12", score: 58, before: 44, mem: 96, p95: 0.55 }],
       excluded: [],
       times: { validated: 3, pr: 5, ci: 125, approved: 1980, merged: 2040, synced: 2210 } }); } },
   { id: "quota-change", label: "Quota increase · prod", meta: "live 14-day usage · 2 approvals", build: quotaScenario },
@@ -1225,13 +1335,13 @@ var SCENARIOS = [
 ];
 var INSTANCE_SCN = { nonprod: ["rnd-create", "cluster-import", "wrong-nonprod"], staging: ["qa-create", "wrong-staging"], prod: ["prod-create", "quota-change", "policy-reject", "wrong-prod"] };
 
-var TIERS = { small: { cpu: 8, mem: "16Gi", pods: 50 }, medium: { cpu: 16, mem: "32Gi", pods: 100 }, large: { cpu: 32, mem: "64Gi", pods: 200 } };
+var TIERS = { small: { cpu: 8, mem: "16Gi", memGi: 16, pods: 50 }, medium: { cpu: 16, mem: "32Gi", memGi: 32, pods: 100 }, large: { cpu: 32, mem: "64Gi", memGi: 64, pods: 200 } };
 var PLACE = {
-  rnd: { overcommit: "2.0", ranked: [{ c: "OCP_GF6", score: 78, head: 96, p95: 0.33 }, { c: "OCP_GF8", score: 61, head: 52, p95: 0.62 }], excluded: [{ c: "OCP_GF7", reason: "stale-data", detail: "newest snapshot 15:30, older than 2 intervals" }] },
-  dev: { overcommit: "2.0", ranked: [{ c: "OCP_GF15", score: 76, head: 88, p95: 0.29 }], excluded: [] },
-  qa: { overcommit: "1.5", ranked: [{ c: "OCP_GF11", score: 74, head: 70, p95: 0.38 }, { c: "OCP_GF12", score: 58, head: 44, p95: 0.55 }], excluded: [] },
-  uat: { overcommit: "1.25", ranked: [{ c: "OCP_GF13", score: 71, head: 60, p95: 0.44 }], excluded: [{ c: "OCP_GF14", reason: "placement off", detail: "placement.enabled: false (maintenance)" }] },
-  prod: { overcommit: "1.0", ranked: [{ c: "OCP_GF1", score: 82, head: 64, zf: 37, p95: 0.41 }, { c: "OCP_GF2", score: 67, head: 40, zf: 19, p95: 0.58 }], excluded: [{ c: "OCP_GF4", reason: "stale-data", detail: "newest snapshot 15:30, older than 2 intervals" }, { c: "OCP_GF5", reason: "zone-failure", detail: "9 cores left without zone c" }] }
+  rnd: { overcommit: "2.0", ranked: [{ c: "OCP_GF6", score: 78, head: 96, mem: 410, p95: 0.33 }, { c: "OCP_GF8", score: 61, head: 52, mem: 140, p95: 0.62 }], excluded: [{ c: "OCP_GF7", reason: "stale-data", detail: "newest snapshot 15:30, older than 2 intervals" }] },
+  dev: { overcommit: "2.0", ranked: [{ c: "OCP_GF15", score: 76, head: 88, mem: 150, p95: 0.29 }], excluded: [] },
+  qa: { overcommit: "1.5", ranked: [{ c: "OCP_GF11", score: 74, head: 70, mem: 150, p95: 0.38 }, { c: "OCP_GF12", score: 58, head: 44, mem: 96, p95: 0.55 }], excluded: [] },
+  uat: { overcommit: "1.25", ranked: [{ c: "OCP_GF13", score: 71, head: 60, mem: 128, p95: 0.44 }], excluded: [{ c: "OCP_GF14", reason: "placement off", detail: "placement.enabled: false (maintenance)" }] },
+  prod: { overcommit: "1.0", ranked: [{ c: "OCP_GF1", score: 82, head: 64, mem: 192, zf: 37, zfMem: 110, p95: 0.41 }, { c: "OCP_GF2", score: 67, head: 40, mem: 230, zf: 19, zfMem: 120, p95: 0.58 }], excluded: [{ c: "OCP_GF4", reason: "stale-data", detail: "newest snapshot 15:30, older than 2 intervals" }, { c: "OCP_GF5", reason: "zone-failure", detail: "9 cores left without zone c" }] }
 };
 var APPROVER = { rnd: "platform-leads", dev: "platform-leads", qa: "qa-leads", uat: "uat-leads", prod: "prod-approvers" };
 
@@ -1276,41 +1386,70 @@ var REQUESTS = {
 var CAPACITY = {
   nonprod: {
     groups: [
-      { name: "us-central · rnd", status: "ok", tone: "ok", meta: "3 of 4 clusters · coverage 0.75 · OCP_GF7 left out: stale-data", commit: "47%", head: "484 cores", largest: "336 cores", note: "OCP_GF9 is being onboarded and holds most of the free rnd capacity once registered." },
-      { name: "us-central · dev", status: "ok", tone: "ok", meta: "1 of 1 cluster · coverage 1.0", commit: "41%", head: "88 cores", largest: "88 cores", note: "dev takes rnd's overcommit (CPU 2.0, memory 1.25) until its own settings are agreed." }
+      { name: "us-central · rnd", status: "ok", tone: "ok", meta: "3 of 4 clusters · coverage 0.75 · OCP_GF7 left out: stale-data", cpuCommit: "47%", cpuHead: "484 cores", memCommit: "44%", memHead: "1.66 Ti", largest: "336 cores · 1150 Gi", largestOn: "on OCP_GF9", bound: "cpu", boundWhy: "cpu 47% vs memory 44% committed", note: "OCP_GF9 is being onboarded and holds most of the free rnd capacity once registered." },
+      { name: "us-central · dev", status: "ok", tone: "ok", meta: "1 of 1 cluster · coverage 1.0", cpuCommit: "41%", cpuHead: "88 cores", memCommit: "63%", memHead: "150 Gi", largest: "88 cores · 150 Gi", largestOn: "on OCP_GF15", bound: "memory", boundWhy: "memory 63% vs cpu 41% committed", note: "dev takes rnd's overcommit (CPU 2.0, memory 1.25) until its own settings are agreed. Memory runs ahead of CPU here: a namespace asking for more than 150 Gi does not fit, though 88 cores are free." }
     ],
     clusters: [
-      { id: "OCP_GF6", env: "rnd", zones: "1a · 1b · 1c", c: 0.58, head: "96", snap: "17:00", status: "ok" },
-      { id: "OCP_GF7", env: "rnd", zones: "1a · 1b", c: null, head: "—", snap: "15:30", status: "stale" },
-      { id: "OCP_GF8", env: "rnd", zones: "1a · 1b · 1c", c: 0.71, head: "52", snap: "17:00", status: "ok" },
-      { id: "OCP_GF9", env: "rnd", zones: "1a · 1b · 1c", c: 0.13, head: "336", snap: "17:30", status: "new" },
-      { id: "OCP_GF15", env: "dev", zones: "1a · 1b", c: 0.41, head: "88", snap: "17:00", status: "ok" }
+      { id: "OCP_GF6", env: "rnd", zones: "1a · 1b · 1c", c: 0.58, m: 0.52, head: "96", memHead: "410", snap: "17:00", status: "" },
+      { id: "OCP_GF7", env: "rnd", zones: "1a · 1b", c: null, m: null, head: "—", memHead: "—", snap: "15:30", status: "stale" },
+      { id: "OCP_GF8", env: "rnd", zones: "1a · 1b · 1c", c: 0.71, m: 0.78, head: "52", memHead: "140", snap: "17:00", status: "" },
+      { id: "OCP_GF9", env: "rnd", zones: "1a · 1b · 1c", c: 0.13, m: 0.10, head: "336", memHead: "1150", snap: "17:30", status: "new" },
+      { id: "OCP_GF15", env: "dev", zones: "1a · 1b", c: 0.41, m: 0.63, head: "88", memHead: "150", snap: "17:00", status: "" }
     ]
   },
   staging: {
     groups: [
-      { name: "us-central · qa", status: "ok", tone: "ok", meta: "2 of 2 clusters · coverage 1.0", commit: "63%", head: "114 cores", largest: "70 cores", note: "qa overcommit: CPU 1.5, memory 1.1." },
-      { name: "us-central · uat", status: "ok", tone: "ok", meta: "1 of 2 clusters · OCP_GF14 placement off (maintenance)", commit: "69%", head: "60 cores", largest: "60 cores", note: "uat overcommit: CPU 1.25, memory 1.0." }
+      { name: "us-central · qa", status: "ok", tone: "ok", meta: "2 of 2 clusters · coverage 1.0", cpuCommit: "63%", cpuHead: "114 cores", memCommit: "70%", memHead: "246 Gi", largest: "70 cores · 150 Gi", largestOn: "on OCP_GF11", bound: "memory", boundWhy: "memory 70% vs cpu 63% committed", note: "qa overcommit: CPU 1.5, memory 1.1." },
+      { name: "us-central · uat", status: "ok", tone: "ok", meta: "1 of 2 clusters · OCP_GF14 placement off (maintenance)", cpuCommit: "69%", cpuHead: "60 cores", memCommit: "72%", memHead: "128 Gi", largest: "60 cores · 128 Gi", largestOn: "on OCP_GF13", bound: "memory", boundWhy: "memory 72% vs cpu 69% committed", note: "uat overcommit: CPU 1.25, memory 1.0." }
     ],
     clusters: [
-      { id: "OCP_GF11", env: "qa", zones: "1a · 1b · 1c", c: 0.61, head: "70", snap: "17:00", status: "ok" },
-      { id: "OCP_GF12", env: "qa", zones: "1a · 1b", c: 0.66, head: "44", snap: "17:00", status: "ok" },
-      { id: "OCP_GF13", env: "uat", zones: "1a · 1b · 1c", c: 0.69, head: "60", snap: "17:00", status: "ok" },
-      { id: "OCP_GF14", env: "uat", zones: "1a · 1b · 1c", c: 0.74, head: "—", snap: "17:00", status: "off" }
+      { id: "OCP_GF11", env: "qa", zones: "1a · 1b · 1c", c: 0.61, m: 0.66, head: "70", memHead: "150", snap: "17:00", status: "" },
+      { id: "OCP_GF12", env: "qa", zones: "1a · 1b", c: 0.66, m: 0.74, head: "44", memHead: "96", snap: "17:00", status: "" },
+      { id: "OCP_GF13", env: "uat", zones: "1a · 1b · 1c", c: 0.69, m: 0.72, head: "60", memHead: "128", snap: "17:00", status: "" },
+      { id: "OCP_GF14", env: "uat", zones: "1a · 1b · 1c", c: 0.74, m: 0.70, head: "—", memHead: "—", snap: "17:00", status: "off" }
     ]
   },
   prod: {
     groups: [
-      { name: "us-central · prod", status: "warn · 1 of 3", tone: "warn", meta: "3 of 4 clusters · coverage 0.75 · OCP_GF4 left out: stale-data", commit: "82%", head: "129 cores", largest: "64 cores", note: "Zone-failure headroom 46 cores across the group. A 100-core prod namespace does not fit on any single cluster here." }
+      { name: "us-central · prod", status: "warn · 2 of 3", tone: "warn", meta: "3 of 4 clusters · coverage 0.75 · OCP_GF4 left out: stale-data", cpuCommit: "82%", cpuHead: "129 cores", memCommit: "81%", memHead: "518 Gi", largest: "64 cores · 192 Gi", largestOn: "on OCP_GF1", bound: "cpu and memory", boundWhy: "cpu on OCP_GF2, memory on OCP_GF5", note: "Zone-failure headroom 65 cores and 270 Gi across the group. A 100-core prod namespace does not fit on any single cluster here, and OCP_GF5 is limited by memory, not CPU." }
     ],
     clusters: [
-      { id: "OCP_GF1", env: "prod", zones: "1a · 1b · 1c", c: 0.78, head: "64", snap: "17:00", status: "ok" },
-      { id: "OCP_GF2", env: "prod", zones: "1a · 1b · 1c", c: 0.88, head: "40", snap: "17:00", status: "warn" },
-      { id: "OCP_GF4", env: "prod", zones: "1a · 1b", c: null, head: "—", snap: "15:30", status: "stale" },
-      { id: "OCP_GF5", env: "prod", zones: "1a · 1b · 1c", c: 0.79, head: "25", snap: "17:00", status: "ok" }
+      { id: "OCP_GF1", env: "prod", zones: "1a · 1b · 1c", c: 0.78, m: 0.76, head: "64", memHead: "192", snap: "17:00", status: "" },
+      { id: "OCP_GF2", env: "prod", zones: "1a · 1b · 1c", c: 0.88, m: 0.79, head: "40", memHead: "230", snap: "17:00", status: "" },
+      { id: "OCP_GF4", env: "prod", zones: "1a · 1b", c: null, m: null, head: "—", memHead: "—", snap: "15:30", status: "stale" },
+      { id: "OCP_GF5", env: "prod", zones: "1a · 1b · 1c", c: 0.79, m: 0.87, head: "25", memHead: "96", snap: "17:00", status: "" }
     ]
   }
 };
+var OVERCOMMIT = { rnd: [2.0, 1.25], dev: [2.0, 1.25], qa: [1.5, 1.1], uat: [1.25, 1.0], prod: [1.0, 1.0] };
+var TARGETS = { rnd: [0.85, 0.95], dev: [0.85, 0.95], qa: [0.85, 0.95], uat: [0.85, 0.95], prod: [0.8, 0.9] };
+var ZONE_LOSS = { OCP_GF1: [37, 110], OCP_GF2: [19, 120], OCP_GF5: [9, 40] };
+function capCluster(id) { for (var k in CAPACITY) { var l = CAPACITY[k].clusters; for (var j = 0; j < l.length; j++) if (l[j].id === id) return l[j]; } return null; }
+function level(x, env) { if (x == null) return 0; var tg = TARGETS[env]; return x >= tg[1] ? 2 : (x >= tg[0] ? 1 : 0); }
+
+/* Namespace quotas per instance, as GET /api/v1/quotas returns them: ResourceQuota status from the watch
+   cache (used = sum of pod requests), plus the latest verdict from the daily sweep. usage = live 14-day
+   figures cmapi-capacity returns when a change is planned: [now, 7d avg, p95, peak]. */
+var QUOTAS = {
+  nonprod: [
+    { ns: "ledger-rnd", cluster: "OCP_GF8", env: "rnd", tier: "small", cpu: [7.4, 8], mem: [13.9, 16], pods: [41, 50], etag: "51c0e9a2b7d4", verdict: "quota-tight", vTone: "bad", vNote: "Requests use 93% of the CPU quota and 87% of memory, and the 14-day CPU peak reached 7.3 of 8 cores. New pods will soon be refused at admission.", rec: { id: "rec-ledger-rnd-0412", tier: "medium", text: "Raise to tier medium (16 cores, 32 Gi): peak plus the rnd buffer of 1.10." }, usage: { cpu: [5.9, 5.2, 6.8, 7.3], mem: [12.1, 11.6, 13.4, 14.0] }, rid: "req-20261103-a7e1" },
+    { ns: "payments-dev", cluster: "OCP_GF15", env: "dev", tier: "medium", cpu: [3.0, 16], mem: [27.5, 32], pods: [30, 100], etag: "e2a91c07f3b5", verdict: "quota-tight · memory", vTone: "warn", vNote: "CPU has plenty of room (19% requested), but memory requests are at 86% of the quota with a 14-day peak of 27 Gi. This namespace is limited by memory, not CPU.", rec: { id: "rec-payments-dev-0388", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. A bigger tier would also double CPU it does not use." }, usage: { cpu: [0.9, 0.8, 1.3, 1.6], mem: [24.1, 23.5, 26.2, 27.0] }, rid: "req-20261103-b204" },
+    { ns: "ledger-dev", cluster: "OCP_GF15", env: "dev", tier: "small", cpu: [1.1, 8], mem: [3.2, 16], pods: [9, 50], etag: "0c7d2e9a14f8", verdict: "idle", vTone: "info", vNote: "CPU p95 under 0.05 cores and memory p95 under 128 MiB for 7 days, rnd's idle period. Lowering the quota returns capacity to the cluster.", rec: null, usage: { cpu: [0.02, 0.03, 0.04, 0.05], mem: [0.09, 0.10, 0.11, 0.12] }, rid: "req-20261103-c91f" }
+  ],
+  staging: [
+    { ns: "ledger-qa", cluster: "OCP_GF11", env: "qa", tier: "medium", cpu: [9.8, 16], mem: [21.0, 32], pods: [44, 100], etag: "7b3f0d21c9e4", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the qa thresholds.", rec: null, usage: { cpu: [6.0, 5.5, 7.9, 8.6], mem: [16.3, 15.8, 18.9, 19.6] }, rid: "req-20261103-d3a8" },
+    { ns: "payments-uat", cluster: "OCP_GF13", env: "uat", tier: "large", cpu: [11.0, 32], mem: [30.2, 64], pods: [52, 200], etag: "93e1a5f0b2c6", verdict: "quota-oversized", vTone: "warn", vNote: "The 14-day peak is 5.2 cores and 18.4 Gi, under half of the large tier on both. uat decreases are never auto-approved.", rec: { id: "rec-payments-uat-0201", tier: "medium", text: "Lower to tier medium (16 cores, 32 Gi): still 3× the CPU peak and 1.7× the memory peak." }, usage: { cpu: [3.1, 2.8, 4.6, 5.2], mem: [14.0, 13.1, 17.5, 18.4] }, rid: "req-20261103-e57b" },
+    { ns: "ledger-uat", cluster: "OCP_GF13", env: "uat", tier: "small", cpu: [6.4, 8], mem: [15.1, 16], pods: [27, 50], etag: "4d8c2b6e0a19", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 94% of the quota. The next rollout surge will be refused at admission.", rec: { id: "rec-ledger-uat-0117", cpu: 8, mem: 24, text: "Custom: keep 8 cores, raise memory to 24 Gi." }, usage: { cpu: [3.0, 2.7, 4.1, 4.4], mem: [13.2, 12.9, 14.6, 14.9] }, rid: "req-20261103-f0c2" }
+  ],
+  prod: [
+    { ns: "payments-prod", cluster: "OCP_GF1", env: "prod", tier: "medium", cpu: [14.0, 16], mem: [28.0, 32], pods: [61, 100], etag: "9b2e4f1c8a7d", verdict: "requests-oversized", vTone: "warn", vNote: "Pods request 14 cores but used at most 9.6 over 14 days. Lowering pod requests would free quota without a bigger tier.", rec: null, usage: { cpu: [6.1, 5.4, 8.2, 9.6], mem: [11.8, 10.9, 15.9, 17.2] }, rid: "req-20261103-9c02", lock: { id: "req-20261103-9c02", what: "tier medium → large", approval: "prod-change · 0 of 2" } },
+    { ns: "ledger-prod", cluster: "OCP_GF2", env: "prod", tier: "large", cpu: [18.0, 32], mem: [51.0, 64], pods: [120, 200], etag: "2f6a0c9e7d13", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the prod thresholds.", rec: null, usage: { cpu: [11.2, 10.4, 14.8, 16.1], mem: [38.0, 37.1, 44.2, 46.0] }, rid: "req-20261103-1a4d" },
+    { ns: "payments-batch-prod", cluster: "OCP_GF5", env: "prod", tier: "medium", cpu: [6.0, 16], mem: [30.5, 32], pods: [22, 100], etag: "c4e8b1a07f29", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 95% of the quota and the 14-day peak is 30.1 Gi. CPU is not the problem: 6 of 16 cores requested.", rec: { id: "rec-payments-batch-prod-0093", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. OCP_GF5 is itself memory-bound, so this needs the zone-failure check." }, usage: { cpu: [2.2, 2.0, 3.9, 4.5], mem: [26.8, 25.9, 29.4, 30.1] }, rid: "req-20261103-6b3e" }
+  ]
+};
+var CHANGE_RULE = { rnd: 0, dev: 0, qa: 1, uat: 1, prod: 1 };
+function fmt(n) { return (Math.round(n * 10) / 10).toString(); }
+function pctBar(used, hard) { var r = hard ? used / hard : 0; return { pct: Math.min(100, Math.round(r * 100)) + "%", bar: r >= 0.95 ? "crit" : (r >= 0.8 ? "warn" : ""), text: fmt(used) + " / " + fmt(hard), r: r }; }
 var PENDING = { nonprod: 0, staging: 1, prod: 1 };
 
 /* KPI board per instance: value, target, status. Illustrative values; the real ones come from the KPI recording rules. */
@@ -1343,7 +1482,7 @@ var KPIS = {
     kpi("Drift events (7 d)", "1", "0 a week", "warn", "cmapi_sync_drift_total"),
     kpi("Placement accuracy", "0 breaches", "0 in the 30-day backtest", "ok", "cmapi_placement_backtest_breaches"),
     kpi("Capacity freshness", "75%", "100% of clusters", "warn", "cmapi_capacity_snapshot_age_seconds"),
-    kpi("Cluster headroom", "1 of 4 below 20%", "above 20% on every cluster", "warn", "cmapi_cluster_quota_headroom"),
+    kpi("Cluster headroom", "2 of 4 below 20% (cpu or memory)", "above 20% on every cluster, per resource", "warn", "cmapi_cluster_quota_headroom{resource}"),
     kpi("API availability (30 d)", "99.7%", "99.5% monthly", "ok", "cmapi_http_requests_total")
   ]
 };
@@ -1351,8 +1490,8 @@ var DASHBOARDS = [
   { name: "Service health", id: "cmapi-service-health", what: "Requests, errors and latency for api, worker and cmapi-capacity; backlog" },
   { name: "Change flow (KPI board)", id: "cmapi-change-flow", what: "Lead time, approval wait, failure rate, drift, self-service rate" },
   { name: "Approvals", id: "cmapi-approvals", what: "Backlog by rule, auto-approvals by policy, fallbacks by guard, kill switch" },
-  { name: "Capacity and placement", id: "cmapi-capacity", what: "Commitment and headroom by environment, region and zone; exclusions; snapshot age" },
-  { name: "Namespace efficiency", id: "cmapi-namespace-efficiency", what: "Slack cores, verdicts, recommendations, capacity recovered" },
+  { name: "Capacity and placement", id: "cmapi-capacity", what: "CPU and memory commitment and headroom by environment, region and zone; exclusions; snapshot age" },
+  { name: "Namespace efficiency", id: "cmapi-namespace-efficiency", what: "Slack cores and memory, verdicts, recommendations, capacity recovered" },
   { name: "Fleet dependencies", id: "cmapi-fleet-dependencies", what: "Cluster status and token expiry, cluster API, Thanos and Git latency" },
   { name: "Access", id: "cmapi-access", what: "Auth failures, denied permissions, JWKS refreshes, Keycloak" }
 ];
@@ -1368,7 +1507,7 @@ class Component extends DCLogic {
   constructor(props) {
     super(props);
     var inst = (props && props.instance) || "nonprod";
-    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all" };
+    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all", qns: null, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false, qfilter: "all" };
     this._cache = {};
   }
   componentWillUnmount() { if (this._timer) clearInterval(this._timer); }
@@ -1376,7 +1515,7 @@ class Component extends DCLogic {
   stopPlay() { if (this._timer) { clearInterval(this._timer); this._timer = null; } }
   openScn(id, at, reqId) { this.stopPlay(); this.setState({ tab: "workflow", scn: id, i: at || 0, pos: at != null ? { scn: id, i: at, id: reqId } : null, playing: false }); }
   go(i) { var n = this.data(this.state.scn).steps.length; this.setState({ i: Math.max(0, Math.min(i, n - 1)) }); }
-  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "" }); }
+  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "", qns: null, qsize: null, qplan: false, qsent: false }); }
 
   workflow() {
     var self = this, st = this.state, d = this.data(st.scn), n = d.steps.length, i = Math.min(st.i, n - 1), step = d.steps[i];
@@ -1429,10 +1568,87 @@ class Component extends DCLogic {
       cap: cap, pr: pr, argo: argo, counter: (i + 1) + " / " + n, atStart: i === 0, atEnd: i === n - 1, playing: st.playing ? "true" : "false", playLabel: st.playing ? "Pause" : "Play" };
   }
 
+  quotaView(me) {
+    var self = this, st = this.state, all = QUOTAS[st.inst];
+    var cur = all.filter(function (x) { return x.ns === st.qns; })[0] || all[0];
+    var near = function (x) { return x.cpu[0] / x.cpu[1] >= 0.8 || x.mem[0] / x.mem[1] >= 0.8 || x.pods[0] / x.pods[1] >= 0.8; };
+    var filters = [["all", "All"], ["near", "Near limit"], ["flagged", "Flagged by sweep"]].map(function (f) { return { label: f[1], cls: f[0] === st.qfilter ? "on" : "", on: f[0] === st.qfilter ? "true" : "false", pick: function () { self.setState({ qfilter: f[0] }); } }; });
+    var pick = function (x) { self.setState({ qns: x.ns, qsize: null, qcpu: null, qmem: null, qplan: false, qsent: false }); };
+    var list = all.filter(function (x) { return st.qfilter === "all" || (st.qfilter === "near" ? near(x) : x.verdict !== "right-sized"); }).map(function (x) {
+      var c = pctBar(x.cpu[0], x.cpu[1]), m = pctBar(x.mem[0], x.mem[1]);
+      return { ns: x.ns, cluster: x.cluster, env: x.env, tier: x.tier, cpuPct: c.pct, cpuBar: c.bar, cpuText: c.text + " cores", memPct: m.pct, memBar: m.bar, memText: m.text + " Gi",
+        pods: x.pods[0] + " / " + x.pods[1], verdict: x.verdict, vTone: x.vTone, cls: x === cur ? "sel" : "", btn: x === cur ? "Selected" : "Manage", pick: function () { pick(x); } };
+    });
+    var rows = [["requests.cpu", x2(cur.cpu), " cores"], ["requests.memory", x2(cur.mem), " Gi"], ["pods", x2(cur.pods), ""]].map(function (r) {
+      var b = pctBar(r[1][0], r[1][1]); return { k: r[0], used: fmt(r[1][0]) + r[2], hard: fmt(r[1][1]) + r[2], pct: b.pct, bar: b.bar, pctText: Math.round(b.r * 100) + "%" };
+    });
+    function x2(a) { return a; }
+    var rec = cur.rec;
+    var detail = { title: cur.ns + " on " + cur.cluster, ns: cur.ns, cluster: cur.cluster, env: cur.env, tier: cur.tier, etag: cur.etag, verdict: cur.verdict, vTone: cur.vTone, vNote: cur.vNote,
+      meta: cur.env + " · tier " + cur.tier + " · ResourceQuota namespace-quota · read from the watch cache, current to the second", rows: rows,
+      hasRec: !!rec, recId: rec ? rec.id : "", recText: rec ? rec.text : "",
+      useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: cur.ns, qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: cur.ns, qsize: "custom", qcpu: rec.cpu, qmem: rec.mem, qplan: false, qsent: false }); } };
+
+    var size = st.qsize || cur.tier;
+    var newC = size === "custom" ? (st.qcpu != null ? st.qcpu : cur.cpu[1]) : TIERS[size].cpu;
+    var newM = size === "custom" ? (st.qmem != null ? st.qmem : cur.mem[1]) : TIERS[size].memGi;
+    var sizes = ["small", "medium", "large", "custom"].map(function (k) {
+      var sub = k === "custom" ? "set cpu and memory" : TIERS[k].cpu + " cores · " + TIERS[k].mem + (k === cur.tier ? " · current" : "");
+      return { label: k, sub: sub, cls: k === size ? "on" : "", on: k === size ? "true" : "false", pick: function () { self.setState({ qns: cur.ns, qsize: k, qplan: false, qsent: false, qcpu: k === "custom" ? cur.cpu[1] : null, qmem: k === "custom" ? cur.mem[1] : null }); } };
+    });
+    var same = newC === cur.cpu[1] && newM === cur.mem[1];
+    var dC = newC - cur.cpu[1], dM = newM - cur.mem[1];
+    var cl = capCluster(cur.cluster), headC = parseFloat(cl.head), headM = parseFloat(cl.memHead);
+    var aC = headC - dC, aM = headM - dM;
+    var effC = headC / (1 - cl.c), effM = headM / (1 - cl.m);
+    var cAfter = 1 - aC / effC, mAfter = 1 - aM / effM;
+    var lvl = Math.max(level(cAfter, cur.env), level(mAfter, cur.env));
+    var zl = cur.env === "prod" ? ZONE_LOSS[cur.cluster] : null, zC = zl ? zl[0] - dC : null, zM = zl ? zl[1] - dM : null;
+    var fits = aC >= 0 && aM >= 0 && (!zl || (zC >= 0 && zM >= 0));
+    var u = cur.usage, rC = newC / u.cpu[3], rM = newM / u.mem[3];
+    var incPct = Math.max(dC > 0 ? dC / cur.cpu[1] * 100 : 0, dM > 0 ? dM / cur.mem[1] * 100 : 0);
+    var ratioFlag = (dC > 0 && rC > 3) || (dM > 0 && rM > 3);
+    var below = newC < cur.cpu[0] || newM < cur.mem[0];
+    var need = CHANGE_RULE[cur.env], groups = need ? [APPROVER[cur.env]] : [], reasons = [];
+    reasons.push(need ? "Environment " + cur.env + " requires " + need + " approval for a change (" + APPROVER[cur.env] + ")." : "Environment " + cur.env + " requires no approval for a change.");
+    if (incPct > 100) { need++; groups.push("platform-leads"); reasons.push("The increase is " + Math.round(incPct) + "%, above 100% (+1 platform-leads)."); }
+    if (ratioFlag) { need++; if (groups.indexOf("platform-leads") < 0) groups.push("platform-leads"); reasons.push("The new quota is " + fmt(Math.max(dC > 0 ? rC : 0, dM > 0 ? rM : 0)) + "× the 14-day peak, above 3× (+1)."); }
+    if (lvl >= 1 && (dC > 0 || dM > 0)) { need++; reasons.push(cur.cluster + " would be at " + (lvl === 2 ? "critical" : "warn") + " commitment after the change (+1)."); }
+    var MK = function (s, l, n) { return { s: s, mark: MARK[s], l: l, n: n }; };
+    var checks = [
+      MK("pass", "Environment served", cur.env + " in [" + me.envs.join(", ") + "]"),
+      MK("pass", "If-Match matches the current ETag", cur.etag),
+      MK("pass", "Kyverno bundle v1.4.0", "7 of 7 policies pass"),
+      MK(aC >= 0 ? (level(cAfter, cur.env) ? "warn" : "pass") : "fail", "CPU on " + cur.cluster, "quota headroom " + fmt(headC) + " → " + fmt(aC) + " cores · commitment " + Math.round(cl.c * 100) + "% → " + Math.round(cAfter * 100) + "%"),
+      MK(aM >= 0 ? (level(mAfter, cur.env) ? "warn" : "pass") : "fail", "Memory on " + cur.cluster, "quota headroom " + fmt(headM) + " → " + fmt(aM) + " Gi · commitment " + Math.round(cl.m * 100) + "% → " + Math.round(mAfter * 100) + "%")
+    ];
+    if (zl) checks.push(MK(zC >= 0 && zM >= 0 ? "pass" : "fail", "Zone-failure headroom", fmt(zl[0]) + " → " + fmt(zC) + " cores · " + fmt(zl[1]) + " → " + fmt(zM) + " Gi after losing the largest zone"));
+    checks.push(MK(ratioFlag ? "warn" : "pass", "New quota vs 14-day peak", "cpu " + fmt(rC) + "× · memory " + fmt(rM) + "× · threshold 3×"));
+    if (below) checks.push(MK("warn", "Below what pods request today", "requests " + fmt(cur.cpu[0]) + " cores, " + fmt(cur.mem[0]) + " Gi: running pods stay, new ones are refused until requests drop"));
+    var appr = !fits ? { tone: "bad", title: "Refused: capacity-exceeded", detail: cur.cluster + " cannot take this change" + (zl && (zC < 0 || zM < 0) && aC >= 0 && aM >= 0 ? " and still survive the loss of a zone" : "") + ". Moving a namespace is a migration and never automatic; ask the platform team, or pick a smaller size." }
+      : (need === 0 ? { tone: "ok", title: "No approval needed", detail: reasons.join(" ") + " The pull request merges as soon as CI passes." }
+      : { tone: need > 1 ? "warn" : "info", title: need + " approval" + (need > 1 ? "s" : "") + " from " + groups.join(" + "), detail: reasons.join(" ") + " The requester's own review never counts." });
+    var body = !fits ? JSON.stringify({ type: "https://cmapi.ephico2real.com/problems/capacity-exceeded", title: "Capacity exceeded", status: 422, detail: "requests.cpu " + newC + ", requests.memory " + newM + "Gi does not fit on " + cur.cluster, errors: checks.filter(function (c) { return c.s === "fail"; }).map(function (c) { return { check: c.l, detail: c.n }; }) }, null, 2)
+      : JSON.stringify({ requestId: cur.rid, status: "validated", prUrl: null, clusterId: cur.cluster, namespace: cur.ns, change: size === "custom" ? { hard: { "requests.cpu": String(newC), "requests.memory": newM + "Gi" } } : { tier: size }, approval: { rule: cur.env + "-change", requiredCount: need, autoApproved: false }, links: { self: "/api/v1/requests/" + cur.rid, events: "/api/v1/requests/" + cur.rid + "/events" } }, null, 2);
+    var lock = cur.lock;
+    var change = { locked: !!lock, open: !lock, lockTitle: lock ? "Change in progress: " + lock.id : "", lockText: lock ? lock.what + " is waiting on approval (" + lock.approval + "). cmapi holds one open request per namespace, so another change is refused with 409 conflict until this one closes." : "",
+      openLock: function () { if (lock) self.openScn("quota-change", stepIndex("quota-change", REQUESTS.prod[0].at), lock.id); },
+      sizes: sizes, custom: size === "custom", cpu: String(newC), mem: String(newM),
+      onCpu: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: cur.ns, qcpu: isNaN(v) ? cur.cpu[1] : v, qplan: false, qsent: false }); },
+      onMem: function (e) { var v = parseFloat(e.target.value); self.setState({ qns: cur.ns, qmem: isNaN(v) ? cur.mem[1] : v, qplan: false, qsent: false }); },
+      nothing: (st.qplan || st.qsent) && same, planned: st.qplan && !same, sent: st.qsent && !same,
+      usage: [["cpu (cores)", u.cpu, cur.cpu[1], newC, rC], ["memory (Gi)", u.mem, cur.mem[1], newM, rM]].map(function (r) { return { k: r[0], now: fmt(r[1][0]), avg: fmt(r[1][1]), p95: fmt(r[1][2]), peak: fmt(r[1][3]), quota: fmt(r[2]) + " → " + fmt(r[3]), ratio: fmt(r[4]) + "×" }; }),
+      checks: checks, apprTone: appr.tone, apprTitle: appr.title, apprDetail: appr.detail,
+      sentTone: fits ? "ok" : "bad", sentTitle: fits ? "202 Accepted · " + cur.rid : "422 capacity-exceeded · nothing written",
+      sentText: fits ? (need === 0 ? "The request is validated and the worker opens the pull request; it merges when CI passes and Argo CD re-stamps the quota on " + cur.cluster + "." : "The worker opens the pull request and waits for " + need + " approval" + (need > 1 ? "s" : "") + ".") : "No request was stored and no pull request was opened.",
+      sentBody: body };
+    return { list: list, filters: filters, detail: detail, change: change };
+  }
+
   renderVals() {
     var self = this, st = this.state, me = INSTANCES[st.inst];
     var tab = st.tab || this.props.startTab || "workflow";
-    var TABS = [["workflow", "Workflow"], ["new", "New namespace"], ["requests", "Requests"], ["approvals", "Approvals"], ["capacity", "Capacity"], ["kpis", "KPIs"]];
+    var TABS = [["workflow", "Workflow"], ["new", "New namespace"], ["quotas", "Quotas"], ["requests", "Requests"], ["approvals", "Approvals"], ["capacity", "Capacity"], ["kpis", "KPIs"]];
     var tabs = TABS.map(function (t) { return { label: t[1], cls: t[0] === tab ? "on" : "", current: t[0] === tab ? "page" : "false", hasCount: t[0] === "approvals" && PENDING[st.inst] > 0, count: String(PENDING[st.inst]), pick: function () { self.stopPlay(); self.setState({ tab: t[0], playing: false }); } }; });
     var instOpts = ["nonprod", "staging", "prod"].map(function (k) { return { label: INSTANCES[k].label, sub: INSTANCES[k].envs.join(", "), cls: k === st.inst ? "on" : "", on: k === st.inst ? "true" : "false", pick: function () { self.setInstance(k); } }; });
 
@@ -1441,10 +1657,12 @@ class Component extends DCLogic {
     var nsName = st.name || ("payments-" + env);
     var ranked = [], excluded = pl.excluded.map(function (x) { return { cluster: x.c, reason: x.reason, detail: x.detail }; });
     pl.ranked.forEach(function (x) {
-      var after = x.head - tier.cpu, zfAfter = x.zf != null ? x.zf - tier.cpu : null;
-      if (after < 0) excluded.push({ cluster: x.c, reason: "no headroom", detail: "needs " + tier.cpu + " cores, " + x.head + " left" });
+      var after = x.head - tier.cpu, memAfter = x.mem - tier.memGi, zfAfter = x.zf != null ? x.zf - tier.cpu : null, zfMem = x.zfMem != null ? x.zfMem - tier.memGi : null;
+      if (after < 0) excluded.push({ cluster: x.c, reason: "no cpu headroom", detail: "needs " + tier.cpu + " cores, " + x.head + " left" });
+      else if (memAfter < 0) excluded.push({ cluster: x.c, reason: "no memory headroom", detail: "needs " + tier.memGi + " Gi, " + x.mem + " Gi left" });
       else if (zfAfter != null && zfAfter < 0) excluded.push({ cluster: x.c, reason: "zone-failure", detail: "needs " + tier.cpu + " cores, " + x.zf + " left after losing a zone" });
-      else ranked.push({ cluster: x.c, score: String(x.score), detail: "cpu headroom " + x.head + " → " + after + (zfAfter != null ? " · zone-loss " + zfAfter : "") + " · p95 " + x.p95 });
+      else if (zfMem != null && zfMem < 0) excluded.push({ cluster: x.c, reason: "zone-failure", detail: "needs " + tier.memGi + " Gi, " + x.zfMem + " Gi left after losing a zone" });
+      else ranked.push({ cluster: x.c, score: String(x.score), detail: "cpu " + x.head + " → " + after + " cores · memory " + x.mem + " → " + memAfter + " Gi" + (zfAfter != null ? " · zone-loss " + zfAfter + " cores, " + zfMem + " Gi" : "") + " · p95 " + x.p95 });
     });
     ranked = ranked.map(function (x, k) { x.rank = String(k + 1); x.cls = k === 0 ? "top" : ""; return x; });
     var place = { asOf: "snapshot 17:00 · 5 min old", lede: ranked.length ? "Ranked from this instance's stored snapshots, committed quota and active reservations; no Thanos call. Submitting reserves " + ranked[0].cluster + " for 15 minutes." : "No " + env + " cluster in scope has room for this tier. Pick a smaller tier or ask the platform team for capacity.", ranked: ranked, excluded: excluded };
@@ -1473,13 +1691,19 @@ class Component extends DCLogic {
     var reqFilters = [["all", "All"], ["open", "Open"], ["done", "Closed"]].map(function (f) { return { label: f[1], cls: f[0] === st.filter ? "on" : "", on: f[0] === st.filter ? "true" : "false", pick: function () { self.setState({ filter: f[0] }); } }; });
 
     var capData = CAPACITY[st.inst];
+    var BARCLS = ["", "warn", "crit"];
     var clusters = capData.clusters.map(function (x) {
-      var warnAt = x.env === "prod" ? 0.8 : 0.85, critAt = x.env === "prod" ? 0.9 : 0.95;
-      return { id: x.id, env: x.env, region: "us-central", zones: x.zones, snap: x.snap, status: x.status,
-        pct: x.c == null ? "0%" : Math.round(x.c * 100) + "%", commit: x.c == null ? "—" : Math.round(x.c * 100) + "%",
-        barCls: x.c == null ? "none" : (x.c >= critAt ? "crit" : (x.c >= warnAt ? "warn" : "")),
-        tone: { ok: "ok", warn: "warn", stale: "bad", "new": "info", off: "" }[x.status], head: x.head === "—" ? "—" : x.head + " cores" };
+      var lc = level(x.c, x.env), lm = level(x.m, x.env), worst = Math.max(lc, lm), status = x.status, tone;
+      var bound = x.c == null ? "—" : (x.m > x.c ? "memory" : "cpu");
+      if (!status) { status = ["ok", "warn", "critical"][worst] + (worst ? " · " + (lm > lc ? "memory" : (lc > lm ? "cpu" : "both")) : ""); tone = ["ok", "warn", "bad"][worst]; }
+      else tone = { stale: "bad", "new": "info", off: "" }[status];
+      return { id: x.id, env: x.env, zones: x.zones, snap: x.snap, status: status, tone: tone, bound: bound,
+        cpuPct: x.c == null ? "0%" : Math.round(x.c * 100) + "%", cpuCommit: x.c == null ? "—" : Math.round(x.c * 100) + "%", cpuBar: x.c == null ? "none" : BARCLS[lc],
+        memPct: x.m == null ? "0%" : Math.round(x.m * 100) + "%", memCommit: x.m == null ? "—" : Math.round(x.m * 100) + "%", memBar: x.m == null ? "none" : BARCLS[lm],
+        head: x.head === "—" ? "—" : x.head + " cores · " + x.memHead + " Gi" };
     });
+    var capFoot = me.envs.map(function (e) { var o = OVERCOMMIT[e], tg = TARGETS[e]; return e + ": overcommit cpu " + o[0].toFixed(2).replace(/0$/, "") + ", memory " + o[1].toFixed(2).replace(/0$/, "") + "; commitment warns at " + Math.round(tg[0] * 100) + "%, critical at " + Math.round(tg[1] * 100) + "%"; }).join(" · ") + ". Each resource is judged on its own; a cluster takes the worse status. Memory cannot be throttled, so its overcommit stays tighter.";
+    var quotaView = this.quotaView(me);
     var prodQ = REQUESTS.prod[0], stagQ = REQUESTS.staging[0];
 
     return {
@@ -1513,7 +1737,10 @@ class Component extends DCLogic {
       apprProd: st.inst === "prod", apprStaging: st.inst === "staging", apprNone: st.inst === "nonprod",
       openQuota: function () { self.openScn("quota-change", stepIndex("quota-change", prodQ.at), prodQ.id); },
       openQa: function () { self.openScn("qa-create", stepIndex("qa-create", stagQ.at), stagQ.id); },
-      groups: capData.groups, clusters: clusters,
+      groups: capData.groups, clusters: clusters, capFoot: capFoot,
+      isQuotas: tab === "quotas", quotas: quotaView.list, noQuotas: quotaView.list.length === 0, qFilters: quotaView.filters, qd: quotaView.detail, qc: quotaView.change,
+      qPlan: function () { self.setState({ qplan: true, qsent: false }); },
+      qSubmit: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ qplan: true, qsent: true }); },
       isKpis: tab === "kpis", kpis: KPIS[st.inst], dashboards: DASHBOARDS
     };
   }

@@ -56,11 +56,11 @@ spec:
       annotations: {summary: "Capacity snapshot for {{ $labels.cluster_id }} older than two intervals"}
     - alert: CmapiCapacityTargetBreached
       # Critical commitment level from capacity.targets for the environment (chart value);
-      # prod example: commitment critical 0.90.
-      expr: cmapi_cluster_commitment_ratio{environment="prod"} > 0.90
+      # prod example: commitment critical 0.90. Judged per resource: cpu and memory.
+      expr: max by (cluster_id, resource) (cmapi_cluster_commitment_ratio{environment="prod"}) > 0.90
       for: 1h
       labels: {severity: warning}
-      annotations: {summary: "Commitment critical on {{ $labels.cluster_id }} for 1 hour"}
+      annotations: {summary: "{{ $labels.resource }} commitment critical on {{ $labels.cluster_id }} for 1 hour"}
     - alert: CmapiSyncStuck
       expr: cmapi_open_change_requests{status="merged"} > 0
       for: 30m

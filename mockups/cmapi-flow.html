@@ -318,13 +318,13 @@ table.res td .pill { font-size: 0.72rem; }
         { s: "pass", l: top.cluster + " ranked first, reserved", n: "score " + top.score },
         { s: "warn", l: o.excluded.length + " cluster" + (o.excluded.length > 1 ? "s" : "") + " excluded with a reason", n: o.excluded.map(function (x) { return x.reason; }).join(", ") }
       ],
-      code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 } }; if (prod) c.cpu.zoneFailureHeadroomAfter = r.zf; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
+      code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 }, memory: { quotaHeadroomBefore: r.mem + "Gi", quotaHeadroomAfter: (r.mem - 32) + "Gi" } }; if (prod) { c.cpu.zoneFailureHeadroomAfter = r.zf; c.memory.zoneFailureHeadroomAfter = r.zfMem + "Gi"; } c.boundBy = (r.before - 16) / r.before <= (r.mem - 32) / r.mem ? "cpu" : "memory"; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
       apply: function (s) {
         s.node.api = "Reserved on " + top.cluster; s.node.capacity = "Rows read (no Thanos call)"; s.node.caller = "Placement received";
         s.cap = { title: "Placement · " + o.placementId, pill: { t: "reserved 15 min", tone: "info" },
-          meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit,
-          cols: prod ? ["Cluster", "Score", "CPU headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "p95"],
-          rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16)]; if (prod) row.push(String(r.zf)); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason]; if (prod) row.push("—"); row.push("—"); return row; })),
+          meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit + ", memory " + { rnd: "1.25", dev: "1.25", qa: "1.1", uat: "1.0", prod: "1.0" }[o.env],
+          cols: prod ? ["Cluster", "Score", "CPU headroom", "Memory headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "Memory headroom", "p95"],
+          rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16), r.mem + " → " + (r.mem - 32) + " Gi"]; if (prod) row.push(r.zf + " cores · " + r.zfMem + " Gi"); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason, "—"]; if (prod) row.push("—"); row.push("—"); return row; })),
           note: "Excluded: " + o.excluded.map(function (x) { return x.cluster + " " + x.detail; }).join("; ") + "." };
         ev(s, 0, "placed", "api-bot", o.placementId + ": " + top.cluster + " reserved for 15 min", "ok");
       }
@@ -498,7 +498,7 @@ table.res td .pill { font-size: 0.72rem; }
       argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
         resources: [
           { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: medium" },
-          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16" },
+          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 · memory 32Gi" },
           { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
         ] },
       events: [], blocked: {}
@@ -506,7 +506,7 @@ table.res td .pill { font-size: 0.72rem; }
     var steps = [];
     steps.push({
       lane: "caller", title: "Ask for a bigger tier",
-      body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its CPU quota from 16 to 32 cores. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
+      body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its quota from 16 to 32 cores and from 32 to 64 Gi of memory. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
       code: { label: "PATCH /api/v1/clusters/" + c + "/namespaces/" + ns, text:
         'curl -s -X PATCH "$CMAPI/clusters/' + c + '/namespaces/' + ns + '" \\\n' +
         '  -H "Authorization: Bearer $TOKEN" \\\n' +
@@ -540,7 +540,7 @@ table.res td .pill { font-size: 0.72rem; }
         "                 now    7d avg   14d p95   14d peak   quota\n" +
         "cpu (cores)      6.1    5.4      8.2       9.6        16 → 32\n" +
         "memory (Gi)      11.8   10.9     15.9      17.2       32 → 64\n" +
-        "request / peak   32 / 9.6 = 3.3   > 3, flagged" },
+        "request / peak   cpu 32 / 9.6 = 3.3 · memory 64 / 17.2 = 3.7   > 3, flagged" },
       apply: function (s) {
         s.node.capacity = "Thanos read, cached 10 min"; s.node.api = "Planning";
         s.cap = { title: "Live usage · " + ns + " · 14 days", pill: { t: "not stored", tone: "info" },
@@ -552,10 +552,10 @@ table.res td .pill { font-size: 0.72rem; }
     });
     steps.push({
       lane: "api", title: "Plan and capacity check",
-      body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores of quota headroom, 48 after this change.",
+      body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores and 192 Gi of quota headroom: 48 cores and 160 Gi after this change. CPU and memory are checked separately, and either one alone can refuse a change.",
       checks: [
         { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
-        { s: "pass", l: "Cluster capacity fits", n: "headroom 64 → 48 cores, prod overcommit 1.0" },
+        { s: "pass", l: "Cluster capacity fits", n: "cpu 64 → 48 cores · memory 192 → 160 Gi · overcommit 1.0" },
         { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" }
       ],
       code: { label: "Diff · " + file, diff: true, text: "@@ labels @@\n   cmapi.net/cluster-id: " + c + "\n-  cmapi.net/tier: medium\n+  cmapi.net/tier: large\n   cmapi.net/team: payments" },
@@ -580,7 +580,7 @@ table.res td .pill { font-size: 0.72rem; }
         "cpu (cores)      6.1    5.4      9.6        16 → 32\n" +
         "memory (Gi)      11.8   10.9     17.2       32 → 64\n" +
         "flag             request 3.3× 14-day peak (threshold 3×)\n" +
-        "cluster          quota headroom 64 → 48 cores, fits\n" +
+        "cluster          quota headroom cpu 64 → 48 cores, memory 192 → 160 Gi, fits\n" +
         "approval         prod-change · 2 (prod-approvers, platform-leads)" },
       apply: function (s) {
         s.req.status = "pr_open"; s.req.pr = "#" + pr;
@@ -613,7 +613,7 @@ table.res td .pill { font-size: 0.72rem; }
       apply: function (s) {
         s.argo.rev = sha;
         s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: large" };
-        s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32" };
+        s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32 · memory 32Gi → 64Gi" };
         s.req.status = "synced"; s.req.lead = dur(3720);
         s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
         ev(s, 3720, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
@@ -861,13 +861,13 @@ table.res td .pill { font-size: 0.72rem; }
     { id: "rnd-create", label: "New namespace · rnd", meta: "nonprod · auto-approved", build: function () {
       return createScenario({ inst: "nonprod", env: "rnd", cluster: "OCP_GF6", ns: "payments-rnd", reqId: "req-20261103-81bd", idem: "c41b77e0-9e2a-4d61-8b3f-2a6d0e5c9b18",
         placementId: "pl-20261103-5e17", overcommit: "2.0", pr: 413, branch: "OCP_GF6/payments-rnd/req-20261103-81bd", sha: "e90b3d4", prevSha: "4c1f8a2",
-        ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, p95: 0.62 }],
+        ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, mem: 410, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
         excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
         times: { validated: 3, pr: 5, ci: 120, merged: 124, synced: 300 } }); } },
     { id: "prod-create", label: "New namespace · prod", meta: "prod · 1 approval", build: function () {
       return createScenario({ inst: "prod", env: "prod", cluster: "OCP_GF1", ns: "payments-prod", reqId: "req-20261103-7f3a", idem: "7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40",
         placementId: "pl-20261103-2c81", overcommit: "1.0", pr: 412, branch: "OCP_GF1/payments-prod/req-20261103-7f3a", sha: "a41c9e2", prevSha: "5f02b1d", reviewer: "sre-lead@ephico2real.com",
-        ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, zf: 21, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, zf: 3, p95: 0.58 }],
+        ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, mem: 192, zf: 21, zfMem: 78, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, mem: 230, zf: 3, zfMem: 88, p95: 0.58 }],
         excluded: [{ cluster: "OCP_GF4", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }, { cluster: "OCP_GF5", reason: "zone-failure-headroom", detail: "needs 16 cores, 9 left without zone c" }],
         times: { validated: 3, pr: 5, ci: 130, approved: 2640, merged: 2760, synced: 2980 } }); } },
     { id: "quota-change", label: "Quota increase · prod", meta: "prod · live usage · 2 approvals", build: quotaScenario },

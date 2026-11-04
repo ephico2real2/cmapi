@@ -219,7 +219,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### 2. Read its quota and usage
 
+The first call lists every namespace in your scope on this instance with its ResourceQuota (hard and used for `requests.cpu`, `requests.memory` and `pods`), tier and latest usage verdict. It is what the portal's Quotas tab shows. `used` is the sum of pod requests, read from the watch cache; it is not real consumption and never calls Thanos.
+
 ```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/quotas?environment=rnd&state=near-limit"
+# → {"items": [{"clusterId": "OCP_GF8", "namespace": "ledger-rnd", "tier": "small",
+#      "hard": {"requests.cpu": "8", "requests.memory": "16Gi", "pods": "50"},
+#      "used": {"requests.cpu": "7400m", "requests.memory": "13.9Gi", "pods": "41"},
+#      "verdict": "quota-tight", "recommendation": "rec-ledger-rnd-0412"}, ...]}
+
 curl -s -i -H "Authorization: Bearer $TOKEN" \
   "$CMAPI/clusters/$CLUSTER/namespaces/$NS/quota"      # -i shows the ETag header
 
@@ -284,7 +293,7 @@ curl -s -X POST "$CMAPI/clusters/$CLUSTER/namespaces" \
 
 ### 5. Change the quota
 
-Uses the `ETag` from step 2 as `If-Match`.
+Uses the `ETag` from step 2 as `If-Match`. CPU and memory are checked separately against the cluster's quota headroom (and, in prod, its zone-failure headroom); either one alone can refuse the change with `capacity-exceeded`, and the error names the resource. To change the tier instead, PATCH the namespace with `{"tier": "large"}`.
 
 ```bash
 curl -s -X PATCH "$CMAPI/clusters/$CLUSTER/namespaces/$NS/quota" \

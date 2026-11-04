@@ -314,7 +314,7 @@ Placement also reads committed quota from the API watch cache and active reserva
 - Peaks are summed as an upper bound and labelled coincidentPeakUpper.
 - Stale or incomplete clusters are left out and listed with the reason; coverage shows how many were included.
 
-**Headroom and overcommit.** Quota headroom = allocatable × overcommit − committed − reserved. Memory has tighter limits because it cannot be throttled.
+**Headroom and overcommit.** Quota headroom = allocatable × overcommit − committed − reserved. Memory has tighter limits because it cannot be throttled. CPU and memory are tracked, committed and checked separately everywhere: every capacity view reports both, placement filters on both, a quota change is checked on both, and a cluster's status is the worse of the two, with boundBy naming the resource that limits it. A namespace that needs only memory is never refused for CPU, and the reverse.
 
 | Environment | CPU overcommit | Memory overcommit | Warn when memory limits exceed |
 | --- | --- | --- | --- |
@@ -333,6 +333,8 @@ A cluster's placement block can override its environment's overcommit.
 - A quota increase that no longer fits returns 422 capacity-exceeded with the clusters where it would fit, as advice. Moving a namespace is a migration and never automatic.
 
 **Quota changes on existing namespaces.** The quotas planner asks cmapi-capacity for that namespace's last 14 days. The figures feed the approval facts (quotaIncreasePct, requestToPeakRatio, the namespace's current verdicts). If Thanos cannot answer within 10 seconds, the plan carries usage: unavailable and the change needs a platform approval instead of failing.
+
+**Quota view.** GET /api/v1/quotas?environment=&clusterId=&team=&state=near-limit|flagged lists every namespace in the caller's scope on this instance with its tier and its ResourceQuota hard and used for requests.cpu, requests.memory and pods, read from the watch cache, plus its latest verdict and any open recommendation. Used is the sum of pod requests, not what pods consume. GET /api/v1/clusters/{clusterId}/namespaces/{ns}/quota returns one namespace with the ETag a change needs. Neither read touches Thanos. The portal's Quotas tab is built on these two reads. Planning a change from it adds the live 14-day usage, the CPU and memory check against the cluster (and zone-failure headroom in prod), and the approval that will apply. A change is a tier (PATCH on the namespace) or custom requests.cpu and requests.memory (PATCH on its quota), and one open request per namespace still holds, so a second change waits with 409.
 
 **Usage analysis.** A daily sweep reads each cluster's namespaces over 14 days and stores per-namespace verdicts (for example quota-oversized, requests-oversized, quota-tight, cpu-throttled, memory-limit-risk, idle) and rightsizing recommendations. Thresholds are per environment. Recommendations are applied only through a normal cmapi request. Detail: the [Usage analysis tab](02-technical-design-v2.md).
 
@@ -472,7 +474,7 @@ Keycloak's own metrics reach the same Prometheus through a ServiceMonitor in cma
 | CmapiClusterUnreachable | A connected cluster unreachable for 10 min | warning |
 | CmapiClusterTokenExpiring | An import token past 90% of its life | warning |
 | CmapiCapacitySnapshotStale | Snapshot older than two intervals on any cluster | warning |
-| CmapiCapacityTargetBreached | Cluster or region commitment critical for 1 h | warning |
+| CmapiCapacityTargetBreached | Cluster or region commitment critical, CPU or memory, for 1 h | warning |
 | CmapiSyncStuck | Merged but not synced after 30 min | warning |
 | CmapiDriftDetected | OutOfSync with no open request | warning |
 | CmapiWorkerBacklog | More than 100 jobs pending for 15 min | warning |
@@ -509,7 +511,7 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 1. **Service health:** request rate, errors and latency for api, worker and cmapi-capacity; pods; job backlog; outbox.
 2. **Change flow (KPI board):** volume by plugin, environment and status; lead time and approval wait percentiles; change failure rate; drift; self-service rate.
 3. **Approvals:** backlog by rule, auto-approvals by policy, fallbacks by guard, kill-switch state.
-4. **Capacity and placement:** commitment and headroom by environment, region and zone; largest placement; exclusions by reason; snapshot age; reservations.
+4. **Capacity and placement:** CPU and memory commitment and headroom by environment, region and zone; largest placement; exclusions by reason; snapshot age; reservations.
 5. **Namespace efficiency:** slack cores by environment and region, verdict counts, recommendations by state, capacity recovered.
 6. **Fleet dependencies:** cluster status and token expiry from imports, cluster API, Thanos and Git latency, sync signal health.
 7. **Access:** auth failures by reason, top denied permissions, JWKS refreshes, Keycloak health.
@@ -695,4 +697,4 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [Argo Events and Workflows review](07-argo-events-workflows-review.md) | Why each Argo piece is optional and where it helps |
 | [cmapi request flow mockup](../mockups/cmapi-flow.html) | Clickable walk through placement, auto-approval, quota change, policy reject, cluster import and a wrong-instance request |
 | [API examples](04-api-examples.md) | Calling the API with Keycloak tokens: which instance to call, curl, device flow, Swagger and ReDoc, Python |
-| [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow, New namespace, Requests (opening at each request's current step), Approvals and Capacity, with Swagger and ReDoc links |
+| [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow, New namespace, Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals, Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
