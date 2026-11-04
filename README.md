@@ -15,7 +15,7 @@ the final design and the source of truth: where another document disagrees, it w
 | Path | What it is | Status |
 | --- | --- | --- |
 | [docs/01-design-and-architecture.md](docs/01-design-and-architecture.md) | Final design: requirements, architecture, instances, modularity, lifecycle, identity, clusters, capacity, approvals, integrations, observability and KPIs, Swagger/ReDoc, topology, data model, delivery plan, decisions | **Current, source of truth** |
-| [docs/02-technical-design-v2.md](docs/02-technical-design-v2.md) | Field-level detail: plugin contract, schemas, Keycloak realm, labels, adoption, capacity internals | Current reference |
+| [docs/02-technical-design-v2.md](docs/02-technical-design-v2.md) | Field-level detail: plugin contract, schemas, Keycloak realm, labels, tiers, adoption, capacity internals, and the Module catalog (every module, its interface, phase and status) | Current reference |
 | [docs/03-usage-analysis.md](docs/03-usage-analysis.md) | Namespace verdicts, thresholds, rightsizing and the analysis API | Current reference |
 | [docs/04-api-examples.md](docs/04-api-examples.md) | Calling the API: which instance, tokens, curl, device flow, Python, errors | Current reference |
 | [docs/05-requirements-baseline.md](docs/05-requirements-baseline.md) | The consolidated business requirements | Baseline |
@@ -24,7 +24,7 @@ the final design and the source of truth: where another document disagrees, it w
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
 | [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance. Open in a browser | |
 | [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
-| [examples/](examples) | Config files and manifests from the design, at their target paths | |
+| [examples/](examples) | Config files and manifests from the design, at their target paths, plus the reference implementation (`examples/src/cmapi`, 112 tests) of the modules in the v2 Module catalog | |
 
 ## Agreed decisions at a glance
 

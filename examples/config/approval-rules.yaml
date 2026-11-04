@@ -34,6 +34,14 @@ thresholds:                     # facts come from the planner and cmapi-capacity
     add: 1
   - when: quotaBelowRequested       # a decrease below what pods already request
     add: 1
+  - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
+    add: 1
+    group: platform-leads
+    reason: Sensitive key changed
+  - when: expirationBeyondLimits    # past 180 days from creation, or make permanent
+    add: 1
+    group: platform-leads
+    reason: Expiry beyond limits
   - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
     add: 1
 

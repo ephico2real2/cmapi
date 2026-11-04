@@ -35,7 +35,7 @@ _QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]+)?)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|
 
 def qty(value: str | int | float) -> Decimal:
     """Parse a Kubernetes quantity ("500m", "16", "32Gi") to a Decimal in base units."""
-    m = _QTY.match(str(value).strip())
+    m = _QTY.fullmatch(str(value).strip())
     if not m:
         raise ValueError(f"not a Kubernetes quantity: {value!r}")
     return Decimal(m.group(1)) * _SUFFIX[m.group(2) or ""]
@@ -125,11 +125,16 @@ class QuotaChange:
     tier_change: Literal["up", "down", "same", "to-custom", "from-custom", "custom"]
     increase_pct: dict[str, float]               # per sizable key, negative for a decrease
     delta: dict[str, Decimal]                    # per sizable key, in base units
-    below_used: list[str] = field(default_factory=list)   # keys whose new hard < current used
+    below_used: list[str] = field(default_factory=list)   # keys whose new hard < what pods request now (quota used)
 
     @property
     def quota_increase_pct(self) -> float:      # the fact approval-rules.yaml thresholds read
         return max(self.increase_pct.values(), default=0.0)
+
+    def facts(self) -> dict[str, Any]:
+        """The approval facts, named as approval-rules.yaml reads them."""
+        return {"tierChange": self.tier_change, "quotaIncreasePct": self.quota_increase_pct,
+                "quotaBelowRequested": bool(self.below_used)}
 
 
 # --------------------------------------------------------------------------- catalog

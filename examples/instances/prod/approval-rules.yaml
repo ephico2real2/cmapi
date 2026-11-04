@@ -33,6 +33,10 @@ thresholds:
   add: 1
 - when: quotaBelowRequested
   add: 1
+- when: sensitiveKeyChanged
+  add: 1
+  group: platform-leads
+  reason: Sensitive key changed
 - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
   add: 1
 protected:
