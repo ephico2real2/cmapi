@@ -10,26 +10,30 @@ came from. Where two documents show the same file, the copy in
 | `config/instance.yaml` | One instance's identity: name, allowedEnvironments, URLs, Keycloak audience, Git repository, directory of the other instances | Verbatim |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
 | `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |
-| `config/authz-scopes.yaml` | Role-to-scope bindings | Verbatim |
+| `config/authz-scopes.yaml` | Role-to-scope bindings (shape reference) | Verbatim |
 | `config/capacity.yaml` | Snapshot interval, targets, overcommit per environment | Verbatim |
-| `config/approval-rules.yaml` | Environment rules, patterns, thresholds and auto-approval policies | Verbatim |
+| `config/approval-rules.yaml` | Combined reference: environment rules, patterns, thresholds and auto-approval policies (baseline-rnd-namespace for rnd and dev, expired-namespace) | Updated to the approval-first design |
+| `instances/<instance>/approval-rules.yaml`, `authz-scopes.yaml` | The real per-instance files: each holds only its own environments and clusters | Derived |
+| `config/expiration.yaml` | Optional expiration: 30-day extensions, 180-day lifetime, notices, 7-day grace; prod has no entry | From the design |
+| `cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml` | Kyverno ValidatingPolicy: prod namespaces never carry expiry metadata | Starter: check the apiVersion against your Kyverno release |
 | `config/integrations.yaml` | Optional SyncSignal, OperationsEngine and EventPublisher | Verbatim |
 | `config/operations/cluster-onboard.yaml` | Operation template run by the built-in engine or Argo Workflows | Verbatim |
 | `cmapi-sso/realm/ephico2real.yaml` | Keycloak realm as code (keycloak-config-cli) | Verbatim |
 | `cluster-configs/policies/metadata-keys.yaml` | Governed, team and sensitive metadata keys | Verbatim |
-| `cluster-configs/clusters/OCP_GF1/...` | A rendered project-meta file and the Argo CD Notifications bootstrap | Verbatim |
-| `baseline/cmapi-reader-rbac.yaml` | The read-only cmapi-reader ServiceAccount the baseline process applies to every cluster | Verbatim |
+| `cluster-configs/clusters/OCP_GF15/...` | A rendered dev project-meta file with optional expiry | Updated |
+| `cluster-configs/clusters/OCP_GF1/bootstrap/notifications.yaml` | Argo CD Notifications with a per-cluster token and cluster ID | Updated |
+| `baseline/cmapi-reader-rbac.yaml` | The read-only cmapi-reader ServiceAccount the baseline process applies to every cluster, now with Kyverno policy reports | Updated |
 | `hub/cmapi-imports-secret.yaml` | The import contract: one Secret per cluster in cmapi-imports | Verbatim |
 | `hub/cmapi-adoption-configmap.yaml` | Adoption selector and exclusions | Verbatim |
 | `observability/servicemonitor.yaml` | One per component on the metrics port | Verbatim |
-| `observability/prometheusrule.yaml` | The 21 agreed alerts (13 service, 8 system) and the KPI recording rules | Starter: names, conditions and severities agreed; PromQL is a first draft |
+| `observability/prometheusrule.yaml` | The 23 agreed alerts (13 service, 10 system and lifecycle) and short-window KPI recording rules | Starter: names, conditions and severities agreed; PromQL is a first draft |
 | `observability/perses.yaml` | UIPlugin, PersesDatasource and the list of the eight dashboards | Starter: check apiVersions against the installed operator |
 | `helm/values-kpi.yaml` | KPI thresholds, database collection, dashboards provider, monitoring switches and the resource limits the system meters measure against | Starter: limits are proposals |
 
 Notes:
 
-- The project-meta example (`payments-dev` with `env: dev` under `OCP_GF1`) predates the
-  instance split; with the agreed rules a dev namespace must sit on a cluster whose
-  clusters.yaml environment is dev, served by the nonprod instance.
 - Each instance's files hold only its own allowedEnvironments: nonprod rnd and dev, staging qa
-  and uat, prod prod.
+  and uat, prod prod. The files under `config/` that list every environment are references;
+  deploy the ones under `instances/`.
+- Approvals are recorded in cmapi (`POST /requests/{id}:approve`); nothing in these files relies on
+  Git reviews or approval labels.

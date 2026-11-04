@@ -22,8 +22,8 @@ the final design and the source of truth: where another document disagrees, it w
 | [docs/06-reference-architecture.md](docs/06-reference-architecture.md) | Early hub-and-spoke reference architecture | Historical; superseded by 01 |
 | [docs/07-argo-events-workflows-review.md](docs/07-argo-events-workflows-review.md) | Where Argo CD Notifications, Argo Workflows and Argo Events help, and why each is optional | Current reference |
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
-| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create, quota change, policy reject, cluster import, wrong instance. Open in a browser | |
-| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow, New namespace, Quotas, Requests, Approvals, Capacity, KPIs | |
+| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance. Open in a browser | |
+| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
 | [examples/](examples) | Config files and manifests from the design, at their target paths | |
 
 ## Agreed decisions at a glance
@@ -33,7 +33,7 @@ the final design and the source of truth: where another document disagrees, it w
 | Environments and instances | rnd, dev, qa, uat, prod. Three instances, each serving its `allowedEnvironments`: **nonprod** (rnd, dev), **staging** (qa, uat), **prod** (prod). A request for another instance's environment gets 422 `environment-not-served` with that instance's URLs. dev uses rnd's settings until its own are agreed. |
 | Hosts | `cmapi-nonprod` / `portal-nonprod`, `cmapi-staging` / `portal-staging`, `cmapi` / `portal` `.ephico2real.com`. Each instance owns its database, capacity service, worker and imports namespace; only Keycloak is shared. |
 | Domain and labels | ephico2real.com; every cmapi label and annotation uses the `cmapi.net/` prefix. |
-| Writes | Only through Git (PR to cluster-configs, one repository per instance recommended). The one direct call is ServiceAccount token issuance. |
+| Writes | Only through Git, and only after approval: cmapi approves first (auto-approval policy or `POST /requests/{id}:approve`), then the bot opens a PR to cluster-configs that merges when CI and the cmapi check (approved request, plan hash) pass. Git reviews carry no authority. One repository per instance recommended. The one direct call is ServiceAccount token issuance. |
 | Reads | Live, through the read-only `cmapi-reader` ServiceAccount on each cluster. |
 | Identity | Keycloak OIDC, realm `ephico2real`, read-only LDAP federation; one client per instance (audiences `cmapi-nonprod`, `cmapi-staging`, `cmapi-prod`). Roles in the token, scopes in Git. |
 | User and group access | Granted by a separate process; cmapi only reads users and groups. cmapi grants ServiceAccount access only. |
@@ -45,10 +45,12 @@ the final design and the source of truth: where another document disagrees, it w
 | Placement | From stored snapshots, with reservations and zone-failure headroom; CPU and memory checked separately, a cluster is as full as its fuller resource. Overcommit CPU rnd 2.0 / qa 1.5 / uat 1.25 / prod 1.0; memory 1.25 / 1.1 / 1.0 / 1.0. |
 | Quotas | GET /api/v1/quotas pages through every namespace's quota (CPU, memory, pods; used vs hard) from the watch cache: A to Z, 50 per page, keyset cursor, letter jump, type-ahead by name, team or app, filters, sort by name, % used or attention, attention counts and CSV export. The portal's Quotas tab plans and submits tier or custom changes. |
 | Lists | One paging, search, filter, sort and export contract in cmapi-core and one PagedTable in cmapi-portal-ui, reused by Quotas, Requests and Approvals. |
-| Approvals | Per-environment rules; auto-approval with master, per-policy and kill switches plus fixed guards. |
+| Approvals | cmapi is the record of approval. Per-environment rules; auto-approval (baseline-rnd-namespace for rnd and dev, expired-namespace) with master, per-policy and kill switches plus fixed guards. Approval channels are pluggable: portal, email link, Argo Events, ServiceNow, chat; all end in the same `:approve`. |
+| Expiration | Optional, never in prod (refused at validation and by a Kyverno policy). Extend in 30-day steps up to 180 days; notices at 14, 7 and 1 days; 7-day grace; then an auto-approved delete request. Every namespace delete waits for an operator to confirm the prune in Argo CD. |
+| Policies | The portal's Policies tab reads Kyverno policy reports per cluster (bundle tag vs pinned, results by policy, failing resources) beside cmapi's own plan-time and CI refusals. |
 | Modularity | Plugins, adapters, services, instances; 11 extension points; shared `cmapi-core`, `cmapi-ops`, `cmapi-sdk`, `cmapi-portal-ui`, Kyverno bundle and Helm chart. |
 | API docs | Swagger UI at `/docs`, ReDoc at `/redoc`, `/openapi.json` and `.yaml`; an undocumented route or model stops startup and fails CI. |
-| Observability | ServiceMonitor per component, PrometheusRule with 21 alerts, KPI recording rules, 24 KPIs, eight dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
+| Observability | ServiceMonitor per component, PrometheusRule with 23 alerts, KPI recording rules, 24 KPIs, eight dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
 | System metrics | Each component self-reports its cgroup memory, CPU and throttling, event-loop lag and replicas; the database its pool, connections, size, WAL, volume and backups. One definition feeds /metrics and the portal's KPIs tab (GET /api/v1/admin/kpi); unmeasurable reads unavailable, never 0; thresholds in kpi.thresholds. Same pattern as the group-sync dashboard's KPI module. |
 
 Open questions are listed at the end of the design document.
@@ -63,4 +65,4 @@ These files are exports of documents and mockups that also exist as live pages:
 [Request flow mockup](https://claude.ai/artifact/HgsJovTGFbzyvaoJUChjky) ·
 [Portal mockup](https://claude.ai/artifact/HW3mp5RRmuapPhj8beBH1M)
 
-Exported November 3, 2026.
+Exported November 4, 2026.

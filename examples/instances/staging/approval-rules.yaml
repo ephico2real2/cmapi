@@ -1,0 +1,91 @@
+# examples/instances/staging/approval-rules.yaml: deployed as config/approval-rules.yaml on the staging instance
+# allowedEnvironments: ['qa', 'uat']. Generated from examples/config/approval-rules.yaml.
+defaults:
+  required: 0
+  group: platform-leads
+  timeoutHours: 24
+  selfApproval: false
+environments:
+  qa:
+    create: 1
+    change: 1
+    delete: 1
+    group: qa-leads
+    timeoutHours: 24
+  uat:
+    create: 1
+    change: 1
+    delete: 1
+    group: uat-leads
+    timeoutHours: 24
+namespacePatterns:
+- match: critical-*
+  required: 2
+  group: platform-leads
+  reason: Critical namespace pattern
+- match: temp-*
+  waive:
+  - create
+  - change
+  reason: Temporary namespace
+thresholds:
+- when: quotaIncreasePct > 100
+  add: 1
+  group: platform-leads
+- when: requestToPeakRatio > 3
+  add: 1
+  reason: Possible over-provisioning
+- when: capacity == "warn"
+  add: 1
+- when: quotaBelowRequested
+  add: 1
+- when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+  add: 1
+protected:
+  labels:
+  - cmapi.net/protected=true
+  - do-not-delete=true
+autoApproval:
+  enabled: true
+  maxPerTeamPerDay: 20
+  policies:
+  - name: team-metadata
+    enabled: true
+    match:
+      plugin: metadata
+      actions:
+      - patch
+      - update
+      environments:
+      - '*'
+      keyClasses:
+      - team
+  - name: expired-namespace
+    enabled: true
+    match:
+      plugin: namespaces
+      actions:
+      - delete
+      environments:
+      - qa
+      - uat
+      reason: expired
+    guards:
+    - noOpenRequest
+    - notProtected
+    - noExtensionInLast24h
+    - noticesSentAtLeast2
+  - name: baseline-sa-grants
+    enabled: false
+    match:
+      plugin: sa-grants
+      actions:
+      - create
+      environments:
+      - qa
+      clusterRoles:
+      - view
+      - edit
+    requester:
+      clients:
+      - svc-payments-ci

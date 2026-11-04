@@ -33,6 +33,15 @@ rules:
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get, list, watch]
+  - apiGroups: [wgpolicyk8s.io]          # Kyverno policy reports, for the Policies tab
+    resources: [policyreports, clusterpolicyreports]
+    verbs: [get, list, watch]
+  - apiGroups: [policies.kyverno.io]      # CEL policy kinds: readiness and bundle tag
+    resources: [validatingpolicies, mutatingpolicies, generatingpolicies, deletingpolicies, imagevalidatingpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [kyverno.io]               # legacy ClusterPolicy family, counted separately
+    resources: [clusterpolicies, policies]
+    verbs: [get, list]
   - apiGroups: [route.openshift.io]
     resources: [routes]
     resourceNames: [thanos-querier]

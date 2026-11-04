@@ -1,0 +1,28 @@
+# Source: docs/01-design-and-architecture.md, "Namespace expiration"
+# cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml
+# Synced only to prod clusters (their root Application includes policies/env/prod) and run by CI
+# against the expanded Namespace manifests of every clusters/<prod cluster>/ folder (after kustomize
+# build), so a hand edit cannot add expiry metadata either.
+# Kyverno CEL policy; apiVersion policies.kyverno.io/v1alpha1 on Kyverno releases before v1.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: deny-expiry-in-prod
+  annotations:
+    policies.kyverno.io/description: Production namespaces never carry expiration metadata.
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+  validations:
+    - expression: >-
+        !(has(object.metadata.annotations) && 'cmapi.net/expires-at' in object.metadata.annotations) &&
+        !(has(object.metadata.labels) && ('cmapi.net/expiry' in object.metadata.labels ||
+          'cleanup.kyverno.io/ttl' in object.metadata.labels))
+      message: >-
+        Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry
+        and cleanup.kyverno.io/ttl.

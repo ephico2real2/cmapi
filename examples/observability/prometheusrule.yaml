@@ -55,17 +55,21 @@ spec:
       labels: {severity: warning}
       annotations: {summary: "Capacity snapshot for {{ $labels.cluster_id }} older than two intervals"}
     - alert: CmapiCapacityTargetBreached
-      # Critical commitment level from capacity.targets for the environment (chart value);
-      # prod example: commitment critical 0.90. Judged per resource: cpu and memory.
-      expr: max by (cluster_id, resource) (cmapi_cluster_commitment_ratio{environment="prod"}) > 0.90
+      # cmapi-capacity exports capacity.targets as cmapi_capacity_target_ratio{environment, resource, level},
+      # so one rule serves every environment the instance holds. Judged per resource (cpu, memory).
+      expr: |
+        max by (cluster_id, environment, resource) (cmapi_cluster_commitment_ratio)
+          > on (environment, resource) group_left ()
+        max by (environment, resource) (cmapi_capacity_target_ratio{level="critical"})
       for: 1h
       labels: {severity: warning}
       annotations: {summary: "{{ $labels.resource }} commitment critical on {{ $labels.cluster_id }} for 1 hour"}
     - alert: CmapiSyncStuck
-      expr: cmapi_open_change_requests{status="merged"} > 0
-      for: 30m
+      # Age of the oldest request in a state (worker gauge), not "something is open".
+      # A request moves to sync_failed when it is merged but not synced within the sync timeout (30 min).
+      expr: max(cmapi_open_change_requests_oldest_age_seconds{status="sync_failed"}) > 0
       labels: {severity: warning}
-      annotations: {summary: "Requests merged but not synced after 30 minutes"}
+      annotations: {summary: "A request is in sync_failed (merged, not synced within 30 minutes)"}
     - alert: CmapiDriftDetected
       expr: increase(cmapi_sync_drift_total[15m]) > 0
       labels: {severity: warning}
@@ -81,10 +85,12 @@ spec:
       labels: {severity: info}
       annotations: {summary: "The auto-approval kill switch has been on for 24 hours"}
     - alert: CmapiApprovalBacklog
-      expr: sum(cmapi_open_change_requests{status="pr_open"}) > 0
-      for: 24h
+      # Half of the environment's approval window (cmapi_approval_timeout_seconds{environment}).
+      expr: |
+        max by (environment) (cmapi_open_change_requests_oldest_age_seconds{status="pending_approval"})
+          > on (environment) 0.5 * max by (environment) (cmapi_approval_timeout_seconds)
       labels: {severity: info}
-      annotations: {summary: "Requests waiting on approval for over 24 hours"}
+      annotations: {summary: "A {{ $labels.environment }} request has waited more than half of its approval window"}
 
   # System alerts: each component's own cgroup (cmapi.core.kpi), the database, and platform series.
   # Thresholds mirror kpi.thresholds in the chart values (examples/helm/values-kpi.yaml).
@@ -106,9 +112,9 @@ spec:
       labels: {severity: warning}
       annotations: {summary: "{{ $labels.component }} throttled in more than 1% of CPU periods for 30 minutes"}
     - alert: CmapiPodRestarting
-      expr: |
-        sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace="cmapi"}[15m])) > 0
-          or sum by (pod) (kube_pod_container_status_last_terminated_reason{namespace="cmapi", reason="OOMKilled"}) > 0
+      # A restart in the window; the OOM case is named in the dashboard from
+      # kube_pod_container_status_last_terminated_reason, which stays set after the event.
+      expr: sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace="cmapi"}[15m])) > 0
       labels: {severity: warning}
       annotations: {summary: "{{ $labels.pod }} restarted or was OOM-killed in the last 15 minutes"}
     - alert: CmapiEventLoopBlocked
@@ -137,7 +143,7 @@ spec:
       labels: {severity: warning}
       annotations: {summary: "The cmapi database volume is above 80% or predicted full within 7 days"}
     - alert: CmapiDbBackupStale
-      # Absent until a backup tool reports (open question); absent is not treated as fresh.
+      # Rendered only when kpi.database.backupStatus is not "none"; then a missing series also fires.
       expr: |
         (time() - max(cmapi_db_backup_last_success_timestamp_seconds)) > 26 * 3600
           or absent(cmapi_db_backup_last_success_timestamp_seconds)
@@ -145,35 +151,44 @@ spec:
       labels: {severity: critical}
       annotations: {summary: "No successful cmapi database backup for 26 hours, or no backup reporting at all"}
 
-  # KPI recording rules: dashboards and the monthly export read the same series.
+    - alert: CmapiPolicyBundleDrift
+      expr: max by (cluster_id) (cmapi_policy_bundle_info{pinned="false"}) == 1
+      for: 30m
+      labels: {severity: warning}
+      annotations: {summary: "{{ $labels.cluster_id }} runs a Kyverno bundle tag other than the pinned one"}
+    - alert: CmapiPruneAwaiting
+      expr: max(cmapi_open_change_requests_oldest_age_seconds{status="awaiting_prune"}) > 86400
+      labels: {severity: info}
+      annotations: {summary: "A namespace delete has waited for prune confirmation for more than 24 hours"}
+
+  # KPI recording rules: short windows only. User workload monitoring keeps about a day by
+  # default, so 7- and 30-day KPIs come from these series over a longer-retention store, or from
+  # the monthly KPI export (database), never from a [30d] range here.
   - name: cmapi.kpi
     interval: 5m
     rules:
-    - record: cmapi:change_lead_time_seconds:p90_7d
+    - record: cmapi:change_lead_time_seconds:p90_1h
+      expr: histogram_quantile(0.90, sum by (le, approval) (increase(cmapi_change_lead_time_seconds_bucket[1h])))
+    - record: cmapi:approval_wait_seconds:p90_1h
+      expr: histogram_quantile(0.90, sum by (le, rule) (increase(cmapi_approval_wait_seconds_bucket[1h])))
+    - record: cmapi:api_availability:ratio_rate5m
+      # successes over all requests that are not client errors
       expr: |
-        histogram_quantile(0.90,
-          sum by (le, approval) (increase(cmapi_change_lead_time_seconds_bucket[7d])))
-    - record: cmapi:approval_wait_seconds:p50_7d
-      expr: histogram_quantile(0.50, sum by (le, rule) (increase(cmapi_approval_wait_seconds_bucket[7d])))
-    - record: cmapi:approval_wait_seconds:p90_7d
-      expr: histogram_quantile(0.90, sum by (le, rule) (increase(cmapi_approval_wait_seconds_bucket[7d])))
-    - record: cmapi:api_availability:ratio_30d
-      expr: |
-        sum(increase(cmapi_http_requests_total{status!~"5.."}[30d]))
-          / sum(increase(cmapi_http_requests_total{status!~"4.."}[30d]))
+        sum(rate(cmapi_http_requests_total{status!~"4..|5.."}[5m]))
+          / sum(rate(cmapi_http_requests_total{status!~"4.."}[5m]))
     - record: cmapi:capacity_freshness:ratio
       expr: |
-        count(cmapi_capacity_snapshot_age_seconds < 2 * 1800)
+        (count(cmapi_capacity_snapshot_age_seconds < 2 * 1800) or vector(0))
           / count(cmapi_capacity_snapshot_age_seconds)
     - record: cmapi:managed_coverage:ratio
       expr: |
-        sum(cmapi_namespaces{state="managed"})
-          / (sum(cmapi_namespaces) - sum(cmapi_namespaces{state="excluded"}))
-    - record: cmapi:drift_events:7d
-      expr: sum(increase(cmapi_sync_drift_total[7d]))
-    - record: cmapi:memory_limit_ratio:p95_7d
-      expr: max by (component) (quantile_over_time(0.95, (cmapi_process_memory_bytes / cmapi_process_memory_limit_bytes)[7d:5m]))
-    - record: cmapi:cpu_throttled_ratio:7d
-      expr: max by (component) (increase(cmapi_process_cpu_throttled_periods_total[7d]) / increase(cmapi_process_cpu_periods_total[7d]))
+        (sum(cmapi_namespaces{state="managed"}) or vector(0))
+          / (sum(cmapi_namespaces) - (sum(cmapi_namespaces{state="excluded"}) or vector(0)))
+    - record: cmapi:drift_events:increase1h
+      expr: sum(increase(cmapi_sync_drift_total[1h]))
+    - record: cmapi:memory_limit_ratio:max
+      expr: max by (component) (cmapi_process_memory_bytes / cmapi_process_memory_limit_bytes)
+    - record: cmapi:cpu_throttled_ratio:rate1h
+      expr: max by (component) (rate(cmapi_process_cpu_throttled_periods_total[1h]) / rate(cmapi_process_cpu_periods_total[1h]))
     - record: cmapi:backup_age_seconds
       expr: time() - max(cmapi_db_backup_last_success_timestamp_seconds)

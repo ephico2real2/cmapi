@@ -291,12 +291,12 @@ curl -s -X POST "$CMAPI/clusters/$CLUSTER/namespaces?dryRun=true" \
           "cmapi.net/owner": "ola@ephico2real.com",
           "ops.ephico2real.com/runbook": "https://wiki.ephico2real.com/payments/runbook"
         },
-        "ttl": "2026-12-15",
+        "expiresAt": "2026-12-15",
         "justification": "Payments service rnd namespace"
       }'
 ```
 
-`cmapi.net/team` and `cmapi.net/owner` are required. The team must be one your scope binding allows.
+`cmapi.net/team` and `cmapi.net/owner` are required. The team must be one your scope binding allows. `expiresAt` is optional in rnd, dev, qa and uat; leave it out for a permanent namespace. In prod it is refused with `422 expiration-not-allowed`.
 
 ### 4. Submit the create
 
@@ -363,7 +363,70 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "$CMAPI/requests/req-20261103-7f3a/events"
 ```
 
-The 202 arrives at `validated`; the worker opens the PR moments later. Status moves through `validated` → `pr_open` → `approved` → `merged` → `synced` (or `rejected`, `failed`, `cancelled`, `timeout`).
+Approval happens in cmapi before anything reaches Git. The 202 arrives at `pending_approval`, or at `approved` when an auto-approval policy matched. Only then does the worker open a bot PR, which the bot merges when CI passes. Status moves through `pending_approval` → `approved` → `pr_open` → `merged` → `synced`; a delete stops in `awaiting_prune` until an operator confirms the prune. Exits: `rejected`, `cancelled`, `timeout`, `failed` (retry with `:retry`), `sync_failed` (`:retry` or `:revert`), `superseded` (re-plan).
+
+### 8. Approve or reject (approvers)
+
+Approvals are recorded in cmapi, never as Git reviews. Use your own token; you cannot approve your own request, one your pipeline client made, or an operation you started (except where the environment allows self-approval).
+
+```bash
+# What can I approve?
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/requests?status=pending_approval&approver=me"
+
+curl -s -X POST "$CMAPI/requests/req-20261103-9c02:approve" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"comment": "Load test signed off by SRE"}'
+# → {"requestId": "req-20261103-9c02", "status": "pending_approval", "approval": {"requiredCount": 2, "count": 1, ...}}
+#   the second eligible approval moves it to "approved" and the worker opens the bot PR
+
+curl -s -X POST "$CMAPI/requests/req-20261103-9c02:reject" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"comment": "Use pod request tuning first; 14-day peak is 9.6 cores"}'
+```
+
+Email, chat and ServiceNow approvals all end in the same `:approve` call (email links open this request in the portal).
+
+### 9. Retry or revert (operators)
+
+```bash
+curl -s -X POST "$CMAPI/requests/req-20261103-7f3a:retry"  -H "Authorization: Bearer $TOKEN"   # failed or sync_failed
+curl -s -X POST "$CMAPI/requests/req-20261103-7f3a:revert" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"justification": "Sync failed on OCP_GF6; roll back"}'   # a new request, same approval rules
+```
+
+### 10. Expiration (non-prod only)
+
+```bash
+# Expiry of one namespace
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/clusters/OCP_GF6/namespaces/payments-rnd/expiration"
+# → {"expiresAt": "2026-12-15", "state": "active", "daysLeft": 42, "lifetimeDaysUsed": 42, "maxLifetimeDays": 180,
+#    "maxExtensionDays": 30, "notices": ["14d", "7d", "1d"], "graceDays": 7}
+
+# Extend by up to 30 days (rnd and dev: no approval; qa and uat: 1)
+curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/payments-rnd/expiration:extend" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"days": 30, "justification": "Integration tests run through January"}'
+
+# Make permanent, or give a permanent non-prod namespace a date (beyond the limits: platform-leads approve)
+curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/payments-rnd/expiration:makePermanent" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"justification": "Now the shared payments sandbox"}'
+curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/ledger-rnd/expiration:set" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"until": "2027-01-31", "justification": "Project ends in January"}'
+
+# Everything expiring in the next 14 days, or in grace (paged like /quotas)
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/expirations?state=expiring&within=14d"
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/expirations?state=grace"
+```
+
+At the date the namespace enters a 7-day grace: it keeps running and can still be extended. After grace, cmapi opens a delete request (auto-approved by the `expired-namespace` policy), and Argo CD waits for an operator to confirm the prune.
+
+### 11. Kyverno policy results
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies?clusterId=OCP_GF6"                        # bundle tag running vs pinned, readiness
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies/results?clusterId=OCP_GF6&result=fail"    # failing resources in your scope (paged)
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies/rejections?since=7d"                      # cmapi's own plan-time and CI refusals
+```
 
 ---
 
@@ -379,7 +442,7 @@ The 202 arrives at `validated`; the worker opens the PR moments later. Status mo
   "kind": "Namespace",
   "action": "create",
   "namespace": "payments-rnd",
-  "status": "validated",
+  "status": "approved",
   "prUrl": null,
   "approval": {"rule": "rnd-create", "requiredCount": 0, "autoApproved": true, "autoPolicy": "baseline-rnd-namespace"},
   "links": {"self": "/api/v1/requests/req-20261103-7f3a"}
@@ -406,10 +469,12 @@ The 202 arrives at `validated`; the worker opens the PR moments later. Status mo
 | 403 | `forbidden` | None of your Keycloak roles grants this action | Ask to join the right `cmapi-*` LDAP group |
 | 403 | `cluster-scope-forbidden` | Your role is right, but no scope binding covers this cluster, environment or namespace | Change the binding with a PR to `authz-scopes.yaml` |
 | 404 | `cluster-not-found` / `object-not-found` | Unknown cluster or missing live object | |
-| 409 | `change-pending` | An open request already targets this object | Wait for it or cancel it |
+| 409 | `change-pending` | An open request already targets this namespace | Wait for it, or cancel it with `POST /requests/{id}:cancel` |
+| 409 | `not-pending` / `self-approval` | `:approve` on a request not waiting for approval, or by someone who may not approve it | Check `GET /requests/{id}`; ask another eligible approver |
+| 422 | `expiration-not-allowed` / `expiration-limit` | Expiry asked for in prod, or a single extension over 30 days (past 180 days in total is not refused: it is routed to platform-leads) | Leave it out in prod; extend in steps of 30 days or less |
 | 412 / 428 | `precondition-failed` / `precondition-required` | Stale or missing `If-Match` | GET again for the current ETag |
 | 422 | `validation-failed` / `policy-violation` / `capacity-exceeded` | Request rejected at plan time | Read `errors[].code`, e.g. `reserved_key`, `team_not_bound` |
-| 502 | `git-unavailable` | Git host error | Retry later |
+| 429 | `rate-limited` | Too many calls, or too many active placements for your team | Honour `Retry-After` |
 | 422 | `environment-not-served` | This instance does not serve that environment | Use the instance URL in the response's `instanceUrl` |
 | 422 | `cluster-not-writable` | The cluster is imported but has no clusters.yaml entry yet | Wait for its cluster-onboard PR to merge |
 | 503 | `cluster-unreachable` / `idp-unavailable` | Cluster API or Keycloak keys unreachable | Honour `Retry-After` |

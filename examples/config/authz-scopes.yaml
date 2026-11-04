@@ -1,5 +1,6 @@
 # Source: docs/02-technical-design-v2.md
-# config/authz-scopes.yaml
+# config/authz-scopes.yaml: shape reference. A deployed file holds only its instance's clusters and
+# environments; see examples/instances/<instance>/authz-scopes.yaml for the three real files.
 bindings:
   - group: /cmapi/cmapi-payments-requesters
     role: cmapi-requester

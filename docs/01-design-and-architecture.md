@@ -4,7 +4,7 @@ Nov 3, 2026 · @Ola
 
 ## Summary
 
-cmapi is one API for asking for, changing and inspecting namespaces across every OpenShift cluster, through one instance per network zone: nonprod (rnd, dev), staging (qa, uat) and prod. Every write becomes a pull request to the cluster-configs repository, and each cluster's Argo CD applies it. cmapi never writes to a cluster directly.
+cmapi is one API for asking for, changing and inspecting namespaces across every OpenShift cluster, through one instance per network zone: nonprod (rnd, dev), staging (qa, uat) and prod. Every write is approved in cmapi and then becomes a bot pull request to the cluster-configs repository, and each cluster's Argo CD applies it. cmapi never writes to a cluster directly.
 
 This document is the entry point and the current source of truth. The [v2 design](02-technical-design-v2.md) keeps the field-level detail. Where the two disagree, this document wins.
 
@@ -16,7 +16,7 @@ This document is the entry point and the current source of truth. The [v2 design
 
 **Design principles.**
 
-1. **Git is the write path.** API request → plan → approval → PR to cluster-configs → Argo CD on each cluster. Every change has a diff, a reviewer and a revert.
+1. **Git is the write path.** API request → plan → approval → PR to cluster-configs → Argo CD on each cluster. Every change has a diff, an approver of record and a revert.
 2. **Reads are live.** Cluster state is read through a read-only cmapi-reader ServiceAccount on each cluster, from a watch cache, never from a copy in the database.
 3. **PostgreSQL holds history, not state.** It stores change requests, approvals, audit, capacity snapshots and usage verdicts. It is never replayed to rebuild a cluster.
 4. **Cluster credentials are read-only.** A cluster is imported by a separate baseline process. The imported token reads; its one write is issuing ServiceAccount tokens in namespaces cmapi manages.
@@ -54,7 +54,7 @@ The only path from cmapi to a cluster's desired state is a merged PR that the cl
 
 | Component | Where | Role | Talks to |
 | --- | --- | --- | --- |
-| cmapi-api | Hub, namespace cmapi | Gateway for every caller. Verifies the token, authorizes, plans, applies approval rules, opens PRs, places namespaces, serves reads | Keycloak (JWKS), Git host, PostgreSQL (cmapi schema), cmapi-capacity, each cluster's API (read) |
+| cmapi-api | Hub, namespace cmapi | Gateway for every caller. Verifies the token, authorizes, plans, applies approval rules, records approvals, places namespaces, serves reads | Keycloak (JWKS), Git host, PostgreSQL (cmapi schema), cmapi-capacity, each cluster's API (read) |
 | cmapi-worker | Hub, namespace cmapi | Jobs from the jobs table: open\_pr, sync\_pr\_state, watch\_sync, notify, expire\_check, built-in operation steps | Git host, Argo CD Applications on each cluster (read), PostgreSQL |
 | cmapi-capacity | Hub, namespace cmapi, ClusterIP only | All Thanos work: snapshots, live namespace usage, daily sweep, retention | Each cluster's Thanos Querier and API (read), PostgreSQL (capacity schema) |
 | PostgreSQL | Hub | Two schemas: cmapi (requests, approvals, reservations, jobs, audit) and capacity (snapshots, verdicts, recommendations) | — |
@@ -171,7 +171,7 @@ Each layer only calls the one below it through a published interface: clients th
 
 **Lists page, search and export the same way.** An instance holds hundreds of namespaces and thousands of requests, so no list endpoint returns everything. cmapi-core provides one contract and cmapi-portal-ui one PagedTable, used by Quotas, Requests and Approvals and by any plugin's list:
 
-- **Paging:** a Page response with items, total, from, to, nextCursor and prevCursor. The cursor is keyset on the sort key (name, then clusterId), so namespaces created or deleted between pages never cause a skip or a repeat. It carries a hash of the filters and sort; reusing it after either changes returns 400 invalid-cursor. limit is 25, 50 (default) or 100, at most 200.
+- **Paging:** a Page response with items, total, from, to, nextCursor and prevCursor. The cursor is keyset on (sort value, name, clusterId), so with the default name order, namespaces created or deleted between pages never cause a skip or a repeat. Sorting by % used or severity is best-effort across pages, because those values change while someone pages. It carries a hash of the filters and sort; reusing it after either changes returns 400 invalid-cursor. limit is 25, 50 (default) or 100, at most 200.
 - **Letter jump:** with sort=name, startsWith=p starts the page at the first name from that letter. The response's letter counts disable letters with no rows.
 - **Search:** :suggest returns up to 10 matches from 2 characters: names that start with the text, then names that contain it, then namespaces whose cmapi.net/team or cmapi.net/app label matches, each saying why it matched. Choosing one opens that row with its page; q= on the list applies the same match to every page. The portal debounces 250 ms and cancels the previous call on each keystroke.
 - **Filters and sort:** env, clusterId, team, tier, verdict and state combine with q; sort is name (default), used (highest percentage of quota first) or severity.
@@ -203,21 +203,38 @@ With no core or portal change, it then has routes in the spec, Swagger and ReDoc
 
 ## Request lifecycle
 
-Every write runs the same pipeline, whatever the plugin. The API answers 202 with a ChangeRequest (status validated) as soon as the plan and approval are settled. The worker opens the PR moments later; the caller follows the request, not the PR.
+Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once CI passes. The caller follows the request, not the PR.
 
 ![request lifecycle · 9 steps, one approval branch](diagrams/request-lifecycle.png)
 
-1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi, expiry.
+1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi-\<instance>, expiry.
 2. **Authorize.** The route's permission must come from a role in the token, and a scope binding for that role must cover the cluster, environment and namespace.
 3. **Idempotency.** The same Idempotency-Key from the same caller returns the first response.
-4. **Lock.** At most one open request per object, enforced by a partial unique index.
-5. **Plan.** The plugin validates, renders the YAML and diffs it against the live object. The Kyverno bundle and kubeconform run on the rendered files. For a new namespace, the request carries the placementId from POST /api/v1/capacity:place, and that reservation becomes the request's own; the capacity check uses stored snapshots. For a quota change, cmapi-capacity reads that namespace's last 14 days from Thanos.
-6. **Approve.** The rules engine turns the plan's facts into an ApprovalRequirement. A matching auto-approval policy sets requiredCount to 0, unless a guard sends the request to humans.
-7. **Commit.** The worker opens the PR with the plan, the approval rule and its label. Auto-approved PRs get auto-merge.
-8. **Merge.** The approval-count check passes and branch protection lets the PR merge.
-9. **Sync.** Argo CD on the target cluster applies the folder. The worker learns the result by polling or from Argo CD Notifications, and the request becomes synced. The reservation ends when the namespace's quota appears in the watch cache.
+4. **Lock.** At most one open request per namespace, covering every file in its folder (a partial unique index on cluster and namespace), so two requests can never edit the same files.
+5. **Plan.** The plugin validates, renders the YAML and diffs it against the live object. The Kyverno bundle and kubeconform run on the rendered files, and the plan stores a hash of them. For a new namespace, the request carries the placementId from POST /api/v1/capacity:place and that reservation becomes the request's own. For a quota increase, the delta is reserved the same way and cmapi-capacity reads the namespace's last 14 days from Thanos.
+6. **Decide.** The rules engine turns the plan's facts into an ApprovalRequirement. A matching auto-approval policy approves at once (approver auto:\<policy>); otherwise the request waits in pending\_approval and the approval channels tell the eligible approvers.
+7. **Approve.** An eligible approver calls POST /api/v1/requests/{id}:approve, or :reject with a comment, with their own token: from the portal, the CLI, or a channel such as an email link or ServiceNow. When the count is met, capacity is checked again and the request becomes approved.
+8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git.
+9. **Sync.** Argo CD on the target cluster applies the folder. The worker learns the result by polling or from Argo CD Notifications and confirms it with a direct read; then the request is synced and its reservation ends. A delete stops in awaiting\_prune until an operator confirms the prune in Argo CD.
 
-Request states: validated → pr\_open → approved → merged → synced, with rejected, failed, sync\_failed, cancelled and timeout as exits. Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the capacity check and the approval that would apply. It skips the idempotency and lock steps, reserves nothing, writes no row and opens no PR.
+| State | Entered when | Moves to | Lock | Reservation |
+| --- | --- | --- | --- | --- |
+| pending\_approval | The plan passed and approvals are required | approved, rejected, cancelled, timeout | Held | Held |
+| approved | The count is met (auto or :approve) and capacity still fits | pr\_open, cancelled, failed, superseded | Held | Held |
+| pr\_open | The bot PR is open | merged, failed, superseded | Held | Held |
+| merged | CI passed and the bot merged | synced, awaiting\_prune, sync\_failed | Held | Held |
+| awaiting\_prune | A delete merged; Argo CD shows the namespace waiting for prune confirmation | synced | Held | None |
+| synced | Argo CD Synced at or after the merge commit, confirmed by a read | End | Released | Released |
+| rejected | The plan failed, or an approver rejected | End | Released | Released |
+| cancelled | The requester cancelled before pr\_open | End | Released | Released |
+| timeout | The approval window passed | End | Released | Released |
+| failed | The PR could not be opened after 5 attempts with backoff, CI failed, or someone closed the PR | approved (:retry re-acquires the lock; 409 if another request holds it) | Released | Released |
+| sync\_failed | Merged but not synced within 30 minutes, or Argo CD reports a failed sync | synced (:retry), or a revert request (:revert) | Held until resolved | Released |
+| superseded | The namespace's files changed in Git after the plan | End; the caller re-plans | Released | Released |
+
+Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the capacity check and the approval that would apply; it skips the idempotency and lock steps, reserves nothing, writes no row and opens no PR. POST /api/v1/requests/{id}:cancel lets the requester withdraw before pr\_open; :retry and :revert need requests:retry; a revert is a new request through the same approval rules.
+
+**Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by platform-leads and need two of them.
 
 ## Identity and access
 
@@ -233,7 +250,7 @@ Keycloak is the only identity provider cmapi trusts. Roles in the token decide w
 | cmapi-cli | Device Authorization Grant + offline\_access | cmapi login |
 | svc-{team}-{purpose} | Client Credentials | One per pipeline or automation |
 
-**Roles.** cmapi-viewer, cmapi-requester, cmapi-approver, cmapi-operator, cmapi-admin and cmapi-auditor. core/authz.py maps each to permissions such as namespaces:write, capacity:read or operations:run (operator and admin). Approver does not include requester, and self-approval stays excluded by the caller's sub.
+**Roles.** cmapi-viewer, cmapi-requester, cmapi-approver, cmapi-operator, cmapi-admin and cmapi-auditor, plus cmapi-approval-relay for channel integrations such as ServiceNow (approvals:relay only; the named person must be eligible). core/authz.py maps each to permissions such as namespaces:write, capacity:read or operations:run (operator and admin). Approver does not include requester, and self-approval is excluded by the caller's sub unless the environment allows it (rnd, dev).
 
 **Scope bindings.** config/authz-scopes.yaml pairs one role with one scope: clusters or a clusterSelector, environments, namespace patterns and optionally a team. A request passes only when one binding matches all four: the subject, a role still in the token, the permission, and the target.
 
@@ -340,10 +357,10 @@ A cluster's placement block can override its environment's overcommit.
 
 - **Hard filters** exclude a cluster with a named reason: wrong environment, not connected or not writable, placement disabled, outside the requested region, zones or clusterSelector or the team's binding, stale or partial data, maxNamespaces reached, no quota headroom after reservations, and in prod no zone-failure headroom.
 - **Score** (0 to 100, weights in config/placement.yaml): quota headroom after placement 40, usage headroom from the 14-day p95 25, balance 15, team affinity 10, zone spread 10. It is multiplied by the cluster's weight and capped at 100; ties go to the lower clusterId.
-- **Reservations** are taken in the same transaction as the check, under a per-cluster advisory lock. A reservation ends when the namespace's quota appears in the watch cache, or when the request is rejected, cancelled or times out.
+- **Reservations** are taken in the same transaction as the check, under a per-cluster advisory lock. A reservation ends when the request is synced and a direct read shows the namespace's quota, or when it is rejected, cancelled, timed out, failed or sync\_failed.
 - A quota increase that no longer fits returns 422 capacity-exceeded with the clusters where it would fit, as advice. Moving a namespace is a migration and never automatic.
 
-**Quota changes on existing namespaces.** The quotas planner asks cmapi-capacity for that namespace's last 14 days. The figures feed the approval facts (quotaIncreasePct, requestToPeakRatio, the namespace's current verdicts). If Thanos cannot answer within 10 seconds, the plan carries usage: unavailable and the change needs a platform approval instead of failing.
+**Quota changes on existing namespaces.** The quotas planner asks cmapi-capacity for that namespace's last 14 days. The figures feed the approval facts (quotaIncreasePct, requestToPeakRatio, the namespace's current verdicts). If Thanos cannot answer within 10 seconds, the plan carries usage: unavailable and the change needs a platform approval instead of failing. An increase reserves its delta like a placement and is checked again when approved. A decrease below what pods already request is refused unless platform-leads approve, because new pods would be rejected at admission.
 
 **Quota view.** GET /api/v1/quotas?q=&env=&clusterId=&team=&tier=&verdict=&state=&sort=&limit=&cursor=&startsWith= pages through every namespace in the caller's scope on this instance with its tier and its ResourceQuota hard and used for requests.cpu, requests.memory and pods, read from the watch cache, plus its latest verdict and any open recommendation. Used is the sum of pod requests, not what pods consume. GET /api/v1/clusters/{clusterId}/namespaces/{ns}/quota returns one namespace with the ETag a change needs. Neither read touches Thanos. The portal's Quotas tab is built on these two reads; it opens A to Z, 50 per page, with the attention counts above the list and type-ahead search, as described in Lists page, search and export the same way. Planning a change from it adds the live 14-day usage, the CPU and memory check against the cluster (and zone-failure headroom in prod), and the approval that will apply. A change is a tier (PATCH on the namespace) or custom requests.cpu and requests.memory (PATCH on its quota), and one open request per namespace still holds, so a second change waits with 409.
 
@@ -390,23 +407,33 @@ Placement, the capacity check inside every plan, and applying or dismissing reco
 
 ## Approvals and auto-approval
 
-Approval rules live in config/approval-rules.yaml and are evaluated at plan time; the strictest match wins and the Git host enforces it on the PR.
+Approval rules live in config/approval-rules.yaml and are evaluated at plan time; the strictest match wins, and cmapi enforces it before anything is written to Git.
 
 | Environment | Instance | Create | Change | Delete | Approving group | Timeout |
 | --- | --- | --- | --- | --- | --- | --- |
 | rnd | nonprod | 1 (0 through baseline-rnd-namespace) | 0 | 1 | platform-leads (self-approval allowed) | 8 h |
-| dev | nonprod | Same as rnd until agreed | 0 | 1 | platform-leads (self-approval allowed) | 8 h |
+| dev | nonprod | 1 (0 through baseline-rnd-namespace) | 0 | 1 | platform-leads (self-approval allowed) | 8 h |
 | qa | staging | 1 | 1 | 1 | qa-leads | 24 h |
 | uat | staging | 1 | 1 | 1 | uat-leads | 24 h |
 | prod | prod | 1 | 1 | 2 | prod-approvers | 48 h |
 
-rnd create moves from 0 to 1 in this design, so the baseline-rnd-namespace policy has something to waive: small and medium rnd namespaces on fresh capacity data merge on their own, and anything larger or flagged waits for a person.
+rnd and dev creates need 1 approval, so the baseline-rnd-namespace policy has something to waive: small and medium rnd and dev namespaces on fresh capacity data go straight to Git, and anything larger or flagged waits for a person.
 
 Namespace patterns raise or waive (critical-\* needs 2 from platform-leads; temp-\* waives create and change). Thresholds add approvers from the plan's facts: quota increase over 100%, request-to-peak ratio over 3, capacity warn, and deletes of old or large namespaces.
 
-**Enforcement.** Core writes the requirement into the PR body and a label such as approval/prod-delete-2. A CI check asks cmapi which reviewers count (Keycloak group, approver role, binding scope, not the requester when self-approval is off) and stays red until the count is met. Branch protection requires that check.
+**Approval of record.** cmapi records every approval; Git reviews carry no authority, so no mapping from Git usernames to Keycloak users is needed. POST /api/v1/requests/{id}:approve and :reject (a comment is required) take the approver's own token. cmapi checks the approver role, the approving group from the token, the scope binding for the request's cluster and environment, and that the approver is not the requester, not the person who started the operation, and not an owner of the svc client that asked (self-approval only where the environment allows it). GET /api/v1/requests?status=pending\_approval&approver=me lists what a person can approve. Each decision is an approvals row and an audit event.
 
-**Auto-approval.** Baseline requests the platform team decides need no human merge on their own. It is off unless switched on, at three levels.
+**Approval channels.** How approvers hear about a request, and how they reach :approve, is an extension point (ApprovalChannel); a channel notifies or relays, and the decision is always the same :approve call, so a gate added later changes no plugin.
+
+| Channel | How it works |
+| --- | --- |
+| portal (default) | The Approvals tab lists pending requests with the plan, the reasons and Approve / Reject |
+| email | A message with a signed, single-use link that opens the request in the portal; the email itself never approves |
+| argo-events / notifications | cmapi publishes request.pending\_approval; a Sensor or Argo CD Notifications fans it out to chat, paging or a workflow |
+| servicenow | Opens a change task; when it is approved there, the integration calls :approve as a svc client with approvals:relay, naming the person, who must be eligible; both identities are recorded |
+| slack / teams | An interactive message whose button opens the portal page, like email |
+
+**Auto-approval.** Baseline requests the platform team decides need no human approval. It is off unless switched on, at three levels.
 
 | Switch | Where | Effect |
 | --- | --- | --- |
@@ -414,11 +441,41 @@ Namespace patterns raise or waive (critical-\* needs 2 from platform-leads; temp
 | Per policy | policies\[\].enabled | Turns one baseline off, leaves the rest |
 | Kill switch | POST /api/v1/admin/auto-approval:pause and :resume (cmapi-admin) | Immediate, no PR; recorded with who and why; overrides Git until resumed |
 
-Example policies: baseline-rnd-namespace (create, rnd, small or medium tier, optional clusterSelector), team-metadata (team-class label keys in any environment), baseline-sa-grants (written, not yet on). A team gets at most maxPerTeamPerDay auto-approvals (20 by default).
+Example policies: baseline-rnd-namespace (create, rnd and dev, small or medium tier, optional clusterSelector), team-metadata (team-class label keys in any environment), expired-namespace (the delete that follows an expiry grace period, see Namespace expiration), baseline-sa-grants (written, not yet on). A team gets at most maxPerTeamPerDay auto-approvals (20 by default).
 
-**Guards no policy can switch off.** A matching request still goes to humans when it is a delete, when a pattern or threshold added approvers, when placement or the capacity check is anything but fits on fresh data, when the plan has warnings, or when the team's daily allowance is used. CI must pass either way.
+**Guards no policy can switch off.** A matching request still goes to humans when it is a delete (other than expired-namespace, which has its own guards), when a pattern or threshold added approvers, when placement or the capacity check is anything but fits on fresh data, when the plan has warnings, or when the team's daily allowance is used. CI must pass either way.
 
-An auto-approved request gets requiredCount 0, the label approval/auto-\<policy>, auto-merge on the PR, a passing approval-count check, and an approvals row with approver auto:\<policy>. Branch protection requires the approval-count check rather than a human review, so no bot has to approve a PR; the cmapi bot is CODEOWNER of clusters/\*\*/namespaces, so its own PRs can merge. Widening a policy that reaches prod needs two platform-leads.
+An auto-approved request is approved at plan time by approver auto:\<policy>, skips pending\_approval and goes straight to the bot PR; CI must still pass. Widening a policy that reaches prod needs two platform-leads.
+
+## Namespace expiration
+
+Expiration is optional, and prod never has it. A namespace in rnd, dev, qa or uat may be created with an expiry date or without one; a prod namespace can never carry expiration metadata.
+
+- **Where it lives.** The renderer writes the annotation cmapi.net/expires-at (a date) and the label cmapi.net/expiry=managed into the project-meta file; both are system keys nobody sets by hand. cleanup.kyverno.io/ttl is not used: a Kyverno delete would leave the folder in Git, and Argo CD would recreate the namespace.
+- **Never in prod.** A prod request with any expiry field gets 422 expiration-not-allowed, the renderer never writes the keys for prod, and the Kyverno ValidatingPolicy deny-expiry-in-prod refuses them in CI and at admission, so a hand edit cannot add them either.
+- **Limits.** Set per environment in config/expiration.yaml. An extension within the limits follows the environment's change rule; going past them, or making a namespace permanent, adds platform-leads.
+
+| Setting | rnd, dev | qa, uat | prod |
+| --- | --- | --- | --- |
+| Expiry at create | Optional | Optional | Not allowed |
+| Each extension | Up to 30 days | Up to 30 days | — |
+| Total lifetime | 180 days from creation; longer needs platform-leads | Same | — |
+| Approvals for an extension within limits | 0 | 1 (qa-leads, uat-leads) | — |
+| Notices before expiry | 14, 7 and 1 days | Same | — |
+| Grace after the date | 7 days | 7 days | — |
+
+- **API.** GET /api/v1/clusters/{clusterId}/namespaces/{ns}/expiration; POST …/expiration:extend {days or until, justification}; POST …/expiration:set (give a permanent non-prod namespace a date); POST …/expiration:makePermanent; GET /api/v1/expirations?state=expiring|grace|pending\_delete|active|permanent&within=14d&env=&team= (paged and searched like quotas). Every write is a normal request: plan, approval, bot PR. The portal's Expiration tab is built on these calls.
+- **The daily expire\_check.** The worker notifies the owner and the team through the Notifier at 14, 7 and 1 days. On the date the namespace enters grace: it keeps running, can still be extended, and is flagged on the Expiration tab. After grace, cmapi opens a delete request approved by the expired-namespace policy, whose guards are no open request on the namespace, not protected, no extension in the last 24 hours, and at least two notices sent. The delete thresholds (age, pods, PVCs) and namespace patterns do not apply to an expiry delete: these guards and the operator's prune confirmation stand in for them. The bot PR removes the folder and Argo CD waits for an operator to confirm the prune (awaiting\_prune), so data and PVCs are never removed by a timer alone.
+- **Deletes in general.** Namespaces are rendered with the Argo CD sync option Prune=confirm, so every namespace delete, by request or by expiry, waits for an operator. CI refuses a PR that removes more than one namespace folder, or any folder without a matching approved delete request.
+
+## Policy reports (Kyverno)
+
+The same Kyverno bundle runs at plan time, in CI and at admission. What it decided on each cluster is read back from the policy reports and shown on the portal's Policies tab, per instance.
+
+- **Reports, not policy internals.** cmapi reads wgpolicyk8s.io PolicyReports and ClusterPolicyReports live through cmapi-reader (the baseline grants get, list and watch on them and on the policy kinds), as the group-sync dashboard's Kyverno module already does. The CEL policy kinds (ValidatingPolicy, MutatingPolicy, GeneratingPolicy, DeletingPolicy, ImageValidatingPolicy) are first-class; results from the deprecated ClusterPolicy family are counted separately. Kyverno not installed, and results dropped by the report size breaker, show as states, never as zero.
+- **What the tab shows.** Per cluster, the bundle tag running against the tag pinned for the instance, and each policy's readiness. Per policy, pass, fail, warn and error counts and the failing resources by namespace, scoped to the caller. cmapi's own refusals at plan time and in CI sit beside the admission results, so a team sees a rule once whatever stopped them.
+- **API.** GET /api/v1/policies?clusterId= (bundle and readiness), GET /api/v1/policies/results?clusterId=&policy=&namespace=&result=fail|warn|error (paged, scoped), GET /api/v1/policies/rejections?since=7d (cmapi's plan-time and CI refusals).
+- **Metrics.** cmapi\_policy\_results{cluster\_id, policy, result} and cmapi\_policy\_bundle\_info{cluster\_id, tag, pinned="true"|"false"}, with no namespace or resource label. CmapiPolicyBundleDrift fires when a cluster runs a tag other than the pinned one for 30 minutes.
 
 ## Optional integrations
 
@@ -449,9 +506,9 @@ Every instance measures itself the same way: each component exposes /metrics, Se
 | Identity | cmapi\_auth\_failures\_total{reason}, cmapi\_authz\_denied\_total{permission}, cmapi\_jwks\_refresh\_total{result}, cmapi\_idp\_unavailable\_total |
 | Approvals | cmapi\_approval\_wait\_seconds{rule}, cmapi\_auto\_approvals\_total{policy, environment}, cmapi\_auto\_approval\_fallbacks\_total{guard}, cmapi\_auto\_approval\_paused |
 | Placement | cmapi\_placement\_requests\_total{result}, cmapi\_placement\_excluded\_total{reason}, cmapi\_reservations\_active{cluster\_id}, cmapi\_placement\_backtest\_breaches |
-| cmapi-worker | cmapi\_change\_lead\_time\_seconds{plugin, action, approval}, cmapi\_jobs\_pending{kind}, cmapi\_job\_failures\_total{kind}, cmapi\_sync\_drift\_total, cmapi\_git\_operations\_total and \_duration\_seconds, cmapi\_outbox\_pending, cmapi\_operation\_runs\_total{template, engine, result} |
+| cmapi-worker | cmapi\_change\_lead\_time\_seconds{plugin, action, approval}, cmapi\_jobs\_pending{kind}, cmapi\_job\_failures\_total{kind}, cmapi\_sync\_drift\_total, cmapi\_git\_operations\_total and \_duration\_seconds, cmapi\_outbox\_pending, cmapi\_open\_change\_requests\_oldest\_age\_seconds{status, environment} (alerts on age, not on count), cmapi\_approval\_timeout\_seconds{environment}, cmapi\_config\_info{hash}, cmapi\_operation\_runs\_total{template, engine, result} |
 | Cluster imports | cmapi\_cluster\_status{cluster\_id, status}, cmapi\_cluster\_token\_expiry\_seconds{cluster\_id}, cmapi\_cluster\_api\_calls\_total and \_duration\_seconds |
-| cmapi-capacity | cmapi\_capacity\_snapshot\_age\_seconds{cluster\_id}, cmapi\_capacity\_snapshot\_runs\_total{result}, cmapi\_thanos\_query\_duration\_seconds{cluster\_id}, cmapi\_cluster\_commitment\_ratio and cmapi\_cluster\_quota\_headroom{cluster\_id, environment, region, resource}, cmapi\_analysis\_runs\_total{result}, cmapi\_analysis\_slack\_cores{environment, region, kind}, cmapi\_recommendations{state} |
+| cmapi-capacity | cmapi\_capacity\_snapshot\_age\_seconds{cluster\_id}, cmapi\_capacity\_snapshot\_runs\_total{result}, cmapi\_thanos\_query\_duration\_seconds{cluster\_id}, cmapi\_cluster\_commitment\_ratio and cmapi\_cluster\_quota\_headroom{cluster\_id, environment, region, resource}, cmapi\_capacity\_target\_ratio{environment, resource, level} (capacity.targets, so one alert rule serves every environment), cmapi\_analysis\_runs\_total{result}, cmapi\_analysis\_slack\_cores{environment, region, kind}, cmapi\_recommendations{state} |
 | Adoption | cmapi\_namespaces{cluster\_id, state}, cmapi\_adoptions\_total{result} |
 
 **Collection.** User workload monitoring is enabled on each instance's hub (enableUserWorkload: true). The Helm chart ships one ServiceMonitor per component, each scraping a separate metrics port that the Route never exposes; a NetworkPolicy admits only openshift-user-workload-monitoring to it.
@@ -509,12 +566,12 @@ Two figures come from the platform rather than from cmapi, and are read by the r
 | CmapiClusterUnreachable | A connected cluster unreachable for 10 min | warning |
 | CmapiClusterTokenExpiring | An import token past 90% of its life | warning |
 | CmapiCapacitySnapshotStale | Snapshot older than two intervals on any cluster | warning |
-| CmapiCapacityTargetBreached | Cluster or region commitment critical, CPU or memory, for 1 h | warning |
-| CmapiSyncStuck | Merged but not synced after 30 min | warning |
+| CmapiCapacityTargetBreached | A cluster's commitment critical, CPU or memory, for 1 h (regions are on the Capacity dashboard) | warning |
+| CmapiSyncStuck | A request in sync\_failed (merged, not synced within 30 min) | warning |
 | CmapiDriftDetected | OutOfSync with no open request | warning |
 | CmapiWorkerBacklog | More than 100 jobs pending for 15 min | warning |
 | CmapiAutoApprovalPaused | The kill switch has been on for 24 h | info |
-| CmapiApprovalBacklog | Requests waiting on approval for over 24 h | info |
+| CmapiApprovalBacklog | A request waiting in pending\_approval for more than half of its environment's approval window | info |
 | CmapiMemoryNearLimit | A component above 80% of its memory limit for 15 min | warning |
 | CmapiCpuThrottled | A component throttled in more than 1% of CPU periods for 30 min | warning |
 | CmapiPodRestarting | A cmapi container restarted or was OOM-killed in the last 15 min | warning |
@@ -523,8 +580,10 @@ Two figures come from the platform rather than from cmapi, and are read by the r
 | CmapiDbLongTransaction | A transaction open for more than 15 min | warning |
 | CmapiDbVolumeFilling | The database volume above 80%, or predicted full within 7 days | warning |
 | CmapiDbBackupStale | No successful database backup for 26 h | critical |
+| CmapiPolicyBundleDrift | A cluster runs a Kyverno bundle tag other than the pinned one for 30 min | warning |
+| CmapiPruneAwaiting | A delete has waited for prune confirmation for more than 24 h | info |
 
-Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\_seconds:p90\_7d by approval), so dashboards and the monthly report read the same numbers.
+Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\_seconds:p90\_1h by approval, short windows only because user workload monitoring keeps about a day; 7- and 30-day figures come from the monthly KPI export), so dashboards and the monthly report read the same numbers.
 
 **KPIs.** Measured per instance; targets are proposed and need agreement before launch.
 
@@ -532,8 +591,8 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 | --- | --- | --- | --- |
 | Lead time, auto-approved | Submit to synced, auto-approved requests | cmapi\_change\_lead\_time\_seconds{approval="auto"} p90 | Under 10 min |
 | Lead time, with approval | Submit to synced, human-approved requests | Same, approval="human" | Under 1 business day p90 |
-| Approval turnaround | PR opened to approvals met | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
-| Auto-approval rate | Auto-approved / creates matching a policy | cmapi\_auto\_approvals\_total, \_fallbacks\_total{guard} | Tracked; fallbacks by guard reviewed weekly |
+| Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
+| Auto-approval rate | Auto-approved / requests matching a policy | cmapi\_auto\_approvals\_total, \_fallbacks\_total{guard} | Tracked; fallbacks by guard reviewed weekly |
 | Self-service rate | Requests completed with no platform-team touch | Database | Over 80% |
 | Change failure rate | Failed, sync-failed or reverted / merged | Database, cmapi\_change\_requests\_total | Under 5% |
 | Drift events | OutOfSync with no open request | cmapi\_sync\_drift\_total | 0 a week |
@@ -546,7 +605,7 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 | Import health | Tokens rotated before 90% of their life | cmapi\_cluster\_token\_expiry\_seconds | 100% |
 | API availability | Successful / all requests, excluding 4xx | cmapi\_http\_requests\_total | 99.5% monthly |
 | Docs coverage | Documented routes / routes | Startup and CI check | 100%, enforced |
-| Expired namespaces cleaned | Past TTL and still present after 24 h | Expiration report | 0 |
+| Expired namespaces cleaned | Past the grace period with no delete request, or awaiting prune confirmation for more than 24 h | Expiration report | 0 |
 | Rebuild recovery | Cluster bootstrap to Synced and Healthy | Operation runs | Under 1 h |
 | System headroom | Memory and CPU used / limit per component, p95 over 7 days | cmapi\_process\_memory\_bytes, cmapi\_process\_cpu\_usage\_seconds\_total | Under 80% for every component |
 | CPU saturation | Throttled periods / periods per component | cmapi\_process\_cpu\_throttled\_periods\_total | Under 1% |
@@ -559,7 +618,7 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 
 1. **Service health:** request rate, errors and latency for api, worker and cmapi-capacity; pods; job backlog; outbox.
 2. **Change flow (KPI board):** volume by plugin, environment and status; lead time and approval wait percentiles; change failure rate; drift; self-service rate.
-3. **Approvals:** backlog by rule, auto-approvals by policy, fallbacks by guard, kill-switch state.
+3. **Approvals:** pending approvals and their age by rule and channel, auto-approvals by policy, fallbacks by guard, kill-switch state, namespaces by expiry state, policy failures by policy.
 4. **Capacity and placement:** CPU and memory commitment and headroom by environment, region and zone; largest placement; exclusions by reason; snapshot age; reservations.
 5. **Namespace efficiency:** slack cores by environment and region, verdict counts, recommendations by state, capacity recovered.
 6. **Fleet dependencies:** cluster status and token expiry from imports, cluster API, Thanos and Git latency, sync signal health.
@@ -617,7 +676,7 @@ router = DocumentedRouter(plugin="namespaces")
               EnvironmentNotServed, ClusterNotWritable, ChangePending],
 )
 async def create_namespace(cluster_id: ClusterId, body: NamespaceCreate) -> Plan:
-    """Plans a new namespace on the cluster and opens a pull request.
+    """Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it is approved.
 
     Send the placementId from POST /capacity:place to turn its reservation into
     this request's own. The environment must be one this instance serves.
@@ -641,6 +700,17 @@ async def create_namespace(cluster_id: ClusterId, body: NamespaceCreate) -> Plan
 
 **One spec per instance.** The document is built at startup from the enabled plugins and instance.yaml. Nonprod's Swagger offers rnd and dev; prod's offers prod. Swagger's Authorize button uses that instance's cmapi-docs client, so a token from one instance's docs only works there. cmapi-capacity's internal API is not in the public spec; its gateway routes are.
 
+## Operational safety
+
+- **Keycloak outages.** The verifier keeps the last good signing keys (stale-on-error, persisted to the database) and refreshes them in the background, so an outage stops new sign-ins but not calls with valid tokens. The audience is cmapi-\<instance> everywhere, including the role-claim path resource\_access.cmapi-\<instance>.roles.
+- **Rate limits.** Token buckets per caller and per team, separate for writes, :place, :suggest and :export, and at most 3 active placements per team and environment, so nobody can hold a cluster's headroom with reservations.
+- **Audit.** An audit\_events table records approvals and rejections, exports, reads that span many namespaces, ServiceAccount token issuance (subject, ServiceAccount and expiry, never the token) and admin switches. sa-tokens responses are never kept in the idempotency cache.
+- **Sync signal.** Each cluster's Argo CD Notifications uses its own token and sends its cluster ID; the webhook is a hint, confirmed by reading the Application. Drift is computed per resource from the Application's status, so one open request does not hide drift elsewhere on the cluster.
+- **Database recovery.** Targets: at most 15 minutes of data lost, service back within 1 hour. After a restore the auto-approval kill switch starts paused, and a reconcile job rebuilds requests already in Git (pr\_open and later) from the bot's branches and PR bodies, which carry the request ID and plan hash. Requests that were pending\_approval or approved have no PR yet; point-in-time recovery from the WAL keeps them within the 15-minute limit, and anything newer is resubmitted, which the Idempotency-Key makes safe. A break-glass path (two platform-leads, audited) lets the platform team merge in cluster-configs while cmapi is down.
+- **Upgrades.** Schema migrations run from a pre-upgrade Job and are expand-then-contract, so old and new replicas run together. Plugins declare the core API range they support, and a request is rendered by the version that planned it. Configuration reloads when its ConfigMap changes, and every pod reports the config hash it runs (cmapi\_config\_info).
+- **Testing.** A cmapi-dev instance takes every release before nonprod. An end-to-end suite runs against a real Git host and Argo CD (approve, bot PR, merge, sync, failed sync, revert, expiry, prune confirmation), a load test covers 5,000 namespaces per instance, and failure tests cover Git down, Keycloak down, a failed sync and a database failover.
+- **Placement inputs.** Allocatable comes from the live node list in the watch cache; snapshots supply usage and history.
+
 ## Deployment topology
 
 Everything an instance runs sits on its zone's hub; the table shows one instance, and each zone repeats it. A managed cluster carries only what the baseline and its own Argo CD put there.
@@ -658,7 +728,7 @@ Everything an instance runs sits on its zone's hub; the table shows one instance
 | Each cluster | cmapi-system | ServiceAccount cmapi-reader | ClusterRole cmapi-reader and cluster-monitoring-view, from the baseline |
 | Each cluster | Argo CD's namespace | Root Application | Watches only clusters/\<clusterId>; policies/ pinned to a bundle tag |
 | Each cluster | managed namespaces | Namespace, quota, LimitRange, SAs, RoleBindings, cmapi-token-issuer RoleBinding | Rendered by cmapi into Git, applied by Argo CD |
-| Git host | — | cluster-configs | Branch protection requires CI and the approval-count check |
+| Git host | — | cluster-configs | Only the cmapi bot merges under clusters/; branch protection requires CI and the cmapi check (approved request ID, plan hash) |
 | Hub | cmapi | ServiceMonitors (api, worker, capacity), PrometheusRule, PersesDashboards and a PersesDatasource | Needs user workload monitoring and the Cluster Observability Operator; GrafanaDashboards instead or as well when dashboards.provider says so |
 
 The image is UBI9 python-312 minimal with kubeconform and the Kyverno CLI baked in; api, worker and cmapi-capacity are three entrypoints of one image. Optional pieces (Argo Workflows, Tekton, Kafka) run wherever the platform already runs them.
@@ -680,8 +750,11 @@ One PostgreSQL, two schemas, each owned by one service: cmapi (API and worker) o
 | capacity | namespace\_verdicts | Per namespace, resource and day, with evidence; 13 months | cmapi-capacity |
 | capacity | recommendations | Proposed sizes, freed capacity, state; request\_id when applied | cmapi-capacity (state changes requested through the API) |
 | capacity | namespace\_usage\_daily | Optional daily summary per namespace (analysis.persistNamespaceDaily, off by default) | cmapi-capacity |
+| cmapi | audit\_events | Approvals and rejections, exports, wide reads, SA token issuance (never the token), admin switches | API, worker |
+| cmapi | expiration\_notices | Notices sent per namespace and threshold, grace start, the delete request opened; the date itself lives in Git | Worker |
+| cmapi | approval\_notifications | What each channel sent for a pending request, and the signed links issued and used | Worker |
 
-Indexes that carry correctness: one open request per object (partial unique index on cluster, kind, namespace, name), idempotency per caller, and active reservations per cluster. Namespace usage samples are never stored.
+Indexes that carry correctness: one open request per namespace (partial unique index on cluster and namespace), idempotency per caller, and active reservations per cluster. Namespace usage samples are never stored.
 
 In embedded mode the worker writes the capacity schema; the one-writer rule still holds. The outbox table exists only when an event publisher is on. Field-level schemas are in the [v2 design](02-technical-design-v2.md).
 
@@ -690,10 +763,10 @@ In embedded mode the worker writes the capacity schema; the one-writer rule stil
 Five phases to launch and one after it. Each phase ends in something a team can use, and none starts until the previous exit check passes. This sequence replaces the one in v2.
 
 1. **Core, identity and reads.** App factory and plugin discovery; instance configuration with allowedEnvironments, deployed first as the nonprod instance; the documentation layer (core/docs.py) with /docs, /redoc and the spec lint, snapshot and oasdiff gates in CI; Keycloak realm as code, LDAP federation, token verification, roles and scope bindings; cluster import from cmapi-imports with the six checks; clusters.yaml policy and metadata with selectors; problem errors, metrics and logs; ServiceMonitors, the PrometheusRule and the Service health, System resources, Access and Fleet dependencies dashboards (Perses); self-reported system metrics (cmapi.core.kpi) and GET /api/v1/admin/kpi. Read plugins: namespaces, rbac-read, identity-read, sync. *Exit:* every read endpoint live on two clusters, imported with no manual step.
-2. **First write path and approvals.** Pipeline, idempotency and lock; Kyverno bundle at plan, CI and admission; project-meta renderer; Git provider; status worker with polling (Notifications where a cluster opts in); approval rules, and auto-approval with its three switches and guards (switched on in Phase 3, once placement gives it fresh capacity data); namespaces and metadata writes; the Change flow and Approvals dashboards with the KPI recording rules. *Exit:* an rnd namespace goes from POST to synced with one approval and no manual Git step.
+2. **First write path and approvals.** Pipeline, idempotency and lock; Kyverno bundle at plan, CI and admission; project-meta renderer; Git provider; status worker with polling (Notifications where a cluster opts in); the request state table with :retry and :revert; approval of record (:approve, :reject) with the portal and email channels; bot PRs merged on CI with the cmapi check and the plan hash; approval rules, and auto-approval with its three switches and guards (switched on in Phase 3, once placement gives it fresh capacity data); namespaces and metadata writes; the Change flow and Approvals dashboards with the KPI recording rules. *Exit:* an rnd namespace goes from POST to synced with one approval in the portal and no manual Git step, and a PR edited after approval is refused by the cmapi check.
 3. **Capacity and placement.** cmapi-capacity in remote mode with snapshots every capacity.snapshotInterval; cluster and fleet capacity endpoints through the gateway; placement with reservations and zone-failure headroom; quotas and limitranges planners; live 14-day namespace usage for quota changes; the Capacity and placement dashboard. *Exit:* a prod create is placed from stored snapshots with no Thanos call, a medium rnd namespace is auto-approved end to end, and an oversized quota increase is flagged and routed to platform approval.
 4. **Service account access.** serviceaccounts, sa-grants and scc-grants with allowlists; sa-tokens. *Exit:* a team SA with a namespace edit grant and the anyuid SCC created through the API, audited end to end.
-5. **Lifecycle and launch.** Adoption, expiration, deletes with extra approvals; daily usage sweep and verdicts with a 30-day shadow period, and the Namespace efficiency dashboard; reports, notifier, operations engine (built-in by default) with cluster-onboard and rebuild-verify; portal integration, generated CLI, runbooks, alerts, database backups with a tested restore; the staging and prod instances stood up from the same chart. *Exit:* every KPI in the KPI table reported from its dashboard and the monthly export for one month; v1 contract frozen.
+5. **Lifecycle and launch.** Adoption; optional expiration (never in prod) with extend, set, make permanent, notices, grace and expired-namespace deletes, and the Expiration tab; deletes with extra approvals, Prune=confirm and operator confirmation; the Policies tab from Kyverno policy reports; daily usage sweep and verdicts with a 30-day shadow period, and the Namespace efficiency dashboard; reports, notifier, operations engine (built-in by default) with cluster-onboard and rebuild-verify; portal integration, generated CLI, runbooks, alerts, database backups with a tested restore; the staging and prod instances stood up from the same chart. *Exit:* every KPI in the KPI table reported from its dashboard and the monthly export for one month; v1 contract frozen.
 6. **After launch, first quarter.** Recommendations and the rightsizing loop for opted-in rnd and qa namespaces; weekly rebalance report; placement and recommendation backtests. *Exit:* first rightsizing PRs merged, and the placement backtest shows zero overcommit breaches over 30 days.
 
 **Backlog.** Change sets and promote (promote now crosses instances, so it becomes an export from one instance submitted to the next), temporary quota bursts, capacity forecasting, showback, ownership attestation, outbound events, tamper-evident audit. SA token guardrails stay deferred.
@@ -715,12 +788,16 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | cmapi-capacity as an internal microservice behind the gateway | Capacity in the API process, or a public service | Isolation without a second auth system |
 | Per-environment, per-resource overcommit | One ratio | Memory cannot be throttled |
 | Auto-approval with master, per-policy and kill switches plus fixed guards | Always human approval | Baseline requests ship in minutes, and stay stoppable |
+| cmapi is the record of approval; only approved requests reach Git, as bot PRs merged when CI passes | Human reviews on the PR counted by a CI check | No Git-to-Keycloak identity mapping; Git cannot bypass approvals; :approve can later be gated by email, Argo Events or ServiceNow |
+| Expiry opens a delete request after a 7-day grace; Kyverno only reports | Kyverno cleanup TTL | A Kyverno delete leaves the folder in Git and Argo CD recreates the namespace |
+| Expiration optional; never in prod | A TTL on every namespace | Production namespaces must not carry anything that could remove them on a date |
+| Namespace deletes wait for an operator to confirm the prune | Argo CD prunes on merge | A bad commit or renderer bug cannot remove namespaces and their data |
+| dev small and medium creates auto-approved, like rnd | A person approves every dev create | dev and rnd carry the same risk |
 
 **Open questions.**
 
 - [ ] Directory: Active Directory or OpenLDAP / IdM? Both mappings are written.
 - [ ] Keycloak: a dedicated realm on an existing corporate Keycloak, or a new instance on the hub?
-- [ ] Git host SSO: does the Git host sign in through the same Keycloak, so PR reviewers map to cmapi approvers?
 - [ ] Baseline identity: RHACM ManagedServiceAccount, a per-cluster Job, or Vault with ExternalSecrets?
 - [ ] Does the baseline also install OpenShift GitOps and each cluster's root Application?
 - [ ] Operations engine if one is added: Argo Workflows or Tekton?
@@ -749,4 +826,4 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [Argo Events and Workflows review](07-argo-events-workflows-review.md) | Why each Argo piece is optional and where it helps |
 | [cmapi request flow mockup](../mockups/cmapi-flow.html) | Clickable walk through placement, auto-approval, quota change, policy reject, cluster import and a wrong-instance request |
 | [API examples](04-api-examples.md) | Calling the API with Keycloak tokens: which instance to call, curl, device flow, Swagger and ReDoc, Python |
-| [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow, New namespace, Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals, Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
+| [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow, New namespace, Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals (approve or reject before anything reaches Git), Expiration (extend, set, make permanent), Policies (Kyverno results), Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |

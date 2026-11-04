@@ -1,0 +1,28 @@
+# examples/instances/staging/authz-scopes.yaml: deployed as config/authz-scopes.yaml on the staging instance (qa, uat)
+bindings:
+  - group: /cmapi/cmapi-payments-requesters
+    role: cmapi-requester
+    team: payments
+    clusters: [OCP_GF11, OCP_GF12, OCP_GF13]
+    environments: [qa, uat]
+    namespaces: ["payments-*"]
+  - group: /cmapi/cmapi-qa-leads
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: [qa]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-uat-leads
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: [uat]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-platform-leads
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-platform-operators
+    role: cmapi-operator
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
