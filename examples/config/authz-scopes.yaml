@@ -1,0 +1,29 @@
+# Source: docs/02-technical-design-v2.md
+# config/authz-scopes.yaml
+bindings:
+  - group: /cmapi/cmapi-payments-requesters
+    role: cmapi-requester
+    team: payments                 # value allowed in cmapi.net/team
+    clusters: [OCP_GF1, OCP_GF2]
+    environments: [rnd, dev, prod]
+    namespaces: ["payments-*"]
+  - group: /cmapi/cmapi-payments-viewers
+    role: cmapi-viewer
+    clusters: [OCP_GF1, OCP_GF2]
+    environments: ["*"]
+    namespaces: ["payments-*"]
+  - group: /cmapi/cmapi-prod-approvers
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: [prod]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-platform-operators
+    role: cmapi-operator
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
+  - client: svc-payments-ci
+    role: cmapi-requester
+    clusters: [OCP_GF1]
+    environments: [rnd, dev]
+    namespaces: ["payments-*"]

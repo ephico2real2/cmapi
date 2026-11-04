@@ -1,0 +1,391 @@
+# cmapi — API call examples
+
+Sample calls against the Cluster Management API (cmapi) v1. Every path is cluster-first:
+
+```
+https://cmapi.ephico2real.com/api/v1/clusters/{clusterId}/...
+```
+
+- **Reads** return live state from the target cluster.
+- **Writes** (POST, PUT, PATCH, DELETE) return `202 Accepted` with a ChangeRequest; the change lands through a Git PR and the cluster's ArgoCD.
+- `clusterId` must appear in both the path and the request body. A mismatch returns `422 validation-failed`.
+- **Every call needs a Keycloak access token.** cmapi issues no tokens of its own.
+
+Interactive docs on every instance: Swagger UI at `/docs`, ReDoc at `/redoc`, spec at `/openapi.json` and `/openapi.yaml`, spec changes at `/docs/changelog`.
+
+**Pick the instance for your environment.** cmapi runs as one instance per network zone. Call the one that serves the environment you are working in; any other returns `422 environment-not-served` with the right URL.
+
+| Environments | Instance | API base URL | Portal |
+| --- | --- | --- | --- |
+| rnd, dev | nonprod | `https://cmapi-nonprod.ephico2real.com/api/v1` | `https://portal-nonprod.ephico2real.com` |
+| qa, uat | staging | `https://cmapi-staging.ephico2real.com/api/v1` | `https://portal-staging.ephico2real.com` |
+| prod | prod | `https://cmapi.ephico2real.com/api/v1` | `https://portal.ephico2real.com` |
+
+Tokens are minted per instance (audience `cmapi-nonprod`, `cmapi-staging` or `cmapi-prod`), so a token for one instance is refused by the others.
+
+---
+
+## Authentication (Keycloak)
+
+Every call is two steps: get an access token from Keycloak, then send it to cmapi as `Authorization: Bearer <token>`. Access tokens last **5 minutes**. Clients refresh them automatically, so people sign in far less often (see [Session lengths](#session-lengths)).
+
+```bash
+export KC=https://sso.ephico2real.com/realms/ephico2real/protocol/openid-connect
+export CMAPI=https://cmapi-nonprod.ephico2real.com/api/v1   # the instance for your environment
+```
+
+| Caller | Keycloak client | Flow |
+| --- | --- | --- |
+| Pipelines and automation | `svc-<team>-<purpose>` (one per pipeline) | Client credentials |
+| A person at a terminal | `cmapi-cli` | Device authorization (browser approval) |
+| Swagger UI | `cmapi-docs` | Authorization Code + PKCE, via the **Authorize** button |
+| Namespace portal | `cmapi-portal` | Authorization Code + PKCE, handled by the portal |
+
+The password grant is disabled: LDAP passwords are typed only into Keycloak's own login page, never into scripts.
+
+### Pipelines and automation: client credentials
+
+```bash
+TOKEN=$(curl -s "$KC/token" \
+  -d grant_type=client_credentials \
+  -d client_id=svc-payments-ci \
+  -d client_secret="$CMAPI_CLIENT_SECRET" | jq -r .access_token)
+```
+
+Fetch a token per job, or again when it is within 30 seconds of the `expires_in` the token response returns. Service accounts get no refresh token; they just ask again.
+
+A new pipeline gets its client through a PR to the realm repository (`cmapi-sso/realm/ephico2real.yaml`). The client's role and its scope binding in `authz-scopes.yaml` go in the same change.
+
+### A person at a terminal: device flow
+
+The CLI does this for you:
+
+```bash
+cmapi login            # prints a URL and code; approve in the browser; stays signed in up to 90 days
+TOKEN=$(cmapi token)   # a fresh access token for use with curl
+cmapi logout           # revokes the stored offline token
+```
+
+The same flow by hand with curl:
+
+```bash
+# 1. Ask for a device code, then open the printed URL and sign in with your LDAP account
+curl -s "$KC/auth/device" -d client_id=cmapi-cli -d scope=offline_access \
+  | tee /tmp/device.json | jq -r .verification_uri_complete
+
+# 2. After approving in the browser, exchange the code for tokens
+curl -s "$KC/token" \
+  -d grant_type=urn:ietf:params:oauth:grant-type:device_code \
+  -d client_id=cmapi-cli \
+  -d device_code="$(jq -r .device_code /tmp/device.json)" > /tmp/tokens.json
+TOKEN=$(jq -r .access_token /tmp/tokens.json)
+
+# 3. Later, swap the refresh token for a new access token (no browser).
+#    Save the new refresh token each time: refresh tokens are single-use.
+curl -s "$KC/token" \
+  -d grant_type=refresh_token \
+  -d client_id=cmapi-cli \
+  -d refresh_token="$(jq -r .refresh_token /tmp/tokens.json)" > /tmp/tokens.new \
+  && mv /tmp/tokens.new /tmp/tokens.json
+TOKEN=$(jq -r .access_token /tmp/tokens.json)
+```
+
+`cmapi-cli` is a public client, so there is no secret. Keep the token file private (`chmod 600`); the CLI stores it in the OS keychain instead.
+
+### Swagger UI
+
+Open your instance's `/docs` (for rnd and dev, `https://cmapi-nonprod.ephico2real.com/docs`), click **Authorize**, sign in through Keycloak, then use **Try it out**. Swagger attaches the token to every call. `/redoc` is the same reference grouped by area, with a curl sample on every operation, and `/openapi.json` is the spec itself.
+
+Both pages are generated from the running code, so they always match what the instance accepts: every route, field, example, required permission and error is filled in by cmapi's documentation layer, and an undocumented route cannot ship. Each instance's spec lists only the environments it serves.
+
+### Python
+
+```python
+import time
+
+import httpx
+
+KC_TOKEN = "https://sso.ephico2real.com/realms/ephico2real/protocol/openid-connect/token"
+
+
+class CmapiAuth(httpx.Auth):
+    """Client-credentials token, cached until 30 seconds before it expires."""
+
+    def __init__(self, client_id: str, client_secret: str):
+        self.client_id, self.client_secret = client_id, client_secret
+        self._token, self._expires = "", 0.0
+
+    def auth_flow(self, request):
+        if time.time() > self._expires - 30:
+            r = httpx.post(KC_TOKEN, data={"grant_type": "client_credentials",
+                                           "client_id": self.client_id,
+                                           "client_secret": self.client_secret})
+            r.raise_for_status()
+            body = r.json()
+            self._token, self._expires = body["access_token"], time.time() + body["expires_in"]
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        yield request
+
+
+cmapi = httpx.Client(base_url="https://cmapi.ephico2real.com/api/v1",
+                     auth=CmapiAuth("svc-payments-ci", "<client secret from your CI secret store>"))
+print(cmapi.get("/me").json())
+```
+
+### Check who you are
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/me"
+```
+
+Returns your username, kind (user or service), client, roles, permissions and the scope bindings that apply to you. Check this first when a call returns 403.
+
+### Session lengths
+
+cmapi keeps no session; each call stands on its token. How long you stay signed in is set in Keycloak:
+
+| Caller | Signs in again after |
+| --- | --- |
+| Portal | 8 hours idle or 12 hours total |
+| Portal with **Remember me** | 7 days idle or 30 days total |
+| CLI (`cmapi login`) | 30 days idle or 90 days total |
+| Swagger UI | 1 hour idle or 8 hours total |
+| Pipelines | No session; a new token per job |
+
+Sessions survive Keycloak restarts and upgrades. A session ends early on sign-out, `cmapi logout`, an admin sign-out, or when your LDAP account is disabled. If you are removed from an LDAP group, the role disappears at your next token refresh (within about 15 minutes).
+
+---
+
+## Required headers
+
+| Header | Reads | Writes | Value |
+| --- | --- | --- | --- |
+| `Authorization` | Yes | Yes | `Bearer <Keycloak access token>` |
+| `Content-Type` | — | Yes | `application/json`, or `application/merge-patch+json` for PATCH |
+| `Idempotency-Key` | — | Yes | A UUID per logical request; retries with the same key return the original ChangeRequest for 24 hours |
+| `If-Match` | — | PUT, PATCH, DELETE | The `ETag` from the last GET; missing returns `428`, stale returns `412` |
+
+---
+
+## Generic template
+
+### Read
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://cmapi.ephico2real.com/api/v1/clusters/{clusterId}/namespaces/{namespace}"
+```
+
+### Write
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{ ...body... }' \
+  "https://cmapi.ephico2real.com/api/v1/clusters/{clusterId}/{resource}"
+```
+
+---
+
+## Worked example: cluster `OCP_GF6` (rnd), namespace `payments-rnd`
+
+### Set up
+
+```bash
+export KC=https://sso.ephico2real.com/realms/ephico2real/protocol/openid-connect
+export CMAPI=https://cmapi-nonprod.ephico2real.com/api/v1   # rnd is served by nonprod
+export CLUSTER=OCP_GF6
+export NS=payments-rnd
+
+# A person: sign in once, then take a fresh token whenever you need one
+cmapi login
+export TOKEN=$(cmapi token)
+
+# Or a pipeline:
+# export TOKEN=$(curl -s "$KC/token" -d grant_type=client_credentials \
+#   -d client_id=svc-payments-ci -d client_secret="$CMAPI_CLIENT_SECRET" | jq -r .access_token)
+```
+
+Tokens expire after 5 minutes; run `export TOKEN=$(cmapi token)` again if a call returns 401.
+
+### 1. Read the namespace (live from the cluster)
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/clusters/$CLUSTER/namespaces/$NS"
+```
+
+### 2. Read its quota and usage
+
+```bash
+curl -s -i -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/clusters/$CLUSTER/namespaces/$NS/quota"      # -i shows the ETag header
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/clusters/$CLUSTER/namespaces/$NS/usage?window=14d"   # live, last 14 days, via cmapi-capacity
+```
+
+### 2b. Pick a cluster for a new namespace
+
+Placement ranks the clusters you may use from stored capacity snapshots (no Thanos call) and holds the best one for 15 minutes. Put the returned `placementId` in the create body.
+
+```bash
+curl -s -X POST "$CMAPI/capacity:place" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"environment": "rnd", "team": "payments", "tier": "medium",
+       "constraints": {"region": "us-central"}}'
+# → {"placementId": "pl-20261103-5e17", "ranked": [{"clusterId": "OCP_GF6", "score": 78, "reserved": true}, ...], "excluded": [...]}
+```
+
+### 3. Dry run a create
+
+Returns the Plan (validation results, rendered YAML, diff, approval requirement, capacity check). No PR, no reservation and no database row are created.
+
+```bash
+curl -s -X POST "$CMAPI/clusters/$CLUSTER/namespaces?dryRun=true" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "clusterId": "OCP_GF6",
+        "namespace": "payments-rnd",
+        "env": "rnd",
+        "placementId": "pl-20261103-5e17",
+        "tier": "medium",
+        "labels": {
+          "cmapi.net/team": "payments",
+          "cmapi.net/cost-center": "cc-4410",
+          "app.ephico2real.com/component": "api"
+        },
+        "annotations": {
+          "cmapi.net/owner": "ola@ephico2real.com",
+          "ops.ephico2real.com/runbook": "https://wiki.ephico2real.com/payments/runbook"
+        },
+        "ttl": "2026-12-15",
+        "justification": "Payments service rnd namespace"
+      }'
+```
+
+`cmapi.net/team` and `cmapi.net/owner` are required. The team must be one your scope binding allows.
+
+### 4. Submit the create
+
+```bash
+curl -s -X POST "$CMAPI/clusters/$CLUSTER/namespaces" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40" \
+  -d @namespace-request.json
+```
+
+`namespace-request.json` holds the same body as step 3.
+
+### 5. Change the quota
+
+Uses the `ETag` from step 2 as `If-Match`.
+
+```bash
+curl -s -X PATCH "$CMAPI/clusters/$CLUSTER/namespaces/$NS/quota" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/merge-patch+json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H 'If-Match: "9b2e4f1c..."' \
+  -d '{
+        "clusterId": "OCP_GF6",
+        "hard": {"requests.cpu": "16", "requests.memory": "32Gi"}
+      }'
+```
+
+### 6. Add, change and remove labels and annotations
+
+A merge patch: a string sets a key, `null` removes it, keys you leave out are untouched. Get the `ETag` from `GET .../metadata` first.
+
+```bash
+curl -s -i -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/clusters/$CLUSTER/namespaces/$NS/metadata"   # every key, its class, and the ETag
+
+curl -s -X PATCH "$CMAPI/clusters/$CLUSTER/namespaces/$NS/metadata" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/merge-patch+json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H 'If-Match: "3c7e91ab52d0"' \
+  -d '{
+        "clusterId": "OCP_GF6",
+        "labels": {
+          "app.ephico2real.com/component": "api",
+          "app.ephico2real.com/legacy": null
+        },
+        "annotations": {
+          "ops.ephico2real.com/pager": "payments-oncall"
+        }
+      }'
+```
+
+`PUT .../metadata` replaces your whole set of governed and team keys instead. The same endpoints exist for service accounts at `.../serviceaccounts/{sa}/metadata`. System keys (`cmapi.net/cluster-id`, `cmapi.net/tier`, …) and platform prefixes (`kubernetes.io/`, `openshift.io/`, …) are refused.
+
+### 7. Track the request until it is synced
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/requests/req-20261103-7f3a"
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$CMAPI/requests/req-20261103-7f3a/events"
+```
+
+The 202 arrives at `validated`; the worker opens the PR moments later. Status moves through `validated` → `pr_open` → `approved` → `merged` → `synced` (or `rejected`, `failed`, `cancelled`, `timeout`).
+
+---
+
+## Responses
+
+### Write accepted (`202`)
+
+```json
+{
+  "requestId": "req-20261103-7f3a",
+  "clusterId": "OCP_GF6",
+  "plugin": "namespaces",
+  "kind": "Namespace",
+  "action": "create",
+  "namespace": "payments-rnd",
+  "status": "validated",
+  "prUrl": null,
+  "approval": {"rule": "rnd-create", "requiredCount": 0, "autoApproved": true, "autoPolicy": "baseline-rnd-namespace"},
+  "links": {"self": "/api/v1/requests/req-20261103-7f3a"}
+}
+```
+
+### Error (`application/problem+json`, RFC 9457)
+
+```json
+{
+  "type": "https://cmapi.ephico2real.com/problems/policy-violation",
+  "title": "Grant not allowed",
+  "status": 422,
+  "detail": "ClusterRole cluster-admin is not on the ServiceAccount allowlist",
+  "clusterId": "OCP_GF6",
+  "requestId": "req-20261103-7f3a",
+  "errors": [{"field": "roleRef.name", "code": "not_allowlisted"}]
+}
+```
+
+| Status | Problem type | Meaning | What to do |
+| --- | --- | --- | --- |
+| 401 | `unauthenticated` | Missing, expired or invalid token, or a token issued for another app | Get a new token from your cmapi client |
+| 403 | `forbidden` | None of your Keycloak roles grants this action | Ask to join the right `cmapi-*` LDAP group |
+| 403 | `cluster-scope-forbidden` | Your role is right, but no scope binding covers this cluster, environment or namespace | Change the binding with a PR to `authz-scopes.yaml` |
+| 404 | `cluster-not-found` / `object-not-found` | Unknown cluster or missing live object | |
+| 409 | `change-pending` | An open request already targets this object | Wait for it or cancel it |
+| 412 / 428 | `precondition-failed` / `precondition-required` | Stale or missing `If-Match` | GET again for the current ETag |
+| 422 | `validation-failed` / `policy-violation` / `capacity-exceeded` | Request rejected at plan time | Read `errors[].code`, e.g. `reserved_key`, `team_not_bound` |
+| 502 | `git-unavailable` | Git host error | Retry later |
+| 422 | `environment-not-served` | This instance does not serve that environment | Use the instance URL in the response's `instanceUrl` |
+| 422 | `cluster-not-writable` | The cluster is imported but has no clusters.yaml entry yet | Wait for its cluster-onboard PR to merge |
+| 503 | `cluster-unreachable` / `idp-unavailable` | Cluster API or Keycloak keys unreachable | Honour `Retry-After` |
+| 503 | `capacity-service-unavailable` | cmapi-capacity is down; capacity and usage reads cannot be served | Honour `Retry-After`; creates still place from stored snapshots |
+| 503 | `operations-engine-unavailable` | The configured operations engine is unreachable | Retry later; requests are unaffected |
+
+A 401 also carries `WWW-Authenticate: Bearer error="invalid_token"`.

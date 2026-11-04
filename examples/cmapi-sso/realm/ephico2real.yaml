@@ -1,0 +1,23 @@
+# Source: docs/02-technical-design-v2.md
+# cmapi-sso/realm/ephico2real.yaml (keycloak-config-cli), session settings
+realm: ephico2real
+accessTokenLifespan: 300                     # 5 minutes, every client
+ssoSessionIdleTimeout: 28800                 # 8 hours
+ssoSessionMaxLifespan: 43200                 # 12 hours
+rememberMe: true
+ssoSessionIdleTimeoutRememberMe: 604800      # 7 days
+ssoSessionMaxLifespanRememberMe: 2592000     # 30 days
+offlineSessionIdleTimeout: 2592000           # 30 days
+offlineSessionMaxLifespanEnabled: true
+offlineSessionMaxLifespan: 7776000           # 90 days
+revokeRefreshToken: true
+refreshTokenMaxReuse: 0
+clients:
+  - clientId: cmapi-docs
+    attributes:
+      client.session.idle.timeout: "3600"    # 1 hour
+      client.session.max.lifespan: "28800"   # 8 hours
+  - clientId: cmapi-cli
+    optionalClientScopes: [offline_access]
+    attributes:
+      oauth2.device.authorization.grant.enabled: "true"

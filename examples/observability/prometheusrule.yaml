@@ -1,0 +1,114 @@
+# Starter PrometheusRule for one cmapi instance.
+# Derived from "Observability, KPIs and dashboards" in docs/01-design-and-architecture.md:
+# the alert names, conditions, durations and severities are the agreed ones; the PromQL
+# is a first draft to be checked against the metrics once the services exist.
+# Thresholds marked "chart value" are rendered per instance by the Helm chart.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cmapi
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  groups:
+  - name: cmapi.alerts
+    rules:
+    - alert: CmapiHighErrorRate
+      expr: |
+        sum(rate(cmapi_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(cmapi_http_requests_total[5m])) > 0.02
+      for: 10m
+      labels: {severity: critical}
+      annotations: {summary: "cmapi 5xx above 2% of requests for 10 minutes"}
+    - alert: CmapiIdpUnavailable
+      expr: sum(increase(cmapi_idp_unavailable_total[5m])) > 0
+      for: 5m
+      labels: {severity: critical}
+      annotations: {summary: "Callers are getting idp-unavailable (Keycloak unreachable)"}
+    - alert: CmapiGitUnavailable
+      expr: |
+        sum(rate(cmapi_git_operations_total{result="failure"}[5m]))
+          / sum(rate(cmapi_git_operations_total[5m])) > 0.20
+      for: 5m
+      labels: {severity: critical}
+      annotations: {summary: "Git operation failures above 20% for 5 minutes"}
+    - alert: CmapiCapacityServiceDown
+      expr: |
+        sum(up{namespace="cmapi", job="cmapi-capacity"}) == 0
+          or absent(up{namespace="cmapi", job="cmapi-capacity"})
+      for: 5m
+      labels: {severity: critical}
+      annotations: {summary: "No cmapi-capacity replica ready for 5 minutes"}
+    - alert: CmapiClusterUnreachable
+      expr: cmapi_cluster_status{status="unreachable"} == 1
+      for: 10m
+      labels: {severity: warning}
+      annotations: {summary: "Cluster {{ $labels.cluster_id }} unreachable for 10 minutes"}
+    - alert: CmapiClusterTokenExpiring
+      # Import tokens live 7 days and are rotated at 80%; alert at 90% of life (under 16.8 h left).
+      expr: cmapi_cluster_token_expiry_seconds < 0.10 * 7 * 86400
+      labels: {severity: warning}
+      annotations: {summary: "Import token for {{ $labels.cluster_id }} is past 90% of its life"}
+    - alert: CmapiCapacitySnapshotStale
+      # Two snapshot intervals; capacity.snapshotInterval is 30 min by default (chart value).
+      expr: cmapi_capacity_snapshot_age_seconds > 2 * 1800
+      labels: {severity: warning}
+      annotations: {summary: "Capacity snapshot for {{ $labels.cluster_id }} older than two intervals"}
+    - alert: CmapiCapacityTargetBreached
+      # Critical commitment level from capacity.targets for the environment (chart value);
+      # prod example: commitment critical 0.90.
+      expr: cmapi_cluster_commitment_ratio{environment="prod"} > 0.90
+      for: 1h
+      labels: {severity: warning}
+      annotations: {summary: "Commitment critical on {{ $labels.cluster_id }} for 1 hour"}
+    - alert: CmapiSyncStuck
+      expr: cmapi_open_change_requests{status="merged"} > 0
+      for: 30m
+      labels: {severity: warning}
+      annotations: {summary: "Requests merged but not synced after 30 minutes"}
+    - alert: CmapiDriftDetected
+      expr: increase(cmapi_sync_drift_total[15m]) > 0
+      labels: {severity: warning}
+      annotations: {summary: "OutOfSync on {{ $labels.cluster_id }} with no open request"}
+    - alert: CmapiWorkerBacklog
+      expr: sum(cmapi_jobs_pending) > 100
+      for: 15m
+      labels: {severity: warning}
+      annotations: {summary: "More than 100 worker jobs pending for 15 minutes"}
+    - alert: CmapiAutoApprovalPaused
+      expr: max(cmapi_auto_approval_paused) == 1
+      for: 24h
+      labels: {severity: info}
+      annotations: {summary: "The auto-approval kill switch has been on for 24 hours"}
+    - alert: CmapiApprovalBacklog
+      expr: sum(cmapi_open_change_requests{status="pr_open"}) > 0
+      for: 24h
+      labels: {severity: info}
+      annotations: {summary: "Requests waiting on approval for over 24 hours"}
+
+  # KPI recording rules: dashboards and the monthly export read the same series.
+  - name: cmapi.kpi
+    interval: 5m
+    rules:
+    - record: cmapi:change_lead_time_seconds:p90_7d
+      expr: |
+        histogram_quantile(0.90,
+          sum by (le, approval) (increase(cmapi_change_lead_time_seconds_bucket[7d])))
+    - record: cmapi:approval_wait_seconds:p50_7d
+      expr: histogram_quantile(0.50, sum by (le, rule) (increase(cmapi_approval_wait_seconds_bucket[7d])))
+    - record: cmapi:approval_wait_seconds:p90_7d
+      expr: histogram_quantile(0.90, sum by (le, rule) (increase(cmapi_approval_wait_seconds_bucket[7d])))
+    - record: cmapi:api_availability:ratio_30d
+      expr: |
+        sum(increase(cmapi_http_requests_total{status!~"5.."}[30d]))
+          / sum(increase(cmapi_http_requests_total{status!~"4.."}[30d]))
+    - record: cmapi:capacity_freshness:ratio
+      expr: |
+        count(cmapi_capacity_snapshot_age_seconds < 2 * 1800)
+          / count(cmapi_capacity_snapshot_age_seconds)
+    - record: cmapi:managed_coverage:ratio
+      expr: |
+        sum(cmapi_namespaces{state="managed"})
+          / (sum(cmapi_namespaces) - sum(cmapi_namespaces{state="excluded"}))
+    - record: cmapi:drift_events:7d
+      expr: sum(increase(cmapi_sync_drift_total[7d]))

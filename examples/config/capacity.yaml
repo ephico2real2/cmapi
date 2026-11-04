@@ -1,0 +1,9 @@
+# Source: docs/02-technical-design-v2.md
+# config/capacity.yaml
+snapshotInterval: 30m        # 15m to 60m: the stored grain of cluster capacity
+stepWithinInterval: 5m       # the interval's average and peak are taken over these steps
+retentionMonths: 13
+perZone: true                # one row per zone; zones come from the API
+perRole: true                # worker, infra and master rows
+storage: true                # PVC requested and used, where the CSI driver reports it
+staleAfterIntervals: 2       # placement refuses a cluster whose newest complete snapshot is older

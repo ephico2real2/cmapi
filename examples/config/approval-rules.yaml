@@ -1,0 +1,65 @@
+# Source: docs/02-technical-design-v2.md
+# config/approval-rules.yaml
+defaults: {required: 0, group: platform-leads, timeoutHours: 24, selfApproval: false}
+
+environments:
+  rnd:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
+  dev:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # rnd's settings until dev's are agreed
+  # each instance's file holds only its allowedEnvironments: nonprod rnd, dev; staging qa, uat; prod prod
+  qa:   {create: 1, change: 1, delete: 1, group: qa-leads,     timeoutHours: 24}
+  uat:  {create: 1, change: 1, delete: 1, group: uat-leads,    timeoutHours: 24}
+  prod: {create: 1, change: 1, delete: 2, group: prod-approvers, timeoutHours: 48}
+
+namespacePatterns:              # first match wins; can raise or waive
+  - match: "critical-*"
+    required: 2
+    group: platform-leads
+    reason: Critical namespace pattern
+  - match: "temp-*"
+    waive: [create, change]
+    reason: Temporary namespace
+
+thresholds:                     # facts come from the planner and the capacity plugin
+  - when: quotaIncreasePct > 100
+    add: 1
+    group: platform-leads
+  - when: requestToPeakRatio > 3   # namespace peak over 14 days, read live when the change is planned
+    add: 1
+    reason: Possible over-provisioning
+  - when: capacity == "warn"
+    add: 1
+  - when: action == "delete" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+    add: 1
+
+protected:                      # never deletable through the API
+  labels: ["cmapi.net/protected=true", "do-not-delete=true"]
+
+# config/approval-rules.yaml (continued)
+autoApproval:
+  enabled: true
+  maxPerTeamPerDay: 20                 # beyond this, the team's requests go to human approval
+  policies:
+    - name: baseline-rnd-namespace
+      enabled: true
+      match:
+        plugin: namespaces
+        actions: [create]
+        environments: [rnd]
+        tiers: [small, medium]
+        clusterSelector: {matchLabels: {region: us-central}}   # optional
+    - name: team-metadata
+      enabled: true
+      match:
+        plugin: metadata
+        actions: [patch, update]
+        environments: ["*"]
+        keyClasses: [team]             # only team keys; a governed or sensitive key falls back
+    - name: baseline-sa-grants
+      enabled: false                   # written, not yet switched on
+      match:
+        plugin: sa-grants
+        actions: [create]
+        environments: [rnd, qa]
+        clusterRoles: [view, edit]
+      requester:
+        clients: [svc-payments-ci]      # optional: only these callers qualify

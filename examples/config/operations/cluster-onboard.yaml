@@ -1,0 +1,13 @@
+# Source: docs/02-technical-design-v2.md
+# config/operations/cluster-onboard.yaml
+name: cluster-onboard
+parameters: [cluster-id]
+retry: {limit: 3, backoff: 30s, factor: 2}
+steps:
+  - {name: wait-import}                    # the baseline's import Secret appears and connects
+  - {name: preflight,        after: [wait-import]}
+  - {name: propose-registry, after: [preflight], outputs: [request-id]}
+  - {name: wait-request,     after: [propose-registry],
+     inputs: {request-id: "{{steps.propose-registry.outputs.request-id}}"}}
+  - {name: smoke-test,       after: [wait-request]}
+onExit: cleanup

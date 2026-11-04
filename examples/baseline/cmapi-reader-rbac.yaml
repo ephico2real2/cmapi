@@ -1,0 +1,51 @@
+# Source: docs/02-technical-design-v2.md
+# Applied to every cluster by the cluster-baseline process, not by cmapi
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: cmapi-reader, namespace: cmapi-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: cmapi-reader}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes, resourcequotas, limitranges, serviceaccounts]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    verbs: [get, list, watch]
+  - apiGroups: [user.openshift.io]
+    resources: [users, groups, identities]
+    verbs: [get, list, watch]
+  - apiGroups: [quota.openshift.io]
+    resources: [clusterresourcequotas]
+    verbs: [get, list, watch]
+  - apiGroups: [redhatcop.redhat.io]
+    resources: [groupsyncs, namespaceconfigs, groupconfigs]
+    verbs: [get, list]
+  - apiGroups: [config.openshift.io]
+    resources: [oauths]
+    resourceNames: [cluster]
+    verbs: [get]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch]
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    resourceNames: [thanos-querier]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: cmapi-reader}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}
+subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: cmapi-reader-monitoring}     # Thanos Querier for the capacity plugin
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
+subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]

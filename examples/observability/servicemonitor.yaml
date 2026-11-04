@@ -1,0 +1,14 @@
+# Source: docs/01-design-and-architecture.md (one per component: cmapi-api, cmapi-worker, cmapi-capacity)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cmapi-capacity            # also cmapi-api and cmapi-worker
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: cmapi-capacity}
+  endpoints:
+  - port: metrics                 # 9090, separate from the API port
+    path: /metrics
+    interval: 30s

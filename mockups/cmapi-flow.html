@@ -1,0 +1,1095 @@
+<title>cmapi Request Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a six-node system strip on top, then steps | step detail | request state, then capacity, PR and Argo CD panels */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --sunk: #eef1f6;
+  --ink: #142030;
+  --muted: #5b6779;
+  --line: #dde2ea;
+  --accent: #1f5fd1;
+  --accent-soft: #e5edfc;
+  --ok: #1d8752;
+  --ok-soft: #e2f4ea;
+  --warn: #a8701a;
+  --warn-soft: #fbf0dc;
+  --bad: #c0372e;
+  --bad-soft: #fbe5e3;
+  --lane-caller: #6a57c9;
+  --lane-api: #1f5fd1;
+  --lane-git: #b15a1c;
+  --lane-argo: #0e8487;
+  --lane-kc: #a03c86;
+  --lane-cap: #5b7d1a;
+  --code-bg: #f6f7fa;
+  --code-ink: #1c2a3b;
+  --font-display: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d131a; --surface: #141c26; --sunk: #101720; --ink: #e5eaf1; --muted: #94a1b3; --line: #253041;
+    --accent: #6f9dff; --accent-soft: #1a2a47; --ok: #4fc58c; --ok-soft: #12301f; --warn: #e3a64a; --warn-soft: #36280f;
+    --bad: #ff6f64; --bad-soft: #3a1714; --lane-caller: #a596ff; --lane-api: #6f9dff; --lane-git: #f0935a; --lane-argo: #3fc7c9; --lane-kc: #e07bc6; --lane-cap: #9bc25a;
+    --code-bg: #0b1118; --code-ink: #d7deea; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d131a; --surface: #141c26; --sunk: #101720; --ink: #e5eaf1; --muted: #94a1b3; --line: #253041;
+  --accent: #6f9dff; --accent-soft: #1a2a47; --ok: #4fc58c; --ok-soft: #12301f; --warn: #e3a64a; --warn-soft: #36280f;
+  --bad: #ff6f64; --bad-soft: #3a1714; --lane-caller: #a596ff; --lane-api: #6f9dff; --lane-git: #f0935a; --lane-argo: #3fc7c9; --lane-kc: #e07bc6; --lane-cap: #9bc25a;
+  --code-bg: #0b1118; --code-ink: #d7deea; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 40px;
+}
+.wrap { max-width: 1260px; margin: 0 auto; display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; font-weight: 650; }
+h3 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+p { margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+button { font: inherit; color: inherit; }
+button:focus-visible, a:focus-visible, li[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: end; justify-content: space-between; }
+.top .lede { color: var(--muted); max-width: 62ch; margin-top: 4px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.counter { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+
+.scenarios { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.scn { flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 9px 14px; cursor: pointer; text-align: left; display: grid; gap: 1px; }
+.scn b { font-weight: 600; font-size: 0.92rem; }
+.scn span { font-size: 0.78rem; color: var(--muted); font-family: var(--font-mono); }
+.scn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+/* System strip */
+.strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px; }
+.node { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; min-width: 0; transition: border-color .2s, box-shadow .2s; }
+.node:not(:last-child)::after { content: ""; position: absolute; right: -16px; top: 50%; width: 10px; height: 2px; background: var(--line); }
+.node:not(:last-child)::before { content: ""; position: absolute; right: -18px; top: calc(50% - 4px); border-left: 7px solid var(--line); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.node .k { display: flex; align-items: center; gap: 8px; font-weight: 600; font-family: var(--font-display); }
+.node .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--lane); flex: none; }
+.node .sub { font-size: 0.78rem; color: var(--muted); }
+.node .st { font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; }
+.node.active { border-color: var(--lane); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lane) 22%, transparent); }
+.node.idle { opacity: 0.62; }
+.node.blocked .st { color: var(--muted); }
+.node.blocked { opacity: 0.5; border-style: dashed; }
+[data-lane="caller"] { --lane: var(--lane-caller); }
+[data-lane="api"] { --lane: var(--lane-api); }
+[data-lane="git"] { --lane: var(--lane-git); }
+[data-lane="argo"] { --lane: var(--lane-argo); }
+[data-lane="keycloak"] { --lane: var(--lane-kc); }
+[data-lane="capacity"] { --lane: var(--lane-cap); }
+
+/* Main grid */
+.main { display: grid; grid-template-columns: 270px minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.state { display: grid; gap: 18px; min-width: 0; }
+
+.steps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: start; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+.steps li::before { content: counter(s); font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); text-align: right; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.steps li .lt { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--lane); font-weight: 600; }
+.steps li:hover { background: var(--sunk); }
+.steps li.done { color: var(--muted); }
+.steps li.now { background: var(--accent-soft); color: var(--ink); }
+.steps li.future { opacity: 0.55; }
+
+.detail .eyebrow { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--lane); }
+.detail .body { max-width: 68ch; color: var(--ink); }
+.detail .body b { font-weight: 600; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 0.9rem; }
+.mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 0.72rem; font-weight: 700; font-family: var(--font-mono); }
+.mark.pass { background: var(--ok-soft); color: var(--ok); }
+.mark.warn { background: var(--warn-soft); color: var(--warn); }
+.mark.fail { background: var(--bad-soft); color: var(--bad); }
+.mark.pending { background: var(--sunk); color: var(--muted); }
+.checks .note { color: var(--muted); font-family: var(--font-mono); font-size: 0.8rem; margin-left: 6px; }
+
+.codebox { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 0; }
+.codebox .lbl { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--sunk); overflow-wrap: anywhere; }
+.codebox pre { margin: 0; padding: 12px; background: var(--code-bg); color: var(--code-ink); font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; overflow-x: auto; }
+.codebox pre .add { color: var(--ok); }
+.codebox pre .del { color: var(--bad); }
+.codebox pre .hd { color: var(--muted); }
+
+/* Request card */
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; font-family: var(--font-mono); background: var(--sunk); color: var(--muted); white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+dl.kv { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; font-size: 0.86rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 330px; overflow-y: auto; }
+.events li { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; font-size: 0.84rem; }
+.events time { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.events .ty { font-family: var(--font-mono); font-size: 0.76rem; font-weight: 600; }
+.events .ty.fail { color: var(--bad); }
+.events .ty.ok { color: var(--ok); }
+.events .msg { color: var(--muted); }
+.empty { color: var(--muted); font-size: 0.88rem; }
+
+/* Panels */
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+#cap-panel { grid-column: 1 / -1; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.panel-head .t { font-family: var(--font-display); font-weight: 600; overflow-wrap: anywhere; }
+.files { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.files li { font-family: var(--font-mono); font-size: 0.78rem; display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
+.files li span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.files .ad { color: var(--ok); white-space: nowrap; }
+.files .dl { color: var(--bad); }
+.reviewers { display: flex; flex-wrap: wrap; gap: 6px; }
+.tablebox { overflow-x: auto; }
+table.res { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+table.res th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td { padding: 8px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 0.78rem; white-space: nowrap; }
+table.res td.ch { color: var(--muted); }
+.meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+.foot { color: var(--muted); font-size: 0.8rem; }
+
+@media (max-width: 1100px) {
+  .strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .node::after, .node::before { display: none; }
+  .main { grid-template-columns: 240px minmax(0, 1fr); }
+  .state { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+}
+@media (max-width: 820px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .steps { order: 2; }
+  .state { grid-template-columns: minmax(0, 1fr); }
+  .panels { grid-template-columns: minmax(0, 1fr); }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .node { transition: none; } }
+table.res td .pill { font-size: 0.72rem; }
+.cap-rows { margin-top: 2px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>cmapi Request Flow</h1>
+      <p class="lede">Follow a request from the caller's Keycloak token through cmapi, placement on stored capacity snapshots, the cluster-configs pull request and the destination cluster's own Argo CD. Pick a scenario, then step through.</p>
+    </div>
+    <div class="controls" aria-label="Playback">
+      <button class="btn" id="btn-reset" type="button">Reset</button>
+      <button class="btn" id="btn-back" type="button">Back</button>
+      <button class="btn primary" id="btn-next" type="button">Next step</button>
+      <button class="btn" id="btn-play" type="button" aria-pressed="false">Play</button>
+      <span class="counter" id="counter" aria-live="polite"></span>
+    </div>
+  </header>
+
+  <nav class="scenarios" id="scenarios" aria-label="Scenarios"></nav>
+
+  <section class="strip" id="strip" aria-label="Systems involved"></section>
+
+  <section class="main">
+    <div class="card steps">
+      <h3>Steps</h3>
+      <ol id="steps"></ol>
+    </div>
+
+    <article class="card detail" id="detail" aria-live="polite"></article>
+
+    <div class="state">
+      <div class="card">
+        <div class="panel-head"><h3 id="req-head">Change request</h3><span id="req-pill"></span></div>
+        <dl class="kv" id="req-kv"></dl>
+      </div>
+      <div class="card">
+        <h3>Events</h3>
+        <ol class="events" id="events"></ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="card" id="cap-panel"></div>
+    <div class="card" id="pr-panel"></div>
+    <div class="card" id="argo-panel"></div>
+  </section>
+
+  <p class="foot">Simulation with example data: cluster IDs, users, commits, scores and timings are illustrative. Times are UTC. Capacity snapshots here are taken every 30 minutes, the default capacity.snapshotInterval. Each scenario runs on one instance: nonprod serves rnd and dev, staging qa and uat, prod prod.</p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var BASE = Date.parse("2026-11-03T17:05:00Z");
+  function clock(t) { return new Date(BASE + t * 1000).toISOString().slice(11, 19); }
+  function dur(t) { var m = Math.floor(t / 60), s = t % 60; return (m ? m + " min " : "") + s + " s"; }
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function ev(s, t, type, actor, msg, tone) { s.events.push({ t: t, type: type, actor: actor, msg: msg, tone: tone || "" }); }
+  function J(o) { return JSON.stringify(o, null, 2); }
+
+  var LANES = [
+    { id: "caller", name: "Caller", sub: "Portal, CLI or pipeline" },
+    { id: "keycloak", name: "Keycloak", sub: "realm ephico2real" },
+    { id: "api", name: "cmapi-api", sub: "gateway on the hub" },
+    { id: "capacity", name: "cmapi-capacity", sub: "internal, ClusterIP" },
+    { id: "git", name: "cluster-configs", sub: "pull request + CI" },
+    { id: "argo", name: "Argo CD", sub: "on the cluster" }
+  ];
+  var LANE_LABEL = { caller: "Caller", keycloak: "Keycloak", api: "cmapi-api", capacity: "cmapi-capacity", git: "Git", argo: "Argo CD" };
+
+  function baseNodes(prev) {
+    return { caller: "Ready", keycloak: "Session active", api: "Idle", capacity: "Last snapshot 17:00", git: "main @ " + prev, argo: "Synced @ " + prev };
+  }
+
+  /* ---------- Create scenario (rnd auto-approved, or prod with a reviewer) ---------- */
+  function createScenario(o) {
+    var prod = o.env === "prod";
+    var file = "clusters/" + o.cluster + "/namespaces/" + o.ns + "/" + o.ns + "-" + o.env + "-project-meta.yml";
+    var T = o.times;
+    var init = {
+      cluster: o.cluster, laneNames: { api: { name: "cmapi-api", sub: o.inst + " instance" } },
+      node: baseNodes(o.prevSha),
+      req: null, pr: null, cap: null,
+      capNote: "No placement yet. Snapshots for every cluster are already stored; the newest was taken at 17:00.",
+      argo: { app: "cluster-configs-" + o.cluster, rev: o.prevSha, sync: "Synced", health: "Healthy", resources: [], note: o.ns + " does not exist on " + o.cluster + " yet." },
+      events: [], blocked: {}
+    };
+    var steps = [];
+    var ranked = o.ranked, top = ranked[0];
+
+    steps.push({
+      lane: "caller", title: "Ask where it should go",
+      body: "Before creating <b>" + o.ns + "</b>, the portal asks cmapi to place a " + o.env + " namespace of tier medium (16 cores, 32Gi, 100 pods) for the payments team in region us-central. The caller does not have to know which " + o.env + " clusters have room.",
+      code: { label: "POST /api/v1/capacity:place", text:
+        'curl -s -X POST "$CMAPI/capacity:place" \\\n' +
+        '  -H "Authorization: Bearer $TOKEN" \\\n' +
+        '  -H "Content-Type: application/json" \\\n' +
+        "  -d '{\"environment\": \"" + o.env + "\", \"team\": \"payments\", \"tier\": \"medium\",\n" +
+        "       \"constraints\": {\"region\": \"us-central\"}}'" },
+      apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
+    });
+
+    steps.push({
+      lane: "keycloak", title: "The token came from Keycloak",
+      body: "The portal got this token at sign-in (Authorization Code + PKCE; Keycloak checked the password against LDAP) and refreshes it every 5 minutes. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys.",
+      code: { label: "Decoded access token (5-minute lifetime)", text: J({ iss: "https://sso.ephico2real.com/realms/ephico2real", aud: INSTANCES[o.inst].aud, azp: "cmapi-portal-" + o.inst, sub: "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14", preferred_username: "ola", groups: ["/cmapi/cmapi-payments-requesters"], resource_access: { "cmapi-roles": ["cmapi-requester", "cmapi-viewer"] }, exp: 1793725800 }).replace('"cmapi-roles": [', '"' + INSTANCES[o.inst].aud + '": {"roles": [').replace('"cmapi-viewer"\n    ]', '"cmapi-viewer"\n    ]}') },
+      apply: function (s) { s.node.keycloak = "Not contacted (JWKS cached)"; }
+    });
+
+    steps.push({
+      lane: "api", title: "Authenticate and authorize",
+      body: "cmapi checks issuer, audience and expiry, then looks for a scope binding. The binding for /cmapi/cmapi-payments-requesters pairs <b>cmapi-requester</b> with region us-central, every environment and payments-*, so placement may consider any " + o.env + " cluster in that region.",
+      checks: [
+        { s: "pass", l: "JWT signature, issuer, audience, expiry", n: "offline, JWKS cache" },
+        { s: "pass", l: "Role grants namespaces:write", n: "cmapi-requester" },
+        { s: "pass", l: "Scope binding covers the target", n: "clusterSelector region=us-central · " + o.env + " · payments-*" }
+      ],
+      code: { label: "Matched binding (config/authz-scopes.yaml)", text:
+        "- subject: /cmapi/cmapi-payments-requesters\n  role: cmapi-requester\n  team: payments\n  clusterSelector: {matchLabels: {region: us-central}}\n  environments: [" + INSTANCES[o.inst].envs.join(", ") + "]\n  namespaces: [\"payments-*\"]" },
+      apply: function (s) { s.node.api = "Authorized"; }
+    });
+
+    var excl = o.excluded.map(function (x) { return x.cluster + "  " + x.reason + "  (" + x.detail + ")"; }).join("\n");
+    steps.push({
+      lane: "api", also: ["capacity"], title: "Place from stored snapshots",
+      body: "Placement reads the newest complete capacity snapshot of each candidate from the capacity schema, adds committed quota from the API watch cache and active reservations, and ranks what passes the hard filters. <b>No Thanos query runs</b>; Thanos was read by cmapi-capacity's snapshot job at 17:00. " + (prod ? "In prod a cluster must still fit after losing its largest zone. " : "") + "The top cluster gets a 15-minute reservation under its advisory lock.",
+      checks: [
+        { s: "pass", l: "Snapshot age 5 min", n: "limit: 2 intervals (60 min)" },
+        { s: "pass", l: top.cluster + " ranked first, reserved", n: "score " + top.score },
+        { s: "warn", l: o.excluded.length + " cluster" + (o.excluded.length > 1 ? "s" : "") + " excluded with a reason", n: o.excluded.map(function (x) { return x.reason; }).join(", ") }
+      ],
+      code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 } }; if (prod) c.cpu.zoneFailureHeadroomAfter = r.zf; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
+      apply: function (s) {
+        s.node.api = "Reserved on " + top.cluster; s.node.capacity = "Rows read (no Thanos call)"; s.node.caller = "Placement received";
+        s.cap = { title: "Placement · " + o.placementId, pill: { t: "reserved 15 min", tone: "info" },
+          meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit,
+          cols: prod ? ["Cluster", "Score", "CPU headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "p95"],
+          rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16)]; if (prod) row.push(String(r.zf)); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason]; if (prod) row.push("—"); row.push("—"); return row; })),
+          note: "Excluded: " + o.excluded.map(function (x) { return x.cluster + " " + x.detail; }).join("; ") + "." };
+        ev(s, 0, "placed", "api-bot", o.placementId + ": " + top.cluster + " reserved for 15 min", "ok");
+      }
+    });
+
+    steps.push({
+      lane: "caller", title: "Submit the create with the placement",
+      body: "The portal now creates <b>" + o.ns + "</b> on <b>" + top.cluster + "</b>, carrying the placementId so the reservation becomes this request's own. The cluster ID sits in the path and in the body; a mismatch would be rejected with 422.",
+      code: { label: "POST /api/v1/clusters/" + o.cluster + "/namespaces", text:
+        'curl -s -X POST "$CMAPI/clusters/' + o.cluster + '/namespaces" \\\n' +
+        '  -H "Authorization: Bearer $TOKEN" \\\n' +
+        '  -H "Content-Type: application/json" \\\n' +
+        '  -H "Idempotency-Key: ' + o.idem + '" \\\n' +
+        "  -d '{\n" +
+        '    "clusterId": "' + o.cluster + '",\n' +
+        '    "namespace": "' + o.ns + '",\n' +
+        '    "env": "' + o.env + '",\n' +
+        '    "tier": "medium",\n' +
+        '    "placementId": "' + o.placementId + '",\n' +
+        '    "labels": {"cmapi.net/team": "payments"},\n' +
+        '    "annotations": {"cmapi.net/owner": "ola@ephico2real.com"}\n' +
+        "  }'" },
+      apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
+    });
+
+    steps.push({
+      lane: "api", title: "Plan: idempotency, lock, validate, render",
+      body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the project-meta file; the Kyverno policy bundle and kubeconform run on it offline. The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
+      checks: [
+        { s: "pass", l: "Idempotency key new, object lock free" },
+        { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 policies pass" },
+        { s: "pass", l: "kubeconform", n: o.cluster + " OpenAPI" },
+        { s: "pass", l: "Capacity: fits on fresh data", n: "reservation " + o.placementId }
+      ],
+      code: { label: "Plan diff · " + file, diff: true, text:
+        "+++ " + file + "\n+namespace: " + o.ns + "\n+env: " + o.env + "\n+labels:\n+  cmapi.net/cluster-id: " + o.cluster + "\n" +
+        '+  cmapi.net/managed: "true"\n+  cmapi.net/tier: medium\n+  cmapi.net/team: payments\n+annotations:\n+  cmapi.net/owner: ola@ephico2real.com\n+  cmapi.net/request-id: ' + o.reqId },
+      apply: function (s) {
+        s.node.api = "Plan ready";
+        s.req = { id: o.reqId, status: "validated", cluster: o.cluster, ns: o.ns, action: "create Namespace", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
+        ev(s, T.validated, "validated", "api-bot", "Plan passed: policies, kubeconform, capacity", "ok");
+      }
+    });
+
+    if (prod) {
+      steps.push({
+        lane: "api", title: "Approval: one prod approver",
+        body: "prod needs one approval for a create, from prod-approvers. No auto-approval policy covers prod creates, and no pattern or threshold adds more. Self-approval is off. cmapi answers <b>202</b> now; the worker opens the PR a moment later.",
+        code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "validated", approval: { rule: "prod-create", requiredCount: 1, autoApproved: false, eligibleGroup: "prod-approvers" }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId } }) },
+        apply: function (s) { s.req.rule = "prod-create"; s.req.need = 1; s.node.api = "Rule: prod-create (1)"; s.node.caller = "202 received"; }
+      });
+    } else {
+      steps.push({
+        lane: "api", title: "Approval: auto-approved by policy",
+        body: "rnd needs one approval for a create, but the <b>baseline-rnd-namespace</b> policy matches: plugin namespaces, action create, environment rnd, tier medium, region us-central. Every guard passes: not a delete, no threshold added approvers, placement fits on fresh data, no plan warnings, and the team has used 3 of its 20 auto-approvals today. cmapi answers <b>202</b> now.",
+        checks: [
+          { s: "pass", l: "Master switch and policy enabled", n: "kill switch not paused" },
+          { s: "pass", l: "Guards: no delete, no extra approvers, no warnings" },
+          { s: "pass", l: "Placement fits on fresh data" },
+          { s: "pass", l: "Team allowance", n: "3 of 20 today" }
+        ],
+        code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "validated", approval: { rule: "rnd-create", requiredCount: 0, autoApproved: true, autoPolicy: "baseline-rnd-namespace" }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId } }) },
+        apply: function (s) { s.req.rule = "auto: baseline-rnd-namespace"; s.req.need = 0; s.node.api = "Auto-approved"; s.node.caller = "202 received"; ev(s, T.validated, "auto_approved", "auto:baseline-rnd-namespace", "requiredCount 0", "ok"); }
+      });
+    }
+
+    steps.push({
+      lane: "git", title: "The worker opens the pull request",
+      body: "The open_pr job pushes <code>" + o.branch + "</code>, commits the file as the bot with a Requested-by trailer, and opens PR #" + o.pr + " with the plan and placement in its body. " + (prod ? "It is labelled approval/prod-create-1 and requests prod-approvers." : "It is labelled approval/auto-baseline-rnd-namespace and auto-merge is switched on."),
+      code: { label: "PR #" + o.pr + " body (excerpt)", text:
+        "cmapi plan · " + o.cluster + " · " + o.ns + " (create)\n" +
+        "placement        " + o.placementId + " · score " + top.score + " · cpu headroom " + top.before + " → " + (top.before - 16) + "\n" +
+        "policy bundle    v1.4.0, 7/7 pass\n" +
+        "approval         " + (prod ? "prod-create · 1 of prod-approvers" : "auto-approved by policy baseline-rnd-namespace") },
+      apply: function (s) {
+        s.req.status = "pr_open"; s.req.pr = "#" + o.pr;
+        s.pr = { num: o.pr, title: "Create namespace " + o.ns + " on " + o.cluster, branch: o.branch, state: "open", label: prod ? "approval/prod-create-1" : "approval/auto-baseline-rnd-namespace", auto: !prod,
+          files: [{ path: file, add: 11, del: 0 }],
+          checks: [{ n: "kyverno-bundle", s: "pending" }, { n: "kubeconform", s: "pending" }, { n: "approval-count", s: "pending", note: prod ? "0 of 1" : "auto" }],
+          reviewers: prod ? [{ who: "prod-approvers", s: "requested" }] : [] };
+        s.node.git = "PR #" + o.pr + " open"; s.node.api = "Tracking";
+        ev(s, T.pr, "pr_opened", "api-bot", "PR #" + o.pr + " on " + o.branch);
+      }
+    });
+
+    steps.push({
+      lane: "git", title: "CI checks the pull request",
+      body: "CI runs the same Kyverno bundle and kubeconform, so a hand edit to the branch cannot slip through. The approval-count check asks cmapi which reviews count. " + (prod ? "It stays red until one eligible prod approver, not the requester, approves." : "It passes with the reason auto-approved by policy baseline-rnd-namespace."),
+      code: { label: "approval-count check", text: prod
+        ? "rule        prod-create\nrequired    1 (prod-approvers, requester excluded by sub)\napproved    —\nresult      0 of 1 · pending"
+        : "rule        rnd-create\nrequired    0 (auto-approved by policy baseline-rnd-namespace)\nresult      pass" },
+      apply: function (s) {
+        s.pr.checks = [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "approval-count", s: prod ? "pending" : "pass", note: prod ? "0 of 1" : "auto-approved" }];
+        s.node.git = prod ? "Waiting for approval" : "All checks green";
+        ev(s, T.ci, "ci_passed", "ci", prod ? "Policy and kubeconform green; waiting for approval" : "All checks green", "ok");
+      }
+    });
+
+    if (prod) {
+      steps.push({
+        lane: "git", title: "A reviewer approves",
+        body: "<b>" + o.reviewer + "</b>, in prod-approvers, approves. The approval-count check counts 1 of 1 and turns green, so branch protection allows the merge. cmapi mirrors the decision into its approvals table.",
+        code: { label: "approval-count check", text: "rule        prod-create\nrequired    1 (prod-approvers, requester excluded)\napproved    " + o.reviewer + "\nresult      1 of 1 · pass" },
+        apply: function (s) {
+          s.pr.reviewers = [{ who: o.reviewer, s: "approved" }];
+          s.pr.checks[2] = { n: "approval-count", s: "pass", note: "1 of 1" };
+          s.req.status = "approved"; s.req.have = 1; s.node.git = "Approved";
+          ev(s, T.approved, "approval_received", o.reviewer, "1 of 1 approvals (prod-approvers)", "ok");
+        }
+      });
+    }
+
+    steps.push({
+      lane: "git", title: prod ? "Merge to main" : "Auto-merge to main",
+      body: prod
+        ? "The approver merges PR #" + o.pr + ". Commit <code>" + o.sha + "</code> is the desired state for " + o.cluster + ", and the Git webhook moves the request to merged."
+        : "The Git host's auto-merge fires the moment the checks are green; no person and no bot review was needed. Commit <code>" + o.sha + "</code> is the desired state for " + o.cluster + ".",
+      code: { label: "Webhook → POST /api/v1/webhooks/git", text: J({ event: "pull_request.closed", merged: true, pr: o.pr, merge_commit: o.sha, base: "main", signature: "verified" }) },
+      apply: function (s) {
+        s.pr.state = "merged"; s.req.status = "merged"; s.node.git = "main @ " + o.sha;
+        ev(s, T.merged, "merged", prod ? o.reviewer : "auto-merge", "Merged as " + o.sha);
+      }
+    });
+
+    steps.push({
+      lane: "argo", title: "Argo CD on " + o.cluster + " syncs",
+      body: "The cluster's own Argo CD watches only <code>clusters/" + o.cluster + "/</code>. It finds " + o.sha + ", creates the Namespace, and Kyverno admission checks it against the same bundle. namespace-configuration-operator sees <code>cmapi.net/tier: medium</code> and stamps the ResourceQuota and LimitRange. cmapi learns the result " + (prod ? "from Argo CD Notifications (syncSignal: notify on " + o.cluster + ")." : "by polling the root Application every 30 seconds (syncSignal: poll)."),
+      checks: [
+        { s: "pass", l: "Kyverno admission", n: "bundle v1.4.0, Enforce" },
+        { s: "pass", l: "Namespace created", n: "wave 0" },
+        { s: "pass", l: "Quota and limits stamped", n: "namespace-configuration-operator" }
+      ],
+      code: { label: "Live ResourceQuota on " + o.cluster, text: "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: namespace-quota\n  namespace: " + o.ns + "\n  labels:\n    cmapi.net/cluster-id: " + o.cluster + "\n    cmapi.net/tier: medium\nspec:\n  hard:\n    requests.cpu: \"16\"\n    requests.memory: 32Gi\n    pods: \"100\"" },
+      apply: function (s) {
+        s.argo.rev = o.sha; s.argo.sync = "OutOfSync"; s.argo.health = "Progressing"; s.argo.note = "";
+        s.argo.resources = [
+          { wave: "0", kind: "Namespace", name: o.ns, by: "Argo CD", st: "Synced" },
+          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Created" },
+          { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Created" }
+        ];
+        s.node.argo = "Syncing @ " + o.sha;
+      }
+    });
+
+    steps.push({
+      lane: "argo", also: ["api"], title: "Synced; reservation released",
+      body: "The Application is Synced and Healthy. The status worker records synced, and the reservation ends as soon as the new ResourceQuota appears in cmapi's watch cache of " + o.cluster + ", so those 16 cores are counted once, as committed quota. Lead time: <b>" + dur(T.synced) + "</b>" + (prod ? ", most of it waiting for review." : ", with no person involved."),
+      code: { label: "GET /api/v1/requests/" + o.reqId, text: J({ requestId: o.reqId, clusterId: o.cluster, status: "synced", prNumber: o.pr, mergeCommit: o.sha, syncStatus: "Synced", health: "Healthy", reservation: { id: o.placementId, released: "observed" }, leadTimeSeconds: T.synced }) },
+      apply: function (s) {
+        s.argo.sync = "Synced"; s.argo.health = "Healthy";
+        s.argo.resources.forEach(function (r) { r.st = "Synced"; });
+        s.req.status = "synced"; s.req.lead = dur(T.synced);
+        s.cap.pill = { t: "released: observed", tone: "ok" };
+        s.cap.note = "The reservation ended when the ResourceQuota appeared in the watch cache; the 16 cores now count as committed quota. The 17:30 snapshot will include the namespace's usage.";
+        s.node.argo = "Synced @ " + o.sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
+        ev(s, T.synced, "synced", "argocd", o.cluster + " Synced and Healthy at " + o.sha, "ok");
+      }
+    });
+
+    return { init: init, steps: steps };
+  }
+
+  /* ---------- Quota change on an existing namespace: live usage through the gateway ---------- */
+  function quotaScenario() {
+    var c = "OCP_GF1", ns = "payments-prod", req = "req-20261103-9c02", pr = 418, sha = "c7d21f0", prev = "a41c9e2";
+    var branch = c + "/" + ns + "/" + req;
+    var file = "clusters/" + c + "/namespaces/" + ns + "/" + ns + "-prod-project-meta.yml";
+    var init = {
+      cluster: c, laneNames: { api: { name: "cmapi-api", sub: "prod instance" } }, node: baseNodes(prev), req: null, pr: null, cap: null,
+      capNote: "No usage read yet. Namespace usage is never stored per interval; it is read live only when a plan needs it.",
+      argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
+        resources: [
+          { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: medium" },
+          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16" },
+          { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
+        ] },
+      events: [], blocked: {}
+    };
+    var steps = [];
+    steps.push({
+      lane: "caller", title: "Ask for a bigger tier",
+      body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its CPU quota from 16 to 32 cores. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
+      code: { label: "PATCH /api/v1/clusters/" + c + "/namespaces/" + ns, text:
+        'curl -s -X PATCH "$CMAPI/clusters/' + c + '/namespaces/' + ns + '" \\\n' +
+        '  -H "Authorization: Bearer $TOKEN" \\\n' +
+        '  -H "Content-Type: application/merge-patch+json" \\\n' +
+        '  -H "Idempotency-Key: 3d9e0b7a-55c1-4f0e-8a2b-6f1d9c4e2a77" \\\n' +
+        "  -H 'If-Match: \"9b2e4f1c8a7d\"' \\\n" +
+        "  -d '{\"clusterId\": \"" + c + "\", \"tier\": \"large\",\n" +
+        "       \"justification\": \"Peak-season load test\"}'" },
+      apply: function (s) { s.node.caller = "PATCH sent"; s.node.api = "Receiving"; }
+    });
+    steps.push({
+      lane: "api", title: "Authenticate, authorize, lock",
+      body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write, and the payments binding covers " + c + " prod. The If-Match ETag equals the Git blob SHA of the project-meta file, and no other request is open on this namespace.",
+      checks: [
+        { s: "pass", l: "JWT, role and scope binding", n: "cmapi-requester · " + c + " · prod" },
+        { s: "pass", l: "If-Match matches current ETag", n: "9b2e4f1c8a7d" },
+        { s: "pass", l: "Object lock free", n: "Namespace " + ns }
+      ],
+      code: { label: "Pre-checks", text: "etag (git blob of project-meta)   9b2e4f1c8a7d   matches If-Match\nopen request (" + c + ", Namespace, " + ns + ")   none\nidempotency key 3d9e0b7a…   new" },
+      apply: function (s) { s.node.api = "Lock free"; s.node.keycloak = "Not contacted (JWKS cached)"; }
+    });
+    steps.push({
+      lane: "capacity", title: "Live 14-day usage from cmapi-capacity",
+      body: "This is the one request type that reads a namespace from Thanos. The quotas planner calls cmapi-capacity over the ClusterIP Service with its projected ServiceAccount token; the service checks it with TokenReview and queries " + c + "'s Thanos Querier for this namespace's last 14 days. The answer is cached for 10 minutes and <b>not stored</b>.",
+      checks: [
+        { s: "pass", l: "Caller is cmapi-api", n: "TokenReview, audience cmapi-capacity" },
+        { s: "pass", l: "Coverage 98% of 14 days", n: "minimum 80%" },
+        { s: "warn", l: "32 cores is 3.3× the 14-day peak", n: "threshold 3×" }
+      ],
+      code: { label: "GET /v1/clusters/" + c + "/namespaces/" + ns + "/usage?window=14d (internal)", text:
+        "                 now    7d avg   14d p95   14d peak   quota\n" +
+        "cpu (cores)      6.1    5.4      8.2       9.6        16 → 32\n" +
+        "memory (Gi)      11.8   10.9     15.9      17.2       32 → 64\n" +
+        "request / peak   32 / 9.6 = 3.3   > 3, flagged" },
+      apply: function (s) {
+        s.node.capacity = "Thanos read, cached 10 min"; s.node.api = "Planning";
+        s.cap = { title: "Live usage · " + ns + " · 14 days", pill: { t: "not stored", tone: "info" },
+          meta: c + " · read " + clock(1) + " · cached until " + clock(601) + " · coverage 0.98",
+          cols: ["Resource", "Now", "7d avg", "p95", "Peak", "Quota"],
+          rows: [["cpu (cores)", "6.1", "5.4", "8.2", "9.6", "16 → 32"], ["memory (Gi)", "11.8", "10.9", "15.9", "17.2", "32 → 64"]],
+          note: "If Thanos had not answered in 10 seconds, the plan would carry usage: unavailable and need a platform approval instead of failing." };
+      }
+    });
+    steps.push({
+      lane: "api", title: "Plan and capacity check",
+      body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores of quota headroom, 48 after this change.",
+      checks: [
+        { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
+        { s: "pass", l: "Cluster capacity fits", n: "headroom 64 → 48 cores, prod overcommit 1.0" },
+        { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" }
+      ],
+      code: { label: "Diff · " + file, diff: true, text: "@@ labels @@\n   cmapi.net/cluster-id: " + c + "\n-  cmapi.net/tier: medium\n+  cmapi.net/tier: large\n   cmapi.net/team: payments" },
+      apply: function (s) {
+        s.req = { id: req, status: "validated", cluster: c, ns: ns, action: "patch Namespace (tier)", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
+        s.node.api = "Plan ready, 1 warning";
+        ev(s, 2, "validated", "api-bot", "Plan passed with 1 warning: 3.3× 14-day peak", "");
+      }
+    });
+    steps.push({
+      lane: "api", title: "Approval rules add a reviewer",
+      body: "A prod change needs one prod approver. The requestToPeakRatio threshold adds one from platform-leads. No auto-approval applies: a threshold added approvers and the plan has a warning, both guards that no policy can switch off. cmapi answers <b>202</b>.",
+      code: { label: "ApprovalRequirement", text: J({ rule: "prod-change", requiredCount: 2, autoApproved: false, eligibleGroup: "prod-approvers + platform-leads", reasons: ["Environment 'prod' requires 1 approval for change", "requestToPeakRatio 3.3 > 3: possible over-provisioning (+1 platform-leads)"], facts: { quotaIncreasePct: 100, requestToPeakRatio: 3.3, capacity: "fits", verdicts: ["right-sized"] } }) },
+      apply: function (s) { s.req.rule = "prod-change"; s.req.need = 2; s.node.api = "Rule: prod-change (2)"; s.node.caller = "202 received"; }
+    });
+    steps.push({
+      lane: "git", title: "Pull request with the evidence",
+      body: "The worker opens PR #" + pr + " with the one-line change and the usage table in its body, so reviewers see the numbers next to the diff. CI re-runs the bundle and kubeconform; approval-count waits for two eligible reviews.",
+      code: { label: "PR #" + pr + " body (excerpt)", text:
+        "cmapi plan · " + c + " · " + ns + " (tier medium → large)\n" +
+        "                 now    7d avg   14d peak   quota\n" +
+        "cpu (cores)      6.1    5.4      9.6        16 → 32\n" +
+        "memory (Gi)      11.8   10.9     17.2       32 → 64\n" +
+        "flag             request 3.3× 14-day peak (threshold 3×)\n" +
+        "cluster          quota headroom 64 → 48 cores, fits\n" +
+        "approval         prod-change · 2 (prod-approvers, platform-leads)" },
+      apply: function (s) {
+        s.req.status = "pr_open"; s.req.pr = "#" + pr;
+        s.pr = { num: pr, title: "Change tier of " + ns + " to large on " + c, branch: branch, state: "open", label: "approval/prod-change-2",
+          files: [{ path: file, add: 1, del: 1 }],
+          checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "approval-count", s: "pending", note: "0 of 2" }],
+          reviewers: [{ who: "prod-approvers", s: "requested" }, { who: "platform-leads", s: "requested" }] };
+        s.node.git = "PR #" + pr + " · 0 of 2";
+        ev(s, 4, "pr_opened", "api-bot", "PR #" + pr + " on " + branch);
+        ev(s, 125, "ci_passed", "ci", "Policy and kubeconform green; waiting for 2 approvals");
+      }
+    });
+    steps.push({
+      lane: "git", title: "Two reviewers approve, then merge",
+      body: "sre-lead approves for prod-approvers; platform-lead approves after reading the usage table, noting the load test runs for three weeks. approval-count reaches 2 of 2 and platform-lead merges as <code>" + sha + "</code>.",
+      code: { label: "approval-count check", text: "rule        prod-change\nrequired    2 (prod-approvers 1, platform-leads 1)\napproved    sre-lead@ephico2real.com, platform-lead@ephico2real.com\nresult      2 of 2 · pass" },
+      apply: function (s) {
+        s.pr.reviewers = [{ who: "sre-lead@ephico2real.com", s: "approved" }, { who: "platform-lead@ephico2real.com", s: "approved" }];
+        s.pr.checks[2] = { n: "approval-count", s: "pass", note: "2 of 2" };
+        s.pr.state = "merged"; s.req.status = "merged"; s.req.have = 2; s.node.git = "main @ " + sha;
+        ev(s, 1260, "approval_received", "sre-lead@ephico2real.com", "1 of 2 approvals", "");
+        ev(s, 3480, "approval_received", "platform-lead@ephico2real.com", "2 of 2 approvals", "ok");
+        ev(s, 3540, "merged", "platform-lead@ephico2real.com", "Merged as " + sha);
+      }
+    });
+    steps.push({
+      lane: "argo", title: "Sync: label applied, quota re-stamped",
+      body: "Argo CD on " + c + " patches the tier label; namespace-configuration-operator matches the large template and raises the ResourceQuota to 32 cores and 64Gi. Kyverno admission passes both. The request closes as synced after " + dur(3720) + ". The daily sweep keeps reading this namespace; if its peak stays near 9.6 cores it will record quota-oversized and propose a smaller quota, which still goes through a normal request.",
+      code: { label: "Live ResourceQuota on " + c, diff: true, text: "spec:\n  hard:\n-   requests.cpu: \"16\"\n+   requests.cpu: \"32\"\n-   requests.memory: 32Gi\n+   requests.memory: 64Gi" },
+      apply: function (s) {
+        s.argo.rev = sha;
+        s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: large" };
+        s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32" };
+        s.req.status = "synced"; s.req.lead = dur(3720);
+        s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
+        ev(s, 3720, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
+      }
+    });
+    return { init: init, steps: steps };
+  }
+
+  /* ---------- Policy rejection ---------- */
+  function policyScenario() {
+    var c = "OCP_GF1", ns = "payments-prod";
+    var init = {
+      cluster: c, laneNames: { api: { name: "cmapi-api", sub: "prod instance" } }, node: baseNodes("c7d21f0"), req: null, pr: null, cap: null,
+      capNote: "Not needed. A ServiceAccount grant has no capacity effect, so neither placement nor usage is read.",
+      argo: { app: "cluster-configs-" + c, rev: "c7d21f0", sync: "Synced", health: "Healthy", note: "",
+        resources: [
+          { wave: "1", kind: "ServiceAccount", name: "deploy-bot", by: "Argo CD", st: "Synced", ch: "" },
+          { wave: "2", kind: "RoleBinding", name: "deploy-bot-edit", by: "Argo CD", st: "Synced", ch: "ClusterRole edit" }
+        ] },
+      events: [], blocked: {}
+    };
+    var steps = [];
+    steps.push({
+      lane: "caller", title: "Ask for a cluster-admin grant",
+      body: "A pipeline (client svc-payments-ci, client-credentials token) asks to grant the ClusterRole <b>cluster-admin</b> to the ServiceAccount deploy-bot in " + ns + ", because it wants to create CRDs.",
+      code: { label: "POST …/serviceaccounts/deploy-bot/grants", text:
+        'TOKEN=$(curl -s "$KC/token" -d grant_type=client_credentials \\\n  -d client_id=svc-payments-ci -d client_secret="$SECRET" | jq -r .access_token)\n\n' +
+        'curl -s -X POST "$CMAPI/clusters/' + c + '/namespaces/' + ns + '/serviceaccounts/deploy-bot/grants" \\\n' +
+        '  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n' +
+        '  -H "Idempotency-Key: 51aa0c3e-2f7b-4b8e-9d61-0e4c7a9b3f12" \\\n' +
+        "  -d '{\"clusterId\": \"" + c + "\", \"kind\": \"ClusterRole\", \"name\": \"cluster-admin\"}'" },
+      apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; s.node.keycloak = "Issued client token"; }
+    });
+    steps.push({
+      lane: "api", title: "Authenticate, authorize, lock",
+      body: "The service-account token is valid, its role grants grants:write and its binding covers " + c + " payments-*. deploy-bot exists live in " + ns + ", and no open request targets this grant.",
+      checks: [
+        { s: "pass", l: "JWT, role and scope binding", n: "svc-payments-ci · grants:write" },
+        { s: "pass", l: "ServiceAccount exists", n: ns + "/deploy-bot" },
+        { s: "pass", l: "Object lock free" }
+      ],
+      code: { label: "Pre-checks", text: "subject            ServiceAccount " + ns + "/deploy-bot   exists\nopen request       none\nidempotency key    51aa0c3e…   new" },
+      apply: function (s) { s.node.api = "Lock free"; }
+    });
+    steps.push({
+      lane: "api", title: "Plan fails the policy bundle",
+      body: "The sa-grants plugin renders the RoleBinding and the Kyverno CLI evaluates it. rbac-allowlist rejects it: cluster-admin is not grantable to a ServiceAccount. cmapi returns 422 at once. No request row, branch or PR is created; the failure is counted in <code>cmapi_validation_failures_total</code>.",
+      checks: [
+        { s: "pass", l: "naming, labels, rbac-subjects", n: "pass" },
+        { s: "fail", l: "rbac-allowlist", n: "cluster-admin not allowlisted" }
+      ],
+      code: { label: "422 · application/problem+json", text: J({ type: "https://cmapi.ephico2real.com/problems/policy-violation", title: "Grant not allowed", status: 422, detail: "ClusterRole cluster-admin is not on the ServiceAccount allowlist", clusterId: c, policy: "rbac-allowlist", rule: "sa-clusterrole-allowlist", errors: [{ field: "name", code: "not_allowlisted" }] }) },
+      apply: function (s) {
+        s.req = { id: "not recorded", status: "rejected at plan", cluster: c, ns: ns, action: "grant ClusterRole to SA", rule: "—", need: 0, have: 0, pr: "none", lead: "" };
+        s.blocked = { git: true, argo: true };
+        s.node.api = "422 returned"; s.node.caller = "422 received"; s.node.git = "Not reached"; s.node.argo = "Not reached";
+        ev(s, 0, "validation_failed", "api-bot", "rbac-allowlist: cluster-admin not grantable (metric only, no row)", "fail");
+      }
+    });
+    steps.push({
+      lane: "caller", title: "Fix the request and dry-run it",
+      body: "The problem names the policy and rule. CRD creation is cluster-scoped and never self-service, so the team asks the platform team for that, and dry-runs the namespace-scoped edit grant the pipeline actually needs. The dry run returns 200 with a passing plan: no row, no reservation, no PR.",
+      code: { label: "POST …/grants?dryRun=true → 200 Plan", text:
+        'curl -s -X POST "$CMAPI/clusters/' + c + '/namespaces/' + ns + '/serviceaccounts/deploy-bot/grants?dryRun=true" \\\n' +
+        '  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n' +
+        "  -d '{\"clusterId\": \"" + c + "\", \"kind\": \"ClusterRole\", \"name\": \"edit\"}'\n\n" +
+        "# → 200 { \"plan\": { \"warnings\": [\"deploy-bot already holds edit\"] } }" },
+      apply: function (s) { s.node.caller = "Dry run: 200"; }
+    });
+    return { init: init, steps: steps };
+  }
+
+  /* ---------- Cluster auto-import and onboarding ---------- */
+  function importScenario() {
+    var c = "OCP_GF9", op = "op-20261103-0c4f", pr = 421, sha = "f3b8a10", prev = "e6d0c55";
+    var init = {
+      cluster: c,
+      laneNames: { caller: { name: "Cluster baseline", sub: "separate process, every cluster" }, api: { name: "cmapi-api", sub: "nonprod instance" } },
+      node: { caller: "Building " + c, keycloak: "Not involved", api: "Watching cmapi-imports", capacity: "Watching cmapi-imports", git: "main @ " + prev, argo: "Root app Synced" },
+      req: null, pr: null, cap: null, reqHead: "Cluster onboarding",
+      capNote: c + " is unknown to cmapi-capacity until its import Secret connects.",
+      argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", resources: [], note: "Root Application installed by the baseline; clusters/" + c + "/ holds no namespaces yet." },
+      events: [], blocked: {}
+    };
+    var steps = [];
+    steps.push({
+      lane: "caller", title: "Baseline creates cmapi-reader and the import",
+      body: "The cluster-baseline process, not cmapi, lays down the read-only <b>cmapi-reader</b> ServiceAccount, its ClusterRole and the cluster-monitoring-view binding on the new cluster. It issues a 7-day TokenRequest token and writes one labelled Secret into the hub namespace <b>cmapi-imports</b>, the only place it may write. cmapi holds get, list and watch there, nothing more.",
+      code: { label: "Secret cmapi-imports/cmapi-cluster-ocp-gf9", text:
+        "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cmapi-cluster-ocp-gf9\n  namespace: cmapi-imports\n  labels:\n    cmapi.net/secret-type: cluster\n    cmapi.net/cluster-id: " + c + "\n  annotations:\n    cmapi.net/managed-by: cluster-baseline\n    cmapi.net/token-expires-at: \"2026-11-10T17:05:00Z\"\ntype: Opaque\nstringData:\n  apiUrl: https://api.ocp-gf9.ephico2real.com:6443\n  token: <TokenRequest token for cmapi-system/cmapi-reader>\n  insecure: \"false\"            # no caData: the hub's trusted bundle is used" },
+      apply: function (s) { s.node.caller = "Secret written"; ev(s, 0, "import_secret_written", "cluster-baseline", "cmapi-imports/cmapi-cluster-ocp-gf9"); }
+    });
+    steps.push({
+      lane: "api", title: "Six checks, then connected",
+      body: "cmapi's watch sees the Secret within seconds (a 5-minute relist is the backstop) and runs the import checks. Each failure would be a finding on " + c + " alone; every other cluster keeps being read.",
+      checks: [
+        { s: "pass", l: "1 Discover", n: "watch event on cmapi-imports" },
+        { s: "pass", l: "2 Parse the Secret", n: "apiUrl, token; no userinfo; unique cluster ID" },
+        { s: "pass", l: "3 TLS mode", n: "trusted-bundle (no caData)" },
+        { s: "pass", l: "4 Connect: GET /version", n: "v1.31" },
+        { s: "pass", l: "5 Identity: GET users/~", n: "system:serviceaccount:cmapi-system:cmapi-reader" },
+        { s: "pass", l: "6 Capability", n: "namespaces, applications, Thanos Route" }
+      ],
+      code: { label: "GET /api/v1/clusters/" + c, text: J({ clusterId: c, status: "connected", source: "cmapi-imports/cmapi-cluster-ocp-gf9", tls: "trusted-bundle", tokenExpiresAt: "2026-11-10T17:05:00Z", writable: false, findings: [{ code: "no-registry-entry", fix: "Run cluster-onboard to add " + c + " to clusters.yaml" }] }) },
+      apply: function (s) {
+        s.node.api = "Connected, read-only";
+        s.req = { id: op, status: "connected", cluster: c, ns: "—", action: "import", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
+        ev(s, 4, "cluster_connected", "api-bot", c + ": 6 of 6 checks passed; writes refused until registered", "ok");
+      }
+    });
+    steps.push({
+      lane: "capacity", title: "First capacity snapshot",
+      body: "cmapi-capacity reads the same cmapi-imports Secrets, so it picks up " + c + " without being told. Its next run queries the cluster's Thanos Querier per node and joins nodes to zones and roles from the API. Placement will not use " + c + " yet: it has no clusters.yaml entry, so it is not writable.",
+      code: { label: "capacity.capacity_snapshots · " + c + " · 17:30", text:
+        "scope            cpu alloc  requested  used peak  memory alloc  nodes\n" +
+        "cluster          192        14.5       9.8        768Gi         6/6\n" +
+        "zone:us-central-1a  64      5.0        3.4        256Gi         2/2\n" +
+        "zone:us-central-1b  64      4.5        3.1        256Gi         2/2\n" +
+        "zone:us-central-1c  64      5.0        3.3        256Gi         2/2\n" +
+        "complete         true   (Thanos allocatable within 5% of the API node sum)" },
+      apply: function (s) {
+        s.node.capacity = "First snapshot 17:30";
+        s.cap = { title: "Capacity · " + c, pill: { t: "not placeable yet", tone: "warn" },
+          meta: "snapshot 17:30 · complete · worker role · zones from node topology labels",
+          cols: ["Scope", "CPU alloc", "Requested", "Used peak", "Nodes"],
+          rows: [["cluster", "192", "14.5", "9.8", "6/6"], ["us-central-1a", "64", "5.0", "3.4", "2/2"], ["us-central-1b", "64", "4.5", "3.1", "2/2"], ["us-central-1c", "64", "5.0", "3.3", "2/2"]],
+          note: "Excluded from placement and fleet views: not writable (no clusters.yaml entry)." };
+        ev(s, 1500, "snapshot_written", "cmapi-capacity", c + ": cluster, 3 zones, 3 roles", "ok");
+      }
+    });
+    steps.push({
+      lane: "api", title: "Operator starts cluster-onboard",
+      body: "A platform operator starts the cluster-onboard template on the built-in engine (Argo Workflows or Tekton would run the same steps). wait-import passes at once. preflight checks that the Thanos Route answers with the cmapi-reader token, retention is at least 15 days, and the root Application exists and is Synced.",
+      checks: [
+        { s: "pass", l: "wait-import", n: "connected" },
+        { s: "pass", l: "preflight: Thanos Route", n: "200 with cmapi-reader token" },
+        { s: "pass", l: "preflight: retention", n: "15 days" },
+        { s: "pass", l: "preflight: root Application", n: "Synced" }
+      ],
+      code: { label: "POST /api/v1/operations", text: 'curl -s -X POST "$CMAPI/operations" \\\n  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n  -d \'{"template": "cluster-onboard", "parameters": {"cluster-id": "' + c + '"}}\'\n\n# → 202 {"operationId": "' + op + '", "engine": "builtin", "phase": "Running"}' },
+      apply: function (s) { s.req.status = "running"; s.req.action = "cluster-onboard"; s.node.api = "Operation running"; ev(s, 1800, "operation_started", "platform-operator@ephico2real.com", "cluster-onboard " + c); }
+    });
+    steps.push({
+      lane: "git", title: "PR adds the clusters.yaml entry",
+      body: "propose-registry opens a request whose PR adds " + c + "'s policy and classification: environment, writes, sync signal, region, zones and placement settings. The connection never goes in Git; it stays in the import Secret.",
+      code: { label: "Diff · config/clusters.yaml", diff: true, text: "@@ end of file @@\n+- clusterId: " + c + "\n+  environment: rnd\n+  gitopsPath: clusters/" + c + "\n+  writes: true\n+  syncSignal: poll\n+  metadata:\n+    region: us-central\n+    zones: [us-central-1a, us-central-1b, us-central-1c]\n+    datacenter: dfw-dc2\n+    provider: vsphere\n+  placement:\n+    enabled: true\n+    maxNamespaces: 400" },
+      apply: function (s) {
+        s.req.pr = "#" + pr; s.node.git = "PR #" + pr + " open";
+        s.pr = { num: pr, title: "Register " + c + " (rnd, us-central)", branch: "registry/" + c + "/" + op, state: "open", label: "cluster-onboard",
+          files: [{ path: "config/clusters.yaml", add: 13, del: 0 }],
+          checks: [{ n: "config-validate", s: "pass", note: "metadata rules" }, { n: "approval-count", s: "pending", note: "0 of 1" }],
+          reviewers: [{ who: "platform-leads", s: "requested" }] };
+        ev(s, 1810, "pr_opened", "api-bot", "PR #" + pr + " adds " + c + " to clusters.yaml");
+      }
+    });
+    steps.push({
+      lane: "git", title: "Approved, merged, reloaded",
+      body: "A platform lead approves and merges. The ConfigMap updates and cmapi reloads it; the zones declared in Git match the nodes' topology labels, so no zone-mismatch finding is raised. " + c + " is now writable.",
+      code: { label: "GET /api/v1/clusters/" + c + " (after reload)", text: J({ clusterId: c, status: "connected", environment: "rnd", writable: true, labels: { region: "us-central", zone: ["us-central-1a", "us-central-1b", "us-central-1c"], environment: "rnd", provider: "vsphere", datacenter: "dfw-dc2" }, findings: [] }) },
+      apply: function (s) {
+        s.pr.reviewers = [{ who: "platform-lead@ephico2real.com", s: "approved" }]; s.pr.checks[1] = { n: "approval-count", s: "pass", note: "1 of 1" }; s.pr.state = "merged";
+        s.node.git = "main @ " + sha; s.node.api = "Writable";
+        ev(s, 2400, "merged", "platform-lead@ephico2real.com", "Registry entry merged as " + sha, "ok");
+      }
+    });
+    steps.push({
+      lane: "argo", title: "Smoke test through Argo CD",
+      body: "smoke-test creates an rnd namespace on " + c + " through the normal pipeline, waits for Argo CD to report it Synced, then deletes it through a second request. Both are ordinary requests, so the path every team will use is proven end to end.",
+      code: { label: "smoke-test", text: "create   cmapi-smoke-0c4f   PR #422   synced in 2 min 40 s\ndelete   cmapi-smoke-0c4f   PR #423   pruned in 1 min 50 s\nresult   pass" },
+      apply: function (s) {
+        s.argo.resources = [{ wave: "0", kind: "Namespace", name: "cmapi-smoke-0c4f", by: "Argo CD", st: "Pruned", ch: "created then deleted" }];
+        s.argo.note = ""; s.argo.rev = "9a1e7c3"; s.node.argo = "Synced @ 9a1e7c3";
+        ev(s, 2560, "smoke_created", "svc-cmapi-workflows", "cmapi-smoke-0c4f synced");
+        ev(s, 2680, "smoke_deleted", "svc-cmapi-workflows", "cmapi-smoke-0c4f pruned", "ok");
+      }
+    });
+    steps.push({
+      lane: "api", also: ["capacity"], title: c + " joins placement and fleet views",
+      body: "The operation succeeds. " + c + " now passes placement's hard filters for rnd requests in us-central, and fleet views grouped by region or zone include it. Its token will be rewritten by the baseline at 80% of its 7-day life; cmapi alerts if that has not happened by 90%.",
+      code: { label: "GET /api/v1/capacity?groupBy=region,environment (excerpt)", text: J({ groups: [{ region: "us-central", environment: "rnd", clusters: 3, coverage: 0.75, excluded: [{ clusterId: "OCP_GF7", reason: "stale-data" }], cpu: { quotaHeadroom: 452, largestPlacement: 336 } }] }) },
+      apply: function (s) {
+        s.req.status = "succeeded"; s.req.lead = dur(2700);
+        s.cap.pill = { t: "placeable", tone: "ok" }; s.cap.note = "Included in placement for rnd · us-central, and in fleet views by region, zone and environment.";
+        s.node.capacity = "Included in fleet views"; s.node.caller = "Rotates token at 80%";
+        ev(s, 2700, "operation_succeeded", "api-bot", "cluster-onboard " + c, "ok");
+      }
+    });
+    return { init: init, steps: steps };
+  }
+
+  var INSTANCES = {
+    nonprod: { label: "nonprod", display: "Non-production", envs: ["rnd", "dev"], api: "https://cmapi-nonprod.ephico2real.com", portal: "https://portal-nonprod.ephico2real.com", aud: "cmapi-nonprod" },
+    staging: { label: "staging", display: "Staging", envs: ["qa", "uat"], api: "https://cmapi-staging.ephico2real.com", portal: "https://portal-staging.ephico2real.com", aud: "cmapi-staging" },
+    prod: { label: "prod", display: "Production", envs: ["prod"], api: "https://cmapi.ephico2real.com", portal: "https://portal.ephico2real.com", aud: "cmapi-prod" }
+  };
+
+  function wrongInstanceScenario() {
+    var me = INSTANCES.nonprod, right = INSTANCES.prod, env = "prod";
+    var init = {
+      cluster: "—", laneNames: { api: { name: "cmapi-api", sub: "nonprod instance" } },
+      node: { caller: "Ready", keycloak: "Session active", api: "Idle", capacity: "Last snapshot 17:00", git: "—", argo: "—" },
+      req: null, pr: null, cap: null, prMsg: "No pull request: the request was refused before any plan, so nothing was written to Git.",
+      capNote: "Not reached. Placement only ranks this instance's clusters, and none of them is prod.",
+      argo: { app: "cluster-configs-—", rev: "—", sync: "—", health: "—", resources: [], note: "Not reached." },
+      events: [], blocked: {}
+    };
+    var steps = [];
+    steps.push({
+      lane: "caller", title: "Ask the nonprod portal for prod",
+      body: "A team member signed in to the <b>nonprod</b> portal asks for a prod namespace. The nonprod instance serves only rnd and dev; prod clusters live in another network zone that it cannot reach.",
+      code: { label: "POST " + me.api + "/api/v1/capacity:place", text: 'curl -s -X POST "' + me.api + '/api/v1/capacity:place" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n' + "  -d '{\"environment\": \"prod\", \"team\": \"payments\", \"tier\": \"medium\"}'" },
+      apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
+    });
+    steps.push({
+      lane: "keycloak", title: "The token is for nonprod only",
+      body: "The token's audience is <b>cmapi-nonprod</b>. It is valid here and would be refused by the prod instance, which accepts only cmapi-prod.",
+      code: { label: "Decoded access token (excerpt)", text: JSON.stringify({ iss: "https://sso.ephico2real.com/realms/ephico2real", aud: me.aud, azp: "cmapi-portal-nonprod", preferred_username: "ola" }, null, 2) },
+      apply: function (s) { s.node.keycloak = "Not contacted (JWKS cached)"; }
+    });
+    steps.push({
+      lane: "api", title: "Environment not served",
+      body: "Before any plan, cmapi checks the requested environment against its configured <code>allowedEnvironments</code>. prod is not in [rnd, dev], so it answers 422 with the instance that does serve it. No row, no placement, no PR.",
+      checks: [
+        { s: "pass", l: "JWT, role and scope binding", n: "audience cmapi-nonprod" },
+        { s: "fail", l: "Environment served by this instance", n: "prod not in [rnd, dev]" }
+      ],
+      code: { label: "422 · application/problem+json", text: JSON.stringify({ type: "https://cmapi.ephico2real.com/problems/environment-not-served", title: "Environment not served by this instance", status: 422, detail: "This is the nonprod instance; it serves rnd, dev.", environment: env, instance: "nonprod", servedBy: "prod", instanceUrl: right.api + "/api/v1", portalUrl: right.portal }, null, 2) },
+      apply: function (s) {
+        s.req = { id: "not recorded", status: "refused", cluster: "—", ns: "—", action: "place prod namespace", rule: "—", need: 0, have: 0, pr: "none", lead: "" };
+        s.blocked = { capacity: true, git: true, argo: true };
+        s.node.api = "422 returned"; s.node.caller = "422 received"; s.node.capacity = "Not reached"; s.node.git = "Not reached"; s.node.argo = "Not reached";
+        ev(s, 0, "environment_not_served", "api-bot", "prod is served by the prod instance (metric only, no row)", "fail");
+      }
+    });
+    steps.push({
+      lane: "caller", title: "Go to the prod portal",
+      body: "The portal turns the problem into a link to <b>" + right.portal + "</b>. There the person signs in through the prod client and needs a role bound in the prod instance's authz-scopes.yaml; access in nonprod grants nothing in prod.",
+      code: { label: "Portal message", text: "prod namespaces are created in the Production portal.\nOpen " + right.portal + " to continue.\nYour roles there come from the cmapi-prod client in Keycloak." },
+      apply: function (s) { s.node.caller = "Redirected to prod"; }
+    });
+    return { init: init, steps: steps };
+  }
+
+  var SCENARIOS = [
+    { id: "rnd-create", label: "New namespace · rnd", meta: "nonprod · auto-approved", build: function () {
+      return createScenario({ inst: "nonprod", env: "rnd", cluster: "OCP_GF6", ns: "payments-rnd", reqId: "req-20261103-81bd", idem: "c41b77e0-9e2a-4d61-8b3f-2a6d0e5c9b18",
+        placementId: "pl-20261103-5e17", overcommit: "2.0", pr: 413, branch: "OCP_GF6/payments-rnd/req-20261103-81bd", sha: "e90b3d4", prevSha: "4c1f8a2",
+        ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, p95: 0.62 }],
+        excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
+        times: { validated: 3, pr: 5, ci: 120, merged: 124, synced: 300 } }); } },
+    { id: "prod-create", label: "New namespace · prod", meta: "prod · 1 approval", build: function () {
+      return createScenario({ inst: "prod", env: "prod", cluster: "OCP_GF1", ns: "payments-prod", reqId: "req-20261103-7f3a", idem: "7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40",
+        placementId: "pl-20261103-2c81", overcommit: "1.0", pr: 412, branch: "OCP_GF1/payments-prod/req-20261103-7f3a", sha: "a41c9e2", prevSha: "5f02b1d", reviewer: "sre-lead@ephico2real.com",
+        ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, zf: 21, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, zf: 3, p95: 0.58 }],
+        excluded: [{ cluster: "OCP_GF4", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }, { cluster: "OCP_GF5", reason: "zone-failure-headroom", detail: "needs 16 cores, 9 left without zone c" }],
+        times: { validated: 3, pr: 5, ci: 130, approved: 2640, merged: 2760, synced: 2980 } }); } },
+    { id: "quota-change", label: "Quota increase · prod", meta: "prod · live usage · 2 approvals", build: quotaScenario },
+    { id: "policy-reject", label: "Grant rejected · policy", meta: "prod · 422 at plan", build: policyScenario },
+    { id: "cluster-import", label: "New cluster · auto-import", meta: "nonprod · baseline Secret", build: importScenario },
+    { id: "wrong-instance", label: "Wrong instance", meta: "nonprod · 422 not served", build: wrongInstanceScenario }
+  ];
+
+  /* ---------- State ---------- */
+  var cur = { scn: null, data: null, i: 0, timer: null };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function stateAt(i) {
+    var s = clone(cur.data.init);
+    var reached = {};
+    for (var j = 0; j <= i; j++) {
+      var st = cur.data.steps[j];
+      st.apply(s); reached[st.lane] = true;
+      (st.also || []).forEach(function (l) { reached[l] = true; });
+    }
+    s.reached = reached;
+    return s;
+  }
+
+  /* ---------- Render ---------- */
+  function renderScenarios() {
+    var nav = $("scenarios"); nav.innerHTML = "";
+    SCENARIOS.forEach(function (sc) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "scn"; b.setAttribute("aria-pressed", String(sc.id === cur.scn.id));
+      b.innerHTML = "<b>" + esc(sc.label) + "</b><span>" + esc(sc.meta) + "</span>";
+      b.addEventListener("click", function () { stop(); select(sc.id, true); });
+      nav.appendChild(b);
+    });
+  }
+
+  function renderStrip(s, step) {
+    var el = $("strip"); el.innerHTML = "";
+    var also = step.also || [];
+    LANES.forEach(function (l) {
+      var cls = "node";
+      if (s.blocked[l.id]) cls += " blocked";
+      else if (l.id === step.lane || also.indexOf(l.id) >= 0) cls += " active";
+      else if (!s.reached[l.id]) cls += " idle";
+      var d = document.createElement("div");
+      d.className = cls; d.setAttribute("data-lane", l.id);
+      var over = (s.laneNames && s.laneNames[l.id]) || {};
+      var name = over.name || l.name;
+      var sub = over.sub || (l.id === "argo" ? "on " + s.cluster : l.sub);
+      d.innerHTML = '<div class="k"><span class="dot"></span>' + esc(name) + '</div><div class="sub">' + esc(sub) + '</div><div class="st">' + esc(s.node[l.id]) + "</div>";
+      el.appendChild(d);
+    });
+  }
+
+  function laneLabel(s, lane) { return (s.laneNames && s.laneNames[lane] && s.laneNames[lane].name) || LANE_LABEL[lane]; }
+
+  function renderSteps(s) {
+    var ol = $("steps"); ol.innerHTML = "";
+    cur.data.steps.forEach(function (st, j) {
+      var li = document.createElement("li");
+      li.tabIndex = 0; li.setAttribute("data-lane", st.lane);
+      li.className = j < cur.i ? "done" : (j === cur.i ? "now" : "future");
+      if (j === cur.i) li.setAttribute("aria-current", "step");
+      li.innerHTML = '<span><span class="lt">' + esc(laneLabel(s, st.lane)) + "</span>" + esc(st.title) + "</span>";
+      li.addEventListener("click", function () { stop(); go(j); });
+      li.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); stop(); go(j); } });
+      ol.appendChild(li);
+    });
+  }
+
+  function codeHtml(code) {
+    if (!code.diff) return esc(code.text);
+    return code.text.split("\n").map(function (ln) {
+      var c = ln.charAt(0);
+      if (ln.indexOf("+++") === 0 || ln.indexOf("@@") === 0 || ln.indexOf("=====") === 0) return '<span class="hd">' + esc(ln) + "</span>";
+      if (c === "+") return '<span class="add">' + esc(ln) + "</span>";
+      if (c === "-") return '<span class="del">' + esc(ln) + "</span>";
+      return esc(ln);
+    }).join("\n");
+  }
+
+  var MARK = { pass: "✓", warn: "!", fail: "✕", pending: "•" };
+
+  function renderDetail(s, step) {
+    var el = $("detail"); el.setAttribute("data-lane", step.lane);
+    var h = '<div class="eyebrow">Step ' + (cur.i + 1) + " of " + cur.data.steps.length + " · " + esc(laneLabel(s, step.lane)) + "</div>";
+    h += "<h2>" + esc(step.title) + "</h2>";
+    h += '<p class="body">' + step.body + "</p>";
+    if (step.checks) {
+      h += '<ul class="checks">' + step.checks.map(function (c) {
+        return '<li><span class="mark ' + c.s + '" aria-label="' + c.s + '">' + MARK[c.s] + "</span><span>" + esc(c.l) + (c.n ? '<span class="note">' + esc(c.n) + "</span>" : "") + "</span></li>";
+      }).join("") + "</ul>";
+    }
+    if (step.code) {
+      h += '<div class="codebox"><div class="lbl">' + esc(step.code.label) + "</div><pre>" + codeHtml(step.code) + "</pre></div>";
+    }
+    el.innerHTML = h;
+  }
+
+  function statusPill(st) {
+    var tone = { validated: "info", pr_open: "info", approved: "info", merged: "info", running: "info", connected: "info", synced: "ok", succeeded: "ok", "rejected at plan": "bad", refused: "bad" }[st] || "";
+    return '<span class="pill ' + tone + '">' + esc(st) + "</span>";
+  }
+
+  function renderRequest(s) {
+    var r = s.req;
+    $("req-head").textContent = s.reqHead || "Change request";
+    $("req-pill").innerHTML = r ? statusPill(r.status) : '<span class="pill">not created</span>';
+    var kv = $("req-kv");
+    if (!r) { kv.innerHTML = "<dt>Status</dt><dd>" + (s.reqHead ? "Waiting for the import" : "Created when the plan passes") + "</dd>"; return; }
+    var rows = [["ID", r.id], ["Cluster", r.cluster], ["Namespace", r.ns], ["Action", r.action], ["Approval", r.rule === "—" ? "—" : r.rule + " · " + r.have + " of " + r.need], ["Pull request", r.pr]];
+    if (r.lead) rows.push([s.reqHead ? "Duration" : "Lead time", r.lead]);
+    kv.innerHTML = rows.map(function (p) { return "<dt>" + esc(p[0]) + "</dt><dd>" + esc(p[1]) + "</dd>"; }).join("");
+  }
+
+  function renderEvents(s) {
+    var ol = $("events");
+    if (!s.events.length) { ol.innerHTML = '<li class="empty" style="display:block">No events yet.</li>'; return; }
+    var list = s.events.slice().sort(function (a, b) { return a.t - b.t; });
+    ol.innerHTML = list.map(function (e) {
+      return '<li><time>' + clock(e.t) + '</time><div><div class="ty ' + e.tone + '">' + esc(e.type) + ' <span class="msg">· ' + esc(e.actor) + "</span></div><div class=\"msg\">" + esc(e.msg) + "</div></div></li>";
+    }).join("");
+    ol.scrollTop = ol.scrollHeight;
+  }
+
+  function cell(v) { return typeof v === "object" ? '<span class="pill ' + v.tone + '">' + esc(v.t) + "</span>" : esc(v); }
+
+  function renderCap(s) {
+    var el = $("cap-panel"); var c = s.cap;
+    if (!c) {
+      el.innerHTML = '<div class="panel-head"><h3>Capacity · cmapi-capacity</h3><span class="pill">' + (s.blocked.git ? "not needed" : "idle") + '</span></div><p class="empty">' + esc(s.capNote) + "</p>";
+      return;
+    }
+    var h = '<div class="panel-head"><h3>Capacity · cmapi-capacity</h3><span class="pill ' + c.pill.tone + '">' + esc(c.pill.t) + "</span></div>";
+    h += '<div class="t">' + esc(c.title) + "</div>";
+    h += '<div class="meta">' + esc(c.meta) + "</div>";
+    h += '<div class="tablebox"><table class="res"><thead><tr>' + c.cols.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      c.rows.map(function (r) { return "<tr>" + r.map(function (v) { return "<td>" + cell(v) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>";
+    if (c.note) h += '<p class="foot">' + esc(c.note) + "</p>";
+    el.innerHTML = h;
+  }
+
+  function renderPR(s) {
+    var el = $("pr-panel"); var p = s.pr;
+    if (!p) {
+      var msg = s.prMsg ? s.prMsg : s.blocked.git ? "No pull request. The request was rejected at plan time, so nothing was written to Git." : "No pull request yet. The worker opens one after the plan and approval are settled.";
+      el.innerHTML = '<div class="panel-head"><h3>Pull request · Git</h3><span class="pill">none</span></div><p class="empty">' + msg + "</p>";
+      return;
+    }
+    var pill = p.state === "merged" ? '<span class="pill ok">merged</span>' : '<span class="pill info">open' + (p.auto ? " · auto-merge" : "") + "</span>";
+    var h = '<div class="panel-head"><h3>Pull request · Git</h3>' + pill + "</div>";
+    h += '<div class="t">#' + p.num + " " + esc(p.title) + "</div>";
+    h += '<div class="meta">' + esc(p.branch) + " → main · label " + esc(p.label) + "</div>";
+    h += '<ul class="files">' + p.files.map(function (f) { return "<li><span>" + esc(f.path) + '</span><span><span class="ad">+' + f.add + '</span> <span class="dl">−' + f.del + "</span></span></li>"; }).join("") + "</ul>";
+    h += '<ul class="checks">' + p.checks.map(function (c) {
+      return '<li><span class="mark ' + c.s + '">' + MARK[c.s] + "</span><span>" + esc(c.n) + (c.note ? '<span class="note">' + esc(c.note) + "</span>" : "") + "</span></li>";
+    }).join("") + "</ul>";
+    if (p.reviewers.length) {
+      h += '<div class="reviewers">' + p.reviewers.map(function (r) { return '<span class="pill ' + (r.s === "approved" ? "ok" : "") + '">' + esc(r.who) + " · " + esc(r.s) + "</span>"; }).join("") + "</div>";
+    }
+    el.innerHTML = h;
+  }
+
+  function renderArgo(s) {
+    var a = s.argo; var el = $("argo-panel");
+    var syncTone = a.sync === "Synced" ? "ok" : "warn";
+    var healthTone = a.health === "Healthy" ? "ok" : "info";
+    var cluster = a.app.replace("cluster-configs-", "");
+    var h = '<div class="panel-head"><h3>Argo CD · ' + esc(cluster) + '</h3><span class="reviewers"><span class="pill ' + syncTone + '">' + esc(a.sync) + '</span><span class="pill ' + healthTone + '">' + esc(a.health) + "</span></span></div>";
+    h += '<div class="t">' + esc(a.app) + "</div>";
+    h += '<div class="meta">source clusters/' + esc(cluster) + "/ · main @ " + esc(a.rev) + " · self-heal, prune</div>";
+    if (s.blocked.argo) h += '<p class="empty">Not reached. The live objects below are unchanged.</p>';
+    if (!a.resources.length) {
+      h += '<p class="empty">' + esc(a.note) + "</p>";
+    } else {
+      h += '<div class="tablebox"><table class="res"><thead><tr><th>Wave</th><th>Kind</th><th>Name</th><th>Applied by</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
+        a.resources.map(function (r) {
+          var tone = r.st === "Synced" || r.st === "Pruned" ? "ok" : (r.st === "Missing" || r.st === "OutOfSync" ? "warn" : "info");
+          return "<tr><td>" + esc(r.wave) + "</td><td>" + esc(r.kind) + "</td><td>" + esc(r.name) + "</td><td>" + esc(r.by) + '</td><td><span class="pill ' + tone + '">' + esc(r.st) + '</span></td><td class="ch">' + esc(r.ch || "") + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+    el.innerHTML = h;
+  }
+
+  function render() {
+    var step = cur.data.steps[cur.i];
+    var s = stateAt(cur.i);
+    renderStrip(s, step); renderSteps(s); renderDetail(s, step);
+    renderRequest(s); renderEvents(s); renderCap(s); renderPR(s); renderArgo(s);
+    $("counter").textContent = (cur.i + 1) + " / " + cur.data.steps.length;
+    $("btn-back").disabled = cur.i === 0;
+    $("btn-next").disabled = cur.i === cur.data.steps.length - 1;
+  }
+
+  function go(i) { cur.i = Math.max(0, Math.min(i, cur.data.steps.length - 1)); render(); }
+
+  function select(id, setHash) {
+    var sc = SCENARIOS.filter(function (x) { return x.id === id; })[0] || SCENARIOS[0];
+    cur.scn = sc; cur.data = sc.build(); cur.i = 0;
+    renderScenarios(); render();
+    if (setHash && location.hash !== "#" + sc.id) { try { history.replaceState(null, "", "#" + sc.id); } catch (e) { location.hash = sc.id; } }
+  }
+
+  function stop() { if (cur.timer) { clearInterval(cur.timer); cur.timer = null; } $("btn-play").textContent = "Play"; $("btn-play").setAttribute("aria-pressed", "false"); }
+  function play() {
+    if (cur.timer) { stop(); return; }
+    if (cur.i === cur.data.steps.length - 1) go(0);
+    $("btn-play").textContent = "Pause"; $("btn-play").setAttribute("aria-pressed", "true");
+    cur.timer = setInterval(function () { if (cur.i >= cur.data.steps.length - 1) { stop(); return; } go(cur.i + 1); }, 2600);
+  }
+
+  $("btn-next").addEventListener("click", function () { stop(); go(cur.i + 1); });
+  $("btn-back").addEventListener("click", function () { stop(); go(cur.i - 1); });
+  $("btn-reset").addEventListener("click", function () { stop(); go(0); });
+  $("btn-play").addEventListener("click", play);
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if (e.key === "ArrowRight") { stop(); go(cur.i + 1); }
+    if (e.key === "ArrowLeft") { stop(); go(cur.i - 1); }
+  });
+  window.addEventListener("hashchange", function () { var id = location.hash.slice(1); if (id && id !== cur.scn.id) { stop(); select(id, false); } });
+
+  select(location.hash.slice(1) || "rnd-create", false);
+})();
+</script>

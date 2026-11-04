@@ -1,0 +1,40 @@
+# Starter Perses resources for one cmapi instance (dashboards.provider: perses, the default).
+# Derived from docs/01-design-and-architecture.md, "Perses first, Grafana optional".
+# Requires the Cluster Observability Operator 1.5+ on OpenShift 4.15+.
+# Check apiVersions against the installed operator before applying.
+---
+# Cluster-scoped: turns on Observe -> Dashboards (Perses) in the console. Usually owned by
+# the platform team, not the cmapi chart.
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: monitoring
+spec:
+  type: Monitoring
+  monitoring:
+    perses:
+      enabled: true
+---
+# Namespace data source: dashboards in cmapi resolve it before any global data source.
+apiVersion: perses.dev/v1alpha1
+kind: PersesDatasource
+metadata:
+  name: cmapi-thanos
+  namespace: cmapi
+spec:
+  config:
+    display: {name: "Hub Thanos Querier"}
+    default: true
+    plugin:
+      kind: PrometheusDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+---
+# One PersesDashboard per dashboard. The seven are generated in CI from the Grafana JSON in
+# dashboards/ with `percli migrate`; the build fails if a panel or variable does not convert.
+#   service-health, change-flow, approvals, capacity-placement,
+#   namespace-efficiency, fleet-dependencies, access
+# Access: platform team gets the Perses dashboard editor role in cmapi; everyone else viewer.

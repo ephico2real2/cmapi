@@ -1,0 +1,27 @@
+# Source: docs/02-technical-design-v2.md
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-adoption
+  namespace: cmapi
+data:
+  adoption.yaml: |
+    selector:
+      label: cmapi.net/adopt
+      value: "true"
+    exclude:                              # added to the built-in exclusions
+      names: [default, openshift]
+      patterns: ["openshift-*", "kube-*", "ocp-*", "kubernetes-*"]   # shell globs, lowercase
+      labelSelectors:
+        - openshift.io/run-level          # key present
+        - openshift.io/cluster-monitoring=true
+    environments:
+      prod:
+        patterns: ["vendor-*"]
+    clusters:
+      OCP_GF1:
+        names: [legacy-batch]
+    skip:                                 # objects inside an adopted namespace never adopted
+      serviceAccounts: [default, builder, deployer, pipeline]
+      roleBindings: ["system:image-pullers", "system:image-builders", "system:deployers"]
+      annotationPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/"]

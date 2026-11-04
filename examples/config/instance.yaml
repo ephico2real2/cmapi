@@ -1,0 +1,16 @@
+# Source: docs/01-design-and-architecture.md
+# config/instance.yaml: set per deployment through Helm values
+instance:
+  name: nonprod
+  displayName: Non-production
+  allowedEnvironments: [rnd, dev]
+  publicUrl: https://cmapi-nonprod.ephico2real.com
+  portalUrl: https://portal-nonprod.ephico2real.com
+  auth:
+    issuer: https://sso.ephico2real.com/realms/ephico2real
+    audience: cmapi-nonprod          # a token minted for another instance is refused
+  git:
+    repository: caas/cluster-configs-nonprod
+  directory:                         # where to send callers for other environments
+    staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
+    prod:    {url: https://cmapi.ephico2real.com, environments: [prod]}

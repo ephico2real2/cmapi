@@ -1,0 +1,19 @@
+# Source: docs/01-design-and-architecture.md
+# config/clusters.yaml
+- clusterId: OCP_GF1
+  environment: prod                 # rnd | dev | qa | uat | prod
+  gitopsPath: clusters/OCP_GF1
+  writes: true
+  syncSignal: notify                # poll | notify
+  thanosUrl: null                   # optional; default is the thanos-querier Route
+  metadata:
+    region: us-central
+    zones: [us-central-1a, us-central-1b, us-central-1c]
+    datacenter: dfw-dc2
+    provider: vsphere
+    labels: {business-unit: commercial, gpu: "false"}
+  placement:
+    enabled: true
+    maxNamespaces: 400
+    overcommit: {cpu: 1.0, memory: 1.0}
+    weight: 1.0

@@ -1,0 +1,24 @@
+# Source: docs/02-technical-design-v2.md
+# config/integrations.yaml
+syncSignal:
+  default: poll              # poll | notify
+  pollInterval: 30s          # used where notify is off
+  reconcileInterval: 10m     # used where notify is on
+operations:
+  engine: builtin            # builtin | argo-workflows | tekton
+  builtin:
+    maxConcurrentSteps: 4    # separate from request jobs, so operations never starve them
+  argoWorkflows:
+    namespace: cmapi-workflows
+    image: registry.ephico2real.com/caas/cmapi-ops:1.0.0
+  tekton:
+    namespace: cmapi-pipelines
+    image: registry.ephico2real.com/caas/cmapi-ops:1.0.0
+events:
+  publisher: none            # none | webhook | kafka
+  webhook:
+    url: https://events.ephico2real.com/cmapi
+    hmacSecretRef: cmapi-events-hmac
+  kafka:
+    bootstrap: kafka.ephico2real.com:9093
+    topic: cmapi.events

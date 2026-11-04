@@ -1,0 +1,37 @@
+# Source: docs/07-argo-events-workflows-review.md
+# clusters/OCP_GF1/bootstrap/notifications.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: NotificationsConfiguration
+metadata:
+  name: default-notifications-configuration
+  namespace: openshift-gitops
+spec:
+  services:
+    service.webhook.cmapi: |
+      url: https://cmapi.ephico2real.com/api/v1/webhooks/argocd
+      headers:
+        - name: Authorization
+          value: Bearer $cmapi-webhook-token      # key in argocd-notifications-secret
+  templates:
+    template.cmapi-sync: |
+      webhook:
+        cmapi:
+          method: POST
+          body: |
+            {"app": "{{.app.metadata.name}}",
+             "revision": "{{.app.status.sync.revision}}",
+             "syncStatus": "{{.app.status.sync.status}}",
+             "health": "{{.app.status.health.status}}",
+             "phase": "{{.app.status.operationState.phase}}"}
+  triggers:
+    trigger.cmapi-sync-succeeded: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        oncePer: app.status.sync.revision
+        send: [cmapi-sync]
+    trigger.cmapi-sync-failed: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+        oncePer: app.status.sync.revision
+        send: [cmapi-sync]
+    trigger.cmapi-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [cmapi-sync]

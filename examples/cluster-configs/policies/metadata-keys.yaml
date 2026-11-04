@@ -1,0 +1,20 @@
+# Source: docs/02-technical-design-v2.md
+# cluster-configs/policies/metadata-keys.yaml
+system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
+         cmapi.net/requested-by-user, cmapi.net/tier, cleanup.kyverno.io/ttl]
+operatorOnly: [cmapi.net/protected]
+reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
+governed:
+  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$", mustMatchBinding: true}
+  cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
+  cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
+  cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
+  cmapi.net/owner:       {kind: annotation, required: true,  pattern: "^[^@\\s]+@ephico2real\\.com$"}
+team:
+  allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
+  maxLabels: 50
+  maxAnnotations: 50
+  maxAnnotationValueBytes: 4096
+  maxAnnotationBytesTotal: 65536
+sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
