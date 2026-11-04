@@ -1,0 +1,33 @@
+# Source: docs/01-design-and-architecture.md, "System metrics, self-reported" (chart values excerpt).
+# Every threshold is configuration; the KPI page states the rule beside each amber meter.
+kpi:
+  thresholds:
+    # PERCENTAGES: 80 means 80 %, not 0.8. Of the cgroup limit (memory, CPU).
+    memoryPercent: 80
+    cpuPercent: 80
+    # Share of scheduler periods in which a pod was throttled: the saturation signal.
+    throttledPercent: 1
+    dbConnectionsPercent: 80      # of max_connections
+    dbVolumePercent: 80           # of the database PVC
+    backupMaxAgeHours: 26
+  database:
+    collectEverySeconds: 30       # by the worker holding the discovery lock, so figures are not per replica
+    volumeClaim: cmapi-db         # read through kubelet_volume_stats on the hub's Thanos
+    backupStatus: none            # none | cloudnativepg | crunchy | job  (open question: which tool)
+
+dashboards:
+  provider: perses                # perses | grafana | both
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+  prometheusRule:
+    enabled: true
+
+# Requests and limits are what the cgroup meters measure against; a component with no limit
+# reports its memory and CPU limit as unavailable, never 0.
+resources:
+  api:      {requests: {cpu: 500m, memory: 512Mi}, limits: {cpu: "2", memory: 1Gi}}
+  worker:   {requests: {cpu: 250m, memory: 384Mi}, limits: {cpu: "1", memory: 768Mi}}
+  capacity: {requests: {cpu: 250m, memory: 768Mi}, limits: {cpu: "1", memory: 1536Mi}}

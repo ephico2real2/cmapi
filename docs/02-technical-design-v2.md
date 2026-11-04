@@ -1665,7 +1665,7 @@ Each cluster's root Application includes policies/ pinned to a bundle tag, and t
 
 ## Observability
 
-The API exposes /metrics for OpenShift user workload monitoring, ships dashboards (Perses in the OpenShift console by default, Grafana optional) and a PrometheusRule; the current set of seven dashboards, alerts and KPIs is under Observability, KPIs and dashboards in Design and Architecture, and this section keeps the detail, and logs JSON with clusterId and requestId on every line.
+The API exposes /metrics for OpenShift user workload monitoring, ships dashboards (Perses in the OpenShift console by default, Grafana optional) and a PrometheusRule; the current set of eight dashboards, alerts, KPIs and the self-reported system metrics (cgroup memory, CPU and throttling per component, event-loop lag, database pool, size, connections and backups) is under Observability, KPIs and dashboards in Design and Architecture, and this section keeps the detail, and logs JSON with clusterId and requestId on every line.
 
 **Metrics.** prometheus-fastapi-instrumentator covers HTTP; prometheus\_client covers the rest. Prefix cmapi\_. Labels stay low-cardinality: cluster\_id, plugin, kind, action, status; never namespace, user or request ID.
 
@@ -1720,7 +1720,7 @@ Capacity adds one gauge and one alert: cmapi\_capacity\_snapshot\_age\_seconds{c
 
 Adoption adds cmapi\_namespaces{cluster\_id, state} (state = managed, candidate, unmanaged, excluded) and cmapi\_adoptions\_total{cluster\_id, result}; the Change flow dashboard gets a managed-coverage panel per cluster.
 
-**Dashboards** (kept as Grafana JSON in the Helm chart and converted by percli into PersesDashboards for the OpenShift console; dashboards.provider picks perses, grafana or both; the data source is each instance hub's Thanos Querier). The first three of the seven:
+**Dashboards** (kept as Grafana JSON in the Helm chart and converted by percli into PersesDashboards for the OpenShift console; dashboards.provider picks perses, grafana or both; the data source is each instance hub's Thanos Querier). The first three of the eight:
 
 1. **Service health.** Request rate, error rate, p50/p95/p99 latency, pods, worker backlog.
 2. **Change flow.** Requests by cluster, plugin and status; lead time and approval wait percentiles; failures and rejections by reason.

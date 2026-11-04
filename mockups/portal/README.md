@@ -23,6 +23,9 @@ What it shows, per instance (nonprod, staging, prod; switched with the `instance
 - **Approvals:** manual and auto-approved requests, with the policy that matched.
 - **Capacity:** CPU and memory commitment and headroom per cluster and group from stored
   snapshots, with the resource that binds each one.
-- **KPIs:** the agreed KPIs and the seven dashboards (Perses in the OpenShift console).
+- **KPIs:** System status (each component's memory, CPU, throttling and event-loop lag against
+  kpi.thresholds, with the rule beside any amber meter) and the database (connections, volume,
+  size by schema, pools, backups; unavailable where nothing reports), then the agreed KPIs and the
+  eight dashboards (Perses in the OpenShift console).
 
 The header links to the instance's Swagger UI (`/docs`) and ReDoc (`/redoc`).

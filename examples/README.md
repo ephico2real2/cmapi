@@ -22,8 +22,9 @@ came from. Where two documents show the same file, the copy in
 | `hub/cmapi-imports-secret.yaml` | The import contract: one Secret per cluster in cmapi-imports | Verbatim |
 | `hub/cmapi-adoption-configmap.yaml` | Adoption selector and exclusions | Verbatim |
 | `observability/servicemonitor.yaml` | One per component on the metrics port | Verbatim |
-| `observability/prometheusrule.yaml` | The 13 agreed alerts and the KPI recording rules | Starter: names, conditions and severities agreed; PromQL is a first draft |
-| `observability/perses.yaml` | UIPlugin, PersesDatasource and the list of the seven dashboards | Starter: check apiVersions against the installed operator |
+| `observability/prometheusrule.yaml` | The 21 agreed alerts (13 service, 8 system) and the KPI recording rules | Starter: names, conditions and severities agreed; PromQL is a first draft |
+| `observability/perses.yaml` | UIPlugin, PersesDatasource and the list of the eight dashboards | Starter: check apiVersions against the installed operator |
+| `helm/values-kpi.yaml` | KPI thresholds, database collection, dashboards provider, monitoring switches and the resource limits the system meters measure against | Starter: limits are proposals |
 
 Notes:
 

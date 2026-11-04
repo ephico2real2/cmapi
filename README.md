@@ -48,7 +48,8 @@ the final design and the source of truth: where another document disagrees, it w
 | Approvals | Per-environment rules; auto-approval with master, per-policy and kill switches plus fixed guards. |
 | Modularity | Plugins, adapters, services, instances; 11 extension points; shared `cmapi-core`, `cmapi-ops`, `cmapi-sdk`, `cmapi-portal-ui`, Kyverno bundle and Helm chart. |
 | API docs | Swagger UI at `/docs`, ReDoc at `/redoc`, `/openapi.json` and `.yaml`; an undocumented route or model stops startup and fails CI. |
-| Observability | ServiceMonitor per component, PrometheusRule with 13 alerts, KPI recording rules, 18 KPIs, seven dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
+| Observability | ServiceMonitor per component, PrometheusRule with 21 alerts, KPI recording rules, 24 KPIs, eight dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
+| System metrics | Each component self-reports its cgroup memory, CPU and throttling, event-loop lag and replicas; the database its pool, connections, size, WAL, volume and backups. One definition feeds /metrics and the portal's KPIs tab (GET /api/v1/admin/kpi); unmeasurable reads unavailable, never 0; thresholds in kpi.thresholds. Same pattern as the group-sync dashboard's KPI module. |
 
 Open questions are listed at the end of the design document.
 

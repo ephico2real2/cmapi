@@ -203,6 +203,23 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
 .pager { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
 .pager .meta { font-size: 0.82rem; }
 .rowbtn.off { color: #b4bcc8; cursor: default; }
+.sysgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.comp { border: 1px solid #dde2ea; border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.comp.watch { border-color: #e2b45c; background: #fffaf0; }
+.comp-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between; }
+.comp-top b { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.9rem; }
+.meter { display: grid; gap: 4px; }
+.meter-top { display: flex; justify-content: space-between; gap: 8px; font-size: 0.82rem; }
+.meter-top span:first-child { color: #5b6779; font-weight: 600; }
+.meter-top span:last-child { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.78rem; text-align: right; }
+.meter .bar { position: relative; overflow: visible; min-width: 0; }
+.meter .bar i { border-radius: 999px; }
+.meter .bar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #142030; opacity: 0.55; border-radius: 1px; }
+.rule { font-size: 0.78rem; color: #8a5a10; }
+.rule.ok { color: #5b6779; }
+.dbgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; }
+@media (max-width: 1100px) { .sysgrid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 820px) { .dbgrid { grid-template-columns: minmax(0, 1fr); } }
 .codebox { background: #f6f7fa; border: 1px solid #dde2ea; border-radius: 8px; padding: 10px 12px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.76rem; white-space: pre; overflow-x: auto; margin: 0; }
 @media (max-width: 1100px) {
   .qgrid { grid-template-columns: minmax(0, 1fr); }
@@ -828,9 +845,38 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
         <div class="head">
           <div>
             <h1>KPIs</h1>
-            <p class="lede">The {{inst.label}} instance's KPI board, from the KPI recording rules over the last 30 days. The same numbers are on the Change flow dashboard and in the monthly export.</p>
+            <p class="lede">The {{inst.label}} instance's KPI board: first whether cmapi itself has room (each component's memory, CPU, throttling and event loop, and the database), then the service KPIs from the recording rules over the last 30 days. The page and /metrics read the same collectors, so they cannot disagree.</p>
           </div>
           <span class="pill">30 days · {{inst.label}}</span>
+        </div>
+        <div class="card">
+          <div class="panel-head"><h3 class="lbl">System status · each component's own cgroup</h3><span class="pill {{sys.tone}}">{{sys.pill}}</span></div>
+          <div class="sysgrid">
+            <sc-for list="{{sys.comps}}" as="c" hint-placeholder-count="3">
+              <div class="comp {{c.cls}}">
+                <div class="comp-top"><b>{{c.name}}</b><span class="pill {{c.tone}}">{{c.badge}}</span></div>
+                <div class="meta">{{c.meta}}</div>
+                <sc-for list="{{c.meters}}" as="m" hint-placeholder-count="4">
+                  <div class="meter"><div class="meter-top"><span>{{m.label}}</span><span>{{m.value}}</span></div><div class="bar"><i class="{{m.bar}}" style="width: {{m.pct}}"></i><span class="mk" style="left: {{m.mark}}" aria-hidden="true"></span></div></div>
+                </sc-for>
+                <span class="rule {{c.ruleCls}}">{{c.rule}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <p class="foot">{{sys.foot}}</p>
+        </div>
+        <div class="card">
+          <div class="panel-head"><h3 class="lbl">Database · PostgreSQL, schemas cmapi and capacity</h3><span class="pill {{db.tone}}">{{db.pill}}</span></div>
+          <div class="dbgrid">
+            <sc-for list="{{db.meters}}" as="m" hint-placeholder-count="2">
+              <div class="meter"><div class="meter-top"><span>{{m.label}}</span><span>{{m.value}}</span></div><div class="bar"><i class="{{m.bar}}" style="width: {{m.pct}}"></i><span class="mk" style="left: {{m.mark}}" aria-hidden="true"></span></div></div>
+            </sc-for>
+          </div>
+          <dl class="kv">
+            <sc-for list="{{db.rows}}" as="r" hint-placeholder-count="5"><dt>{{r.k}}</dt><dd>{{r.v}}</dd></sc-for>
+          </dl>
+          <span class="rule {{db.ruleCls}}">{{db.rule}}</span>
+          <p class="foot">Measured every 30 s by the worker that holds the discovery lock (pg_monitor role); volume fill from kubelet_volume_stats through the hub's Thanos. A value nothing reports reads unavailable, never 0.</p>
         </div>
         <div class="kpigrid">
           <sc-for list="{{kpis}}" as="k" hint-placeholder-count="8">
@@ -843,7 +889,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
           </sc-for>
         </div>
         <div class="card">
-          <h3 class="lbl">Dashboards · OpenShift console, Observe › Dashboards (Perses)</h3>
+          <h3 class="lbl">Dashboards · OpenShift console, Observe › Dashboards (Perses) · eight per instance</h3>
           <div class="tablebox">
             <table class="res">
               <thead><tr><th>Dashboard</th><th>PersesDashboard</th><th>Shows</th></tr></thead>
@@ -1646,7 +1692,9 @@ var KPIS = {
     kpi("Capacity freshness", "80%", "100% of clusters", "warn", "cmapi_capacity_snapshot_age_seconds"),
     kpi("Quota efficiency (median)", "31%", "over 40%", "warn", "namespace_verdicts"),
     kpi("Import health", "100%", "100%", "ok", "cmapi_cluster_token_expiry_seconds"),
-    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check")
+    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check"),
+    kpi("CPU saturation", "1.6% (cmapi-worker)", "under 1% of periods", "warn", "cmapi_process_cpu_throttled_periods_total"),
+    kpi("Backup freshness", "unavailable", "under 26 h; restore tested monthly", "info", "cmapi_db_backup_last_success_timestamp_seconds")
   ],
   staging: [
     kpi("Lead time, with approval (p90)", "9.5 h", "under 1 business day", "ok", "cmapi_change_lead_time_seconds"),
@@ -1656,7 +1704,9 @@ var KPIS = {
     kpi("Capacity freshness", "100%", "100% of clusters", "ok", "cmapi_capacity_snapshot_age_seconds"),
     kpi("Quota efficiency (median)", "44%", "over 40%", "ok", "namespace_verdicts"),
     kpi("Self-service rate", "86%", "over 80%", "ok", "database"),
-    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check")
+    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check"),
+    kpi("System headroom (p95, 7 d)", "61% (cmapi-capacity memory)", "under 80% for every component", "ok", "cmapi_process_memory_bytes"),
+    kpi("Backup freshness", "15 h", "under 26 h; restore tested monthly", "ok", "cmapi_db_backup_last_success_timestamp_seconds")
   ],
   prod: [
     kpi("Lead time, with approval (p90)", "26 h", "under 1 business day", "warn", "cmapi_change_lead_time_seconds"),
@@ -1666,9 +1716,80 @@ var KPIS = {
     kpi("Placement accuracy", "0 breaches", "0 in the 30-day backtest", "ok", "cmapi_placement_backtest_breaches"),
     kpi("Capacity freshness", "75%", "100% of clusters", "warn", "cmapi_capacity_snapshot_age_seconds"),
     kpi("Cluster headroom", "2 of 4 below 20% (cpu or memory)", "above 20% on every cluster, per resource", "warn", "cmapi_cluster_quota_headroom{resource}"),
-    kpi("API availability (30 d)", "99.7%", "99.5% monthly", "ok", "cmapi_http_requests_total")
+    kpi("API availability (30 d)", "99.7%", "99.5% monthly", "ok", "cmapi_http_requests_total"),
+    kpi("System headroom (p95, 7 d)", "84% (cmapi-capacity memory)", "under 80% for every component", "warn", "cmapi_process_memory_bytes"),
+    kpi("Database headroom", "83% volume · 41 days", "under 80%; more than 90 days", "warn", "kubelet_volume_stats"),
+    kpi("Backup freshness", "15 h", "under 26 h; restore tested monthly", "ok", "cmapi_db_backup_last_success_timestamp_seconds")
   ]
 };
+/* Self-reported system usage per instance (cmapi.core.kpi; GET /api/v1/admin/kpi). mem in MiB, cpu in cores,
+   thr = throttled share of CPU periods in %, lag = event-loop lag p99 in ms. null = unavailable, never 0. */
+var KPI_TH = { memory: 80, cpu: 80, throttled: 1, dbConnections: 80, dbVolume: 80, backupHours: 26 };
+var SYSTEM = {
+  nonprod: { asOf: "17:30:12",
+    comps: [
+      { name: "cmapi-api", ready: [2, 2], mem: [612, 1024], cpu: [0.41, 2], thr: 0.2, lag: 22, restarts: 0, oom: 0 },
+      { name: "cmapi-worker", ready: [2, 2], mem: [380, 768], cpu: [0.88, 1], thr: 1.6, lag: 41, restarts: 0, oom: 0, why: "policy checks during the cluster-onboard run of OCP_GF9 spawn the Kyverno CLI per file" },
+      { name: "cmapi-capacity", ready: [2, 2], mem: [702, 1536], cpu: [0.35, 1], thr: 0.1, lag: 15, restarts: 0, oom: 0 }
+    ],
+    db: { conn: [46, 200], vol: [18.2, 50], schemas: [["cmapi", "3.1 GiB"], ["capacity", "11.4 GiB"]], wal: "0.6 GiB", pool: "api 9 in use of 20 · worker 4 of 10 · 0 waiting", oldest: "2 s", backup: null, full: "more than a year at the current rate" } },
+  staging: { asOf: "17:30:09",
+    comps: [
+      { name: "cmapi-api", ready: [2, 2], mem: [540, 1024], cpu: [0.22, 2], thr: 0.0, lag: 18, restarts: 0, oom: 0 },
+      { name: "cmapi-worker", ready: [2, 2], mem: [301, 768], cpu: [0.18, 1], thr: 0.0, lag: 12, restarts: 0, oom: 0 },
+      { name: "cmapi-capacity", ready: [2, 2], mem: [936, 1536], cpu: [0.27, 1], thr: 0.0, lag: 14, restarts: 1, oom: 0 }
+    ],
+    db: { conn: [38, 200], vol: [12.5, 50], schemas: [["cmapi", "1.9 GiB"], ["capacity", "7.8 GiB"]], wal: "0.4 GiB", pool: "api 5 in use of 20 · worker 2 of 10 · 0 waiting", oldest: "1 s", backup: { at: "02:10", hours: 15.3, size: "2.6 GiB compressed", restore: "restore tested Oct 28" }, full: "about 400 days at the current rate" } },
+  prod: { asOf: "17:30:15",
+    comps: [
+      { name: "cmapi-api", ready: [3, 3], mem: [798, 1024], cpu: [0.96, 2], thr: 0.4, lag: 35, restarts: 0, oom: 0 },
+      { name: "cmapi-worker", ready: [2, 2], mem: [512, 768], cpu: [0.44, 1], thr: 0.3, lag: 26, restarts: 0, oom: 0 },
+      { name: "cmapi-capacity", ready: [2, 2], mem: [1290, 1536], cpu: [0.52, 1], thr: 0.2, lag: 19, restarts: 0, oom: 0, why: "the 02:00 sweep holds 423 namespaces' 14-day series while it scores them" }
+    ],
+    db: { conn: [121, 200], vol: [41.6, 50], schemas: [["cmapi", "8.7 GiB"], ["capacity", "29.4 GiB"]], wal: "1.8 GiB", pool: "api 22 in use of 30 · worker 6 of 10 · 0 waiting", oldest: "4 s", backup: { at: "02:05", hours: 15.4, size: "7.9 GiB compressed", restore: "restore tested Oct 28" }, full: "predicted full in 41 days (capacity snapshots grow 0.2 GiB a day)" } }
+};
+function meterOf(label, used, limit, th, value) {
+  if (used == null || limit == null) return { label: label, value: value || "unavailable", pct: "0%", bar: "none", mark: th + "%", over: false };
+  var pct = used / limit * 100, over = pct > th;
+  return { label: label, value: value, pct: Math.min(100, pct).toFixed(1) + "%", bar: over ? "warn" : "", mark: th + "%", over: over, p: pct };
+}
+function systemView(inst) {
+  var S = SYSTEM[inst], watch = 0;
+  var comps = S.comps.map(function (c) {
+    var mem = meterOf("Memory", c.mem[0], c.mem[1], KPI_TH.memory, Math.round(c.mem[0] / c.mem[1] * 100) + "% · " + c.mem[0] + " MiB of " + (c.mem[1] >= 1024 ? c.mem[1] / 1024 + " GiB" : c.mem[1] + " MiB"));
+    var cpu = meterOf("CPU", c.cpu[0], c.cpu[1], KPI_TH.cpu, Math.round(c.cpu[0] / c.cpu[1] * 100) + "% · " + c.cpu[0].toFixed(2) + " of " + c.cpu[1] + " cores");
+    var thr = c.thr == null ? meterOf("Throttled", null, null, 50) : { label: "Throttled", value: c.thr.toFixed(1) + "% of periods (limit " + KPI_TH.throttled + "%)", pct: Math.min(100, c.thr * 25) + "%", bar: c.thr > KPI_TH.throttled ? "warn" : "", mark: KPI_TH.throttled * 25 + "%", over: c.thr > KPI_TH.throttled };
+    var lag = { label: "Event-loop lag p99", value: c.lag + " ms (target under 100)", pct: Math.min(100, c.lag / 2.5) + "%", bar: c.lag > 100 ? "warn" : "", mark: "40%", over: c.lag > 100 };
+    var meters = [mem, cpu, thr, lag], overs = [];
+    if (mem.over) overs.push("memory " + Math.round(mem.p) + "% > " + KPI_TH.memory + "%");
+    if (cpu.over) overs.push("CPU " + Math.round(cpu.p) + "% > " + KPI_TH.cpu + "%");
+    if (thr.over) overs.push("throttled " + c.thr.toFixed(1) + "% > " + KPI_TH.throttled + "%");
+    if (lag.over) overs.push("event loop " + c.lag + " ms > 100 ms");
+    if (overs.length) watch++;
+    return { name: c.name, cls: overs.length ? "watch" : "", tone: overs.length ? "warn" : "ok", badge: overs.length ? "watch" : "healthy",
+      meta: c.ready[0] + " / " + c.ready[1] + " replicas ready · " + c.restarts + " restart" + (c.restarts === 1 ? "" : "s") + ", " + c.oom + " OOM kills in 7 days",
+      meters: meters.map(function (m) { return { label: m.label, value: m.value, pct: m.pct, bar: m.bar, mark: m.mark }; }),
+      ruleCls: overs.length ? "" : "ok", rule: overs.length ? "watch: " + overs.join(", ") + (c.why ? " — " + c.why : "") : "within every threshold" };
+  });
+  var d = S.db, b = d.backup;
+  var conn = meterOf("Connections", d.conn[0], d.conn[1], KPI_TH.dbConnections, d.conn[0] + " of " + d.conn[1] + " (max_connections)");
+  var vol = meterOf("Volume", d.vol[0], d.vol[1], KPI_TH.dbVolume, Math.round(d.vol[0] / d.vol[1] * 100) + "% · " + d.vol[0] + " of " + d.vol[1] + " GiB");
+  var backupOver = b && b.hours > KPI_TH.backupHours;
+  var dbOvers = [];
+  if (conn.over) dbOvers.push("connections " + Math.round(conn.p) + "% > " + KPI_TH.dbConnections + "%");
+  if (vol.over) dbOvers.push("volume " + Math.round(vol.p) + "% > " + KPI_TH.dbVolume + "%, " + d.full);
+  if (backupOver) dbOvers.push("last backup " + Math.round(b.hours) + " h ago > " + KPI_TH.backupHours + " h");
+  var db = { tone: dbOvers.length ? "warn" : (b ? "ok" : "info"), pill: dbOvers.length ? "watch" : (b ? "healthy" : "backup unavailable"),
+    meters: [conn, vol].map(function (m) { return { label: m.label, value: m.value, pct: m.pct, bar: m.bar, mark: m.mark }; }),
+    rows: [{ k: "Size by schema", v: d.schemas.map(function (s) { return s[0] + " " + s[1]; }).join(" · ") + " · WAL " + d.wal },
+      { k: "Pools", v: d.pool }, { k: "Oldest transaction", v: d.oldest },
+      { k: "Volume trend", v: d.full },
+      { k: "Last backup", v: b ? b.at + " · " + Math.round(b.hours) + " h ago · " + b.size + " · " + b.restore : "unavailable: no backup tool reports for this database yet (open question), so Backup freshness shows unavailable rather than 0" }],
+    ruleCls: dbOvers.length ? "" : "ok", rule: dbOvers.length ? "watch: " + dbOvers.join("; ") : "within every threshold" };
+  if (dbOvers.length) watch++;
+  return { sys: { tone: watch ? "warn" : "ok", pill: watch ? watch + " to watch · updated " + S.asOf : "all healthy · updated " + S.asOf, comps: comps,
+    foot: "Thresholds from kpi.thresholds: memory and CPU " + KPI_TH.memory + "% of the limit, throttling " + KPI_TH.throttled + "% of periods (the saturation signal: a pod can be throttled while CPU still reads as headroom). The black tick on each bar is the threshold. Restarts and OOM kills come from kube-state-metrics." }, db: db };
+}
 var DASHBOARDS = [
   { name: "Service health", id: "cmapi-service-health", what: "Requests, errors and latency for api, worker and cmapi-capacity; backlog" },
   { name: "Change flow (KPI board)", id: "cmapi-change-flow", what: "Lead time, approval wait, failure rate, drift, self-service rate" },
@@ -1676,7 +1797,8 @@ var DASHBOARDS = [
   { name: "Capacity and placement", id: "cmapi-capacity", what: "CPU and memory commitment and headroom by environment, region and zone; exclusions; snapshot age" },
   { name: "Namespace efficiency", id: "cmapi-namespace-efficiency", what: "Slack cores and memory, verdicts, recommendations, capacity recovered" },
   { name: "Fleet dependencies", id: "cmapi-fleet-dependencies", what: "Cluster status and token expiry, cluster API, Thanos and Git latency" },
-  { name: "Access", id: "cmapi-access", what: "Auth failures, denied permissions, JWKS refreshes, Keycloak" }
+  { name: "Access", id: "cmapi-access", what: "Auth failures, denied permissions, JWKS refreshes, Keycloak" },
+  { name: "System resources", id: "cmapi-system", what: "Memory and CPU against limits, throttling, event-loop lag, restarts and OOM kills; database pool, connections, size, WAL, volume and backups" }
 ];
 
 function stepIndex(id, title) {
@@ -1986,7 +2108,7 @@ class Component extends DCLogic {
       qAttn: quotaView.qAttn, qEnvOpts: quotaView.qEnvOpts, qClusterOpts: quotaView.qClusterOpts, qTierOpts: quotaView.qTierOpts, qSortOpts: quotaView.qSortOpts, qSizeOpts: quotaView.qSizeOpts, qAz: quotaView.qAz, qPage: quotaView.qPage, qSug: quotaView.qSug, qExp: quotaView.qExp, qHead: quotaView.qHead,
       qPlan: function () { self.setState({ qplan: true, qsent: false }); },
       qSubmit: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ qplan: true, qsent: true }); },
-      isKpis: tab === "kpis", kpis: KPIS[st.inst], dashboards: DASHBOARDS
+      isKpis: tab === "kpis", kpis: KPIS[st.inst], dashboards: DASHBOARDS, sys: systemView(st.inst).sys, db: systemView(st.inst).db
     };
   }
 }

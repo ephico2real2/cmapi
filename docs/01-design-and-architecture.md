@@ -474,6 +474,30 @@ spec:
 
 Keycloak's own metrics reach the same Prometheus through a ServiceMonitor in cmapi-sso.
 
+**System metrics, self-reported.** Each component also reports its own resource use, so the KPI board says whether cmapi itself has room, not only whether requests flow. The approach is the one already proven in the group-sync dashboard's KPI module (gsd/kpi):
+
+- **One definition, two surfaces.** Every system KPI is one definition in cmapi-core (cmapi.core.kpi: name, kind, bounded labels, privacy class, collector). render\_prom emits it on /metrics and render\_json serves the same number to the portal's KPIs tab through GET /api/v1/admin/kpi, so the page and Prometheus read one collector and cannot drift.
+- **The pod's own cgroup.** Each process reads the cgroup v2 files it can already read as non-root, with no extra RBAC: memory.current and memory.max, cpu.max and cpu.stat. The cgroup is what the kernel limits and OOM-kills on; a process RSS figure misses page cache and child processes such as the Kyverno CLI and kubeconform.
+- **Throttling is the saturation signal.** nr\_throttled over nr\_periods shows a component hitting its CPU limit while utilisation still reads as headroom, so it has its own threshold.
+- **Unavailable is not zero.** A value that cannot be measured (cgroup v1, a limit of max, a database that does not answer) is omitted from /metrics and shown as unavailable on the page, never as 0.
+- **Bounded, public-safe labels.** component (api, worker, capacity) plus the pod Prometheus adds; never a user, team, namespace or request. /metrics is scraped without user authentication, so anything that counts people is an internal KPI, served only in the JSON behind the platform role.
+- **One collector for shared figures.** Database figures are measured every 30 seconds by the worker that holds the discovery lock, so they are not multiplied by replicas; cmapi\_leader says which pod that is.
+- **Thresholds are configuration.** kpi.thresholds in the chart: memoryPercent 80, cpuPercent 80, throttledPercent 1, dbConnectionsPercent 80, dbVolumePercent 80, backupMaxAgeHours 26. Each amber meter on the page states its rule ("watch: memory 84% > 80% of limit").
+
+| Family | Labels | Source |
+| --- | --- | --- |
+| cmapi\_process\_memory\_bytes, cmapi\_process\_memory\_limit\_bytes | component | cgroup memory.current, memory.max; limit absent when unlimited |
+| cmapi\_process\_cpu\_usage\_seconds\_total, cmapi\_process\_cpu\_limit\_cores | component | cgroup cpu.stat usage\_usec, cpu.max; rate(usage) / limit is utilisation |
+| cmapi\_process\_cpu\_periods\_total, cmapi\_process\_cpu\_throttled\_periods\_total, cmapi\_process\_cpu\_throttled\_seconds\_total | component | cgroup cpu.stat; the saturation signal |
+| cmapi\_event\_loop\_lag\_seconds (histogram) | component | an asyncio probe every second; a blocked loop delays every request on that pod |
+| cmapi\_component\_replicas | component, state (desired, ready) | the Deployments in the cmapi namespace, through a Role with get, list, watch on deployments |
+| cmapi\_db\_pool\_connections, cmapi\_db\_pool\_size | component, state (in\_use, idle, overflow, waiting) | SQLAlchemy pool events |
+| cmapi\_db\_size\_bytes | schema (cmapi, capacity) | pg\_total\_relation\_size summed per schema |
+| cmapi\_db\_wal\_bytes, cmapi\_db\_connections, cmapi\_db\_connections\_max, cmapi\_db\_oldest\_transaction\_seconds | none | pg\_ls\_waldir, pg\_stat\_activity and max\_connections, read with the pg\_monitor role |
+| cmapi\_db\_backup\_last\_success\_timestamp\_seconds, cmapi\_db\_backup\_size\_bytes | none | the backup tool's status; omitted when nothing reports (open question) |
+
+Two figures come from the platform rather than from cmapi, and are read by the rules and dashboards through the hub's Thanos Querier: container restarts and OOM kills (kube-state-metrics) and the database volume's fill (kubelet\_volume\_stats). prometheus\_client's own process\_\* and python\_gc\_\* series stay on as a cross-check.
+
 **Alerts (PrometheusRule, shipped in the chart).**
 
 | Alert | Fires when | Severity |
@@ -491,6 +515,14 @@ Keycloak's own metrics reach the same Prometheus through a ServiceMonitor in cma
 | CmapiWorkerBacklog | More than 100 jobs pending for 15 min | warning |
 | CmapiAutoApprovalPaused | The kill switch has been on for 24 h | info |
 | CmapiApprovalBacklog | Requests waiting on approval for over 24 h | info |
+| CmapiMemoryNearLimit | A component above 80% of its memory limit for 15 min | warning |
+| CmapiCpuThrottled | A component throttled in more than 1% of CPU periods for 30 min | warning |
+| CmapiPodRestarting | A cmapi container restarted or was OOM-killed in the last 15 min | warning |
+| CmapiEventLoopBlocked | Event-loop lag p99 above 250 ms for 10 min | warning |
+| CmapiDbConnectionsHigh | Database connections above 80% of max\_connections, or requests waiting on a pool, for 10 min | warning |
+| CmapiDbLongTransaction | A transaction open for more than 15 min | warning |
+| CmapiDbVolumeFilling | The database volume above 80%, or predicted full within 7 days | warning |
+| CmapiDbBackupStale | No successful database backup for 26 h | critical |
 
 Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\_seconds:p90\_7d by approval), so dashboards and the monthly report read the same numbers.
 
@@ -516,8 +548,14 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 | Docs coverage | Documented routes / routes | Startup and CI check | 100%, enforced |
 | Expired namespaces cleaned | Past TTL and still present after 24 h | Expiration report | 0 |
 | Rebuild recovery | Cluster bootstrap to Synced and Healthy | Operation runs | Under 1 h |
+| System headroom | Memory and CPU used / limit per component, p95 over 7 days | cmapi\_process\_memory\_bytes, cmapi\_process\_cpu\_usage\_seconds\_total | Under 80% for every component |
+| CPU saturation | Throttled periods / periods per component | cmapi\_process\_cpu\_throttled\_periods\_total | Under 1% |
+| Stability | Container restarts and OOM kills per component, per week | kube-state-metrics | 0 |
+| Event-loop health | Event-loop lag p99 per component | cmapi\_event\_loop\_lag\_seconds | Under 100 ms |
+| Database headroom | Connections / max\_connections, volume used / size, days until the volume is full | cmapi\_db\_connections, kubelet\_volume\_stats | Under 80%; more than 90 days |
+| Backup freshness | Age of the last successful database backup, and of the last restore test | cmapi\_db\_backup\_last\_success\_timestamp\_seconds, restore runbook record | Under 26 h; a restore tested every month |
 
-**Dashboards.** Seven dashboards per instance, each showing only that instance's clusters:
+**Dashboards.** Eight dashboards per instance, each showing only that instance's clusters:
 
 1. **Service health:** request rate, errors and latency for api, worker and cmapi-capacity; pods; job backlog; outbox.
 2. **Change flow (KPI board):** volume by plugin, environment and status; lead time and approval wait percentiles; change failure rate; drift; self-service rate.
@@ -526,6 +564,7 @@ Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\
 5. **Namespace efficiency:** slack cores by environment and region, verdict counts, recommendations by state, capacity recovered.
 6. **Fleet dependencies:** cluster status and token expiry from imports, cluster API, Thanos and Git latency, sync signal health.
 7. **Access:** auth failures by reason, top denied permissions, JWKS refreshes, Keycloak health.
+8. **System resources:** memory and CPU against limits and CPU throttling per component and pod, event-loop lag, restarts and OOM kills, replicas ready, database pool and connections, size by schema, WAL, volume fill and backup age.
 
 **Perses first, Grafana optional.** On OpenShift the dashboards appear in the console under Observe → Dashboards (Perses), from the Cluster Observability Operator (1.5 or later, OpenShift 4.15 or later) with its monitoring UIPlugin set to perses.enabled: true. The chart ships them as PersesDashboard resources in the cmapi namespace, with a PersesDatasource there pointing at the hub's Thanos Querier, so they resolve it before any global data source. Access follows Kubernetes RBAC: the platform team gets the Perses dashboard editor role in that namespace, and everyone else gets the viewer role ([Red Hat Developer](https://developers.redhat.com/index%2Ephp/articles/2026/07/07/manage-observability-red-hat-build-perses)).
 
@@ -650,11 +689,11 @@ In embedded mode the worker writes the capacity schema; the one-writer rule stil
 
 Five phases to launch and one after it. Each phase ends in something a team can use, and none starts until the previous exit check passes. This sequence replaces the one in v2.
 
-1. **Core, identity and reads.** App factory and plugin discovery; instance configuration with allowedEnvironments, deployed first as the nonprod instance; the documentation layer (core/docs.py) with /docs, /redoc and the spec lint, snapshot and oasdiff gates in CI; Keycloak realm as code, LDAP federation, token verification, roles and scope bindings; cluster import from cmapi-imports with the six checks; clusters.yaml policy and metadata with selectors; problem errors, metrics and logs; ServiceMonitors, the PrometheusRule and the Service health, Access and Fleet dependencies dashboards (Perses). Read plugins: namespaces, rbac-read, identity-read, sync. *Exit:* every read endpoint live on two clusters, imported with no manual step.
+1. **Core, identity and reads.** App factory and plugin discovery; instance configuration with allowedEnvironments, deployed first as the nonprod instance; the documentation layer (core/docs.py) with /docs, /redoc and the spec lint, snapshot and oasdiff gates in CI; Keycloak realm as code, LDAP federation, token verification, roles and scope bindings; cluster import from cmapi-imports with the six checks; clusters.yaml policy and metadata with selectors; problem errors, metrics and logs; ServiceMonitors, the PrometheusRule and the Service health, System resources, Access and Fleet dependencies dashboards (Perses); self-reported system metrics (cmapi.core.kpi) and GET /api/v1/admin/kpi. Read plugins: namespaces, rbac-read, identity-read, sync. *Exit:* every read endpoint live on two clusters, imported with no manual step.
 2. **First write path and approvals.** Pipeline, idempotency and lock; Kyverno bundle at plan, CI and admission; project-meta renderer; Git provider; status worker with polling (Notifications where a cluster opts in); approval rules, and auto-approval with its three switches and guards (switched on in Phase 3, once placement gives it fresh capacity data); namespaces and metadata writes; the Change flow and Approvals dashboards with the KPI recording rules. *Exit:* an rnd namespace goes from POST to synced with one approval and no manual Git step.
 3. **Capacity and placement.** cmapi-capacity in remote mode with snapshots every capacity.snapshotInterval; cluster and fleet capacity endpoints through the gateway; placement with reservations and zone-failure headroom; quotas and limitranges planners; live 14-day namespace usage for quota changes; the Capacity and placement dashboard. *Exit:* a prod create is placed from stored snapshots with no Thanos call, a medium rnd namespace is auto-approved end to end, and an oversized quota increase is flagged and routed to platform approval.
 4. **Service account access.** serviceaccounts, sa-grants and scc-grants with allowlists; sa-tokens. *Exit:* a team SA with a namespace edit grant and the anyuid SCC created through the API, audited end to end.
-5. **Lifecycle and launch.** Adoption, expiration, deletes with extra approvals; daily usage sweep and verdicts with a 30-day shadow period, and the Namespace efficiency dashboard; reports, notifier, operations engine (built-in by default) with cluster-onboard and rebuild-verify; portal integration, generated CLI, runbooks, alerts; the staging and prod instances stood up from the same chart. *Exit:* every KPI in the KPI table reported from its dashboard and the monthly export for one month; v1 contract frozen.
+5. **Lifecycle and launch.** Adoption, expiration, deletes with extra approvals; daily usage sweep and verdicts with a 30-day shadow period, and the Namespace efficiency dashboard; reports, notifier, operations engine (built-in by default) with cluster-onboard and rebuild-verify; portal integration, generated CLI, runbooks, alerts, database backups with a tested restore; the staging and prod instances stood up from the same chart. *Exit:* every KPI in the KPI table reported from its dashboard and the monthly export for one month; v1 contract frozen.
 6. **After launch, first quarter.** Recommendations and the rightsizing loop for opted-in rnd and qa namespaces; weekly rebalance report; placement and recommendation backtests. *Exit:* first rightsizing PRs merged, and the placement backtest shows zero overcommit breaches over 30 days.
 
 **Backlog.** Change sets and promote (promote now crosses instances, so it becomes an export from one instance submitted to the next), temporary quota bursts, capacity forecasting, showback, ownership attestation, outbound events, tamper-evident audit. SA token guardrails stay deferred.
@@ -697,6 +736,8 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 
 - [ ] Is the Cluster Observability Operator (1.5 or later) with the Perses UI plugin on every hub, and does any site still need Grafana (dashboards.provider: both)?
 - [ ] Confirm the KPI targets, and who reviews the KPI board each month.
+- [ ] Which PostgreSQL runs each instance's database (CloudNativePG, Crunchy, a managed service), and what reports its backups? cmapi\_db\_backup\_\* and the Backup freshness KPI read that status; until it is chosen they show as unavailable.
+- [ ] Confirm the system thresholds (memory and CPU 80% of limit, throttling 1%, database connections and volume 80%, backup 26 h) and the resource limits each component ships with.
 
 ## Related documents
 

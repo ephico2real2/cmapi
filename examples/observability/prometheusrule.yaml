@@ -86,6 +86,65 @@ spec:
       labels: {severity: info}
       annotations: {summary: "Requests waiting on approval for over 24 hours"}
 
+  # System alerts: each component's own cgroup (cmapi.core.kpi), the database, and platform series.
+  # Thresholds mirror kpi.thresholds in the chart values (examples/helm/values-kpi.yaml).
+  - name: cmapi.system
+    rules:
+    - alert: CmapiMemoryNearLimit
+      expr: |
+        max by (component) (cmapi_process_memory_bytes / cmapi_process_memory_limit_bytes) > 0.80
+      for: 15m
+      labels: {severity: warning}
+      annotations: {summary: "{{ $labels.component }} above 80% of its memory limit for 15 minutes"}
+    - alert: CmapiCpuThrottled
+      # The saturation signal: a pod can be throttled while CPU utilisation still reads as headroom.
+      expr: |
+        max by (component) (
+          rate(cmapi_process_cpu_throttled_periods_total[10m]) / rate(cmapi_process_cpu_periods_total[10m])
+        ) > 0.01
+      for: 30m
+      labels: {severity: warning}
+      annotations: {summary: "{{ $labels.component }} throttled in more than 1% of CPU periods for 30 minutes"}
+    - alert: CmapiPodRestarting
+      expr: |
+        sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace="cmapi"}[15m])) > 0
+          or sum by (pod) (kube_pod_container_status_last_terminated_reason{namespace="cmapi", reason="OOMKilled"}) > 0
+      labels: {severity: warning}
+      annotations: {summary: "{{ $labels.pod }} restarted or was OOM-killed in the last 15 minutes"}
+    - alert: CmapiEventLoopBlocked
+      expr: |
+        histogram_quantile(0.99, sum by (le, component) (rate(cmapi_event_loop_lag_seconds_bucket[5m]))) > 0.25
+      for: 10m
+      labels: {severity: warning}
+      annotations: {summary: "{{ $labels.component }} event-loop lag p99 above 250 ms for 10 minutes"}
+    - alert: CmapiDbConnectionsHigh
+      expr: |
+        (max(cmapi_db_connections) / max(cmapi_db_connections_max) > 0.80)
+          or (sum by (component) (cmapi_db_pool_connections{state="waiting"}) > 0)
+      for: 10m
+      labels: {severity: warning}
+      annotations: {summary: "Database connections above 80% of max_connections, or requests waiting on a pool"}
+    - alert: CmapiDbLongTransaction
+      expr: max(cmapi_db_oldest_transaction_seconds) > 900
+      labels: {severity: warning}
+      annotations: {summary: "A database transaction has been open for more than 15 minutes"}
+    - alert: CmapiDbVolumeFilling
+      # The database PVC; set the claim name to the instance's (chart value).
+      expr: |
+        (kubelet_volume_stats_used_bytes{persistentvolumeclaim="cmapi-db"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="cmapi-db"} > 0.80)
+          or (predict_linear(kubelet_volume_stats_available_bytes{persistentvolumeclaim="cmapi-db"}[7d], 7 * 86400) < 0)
+      for: 30m
+      labels: {severity: warning}
+      annotations: {summary: "The cmapi database volume is above 80% or predicted full within 7 days"}
+    - alert: CmapiDbBackupStale
+      # Absent until a backup tool reports (open question); absent is not treated as fresh.
+      expr: |
+        (time() - max(cmapi_db_backup_last_success_timestamp_seconds)) > 26 * 3600
+          or absent(cmapi_db_backup_last_success_timestamp_seconds)
+      for: 30m
+      labels: {severity: critical}
+      annotations: {summary: "No successful cmapi database backup for 26 hours, or no backup reporting at all"}
+
   # KPI recording rules: dashboards and the monthly export read the same series.
   - name: cmapi.kpi
     interval: 5m
@@ -112,3 +171,9 @@ spec:
           / (sum(cmapi_namespaces) - sum(cmapi_namespaces{state="excluded"}))
     - record: cmapi:drift_events:7d
       expr: sum(increase(cmapi_sync_drift_total[7d]))
+    - record: cmapi:memory_limit_ratio:p95_7d
+      expr: max by (component) (quantile_over_time(0.95, (cmapi_process_memory_bytes / cmapi_process_memory_limit_bytes)[7d:5m]))
+    - record: cmapi:cpu_throttled_ratio:7d
+      expr: max by (component) (increase(cmapi_process_cpu_throttled_periods_total[7d]) / increase(cmapi_process_cpu_periods_total[7d]))
+    - record: cmapi:backup_age_seconds
+      expr: time() - max(cmapi_db_backup_last_success_timestamp_seconds)
