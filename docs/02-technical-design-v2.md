@@ -582,6 +582,10 @@ clientScopes:
 # each instance client (cmapi-nonprod, cmapi-staging, cmapi-prod) lists cmapi-identity in defaultClientScopes
 ```
 
+**The identity module.** cmapi talks to Keycloak through two pieces of cmapi-core and no separate service. core/auth.py verifies every token offline against the cached JWKS, as above. core/identity/ does the rest: claims.py turns the verified token into an Identity (username, email, first, middle and last name, employee ID); keycloak\_admin.py is the only code that calls the admin API, with client credentials as cmapi-directory; directory.py is the DirectoryProvider protocol with its 15-minute cache, kept when Keycloak is unreachable; checks.py resolves onBehalfOf and runs the email-domain and team-DL checks. A separate microservice would add a network hop and a second credential holder for a few cached lookups an hour, and token verification has to stay in-process anyway; if the admin credential should not sit in the API pods, the directory calls can move to the worker behind the same protocol.
+
+**Email domains are configuration.** ephico2real.com in these documents is a placeholder. The allowed domains are one list, emailDomains in cluster-configs/policies/metadata-keys.yaml, which both cmapi and the Kyverno bundle read, so plan time, CI and admission agree. Every email-valued governed key (cmapi.net/team-dl, and any later one) uses format: email-in-domains instead of a regex with a domain in it. Emails taken from the token (cmapi.net/requested-by) are not checked against the list; they are whatever the directory holds.
+
 **Metrics and alerts.**
 
 | Metric | Labels | Alert |
@@ -1030,7 +1034,7 @@ governed:
   cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
   cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
   cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-  cmapi.net/team-dl:     {kind: annotation, required: true,  pattern: "^[^@\\s]+@ephico2real\\.com$"}
+  cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
 team:
   allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
   maxLabels: 50
@@ -1038,6 +1042,7 @@ team:
   maxAnnotationValueBytes: 4096
   maxAnnotationBytesTotal: 65536
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
 ```
 
 Bindings in authz-scopes.yaml gain an optional team field, which is what mustMatchBinding checks: a payments requester can set cmapi.net/team: payments and nothing else. Operators are exempt.
@@ -1181,7 +1186,7 @@ spec:
 
 **Adoption.** Adopting a namespace copies its existing governed and team keys into Git. Reserved and system keys stay on the cluster but out of the file. A missing required governed key blocks adoption and is listed in the unmanaged-namespaces report.
 
-**New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, team\_not\_bound, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden. Identity and DL checks add three more 422 codes: identity-incomplete (the token has no employee\_id claim), unknown-user (onBehalfOf names nobody, or a disabled user) and invalid-team-dl (not an address at ephico2real.com). The DL is format-checked only; cmapi does not look it up or check membership.
+**New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, team\_not\_bound, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden. Identity and DL checks add three more 422 codes: identity-incomplete (the token has no employee\_id claim), unknown-user (onBehalfOf names nobody, or a disabled user) and invalid-team-dl (not an address in one of the emailDomains listed in metadata-keys.yaml). The DL is format-checked only; cmapi does not look it up or check membership.
 
 ## Capacity plugin (API side)
 
@@ -1864,6 +1869,7 @@ cmapi/
 │   ├── integrations.yaml             # sync signal, operations engine, event publisher (all optional)
 │   ├── placement.yaml                # score weights, freshness limits, reservation TTL
 │   ├── capacity.yaml                 # snapshot interval, zone and role rows, retention
+│   ├── tiers.yaml                    # ResourceQuota and LimitRange values per tier and environment
 │   ├── operations/                   # operation templates: cluster-onboard.yaml, rebuild-verify.yaml, ...
 │   ├── policy-bundle.yaml            # tag of the Kyverno bundle in cluster-configs/policies
 │   └── adoption.yaml                 # mounted from the cmapi-adoption ConfigMap
@@ -1876,12 +1882,18 @@ cmapi/
 │   │   ├── pipeline.py               # authorize -> idempotency -> lock -> plan -> approve -> commit
 │   │   ├── registry.py               # imports clusters from cmapi-imports Secrets, merges clusters.yaml policy
 │   │   ├── auth.py                   # Keycloak JWT verification (JWKS cache), Principal
+│   │   ├── identity/                 # all other Keycloak access; a module in core, not a separate service
+│   │   │   ├── claims.py             # Identity from the verified token: username, email, names, employee ID
+│   │   │   ├── directory.py          # DirectoryProvider protocol, 15-minute cache, stale-on-error
+│   │   │   ├── keycloak_admin.py     # read-only admin API client (client credentials as cmapi-directory)
+│   │   │   ├── ldap.py               # optional provider: direct read-only LDAP bind
+│   │   │   └── checks.py             # onBehalfOf resolution, emailDomains and team-DL checks
 │   │   ├── authz.py                  # role permissions, scope bindings, require()
 │   │   ├── metadata.py               # label and annotation keys, classes, merge patch
 │   │   ├── operations.py             # OperationsEngine protocol; builtin, Argo Workflows and Tekton adapters
 │   │   ├── clients/                  # kube.py, argocd.py (per-cluster, read-only)
 │   │   ├── git/                      # provider.py (GitHub, GitLab REST), clone.py (GitPython https/ssh)
-│   │   ├── render/                   # renderer interface; project_meta.py, manifests.py
+│   │   ├── render/                   # renderer interface; manifests.py (default: plain manifests per namespace folder), project_meta.py
 │   │   ├── validate/                 # runs the Kyverno bundle and kubeconform; Python only for cross-object checks
 │   │   ├── approvals.py              # rules engine
 │   │   ├── db/                       # SQLAlchemy models, repositories, Alembic migrations

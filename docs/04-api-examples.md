@@ -296,7 +296,7 @@ curl -s -X POST "$CMAPI/clusters/$CLUSTER/namespaces?dryRun=true" \
       }'
 ```
 
-`cmapi.net/team` and `cmapi.net/team-dl` (your team's distribution list) are required. The team must be one your scope binding allows; the DL only has to be an address at ephico2real.com, since cmapi does not look it up. Don't send who you are: cmapi reads your username and email from your token and writes them as `cmapi.net/requested-by-user` and `cmapi.net/requested-by`. A pipeline using a `svc-` client must add `"onBehalfOf": "<username or employee ID>"`, the person the request is for; cmapi looks that person up in the directory and records both. `expiresAt` is optional in rnd, dev, qa and uat; leave it out for a permanent namespace. In prod it is refused with `422 expiration-not-allowed`.
+`cmapi.net/team` and `cmapi.net/team-dl` (your team's distribution list) are required. The team must be one your scope binding allows; the DL only has to be an address in one of your organisation's email domains (the `emailDomains` list in `metadata-keys.yaml`; `ephico2real.com` in these examples is a placeholder), since cmapi does not look it up. Don't send who you are: cmapi reads your username and email from your token and writes them as `cmapi.net/requested-by-user` and `cmapi.net/requested-by`. A pipeline using a `svc-` client must add `"onBehalfOf": "<username or employee ID>"`, the person the request is for; cmapi looks that person up in the directory and records both. `expiresAt` is optional in rnd, dev, qa and uat; leave it out for a permanent namespace. In prod it is refused with `422 expiration-not-allowed`.
 
 ### 4. Submit the create
 
@@ -476,7 +476,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies/rejections?since=7d" 
 | 422 | `validation-failed` / `policy-violation` / `capacity-exceeded` | Request rejected at plan time | Read `errors[].code`, e.g. `reserved_key`, `team_not_bound` |
 | 429 | `rate-limited` | Too many calls, or too many active placements for your team | Honour `Retry-After` |
 | 422 | `environment-not-served` | This instance does not serve that environment | Use the instance URL in the response's `instanceUrl` |
-| 422 | `identity-incomplete` / `unknown-user` / `invalid-team-dl` | Your token has no employee ID claim; `onBehalfOf` names nobody (or a disabled user); the team DL is not an address at ephico2real.com | Sign in again or ask the platform team to check your directory entry; fix `onBehalfOf`; fix the DL |
+| 422 | `identity-incomplete` / `unknown-user` / `invalid-team-dl` | Your token has no employee ID claim; `onBehalfOf` names nobody (or a disabled user); the team DL is not in one of the configured email domains | Sign in again or ask the platform team to check your directory entry; fix `onBehalfOf`; fix the DL |
 | 422 | `cluster-not-writable` | The cluster is imported but has no clusters.yaml entry yet | Wait for its cluster-onboard PR to merge |
 | 503 | `cluster-unreachable` / `idp-unavailable` | Cluster API or Keycloak keys unreachable | Honour `Retry-After` |
 | 503 | `capacity-service-unavailable` | cmapi-capacity is down; capacity and usage reads cannot be served | Honour `Retry-After`; creates still place from stored snapshots |

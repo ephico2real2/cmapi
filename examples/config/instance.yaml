@@ -14,7 +14,7 @@ instance:
     adminClient: cmapi-directory     # realm-management view-users and query-users only
     cacheSeconds: 900                # served from cache when Keycloak is unreachable
     requireEmployeeId: true          # 422 identity-incomplete without the employee_id claim
-    teamDlPattern: '^[^@\s]+@ephico2real\.com$'   # format only; DLs are not looked up
+    # email domains for the team DL: emailDomains in cluster-configs/policies/metadata-keys.yaml (format only; DLs are not looked up)
   git:
     repository: caas/cluster-configs-nonprod
   directory:                         # where to send callers for other environments

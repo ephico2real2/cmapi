@@ -20,7 +20,7 @@ came from. Where two documents show the same file, the copy in
 | `config/integrations.yaml` | Optional SyncSignal, OperationsEngine and EventPublisher | Verbatim |
 | `config/operations/cluster-onboard.yaml` | Operation template run by the built-in engine or Argo Workflows | Verbatim |
 | `cmapi-sso/realm/ephico2real.yaml` | Keycloak realm as code (keycloak-config-cli), with the employee ID and middle-name mappers, User Profile declarations and the cmapi-identity client scope | Updated: check key names against your keycloak-config-cli release |
-| `cluster-configs/policies/metadata-keys.yaml` | Governed, team and sensitive metadata keys (cmapi.net/team-dl required; cmapi.net/owner retired) | Updated |
+| `cluster-configs/policies/metadata-keys.yaml` | Governed, team and sensitive metadata keys (cmapi.net/team-dl required; cmapi.net/owner retired) and emailDomains, the organisation's mail domains that every email-valued key must use (ephico2real.com is a placeholder) | Updated |
 | `cluster-configs/clusters/OCP_GF15/namespaces/payments-dev/` | One namespace as cmapi writes it: namespace.yaml, resourcequota.yaml, limitrange.yaml, serviceaccounts.yaml, rolebindings.yaml, token-issuer-rolebinding.yaml (plain manifests, dev, optional expiry) | New |
 | `cluster-configs/clusters/OCP_GF15/argocd/root-application.yaml` | The cluster's root Application: syncs every namespace folder with directory recurse | New; set repoURL and the AppProject |
 | `cluster-configs/clusters/OCP_GF1/bootstrap/notifications.yaml` | Argo CD Notifications with a per-cluster token and cluster ID | Updated |
