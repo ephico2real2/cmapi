@@ -1,9 +1,53 @@
 # cmapi Portal mockup
 
 Source of the portal mockup. It is a Claude Design canvas artboard (`Main.dc.html` plus
-`canvas.json`), so it renders in the Design canvas rather than as a plain HTML page.
+`canvas.json`). It renders in the Design canvas and, through a small runtime, as a plain HTML page.
 
 Live version: https://claude.ai/artifact/HW3mp5RRmuapPhj8beBH1M
+
+## Open it outside claude.ai
+
+- **Double-click or publish:** `dist/portal.html` is one self-contained file.
+- **While editing:** serve this folder (`python3 -m http.server`) and open `index.html`, which fetches
+  `Main.dc.html`. A browser will not fetch from `file://`, so `index.html` needs a server.
+- **Rebuild after any edit:** `node scripts/build-portal.mjs`. Add `--check` to fail if the file is out of date.
+
+The bar above the artboard switches instance. The hash holds the instance and tab (`#staging/quotas`) and follows
+the portal's own controls. The page works offline; without Google Fonts it falls back to system fonts, so its text
+then wraps differently.
+
+## How the runtime works
+
+`runtime/dc-lite.js` is a small renderer with no dependencies. `Main.dc.html` stays the single source: the runtime
+parses it, runs its `Component` class, and renders from `renderVals()`. Every `setState` re-renders, and the result
+is patched into the page by position, so focus, caret and scroll survive.
+
+It copies these details of the canvas runtime, because they decide the layout: `<sc-for>` and `<sc-if>` add no
+element, a text hole renders in `<span class="sc-interp">`, and a bare newline between elements is dropped.
+
+## What the runtime does not support
+
+Only what `Main.dc.html` uses. It has none of: `<dc-import>`, `<x-import>`, expressions in holes (`{{ !x }}`), pseudo-class
+attributes, keyframe tracks, streaming placeholders, the editor, `forceUpdate`, `componentDidUpdate`, the callback
+of `setState`, or events other than `onClick`, `onChange`, `onSubmit` and `onKeyDown`. An unsupported event attribute
+stops the page with a message. Light theme only, as in the source.
+
+## Tests
+
+In `tests/portal/`, after `npm install` and `npx playwright install chromium`:
+
+| Command | What it checks |
+|---|---|
+| `node logic.test.mjs` | The logic class with no browser: scenarios, 403 and 422 endings, paging, ES2019 syntax, `dist` up to date |
+| `node interactions.test.mjs` | Scripted walks with no console errors: every scenario, paging, type-ahead, forms, approvals, expiration, the hash, reflow, offline |
+| `node capture.mjs <dir>` | Captures the acceptance views at 1320 px, as PNG and as canonical DOM |
+| `node diff.mjs <reference-dir> <dir>` | Pixel-diffs against references named like the captures; a view passes under 0.5% |
+
+To compare with the canvas runtime itself, put a copy of `dc-runtime.js` named `support.js` beside a copy of
+`Main.dc.html` in a folder, and pass that folder: `node capture.mjs <dir> <folder>` and
+`node interactions.test.mjs --source-dir <folder> --record <file>`, then `--compare <file>` on a normal run.
+
+## What the mockup shows
 
 What it shows, per instance (nonprod, staging, prod; switched with the `instance` tweak):
 
