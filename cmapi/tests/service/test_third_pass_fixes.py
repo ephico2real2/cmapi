@@ -266,18 +266,14 @@ def test_the_chart_takes_the_real_identity():
     assert any(d and d["kind"] == "ValidatingAdmissionPolicyBinding" for d in yaml.safe_load_all(r.stdout))
 
 
-def _notes(*sets):
-    a = [x for s in sets for x in ("--set", s)]
-    r = subprocess.run(["helm", "install", "cmapi", str(CHART), "-n", "cmapi", "--dry-run=client", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr[-300:]
-    return r.stdout[r.stdout.index("NOTES:"):]
-
-
 def test_the_install_says_when_nothing_contains_argo_cd():
-    """An empty identity renders only when acknowledged (the ruling on F3), and then the NOTES say what that means."""
-    assert "no admission policy contains Argo CD" in _notes("argocd.controllerServiceAccount=", "argocd.acknowledgeUncontainedController=true")
-    assert "no admission policy contains Argo CD" not in _notes("argocd.controllerServiceAccount=system:serviceaccount:cmapi-argocd:ctrl")
+    """An empty identity renders only when acknowledged (the ruling on F3), and then the NOTES say what that means.
+    Read from the template: `helm install --dry-run=client` contacts the cluster on Helm 3.19.0 (CI, measured: it failed
+    on localhost:8080) and `helm template --show-only templates/NOTES.txt` prints nothing on 3.19.0 and 4.3.1."""
+    notes = (CHART / "templates/NOTES.txt").read_text()
+    guard = notes.index('{{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) }}')
+    body = notes[guard:notes.index("{{- end }}", guard)]
+    assert "no admission policy contains Argo CD" in body and "acknowledged" in body
 
 
 @pytest.mark.parametrize("state,command", [("pending-install", "helm uninstall cmapi"), ("pending-upgrade", "helm rollback cmapi"), ("pending-rollback", "helm rollback cmapi")])
