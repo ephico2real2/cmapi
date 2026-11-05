@@ -1,11 +1,16 @@
-"""Shared fixtures. Run from examples/:  PYTHONPATH=src python -m pytest -q"""
+"""Shared fixtures. Run from cmapi/:  PYTHONPATH=src:tests/core python -m pytest -q tests/core
+
+The config files these tests read live in examples/ (config, instances, cluster-configs), found by
+walking up from this file to the repository root. The tests are also reachable through the
+examples/tests symlink; Path.resolve() follows it, so both entry points land here.
+"""
 from pathlib import Path
 
 import pytest
 
 from cmapi.core.identity.claims import Identity
 
-EX = Path(__file__).resolve().parent.parent
+EX = next(p / "examples" for p in Path(__file__).resolve().parents if (p / "examples" / "config").is_dir())
 ALL_ENVS = {"rnd", "dev", "qa", "uat", "prod"}
 INSTANCES = {"nonprod": {"rnd", "dev"}, "staging": {"qa", "uat"}, "prod": {"prod"}}
 

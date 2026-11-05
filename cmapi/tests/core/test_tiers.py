@@ -1,17 +1,14 @@
 """Tests for cmapi.core.tiers against the example catalog files.
 
-Run from examples/:  PYTHONPATH=src python -m pytest -q tests/test_tiers.py
+Run from cmapi/:  PYTHONPATH=src:tests/core python -m pytest -q tests/core/test_tiers.py
 """
-from pathlib import Path
-
 import pytest
 import yaml
 
 from cmapi.core.tiers import CatalogError, TierCatalog, TierError, qty
+from conftest import EX as HERE, INSTANCES
 
-HERE = Path(__file__).resolve().parent.parent
 COMBINED = HERE / "config" / "tiers.yaml"
-INSTANCES = {"nonprod": {"rnd", "dev"}, "staging": {"qa", "uat"}, "prod": {"prod"}}
 
 
 @pytest.fixture(scope="module")
