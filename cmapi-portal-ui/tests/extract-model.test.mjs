@@ -36,6 +36,8 @@ try {
   assert.match(extract(withHelp("(globalThis.PWNED=1)")).error ?? "", /JSON/, "code in data-props is refused, not inlined");
   const mentioned = main.replace("<x-dc>", "<!-- logic lives in data-dc-script below --><x-dc>");
   assert.equal(extract(mentioned).generated, plain.generated, "the words data-dc-script elsewhere are not the tag");
+  const decoy = main.replace("<x-dc>", "<!-- <script data-dc-script data-props='{}'>class Component extends DCLogic {}</script> --><x-dc>");
+  assert.equal(extract(decoy).generated, plain.generated, "a logic script inside a comment is not the logic");
   const trailing = main.replace("</body>", "<script>/* analytics */</script></body>");
   assert.equal(extract(trailing).generated, plain.generated, "a script after the logic stays out of the module");
   console.log("ok - extract-model");

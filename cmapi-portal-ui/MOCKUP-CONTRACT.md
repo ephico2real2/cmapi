@@ -44,6 +44,7 @@ Consequences until then:
 | The reject reason stays inline, not in a `Modal` | Keeps the mockup's flow, with the reason beside the request |
 | Lane colours are PatternFly label colours | No hex in the page; each lane keeps one colour |
 | Team DL can be edited | In the mockup it is a controlled field with no handler, so typing does nothing, which looks like a slip |
+| The selected type-ahead suggestion shows a check mark | `MenuItem` draws it with `isSelected`, which also gives the option its `aria-selected` |
 | The brand mark and avatar letter are gone | Both are decorative (`aria-hidden`) in the mockup |
 | Light theme only, with no switch | As the mockup specifies |
 

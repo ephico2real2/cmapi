@@ -27,10 +27,17 @@ try {
   rmSync(root, { recursive: true, force: true });
 }
 
-// The test server answers the favicon request, or a --record run in installed Chrome dies on a 404 console error.
-const empty = await serve(tmpdir());
-assert.equal((await fetch(`http://127.0.0.1:${empty.port}/favicon.ico`)).status, 204, "favicon");
-empty.close();
+// A reference folder gets its favicon request answered, or a --record run in installed Chrome dies on a 404 console error.
+const reference = await serve(tmpdir(), { favicon: true });
+assert.equal((await fetch(`http://127.0.0.1:${reference.port}/favicon.ico`)).status, 204, "a reference folder");
+reference.close();
+// Our own pages are served strictly, and carry the icon themselves, so removing it cannot pass unnoticed.
+const strict = await serve(tmpdir());
+assert.equal((await fetch(`http://127.0.0.1:${strict.port}/favicon.ico`)).status, 404, "our own pages get no help");
+strict.close();
+for (const page of [join(portal, "index.html"), distPage, join(repoRoot, "cmapi-portal-ui", "index.html")]) {
+  assert.match(readFileSync(page, "utf8"), /<link rel="icon" href="data:,">/, `${page} carries its inline icon`);
+}
 
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL });
 const page = await browser.newPage();

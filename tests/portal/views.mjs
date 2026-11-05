@@ -25,11 +25,12 @@ export async function gotoView(page, view) {
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 
-export function serve(dir) {
+// favicon: true is for a reference folder, whose page has no icon of its own. Our pages carry an inline icon, and are
+// served strictly, so a removed icon shows up as the 404 console error that installed Chrome reports.
+export function serve(dir, { favicon = false } = {}) {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname)).replace(/^(\.\.[/\\])+/, "");
-    // Installed Chrome asks every served page for this, and a 404 is a console error that fails a --record run.
-    if (path === "/favicon.ico") {
+    if (favicon && path === "/favicon.ico") {
       res.writeHead(204);
       res.end();
       return;

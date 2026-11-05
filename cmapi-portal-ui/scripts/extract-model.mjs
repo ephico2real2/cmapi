@@ -9,8 +9,8 @@ const app = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(app, "..", "mockups", "portal", "Main.dc.html"), "utf8");
 const output = join(app, "src", "model", "logic.generated.js");
 
-// A script tag, read as HTML reads it: a ">" inside a quoted attribute does not end the tag.
-const SCRIPT_TAG = /<script\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+// A script tag, read as HTML reads it: a ">" inside a quoted attribute does not end the tag, and a comment is no tag.
+const SCRIPT_TAG = /<!--[\s\S]*?-->|<script\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
 /** An attribute value holds HTML entities, as DOMParser would decode them in dc-lite. */
@@ -22,7 +22,7 @@ function decodeEntities(text) {
   });
 }
 
-const tag = [...source.matchAll(SCRIPT_TAG)].find((m) => /\sdata-dc-script[\s=>]/i.test(m[0]));
+const tag = [...source.matchAll(SCRIPT_TAG)].find((m) => m[0].startsWith("<script") && /\sdata-dc-script[\s=>]/i.test(m[0]));
 if (!tag) throw new Error("no <script data-dc-script> in Main.dc.html");
 const start = tag.index + tag[0].length;
 // The first closing tag ends the block, as in the HTML parser, whatever other scripts follow.

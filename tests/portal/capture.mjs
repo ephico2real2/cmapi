@@ -15,7 +15,7 @@ if (!outDir) {
 }
 mkdirSync(outDir, { recursive: true });
 
-const server = sourceDir ? await serve(sourceDir) : null;
+const server = sourceDir ? await serve(sourceDir, { favicon: true }) : null;
 const url = server ? `http://127.0.0.1:${server.port}/Main.dc.html` : pathToFileURL(distPage).href;
 // PW_CHANNEL=chrome runs in the installed Chrome, and PW_HEADED=1 shows the window.
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL, headless: !process.env.PW_HEADED });
