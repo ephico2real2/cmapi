@@ -47,12 +47,38 @@ arguments as a word-split string, so `--kubectl "kubectl --kubeconfig=…"` arri
 `deploy/secrets.sh … --kubectl kubectl --kubeconfig=/nonexistent …` → `unknown argument --kubeconfig=/nonexistent`,
 rc 2; the quoted form reaches kubectl). `kind-test.sh` passes it quoted, which is why the deployment half worked.
 
-Fixed in the harness (an array, `"${A[@]}"`), shellcheck clean, and the parsing re-checked without a cluster (the first
-case now fails on the missing kubeconfig, not on an argument). **The ten cases have not been rerun on a cluster**: the
-owner stopped work after the run above. They are the next step before this pull request is opened.
+Fixed in the harness (an array, `"${A[@]}"`), shellcheck clean, and rerun on a fresh throwaway `cmapi-test` kind
+cluster (same node image), the cluster up for 93 s and deleted by name: **all ten cases pass**
+(`2026-11-05-plain-manifests-test-logs/secrets-test.log`, verbatim lines):
+
+```
+  ok   1 fresh: rc=0 wrote Secret sect1/cmapi-keys
+  ok   2 second run: rc=0 cmapi-keys: present, kept
+  ok   3 ours deleted, copied from the realm: rc=0 cmapi-keys: present, kept
+  ok   4 partial realm copy stops: rc=1 ERROR: partial realm copy, missing CMAPI_DIRECTORY_SECRET. A realm keeps the values it first imported, so nothing is generated. ...
+  ok   5 partial realm copy, ours gone, stops: rc=1 ERROR: partial realm copy, missing CMAPI_DIRECTORY_SECRET. ...
+  ok   6 all gone, no realm import: generates: rc=0 cmapi-keys: present, kept
+  ok   7 copies differ, stops: rc=1 ERROR: copies differ on automationClientSecret. ...
+  ok   8 realm import exists, both copies gone: stops: rc=1 ERROR: KeycloakRealmImport cmapi exists in sect2 and both Secrets are gone. New values would not match the realm. ...
+  ok   9a ldap-bind missing stops: rc=1 ERROR: Secret sect1/cmapi-ldap-bind is missing; the owner creates it (docs/11), this script never does
+  ok   9b ldap-bind lacking a key stops: rc=1 ERROR: Secret sect2/cmapi-ldap-bind lacks password
+  ok   9c ldap-bind copies differ stops: rc=1 ERROR: cmapi-ldap-bind differs between the namespaces on password; make them equal by hand, nothing is written
+  ok   9d ldap-bind equal passes: rc=0 cmapi-ldap-bind: present in both namespaces with bindDN and password, equal
+  ok   10a app secret written from a 0600 file: rc=0 wrote Secret sect1/cmapi-github-app
+  ok   10b existing app secret lacking a key stops, not replaced: rc=1 ERROR: Secret sect1/cmapi-github-app exists but lacks privateKey; it is never replaced automatically: fix or delete it by hand
+  ok   10c a key file that others can read is refused: rc=2 ERROR: ... is mode 644; make it 0600
+secrets cases failed: 0
+```
+
+The two Python tracebacks in the raw output were the harness's hash helper reading an absent Secret in cases 5 and 8
+(expected absent); its stderr is now silenced. No defect in `secrets.sh` was found by the cases.
+
+**The shared-service guard** (the coordinator's: `keycloak-0` on CRC had restarted at 20:17:02 UTC, cause unknown,
+while an earlier `cmapi-test` was up): `oc get pod keycloak-0 -n keycloak`, read-only, before and after this run:
+restart count **1** both times, `startedAt 2026-11-05T20:17:08Z` both times. This 93 s cluster did not coincide with a
+restart.
 
 ## Not done
 
-- The secrets cases on a cluster (above).
-- The `manifests` CI job has not run (no pull request yet).
+- The `manifests` CI job: its result is cited in the pull request from the run whose `headSha` is the branch head.
 - `environments/crc/`, the bootstrap set, Argo CD and anything on CRC: later pull requests, by the deployment design.

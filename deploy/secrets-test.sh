@@ -14,7 +14,7 @@ A=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind
 B=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL")
 S="$HERE/secrets.sh"
 T=$(mktemp); trap 'rm -f "$T"; k delete ns sect1 sect2 --wait=false >/dev/null 2>&1' EXIT
-h() { k get secret cmapi-keycloak -n sect1 -o json 2>/dev/null | python3 -c 'import sys,json,hashlib; d=json.load(sys.stdin)["data"]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:12])' || echo none; }
+h() { k get secret cmapi-keycloak -n sect1 -o json 2>/dev/null | python3 -c 'import sys,json,hashlib; d=json.load(sys.stdin)["data"]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:12])' 2>/dev/null || echo none; }
 fails=0
 run() { "$S" "${A[@]}" "$@" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"; }
 runb() { "$S" "${B[@]}" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"; }
