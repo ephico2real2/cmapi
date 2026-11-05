@@ -105,7 +105,7 @@ This code makes the logic above run end to end. It is demo-grade: one process, s
 
 **cmapi-capacity:** Thanos source, snapshots, placement, reservations, usage sweep.
 
-**Portal:** only the clickable mockups exist (`mockups/`). The portal app (React with TypeScript, built with Vite, using PatternFly) is not built.
+**Portal:** only the clickable mockups exist (`mockups/`). The portal app (React with TypeScript, built with Vite, using PatternFly) is not built against the API. `cmapi-portal-ui/` is a demo of all nine tabs on that stack, running on the mockup's sample logic: it has no sign-in and no API calls, and must not be deployed as the portal (see its `MOCKUP-CONTRACT.md`).
 
 **Packaging and delivery:**
 

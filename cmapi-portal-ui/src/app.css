@@ -1,0 +1,7 @@
+/* Only what PatternFly has no prop for. Tokens only: no hex, and no override of a PatternFly class. */
+.cp-scroll { max-width: 100%; overflow-x: auto; }
+.cp-combo { position: relative; flex: 1 1 280px; min-width: 0; }
+.cp-combo-menu { position: absolute; z-index: var(--pf-t--global--z-index--sm); inset-inline: 0; margin-block-start: var(--pf-t--global--spacer--xs); }
+.cp-pre-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Cards scroll when content overflows, and paths and URLs in the sample data are long unbroken tokens. */
+.cp-wrap { overflow-wrap: anywhere; }
