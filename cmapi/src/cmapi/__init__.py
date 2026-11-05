@@ -1,1 +1,3 @@
-"""cmapi reference implementation (see docs/02-technical-design-v2.md, Module catalog)."""
+"""cmapi: one API and portal for namespaces across OpenShift clusters."""
+
+__version__ = "0.2.0"

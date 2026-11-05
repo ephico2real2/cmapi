@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmapi"
+version = "0.2.0"
+description = "cmapi: one API and portal for namespaces across OpenShift clusters, with every write a pull request"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.32.1",
+    "pydantic==2.14.2",
+    "pydantic-settings==2.16.2",
+    "sqlalchemy==2.1.8",
+    "psycopg[binary]==3.3.8",
+    "alembic==1.20.1",
+    "httpx==0.28.1",
+    "pyjwt[crypto]==2.10.1",
+    "pyyaml==6.0.2",
+    "prometheus-client==0.24.1",
+    "structlog==26.1.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.4"]
+
+[project.scripts]
+cmapi-api = "cmapi.main:run"
+cmapi-worker = "cmapi.worker:run"
+cmapi-capacity = "cmapi.capacity.main:run"
+cmapi-migrate = "cmapi.core.db.migrate:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cmapi = ["core/db/migrations/*.py", "core/db/migrations/versions/*.py", "core/db/alembic.ini"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests/core"]
