@@ -1,0 +1,57 @@
+# Every pull request and every push to main. A change merges only when this is green (CLAUDE.md).
+# Actions are pinned by the commit of their release tag.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reference-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -r examples/local/requirements.txt
+      - name: Test
+        working-directory: examples
+        run: python -m pytest tests -q
+
+  portal-mockup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install
+        working-directory: tests/portal
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Test
+        working-directory: tests/portal
+        run: npm test
+
+  portal-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install
+        working-directory: cmapi-portal-ui
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Test
+        working-directory: cmapi-portal-ui
+        run: npm test

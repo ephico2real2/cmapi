@@ -83,12 +83,44 @@ No other consumer picks these groups up, because each filters on its own names:
 
 Delete only the entries named in the LDIF, each by its full `dn`.
 
+### The bind user
+
+Realm `cmapi` binds as its own read-only user, `cmapi-ldap-bind` in `ou=TrustedApplications`, and borrows no other project's
+credential. [`examples/cmapi-sso/ldap/apply-bind-user.sh`](../examples/cmapi-sso/ldap/apply-bind-user.sh) creates it.
+
+**Status: not created.** The Claude Code auto mode classifier refused the script twice, as a change to a shared resource. See
+issue #34. Until it runs, LDAP federation is unproven.
+
+The server's rules are exhaustive, so a user they do not name gets "No such object (32)", which looks like missing data. The
+script adds the user to the rules for `ou=People` and `ou=Groups` only, as one atomic modify, then fails unless the user can
+read those two and cannot read password hashes or `ou=TrustedApplications`, or write. Its password is generated, kept in
+Secret `cmapi-ldap-bind` in namespaces `cmapi` and `keycloak`, and never appears on a command line.
+
 ### Employee IDs
 
 Nobody in this directory has `employeeNumber`, which the realm file maps to `employee_id`. `instance.yaml` sets
 `requireEmployeeId: true`, so a person's write would get 422 `identity-incomplete`. The people are not changed. On this
 deployment, the `cmapi` realm's mapper reads `uidNumber` instead, which the example people have as `posixAccount` entries.
 This is a value for this directory only. A real directory maps its real employee ID.
+
+## Why Keycloak access stays inside cmapi
+
+Decided on 2026-11-05: Keycloak access stays a module of `cmapi-core`, as `docs/01` and `docs/02` say. There is no separate
+service for it.
+
+- **Token checks stay in-process either way.** Local validation adds no network round trip, where introspection adds
+  5 to 50 ms and makes the API depend on Keycloak being up ([Skycloak](https://skycloak.io/blog/keycloak-token-introspection-vs-local-validation/)).
+  Short-lived access tokens narrow the revocation gap, and this design uses 5 minutes.
+- **What would move is small.** Only the directory lookups could move: a few cached lookups an hour, and they keep working
+  from the cache when Keycloak is down.
+- **A split has to earn its cost.** Martin Fowler's [MonolithFirst](https://www.goodreads.com/author_blog_posts/8479044-bliki-monolithfirst)
+  and the [microservice premium](https://www.infoq.com/news/2015/05/microservices-premium) say a service pays for itself only
+  when complexity demands it, and `app-architect` says no microservices by default.
+- **Least privilege is met without one.** The admin client holds `view-users` and `query-users` only. If that credential
+  should not sit in the API pods, the calls can move to the worker behind the same port.
+
+The searches found no source comparing a wrapper service with in-process admin calls. This rests on the general guidance
+above and on this design's own numbers. Revisit it if several applications come to need the same directory data.
 
 ## Not covered here
 
