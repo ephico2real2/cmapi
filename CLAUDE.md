@@ -19,14 +19,31 @@ The owner's required way of working, from `app-architect`, "Delivering the fixes
 
 1. One issue, one branch from `main`, and one pull request whose body starts `Closes #N`.
 2. Two independent designs from two model families, arbitrated into one, with the choice recorded in the PR.
-3. One implementer builds it, and every line is read.
+3. Fable builds it, and every line is read.
 4. A functional test on the running environment, its output saved, and a screenshot for a visible change.
 5. An adversarial review (`adversarial-review`) by two model families, each returning the full fix and its test, and each
    reviewer's fixes cross-checked by the other. Never the author.
 6. The docs, the testing record and the diagrams updated from measured numbers.
 7. Merged only when CI is green and the review passed.
 
-The end-to-end walk on CRC is the gate on calling the whole done. Run it from a clean start, using only the guide.
+The end-to-end walk on CRC is the gate on calling the whole done. Run it from a clean start, using only the guide. Each
+deployment step takes screenshots of the working app through its Route in Chrome, and they go in the PR.
+
+### Who does what
+
+The owner's decision, on 2026-11-05:
+
+| Role | Who | Does |
+|---|---|---|
+| Implementer | Fable | Writes all code, tests and charts. The only one who changes application code |
+| Reviewers | Opus and Codex | Design each step independently, review the code, and generate the fix and test for each finding. Each cross-checks the other's fixes |
+| Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Writes no application code |
+
+A reviewer's fix is a proposal. Fable applies it only after the coordinator has accepted it. Fable may reject one with a written
+reason, and the coordinator decides.
+
+Reviewers work on an export, never in a repository. If Fable is out of quota, stop coding and report it. Do not hand the code to
+another model.
 
 ### What the mandate does not change
 
