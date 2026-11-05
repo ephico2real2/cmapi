@@ -1,0 +1,30 @@
+{
+  "name": "cmapi-portal-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "model": "node scripts/extract-model.mjs",
+    "predev": "npm run model",
+    "dev": "vite",
+    "prebuild": "npm run model",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node scripts/extract-model.mjs --check && node scripts/check-discipline.mjs && tsc --noEmit && vite build && node tests/parity.test.mjs"
+  },
+  "dependencies": {
+    "@patternfly/react-core": "6.7.0",
+    "@patternfly/react-icons": "6.7.0",
+    "@patternfly/react-table": "6.7.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "playwright": "1.64.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  }
+}
