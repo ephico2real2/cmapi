@@ -29,7 +29,7 @@ r=$(run); expect "4 partial realm copy stops" 1 "$r"; [ "$(h)" = "$H1" ] || { ec
 k delete secret cmapi-keycloak -n sect1 >/dev/null
 r=$(run); expect "5 partial realm copy, ours gone, stops" 1 "$r"; [ "$(h)" = none ] || { echo "  FAIL 5: something was written"; fails=$((fails+1)); }
 k delete secret cmapi-realm-secrets -n sect2 >/dev/null
-r=$(run); expect "6 all gone, no realm import: generates" 0 "$r"; [ "$(h)" != "$H1" ] && [ "$(h)" != none ] || { echo "  FAIL 6"; fails=$((fails+1)); }
+r=$(run); expect "6 all gone, no realm import: generates" 0 "$r"; if [ "$(h)" = "$H1" ] || [ "$(h)" = none ]; then echo "  FAIL 6"; fails=$((fails+1)); fi
 k patch secret cmapi-keycloak -n sect1 --type=merge -p '{"data":{"automationClientSecret":"eHh4"}}' >/dev/null
 r=$(run); expect "7 copies differ, stops" 1 "$r"
 k delete secret cmapi-keycloak cmapi-keys -n sect1 >/dev/null; k delete secret cmapi-realm-secrets -n sect2 >/dev/null

@@ -102,7 +102,12 @@ jobs:
           echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
           tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
           kubeconform -v
-          sudo apt-get install -y -q shellcheck >/dev/null
+          # Pinned like the others: apt's shellcheck is whatever the runner image's Ubuntu carries (0.9.0 on 24.04, measured),
+          # so CI and a developer's machine disagreed on the same file.
+          curl -fsSL -o shellcheck.tar.gz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz
+          echo "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6  shellcheck.tar.gz" | sha256sum -c -
+          tar xzf shellcheck.tar.gz --strip-components=1 shellcheck-v0.11.0/shellcheck && sudo mv shellcheck /usr/local/bin/
+          shellcheck --version
       - name: Shellcheck
         run: shellcheck deploy/render.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh
       - name: The mockup ConfigMap is current
@@ -117,8 +122,9 @@ jobs:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: |
-          deploy/render.sh kind ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64}) /tmp/rendered
-          ! grep -rn 'sha256:DIGEST' /tmp/rendered
+          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered
+          # An if, not "! grep": bash -e does not stop on a negated command, so that form could never fail the step.
+          if grep -rn 'sha256:DIGEST' /tmp/rendered; then echo "a placeholder was left in the render"; exit 1; fi
           kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
           if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
           deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag

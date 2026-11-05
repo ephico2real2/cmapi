@@ -47,7 +47,7 @@ arguments as a word-split string, so `--kubectl "kubectl --kubeconfig=…"` arri
 `deploy/secrets.sh … --kubectl kubectl --kubeconfig=/nonexistent …` → `unknown argument --kubeconfig=/nonexistent`,
 rc 2; the quoted form reaches kubectl). `kind-test.sh` passes it quoted, which is why the deployment half worked.
 
-Fixed in the harness (an array, `"${A[@]}"`), shellcheck clean, and rerun on a fresh throwaway `cmapi-test` kind
+Fixed in the harness (an array, `"${A[@]}"`), shellcheck clean on 0.11.0 (see "The first CI run"), and rerun on a fresh throwaway `cmapi-test` kind
 cluster (same node image), the cluster up for 93 s and deleted by name: **all ten cases pass**
 (`2026-11-05-plain-manifests-test-logs/secrets-test.log`, verbatim lines):
 
@@ -77,6 +77,20 @@ The two Python tracebacks in the raw output were the harness's hash helper readi
 while an earlier `cmapi-test` was up): `oc get pod keycloak-0 -n keycloak`, read-only, before and after this run:
 restart count **1** both times, `startedAt 2026-11-05T20:17:08Z` both times. This 93 s cluster did not coincide with a
 restart.
+
+## The first CI run
+
+Run 42129295237 on `66c038a`: `manifests` failed at `Shellcheck`, SC2015 on `deploy/secrets.sh:109` and
+`deploy/secrets-test.sh:32`, and every later step was skipped. "Shellcheck clean" above was measured on this Mac's 0.11.0; the
+job installed apt's, which is 0.9.0-1 on Ubuntu 24.04 (measured in an `ubuntu:24.04` container, where the same files give
+rc 1, as does the 0.9.0 release binary here). ShellCheck's changelog for v0.11.0: "SC2015 about `A && B || C` no longer
+triggers when B is a test command", and both lines' B is a test, so neither was a defect. The cause was an unpinned tool:
+the job now installs shellcheck 0.11.0 by version and SHA-256, as it does kubeconform and kind. Both lines are also rewritten
+as `if`, so the five scripts give rc 0 on 0.9.0 and on 0.11.0, and a person on a distribution's shellcheck sees no noise.
+The rewrites change no result: compared before and after for each combination of the two ids (`secrets.sh`, stub kubectl)
+and each outcome of the two tests (case 6).
+
+The render step's `! grep` could not fail: `bash -e` does not stop on a negated command (measured). It is an `if` now.
 
 ## Not done
 

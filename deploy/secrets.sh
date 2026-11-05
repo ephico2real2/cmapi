@@ -106,7 +106,7 @@ if [ -n "$gh_existing" ]; then
   echo "cmapi-github-app: present with appId, installationId and privateKey, kept"
   [ -z "$KEY" ] || echo "note    : --github-app-key ignored, the Secret exists"
 elif [ -n "$KEY" ]; then
-  [ -n "$APP_ID" ] && [ -n "$INST_ID" ] || { echo "ERROR: --github-app-key needs --github-app-id and --github-installation-id" >&2; exit 2; }
+  if [ -z "$APP_ID" ] || [ -z "$INST_ID" ]; then echo "ERROR: --github-app-key needs --github-app-id and --github-installation-id" >&2; exit 2; fi
   [ -r "$KEY" ] || { echo "ERROR: cannot read $KEY" >&2; exit 2; }
   mode=$(stat -f '%Lp' "$KEY" 2>/dev/null || stat -c '%a' "$KEY"); case "$mode" in *[1-7][0-7]|*[0-7][1-7]) echo "ERROR: $KEY is mode $mode; make it 0600" >&2; exit 2;; esac
   printf 'appId %s\ninstallationId %s\nprivateKey %s\n' "$(b64 "$APP_ID")" "$(b64 "$INST_ID")" "$(base64 <"$KEY" | tr -d '\n')" | apply_secret "$NS" cmapi-github-app
