@@ -1,8 +1,17 @@
 """Builds the ephico2real realm on a local Keycloak through the admin REST API.
 
 Mirrors examples/cmapi-sso/realm/ephico2real.yaml and the v2 "Identity claims" section, without LDAP:
-the users are local, with employeeId and middleName set directly. Idempotent: run it again and it
-skips what exists.
+the users are local, with employeeId and middleName set directly. The realm is rebuilt from scratch
+on every run, so it always matches this file.
+
+Access is by role only (config/authz-roles.yaml): no team groups, no namespace-name scoping.
+    ola       cmapi-requester  (group /cmapi/cmapi-requesters)      create, change, delete
+    amy       cmapi-approver   (group /cmapi/cmapi-platform-leads)  approve, nothing else
+    opal      cmapi-operator + cmapi-approver (/cmapi/cmapi-platform-operators)
+    bot-user  cmapi-onboarding, assigned to the account directly: a local automation account (an AI
+              agent signs in as it through the cmapi-automation client) that may create namespaces and nothing else; no employee ID
+    svc-payments-ci   a service-account client holding cmapi-requester
+Anyone else is given cmapi-onboarding by joining the group /cmapi/cmapi-onboarding.
 
     python keycloak_setup.py            # Keycloak at http://localhost:8080, admin/admin
 """
@@ -16,13 +25,14 @@ import httpx
 KC = os.environ.get("KC_URL", "http://localhost:8080")
 REALM = "ephico2real"
 API = "cmapi-nonprod"                       # the instance's resource client (audience)
-ROLES = ["cmapi-viewer", "cmapi-requester", "cmapi-approver", "cmapi-operator", "cmapi-admin",
+ROLES = ["cmapi-viewer", "cmapi-onboarding", "cmapi-requester", "cmapi-approver", "cmapi-operator", "cmapi-admin",
          "cmapi-auditor", "cmapi-approval-relay"]
-GROUPS = {"cmapi-payments-requesters": ["cmapi-requester"],
+GROUPS = {"cmapi-requesters": ["cmapi-requester"],
+          "cmapi-onboarding": ["cmapi-onboarding"],
           "cmapi-platform-leads": ["cmapi-approver"],
           "cmapi-platform-operators": ["cmapi-operator", "cmapi-approver"]}
 USERS = [  # username, first, middle, last, employeeId, groups
-    ("ola", "Ola", "A", "Adeyemi", "1001", ["cmapi-payments-requesters"]),
+    ("ola", "Ola", "A", "Adeyemi", "1001", ["cmapi-requesters"]),
     ("amy", "Amy", "B", "Lee", "1002", ["cmapi-platform-leads"]),
     ("opal", "Opal", None, "Ng", "1003", ["cmapi-platform-operators"]),
 ]
@@ -40,6 +50,8 @@ def main() -> None:
             sys.exit(f"{r.request.method} {r.request.url}: {r.status_code} {r.text}")
         return r
 
+    if c.get(f"/{REALM}").status_code == 200:
+        ok(c.delete(f"/{REALM}"))
     ok(c.post("", json={"realm": REALM, "enabled": True, "accessTokenLifespan": 300,
                         "displayName": "ephico2real (local)"}))
     r = f"/{REALM}"
@@ -84,6 +96,10 @@ def main() -> None:
     # cmapi-cli: the public client people sign in with (password grant only for this local demo)
     client({"clientId": "cmapi-cli", "publicClient": True, "directAccessGrantsEnabled": True,
             "standardFlowEnabled": False})
+    # cmapi-automation: password grant for local automation accounts (bot-user) only; people use
+    # cmapi-cli here, and the device flow or the portal in production
+    client({"clientId": "cmapi-automation", "publicClient": True, "directAccessGrantsEnabled": True,
+            "standardFlowEnabled": False})
     # svc-payments-ci: a pipeline (client credentials) holding cmapi-requester
     svc_id = client({"clientId": "svc-payments-ci", "publicClient": False, "secret": "svc-secret",
                      "serviceAccountsEnabled": True, "standardFlowEnabled": False})
@@ -119,6 +135,14 @@ def main() -> None:
         uid = ok(c.get(f"{r}/users", params={"username": username, "exact": "true"})).json()[0]["id"]
         for g in groups:
             ok(c.put(f"{r}/users/{uid}/groups/{existing[g]}"))
+    # bot-user: a local account (not from LDAP) for automation, e.g. an AI agent. No employee ID: it
+    # holds an automation role (identity.automationRoles). The role is assigned to the account itself.
+    ok(c.post(f"{r}/users", json={
+        "username": "bot-user", "enabled": True, "emailVerified": True, "email": "bot-user@ephico2real.com",
+        "firstName": "Onboarding", "lastName": "Bot",
+        "credentials": [{"type": "password", "value": PASSWORD, "temporary": False}]}))
+    bot = ok(c.get(f"{r}/users", params={"username": "bot-user", "exact": "true"})).json()[0]["id"]
+    ok(c.post(f"{r}/users/{bot}/role-mappings/clients/{api_id}", json=[roles["cmapi-onboarding"]]))
     print(f"realm {REALM} ready at {KC}/realms/{REALM}")
 
 

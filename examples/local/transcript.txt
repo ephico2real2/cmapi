@@ -1,4 +1,5 @@
 # cmapi local end-to-end run
+instance nonprod, cluster OCP_LOCAL (existing, v1.31.4+k3s1), issuer http://localhost:8080/realms/ephico2real
 
 ### 1. Who am I (ola, from the Keycloak token)
 -> 200
@@ -8,13 +9,10 @@
     "cmapi-requester"
   ],
   "groups": [
-    "/cmapi/cmapi-payments-requesters"
-  ],
-  "teams": [
-    "payments"
+    "/cmapi/cmapi-requesters"
   ],
   "identity": {
-    "sub": "96d48d68-f16b-4818-a305-fd1140271f55",
+    "sub": "389f22d2-8a5b-4830-bc1c-a344b6b2a07b",
     "username": "ola",
     "email": "ola@ephico2real.com",
     "givenName": "Ola",
@@ -23,6 +21,38 @@
     "employeeId": "1001",
     "kind": "user",
     "clientId": "cmapi-cli"
+  },
+  "access": {
+    "roles": [
+      {
+        "role": "cmapi-requester",
+        "permissions": [
+          "capacity:read",
+          "clusters:read",
+          "grants:write",
+          "namespaces:create",
+          "namespaces:write",
+          "objects:read",
+          "quotas:write",
+          "requests:cancel",
+          "requests:read",
+          "serviceaccounts:write"
+        ],
+        "environments": "all"
+      }
+    ],
+    "permissions": [
+      "capacity:read",
+      "clusters:read",
+      "grants:write",
+      "namespaces:create",
+      "namespaces:write",
+      "objects:read",
+      "quotas:write",
+      "requests:cancel",
+      "requests:read",
+      "serviceaccounts:write"
+    ]
   }
 }
 
@@ -75,12 +105,14 @@
   }
 }
 
-### 3. Refusals at plan time
-- namespace outside ola's binding (ledger-*): 403 cluster-scope-forbidden No scope binding covers OCP_LOCAL/dev/ledger-dev
+### 3. Refusals at plan time (roles decide who may call; names are free except reserved ones)
+- amy holds only cmapi-approver: no namespaces:create: 403 forbidden Missing permission namespaces:create: no role in your token grants it (roles: ['cmapi-approver'])
+- a reserved name: 422 reserved-namespace kube-tools is reserved (kube-*)
+- a namespace on the cluster that cmapi does not manage: 409 namespace-exists-unmanaged legacy-app already exists on the cluster and cmapi does not manage it; ask for adoption instead
 - team DL outside the email domains: 422 policy-violation [{'code': 'invalid-team-dl', 'key': 'cmapi.net/team-dl', 'detail': "not an address in ['ephico2real.com']"}]
 - quota sent with a named tier: 422 policy-violation [{'code': 'quota-with-named-tier', 'tier': 'medium'}]
 - a system key set by the caller: 422 policy-violation [{'code': 'reserved_key', 'key': 'cmapi.net/tier'}]
-- a service client without onBehalfOf: 422 on-behalf-of-required A service client must name the person the request is for
+- allowed: ola plans ledger-dev for team ledger (no team or prefix gate): 200, approval auto:baseline-rnd-namespace
 
 ### 4. Dry run: payments-dev, medium, expires 2026-12-15
 -> 200
@@ -110,11 +142,11 @@
 }
 
 ### 5. Submit payments-dev -> 202 req-20261104-0001 approved (auto:baseline-rnd-namespace)
-   00:18:56  approved          ola             auto:baseline-rnd-namespace
-   00:18:57  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-dev/req-20261104-0001
-   00:18:58  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
-   00:18:58  merged            cmapi-bot       merged bfa4d688
-   00:18:59  synced            argocd-standin  applied 4 files; confirmed by a read
+   03:17:04  approved          ola             auto:baseline-rnd-namespace
+   03:17:05  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-dev/req-20261104-0001
+   03:17:06  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
+   03:17:06  merged            cmapi-bot       merged d3635314
+   03:17:08  synced            argocd-standin  applied 4 files; confirmed by a read
 $ kubectl get ns payments-dev --show-labels
 NAME           STATUS   AGE   LABELS
 payments-dev   Active   1s    app.ephico2real.com/component=api,cmapi.net/cluster-id=OCP_LOCAL,cmapi.net/cost-center=cc-4410,cmapi.net/env=dev,cmapi.net/expiry=managed,cmapi.net/managed=true,cmapi.net/requested-by-user=ola,cmapi.net/team=payments,cmapi.net/tier=medium,kubernetes.io/metadata.name=payments-dev,network.ephico2real.com/zone=internal
@@ -123,27 +155,37 @@ NAME                               AGE   REQUEST                                
 resourcequota/payments-dev-quota   1s    persistentvolumeclaims: 0/30, pods: 0/100, requests.cpu: 0/16, requests.memory: 0/32Gi, requests.storage: 0/500Gi, services.loadbalancers: 0/0, services.nodeports: 0/0   
 
 NAME                             CREATED AT
-limitrange/payments-dev-limits   2026-11-05T00:18:59Z
+limitrange/payments-dev-limits   2026-11-05T03:17:07Z
 
 ### 6. payments-batch, large -> 202 req-20261104-0002 pending_approval; needs [{'group': 'platform-leads', 'count': 1, 'reason': 'dev create: 1 from platform-leads'}]; auto-approval stopped by: None
 - ola (a requester, no approver role) tries to approve: 403 forbidden
 - opal (approver, but in platform-operators, not platform-leads): 403 not-eligible
 - amy's queue: ['req-20261104-0002']
 - amy approves: 200 -> approved
-   00:19:01  pending_approval  ola             waiting for [('platform-leads', 1)]
-   00:19:01  pending_approval  amy             batch sizing reviewed
-   00:19:01  approved          amy             approval count met
-   00:19:02  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-batch/req-20261104-0002
-   00:19:03  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
-   00:19:03  merged            cmapi-bot       merged 60d2117a
-   00:19:05  synced            argocd-standin  applied 4 files; confirmed by a read
+   03:17:09  pending_approval  ola             waiting for [('platform-leads', 1)]
+   03:17:09  pending_approval  amy             batch sizing reviewed
+   03:17:09  approved          amy             approval count met
+   03:17:10  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-batch/req-20261104-0002
+   03:17:11  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
+   03:17:11  merged            cmapi-bot       merged ff0c5862
+   03:17:13  synced            argocd-standin  applied 4 files; confirmed by a read
 
 ### 7. svc-payments-ci on behalf of employee 1001 -> 202 req-20261104-0003 approved
 - recorded requester: ola (1001), submitted by svc-payments-ci
 $ kubectl get ns payments-ci-dev -o jsonpath={.metadata.labels.cmapi\.net/requested-by-user}{"\n"}
 ola
+- the same client without onBehalfOf: 200; requester svc-payments-ci, automated True
 
-### 8a. Tier change payments-dev medium -> large (dry run)
+### 8. bot-user: a local Keycloak account with the cmapi-onboarding role (an AI agent signs in as it)
+- roles ['cmapi-onboarding'], employee ID None, permissions ['capacity:read', 'clusters:read', 'namespaces:create', 'objects:read', 'requests:cancel', 'requests:read']
+- creates agent-sandbox -> 202 req-20261104-0004 approved (auto:baseline-rnd-namespace); requester bot-user, automated True
+$ kubectl get ns agent-sandbox -L cmapi.net/requested-by-user,cmapi.net/team,cmapi.net/tier
+NAME            STATUS   AGE   REQUESTED-BY-USER   TEAM          TIER
+agent-sandbox   Active   0s    bot-user            platform-ai   small
+- bot-user changes it: 403 forbidden: Missing permission namespaces:write: no role in your token grants it (roles: ['cmapi-onboarding'])
+- bot-user deletes it: 403 forbidden
+
+### 9a. Tier change payments-dev medium -> large (dry run)
 -> 200
 {
   "changes": {
@@ -161,70 +203,75 @@ ola
     ]
   }
 }
-8b. submitted req-20261104-0004 -> synced
+9b. submitted req-20261104-0005 -> synced
 $ kubectl get resourcequota payments-dev-quota -n payments-dev -o jsonpath={.spec.hard}{"  tier-hash="}{.metadata.annotations.cmapi\.net/tier-hash}{"\n"}
 {"persistentvolumeclaims":"50","pods":"200","requests.cpu":"32","requests.memory":"64Gi","requests.storage":"1Ti","services.loadbalancers":"0","services.nodeports":"0"}  tier-hash=bf4dba82fcec
 
-### 9. Extend payments-dev by 40 days -> 422 expiration-limit: One extension adds at most 30 days
-- by 30 days -> req-20261104-0005 synced
+### 10. Extend payments-dev by 40 days -> 422 expiration-limit: One extension adds at most 30 days
+- by 30 days -> req-20261104-0006 synced
 $ kubectl get ns payments-dev -o jsonpath={.metadata.annotations.cmapi\.net/expires-at}{"\n"}
 2027-01-14
 
-### 10. Sensitive key network.ephico2real.com/zone internal -> dmz -> 202 pending_approval; slots [('platform-leads', 1)]; reasons ['dev change: 0 from platform-leads', 'threshold sensitiveKeyChanged: +1 platform-leads']
+### 11. Sensitive key network.ephico2real.com/zone internal -> dmz -> 202 pending_approval; slots [('platform-leads', 1)]; reasons ['dev change: 0 from platform-leads', 'threshold sensitiveKeyChanged: +1 platform-leads']
 - after amy: synced
 
-### 11. GET /quotas (limit 2) -> total 3, facets {'near-limit': 0, 'tier-outdated': 0}
+### 12. GET /quotas (limit 2) -> total 4, facets {'near-limit': 0, 'tier-outdated': 0}
+   agent-sandbox    tier=small  cpu=['0', '8'] memory=['0', '16Gi'] expires=None
    payments-batch   tier=large  cpu=['0', '32'] memory=['0', '64Gi'] expires=None
-   payments-ci-dev  tier=small  cpu=['0', '8'] memory=['0', '16Gi'] expires=None
-   next page: ['payments-dev'] (from 3 to 3)
+   next page: ['payments-ci-dev', 'payments-dev'] (from 3 to 4)
 
-### 12. Delete payments-ci-dev -> 202 req-20261104-0007 pending_approval; slots [{'group': 'platform-leads', 'count': 1, 'reason': 'dev delete: 1 from platform-leads'}]
+### 13. Delete payments-ci-dev -> 202 req-20261104-0008 pending_approval; slots [{'group': 'platform-leads', 'count': 1, 'reason': 'dev delete: 1 from platform-leads'}]
 - merged, then: awaiting_prune (Prune=confirm)
 $ kubectl get ns payments-ci-dev
 NAME              STATUS   AGE
-payments-ci-dev   Active   20s
+payments-ci-dev   Active   28s
 - opal confirms the prune -> 200 synced
-   00:19:26  pending_approval  ola             
-   00:19:26  pending_approval  amy             CI namespace no longer used
-   00:19:26  approved          amy             approval count met
-   00:19:26  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0007
-   00:19:27  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
-   00:19:28  merged            cmapi-bot       merged 6ef97963
-   00:19:29  awaiting_prune    argocd-standin  Prune=confirm: waiting for an operator
-   00:19:29  synced            opal            operator confirmed the prune
+   03:17:40  pending_approval  ola             
+   03:17:40  pending_approval  amy             CI namespace no longer used
+   03:17:40  approved          amy             approval count met
+   03:17:41  pr_open           cmapi-bot       cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0008
+   03:17:42  pr_open           ci              kubeconform+kyverno: pass; cmapi check: pass
+   03:17:42  merged            cmapi-bot       merged 4ef4f40e
+   03:17:43  awaiting_prune    argocd-standin  Prune=confirm: waiting for an operator
+   03:17:45  synced            opal            operator confirmed the prune
 
-### 13. cluster-configs-nonprod history (bot PRs, merged --no-ff)
-*   6ef9796 Merge cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0007
+### 14. cluster-configs-nonprod history (bot PRs, merged --no-ff)
+*   4ef4f40 Merge cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0008
 |\  
-| * 8d7949e delete payments-ci-dev (req-20261104-0007)
+| * fa9aa3c delete payments-ci-dev (req-20261104-0008)
 |/  
-*   82b2e26 Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0006
+*   b8a56ae Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0007
 |\  
-| * 210c294 update payments-dev (req-20261104-0006)
+| * 5b6cbd8 update payments-dev (req-20261104-0007)
 |/  
-*   7b55a49 Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0005
+*   3391f9b Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0006
 |\  
-| * f0d66d3 update payments-dev (req-20261104-0005)
+| * 542965f update payments-dev (req-20261104-0006)
 |/  
-*   ec81c27 Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0004
+*   7d50e1c Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0005
 |\  
-| * dd02bc2 update payments-dev (req-20261104-0004)
+| * c6b01fb update payments-dev (req-20261104-0005)
 |/  
-*   ce5cc0e Merge cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0003
+*   50bae95 Merge cmapi/OCP_LOCAL/agent-sandbox/req-20261104-0004
 |\  
-| * 67f20bf create payments-ci-dev (req-20261104-0003)
+| * 9b551a9 create agent-sandbox (req-20261104-0004)
 |/  
-*   60d2117 Merge cmapi/OCP_LOCAL/payments-batch/req-20261104-0002
+*   3ed8fff Merge cmapi/OCP_LOCAL/payments-ci-dev/req-20261104-0003
 |\  
-| * 3134345 create payments-batch (req-20261104-0002)
+| * 664f3ad create payments-ci-dev (req-20261104-0003)
 |/  
-*   bfa4d68 Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0001
+*   ff0c586 Merge cmapi/OCP_LOCAL/payments-batch/req-20261104-0002
 |\  
-| * 5f1db19 create payments-dev (req-20261104-0001)
+| * 6fffc3f create payments-batch (req-20261104-0002)
 |/  
-* 34cd540 cluster-configs: initial layout
+*   d363531 Merge cmapi/OCP_LOCAL/payments-dev/req-20261104-0001
+|\  
+| * 1001f5f create payments-dev (req-20261104-0001)
+|/  
+* 580d7f8 cluster-configs: initial layout
 $ kubectl get ns -l cmapi.net/managed=true -L cmapi.net/tier,cmapi.net/env,cmapi.net/team
 NAME              STATUS        AGE   TIER    ENV   TEAM
-payments-batch    Active        24s   large   dev   payments
-payments-ci-dev   Terminating   20s   small   dev   payments
-payments-dev      Active        30s   large   dev   payments
+agent-sandbox     Active        21s   small   dev   platform-ai
+payments-batch    Active        33s   large   dev   payments
+payments-ci-dev   Terminating   28s   small   dev   payments
+payments-dev      Active        38s   large   dev   payments

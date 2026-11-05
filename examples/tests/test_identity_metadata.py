@@ -1,6 +1,6 @@
 import pytest
 
-from cmapi.core.authz import Binding, allowed, teams_for
+from cmapi.core.authz import RolePolicy
 from cmapi.core.errors import Problem
 from cmapi.core.identity.checks import check_team_dl, email_in_domains, resolve_requester
 from cmapi.core.identity.claims import Identity, Person
@@ -16,7 +16,7 @@ DOMAINS = ["ephico2real.com"]
 def test_identity_from_claims():
     i = Identity.from_claims({"sub": "u1", "preferred_username": "Ola", "email": "ola@ephico2real.com",
                               "given_name": "Ola", "middle_name": "A", "family_name": "B", "employee_id": "123",
-                              "azp": "cmapi-portal", "groups": ["/cmapi/cmapi-payments-requesters"],
+                              "azp": "cmapi-portal", "groups": ["/cmapi/cmapi-requesters"],
                               "resource_access": {"cmapi-nonprod": {"roles": ["cmapi-requester"]}}}, "cmapi-nonprod")
     assert i.kind == "user" and i.label_value == "ola" and i.employee_id == "123"
     assert i.roles == {"cmapi-requester"} and i.record()["middleName"] == "A"
@@ -37,7 +37,6 @@ def test_requester_rules(directory):
     assert resolve_requester(ola, None, directory).username == "ola"
     for caller, obo, code in [(ola, "x", "on-behalf-of-not-allowed"),
                               (person("ola", employee_id=None), None, "identity-incomplete"),
-                              (person("svc-ci", kind="service", client="svc-ci"), None, "on-behalf-of-required"),
                               (person("svc-ci", kind="service", client="svc-ci"), "gone", "unknown-user"),
                               (person("svc-ci", kind="service", client="svc-ci"), "nobody", "unknown-user")]:
         with pytest.raises(Problem) as e:
@@ -46,6 +45,15 @@ def test_requester_rules(directory):
     svc = person("svc-ci", kind="service", client="svc-ci")
     r = resolve_requester(svc, "123", directory)                   # by employee ID
     assert r.username == "ola" and r.record()["submittedByClient"] == "svc-ci"
+
+
+def test_a_bot_requests_in_its_own_name(directory):
+    svc = person("svc-ci", kind="service", client="svc-ci")
+    r = resolve_requester(svc, None, directory)                    # identity.requireOnBehalfOf: false
+    assert r.username == "svc-ci" and "submittedByClient" not in r.record()
+    with pytest.raises(Problem) as e:
+        resolve_requester(svc, None, directory, require_on_behalf_of=True)
+    assert e.value.code == "on-behalf-of-required"
 
 
 def test_cache_serves_stale_when_directory_is_down(directory):
@@ -116,20 +124,21 @@ def test_classes(keys):
 def test_valid_create(keys):
     labels = {"cmapi.net/team": "payments", "cmapi.net/cost-center": "cc-4410", "app.ephico2real.com/component": "api"}
     ann = {"cmapi.net/team-dl": "payments-team@ephico2real.com"}
-    assert keys.validate(labels, ann, operator=False, teams={"payments"}, require_governed=True) == []
+    assert keys.validate(labels, ann, operator=False, require_governed=True) == []
+    # any team value is accepted: cmapi.net/team is ownership metadata, not checked against the caller
+    assert keys.validate({**labels, "cmapi.net/team": "ledger"}, ann, operator=False, require_governed=True) == []
 
 
 def test_refusals(keys):
     errs = keys.validate({"cmapi.net/team": "ledger", "cmapi.net/tier": "large", "Bad Key": "x",
                           "cmapi.net/cost-center": "4410"},
                          {"cmapi.net/team-dl": "dl@other.com", "kubernetes.io/x": "y"},
-                         operator=False, teams={"payments"}, require_governed=True)
-    assert codes(errs) == sorted(["team_not_bound", "reserved_key", "invalid_key", "invalid_value",
-                                  "invalid-team-dl", "reserved_key"])
-    missing = keys.validate({}, {}, operator=False, teams=set(), require_governed=True)
+                         operator=False, require_governed=True)
+    assert codes(errs) == sorted(["reserved_key", "invalid_key", "invalid_value", "invalid-team-dl", "reserved_key"])
+    missing = keys.validate({}, {}, operator=False, require_governed=True)
     assert codes(missing) == ["missing_required_key", "missing_required_key"]
     with pytest.raises(Problem) as e:
-        keys.check({"cmapi.net/protected": "true"}, {}, operator=False, teams=set(), require_governed=False)
+        keys.check({"cmapi.net/protected": "true"}, {}, operator=False, require_governed=False)
     assert e.value.status == 403
 
 
@@ -147,32 +156,67 @@ def test_render_order(keys):
     assert list(ordered) == ["cmapi.net/cluster-id", "cmapi.net/tier", "cmapi.net/team", "app.ephico2real.com/c"]
 
 
-# ---- scope bindings
-def test_bindings_and_teams(ex):
+# ---- roles (authz-roles.yaml): no team or namespace-name scoping
+def test_roles_gate_by_permission_not_by_namespace(ex):
     import yaml
-    bs = [Binding.from_dict(b) for b in yaml.safe_load((ex / "config/authz-scopes.yaml").read_text())["bindings"]]
-    ola = person("ola", roles={"cmapi-requester"}, groups={"/cmapi/cmapi-payments-requesters"})
-    assert allowed(ola, "namespaces:write", bs, "OCP_GF1", "prod", "payments-prod")
-    assert not allowed(ola, "namespaces:write", bs, "OCP_GF1", "prod", "ledger-prod")
-    assert not allowed(ola, "requests:approve", bs, "OCP_GF1", "prod", "payments-prod")
-    assert teams_for(ola, bs) == {"payments"}
+    pol = RolePolicy(yaml.safe_load((ex / "instances/nonprod/authz-roles.yaml").read_text()), {"rnd", "dev"})
+    ola = person("ola", roles={"cmapi-requester"})
+    assert pol.allowed(ola, "namespaces:write", "dev") and pol.allowed(ola, "namespaces:write", "rnd")
+    assert not pol.allowed(ola, "requests:approve", "dev")
+    viewer = person("vic", roles={"cmapi-viewer"})
+    with pytest.raises(Problem) as e:
+        pol.require(viewer, "namespaces:write", "dev")
+    assert e.value.status == 403 and e.value.code == "forbidden"
+    nobody = person("x", roles=set())
+    assert pol.permissions(nobody) == frozenset()
+
+
+def test_a_role_limited_to_some_environments(ex):
+    import yaml
+    pol = RolePolicy(yaml.safe_load((ex / "instances/nonprod/authz-roles.yaml").read_text()), {"rnd", "dev"})
+    bot = person("svc-bot", kind="service", client="svc-bot", roles={"cmapi-bot-rnd"})
+    assert pol.allowed(bot, "namespaces:write", "rnd")
+    with pytest.raises(Problem) as e:
+        pol.require(bot, "namespaces:write", "dev")
+    assert e.value.code == "environment-forbidden"
+    assert pol.environments(bot, "namespaces:write") == {"rnd"}
+    both = person("svc-bot", kind="service", client="svc-bot", roles={"cmapi-bot-rnd", "cmapi-requester"})
+    assert pol.allowed(both, "namespaces:write", "dev")             # roles add up
+
+
+def test_role_policy_config_errors():
+    for raw, msg in [({"roles": {"x": {"permissions": ["namespaces:write", "teleport"]}}}, "unknown permissions"),
+                     ({"roles": {"x": {"inherits": ["y"]}, "y": {"inherits": ["x"]}}}, "inherits itself"),
+                     ({"roles": {"x": {"inherits": ["cmapi-nope"]}}}, "unknown role"),
+                     ({"roles": {"x": {"inherits": ["cmapi-requester"], "environments": ["prod"]}}}, "not served")]:
+        with pytest.raises(ValueError, match=msg):
+            RolePolicy(raw, {"rnd", "dev"})
+    quota = RolePolicy({"roles": {"cmapi-quota-editor": {"permissions": ["objects:read", "quotas:write"]}}})
+    assert quota.permissions(person("q", roles={"cmapi-quota-editor"})) == {"objects:read", "quotas:write"}
+
+
+def test_every_instance_config_loads():
+    from cmapi.core.config import load_instance
+    for name in ["nonprod", "staging", "prod"]:
+        cfg = load_instance(EX / "instances" / name, EX / "cluster-configs/policies/metadata-keys.yaml")
+        assert cfg.roles.allowed(person("ola", roles={"cmapi-requester"}), "namespaces:write")
 
 
 # ---- regressions from the code review
 def test_trailing_newlines_refused(keys):
     errs = keys.validate({"cmapi.net/cost-center": "cc-4410\n", "foo\n": "x"},
                          {"cmapi.net/team-dl": "team\n@ephico2real.com"},
-                         operator=False, teams={"payments"}, require_governed=False)
+                         operator=False, require_governed=False)
     assert codes(errs) == ["invalid-team-dl", "invalid_key", "invalid_value"]
 
 
 def test_patch_cannot_remove_a_required_key(keys):
     current_l = {"cmapi.net/team": "payments"}
     current_a = {"cmapi.net/team-dl": "payments-team@ephico2real.com"}
-    errs = keys.validate({"cmapi.net/team": None}, {}, operator=False, teams={"payments"},
+    errs = keys.validate({"cmapi.net/team": None}, {}, operator=False,
                          current_labels=current_l, current_annotations=current_a)
     assert codes(errs) == ["missing_required_key"]
-    assert keys.validate({"app.ephico2real.com/x": "1"}, {}, operator=False, teams={"payments"},
+    assert keys.validate({"app.ephico2real.com/x": "1"}, {}, operator=False,
                          current_labels=current_l, current_annotations=current_a) == []
 
 
@@ -180,3 +224,47 @@ def test_first_set_of_a_sensitive_key_is_not_a_change(keys):
     # found by the local end-to-end run: every create set cmapi.net/team and needed platform-leads
     assert keys.change_facts({}, {"cmapi.net/team": "payments"})["sensitiveKeyChanged"] is False
     assert keys.change_facts({"network.ephico2real.com/zone": "a"}, {})["sensitiveKeyChanged"] is True
+
+
+# ---- onboarding role, automation accounts, namespace names
+def test_onboarding_role_creates_and_nothing_else():
+    pol = RolePolicy()
+    bot = person("bot-user", roles={"cmapi-onboarding"}, employee_id=None)
+    assert pol.allowed(bot, "namespaces:create", "dev")
+    for perm in ["namespaces:write", "quotas:write", "requests:approve", "operations:run"]:
+        assert not pol.allowed(bot, perm, "dev"), perm
+    ola = person("ola", roles={"cmapi-requester"})
+    assert pol.allowed(ola, "namespaces:create") and pol.allowed(ola, "namespaces:write")
+
+
+def test_automation_account_needs_no_employee_id(directory):
+    bot = person("bot-user", roles={"cmapi-onboarding"}, employee_id=None)
+    r = resolve_requester(bot, None, directory)
+    assert r.username == "bot-user" and r.automated and r.record()["automated"] is True
+    r2 = resolve_requester(bot, "ola", directory)                   # an agent acting for a person
+    assert r2.username == "ola" and r2.record()["submittedBy"] == "bot-user"
+    human = person("ann", roles={"cmapi-requester"}, employee_id=None)
+    with pytest.raises(Problem) as e:
+        resolve_requester(human, None, directory)
+    assert e.value.code == "identity-incomplete"
+    assert resolve_requester(person("ola"), None, directory).automated is False
+
+
+def test_namespace_names():
+    from cmapi.core.naming import check_name, check_not_unmanaged, reserved
+    check_name("ledger-dev")
+    check_name("agent-sandbox", ["ocp-*"])
+    for bad, code in [("Payments", "invalid-namespace-name"), ("a", "invalid-namespace-name"),
+                      ("-x", "invalid-namespace-name"), ("x" * 64, "invalid-namespace-name"),
+                      ("ok\n", "invalid-namespace-name"), ("default", "reserved-namespace"),
+                      ("kube-tools", "reserved-namespace"), ("openshift-x", "reserved-namespace"),
+                      ("ocp-tools", "reserved-namespace")]:
+        with pytest.raises(Problem) as e:
+            check_name(bad, ["ocp-*"])
+        assert e.value.code == code, bad
+    assert reserved("cmapi-system") == "cmapi-system" and reserved("payments") is None
+    check_not_unmanaged("x", None)
+    check_not_unmanaged("x", {"metadata": {"labels": {"cmapi.net/managed": "true"}}})
+    with pytest.raises(Problem) as e:
+        check_not_unmanaged("legacy-app", {"metadata": {"labels": {}}})
+    assert e.value.status == 409 and e.value.code == "namespace-exists-unmanaged"

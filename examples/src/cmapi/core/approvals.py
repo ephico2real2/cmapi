@@ -21,7 +21,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from cmapi.core.authz import ROLE_PERMISSIONS, group_path
+from cmapi.core.authz import group_path, permissions as builtin_permissions
 from cmapi.core.errors import Problem
 from cmapi.core.expression import Expression
 from cmapi.core.identity.claims import Identity
@@ -254,15 +254,20 @@ class ApprovalLedger:
                 need[g] = need.get(g, 0) + 1
         return [{"group": g, "needed": n} for g, n in need.items()]
 
-    def approve(self, approver: Identity, *, scope_ok: bool, relay: Identity | None = None,
-                comment: str = "") -> bool:
-        """approver is the eligible person; relay is the channel client (approvals:relay) if any."""
-        if relay is not None and "approvals:relay" not in _perms(relay):
-            raise Problem.forbidden("Relay client lacks approvals:relay")
-        if not {"requests:approve"} <= _perms(approver):
-            raise Problem.forbidden("Missing permission requests:approve")
-        if not scope_ok:
-            raise Problem.forbidden("No scope binding covers this request", code="cluster-scope-forbidden")
+    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,
+                relay_permitted: bool | None = None, comment: str = "") -> bool:
+        """approver is the eligible person; relay is the channel client (approvals:relay) if any.
+
+        permitted / relay_permitted: whether the instance's role policy grants requests:approve (in
+        this request's environment) and approvals:relay. None falls back to the built-in roles.
+        """
+        if relay is not None:
+            ok = relay_permitted if relay_permitted is not None else "approvals:relay" in builtin_permissions(relay)
+            if not ok:
+                raise Problem.forbidden("Relay client lacks approvals:relay")
+        ok = permitted if permitted is not None else "requests:approve" in builtin_permissions(approver)
+        if not ok:
+            raise Problem.forbidden("Missing permission requests:approve for this environment")
         if approver.sub in {e["sub"] for e in self.entries}:
             raise Problem.conflict("already-approved", "This person already approved the request")
         if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:
@@ -277,6 +282,3 @@ class ApprovalLedger:
         self.entries.append(entry)
         return self.met
 
-
-def _perms(who: Identity) -> frozenset[str]:
-    return frozenset().union(*(ROLE_PERMISSIONS.get(r, frozenset()) for r in who.roles))

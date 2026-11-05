@@ -113,13 +113,13 @@ def test_ledger_fills_slots_by_group(rules):
     a = person("amy", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
     b = person("bob", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
     c = person("cat", groups={"/cmapi/cmapi-platform-leads"}, **APPROVER)
-    assert not led.approve(a, scope_ok=True)
+    assert not led.approve(a)
     with pytest.raises(Problem) as e:
-        led.approve(a, scope_ok=True)
+        led.approve(a)
     assert e.value.code == "already-approved"
-    assert not led.approve(b, scope_ok=True)
+    assert not led.approve(b)
     assert led.remaining() == [{"group": "platform-leads", "needed": 1}]
-    assert led.approve(c, scope_ok=True)
+    assert led.approve(c)
 
 
 def test_ledger_eligibility(rules):
@@ -130,17 +130,17 @@ def test_ledger_eligibility(rules):
                       (person("dan", groups={"/cmapi/cmapi-qa-leads"}, **APPROVER), "not-eligible"),
                       (person("eve", groups={"/cmapi/cmapi-prod-approvers"}, roles={"cmapi-viewer"}), "forbidden")]:
         with pytest.raises(Problem) as e:
-            led.approve(who, scope_ok=True)
+            led.approve(who)
         assert e.value.code == code
     with pytest.raises(Problem) as e:
-        led.approve(person("fay", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), scope_ok=False)
-    assert e.value.code == "cluster-scope-forbidden"
+        led.approve(person("fay", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), permitted=False)
+    assert e.value.code == "forbidden"            # the instance's roles do not grant approve in this environment
 
 
 def test_self_approval_where_the_environment_allows_it(rules):
     req = rules.decide(facts(environment="rnd", namespace="payments-rnd", tier="large"))
     led = ApprovalLedger(req, requester_sub="sub-ola")
-    assert led.approve(person("ola", groups={"/cmapi/cmapi-platform-leads"}, **APPROVER), scope_ok=True)
+    assert led.approve(person("ola", groups={"/cmapi/cmapi-platform-leads"}, **APPROVER))
 
 
 def test_relay_names_an_eligible_person(rules):
@@ -148,7 +148,7 @@ def test_relay_names_an_eligible_person(rules):
     led = ApprovalLedger(req, requester_sub="sub-ola")
     relay = person("svc-servicenow", kind="service", client="svc-servicenow", roles={"cmapi-approval-relay"})
     amy = person("amy", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
-    assert led.approve(amy, scope_ok=True, relay=relay)
+    assert led.approve(amy, relay=relay)
     assert led.entries[0]["relayedBy"] == "svc-servicenow"
 
 
@@ -182,8 +182,8 @@ def test_multi_group_approver_counts_where_needed(rules):
     led = ApprovalLedger(req, requester_sub="sub-ola")
     both = person("amy", groups={"/cmapi/cmapi-prod-approvers", "/cmapi/cmapi-platform-leads"}, **APPROVER)
     prod_only = person("bob", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
-    assert not led.approve(both, scope_ok=True)
-    assert led.approve(prod_only, scope_ok=True)                          # amy moves to platform-leads
+    assert not led.approve(both)
+    assert led.approve(prod_only)                          # amy moves to platform-leads
 
 
 def test_on_behalf_of_person_cannot_self_approve(rules):
@@ -194,7 +194,7 @@ def test_on_behalf_of_person_cannot_self_approve(rules):
     who = resolve_requester(person("svc-ci", kind="service", client="svc-ci"), "ola", d)
     led = ApprovalLedger(rules.decide(facts()), requester_sub=who.sub)
     with pytest.raises(Problem) as e:
-        led.approve(person("ola", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), scope_ok=True)
+        led.approve(person("ola", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER))
     assert e.value.code == "self-approval"
 
 

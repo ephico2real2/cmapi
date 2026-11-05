@@ -2,15 +2,15 @@
 
     LocalGit          GitProvider  bare repo + bot clone; a "PR" is a branch, merged --no-ff with an expected head
     LocalValidator    Validator    kubeconform + the Kyverno CLI on the rendered files (fails on 0 rules applied)
-    K3sCluster        KubeReader + the Argo CD stand-in: applies merged folders server-side, holds deletes
-                      until an operator confirms the prune
+    KubeCluster       KubeReader + the Argo CD stand-in: applies merged folders server-side, holds deletes
+                      until an operator confirms the prune. Any cluster kubectl can reach: k3s, kind, or an
+                      existing one (KUBECONFIG and an optional context)
     SimulatedCapacity CapacityBackend: commitment against the size in config/clusters.yaml
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from decimal import Decimal
@@ -19,10 +19,10 @@ from typing import Any, Mapping
 
 import yaml
 
-from cmapi.core.ports import CapacityResult, Finding, PrRef, PrStatus
+from cmapi.core.ports import CapacityResult, Finding, PrRef
 from cmapi.core.tiers import qty
 
-ENV = {**os.environ, "KUBECONFIG": "/etc/rancher/k3s/k3s.yaml",
+ENV = {**os.environ,
        "GIT_AUTHOR_NAME": "cmapi-bot", "GIT_AUTHOR_EMAIL": "cmapi-bot@ephico2real.com",
        "GIT_COMMITTER_NAME": "cmapi-bot", "GIT_COMMITTER_EMAIL": "cmapi-bot@ephico2real.com"}
 
@@ -136,14 +136,27 @@ class LocalValidator:
         return out
 
 
-class K3sCluster:
-    """KubeReader plus the Argo CD stand-in for this local run."""
+class KubeCluster:
+    """KubeReader plus the Argo CD stand-in for this local run.
 
-    def __init__(self, cluster_id: str):
+    Talks to the cluster only through kubectl, so k3s, kind and an existing cluster are the same code:
+    `kubeconfig` and `context` pick the cluster, `kubectl` the binary (k3s ships one as `k3s kubectl`).
+    """
+
+    def __init__(self, cluster_id: str, kubeconfig: str | None = None, context: str | None = None,
+                 kubectl: str = "kubectl"):
         self.cluster_id = cluster_id
+        self.cmd = [*kubectl.split(), *(["--context", context] if context else [])]
+        self.env = {**ENV, **({"KUBECONFIG": kubeconfig} if kubeconfig else {})}
 
     def kubectl(self, *args: str, stdin: str | None = None, check: bool = True) -> str:
-        return run("k3s", "kubectl", *args, stdin=stdin, check=check)
+        p = subprocess.run([*self.cmd, *args], env=self.env, capture_output=True, text=True, input=stdin)
+        if check and p.returncode != 0:
+            raise RuntimeError(f"kubectl {' '.join(args)}: {p.stderr.strip() or p.stdout.strip()}")
+        return p.stdout
+
+    def server_version(self) -> str:
+        return json.loads(self.kubectl("version", "-o", "json"))["serverVersion"]["gitVersion"]
 
     def apply_folder(self, files: Mapping[str, str]) -> None:
         docs = "---\n".join(t for _, t in sorted(files.items(), key=lambda kv: not kv[0].endswith("namespace.yaml")))
@@ -190,7 +203,7 @@ class K3sCluster:
 
 
 class SimulatedCapacity:
-    def __init__(self, clusters_yaml: str, cluster: K3sCluster):
+    def __init__(self, clusters_yaml: str, cluster: KubeCluster):
         cfg = yaml.safe_load(Path(clusters_yaml).read_text())
         self.clusters, self.over, self.targets = cfg["clusters"], cfg["overcommit"], cfg["targets"]["commitment"]
         self.k = cluster

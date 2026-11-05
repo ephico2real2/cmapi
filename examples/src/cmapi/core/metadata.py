@@ -34,7 +34,6 @@ class Governed:
     required: bool = False
     pattern: str | None = None
     format: str | None = None       # email-in-domains
-    must_match_binding: bool = False
 
 
 class MetadataKeys:
@@ -43,8 +42,7 @@ class MetadataKeys:
         self.operator_only = list(raw.get("operatorOnly", []))
         self.reserved_prefixes = [p.rstrip("/") for p in raw.get("reservedPrefixes", [])]
         self.governed = {k: Governed(kind=v["kind"], required=v.get("required", False),
-                                     pattern=v.get("pattern"), format=v.get("format"),
-                                     must_match_binding=v.get("mustMatchBinding", False))
+                                     pattern=v.get("pattern"), format=v.get("format"))
                          for k, v in (raw.get("governed") or {}).items()}
         team = raw.get("team") or {}
         self.allowed_prefixes = [p.rstrip("/") for p in team.get("allowedPrefixes", [""])]
@@ -93,7 +91,7 @@ class MetadataKeys:
 
     # ---- validation of what a caller sends (never the renderer's own system keys)
     def validate(self, labels: Mapping[str, str | None], annotations: Mapping[str, str | None], *,
-                 operator: bool, teams: set[str], require_governed: bool = True,
+                 operator: bool, require_governed: bool = True,
                  current_labels: Mapping[str, str] | None = None,
                  current_annotations: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         """labels/annotations: what the caller sends (a merge patch; None removes a key).
@@ -116,7 +114,7 @@ class MetadataKeys:
                 elif cls == "operatorOnly" and not operator:
                     errs.append({"code": "operator_only_key", "key": key})
                 elif cls == "governed" and value is not None:
-                    errs.extend(self._governed(key, value, kind, operator, teams))
+                    errs.extend(self._governed(key, value, kind))
         if require_governed:
             for key, g in self.governed.items():
                 src = merged_labels if g.kind == "label" else merged_anns
@@ -140,7 +138,7 @@ class MetadataKeys:
             return {"code": "invalid_value", "key": key, "detail": "not a valid label value"}
         return None
 
-    def _governed(self, key: str, value: str, kind: str, operator: bool, teams: set[str]):
+    def _governed(self, key: str, value: str, kind: str):
         g = self.governed[key]
         if g.kind != kind:
             return [{"code": "invalid_key", "key": key, "detail": f"{key} is a {g.kind}"}]
@@ -149,13 +147,11 @@ class MetadataKeys:
             return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
         if g.pattern and not re.fullmatch(g.pattern, value):
             return [{"code": "invalid_value", "key": key, "detail": f"must match {g.pattern}"}]
-        if g.must_match_binding and not operator and value not in teams:
-            return [{"code": "team_not_bound", "key": key, "detail": f"bound teams: {sorted(teams)}"}]
         return []
 
-    def check(self, labels, annotations, *, operator: bool, teams: set[str], require_governed: bool = True,
+    def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,
               current_labels=None, current_annotations=None) -> None:
-        errs = self.validate(labels, annotations, operator=operator, teams=teams,
+        errs = self.validate(labels, annotations, operator=operator,
                              require_governed=require_governed, current_labels=current_labels,
                              current_annotations=current_annotations)
         if any(e["code"] == "operator_only_key" for e in errs):

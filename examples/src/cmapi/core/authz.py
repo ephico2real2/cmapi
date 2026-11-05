@@ -1,24 +1,35 @@
-"""Roles to permissions, and scope bindings (config/authz-scopes.yaml).
+"""Who may call what: Keycloak roles to permissions (config/authz-roles.yaml).
 
-Same rules as the v2 design's core/authz.py, without the FastAPI wiring: roles come from the token,
-scopes come from Git, and one binding must pair a held role, the permission and the target.
+Roles come from the token: the client roles on this instance's client (cmapi-nonprod, cmapi-staging,
+cmapi-prod). Keycloak decides who holds them, directly, through a group the role is assigned to,
+or on a service-account client (a bot). cmapi maps each role to the permissions (scopes) it grants
+and, optionally, to the environments it may act in.
+
+There is no team or namespace-name scoping. Anyone holding a role with namespaces:create may ask for
+any namespace name (outside the reserved ones) in the environments that role covers; approval rules decide what needs approval,
+and approving groups (Keycloak groups) decide who may approve.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 
 _VIEW = {"clusters:read", "objects:read", "capacity:read", "requests:read"}
-_REQUEST = _VIEW | {"namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write",
-                    "requests:cancel"}
+# namespaces:create is asking for a new namespace; namespaces:write is changing or deleting one.
+_ONBOARD = _VIEW | {"namespaces:create", "requests:cancel"}
+_REQUEST = _ONBOARD | {"namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write"}
 _OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read", "operations:run"}
 
+# The built-in roles: used when authz-roles.yaml does not define a role, and the vocabulary of
+# permissions a config file may use.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "cmapi-viewer": frozenset(_VIEW),
+    # Create namespaces and follow their requests, nothing else: for onboarding by people or by a
+    # local automation account (bot-user, an AI agent). Cannot change or delete a namespace.
+    "cmapi-onboarding": frozenset(_ONBOARD),
     "cmapi-requester": frozenset(_REQUEST),
     "cmapi-approver": frozenset(_VIEW | {"requests:approve", "requests:reject"}),
     "cmapi-operator": frozenset(_OPERATE),
@@ -27,8 +38,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "cmapi-auditor": frozenset(_VIEW | {"events:read", "audit:export"}),
     "cmapi-approval-relay": frozenset({"requests:read", "approvals:relay"}),
 }
+PERMISSIONS: frozenset[str] = frozenset().union(*ROLE_PERMISSIONS.values())
 
-# Approving groups in approval-rules.yaml are short names (prod-approvers); the token carries
+# Approving groups in approval-rules.yaml are short names (platform-leads); the token carries
 # Keycloak group paths. One convention joins them, set per instance.
 GROUP_PATH = "/cmapi/cmapi-{name}"
 
@@ -38,56 +50,121 @@ def group_path(name: str) -> str:
 
 
 @dataclass(frozen=True)
-class Binding:
+class RoleGrant:
     role: str
-    clusters: tuple[str, ...]
-    environments: tuple[str, ...]
-    namespaces: tuple[str, ...]
-    group: str | None = None
-    client: str | None = None
-    team: str | None = None
+    permissions: frozenset[str]
+    environments: frozenset[str] | None = None        # None: every environment the instance serves
 
-    @classmethod
-    def from_dict(cls, d: dict) -> "Binding":
-        return cls(role=d["role"], clusters=tuple(d["clusters"]), environments=tuple(d["environments"]),
-                   namespaces=tuple(d["namespaces"]), group=d.get("group"), client=d.get("client"),
-                   team=d.get("team"))
+    def covers(self, env: str | None) -> bool:
+        return env is None or self.environments is None or env in self.environments
 
-    def applies_to(self, who: Identity) -> bool:
-        if self.role not in who.roles:
-            return False
-        return (self.group is not None and self.group in who.groups) or \
-               (who.kind == "service" and self.client is not None and self.client == who.client_id)
 
-    def covers(self, cluster_id: str, env: str, namespace: str | None) -> bool:
-        def hit(value: str, patterns: Iterable[str]) -> bool:
-            return any(fnmatchcase(value, p) for p in patterns)
-        ns_ok = "*" in self.namespaces if namespace is None else hit(namespace, self.namespaces)
-        return hit(cluster_id, self.clusters) and hit(env, self.environments) and ns_ok
+class RolePolicy:
+    """Keycloak role -> permissions and environments, for one instance.
+
+    authz-roles.yaml:
+        roles:
+          cmapi-requester: {}                                  # built-in permissions, every environment
+          cmapi-bot-rnd:                                       # a role you create in Keycloak
+            inherits: [cmapi-requester]
+            environments: [rnd]
+          cmapi-quota-editor:
+            permissions: [objects:read, quotas:write]
+    Built-in roles not named in the file keep their built-in permissions.
+    """
+
+    def __init__(self, raw: Mapping[str, Any] | None = None, served: Iterable[str] | None = None):
+        self.served = set(served) if served is not None else None
+        roles = dict((raw or {}).get("roles") or {})
+        problems: list[str] = []
+        self.grants: dict[str, RoleGrant] = {}
+        resolving: set[str] = set()
+
+        def resolve(name: str) -> RoleGrant:
+            if name in self.grants:
+                return self.grants[name]
+            if name in resolving:
+                raise ValueError(f"role {name}: inherits itself")
+            spec = roles.get(name)
+            if spec is None:
+                if name not in ROLE_PERMISSIONS:
+                    raise ValueError(f"unknown role {name}")
+                g = RoleGrant(name, ROLE_PERMISSIONS[name])
+                self.grants[name] = g
+                return g
+            resolving.add(name)
+            perms = set(spec.get("permissions") or [])
+            if "permissions" not in spec and not spec.get("inherits") and name in ROLE_PERMISSIONS:
+                perms |= ROLE_PERMISSIONS[name]
+            for parent in spec.get("inherits") or []:
+                perms |= resolve(parent).permissions
+            unknown = perms - PERMISSIONS
+            if unknown:
+                problems.append(f"role {name}: unknown permissions {sorted(unknown)}")
+            envs = spec.get("environments")
+            if envs is not None:
+                envs = frozenset(envs)
+                if self.served is not None and envs - self.served:
+                    problems.append(f"role {name}: environments {sorted(envs - self.served)} "
+                                    f"are not served by this instance")
+            resolving.discard(name)
+            g = RoleGrant(name, frozenset(perms), envs)
+            self.grants[name] = g
+            return g
+
+        for name in [*ROLE_PERMISSIONS, *roles]:
+            try:
+                resolve(name)
+            except ValueError as exc:
+                problems.append(str(exc))
+        if problems:
+            raise ValueError("; ".join(sorted(set(problems))))
+
+    # ---- questions
+    def held(self, who: Identity) -> list[RoleGrant]:
+        return [self.grants[r] for r in sorted(who.roles) if r in self.grants]
+
+    def permissions(self, who: Identity, env: str | None = None) -> frozenset[str]:
+        return frozenset().union(*(g.permissions for g in self.held(who) if g.covers(env)))
+
+    def allowed(self, who: Identity, permission: str, env: str | None = None) -> bool:
+        return permission in self.permissions(who, env)
+
+    def environments(self, who: Identity, permission: str) -> set[str] | None:
+        """Where the caller holds the permission; None means every served environment."""
+        envs: set[str] = set()
+        for g in self.held(who):
+            if permission in g.permissions:
+                if g.environments is None:
+                    return None if self.served is None else set(self.served)
+                envs |= g.environments
+        return envs
+
+    def require(self, who: Identity, permission: str, env: str | None = None) -> None:
+        if self.allowed(who, permission, env):
+            return
+        if env is not None and self.allowed(who, permission):
+            raise Problem.forbidden(f"Your roles grant {permission} only in "
+                                    f"{sorted(self.environments(who, permission) or [])}, not {env}",
+                                    code="environment-forbidden")
+        raise Problem.forbidden(f"Missing permission {permission}: no role in your token grants it "
+                                f"(roles: {sorted(who.roles) or 'none'})")
+
+    def describe(self, who: Identity) -> dict[str, Any]:
+        """For GET /me: what the caller's roles let it do, and where."""
+        return {"roles": [{"role": g.role, "permissions": sorted(g.permissions),
+                           "environments": sorted(g.environments) if g.environments is not None else "all"}
+                          for g in self.held(who)],
+                "permissions": sorted(self.permissions(who))}
+
+
+_DEFAULT = RolePolicy()
 
 
 def permissions(who: Identity) -> frozenset[str]:
-    return frozenset().union(*(ROLE_PERMISSIONS.get(r, frozenset()) for r in who.roles))
+    """Built-in role permissions, every environment (for code that has no instance config)."""
+    return _DEFAULT.permissions(who)
 
 
 def require(who: Identity, permission: str) -> None:
-    if permission not in permissions(who):
-        raise Problem.forbidden(f"Missing permission {permission}")
-
-
-def allowed(who: Identity, permission: str, bindings: Iterable[Binding],
-            cluster_id: str, env: str, namespace: str | None) -> bool:
-    return any(b.applies_to(who) and permission in ROLE_PERMISSIONS.get(b.role, frozenset())
-               and b.covers(cluster_id, env, namespace) for b in bindings)
-
-
-def authorize_target(who: Identity, permission: str, bindings: Iterable[Binding],
-                     cluster_id: str, env: str, namespace: str | None) -> None:
-    if not allowed(who, permission, bindings, cluster_id, env, namespace):
-        raise Problem.forbidden(f"No scope binding covers {cluster_id}/{env}/{namespace or '*'}",
-                                code="cluster-scope-forbidden")
-
-
-def teams_for(who: Identity, bindings: Iterable[Binding]) -> set[str]:
-    """The cmapi.net/team values this caller may set (mustMatchBinding in metadata-keys.yaml)."""
-    return {b.team for b in bindings if b.team and b.applies_to(who)}
+    _DEFAULT.require(who, permission)

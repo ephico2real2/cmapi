@@ -1,0 +1,29 @@
+# config/authz-roles.yaml: which Keycloak roles may do what on one instance (shape reference; see examples/instances/<instance>/).
+#
+# Roles are client roles on this instance's Keycloak client (cmapi-nonprod) and arrive in the token
+# (resource_access.cmapi-nonprod.roles). Assign them in Keycloak to a user, to a group (every member gets
+# the role), or to a service-account client (a bot). cmapi does not check teams or namespace names:
+# a role that grants namespaces:create may ask for any namespace name in the environments it covers.
+# approval-rules.yaml decides what needs approval and which Keycloak groups approve.
+#
+# A built-in role keeps its built-in permissions in every served environment unless changed here.
+#   permissions:   replaces the role's permissions
+#   inherits:      adds another role's permissions
+#   environments:  limits the role to some of the environments this instance serves
+roles:
+  cmapi-viewer: {}          # clusters:read, objects:read, capacity:read, requests:read
+  cmapi-onboarding: {}      # viewer + namespaces:create, requests:cancel. Create only: no change or delete.
+                            # For people and local automation accounts (bot-user, an AI agent)
+  cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel
+  cmapi-approver: {}        # viewer + requests:approve, requests:reject
+  cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run
+  cmapi-admin: {}           # operator + config:write, clusters:onboard, admin:reload, approvals:pause
+  cmapi-auditor: {}         # viewer + events:read, audit:export
+  cmapi-approval-relay: {}  # requests:read, approvals:relay (the email, ServiceNow and chat channels)
+
+  # Roles you add in Keycloak (create the client role, then assign it to a user, group or bot):
+  cmapi-bot-rnd:              # a pipeline that may create and change namespaces in rnd only
+    inherits: [cmapi-requester]
+    environments: [rnd]
+  cmapi-quota-editor:         # may change quotas but not create namespaces
+    permissions: [clusters:read, objects:read, capacity:read, requests:read, quotas:write, requests:cancel]

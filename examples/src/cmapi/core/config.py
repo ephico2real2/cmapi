@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 
 from cmapi.core.approvals import ApprovalRules
-from cmapi.core.authz import Binding
+from cmapi.core.authz import RolePolicy
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
@@ -39,7 +39,7 @@ class InstanceConfig:
     allowed_environments: set[str]
     raw_instance: dict
     approvals: ApprovalRules
-    bindings: list[Binding]
+    roles: RolePolicy
     tiers: TierCatalog
     expiration: ExpirationRules
     metadata: MetadataKeys
@@ -71,7 +71,7 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed))
     tiers = build("tiers.yaml", lambda r: TierCatalog(r, allowed))
     expiration = build("expiration.yaml", lambda r: ExpirationRules(r, allowed))
-    bindings = build("authz-scopes.yaml", lambda r: [Binding.from_dict(b) for b in r.get("bindings", [])])
+    roles = build("authz-roles.yaml", lambda r: RolePolicy(r, allowed))
     mk_raw, mk_h = _read(Path(metadata_keys))
     hashes["metadata-keys.yaml"] = mk_h
     try:
@@ -87,13 +87,8 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
         missing = allowed - set(approvals.environments)
         if missing:
             problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
-    if bindings is not None:
-        for b in bindings:
-            envs = set(b.environments) - {"*"}
-            if envs - allowed:
-                problems.append(f"authz-scopes.yaml: binding {b.group or b.client} names {sorted(envs - allowed)}")
     if expiration and "prod" in allowed and expiration.allows("prod"):
         problems.append("expiration.yaml: prod can never expire")
     if problems:
         raise ConfigError(problems)
-    return InstanceConfig(me["name"], allowed, inst, approvals, bindings, tiers, expiration, metadata, hashes)
+    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, hashes)
