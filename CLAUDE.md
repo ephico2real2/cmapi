@@ -39,8 +39,14 @@ The owner's decision, on 2026-11-05:
 | Reviewers | Opus and Codex | Design each step independently, review the code, and generate the fix and test for each finding. Each cross-checks the other's fixes |
 | Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Writes no application code |
 
-A reviewer's fix is a proposal. Fable applies it only after the coordinator has accepted it. Fable may reject one with a written
-reason, and the coordinator decides.
+A reviewer's fix is a proposal. Fable applies it only after the coordinator has accepted it.
+
+**Converging.** Fable helps Opus and Codex reach one answer. It reads both accounts, merges them into one list of findings or one
+design, and breaks ties where they disagree, with a written reason.
+
+Fable wrote the code, so one limit applies. Where the disagreement is whether its own code is wrong, a test decides: the failing
+test stands unless it is shown to be wrong. A finding with a failing test is never dismissed by opinion, and the coordinator keeps
+the final call and records it.
 
 Reviewers work on an export, never in a repository. If Fable is out of quota, stop coding and report it. Do not hand the code to
 another model.
