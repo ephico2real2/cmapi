@@ -69,7 +69,7 @@ These live in `/Users/olasumbo/gitRepos/diagram-kit/skill/`. Read the one that a
 |---|---|
 | Portal mockup | In `tests/portal/`: `npm install`, `npx playwright install chromium`, `npm test` |
 | React app | In `cmapi-portal-ui/`: `npm install`, `npm test` |
-| Reference code | `pytest` in `examples/tests` |
+| Reference code | In `examples/`: `PYTHONPATH=src python -m pytest tests -q`, with `local/requirements.txt` installed |
 
 `PW_CHANNEL=chrome` runs the browser suites in the installed Chrome. `docs/09-portal-ui-testing.md` records the method.
 
