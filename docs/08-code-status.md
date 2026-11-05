@@ -105,7 +105,7 @@ This code makes the logic above run end to end. It is demo-grade: one process, s
 
 **cmapi-capacity:** Thanos source, snapshots, placement, reservations, usage sweep.
 
-**Portal:** only the clickable mockups exist (`mockups/`). The React app is not built.
+**Portal:** only the clickable mockups exist (`mockups/`). The portal app (React with TypeScript, built with Vite, using PatternFly) is not built.
 
 **Packaging and delivery:**
 

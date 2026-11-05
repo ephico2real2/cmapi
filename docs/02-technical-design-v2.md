@@ -2104,7 +2104,21 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 
 ### Portal (cmapi-portal-ui)
 
-PagedTable on the list contract; WorkflowViewer for any request; schema-driven forms; TierPicker from GET /tiers; PeoplePicker from GET /directory/users; the Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs tabs. Specified, with the clickable mockup as the reference.
+React with TypeScript, built with Vite, using PatternFly as the component library. PagedTable on the list contract; WorkflowViewer for any request; schema-driven forms; TierPicker from GET /tiers; PeoplePicker from GET /directory/users; the Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs tabs. Specified, with the clickable mockup as the reference.
+
+**Why PatternFly.** It is Red Hat's design system, built on React, and the OpenShift console is made from it. Users already know its tables, filters, forms and wizards, and it brings accessibility we would otherwise build and test ourselves. It keeps open the option of turning parts of the portal into an OpenShift console plugin later; those are React and PatternFly too.
+
+**Why not Preact.** Its advantage is bundle size, which matters little for an internal portal. PatternFly and most of these libraries reach Preact only through its React-compatibility layer, which they do not officially support.
+
+| Component | How it is built | Candidate libraries, to confirm in phase 2 |
+| --- | --- | --- |
+| PagedTable | PatternFly's table and toolbar, plus a data-fetching library for the cursor paging | [TanStack Query](https://www.npmjs.com/package/@tanstack/react-query) |
+| SchemaForm | Forms generated from the OpenAPI schema | [react-jsonschema-form](https://www.npmjs.com/package/@rjsf/core) or [JSON Forms](https://www.npmjs.com/package/@jsonforms/react): both read JSON Schema and neither has a PatternFly package, so the PatternFly widgets are ours to write. [Data Driven Forms](https://www.npmjs.com/package/@data-driven-forms/pf4-component-mapper) has a PatternFly 6 mapper but its own schema format, so the OpenAPI schemas need converting. |
+| Sign-in | A standard OIDC client handles Keycloak's PKCE flow | [oidc-client-ts](https://www.npmjs.com/package/oidc-client-ts) with [react-oidc-context](https://www.npmjs.com/package/react-oidc-context) |
+
+Each candidate was updated on npm in 2026 (checked 2026-11-04). uniforms-patternfly is not a candidate: its last release was January 2023, on PatternFly 4.
+
+**Standalone mockup.** The standalone HTML version of the portal mockup is separate and stays framework-free: it only renders the existing mockup file.
 
 ### Review findings, fixed in this pass
 
