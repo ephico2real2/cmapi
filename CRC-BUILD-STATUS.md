@@ -1,8 +1,8 @@
 # cmapi on CRC: build status
 
-Branch `app-on-crc`. This file is the hand-over: another session must be able to continue from it
-alone. Everything under "Measured" was seen on the cluster or run on this Mac; everything else is
-inferred or planned. Updated 2026-11-05, after the second review pass on pull request #40 (`docs/reviews/2026-11-05-pr40.md`).
+The hand-over is now [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), and the plan is [`build-tracker.md`](build-tracker.md).
+This file stays as the measured log. Everything under "Measured" was seen on the cluster or run on this Mac; everything else is
+inferred or planned. Most of it was written after the second review pass on pull request #40 (`docs/reviews/2026-11-05-pr40.md`).
 
 ## Where it is
 
@@ -30,7 +30,7 @@ stopped where they stood; their intent carries to the YAML step (see "Review thi
 | `cmapi-tools git-bootstrap` and `realm-sync` (the chart's Jobs) | Run by the reviews against real Gitea 1.25.5 and real Keycloak 26.0.7 and 26.6.4 in containers, twice each, exit 0; not yet on CRC or against RHBK. The Gitea chart now creates the administrator the bootstrap signs in as (a `postStart` hook, measured on the rootless image: an admin cannot be created before `gitea web` has written `app.ini`) |
 | Argo CD for the `argocd` delivery | **Does not exist on CRC**: no install in `cmapi-argocd`, no Application, AppProject or repository credential. Nothing of cmapi has run on a real Argo CD. The design step under #63 (#64) brings them, with the names `crc.yaml` already fixes: Application `cluster-configs-crc` (cmapi lower-cases `{clusterId}`: its cluster ids may be upper case, `CRC` in `clusters.yaml`; a Kubernetes object name may not, RFC 1123, measured on CRC by the coordinator with a server dry run) and controller `system:serviceaccount:cmapi-argocd:argocd-application-controller`, which the chart's policy binds from the first install. The policy alone does not contain that controller while its ClusterRole is `*` on `*` (#65). Until Argo CD exists a request on CRC waits at `merged` for `syncTimeout` (10 minutes), then goes to `sync_failed` with its lock held |
 | Plain manifests (`deploy/manifests/`, `render.sh`, `secrets.sh`, `kind-test.sh`, `docs/12`) | Written for #88 from the deployment design; proven on a `cmapi-test` kind cluster (`docs/reviews/2026-11-05-plain-manifests-test.md`): api and worker Ready against CNPG 1.30.1, `/readyz` 200, `/api/v1/version` naming the built commit, the secrets cases. The `cmapi-metrics` NetworkPolicy ships; on podman kind it breaks the selected pods' DNS (measured), so the test deletes it there and says so. `environments/crc/`, the bootstrap set and Argo CD are the next pull requests |
-| Deployed on CRC | Namespace `cmapi` exists and is empty. Nothing of cmapi runs on the cluster yet |
+| Deployed on CRC | Namespace `cmapi` holds only Secret `cmapi-ldap-bind`. Nothing of cmapi runs on the cluster yet |
 | Portal on the API | Not started; `cmapi-portal-ui` is unchanged apart from the merge of `main` (the "Use this size" fix). The portal Containerfile is not written; `deploy/release-crc.sh --no-portal` skips it, and `portal.enabled: false` in `deploy/environments/crc.yaml` |
 | CLI and `cmapi-sdk` | Not started (in scope after the thin slice, per the coordinator) |
 | `docs/10-architecture-review.md` | Written at the start of the build; the twelve-factor and observability rows marked *to measure* are still unmeasured |

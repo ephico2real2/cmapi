@@ -19,7 +19,7 @@ The owner's required way of working, from `app-architect`, "Delivering the fixes
 
 1. One issue, one branch from `main`, and one pull request whose body starts `Closes #N`.
 2. Two independent designs from two model families, arbitrated into one, with the choice recorded in the PR.
-3. The implementer builds it (Fable, or Opus 5.5 when Fable is out of quota; see "Who does what"), and every line is read.
+3. The implementer builds it (see "Who does what"), and every line is read.
 4. A functional test on the running environment, its output saved, and a screenshot for a visible change.
 5. An adversarial review (`adversarial-review`) by two model families, each returning the full fix and its test, and each
    reviewer's fixes cross-checked by the other. Never the author.
@@ -35,15 +35,14 @@ The owner's decision, on 2026-11-05:
 
 | Role | Who | Does |
 |---|---|---|
-| Implementer | Fable, while it has quota; Opus 5.5 at `xhigh` or `max` when Fable is out of quota | Writes all code, tests and manifests. The only role that changes application code |
-| Reviewers | Opus 5.5 (`xhigh` or `max`) and Codex | Design each step independently, review the code, and generate the fix and test for each finding. Each cross-checks the other's fixes |
+| Implementer | Opus 5.5 at `high` | Writes all code, tests and manifests. The only role that changes application code |
+| Reviewers | Codex, and a separate Opus 5.5 agent at `high` that did not write the step | Design each step independently, review the code, and generate the fix and test for each finding. Each cross-checks the other's fixes |
 | Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Writes no application code |
 
-The owner, 2026-11-05: "use opus 5.5 xhigh or extra when need, fable is back though". So Fable stays the implementer while it
-has quota. When Fable is out of quota, Opus 5.5 at `xhigh` or `max` takes over the coding rather than the work stopping, and
-every pull request says who wrote what (which model wrote which commits or files). The reviewer who codes a step does not
-review that step. Codex reviews it, and so does Fable if it has quota. If it does not, the pull request says the step had
-only one outside model family.
+The owner, 2026-11-05: "Let us stop using fable for now", then "Use opus 5.5 high". So Fable is paused until the owner says
+otherwise, and Opus 5.5 at `high` writes the code. Every pull request says who wrote what (which model wrote which commits or
+files). The agent that codes a step does not review it. With Fable paused, Codex is the only outside model family, so the pull
+request says the step had one. A second Opus agent reviewing is not independent in the same way.
 
 A reviewer's fix is a proposal. The implementer applies it only after the coordinator has accepted it.
 
@@ -54,8 +53,10 @@ The implementer wrote the code, so one limit applies. Where the disagreement is 
 the failing test stands unless it is shown to be wrong. A finding with a failing test is never dismissed by opinion, and the
 coordinator keeps the final call and records it.
 
-Reviewers work on an export, never in a repository. If Fable is out of quota, say so in the report; the coding passes to Opus 5.5
-as above, never to Codex.
+Reviewers work on an export, never in a repository. The coding stays with Opus 5.5 and does not pass to Codex.
+
+To continue the build from a new session, start with [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md) and
+[`build-tracker.md`](build-tracker.md).
 
 ### What the mandate does not change
 
