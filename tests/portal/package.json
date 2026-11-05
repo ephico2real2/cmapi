@@ -1,0 +1,14 @@
+{
+  "name": "cmapi-portal-mockup-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node logic.test.mjs && node interactions.test.mjs"
+  },
+  "devDependencies": {
+    "acorn": "8.19.0",
+    "pixelmatch": "8.0.0",
+    "playwright": "1.64.1",
+    "pngjs": "7.0.0"
+  }
+}

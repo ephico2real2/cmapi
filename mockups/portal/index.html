@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmapi Portal</title>
+<link rel="icon" href="data:,">
+<style>
+  /* Only the bar and the artboard's frame. Everything else comes from Main.dc.html. */
+  /* The bar's height stays a whole number of pixels: a fractional offset would blur every row of the artboard below it. */
+  #dc-root { max-width: 1320px; margin: 0 auto; }
+  .dcl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 3px 16px; background: #142030; color: #ffffff; font: 13px/20px system-ui, sans-serif; }
+  .dcl-bar span { opacity: 0.75; }
+  .dcl-bar button { border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 4px; background: none; color: inherit; font: inherit; padding: 2px 10px; cursor: pointer; }
+  .dcl-bar button[aria-pressed="true"] { background: #ffffff; color: #142030; }
+  .dcl-error { max-width: 720px; margin: 40px auto; padding: 0 16px; font: 15px/1.5 system-ui, sans-serif; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="dcl-bar" role="group" aria-label="Mockup instance"><span>Mockup instance</span></div>
+<div id="dc-root"></div>
+<script src="runtime/dc-lite.js"></script>
+<script>
+(function () {
+  "use strict";
+  var bar = document.querySelector(".dcl-bar");
+  var root = document.getElementById("dc-root");
+  var def, mounted, current;
+
+  function propOf(name, wanted) {
+    var meta = def.props[name];
+    return meta.options.indexOf(wanted) >= 0 ? wanted : meta.default;
+  }
+
+  function fromHash() {
+    var parts = location.hash.slice(1).split("/");
+    return { instance: propOf("instance", parts[0]), startTab: propOf("startTab", parts[1]) };
+  }
+
+  function showBar() {
+    Array.prototype.forEach.call(bar.querySelectorAll("button"), function (button) {
+      button.setAttribute("aria-pressed", String(button.textContent === current.instance));
+    });
+  }
+
+  // The portal's own controls change its state, so the hash follows the state rather than leading it.
+  function follow(logic) {
+    current = { instance: logic.state.inst, startTab: logic.state.tab || logic.props.startTab };
+    var hash = "#" + current.instance + "/" + current.startTab;
+    if (location.hash !== hash) {
+      try { history.replaceState(null, "", hash); } catch (e) { /* a sandboxed frame may refuse; the page still works */ }
+    }
+    showBar();
+  }
+
+  function mountFromHash() {
+    if (mounted) mounted.unmount();
+    mounted = DcLite.mount(def, root, fromHash(), follow);
+  }
+
+  function start(source) {
+    def = DcLite.parse(source);
+    document.title = def.title;
+    def.props.instance.options.forEach(function (name) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.textContent = name;
+      button.addEventListener("click", function () { location.hash = name + "/" + current.startTab; });
+      bar.appendChild(button);
+    });
+    mountFromHash();
+    addEventListener("hashchange", function () {
+      var wanted = fromHash();
+      if (wanted.instance !== current.instance || wanted.startTab !== current.startTab) mountFromHash();
+    });
+  }
+
+  function fail(message) {
+    root.innerHTML = "";
+    var box = document.createElement("div");
+    box.className = "dcl-error";
+    box.textContent = message;
+    root.appendChild(box);
+  }
+
+  function run(source) {
+    try { start(source); } catch (e) {
+      console.error(e);
+      fail("The portal mockup could not start.\n\n" + e.message);
+    }
+  }
+
+  var embedded = document.getElementById("dc-source");
+  if (embedded) {
+    run(JSON.parse(embedded.textContent));
+  } else {
+    fetch("Main.dc.html").then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.text();
+    }).then(run, function (e) {
+      fail("Could not load Main.dc.html (" + e.message + ").\n\nA browser will not fetch files from file://. Either serve this folder, or open dist/portal.html, which is one self-contained file.");
+    });
+  }
+})();
+</script>
+</body>
+</html>
