@@ -1,0 +1,103 @@
+{{- $name := include "cmapi.name" . -}}
+{{- if .Values.git.bootstrap.enabled }}
+{{/*
+One-time Git host setup for a site with the Gitea stand-in (CRC, kind): the bot user's org and the
+cluster-configs repository with its seed, and branch protection that requires the three checks.
+Idempotent: a second run changes nothing. Runs after install and after each upgrade.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-git-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels: {{- include "cmapi.component" (dict "component" "git-bootstrap" "Release" .Release) | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $name }}-jobs
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: bootstrap
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-tools, git-bootstrap]
+          env:
+            - name: CMAPI_GIT_CLUSTER_IDS
+              value: {{ join "," .Values.git.bootstrap.clusterIds | quote }}
+            - name: CMAPI_GIT_ADMIN_SECRET
+              value: cmapi-git-admin
+            {{- include "cmapi.commonEnv" . | nindent 12 }}
+          envFrom:
+            - secretRef: {name: cmapi-git-admin, optional: true}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts: {{- include "cmapi.commonVolumeMounts" . | nindent 12 }}
+      volumes: {{- include "cmapi.commonVolumes" . | nindent 8 }}
+{{- end }}
+{{- if .Values.keycloak.sync.enabled }}
+---
+{{/*
+The realm sync: what the import cannot carry. Local test users with generated passwords, the user
+profile attributes employeeId and middleName, the group-to-role mappings, and LDAP federation when
+the bind Secret exists. Talks to the realm as its own realm-admin service client, never as the
+shared instance's master admin.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-realm-sync
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels: {{- include "cmapi.component" (dict "component" "realm-sync" "Release" .Release) | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $name }}-jobs
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: sync
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-tools, realm-sync]
+          env:
+            - name: CMAPI_REALM_ISSUER
+              value: {{ .Values.auth.issuer | quote }}
+            - name: CMAPI_REALM_ADMIN_URL
+              value: {{ .Values.auth.adminUrl | default "" | quote }}
+            - name: CMAPI_REALM_ADMIN_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: {{ .Values.auth.directorySecret }}, key: realmAdminClientSecret}}
+            - name: CMAPI_REALM_AUDIENCE
+              value: {{ .Values.auth.audience | quote }}
+            - name: CMAPI_REALM_GROUPS
+              value: {{ toJson .Values.keycloak.realm.groups | quote }}
+            - name: CMAPI_REALM_TEST_USERS
+              value: {{ .Values.keycloak.sync.testUsers | ternary "true" "false" | quote }}
+            - name: CMAPI_REALM_LDAP
+              value: {{ toJson .Values.keycloak.sync.ldap | quote }}
+            {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+            - name: CMAPI_CA_BUNDLE
+              value: /etc/cmapi/ca/ca-bundle.crt
+            {{- end }}
+          envFrom:
+            - secretRef: {name: cmapi-test-users, optional: true}
+            - secretRef: {name: {{ .Values.keycloak.sync.ldap.bindSecret }}, optional: true}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts: {{- include "cmapi.commonVolumeMounts" . | nindent 12 }}
+      volumes: {{- include "cmapi.commonVolumes" . | nindent 8 }}
+{{- end }}

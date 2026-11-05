@@ -1,0 +1,21 @@
+{{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+{{/*
+The CA bundle the pods verify Keycloak, the Git host and clusters with (never a skipped check).
+Site certificates come from values; on OpenShift the injected variant lets the network operator
+fill the ConfigMap with the cluster's own bundle (leave data empty then).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cmapi.name" . }}-trust
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- if .Values.trustedCA.injected.enabled }}
+    config.openshift.io/inject-trusted-cabundle: "true"
+    {{- end }}
+{{- if not .Values.trustedCA.injected.enabled }}
+data:
+  ca-bundle.crt: |
+{{ .Values.trustedCA.certificates | indent 4 }}
+{{- end }}
+{{- end }}

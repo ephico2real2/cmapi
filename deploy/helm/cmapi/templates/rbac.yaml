@@ -1,0 +1,94 @@
+{{/*
+ServiceAccounts and the least RBAC each needs:
+- api and worker: get, list and watch Secrets in the imports namespace (docs/01: cmapi has only
+  that there, so the import writer's grant never touches cmapi's own secrets);
+- worker only, apply delivery on the hub: the cmapi-deliverer ClusterRole (create, patch, delete on
+  the kinds cmapi renders, and bind on the token-issuer ClusterRole). The api never holds it.
+*/}}
+{{- $name := include "cmapi.name" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-jobs
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+{{- if .Values.imports.createNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.imports.namespace }}
+  labels:
+    app.kubernetes.io/part-of: cmapi
+    cmapi.net/instance: {{ .Values.instance.name }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-imports-reader
+  namespace: {{ .Values.imports.namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-imports-reader
+  namespace: {{ .Values.imports.namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-imports-reader}
+subjects:
+  - {kind: ServiceAccount, name: {{ $name }}-api, namespace: {{ .Release.Namespace }}}
+  - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+{{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}
+---
+# The one cluster write path, and only for the worker: server-side apply of what Git main holds.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cmapi-deliverer
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [cmapi-token-issuer, view, edit, admin]
+    verbs: [bind]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cmapi-deliverer
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-deliverer}
+subjects:
+  - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+{{- end }}

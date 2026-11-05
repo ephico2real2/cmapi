@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     git_provider: str = Field(default="gitea", description="gitea | github")
     git_url: str = Field(default="", description="Base URL of the Git host API, e.g. https://gitea.example/api/v1")
     git_token: str = Field(default="", description="Bot token with write access to the cluster-configs repository")
+    git_user: str = Field(default="", description="With git_password: basic auth instead of a token (the Gitea stand-in)")
+    git_password: str = Field(default="", description="See git_user")
     git_default_branch: str = "main"
 
     cursor_key: str = Field(default="", description="HMAC key signing list cursors; generated per instance")

@@ -18,10 +18,12 @@ PROVIDERS = {"gitea": GiteaProvider, "github": GitHubProvider}
 
 
 def make_provider(kind: str, api_url: str, repository: str, token: str, *, default_branch: str = "main",
-                  verify: str | bool = True, web_url: str | None = None) -> HostGitProvider:
+                  verify: str | bool = True, web_url: str | None = None,
+                  basic_auth: tuple[str, str] | None = None) -> HostGitProvider:
     if kind not in PROVIDERS:
         raise ValueError(f"unknown git provider {kind}; one of {sorted(PROVIDERS)}")
-    return PROVIDERS[kind](api_url, repository, token, default_branch=default_branch, verify=verify, web_url=web_url)
+    return PROVIDERS[kind](api_url, repository, token, default_branch=default_branch, verify=verify, web_url=web_url,
+                           basic_auth=basic_auth)
 
 
 __all__ = ["GitUnavailable", "GiteaProvider", "GitHubProvider", "HostGitProvider", "make_provider"]

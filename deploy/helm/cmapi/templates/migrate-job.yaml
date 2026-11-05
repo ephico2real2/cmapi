@@ -1,0 +1,34 @@
+{{/*
+Schema migrations run before the new replicas start (expand then contract, docs/01 Upgrades).
+A hook Job, replaced on every upgrade; it waits for the database to answer first.
+*/}}
+{{- $name := include "cmapi.name" . -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels: {{- include "cmapi.component" (dict "component" "migrate" "Release" .Release) | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $name }}-jobs
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}

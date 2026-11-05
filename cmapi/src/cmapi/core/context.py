@@ -91,7 +91,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
 
     git = make_provider(settings.git_provider, settings.git_url, inst["git"]["repository"], settings.git_token,
                         default_branch=settings.git_default_branch, verify=settings.verify,
-                        web_url=inst["git"].get("webUrl"))
+                        web_url=inst["git"].get("webUrl"),
+                        basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,
                              kubernetes_version=os.environ.get("CMAPI_KUBERNETES_VERSION") or None)
     capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")

@@ -1,0 +1,244 @@
+# cmapi chart values. Every switch between OpenShift and plain Kubernetes, and between CRC and a
+# real site, is a value here. The per-site file (deploy/environments/<site>.yaml) is passed with
+# -f on every upgrade; the image digests come from deploy/images.lock.yaml the same way.
+
+# -------------------------------------------------------------------------- images
+# Deployed by digest from deploy/images.lock.yaml (written by deploy/release-crc.sh). A tag alone is
+# accepted for a first render but a digest wins when both are set.
+cmapi:
+  repository: image-registry.openshift-image-registry.svc:5000/cmapi/cmapi
+  tag: ""
+  digest: ""
+cmapi_portal:
+  repository: image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal
+  tag: ""
+  digest: ""
+imagePullPolicy: IfNotPresent
+
+# -------------------------------------------------------------------------- the instance
+instance:
+  name: nonprod
+  displayName: Non-production
+  allowedEnvironments: [rnd, dev]
+  publicUrl: ""              # https://<api route host>; left empty, the Route's host is used in NOTES only
+  portalUrl: ""              # https://<portal route host>
+  # Where to send callers for the environments other instances serve
+  directory:
+    staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
+    prod: {url: https://cmapi.ephico2real.com, environments: [prod]}
+  reservedPatterns: ["ocp-*", "kubernetes-*"]
+  identity:
+    directory: keycloak
+    adminClient: cmapi-directory
+    cacheSeconds: 900
+    requireEmployeeId: true
+    requireOnBehalfOf: false
+    automationRoles: [cmapi-onboarding]
+  docs:
+    enabled: true
+
+# -------------------------------------------------------------------------- identity (an existing Keycloak)
+auth:
+  issuer: https://sso.ephico2real.com/realms/ephico2real
+  audience: cmapi-nonprod
+  # Where the pods fetch the JWKS and call the admin API; default: the issuer. An internal Service
+  # URL avoids the Route when the same Keycloak runs on the hub.
+  jwksUrl: ""
+  adminUrl: ""
+  # Secret with the cmapi-directory client secret (key: clientSecret). Created by the realm pieces
+  # below when they are enabled, otherwise supplied by the site.
+  directorySecret: cmapi-keycloak
+
+# The realm as code. On CRC the chart writes one KeycloakRealmImport (and the Secret its placeholders
+# read) into the existing Keycloak's namespace; a site with its own realm keeps this off.
+keycloak:
+  realmImport:
+    enabled: false
+    namespace: keycloak            # where the Keycloak operator watches
+    keycloakCRName: keycloak
+    realm: cmapi
+    displayName: cmapi
+    apiVersion: k8s.keycloak.org/v2beta1
+  realm:
+    portalRedirects: []            # https://portal host/*
+    docsRedirects: []              # https://api host/docs/oauth2-redirect
+    # The groups the design names (docs/11), each with the client roles its members get.
+    groups:
+      cmapi-viewers: [cmapi-viewer]
+      cmapi-requesters: [cmapi-requester]
+      cmapi-onboarding: [cmapi-onboarding]
+      cmapi-prod-approvers: [cmapi-approver]
+      cmapi-qa-leads: [cmapi-approver]
+      cmapi-uat-leads: [cmapi-approver]
+      cmapi-platform-leads: [cmapi-approver]
+      cmapi-platform-operators: [cmapi-operator, cmapi-approver]
+      cmapi-platform-admins: [cmapi-admin]
+      cmapi-auditors: [cmapi-auditor]
+  # The sync Job (post-install, post-upgrade): local test users with generated passwords, the user
+  # profile attributes, and LDAP federation when the cmapi-ldap-bind Secret exists.
+  sync:
+    enabled: false
+    testUsers: true                # ola, amy, opal, bot-user with generated passwords in Secret cmapi-test-users
+    ldap:
+      enabled: false               # needs Secret cmapi-ldap-bind (bindDN, password), created by the site
+      connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443
+      usersDn: ou=People,dc=ephico2real,dc=com
+      groupsDn: ou=Groups,dc=ephico2real,dc=com
+      groupsFilter: "(cn=cmapi-*)"
+      employeeIdAttribute: uidNumber   # this directory's employee number (docs/11); employeeNumber elsewhere
+      bindSecret: cmapi-ldap-bind
+
+# -------------------------------------------------------------------------- git host
+git:
+  provider: gitea                  # gitea | github
+  apiUrl: http://cmapi-git-gitea:3000/api/v1
+  webUrl: http://cmapi-git-gitea:3000
+  repository: cmapi/cluster-configs-nonprod
+  defaultBranch: main
+  # Secret with the bot credential: token (GitHub, Gitea token) or username+password (Gitea basic auth)
+  credentialSecret: cmapi-git
+  bootstrap:
+    enabled: false                 # CRC and kind: create the org, the repository, its seed and the branch protection
+    clusterIds: [CRC]
+
+# -------------------------------------------------------------------------- clusters and delivery
+clusters:
+  CRC:
+    environment: dev
+    gitopsPath: clusters/CRC
+    writes: true
+    labels: {region: us-central}
+    simulatedCapacity: {cpu: 64, memory: 256Gi}
+imports:
+  namespace: cmapi-imports
+  createNamespace: true
+delivery:
+  mode: apply                      # apply (no GitOps on the cluster) | argocd
+  syncTimeout: 30m
+  pollInterval: 30s
+  # apply mode on the hub: the worker's ServiceAccount gets the cmapi-deliverer ClusterRole
+  hubDeliverer:
+    enabled: true
+argocd:
+  namespace: openshift-gitops
+  rootApplication: cluster-configs-{clusterId}
+
+capacity:
+  mode: embedded
+  snapshotInterval: 30m
+  overcommit:
+    rnd: {cpu: 2.0, memory: 1.25}
+    dev: {cpu: 2.0, memory: 1.25}
+  targets:
+    rnd: {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+    dev: {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+
+notifier:
+  smtp: {}                         # host, port, from, starttls; empty: the email channel is off
+
+# -------------------------------------------------------------------------- database
+database:
+  cnpg:
+    enabled: true
+    name: cmapi-db
+    instances: 1
+    storage: 2Gi
+    storageClass: ""
+    imageName: ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}
+    parameters:
+      shared_buffers: 64MB
+      max_connections: "60"
+  # Without CNPG: a Secret holding `uri` (postgresql://user:pass@host:5432/db)
+  existingSecret: ""
+
+# -------------------------------------------------------------------------- workloads
+api:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 160Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  logLevel: INFO
+worker:
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  logLevel: INFO
+portal:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 128Mi}
+  mockup:
+    enabled: true                  # the standalone mockup (mockups/portal/dist/portal.html) behind its own host
+  oidcClientId: cmapi-portal
+
+migrate:
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {memory: 256Mi}
+
+# -------------------------------------------------------------------------- exposure
+# Route (OpenShift, the default: the router names the host after the fact via spec.subdomain) or
+# Ingress (plain Kubernetes, needs a host).
+exposure: Route
+route:
+  api:
+    host: ""                       # empty: subdomain <release>-api
+    termination: edge
+  portal:
+    host: ""                       # empty: subdomain <release>-portal
+  mockup:
+    host: ""                       # empty: subdomain <release>-mockup
+ingress:
+  className: ""
+  api: {host: ""}
+  portal: {host: ""}
+  mockup: {host: ""}
+  tls: []
+
+# -------------------------------------------------------------------------- trust
+trustedCA:
+  # PEM certificates the pods trust in addition to the system store: the Keycloak CA, the Git host's.
+  certificates: ""
+  # OpenShift: the network operator fills an empty ConfigMap labelled for injection with the cluster bundle.
+  injected:
+    enabled: false
+
+# -------------------------------------------------------------------------- monitoring
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+  prometheusRule:
+    enabled: false
+    workerNotLoopingSeconds: 120
+  perses:
+    enabled: false
+
+networkPolicy:
+  enabled: true
+  monitoringNamespace: openshift-user-workload-monitoring
+
+# -------------------------------------------------------------------------- security
+# Restricted on both platforms: non-root, no capabilities, seccomp runtime default. OpenShift's
+# restricted-v2 SCC assigns the UID; on kind the fixed one below applies.
+securityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+  runAsUser: null                  # null: let the platform (SCC) choose; kind sets 1001
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+  readOnlyRootFilesystem: false
+
+podDisruptionBudget:
+  enabled: false
+
+# Config files the instance mounts. Each name maps to the chart's config/<name> unless overridden
+# here with the file's full text.
+configFiles: {}

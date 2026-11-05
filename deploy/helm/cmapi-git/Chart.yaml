@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cmapi-git
+description: "A Gitea Git host for cmapi on a cluster without one (CRC, kind): the cluster-configs repository and the bot PRs. Not for production, where GitHub or GitLab is the Git host."
+type: application
+version: 0.1.0
+appVersion: "1.25.5"

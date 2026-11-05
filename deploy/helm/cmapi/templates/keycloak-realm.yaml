@@ -1,0 +1,168 @@
+{{- if .Values.keycloak.realmImport.enabled }}
+{{/*
+Realm as code for an existing Keycloak run by its operator (docs/11): one KeycloakRealmImport in the
+operator's namespace. The operator creates the realm once; later changes to this file reach an
+existing realm through the realm-sync Job (its realm-admin service client), never through the
+shared instance's master credential. Secrets are placeholders read from Secret cmapi-realm-secrets
+in the same namespace (templates/secrets.yaml).
+
+Content mirrors examples/cmapi-sso/realm/ephico2real.yaml and the clients in docs/02:
+  <audience>        the resource client that owns the eight client roles (the audience)
+  cmapi-portal      public, Authorization Code + PKCE S256
+  cmapi-docs        public, PKCE, for Swagger UI's Authorize button
+  cmapi-cli         public, Device Authorization Grant, offline_access optional
+  cmapi-automation  public, password grant, for local automation accounts (bot-user) only
+  svc-payments-ci   confidential, service account, the example pipeline client
+  cmapi-directory   confidential, realm-management view-users and query-users only
+  cmapi-realm-admin confidential, realm-management realm-admin: the sync Job's identity
+The cmapi-identity scope adds employee_id, middle_name and the group paths; cmapi-audience adds
+the audience claim to every caller's token.
+*/}}
+{{- $r := .Values.keycloak.realmImport -}}
+{{- $aud := .Values.auth.audience -}}
+{{- $mappers := list
+  (dict "name" "employee_id" "protocol" "openid-connect" "protocolMapper" "oidc-usermodel-attribute-mapper"
+        "config" (dict "user.attribute" "employeeId" "claim.name" "employee_id" "jsonType.label" "String" "access.token.claim" "true" "id.token.claim" "false" "userinfo.token.claim" "true"))
+  (dict "name" "middle_name" "protocol" "openid-connect" "protocolMapper" "oidc-usermodel-attribute-mapper"
+        "config" (dict "user.attribute" "middleName" "claim.name" "middle_name" "jsonType.label" "String" "access.token.claim" "true" "id.token.claim" "true" "userinfo.token.claim" "true"))
+  (dict "name" "groups" "protocol" "openid-connect" "protocolMapper" "oidc-group-membership-mapper"
+        "config" (dict "claim.name" "groups" "full.path" "true" "access.token.claim" "true" "id.token.claim" "false" "userinfo.token.claim" "true"))
+-}}
+{{- $audMapper := list
+  (dict "name" "audience" "protocol" "openid-connect" "protocolMapper" "oidc-audience-mapper"
+        "config" (dict "included.client.audience" $aud "access.token.claim" "true" "id.token.claim" "false"))
+-}}
+apiVersion: {{ $r.apiVersion }}
+kind: KeycloakRealmImport
+metadata:
+  name: {{ $r.realm }}
+  namespace: {{ $r.namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  keycloakCRName: {{ $r.keycloakCRName }}
+  placeholders:
+    CMAPI_REALM_ADMIN_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_REALM_ADMIN_SECRET}}
+    CMAPI_DIRECTORY_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_DIRECTORY_SECRET}}
+    CMAPI_SVC_PAYMENTS_CI_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_SVC_PAYMENTS_CI_SECRET}}
+  realm:
+    realm: {{ $r.realm }}
+    displayName: {{ $r.displayName | quote }}
+    enabled: true
+    # Sessions and token lifetimes (docs/02, examples/cmapi-sso/realm/ephico2real.yaml)
+    accessTokenLifespan: 300
+    ssoSessionIdleTimeout: 28800
+    ssoSessionMaxLifespan: 43200
+    rememberMe: true
+    ssoSessionIdleTimeoutRememberMe: 604800
+    ssoSessionMaxLifespanRememberMe: 2592000
+    offlineSessionIdleTimeout: 2592000
+    offlineSessionMaxLifespanEnabled: true
+    offlineSessionMaxLifespan: 7776000
+    revokeRefreshToken: true
+    refreshTokenMaxReuse: 0
+    clientScopes:
+      - name: cmapi-identity
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
+        protocolMappers: {{- toYaml $mappers | nindent 10 }}
+      - name: cmapi-audience
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
+        protocolMappers: {{- toYaml $audMapper | nindent 10 }}
+    roles:
+      client:
+        {{ $aud }}:
+          - {name: cmapi-viewer, description: "clusters:read, objects:read, capacity:read, requests:read"}
+          - {name: cmapi-onboarding, description: "Create namespaces only. For people and local automation accounts"}
+          - {name: cmapi-requester, description: "Onboarding plus change and delete, quotas, service accounts and grants"}
+          - {name: cmapi-approver, description: "requests:approve and requests:reject"}
+          - {name: cmapi-operator, description: "Requester plus retry, adoption, reports and operations"}
+          - {name: cmapi-admin, description: "Operator plus config, cluster onboarding, reload and the kill switch"}
+          - {name: cmapi-auditor, description: "Viewer plus events and audit export"}
+          - {name: cmapi-approval-relay, description: "approvals:relay for channel integrations"}
+    clients:
+      - clientId: {{ $aud }}
+        name: "cmapi {{ .Values.instance.name }} API"
+        enabled: true
+        publicClient: false
+        bearerOnly: true
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: false
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+      - clientId: cmapi-portal
+        name: "cmapi portal"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        attributes: {pkce.code.challenge.method: S256, post.logout.redirect.uris: "+"}
+        redirectUris: {{ toJson .Values.keycloak.realm.portalRedirects }}
+        webOrigins: ["+"]
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
+      - clientId: cmapi-docs
+        name: "cmapi Swagger UI"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        attributes: {pkce.code.challenge.method: S256, client.session.idle.timeout: "3600", client.session.max.lifespan: "28800"}
+        redirectUris: {{ toJson .Values.keycloak.realm.docsRedirects }}
+        webOrigins: ["+"]
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
+      - clientId: cmapi-cli
+        name: "cmapi CLI (device flow)"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: true
+        attributes: {oauth2.device.authorization.grant.enabled: "true"}
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+        optionalClientScopes: [offline_access]
+      - clientId: cmapi-automation
+        name: "Local automation accounts (bot-user)"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: true
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+      - clientId: svc-payments-ci
+        name: "Example pipeline client"
+        enabled: true
+        publicClient: false
+        secret: "${CMAPI_SVC_PAYMENTS_CI_SECRET}"
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
+        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+      - clientId: cmapi-directory
+        name: "cmapi directory (read-only admin API)"
+        enabled: true
+        publicClient: false
+        secret: "${CMAPI_DIRECTORY_SECRET}"
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
+        defaultClientScopes: [roles]
+      - clientId: cmapi-realm-admin
+        name: "cmapi realm sync (realm-management)"
+        enabled: true
+        publicClient: false
+        secret: "${CMAPI_REALM_ADMIN_SECRET}"
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
+        defaultClientScopes: [roles]
+    groups:
+      - name: cmapi
+        path: /cmapi
+        subGroups:
+        {{- range $g, $roles := .Values.keycloak.realm.groups }}
+          - name: {{ $g }}
+            path: /cmapi/{{ $g }}
+            clientRoles:
+              {{ $aud }}: {{ toJson $roles }}
+        {{- end }}
+{{- end }}

@@ -30,6 +30,7 @@ cmapi-api = "cmapi.main:run"
 cmapi-worker = "cmapi.worker:run"
 cmapi-capacity = "cmapi.capacity.main:run"
 cmapi-migrate = "cmapi.core.db.migrate:run"
+cmapi-tools = "cmapi.tools:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]

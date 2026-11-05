@@ -1,0 +1,9 @@
+apiVersion: v2
+name: cmapi
+description: "cmapi, one instance: the API, the worker, the portal, its PostgreSQL, monitoring and the realm it needs."
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+keywords: [openshift, namespaces, gitops, keycloak]
+sources:
+  - https://github.com/ephico2real2/cmapi

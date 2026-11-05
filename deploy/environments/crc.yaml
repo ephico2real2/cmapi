@@ -1,0 +1,99 @@
+# CRC, the development cluster on this Mac. Pass with every upgrade, together with the lock file:
+#   helm upgrade --install cmapi deploy/helm/cmapi -n cmapi -f deploy/environments/crc.yaml -f deploy/images.lock.yaml
+# (deploy/release-crc.sh does exactly that). --set carries nothing here: helm upgrade starts from the
+# chart defaults and this file is the desired state.
+#
+# Identity: the existing Keycloak and the existing LDAP server on this CRC (docs/11). The chart
+# installs neither; it writes one KeycloakRealmImport named cmapi into the existing Keycloak's
+# namespace and runs the realm sync Job against that realm.
+
+instance:
+  name: nonprod
+  displayName: Non-production (CRC)
+  allowedEnvironments: [rnd, dev]
+  publicUrl: https://cmapi-api.apps-crc.testing
+  portalUrl: https://cmapi-portal.apps-crc.testing
+
+auth:
+  issuer: https://keycloak.apps-crc.testing/realms/cmapi
+  audience: cmapi-nonprod
+  # The pods reach the existing Keycloak through its Service (its certificate names it) rather than
+  # the Route; the issuer stays the public URL, which is what tokens carry.
+  jwksUrl: https://keycloak-service.keycloak.svc:8443/realms/cmapi/protocol/openid-connect/certs
+  adminUrl: https://keycloak-service.keycloak.svc:8443
+
+keycloak:
+  realmImport:
+    enabled: true
+    namespace: keycloak
+    keycloakCRName: keycloak
+    realm: cmapi
+    displayName: "cmapi (CRC)"
+  realm:
+    portalRedirects: ["https://cmapi-portal.apps-crc.testing/*", "http://localhost:5173/*"]
+    docsRedirects: ["https://cmapi-api.apps-crc.testing/docs/oauth2-redirect"]
+  sync:
+    enabled: true
+    testUsers: true
+    ldap:
+      enabled: true                 # takes effect once Secret cmapi-ldap-bind exists in namespace cmapi
+      connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443
+      usersDn: ou=People,dc=ephico2real,dc=com
+      groupsDn: ou=Groups,dc=ephico2real,dc=com
+      groupsFilter: "(cn=cmapi-*)"
+      employeeIdAttribute: uidNumber
+      bindSecret: cmapi-ldap-bind
+
+git:
+  provider: gitea
+  apiUrl: http://cmapi-git-gitea.cmapi.svc:3000/api/v1
+  webUrl: https://cmapi-git.apps-crc.testing
+  repository: cmapi/cluster-configs-nonprod
+  bootstrap:
+    enabled: true
+    clusterIds: [CRC]
+
+clusters:
+  CRC:
+    environment: dev
+    gitopsPath: clusters/CRC
+    writes: true
+    labels: {region: us-central}
+    simulatedCapacity: {cpu: 64, memory: 256Gi}
+
+delivery:
+  mode: apply                       # no Argo CD on this cluster; the worker applies merged folders itself
+  pollInterval: 10s
+  syncTimeout: 10m
+
+portal:
+  enabled: false                    # turned on once the portal runs on the API (CRC-BUILD-STATUS.md)
+  mockup:
+    enabled: true
+
+exposure: Route
+route:
+  api: {host: cmapi-api.apps-crc.testing, termination: edge}
+  portal: {host: cmapi-portal.apps-crc.testing}
+  mockup: {host: cmapi-mockup.apps-crc.testing}
+
+trustedCA:
+  # The existing Keycloak's certificate chains to this CA (ClusterIssuer enterprise-ca, read from
+  # Secret keycloak-tls ca.crt in namespace keycloak), and the apps-crc.testing Routes to the ingress
+  # CA (ConfigMap default-ingress-cert in openshift-config-managed). Public certificates only.
+  certificates: |
+    PLACEHOLDER: deploy/release-crc.sh fills this from the cluster
+  injected:
+    enabled: false
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+  prometheusRule:
+    enabled: true
+
+database:
+  cnpg:
+    enabled: true
+    storage: 2Gi
+    storageClass: crc-csi-hostpath-provisioner

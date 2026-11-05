@@ -27,10 +27,13 @@ class HostGitProvider:
     BOT_EMAIL = "cmapi-bot@ephico2real.com"
 
     def __init__(self, api_url: str, repository: str, token: str, *, default_branch: str = "main",
-                 verify: str | bool = True, web_url: str | None = None, timeout: float = 20.0):
+                 verify: str | bool = True, web_url: str | None = None, timeout: float = 20.0,
+                 basic_auth: tuple[str, str] | None = None):
         self.api_url, self.repository, self.default_branch = api_url.rstrip("/"), repository, default_branch
         self.web_url = (web_url or self.api_url).rstrip("/")
-        self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout, headers=self._headers(token))
+        self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout,
+                                    headers=self._headers(token) if token else {"Accept": "application/json"},
+                                    auth=basic_auth)
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"token {token}", "Accept": "application/json"}
