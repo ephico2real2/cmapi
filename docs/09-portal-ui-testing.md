@@ -87,9 +87,7 @@ control. No CI runs these suites yet.
 | Installed Chrome | `/favicon.ico` 404 reported as a console error; a dev server hid it | An inline icon |
 | Independent review | 17 defects the suites had passed, including forms submitting what the mockup refuses and a footnote about a tick that did not exist | See `docs/reviews/2026-11-05-portal-ui.md` |
 
-Mockup behaviour worth a decision, left unchanged in `Main.dc.html`:
+Mockup behaviour worth a decision, left unchanged in `Main.dc.html`: the Team DL field has a value and no handler, so typing
+in it does nothing. The React app makes it editable.
 
-- The Team DL field has a value and no handler, so typing in it does nothing. The React app makes it editable.
-- "Use this size" does nothing on a custom recommendation: line 2330 writes `qcpu` and `qmem`, and line 2333 reads
-  `qcpuRaw` and `qmemRaw`. Both UIs inherit this, and 24 of the 63 recommendations on each instance's first 100-row page
-  are custom.
+"Use this size" on a custom recommendation was fixed in `Main.dc.html` on 2026-11-05 (`tests/portal/recommendation.test.mjs`).

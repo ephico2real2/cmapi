@@ -2327,7 +2327,7 @@ class Component extends DCLogic {
     var detail = { title: cur.ns + " on " + cur.cluster, ns: cur.ns, cluster: cur.cluster, env: cur.env, tier: cur.tier, etag: cur.etag, verdict: cur.verdict, vTone: cur.vTone, vNote: cur.vNote,
       meta: cur.env + " · tier " + cur.tier + " · ResourceQuota " + cur.ns + "-quota · read from the watch cache, current to the second", rows: rows,
       hasRec: !!rec, recId: rec ? rec.id : "", recText: rec ? rec.text : "",
-      useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: qkey(cur), qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: qkey(cur), qsize: "custom", qcpu: rec.cpu, qmem: rec.mem, qplan: false, qsent: false }); } };
+      useRec: function () { if (!rec) return; if (rec.tier) self.setState({ qns: qkey(cur), qsize: rec.tier, qplan: false, qsent: false }); else self.setState({ qns: qkey(cur), qsize: "custom", qcpuRaw: String(rec.cpu), qmemRaw: String(rec.mem), qplan: false, qsent: false }); } };
 
     var size = st.qsize || cur.tier;
     var rawC = st.qcpuRaw != null ? st.qcpuRaw : String(cur.cpu[1]), rawM = st.qmemRaw != null ? st.qmemRaw : String(cur.mem[1]);
