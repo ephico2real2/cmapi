@@ -317,7 +317,7 @@ class ClusterList(Api):
 
 
 class Health(Api):
-    status: str = Field(description="ok", examples=["ok"])
+    status: str = Field(description="ok, or degraded when the database does not answer", examples=["ok"])
     instance: str = Field(description="Instance name", examples=["nonprod"])
     version: str = Field(description="cmapi version", examples=["0.2.0"])
     issuer: str = Field(description="OIDC issuer trusted", examples=["https://keycloak.apps-crc.testing/realms/cmapi"])
@@ -325,6 +325,7 @@ class Health(Api):
     database: str = Field(description="ok or an error class", examples=["ok"])
     git: str = Field(description="Repository the bot writes to", examples=["cmapi/cluster-configs-nonprod"])
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
+    oldest_due_job_seconds: float | None = Field(default=None, description="Age of the oldest job no worker has claimed; it grows when the worker is dead. Null when the database cannot say", examples=[0.0])
 
 
 class Ok(Api):

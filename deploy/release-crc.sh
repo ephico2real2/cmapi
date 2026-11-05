@@ -7,6 +7,7 @@
 #   deploy/release-crc.sh --build-only   build and verify the stamps, push nothing
 #   deploy/release-crc.sh --deploy-only  helm upgrade from the lock file, build nothing
 #   deploy/release-crc.sh --allow-dirty  tag a dirty tree as sha-<commit>-dirty (never pushed under a clean tag)
+#   deploy/release-crc.sh --no-portal    the cmapi image only, for values with portal.enabled: false
 #
 # Portable nowhere else: the external script for a real registry is the same flow with REGISTRY set.
 # A sha-<commit> tag is immutable: pushing a different image under an existing tag is refused.
@@ -19,12 +20,13 @@ NAMESPACE="${NAMESPACE:-cmapi}"
 RELEASE="${RELEASE:-cmapi}"
 RELEASE_VALUES="${RELEASE_VALUES:-deploy/environments/crc.yaml}"
 LOCK="deploy/images.lock.yaml"
-BUILD_ONLY=false; DEPLOY_ONLY=false; ALLOW_DIRTY=false
+BUILD_ONLY=false; DEPLOY_ONLY=false; ALLOW_DIRTY=false; BUILD_PORTAL=true
 for arg in "$@"; do
   case "$arg" in
     --build-only) BUILD_ONLY=true ;;
     --deploy-only) DEPLOY_ONLY=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
+    --no-portal) BUILD_PORTAL=false ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -55,10 +57,14 @@ if [ "$DEPLOY_ONLY" != true ]; then
     -t "cmapi:${TAG}" -f cmapi/Containerfile cmapi >/dev/null
   stamp_check "cmapi:${TAG}" CMAPI_GIT_COMMIT "${COMMIT}"
   echo "built   : cmapi:${TAG} (stamp verified)"
-  podman build --build-arg "GIT_COMMIT=${COMMIT}" --build-arg "BUILD_VERSION=${VERSION}" \
-    -t "cmapi-portal:${TAG}" -f cmapi-portal-ui/Containerfile . >/dev/null
-  stamp_check "cmapi-portal:${TAG}" CMAPI_GIT_COMMIT "${COMMIT}"
-  echo "built   : cmapi-portal:${TAG} (stamp verified)"
+  IMAGES=(cmapi)
+  if [ "$BUILD_PORTAL" = true ]; then
+    podman build --build-arg "GIT_COMMIT=${COMMIT}" --build-arg "BUILD_VERSION=${VERSION}" \
+      -t "cmapi-portal:${TAG}" -f cmapi-portal-ui/Containerfile . >/dev/null
+    stamp_check "cmapi-portal:${TAG}" CMAPI_GIT_COMMIT "${COMMIT}"
+    echo "built   : cmapi-portal:${TAG} (stamp verified)"
+    IMAGES+=(cmapi-portal)
+  fi
   if [ "$BUILD_ONLY" = true ]; then exit 0; fi
 
   # CRC's registry route is signed by the cluster's ingress CA: trust it, never skip verification.
@@ -68,7 +74,7 @@ if [ "$DEPLOY_ONLY" != true ]; then
   oc get ns "${NAMESPACE}" >/dev/null 2>&1 || oc create ns "${NAMESPACE}" >/dev/null
   : > "$LOCK.tmp"
   echo "# Written by deploy/release-crc.sh: the images the chart deploys, by digest. Commit ${COMMIT}." >> "$LOCK.tmp"
-  for img in cmapi cmapi-portal; do
+  for img in "${IMAGES[@]}"; do
     if oc get istag "${img}:${TAG}" -n "${NAMESPACE}" >/dev/null 2>&1 && [[ "$TAG" != *-dirty ]]; then
       echo "ERROR: ${img}:${TAG} already exists in the registry; tags are immutable, commit to advance it" >&2; exit 1
     fi
@@ -85,9 +91,15 @@ fi
 if [ ! -f "$RELEASE_VALUES" ]; then
   echo "ERROR: no release values at ${RELEASE_VALUES}; an upgrade without it resets the release to chart defaults" >&2; exit 1
 fi
+# Public certificates only: the Keycloak CA and the ingress CA, read from the cluster at each release.
+TRUST=$(mktemp)
+trap 'rm -f "$TRUST"' EXIT
+{ oc get secret keycloak-tls -n keycloak -o jsonpath='{.data.ca\.crt}' | base64 -d; echo
+  oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}'; } > "$TRUST"
+grep -q 'BEGIN CERTIFICATE' "$TRUST" || { echo "ERROR: no CA certificate read from the cluster" >&2; exit 1; }
 # -f every time: helm upgrade starts from chart defaults and applies only what this call passes.
 helm upgrade --install "${RELEASE}" deploy/helm/cmapi --namespace "${NAMESPACE}" \
-  -f "$RELEASE_VALUES" -f "$LOCK" --wait --timeout 10m
+  -f "$RELEASE_VALUES" -f "$LOCK" --set-file "trustedCA.certificates=$TRUST" --wait --timeout 10m
 oc rollout status "deploy/${RELEASE}-api" -n "${NAMESPACE}" --timeout=300s
 oc rollout status "deploy/${RELEASE}-worker" -n "${NAMESPACE}" --timeout=300s
 

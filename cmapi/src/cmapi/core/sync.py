@@ -5,11 +5,12 @@ Two delivery modes, chosen in config/integrations.yaml (`delivery.mode`) or per 
     argocd   The design: each cluster's Argo CD applies clusters/<id>/namespaces; the worker reads
              the root Application (SyncSignal poll) and confirms with a direct read. Deletes
              wait in awaiting_prune until an operator confirms the prune in Argo CD.
-    apply    Built-in, for a cluster with no GitOps (CRC): the worker applies the merged folder
-             from Git main with server-side apply as a separate deliverer identity, confirms
-             with a read, and holds deletes until an operator confirms through
-             POST /admin/prune:confirm. This is the only cluster write cmapi ever makes, and it
-             is documented as a deployment choice, not the design's default.
+    apply    Built-in, for a cluster with no GitOps (CRC): once Git main's folder is seen to equal
+             the approved plan, the worker applies that plan with server-side apply as a separate
+             deliverer identity, confirms with a read, and holds deletes until an operator
+             confirms through POST /admin/prune:confirm. It refuses a namespace that exists and
+             is not cmapi-managed. This is the only cluster write cmapi ever makes, and it is
+             documented as a deployment choice, not the design's default.
 
 Both end the same way: a request is synced only when a read shows the namespace and its quota
 as planned.
@@ -23,13 +24,14 @@ import yaml
 
 from cmapi.core.clients.kube import KubeClient, KubeError
 from cmapi.core.ports import AppStatus
+from cmapi.core.tiers import qty
 
 DeliveryMode = Literal["argocd", "apply"]
 
 
 @dataclass(frozen=True)
 class DeliveryConfig:
-    mode: DeliveryMode = "apply"
+    mode: DeliveryMode = "argocd"     # the design's mode; apply is a deployment's explicit choice
     poll_seconds: int = 30
     sync_timeout_seconds: int = 1800
     argocd_namespace: str = "openshift-gitops"
@@ -40,7 +42,7 @@ class DeliveryConfig:
         raw = raw or {}
         d = raw.get("delivery") or {}
         s = raw.get("syncSignal") or {}
-        return cls(mode=d.get("mode", "apply"), poll_seconds=_seconds(s.get("pollInterval", "30s")),
+        return cls(mode=d.get("mode", "argocd"), poll_seconds=_seconds(s.get("pollInterval", "30s")),
                    sync_timeout_seconds=_seconds(d.get("syncTimeout", "30m")),
                    argocd_namespace=d.get("argocd", {}).get("namespace", "openshift-gitops"),
                    argocd_root_application=d.get("argocd", {}).get("rootApplication", "cluster-configs-{clusterId}"))
@@ -113,5 +115,6 @@ def confirmed_by_read(cache_get: Any, namespace: str, files: Mapping[str, str]) 
     if live is None:
         return False, "resourcequota not found"
     hard = live.get("spec", {}).get("hard", {})
-    missing = {k: v for k, v in want["spec"]["hard"].items() if str(hard.get(k)) != str(v)}
+    # The API server returns quantities canonicalised (5120Mi reads back as 5Gi): compare values, not spellings.
+    missing = {k: v for k, v in want["spec"]["hard"].items() if k not in hard or qty(hard[k]) != qty(v)}
     return (not missing, "quota matches the plan" if not missing else f"quota differs: {missing}")

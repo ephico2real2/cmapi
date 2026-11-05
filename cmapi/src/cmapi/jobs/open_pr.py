@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
+from cmapi.core.errors import Problem
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import log
 from cmapi.core.render.manifests import NamespaceSpec, folder, plan_hash
@@ -50,8 +51,15 @@ def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
     body = (f"Request: {row.request_id}\nPlan hash: {row.plan_hash}\nApproval: {req.get('auto') or 'approved in cmapi'}\n"
             f"Requester: {row.requester_username}\nInstance: {row.instance}")
     pr = ctx.git.open_pr(branch, files, title, body, base_sha)
+    try:
+        repo.move(row, E.PR_OPENED, "cmapi-bot", f"{pr.branch} #{pr.number}")
+    except Problem:
+        # Cancelled while the Git calls ran: the state stands, and the PR it no longer owns is closed.
+        ctx.git.close(pr, f"cmapi: {row.request_id} is {row.status}; this PR will not merge.")
+        repo.event(row, "pr_closed", "worker", f"#{pr.number}: the request became {row.status} while the PR was opening")
+        jobs.done(job)
+        return
     row.pr = {"number": pr.number, "url": pr.url, "branch": pr.branch, "head": pr.head_sha}
-    repo.move(row, E.PR_OPENED, "cmapi-bot", f"{pr.branch} #{pr.number}")
     jobs.done(job)
     jobs.enqueue("pr_checks", request_id=row.request_id, cluster_id=row.cluster_id)
 
@@ -63,8 +71,15 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
 
     repo, jobs = RequestRepo(s), JobRepo(s)
     row = repo.get(job.request_id)
+    if row.status != S.SYNC_FAILED.value:
+        jobs.done(job)
+        return
     prev = row.plan.get("prev") or {}
     now_files, base_sha = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+    # Only after Git answered, and in the transaction that records the new request: an outage leaves the
+    # request sync_failed, ready to be reverted again, never reverted with nothing behind it.
+    by = job.payload.get("by", "worker") if job.payload else "worker"
+    repo.move(row, E.REVERT, by, "revert requested")
     files: dict[str, str | None] = {p: t for p, t in prev.items()}
     for p in now_files:
         if p not in prev:
@@ -74,16 +89,21 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
         repo.event(row, "revert_noop", "worker", "the folder already matches the state before the plan")
         jobs.done(job)
         return
-    facts = {"plugin": "namespaces", "action": "update", "environment": row.env, "namespace": row.namespace,
+    # Reverting a create removes the folder, so it is a delete: an update would drop the quota and leave the
+    # namespace on the cluster with no folder and no way to prune it.
+    action = "update" if prev else "delete"
+    facts = {"plugin": "namespaces", "action": action, "environment": row.env, "namespace": row.namespace,
              "clusterId": row.cluster_id, "team": row.team, "automated": True, "reason": "revert",
              "capacity": "fits", "capacityFresh": True, "warnings": []}
+    if action == "delete":
+        pods, pvcs = ctx.pipeline.workload_counts(row.cluster_id, row.namespace)
+        facts.update(pods=pods, pvcs=pvcs, namespaceAgeDays=0, protected=False)
     requirement = ctx.pipeline._decide(facts)
-    who = Identity(sub=row.requester_sub, username=job.payload.get("by", "worker") if job.payload else "worker",
-                   kind="user", client_id="cmapi-worker")
+    who = Identity(sub=row.requester_sub, username=by, kind="user", client_id="cmapi-worker")
     requester = ctx.pipeline.requester_for(Identity(sub=row.requester_sub, username=row.requester_username, kind="user",
                                                     client_id="cmapi-worker", employee_id="revert",
                                                     roles=frozenset({"cmapi-onboarding"})), None)
-    plan = Plan(row.cluster_id, row.namespace, row.env, "update", "namespaces", None, files, now_files, changes, requirement,
+    plan = Plan(row.cluster_id, row.namespace, row.env, action, "namespaces", None, files, now_files, changes, requirement,
                 CapacityResult("fits", True, None, {"source": "revert"}), facts, requester, [], base_sha, reason="revert")
     new = ctx.pipeline.submit(who, plan, repo, jobs, idempotency_key=None, body_fingerprint="revert:" + row.request_id,
                               justification=f"Revert of {row.request_id}")

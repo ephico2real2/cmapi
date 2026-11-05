@@ -38,6 +38,8 @@ def _idem(key: str | None, dry_run: bool) -> str | None:
         return None
     if not key:
         raise Problem.bad_request("idempotency-key-required", "Idempotency-Key header is required on writes")
+    if len(key) > 100:                # the column's width: past it the INSERT would be a 500
+        raise Problem.bad_request("idempotency-key-required", "Idempotency-Key is at most 100 characters")
     return key
 
 
@@ -56,13 +58,20 @@ def _replay(c: AppContext, who: Identity, key: str | None, body: dict[str, Any])
 
 
 def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict[str, Any], justification: str | None) -> dict:
-    with c.db.session() as s:
-        repo, jobs = RequestRepo(s), JobRepo(s)
-        row = c.pipeline.submit(who, plan, repo, jobs, idempotency_key=key, body_fingerprint=fingerprint(body),
-                                justification=justification)
-        AuditRepo(s).record(who, f"namespace.{plan.action}", f"{plan.cluster_id}/{plan.namespace}",
-                            {"requestId": row.request_id, "status": row.status})
-        return request_view(repo, row)
+    try:
+        with c.db.session() as s:
+            repo, jobs = RequestRepo(s), JobRepo(s)
+            row = c.pipeline.submit(who, plan, repo, jobs, idempotency_key=key, body_fingerprint=fingerprint(body),
+                                    justification=justification)
+            AuditRepo(s).record(who, f"namespace.{plan.action}", f"{plan.cluster_id}/{plan.namespace}",
+                                {"requestId": row.request_id, "status": row.status})
+            return request_view(repo, row)
+    except Problem as exc:
+        # Lost a race to the same key: the winner's commit is visible now, and it is this caller's first response.
+        replay = _replay(c, who, key, body) if exc.status == 409 else None
+        if replay:
+            return replay
+        raise
 
 
 def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], open_map: dict) -> dict[str, Any]:
@@ -128,6 +137,7 @@ def create_namespace(cluster_id: str, body: NamespaceCreate,
     and writes nothing. The environment is the cluster's and must be one this instance serves."""
     raw = body.model_dump(by_alias=True, exclude_none=True)
     raw["expiresAt"] = body.expires_at.isoformat() if body.expires_at else None
+    raw["clusterId"] = cluster_id     # in the fingerprint: one key on two clusters is two requests, not a replay
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, raw)
     if replay:
@@ -147,7 +157,11 @@ def update_namespace(cluster_id: str, ns: str, body: NamespacePatch,
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """A merge patch on the namespace: tier, custom quota, labels and annotations (null removes a key). Needs
     If-Match with the etag from GET; 412 when the folder changed since. One open request per namespace."""
-    raw = {**body.model_dump(by_alias=True, exclude_none=True), "namespace": ns}
+    raw = {**body.model_dump(by_alias=True, exclude_none=True), "namespace": ns, "clusterId": cluster_id}
+    # exclude_none also drops None inside dicts, and in a merge patch null is what removes a key
+    for field in ("labels", "annotations"):
+        if getattr(body, field) is not None:
+            raw[field] = getattr(body, field)
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, raw)
     if replay:
@@ -165,7 +179,7 @@ def delete_namespace(cluster_id: str, ns: str, key: str | None = Depends(idempot
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
     until an operator confirms the prune. Needs If-Match."""
-    raw = {"namespace": ns, "action": "delete"}
+    raw = {"namespace": ns, "action": "delete", "clusterId": cluster_id}
     key = _idem(key, False)
     replay = _replay(c, who, key, raw)
     if replay:
@@ -183,7 +197,7 @@ def extend(cluster_id: str, ns: str, body: ExtendBody, key: str | None = Depends
            c: AppContext = Depends(ctx)):
     """Extends the expiry by `days` (up to the environment's limit) or to `until`. A normal request: plan,
     approval, bot PR. Needs If-Match."""
-    raw: dict[str, Any] = {"namespace": ns}
+    raw: dict[str, Any] = {"namespace": ns, "clusterId": cluster_id}
     if body.days:
         raw["extendDays"] = body.days
     elif body.until:

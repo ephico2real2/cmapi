@@ -22,6 +22,10 @@ from typing import Mapping
 from cmapi.core.ports import Finding
 
 
+class ValidatorUnavailable(RuntimeError):
+    """The check could not run (a schema download failed). Not a verdict on the files: retry, never refuse."""
+
+
 class CliValidator:
     def __init__(self, policies_dir: str | Path, *, kubeconform: str = "kubeconform", kyverno: str = "kyverno",
                  schema_location: str | None = None, kubernetes_version: str | None = None, timeout: float = 60.0):
@@ -63,6 +67,8 @@ class CliValidator:
         by_file = {v: k for k, v in paths.items()}
         out = []
         for res in report.get("resources", []):
+            if res.get("status") == "statusError" and "failed downloading schema" in res.get("msg", ""):
+                raise ValidatorUnavailable(f"kubeconform could not fetch a schema: {res['msg'][:200]}")
             if res.get("status") in ("statusInvalid", "statusError"):
                 out.append(Finding("kubeconform", "schema", by_file.get(res["filename"], res["filename"]), res.get("msg", "")))
         if r.returncode != 0 and not out:

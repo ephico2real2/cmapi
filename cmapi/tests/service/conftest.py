@@ -1,6 +1,7 @@
-"""Fixtures for the service tests: a real PostgreSQL (CMAPI_TEST_DATABASE_URL, default the podman
-container from deploy/scripts/dev-postgres.sh), and fakes for the Git host, the cluster and the
-validator, so the pipeline, the routers and the worker jobs run end to end without a cluster.
+"""Fixtures for the service tests: a real PostgreSQL (CMAPI_TEST_DATABASE_URL, default the throwaway
+postgres:16-alpine container on port 55432 named in CRC-BUILD-STATUS.md "Resume"; CI runs the same image
+as a service), and fakes for the Git host, the cluster and the validator, so the pipeline, the routers
+and the worker jobs run end to end without a cluster.
 
 The fakes implement the same contracts as the adapters (HostGitProvider, KubeClient) and keep
 their state in memory; the tests below drive every lifecycle path through them.
@@ -84,6 +85,7 @@ class FakeGit(HostGitProvider):
         self.prs: dict[int, dict[str, Any]] = {}
         self.statuses: dict[str, dict[str, str]] = {}
         self.commits: list[str] = ["aaaaaaaa initial"]
+        self.based_on: dict[str, dict[str, str]] = {}
         self.repository = "cmapi/cluster-configs-test"
         self.default_branch = "main"
         self.web_url = "https://git.test"
@@ -114,6 +116,12 @@ class FakeGit(HostGitProvider):
         files = {p: t for p, t in self.branches[branch].items() if p.startswith(path) and p.endswith(".yaml")}
         return files, self.heads[branch]
 
+    def changed_paths(self, head):
+        self._check()
+        branch = next(b for b, h in self.heads.items() if h == head)
+        before, after = self.based_on.get(branch, self.branches[branch]), self.branches[branch]
+        return {p for p in set(before) | set(after) if before.get(p) != after.get(p)}
+
     def find_pr(self, branch):
         for n, p in self.prs.items():
             if p["branch"] == branch and p["state"] == "open":
@@ -126,6 +134,7 @@ class FakeGit(HostGitProvider):
             return pr
         assert base_sha == self.heads["main"], "PR opened against a stale base"
         self.branches[branch] = dict(self.branches["main"])
+        self.based_on[branch] = dict(self.branches["main"])
         for p, t in files.items():
             if t is None:
                 self.branches[branch].pop(p, None)

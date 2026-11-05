@@ -81,6 +81,10 @@ class HostGitProvider:
         """An open PR from the branch, so a retried open_pr never opens a second one."""
         raise NotImplementedError
 
+    def changed_paths(self, head: str) -> set[str]:
+        """Every path any commit on head touches since it left the default branch."""
+        raise NotImplementedError
+
     def tree_files(self, ref: str, folder: str) -> dict[str, str]:
         files, _ = self.read_folder(folder, ref)
         return files

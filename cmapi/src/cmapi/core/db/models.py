@@ -91,6 +91,7 @@ class JobRow(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_by: Mapped[str | None] = mapped_column(String(100))
+    lease_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

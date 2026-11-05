@@ -2,14 +2,17 @@
 decisions :approve, :reject, :cancel, :retry. Every decision is an audit event."""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Depends, Query
 
+from cmapi.core.authz import group_path
 from cmapi.core.context import AppContext
-from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo
+from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, utcnow
 from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
-from cmapi.core.lifecycle import Event as E, State as S
+from cmapi.core.lifecycle import Event as E, State as S, transition
 from cmapi.core.listquery import ListQuery
 from cmapi.core.models import ApprovalStatus, ChangeRequest, DecisionBody, RequestEvents, RequestPage
 from cmapi.core.observability import APPROVAL_WAIT
@@ -40,19 +43,23 @@ def list_requests(
     with c.db.session() as s:
         repo = RequestRepo(s)
         rows = repo.list(status=status, cluster_id=cluster_id, requested_by=requested_by, envs=_visible_envs(c, who))
-        views = [request_view(repo, r, with_events=True) for r in rows]
-    if approver == "me":
-        views = [v for v in views if v["approval"] and v["status"] == "pending_approval" and
-                 any(f"/cmapi/cmapi-{r['group']}" in who.groups for r in v["approval"]["remaining"])]
-    if q:
-        t = q.lower()
-        views = [v for v in views if t in v["requestId"].lower() or t in v["namespace"].lower() or t in v["clusterId"].lower()]
-    rows_for_paging = [{**v, "name": v["requestId"], "clusterId": v["clusterId"], "_created": v["createdAt"].timestamp()} for v in views]
-    page = c.lister.page(rows_for_paging, ListQuery(q="", sort="newest", limit=limit, cursor=cursor,
-                                                   context={"status": status or "", "approver": approver or "", "q": q,
-                                                            "clusterId": cluster_id or "", "requestedBy": requested_by or ""}))
-    page["items"] = [{k: v for k, v in it.items() if k not in ("name", "_created")} for it in page["items"]]
+        if approver == "me":
+            rows = [r for r in rows if r.status == S.PENDING_APPROVAL.value and _can_still_approve(repo, r, who)]
+        if q:
+            t = q.lower()
+            rows = [r for r in rows if t in r.request_id.lower() or t in r.namespace.lower() or t in r.cluster_id.lower()]
+        # Views cost two queries each: page over the bare rows, then build a view for the page only.
+        paging = [{"name": r.request_id, "clusterId": r.cluster_id, "_created": r.created_at.timestamp(), "_row": r} for r in rows]
+        page = c.lister.page(paging, ListQuery(q="", sort="newest", limit=limit, cursor=cursor,
+                                               context={"status": status or "", "approver": approver or "", "q": q,
+                                                        "clusterId": cluster_id or "", "requestedBy": requested_by or ""}))
+        page["items"] = [request_view(repo, it["_row"], with_events=True) for it in page["items"]]
     return page
+
+
+def _can_still_approve(repo: RequestRepo, row: Any, who: Identity) -> bool:
+    ledger = repo.ledger(row)
+    return bool(ledger) and any(group_path(r["group"]) in who.groups for r in ledger.remaining())
 
 
 @router.read("/requests/{request_id}", summary="One request", permission="requests:read", response_model=ChangeRequest,
@@ -85,6 +92,7 @@ def approval_status(request_id: str, who: Identity = Depends(require("requests:r
     """What the cmapi check in CI asks: the request is approved (or further along) and the plan hash the PR must carry."""
     with c.db.session() as s:
         row = RequestRepo(s).get(request_id)
+        c.cfg.roles.require(who, "requests:read", row.env)
         approved = row.status in ("approved", "pr_open", "merged", "awaiting_prune", "synced")
         return {"requestId": row.request_id, "approved": approved, "status": row.status, "planHash": row.plan_hash}
 
@@ -99,7 +107,8 @@ def approve(request_id: str, body: DecisionBody | None = None, who: Identity = D
     comment = (body.comment if body else "") or ""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
-        row = repo.get(request_id)
+        # Locked for the whole decision: two approvers count each other, and a person counts once.
+        row = repo.get_for_update(request_id)
         if row.status != S.PENDING_APPROVAL.value:
             raise Problem.conflict("not-pending", f"{request_id} is {row.status}")
         ledger = repo.ledger(row)
@@ -142,6 +151,7 @@ def cancel(request_id: str, who: Identity = Depends(require("requests:cancel")),
     with c.db.session() as s:
         repo = RequestRepo(s)
         row = repo.get(request_id)
+        c.cfg.roles.require(who, "requests:cancel", row.env)
         repo.move(row, E.CANCEL, who.username, actor_is_requester=row.requester_username == who.username,
                   actor_is_operator=bool({"cmapi-operator", "cmapi-admin"} & who.roles))
         AuditRepo(s).record(who, "request.cancel", request_id, None)
@@ -157,6 +167,7 @@ def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
         row = repo.get(request_id)
+        c.cfg.roles.require(who, "requests:retry", row.env)
         before = row.status
         after = repo.move(row, E.RETRY, who.username, "retry requested")
         row.attempts = 0
@@ -164,7 +175,7 @@ def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c
         if after is S.APPROVED:
             jobs.enqueue("open_pr", request_id=request_id, cluster_id=row.cluster_id)
         else:
-            jobs.enqueue("watch_sync", request_id=request_id, cluster_id=row.cluster_id, payload={"since": None})
+            jobs.enqueue("watch_sync", request_id=request_id, cluster_id=row.cluster_id, payload={"since": utcnow().isoformat()})
         return request_view(repo, row)
 
 
@@ -172,12 +183,15 @@ def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "invalid-transition", "change-pending"])
 def revert(request_id: str, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
-    """Marks a sync_failed request reverted and opens a new request that restores the folder as it was
-    before the plan, through the same approval rules. The new request's ID is in the events."""
+    """Queues the revert of a sync_failed request: the worker marks it reverted and opens a new request that
+    restores the folder as it was before the plan, through the same approval rules, in one transaction. The new
+    request's ID is in the events."""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
         row = repo.get(request_id)
-        repo.move(row, E.REVERT, who.username, "revert requested")
+        c.cfg.roles.require(who, "requests:retry", row.env)
+        transition(S(row.status), E.REVERT)                    # 409 invalid-transition unless sync_failed
+        repo.event(row, "revert_requested", who.username, "")
         AuditRepo(s).record(who, "request.revert", request_id, None)
         jobs.enqueue("open_revert", request_id=request_id, cluster_id=row.cluster_id, payload={"by": who.username})
         return request_view(repo, row)

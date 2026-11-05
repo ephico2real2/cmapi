@@ -1,7 +1,8 @@
 """Token verification: every bearer token is checked offline against the realm's JWKS.
 
 docs/02, "Token verification": RS256 only, iss and aud pinned, exp/nbf with 30 s leeway, keys
-cached ten minutes and refetched once on an unknown kid. Stale-on-error: when Keycloak cannot be
+cached ten minutes and refetched once on an unknown kid, at most once per retry window, so forged
+kids cannot drive Keycloak and a hanging Keycloak stalls one caller, not all of them. Stale-on-error: when Keycloak cannot be
 reached the last good key set keeps verifying, in memory and, through KeyStore, persisted so a
 fresh pod after a restart can still verify during an outage. A token whose kid matches no cached
 key while Keycloak is down is 503 idp-unavailable, never 401.
@@ -35,31 +36,38 @@ class KeyStore(Protocol):
 class Jwks:
     def __init__(self, issuer: str, url: str, *, verify: str | bool = True, lifespan: float = 600.0,
                  store: KeyStore | None = None, fetch: Callable[[str], list[dict[str, Any]]] | None = None,
-                 clock: Callable[[], float] = time.monotonic):
-        self.issuer, self.url, self.verify, self.lifespan = issuer, url, verify, lifespan
+                 clock: Callable[[], float] = time.monotonic, retry_after: float = 30.0):
+        self.issuer, self.url, self.verify, self.lifespan, self.retry_after = issuer, url, verify, lifespan, retry_after
         self.store, self.clock = store, clock
         self._fetch = fetch or self._http_fetch
         self._keys: dict[str, jwt.PyJWK] = {}
-        self._raw: list[dict[str, Any]] = []
         self._fetched_at = -1.0
-        self._lock = threading.Lock()
+        self._last_failure: float | None = None     # when the last refresh failed; None while Keycloak answers
+        self._last_unknown: float | None = None     # when an unknown kid last caused a refetch
+        self._refreshing = False
+        self._cond = threading.Condition()
 
     def _http_fetch(self, url: str) -> list[dict[str, Any]]:
         r = httpx.get(url, timeout=5.0, verify=self.verify)
         r.raise_for_status()
         return r.json()["keys"]
 
+    @staticmethod
+    def _signing_keys(raw: list[dict[str, Any]]) -> dict[str, jwt.PyJWK]:
+        # Keycloak's JWKS also holds an RSA-OAEP key with use=enc, which PyJWK cannot load.
+        return {k["kid"]: jwt.PyJWK(k) for k in raw if k.get("use", "sig") == "sig" and k.get("kty") == "RSA"}
+
     def _refresh(self) -> bool:
         try:
             raw = self._fetch(self.url)
+            keys = self._signing_keys(raw)
+            if not keys:                                            # an empty answer never replaces a good set
+                raise ValueError("no signing keys in the JWKS")
         except Exception:                                           # noqa: BLE001 - any transport or parse error
             JWKS_REFRESH.labels("error").inc()
             return False
-        keys = {}
-        for k in raw:
-            if k.get("use", "sig") == "sig" and k.get("kty") == "RSA":
-                keys[k["kid"]] = jwt.PyJWK(k)
-        self._keys, self._raw, self._fetched_at = keys, raw, self.clock()
+        with self._cond:
+            self._keys, self._fetched_at = keys, self.clock()
         JWKS_REFRESH.labels("ok").inc()
         if self.store is not None:
             try:
@@ -68,28 +76,57 @@ class Jwks:
                 pass
         return True
 
+    def _load_stored(self) -> None:
+        if self._keys or self.store is None:
+            return
+        try:
+            stored = self.store.load(self.issuer)
+            keys = self._signing_keys(stored) if stored else {}
+        except Exception:                                           # noqa: BLE001 - a bad copy is the same as no copy
+            return
+        with self._cond:
+            self._keys = self._keys or keys
+
+    def _due(self, kid: str, now: float) -> bool:
+        """Whether this caller should fetch. After a failure nobody does until the retry window has passed."""
+        if self._last_failure is not None and now - self._last_failure < self.retry_after:
+            return False
+        if not self._keys or now - self._fetched_at > self.lifespan:
+            return True
+        if kid in self._keys:
+            return False
+        return self._last_unknown is None or now - self._last_unknown >= self.retry_after
+
     def key(self, kid: str) -> jwt.PyJWK:
-        with self._lock:
-            if not self._keys and self.store is not None:
-                try:
-                    stored = self.store.load(self.issuer)
-                except Exception:                                   # noqa: BLE001
-                    stored = None
-                if stored:
-                    self._keys = {k["kid"]: jwt.PyJWK(k) for k in stored if k.get("kty") == "RSA"}
-                    self._raw = stored
-            stale = self.clock() - self._fetched_at > self.lifespan
-            if kid not in self._keys or stale:
-                # one refetch on an unknown kid (rotation) or an expired cache; a failure keeps the last good set
-                self._refresh()
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
             k = self._keys.get(kid)
-            if k is None:
-                if self._keys:
-                    raise jwt.InvalidTokenError("unknown signing key")
-                IDP_UNAVAILABLE.inc()
-                raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and none are cached",
-                              extra={"retryAfter": 30})
-            return k
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+        raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
 
 
 class Authenticator:
@@ -127,6 +164,10 @@ class Authenticator:
         except jwt.PyJWTError as exc:
             AUTH_FAILURES.labels("signature").inc()
             raise Problem(401, "unauthenticated", "Invalid token") from exc
+        # Keycloak marks every token it issues; an ID or refresh token is never a bearer credential here.
+        if claims.get("typ") not in (None, "Bearer"):
+            AUTH_FAILURES.labels("token-type").inc()
+            raise Problem(401, "unauthenticated", "Token is not an access token")
         return Identity.from_claims(claims, self.audience)
 
 

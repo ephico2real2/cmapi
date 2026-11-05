@@ -18,7 +18,7 @@ portal, the CLI and pipelines, all with Keycloak bearer tokens. Outbound: Keyclo
 `cmapi-directory`), the Git host REST API (Gitea on CRC, GitHub adapter unproven there), the cluster
 API through `cmapi-reader`, Thanos Querier (capacity), PostgreSQL. Data store: one PostgreSQL. Queue: the
 `jobs` table with `FOR UPDATE SKIP LOCKED` (no broker). Schedulers: recurring job rows (approval
-timeout, expire check, snapshots).
+timeout today; expire check and snapshots are planned).
 
 **Tool stack.** Versions are the pins in `cmapi/pyproject.toml`, `cmapi-portal-ui/package.json` and
 `deploy/`; licences from each project's repository; CNCF status from
@@ -37,7 +37,7 @@ incubating projects only).
 | Kyverno CLI + kubeconform | 1.16.2 + 0.6.7, baked into the image | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
 | Prometheus (user workload monitoring on CRC) | OpenShift 4.22.14 stack | Apache-2.0 | yes | graduated | any OpenMetrics scraper |
 | Perses (Cluster Observability Operator 1.5.3 on CRC) | COO 1.5.3 | Apache-2.0 | yes | not on the CNCF page read; status not verified here | Grafana (chart value `dashboards.provider`) |
-| Argo CD | not installed on CRC | Apache-2.0 | yes | graduated | built-in `apply` delivery (see §5) |
+| Argo CD | not installed on CRC; OpenShift GitOps operator 1.10 to 1.14 in the catalog, `AllNamespaces` install mode only (measured) | Apache-2.0 | yes | graduated | `apply` delivery, a deviation a site must acknowledge (see §5) |
 | Helm | 4.x client on the Mac (`helm version`) | Apache-2.0 | yes | graduated | plain manifests from `helm template` |
 | OpenTelemetry | planned (§3) | Apache-2.0 | yes | graduated | — |
 | KEDA | not installed on CRC (`oc get crd scaledobjects.keda.sh`: none) | Apache-2.0 | yes | graduated | plain HPA (§7) |
@@ -62,7 +62,7 @@ deploy/environments/crc.yaml` deploying by digest. The build refuses a dirty tre
 | IX Disposability | SIGTERM handled by uvicorn; the worker finishes the current job then exits; a job lease expires if a worker dies | *to measure* on the cluster: kill a worker mid-job and watch the lease expire | — | 2 |
 | X Dev/prod parity | kind and CRC from one chart; local run `examples/local` differs by design (stand-ins) | — | — | 2 |
 | XI Logs | structlog JSON on stdout | — | — | 1 |
-| XII Admin processes | `cmapi-migrate` as a pre-upgrade Job; `/admin/*` routes gated by roles | — | — | 1 |
+| XII Admin processes | `cmapi-migrate` as an initContainer on the api and the worker (serialised by an advisory lock; readiness waits for a schema at or past the code's revision); `/admin/*` routes gated by roles | — | — | 1 |
 
 ## 3. Observability against the layered standard
 
@@ -75,7 +75,7 @@ instrumentation is proven by the in-process span export to stdout in the integra
 
 | Call or dependency | Layer | Evidence | Gap |
 | --- | --- | --- | --- |
-| Inbound HTTP | L1 (FastAPI instrumentation) + RED metrics `cmapi_http_*` (`core/observability.py`) | `/metrics` scraped on CRC | — |
+| Inbound HTTP | RED metrics `cmapi_http_*` (`core/observability.py`). **No OpenTelemetry yet**: it is in no dependency list, and every L1 and L3 span, the `traceparent` in `jobs.payload` and the baggage rows below are planned, not built | not scraped yet: nothing is deployed | L1 |
 | Keycloak JWKS, admin API | L1 (httpx instrumentation); `cmapi_jwks_refresh_total`, `cmapi_auth_failures_total` | — | *to measure* |
 | PostgreSQL | L1 (SQLAlchemy instrumentation); pool gauges | — | *to measure* |
 | Git host | L1 httpx + `cmapi_git_operations_total{operation,result}` | — | — |
@@ -84,22 +84,22 @@ instrumentation is proven by the in-process span export to stdout in the integra
 | Business operations: plan, submit, approve, merge, sync | L3 spans and `cmapi_change_requests_total`, `cmapi_change_lead_time_seconds` | — | — |
 | Context through the queue | W3C `traceparent` stored in `jobs.payload` and restored when the job runs | *to measure* | — |
 | Baggage | `cmapi.instance`, `cmapi.cluster_id`, `cmapi.plugin` set at the front door and copied by an allow-listed span processor; never a user or a token | — | — |
-| CI guard | `cmapi/tests/core/test_api_contract.py`: every `/api` route documented (startup check `core/docs.py`), every outbound client instrumented | — | — |
+| CI guard | `cmapi/tests/service/test_api_contract.py`: every `/api` route documented (startup check `core/docs.py`). It is not in CI, and outbound clients are not instrumented | — | wire it into CI |
 
-Personal data (names, employee ID) and tokens never go in telemetry: structlog logs `sub`, `username`,
-`client`, never a token; spans carry no label values from the request body.
+Personal data (names, employee ID) and tokens never go in telemetry: structlog logs `sub` and
+`client`, never a username, an address or a token; spans carry no label values from the request body.
 
 ## 4. Security, adversarially (STRIDE per trust boundary)
 
 | Boundary | Threats considered | Control in code | Test |
 | --- | --- | --- | --- |
-| Internet → Route → cmapi-api | Spoofing (forged JWT), tampering (alg=none, HS256 key confusion), DoS | `core/auth.py`: RS256 only, `kid` required, `iss` and `aud` pinned per instance, `exp`/`nbf` with 30 s leeway, JWKS refetched once on an unknown `kid`, stale-on-error with a persisted copy; 503 `idp-unavailable` never 401 when no key is cached; rate limits (`core/ratelimit.py`) | `tests/core/test_auth.py`: wrong issuer, wrong audience, expired, `alg=none`, unknown kid with Keycloak down |
+| Internet → Route → cmapi-api | Spoofing (forged JWT), tampering (alg=none, HS256 key confusion), DoS | `core/auth.py`: RS256 only, `kid` required, `iss` and `aud` pinned per instance, `exp`/`nbf` with 30 s leeway, JWKS refetched once on an unknown `kid`, stale-on-error with a persisted copy; 503 `idp-unavailable` never 401 when Keycloak is down and the key is not cached; `core/ratelimit.py` exists but no route uses it yet | `cmapi/tests/service/test_auth.py`: wrong issuer, wrong audience, expired, `alg=none`, unknown kid with Keycloak down |
 | cmapi → Keycloak admin API | Elevation (the directory credential) | `cmapi-directory` holds `view-users` and `query-users` only; secret from a Kubernetes Secret, never in the realm CR | realm import reviewed; `GET /admin/realms/cmapi/users` with the credential returns 200, `POST` returns 403 (*to measure*) |
-| cmapi → Git host | Tampering (a PR edited after approval), repudiation | Plan hash stored at submit, re-checked before the PR opens and before the merge (`jobs/pr_checks.py`); the bot token is the only identity that merges under `clusters/`; branch protection requires the `cmapi/check` status | integration: edit the bot branch after approval → `failed`, cmapi check `failure` |
+| cmapi → Git host | Tampering (a PR edited after approval), repudiation | Plan hash stored at submit, re-checked before the PR opens and before the merge (`jobs/pr_checks.py`, which also refuses a head that moved, so a file pushed outside the folder cannot ride along); the bot token is the only identity that merges under `clusters/`; branch protection requires the `cmapi/check` status | integration: edit the bot branch after approval → `failed`, cmapi check `failure` |
 | cmapi → cluster (read) | Elevation | `cmapi-reader` ClusterRole from `examples/baseline/cmapi-reader-rbac.yaml`: get/list/watch only; the import check refuses a token whose identity is not `cmapi-system:cmapi-reader` | `oc auth can-i create namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader` → no |
-| worker → cluster (apply delivery on CRC) | Elevation, tampering | A separate `cmapi-deliverer` identity used only by the worker's delivery job, applying only what Git `main` holds; never held by the API pods | the API SA cannot create namespaces (`oc auth can-i`) |
+| worker → cluster (`apply` delivery, a deviation; off by default) | Elevation, tampering | The worker's ServiceAccount gets the `cmapi-deliverer` ClusterRole only when the site acknowledges direct writes; it applies the stored approved plan after reading that Git `main`'s folder equals it, refuses an unmanaged namespace, and is contained by the `cmapi-deliverer-managed-only` ValidatingAdmissionPolicy. The API pods never hold it. A compromised worker can still delete or starve any managed namespace and skip `prune:confirm` | `tests/service/test_review_d_delivery.py`, the policy attacked on a real kube-apiserver 1.33.5 in the review (19 denied, 14 allowed), not on CRC |
 | Portal (browser) → Keycloak | Spoofing, CSRF | Authorization Code + PKCE through the public `cmapi-portal` client, redirect URIs pinned to the portal Route; tokens in memory, not local storage | Playwright walk: a token from `cmapi-cli` cannot be used by the portal client (different `azp`, same audience: allowed by design; recorded) |
-| Secrets | Information disclosure | Nothing secret in git, logs or the report; generated Secrets; the Git token and DB URL only as env from Secrets; the idempotency cache never keeps token-issuing responses | `git grep` of the tree for `password:`/`token:` with values is part of `deploy/check.sh` |
+| Secrets | Information disclosure | Nothing secret in git, logs or the report; generated Secrets; the Git token and DB URL only as env from Secrets; the idempotency cache never keeps token-issuing responses | none yet: `deploy/check.sh` is planned |
 | Supply chain | Tampering | Base images by digest, CLI tarballs by SHA-256, Python pins, npm lock | the Containerfile fails on a checksum mismatch |
 
 Input handling: every body is a Pydantic model with `extra="forbid"`; namespace names, labels and
@@ -117,10 +117,23 @@ has no Argo CD, and installing OpenShift GitOps is a cluster-wide operator the h
 namespace-scoped way exists. The build adds a `delivery` setting to `config/integrations.yaml`:
 `argocd` (the design: the worker only reads Applications) or `apply` (the worker applies the merged
 folder from Git `main` with a separate deliverer credential, confirmed by a read, and holds deletes for
-an operator exactly as `Prune=confirm` does). `apply` is the built-in default for a cluster with no
-GitOps; it is recorded in `docs/01` and `docs/02` as a design change. An Argo CD installed from its Helm
-chart into `cmapi-argocd` (namespace-scoped, CRDs cluster-scoped) is the widening step once memory
-allows; the `argocd` SyncSignal adapter exists either way and is proven on kind.
+an operator exactly as `Prune=confirm` does). This departs from the design's read-only credential: the
+worker holds a cluster-wide write identity, contained by the chart's `cmapi-deliverer-managed-only`
+ValidatingAdmissionPolicy, proven on a real kube-apiserver. A compromised worker can still delete or starve every
+managed namespace and ignore `prune:confirm`, which only Argo CD's own confirmation prevents. So `apply` is opt-in
+(`delivery.hubDeliverer.acknowledgeDirectWrites`), for a development cluster, never production. `docs/01` and
+`docs/02` are not amended: the design's rule stands, and the deviation is a deployment value, recorded in
+`docs/reviews/2026-11-05-pr40.md` with the measurements behind the choice for CRC. The `argocd` adapter exists;
+no test or cluster has exercised it yet.
+
+Measured for that choice (read-only, 2026-11-05): the OpenShift GitOps operator in CRC's catalog
+(channels gitops-1.10 to 1.14) supports only the `AllNamespaces` install mode, so it is a cluster-wide
+operator; its documented defaults for one Argo CD instance request 1024Mi (application controller),
+512Mi (applicationset controller), 256Mi (repo server), 128Mi each for the server, Redis and Dex, about
+2.2 GiB in requests before the operator pod ([Red Hat, OpenShift GitOps 1.16, Installing GitOps](https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.16/html-single/installing_gitops/)).
+The node has 15525Mi of memory requested out of 19.6 GiB allocatable (79%): about 4 GiB left to
+schedule into, before cmapi's own requests (about 0.6 GiB). `ValidatingAdmissionPolicy` is a served
+built-in API on this cluster (14 policies exist).
 
 **Lifecycle and recovery** (to prove on the running system, phase 2): a worker killed mid-job leaves a
 lease that expires and the job runs again idempotently (open_pr checks for an existing branch; merge
@@ -151,11 +164,11 @@ registry container (`kind-registry`) stands in for CRC's internal registry; `kin
 | --- | --- | --- | --- |
 | cmapi-api | request rate and p95 latency from `cmapi_http_request_duration_seconds` (KEDA Prometheus scaler, or a plain HPA on CPU where KEDA is absent) | stateless, request-driven | readiness = DB ping + config loaded; SIGTERM drains uvicorn |
 | cmapi-worker | `cmapi_jobs_pending` (KEDA PostgreSQL scaler: `SELECT count(*) FROM jobs WHERE done_at IS NULL AND run_after <= now()`), min 1 | backlog-driven; jobs are idempotent and claimed with leases | the recurring jobs are singletons by the `uq_jobs_pending` index, not by a leader |
-| cmapi-capacity | cron (snapshot interval) | scheduled load | advisory lock per job |
+| cmapi-capacity | cron (snapshot interval) | scheduled load; **not built**, its console script is removed until it exists | advisory lock per job |
 
-KEDA is not on CRC and will not be installed here (hard limit); the ScaledObjects ship in the chart off
-by default (`autoscaling.keda.enabled`), with the PostgreSQL scaler's identity a separate read-only
-role and its TLS from the CNPG server CA, never `unsafeSsl`. Proof planned on kind, phase 3.
+KEDA is not on CRC and will not be installed here (hard limit). Planned for phase 3, not in the chart yet:
+ScaledObjects off by default, with the PostgreSQL scaler's identity a separate read-only role and its TLS
+from the CNPG server CA, never `unsafeSsl`. Proof planned on kind.
 
 ## 8. CI/CD
 
@@ -174,6 +187,6 @@ here, not built.
 
 | Step | Proof (runnable) |
 | --- | --- |
-| Now: phase 1 and 2 thin slice on CRC | `deploy/e2e/walk.sh`: one namespace request from the portal through approval and a PR to a namespace on CRC |
+| Now: phase 1 and 2 thin slice on CRC | `deploy/e2e/walk.sh` (to write): one namespace request from the portal through approval and a PR to a namespace on CRC |
 | Next: phase 2 widening (retry, revert, events, email channel, superseded), phase 3 (capacity from Thanos, quotas, placement) | the walk extended; `tests/integration` on kind |
 | Later: phases 4 to 6 | per-phase sections appended here with their evidence |

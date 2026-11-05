@@ -1,6 +1,6 @@
 {{- $name := include "cmapi.name" . -}}
 {{- if .Values.networkPolicy.enabled }}
-# Only the Route (through the router) reaches the API, and only monitoring reaches the metrics ports.
+# Only the router reaches the API port, and only monitoring reaches the metrics ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -18,7 +18,13 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}}
       ports:
         - {port: 9090, protocol: TCP}
-    - ports:
+    - {{- if eq .Values.exposure "Route" }}
+      from:
+        - namespaceSelector:
+            matchLabels: {network.openshift.io/policy-group: ingress}
+        - podSelector: {}
+      {{- end }}
+      ports:
         - {port: 8080, protocol: TCP}
 {{- end }}
 {{- if .Values.monitoring.serviceMonitor.enabled }}
@@ -71,8 +77,12 @@ spec:
           labels: {severity: critical}
           annotations: {summary: "Git host operation failures above 20% for 5 minutes"}
         - alert: CmapiWorkerNotLooping
-          # A Running worker whose loop died would pass its probes while every request stalls.
-          expr: (time() - max(cmapi_worker_last_loop_timestamp_seconds{namespace="{{ .Release.Namespace }}"})) > {{ .Values.monitoring.prometheusRule.workerNotLoopingSeconds }}
+          # A Running worker whose loop died would pass its probes while every request stalls; absent() is the
+          # worker that is gone or never started, which the age alone cannot see (measured with promtool).
+          expr: |
+            absent(cmapi_worker_last_loop_timestamp_seconds{namespace="{{ .Release.Namespace }}"})
+            or
+            (time() - max(cmapi_worker_last_loop_timestamp_seconds{namespace="{{ .Release.Namespace }}"})) > {{ .Values.monitoring.prometheusRule.workerNotLoopingSeconds }}
           for: 2m
           labels: {severity: critical}
           annotations: {summary: "The cmapi worker loop has not run for {{ .Values.monitoring.prometheusRule.workerNotLoopingSeconds }} seconds"}
@@ -86,6 +96,11 @@ spec:
           for: 5m
           labels: {severity: warning}
           annotations: {summary: "A request is in sync_failed"}
+        - alert: CmapiPruneStuck
+          expr: cmapi_open_change_requests_oldest_age_seconds{status="awaiting_prune", namespace="{{ .Release.Namespace }}"} > 86400
+          for: 5m
+          labels: {severity: warning}
+          annotations: {summary: "A delete has waited in awaiting_prune for over a day: no confirmation, or a namespace stuck Terminating"}
         - alert: CmapiWorkerBacklog
           expr: sum(cmapi_jobs_pending{namespace="{{ .Release.Namespace }}"}) > 100
           for: 15m

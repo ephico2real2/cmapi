@@ -11,7 +11,7 @@ cmapi/check, which branch protection requires. Endpoints as documented by GitHub
     POST /repos/{o}/{r}/statuses/{sha}          PUT  /repos/{o}/{r}/pulls/{n}/merge {sha}
     PATCH /repos/{o}/{r}/pulls/{n}              POST /repos/{o}/{r}/issues/{n}/comments
 
-Proven against a fake transport in the unit tests only: this Mac's cluster has no GitHub.
+Never exercised, by any test or against any host: this Mac's cluster has no GitHub.
 """
 from __future__ import annotations
 
@@ -54,6 +54,8 @@ class GitHubProvider(HostGitProvider):
         existing = self.find_pr(branch)
         if existing is not None:
             return existing
+        if self.branch_head(branch) is not None:      # see GiteaProvider.open_pr: never adopt a head the bot did not write
+            self._call("delete_branch", "DELETE", f"{self._repo()}/git/refs/heads/{branch}", ok=(204,))
         head = self.branch_head(branch)
         if head is None:
             r = self._call("create_branch", "POST", f"{self._repo()}/git/refs",
@@ -81,6 +83,12 @@ class GitHubProvider(HostGitProvider):
         if r.status_code != 201:
             raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
         return self._pr_ref(r.json())
+
+    def changed_paths(self, head: str) -> set[str]:
+        r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
+        if r.status_code != 200:
+            raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {r.text[:200]}")
+        return {f["filename"] for f in r.json().get("files") or []}
 
     def _pr_ref(self, p: Mapping[str, Any]) -> PrRef:
         return PrRef(number=p["number"], url=p["html_url"], branch=p["head"]["ref"], head_sha=p["head"]["sha"])

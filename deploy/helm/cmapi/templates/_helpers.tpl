@@ -16,10 +16,12 @@ app.kubernetes.io/name: {{ include "cmapi.name" . }}-{{ .component }}
 app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
-{{/* An image reference: by digest when the lock file gives one, else by tag. */}}
+{{/* An image reference, always by digest (deploy/images.lock.yaml). A tag can move under a release; the tag in the lock file is a record. */}}
 {{- define "cmapi.image" -}}
 {{- $img := index .Values .key -}}
-{{- if $img.digest -}}{{ $img.repository }}@{{ $img.digest }}{{- else -}}{{ $img.repository }}:{{ required (printf "%s: a tag or a digest is required (deploy/images.lock.yaml)" .key) $img.tag }}{{- end -}}
+{{- $digest := required (printf "%s.digest is required: deploy by digest from deploy/images.lock.yaml" .key) $img.digest -}}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) -}}{{- fail (printf "%s.digest is not a sha256 digest: %s" .key $digest) -}}{{- end -}}
+{{ $img.repository }}@{{ $digest }}
 {{- end -}}
 
 {{/* The database URL source: CNPG's generated app Secret, or the site's own. */}}

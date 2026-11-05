@@ -18,18 +18,20 @@ import yaml
 
 from cmapi.core.approvals import ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
+from cmapi.core.clients.kube import ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig
 from cmapi.core.db.models import ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
 from cmapi.core.errors import Problem
 from cmapi.core.git.base import GitUnavailable, HostGitProvider
 from cmapi.core.identity.checks import Requester, resolve_requester
-from cmapi.core.identity.claims import Identity
+from cmapi.core.identity.claims import Identity, label_value_of
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.lifecycle import Event as E
-from cmapi.core.naming import check_name, check_not_unmanaged
+from cmapi.core.naming import check_name, check_not_unmanaged, is_label
 from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQUESTS, ENV_NOT_SERVED, VALIDATION_FAILURES
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
+from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, diff_files, folder, plan_hash
 from cmapi.core.tiers import qty
@@ -137,10 +139,22 @@ class Pipeline:
                                     instanceUrl=(other or {}).get("url"), portalUrl=(other or {}).get("portalUrl"))
 
     def _read_folder(self, cluster_id: str, ns: str) -> tuple[dict[str, str], str]:
+        if not is_label(ns):              # a path parameter such as "..": never a folder, never sent to the Git host
+            raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")
         try:
             return self.git.read_folder(folder(cluster_id, ns))
         except GitUnavailable as exc:
             raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
+
+    def workload_counts(self, cluster_id: str, ns: str) -> tuple[int, int]:
+        """Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0."""
+        client = self.registry.cache(cluster_id).client
+        try:
+            return (len(client.list("Pod", namespace=ns).get("items", [])),
+                    len(client.list("PersistentVolumeClaim", namespace=ns).get("items", [])))
+        except (ClusterUnreachable, KubeError) as exc:
+            raise Problem(503, "cluster-unreachable", f"Cannot count the workloads in {ns}: {str(exc)[:200]}",
+                          extra={"retryAfter": 30}) from exc
 
     # ---- plan a create or update
     def plan_namespace(self, who: Identity, cluster_id: str, body: Mapping[str, Any], *, action: str,
@@ -155,6 +169,9 @@ class Pipeline:
             check_name(ns, self.reserved)
             check_not_unmanaged(ns, cache.namespace(ns))
         requester = self.requester_for(who, body.get("onBehalfOf"))
+        if action == "create":
+            # The label is only written at create; refuse here, not as a 422 from the API server at apply.
+            label_value_of(requester.person.username)
         operator = "cmapi-operator" in who.roles or "cmapi-admin" in who.roles
         prev_files, base_sha = self._read_folder(cluster_id, ns)
         prev_ns = next((yaml.safe_load(t) for p, t in prev_files.items() if p.endswith("namespace.yaml")), None)
@@ -215,7 +232,10 @@ class Pipeline:
         changes = {p: s for p, s in diff_files(prev_files, files).items() if s != "unchanged"}
         if not changes:
             raise Problem.unprocessable("no-change", "The request changes nothing")
-        findings = self.validator.validate(files, cluster_id, env)
+        try:
+            findings = self.validator.validate(files, cluster_id, env)
+        except ValidatorUnavailable as exc:
+            raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
         errors = [f for f in findings if f.severity == "error"]
         if errors:
             for f in errors:
@@ -278,11 +298,12 @@ class Pipeline:
         if live and live.get("metadata", {}).get("creationTimestamp"):
             created = date.fromisoformat(live["metadata"]["creationTimestamp"][:10])
             age_days = (date.today() - created).days
+        pods, pvcs = self.workload_counts(cluster_id, ns)
         facts = {"plugin": "namespaces", "action": "delete", "environment": env, "namespace": ns, "clusterId": cluster_id,
                  "team": labels.get("cmapi.net/team"), "automated": requester.automated,
                  "requesterClient": who.client_id if who.kind == "service" else None,
                  "protected": self.cfg.approvals.is_protected(labels), "namespaceAgeDays": age_days,
-                 "pods": 0, "pvcs": 0, "reason": reason, "clusterLabels": dict(st.policy.labels),
+                 "pods": pods, "pvcs": pvcs, "reason": reason, "clusterLabels": dict(st.policy.labels),
                  **(extra_facts or {})}
         requirement = self._decide(facts)
         files = self.renderer.delete(cluster_id, ns, prev)
@@ -293,10 +314,10 @@ class Pipeline:
     # ---- record it
     def submit(self, who: Identity, plan: Plan, repo: RequestRepo, jobs: JobRepo, *, idempotency_key: str | None,
                body_fingerprint: str, justification: str | None) -> ChangeRequestRow:
+        rid = repo.next_id()              # takes the day's advisory lock: submits are serial from here to the commit
         if plan.action != "delete" and plan.facts.get("team"):
-            # the daily allowance is counted at submit, against the rows already recorded
+            # the daily allowance is counted at submit, under that lock, against the rows already recorded
             plan.requirement = self._decide(plan.facts, team_auto_today=repo.auto_approvals_today(plan.facts["team"]))
-        rid = repo.next_id()
         files = plan.files
         if plan.spec is not None:
             plan.spec.request_id = rid

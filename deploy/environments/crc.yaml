@@ -63,6 +63,9 @@ clusters:
 
 delivery:
   mode: apply                       # no Argo CD on this cluster; the worker applies merged folders itself
+  hubDeliverer:                     # the deviation, accepted for this development cluster only (docs/10 section 5)
+    enabled: true
+    acknowledgeDirectWrites: true
   pollInterval: 10s
   syncTimeout: 10m
 

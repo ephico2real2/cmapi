@@ -60,6 +60,7 @@ class Requester:
         rec = {"requester": self.person.record(), "automated": self.automated}
         if self.person is not self.caller:
             rec["submittedBy"] = self.caller.username
+            rec["submittedBySub"] = self.caller.sub
             if self.caller.kind == "service":
                 rec["submittedByClient"] = self.caller.client_id
         return rec

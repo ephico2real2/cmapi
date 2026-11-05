@@ -11,7 +11,7 @@ Content mirrors examples/cmapi-sso/realm/ephico2real.yaml and the clients in doc
   cmapi-portal      public, Authorization Code + PKCE S256
   cmapi-docs        public, PKCE, for Swagger UI's Authorize button
   cmapi-cli         public, Device Authorization Grant, offline_access optional
-  cmapi-automation  public, password grant, for local automation accounts (bot-user) only
+  cmapi-automation  confidential, password grant, for local automation accounts (bot-user) only
   svc-payments-ci   confidential, service account, the example pipeline client
   cmapi-directory   confidential, realm-management view-users and query-users only
   cmapi-realm-admin confidential, realm-management realm-admin: the sync Job's identity
@@ -46,6 +46,7 @@ spec:
     CMAPI_REALM_ADMIN_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_REALM_ADMIN_SECRET}}
     CMAPI_DIRECTORY_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_DIRECTORY_SECRET}}
     CMAPI_SVC_PAYMENTS_CI_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_SVC_PAYMENTS_CI_SECRET}}
+    CMAPI_AUTOMATION_SECRET: {secret: {name: cmapi-realm-secrets, key: CMAPI_AUTOMATION_SECRET}}
   realm:
     realm: {{ $r.realm }}
     displayName: {{ $r.displayName | quote }}
@@ -62,7 +63,42 @@ spec:
     offlineSessionMaxLifespan: 7776000
     revokeRefreshToken: true
     refreshTokenMaxReuse: 0
+    # A realm file that lists clientScopes gets only those: Keycloak creates its default scopes (basic, roles,
+    # profile, email) only when the list is absent, and every client below names them.
     clientScopes:
+      - name: basic
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
+        protocolMappers:
+          - {name: sub, protocol: openid-connect, protocolMapper: oidc-sub-mapper, config: {access.token.claim: "true", introspection.token.claim: "true"}}
+      - name: roles
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
+        protocolMappers:
+          - name: client roles
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-client-role-mapper
+            config: {multivalued: "true", user.attribute: foo, access.token.claim: "true", claim.name: "resource_access.${client_id}.roles", jsonType.label: String}
+      - name: profile
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "true", display.on.consent.screen: "false"}
+        protocolMappers:
+          - {name: username, protocol: openid-connect, protocolMapper: oidc-usermodel-attribute-mapper, config: {user.attribute: username, claim.name: preferred_username, jsonType.label: String, access.token.claim: "true", id.token.claim: "true", userinfo.token.claim: "true"}}
+          - {name: given name, protocol: openid-connect, protocolMapper: oidc-usermodel-attribute-mapper, config: {user.attribute: firstName, claim.name: given_name, jsonType.label: String, access.token.claim: "true", id.token.claim: "true", userinfo.token.claim: "true"}}
+          - {name: family name, protocol: openid-connect, protocolMapper: oidc-usermodel-attribute-mapper, config: {user.attribute: lastName, claim.name: family_name, jsonType.label: String, access.token.claim: "true", id.token.claim: "true", userinfo.token.claim: "true"}}
+      - name: email
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "true", display.on.consent.screen: "false"}
+        protocolMappers:
+          - {name: email, protocol: openid-connect, protocolMapper: oidc-usermodel-attribute-mapper, config: {user.attribute: email, claim.name: email, jsonType.label: String, access.token.claim: "true", id.token.claim: "true", userinfo.token.claim: "true"}}
+      - name: web-origins
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
+        protocolMappers:
+          - {name: allowed web origins, protocol: openid-connect, protocolMapper: oidc-allowed-origins-mapper, config: {access.token.claim: "true"}}
+      - name: offline_access
+        protocol: openid-connect
+        attributes: {include.in.token.scope: "true", display.on.consent.screen: "true"}
       - name: cmapi-identity
         protocol: openid-connect
         attributes: {include.in.token.scope: "false", display.on.consent.screen: "false"}
@@ -91,7 +127,7 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: false
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: cmapi-portal
         name: "cmapi portal"
         enabled: true
@@ -101,7 +137,7 @@ spec:
         attributes: {pkce.code.challenge.method: S256, post.logout.redirect.uris: "+"}
         redirectUris: {{ toJson .Values.keycloak.realm.portalRedirects }}
         webOrigins: ["+"]
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
       - clientId: cmapi-docs
         name: "cmapi Swagger UI"
         enabled: true
@@ -111,23 +147,26 @@ spec:
         attributes: {pkce.code.challenge.method: S256, client.session.idle.timeout: "3600", client.session.max.lifespan: "28800"}
         redirectUris: {{ toJson .Values.keycloak.realm.docsRedirects }}
         webOrigins: ["+"]
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
       - clientId: cmapi-cli
         name: "cmapi CLI (device flow)"
         enabled: true
         publicClient: true
         standardFlowEnabled: false
-        directAccessGrantsEnabled: true
+        directAccessGrantsEnabled: false
         attributes: {oauth2.device.authorization.grant.enabled: "true"}
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
         optionalClientScopes: [offline_access]
       - clientId: cmapi-automation
         name: "Local automation accounts (bot-user)"
         enabled: true
-        publicClient: true
+        # Confidential: the password grant needs this client's secret as well as the account's password, so the
+        # grant is open to the automation that holds the secret, not to every user of the realm.
+        publicClient: false
+        secret: "${CMAPI_AUTOMATION_SECRET}"
         standardFlowEnabled: false
         directAccessGrantsEnabled: true
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: svc-payments-ci
         name: "Example pipeline client"
         enabled: true
@@ -136,7 +175,7 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: true
-        defaultClientScopes: [cmapi-identity, cmapi-audience, roles, profile, email]
+        defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: cmapi-directory
         name: "cmapi directory (read-only admin API)"
         enabled: true
@@ -145,7 +184,7 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: true
-        defaultClientScopes: [roles]
+        defaultClientScopes: [basic, roles]
       - clientId: cmapi-realm-admin
         name: "cmapi realm sync (realm-management)"
         enabled: true
@@ -154,7 +193,18 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: true
-        defaultClientScopes: [roles]
+        defaultClientScopes: [basic, roles]
+    # The realm sync signs in as cmapi-realm-admin, so that client's realm-admin has to arrive with the
+    # import: nothing else can grant it without the shared instance's master credential.
+    users:
+      - username: service-account-cmapi-realm-admin
+        enabled: true
+        serviceAccountClientId: cmapi-realm-admin
+        clientRoles: {realm-management: [realm-admin]}
+      - username: service-account-cmapi-directory
+        enabled: true
+        serviceAccountClientId: cmapi-directory
+        clientRoles: {realm-management: [view-users, query-users]}
     groups:
       - name: cmapi
         path: /cmapi

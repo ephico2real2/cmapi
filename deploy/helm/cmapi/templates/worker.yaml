@@ -21,6 +21,18 @@ spec:
       securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
       # SIGTERM lets the loop finish the job in hand; a lease covers a worker that dies mid-job.
       terminationGracePeriodSeconds: 60
+      initContainers:
+        # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+        # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job.
+        - name: migrate
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
       containers:
         - name: worker
           image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}

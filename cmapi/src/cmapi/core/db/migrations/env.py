@@ -26,6 +26,9 @@ def run_migrations_online() -> None:
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}),
                                      prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
+        # Serialises concurrent migrators; PostgreSQL's transactional DDL makes each one all or nothing.
+        connection.exec_driver_sql("SELECT pg_advisory_lock(727364)")
+        connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

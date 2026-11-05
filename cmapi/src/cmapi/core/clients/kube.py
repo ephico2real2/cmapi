@@ -32,6 +32,8 @@ RESOURCES = {
     "ServiceAccount": ("/api/v1/serviceaccounts", True),
     "RoleBinding": ("/apis/rbac.authorization.k8s.io/v1/rolebindings", True),
     "Node": ("/api/v1/nodes", False),
+    "Pod": ("/api/v1/pods", True),
+    "PersistentVolumeClaim": ("/api/v1/persistentvolumeclaims", True),
 }
 
 

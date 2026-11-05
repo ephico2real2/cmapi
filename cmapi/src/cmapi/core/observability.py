@@ -45,6 +45,9 @@ SYNC_DRIFT = Counter("cmapi_sync_drift_total", "OutOfSync seen with no open requ
 NAMESPACES = Gauge("cmapi_namespaces", "Namespaces by management state", ["cluster_id", "state"])
 
 
+_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+
+
 def configure_logging(level: str = "INFO") -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level.upper())
     structlog.configure(
@@ -71,13 +74,24 @@ def instrument(app: FastAPI) -> None:
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=rid)
         started = time.perf_counter()
-        response = await call_next(request)
-        route = getattr(request.scope.get("route"), "path", request.url.path)
-        HTTP_REQUESTS.labels(request.method, route, str(response.status_code)).inc()
-        HTTP_DURATION.labels(request.method, route).observe(time.perf_counter() - started)
+        method = request.method if request.method in _METHODS else "OTHER"
+
+        def observe(status: int) -> str:
+            # Only declared routes become label values: a scanner's paths must not mint series.
+            route = getattr(request.scope.get("route"), "path", "unmatched")
+            HTTP_REQUESTS.labels(method, route, str(status)).inc()
+            HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
+            return route
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            observe(500)                  # raised past this middleware: the error-rate alert must still count it
+            raise
+        route = observe(response.status_code)
         response.headers["X-Request-Id"] = rid
         caller = getattr(request.state, "caller", None)
         log.info("http", method=request.method, route=route, status=response.status_code,
-                 caller=getattr(caller, "username", None), client=getattr(caller, "client_id", None),
+                 caller_sub=getattr(caller, "sub", None), client=getattr(caller, "client_id", None),
                  ms=round((time.perf_counter() - started) * 1000, 1))
         return response

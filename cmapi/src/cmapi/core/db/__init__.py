@@ -58,3 +58,41 @@ class Database:
             return "ok"
         except Exception as exc:                                 # noqa: BLE001
             return type(exc).__name__
+
+    def schema_version(self) -> str | None:
+        """The Alembic revision the database is at; None when the version table does not exist yet."""
+        with self.engine.connect() as c:
+            try:
+                return c.exec_driver_sql("SELECT version_num FROM alembic_version").scalar()
+            except Exception:                                    # noqa: BLE001 - UndefinedTable: never migrated
+                return None
+
+    def schema_status(self) -> str:
+        """ok when the schema is at or past the revision this code needs (an unknown, newer revision from a later
+        release counts as past: migrations are expand-only). An older or absent schema is not ready: the pods'
+        migrate initContainer brings it forward, and readiness waits for it."""
+        try:
+            version = self.schema_version()
+        except Exception as exc:                                 # noqa: BLE001
+            return type(exc).__name__
+        if version is None:
+            return "not-migrated"
+        return "ok" if not older_than_required(version) else f"behind: at {version}, needs {REQUIRED_REVISION}"
+
+
+REQUIRED_REVISION = "0003"
+
+
+def older_than_required(version: str) -> bool:
+    """Whether a revision is a strict ancestor of REQUIRED_REVISION in the migration history."""
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    here = Path(__file__).parent
+    cfg = Config(str(here / "alembic.ini"))
+    cfg.set_main_option("script_location", str(here / "migrations"))
+    script = ScriptDirectory.from_config(cfg)
+    ancestors = {r.revision for r in script.iterate_revisions(REQUIRED_REVISION, "base")} - {REQUIRED_REVISION}
+    return version in ancestors

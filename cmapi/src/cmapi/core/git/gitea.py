@@ -53,6 +53,12 @@ class GiteaProvider(HostGitProvider):
         existing = self.find_pr(branch)
         if existing is not None:
             return existing
+        if self.branch_head(branch) is not None:
+            # No open PR, yet the branch exists: a closed PR, or a crash before the PR. Anyone may have pushed to it,
+            # and a new PR would adopt that head as the bot's own. Start again from the base.
+            r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204,))
+            if r.status_code != 204:
+                raise GitUnavailable(f"delete stale branch {branch}: {r.status_code} {r.text[:200]}")
         if self.branch_head(branch) is None:
             r = self._call("create_branch", "POST", f"{self._repo()}/branches",
                            json={"new_branch_name": branch, "old_ref_name": base_sha}, ok=(201,))
@@ -82,6 +88,12 @@ class GiteaProvider(HostGitProvider):
         if r.status_code != 201:
             raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
         return self._pr_ref(r.json())
+
+    def changed_paths(self, head: str) -> set[str]:
+        r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
+        if r.status_code != 200:
+            raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {r.text[:200]}")
+        return {f["filename"] for c in r.json().get("commits") or [] for f in c.get("files") or []}
 
     def _blob_sha(self, path: str, ref: str) -> str:
         r = self._call("read_file", "GET", f"{self._repo()}/contents/{path}", params={"ref": ref})

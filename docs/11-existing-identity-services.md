@@ -7,7 +7,7 @@ Checked on 2026-11-05.
 
 | Service | Where | cmapi adds | cmapi never touches |
 |---|---|---|---|
-| Existing Keycloak | Namespace `keycloak`, CR `keycloak`, `https://keycloak.apps-crc.testing`, RHBK operator | Realm `cmapi`, through one `KeycloakRealmImport` named `cmapi` | The other realms, the `Keycloak` CR, its operator and database, the master admin credential |
+| Existing Keycloak | Namespace `keycloak`, CR `keycloak`, `https://keycloak.apps-crc.testing`, RHBK operator | Realm `cmapi`, through one `KeycloakRealmImport` named `cmapi`, and the Secret `cmapi-realm-secrets` in the same namespace that holds the import's placeholders (generated client secrets, the same values as Secret `cmapi-keycloak` in `cmapi`) | The other realms, the `Keycloak` CR, its operator and database, the master admin credential |
 | Existing LDAP server | Namespace `ldap-testing`, OpenLDAP, `openldap-service` on 389 and 636, base `dc=ephico2real,dc=com` | The ten `cmapi-*` groups in `ou=Groups` | Other groups, every person in `ou=People`, `ou=TrustedApplications` |
 
 The chart deploys neither service. It takes the issuer as a value. A site with its own Keycloak and directory does the

@@ -15,7 +15,7 @@ from typing import Any, Iterable, Mapping
 
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
 from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
@@ -45,6 +45,10 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
                        auto_fallback=d.get("autoFallback"))
 
 
+class LeaseLost(RuntimeError):
+    """A job's lease was claimed by another worker while this one ran it: its transaction must not commit."""
+
+
 def fingerprint(body: Mapping[str, Any]) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -56,6 +60,13 @@ class RequestRepo:
     # ---- reads
     def get(self, request_id: str) -> ChangeRequestRow:
         row = self.s.get(ChangeRequestRow, request_id)
+        if row is None:
+            raise Problem(404, "object-not-found", f"No request {request_id}")
+        return row
+
+    def get_for_update(self, request_id: str) -> ChangeRequestRow:
+        """The row, locked until this transaction ends: what a decision reads before it counts anything."""
+        row = self.s.get(ChangeRequestRow, request_id, with_for_update=True, populate_existing=True)
         if row is None:
             raise Problem(404, "object-not-found", f"No request {request_id}")
         return row
@@ -81,7 +92,8 @@ class RequestRepo:
             q = q.where(ChangeRequestRow.requester_username == requested_by)
         if envs is not None:
             q = q.where(ChangeRequestRow.env.in_(list(envs)))
-        return list(self.s.scalars(q.order_by(ChangeRequestRow.created_at.desc()).limit(limit)))
+        # the plan holds every rendered file: load it only for the rows a page actually shows
+        return list(self.s.scalars(q.options(defer(ChangeRequestRow.plan)).order_by(ChangeRequestRow.created_at.desc()).limit(limit)))
 
     def open_for(self, cluster_id: str, namespace: str) -> ChangeRequestRow | None:
         return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.cluster_id == cluster_id,
@@ -145,7 +157,11 @@ class RequestRepo:
         row.updated_at = utcnow()
 
     def move(self, row: ChangeRequestRow, event: E, by: str, note: str = "", **kw: Any) -> S:
-        """Apply one lifecycle event; the lock is the unique index, re-checked when the state re-acquires it."""
+        """Apply one lifecycle event; the lock is the unique index, re-checked when the state re-acquires it.
+
+        The state is re-read under a row lock first. Without it two writers each move from the state they
+        read earlier and the last commit wins: a rejected request becomes approved, a cancelled one pr_open."""
+        self.s.refresh(row, attribute_names=["status"], with_for_update=True)
         before = S(row.status)
         t = transition(before, event, **kw)
         if t.acquires_lock:
@@ -173,7 +189,11 @@ class RequestRepo:
         req = requirement_from_json(row.requirement)
         if req is None or not req.slots:
             return None
-        ledger = ApprovalLedger(req, requester_sub=row.requester_sub)
+        # Who filed it for someone else is a second identity on the request: under a no-self-approval
+        # rule that identity may not approve it either.
+        submitter = (row.requester or {}).get("submittedBySub")
+        ledger = ApprovalLedger(req, requester_sub=row.requester_sub,
+                                operation_starter_sub=None if req.self_approval else submitter)
         for a in self.approvals(row.request_id):
             ledger.entries.append({"sub": a.approver_sub, "username": a.username, "groups": frozenset(a.groups),
                                    "comment": a.comment, "relayedBy": a.relayed_by, "at": a.at})
@@ -211,8 +231,19 @@ class JobRepo:
         if job_id is None:
             return None
         self.s.execute(update(JobRow).where(JobRow.job_id == job_id).values(
-            locked_until=now + timedelta(seconds=lease_seconds), locked_by=worker_id, attempts=JobRow.attempts + 1))
-        return self.s.get(JobRow, job_id)
+            locked_until=now + timedelta(seconds=lease_seconds), locked_by=worker_id, attempts=JobRow.attempts + 1,
+            lease_generation=JobRow.lease_generation + 1))
+        return self.s.get(JobRow, job_id, populate_existing=True)
+
+    def assert_lease(self, job_id: int, worker_id: str, generation: int) -> None:
+        """The fencing check a worker runs in its job transaction before committing: the row, locked, must still
+        carry this worker's claim. A later claim (after a lease expired under a paused worker) has a higher
+        generation, and the stale worker's whole transaction is rolled back by raising."""
+        row = self.s.execute(text("SELECT locked_by, lease_generation FROM jobs WHERE job_id = :id FOR UPDATE"),
+                             {"id": job_id}).one_or_none()
+        if row is None or row[0] != worker_id or row[1] != generation:
+            raise LeaseLost(f"job {job_id}: lease generation {generation} of {worker_id} was superseded by "
+                            f"{row[1] if row else 'none'} ({row[0] if row else 'no row'})")
 
     def done(self, job: JobRow) -> None:
         job.done_at = utcnow()
@@ -222,6 +253,13 @@ class JobRepo:
         job.last_error = error[:2000]
         job.run_after = utcnow() + timedelta(seconds=delay)
         job.locked_until = None
+
+    def oldest_due_seconds(self) -> float:
+        """Age of the oldest job a live worker would already have claimed; 0 when there is none."""
+        now = utcnow()
+        oldest = self.s.scalar(select(func.min(JobRow.run_after)).where(
+            JobRow.done_at.is_(None), JobRow.run_after <= now, or_(JobRow.locked_until.is_(None), JobRow.locked_until < now)))
+        return (now - oldest).total_seconds() if oldest else 0.0
 
     def pending_counts(self) -> dict[str, int]:
         q = select(JobRow.kind, func.count()).where(JobRow.done_at.is_(None)).group_by(JobRow.kind)

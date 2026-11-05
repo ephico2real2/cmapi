@@ -55,7 +55,7 @@ class KpiView(Api):
 
 
 @router.write("/prune:confirm", summary="Confirm the prune of a deleted namespace", permission="operations:run",
-              response_model=ChangeRequest, status_code=200, problems=["nothing-to-prune"])
+              response_model=ChangeRequest, status_code=200, problems=["nothing-to-prune", "validation-failed", "environment-forbidden"])
 def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
     """An operator confirms that a merged delete may remove the namespace. In `argocd` delivery the
     confirmation happens in Argo CD and the worker observes it; in `apply` delivery this call is the
@@ -66,7 +66,11 @@ def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operation
                 and (body.cluster_id is None or r.cluster_id == body.cluster_id)]
         if not rows:
             raise Problem.conflict("nothing-to-prune", f"No delete of {body.namespace} is awaiting a prune")
+        if len(rows) > 1:
+            raise Problem.unprocessable("validation-failed", f"{body.namespace} is awaiting a prune on "
+                                        f"{sorted(r.cluster_id for r in rows)}; send clusterId")
         row = rows[0]
+        c.cfg.roles.require(who, "operations:run", row.env)
         repo.event(row, "prune_confirm", who.username, "operator confirmed the prune")
         AuditRepo(s).record(who, "prune.confirm", f"{row.cluster_id}/{row.namespace}", {"requestId": row.request_id})
         jobs.enqueue("prune", request_id=row.request_id, cluster_id=row.cluster_id)

@@ -10,6 +10,9 @@ ARG KYVERNO_VERSION=v1.16.2
 ARG KYVERNO_SHA256=957fd264f011644394e22877505841fe4ec62a2e4c194075cd4e4b14dd07cf82
 ARG KUBECONFORM_VERSION=v0.6.7
 ARG KUBECONFORM_SHA256=95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
+# kubeconform's schemas, by commit and SHA-256: without them every plan depends on raw.githubusercontent.com
+ARG SCHEMAS_COMMIT=86d045595d3f93b703bbf439cf9eb4bd6830d58f
+ARG SCHEMAS_KUBERNETES=v1.33.0
 ARG SWAGGER_UI_VERSION=5.34.1
 ARG SWAGGER_UI_SHA256=8e7286de0230e431fc8a5a75490d28117af3d0c306413b6f9e17f7bb55045fb6
 ARG REDOC_VERSION=3.0.1
@@ -28,7 +31,17 @@ RUN set -eu; \
     echo "${SWAGGER_UI_SHA256}  swagger.tgz" | sha256sum -c -; \
     curl -sSfL -o redoc.tgz "https://registry.npmjs.org/redoc/-/redoc-${REDOC_VERSION}.tgz"; \
     echo "${REDOC_SHA256}  redoc.tgz" | sha256sum -c -; \
-    mkdir -p bin static/swagger-ui static/redoc; \
+    mkdir -p bin static/swagger-ui static/redoc schemas; \
+    for pair in \
+      namespace-v1:324fae677b98d1a6d54340db0c334d053e8ffbafceb3f73326e41de2610d5843 \
+      resourcequota-v1:9546ed313e622ea84a0ab1ec7ef7e683f05acfbfe97beb746f0b5be6407691df \
+      limitrange-v1:de9bfabf9ea0bff36b71e5e686d3ecce5246b098061f39a70549f82f8f03acd7 \
+      serviceaccount-v1:8193d6c3561475c6d3d5c44e1faedb1df53905373d904bc17015694326d659cf \
+      rolebinding-rbac-v1:87ab620d0adddcd2803b92357fce2854af752326df8c5408a7588aae98b3031d; do \
+      name=${pair%%:*}; \
+      curl -sSfL -o "schemas/${name}.json" "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${SCHEMAS_COMMIT}/${SCHEMAS_KUBERNETES}-standalone-strict/${name}.json"; \
+      echo "${pair##*:}  schemas/${name}.json" | sha256sum -c -; \
+    done; \
     tar xzf kyverno.tgz -C bin kyverno; \
     tar xzf kubeconform.tgz -C bin kubeconform; \
     tar xzf swagger.tgz -C static/swagger-ui --strip-components=1 package/swagger-ui-bundle.js package/swagger-ui.css package/favicon-32x32.png; \
@@ -47,6 +60,7 @@ LABEL org.opencontainers.image.title="cmapi" \
 # The commit is served by GET /api/v1/version and checked by the release script in the running pod.
 ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
     CMAPI_STATIC_DIR=/opt/app-root/static \
+    CMAPI_KUBECONFORM_SCHEMAS="/opt/app-root/schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -55,6 +69,7 @@ ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
 USER 0
 COPY --from=tools /tmp/tools/bin/kyverno /tmp/tools/bin/kubeconform /usr/local/bin/
 COPY --from=tools /tmp/tools/static /opt/app-root/static
+COPY --from=tools /tmp/tools/schemas /opt/app-root/schemas
 WORKDIR /opt/app-root/src
 COPY pyproject.toml ./
 COPY src ./src

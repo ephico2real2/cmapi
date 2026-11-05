@@ -61,7 +61,7 @@ class EmailChannel:
                    f"Request {request['requestId']} ({request['action']} {request['namespace']}, {request['env']}) is waiting.\n"
                    f"Reasons: {', '.join(request['approval']['reasons']) if request.get('approval') else '-'}\n\n"
                    f"Open it in the portal: {url}\n\nThis link opens the request; approving happens in the portal with your own sign-in.")
-        log.info("email_sent", request_id=request["requestId"], to=to, kind="pending")
+        log.info("email_sent", request_id=request["requestId"], recipient_count=len(to), kind="pending")
         return {"recipients": to, "linkId": link_id}
 
     def notify_decision(self, request: Mapping[str, Any], decision: str) -> dict[str, Any]:

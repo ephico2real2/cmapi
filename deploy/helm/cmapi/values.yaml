@@ -3,8 +3,8 @@
 # -f on every upgrade; the image digests come from deploy/images.lock.yaml the same way.
 
 # -------------------------------------------------------------------------- images
-# Deployed by digest from deploy/images.lock.yaml (written by deploy/release-crc.sh). A tag alone is
-# accepted for a first render but a digest wins when both are set.
+# Deployed by digest from deploy/images.lock.yaml (written by deploy/release-crc.sh). The chart refuses to
+# render a workload without one; to lint by hand pass --set cmapi.digest=sha256:<64 hex>.
 cmapi:
   repository: image-registry.openshift-image-registry.svc:5000/cmapi/cmapi
   tag: ""
@@ -113,12 +113,14 @@ imports:
   namespace: cmapi-imports
   createNamespace: true
 delivery:
-  mode: apply                      # apply (no GitOps on the cluster) | argocd
+  mode: argocd                     # argocd (the design: cmapi never writes to a cluster) | apply (a deviation)
   syncTimeout: 30m
   pollInterval: 30s
-  # apply mode on the hub: the worker's ServiceAccount gets the cmapi-deliverer ClusterRole
+  # apply mode on the hub: the worker's ServiceAccount gets the cmapi-deliverer ClusterRole, a cluster-wide write
+  # identity. A deviation from "cmapi never writes to a cluster directly": the site must say it knows.
   hubDeliverer:
-    enabled: true
+    enabled: false
+    acknowledgeDirectWrites: false
 argocd:
   namespace: openshift-gitops
   rootApplication: cluster-configs-{clusterId}
@@ -147,7 +149,7 @@ database:
     imageName: ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e
     resources:
       requests: {cpu: 100m, memory: 256Mi}
-      limits: {memory: 512Mi}
+      limits: {cpu: 500m, memory: 512Mi}
     parameters:
       shared_buffers: 64MB
       max_connections: "60"
@@ -177,10 +179,10 @@ portal:
     enabled: true                  # the standalone mockup (mockups/portal/dist/portal.html) behind its own host
   oidcClientId: cmapi-portal
 
-migrate:
+migrate:                          # the initContainer that migrates the schema before the api and the worker start
   resources:
     requests: {cpu: 50m, memory: 96Mi}
-    limits: {memory: 256Mi}
+    limits: {cpu: 500m, memory: 256Mi}
 
 # -------------------------------------------------------------------------- exposure
 # Route (OpenShift, the default: the router names the host after the fact via spec.subdomain) or

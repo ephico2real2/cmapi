@@ -11,6 +11,9 @@ rules:
   - apiGroups: [""]
     resources: [namespaces, nodes, resourcequotas, limitranges, serviceaccounts]
     verbs: [get, list, watch]
+  - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
+    resources: [pods, persistentvolumeclaims]
+    verbs: [list]
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [roles, rolebindings, clusterroles, clusterrolebindings]
     verbs: [get, list, watch]

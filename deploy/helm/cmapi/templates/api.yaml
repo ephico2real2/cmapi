@@ -23,6 +23,18 @@ spec:
       serviceAccountName: {{ $name }}-api
       securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
       terminationGracePeriodSeconds: 30
+      initContainers:
+        # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+        # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job.
+        - name: migrate
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
       containers:
         - name: api
           image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
@@ -45,8 +57,9 @@ spec:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 10
             timeoutSeconds: 3
+          # Liveness on the route with no I/O: a slow database or a full thread pool is not cured by a restart.
           livenessProbe:
-            httpGet: {path: /healthz, port: http}
+            httpGet: {path: /api/v1/version, port: http}
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3

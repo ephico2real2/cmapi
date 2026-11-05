@@ -14,6 +14,14 @@ from typing import Any, Literal, Mapping
 _LABEL_VALUE = re.compile(r"^[a-z0-9]([-a-z0-9_.]{0,61}[a-z0-9])?$")
 
 
+def label_value_of(username: str) -> str:
+    """cmapi.net/requested-by-user: the username, lower-cased; refused if it cannot be a label."""
+    v = username.lower()
+    if not _LABEL_VALUE.fullmatch(v):
+        raise ValueError(f"username {username!r} cannot be a label value")
+    return v
+
+
 @dataclass(frozen=True)
 class Identity:
     sub: str
@@ -30,11 +38,7 @@ class Identity:
 
     @property
     def label_value(self) -> str:
-        """cmapi.net/requested-by-user: the username, lower-cased; refused if it cannot be a label."""
-        v = self.username.lower()
-        if not _LABEL_VALUE.fullmatch(v):
-            raise ValueError(f"username {self.username!r} cannot be a label value")
-        return v
+        return label_value_of(self.username)
 
     def record(self) -> dict[str, Any]:
         """What change_requests stores about the requester (database only, never Git)."""

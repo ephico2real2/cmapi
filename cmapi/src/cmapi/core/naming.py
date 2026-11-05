@@ -27,6 +27,11 @@ def reserved(name: str, patterns: Iterable[str] = ()) -> str | None:
     return next((p for p in (*BUILT_IN_RESERVED, *patterns) if fnmatchcase(name, p)), None)
 
 
+def is_label(name: str) -> bool:
+    """A name that can be a folder under clusters/<id>/namespaces/, whatever route it arrived through."""
+    return isinstance(name, str) and bool(_DNS1123_LABEL.fullmatch(name))
+
+
 def check_name(name: str, patterns: Iterable[str] = ()) -> None:
     if not isinstance(name, str) or len(name) < 2 or not _DNS1123_LABEL.fullmatch(name):
         raise Problem.unprocessable("invalid-namespace-name",

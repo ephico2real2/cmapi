@@ -1,3 +1,6 @@
+{{- if contains "PLACEHOLDER" (.Values.trustedCA.certificates | default "") }}
+{{- fail "trustedCA.certificates is still the placeholder: pass the PEM bundle (deploy/release-crc.sh does, with --set-file). httpx refuses a bundle with no certificate, so every pod would crash at startup." }}
+{{- end }}
 {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
 {{/*
 The CA bundle the pods verify Keycloak, the Git host and clusters with (never a skipped check).

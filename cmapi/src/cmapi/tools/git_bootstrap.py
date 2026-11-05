@@ -83,6 +83,11 @@ def main(argv: list[str]) -> None:
         bot.post(f"/orgs/{org}/repos", json={"name": repo, "private": True, "auto_init": False,
                                              "default_branch": s.git_default_branch}).raise_for_status()
         print(f"created repository {org}/{repo}")
+    else:
+        r.raise_for_status()
+        print(f"repository {org}/{repo} present")
+    # Decided by the branch, not the repository: a run killed before the seed commit must seed on the next run.
+    if bot.get(f"/repos/{org}/{repo}/branches/{s.git_default_branch}").status_code == 404:
         files: dict[str, str] = {"README.md": SEED_README}
         for cid in cluster_ids:
             files[f"clusters/{cid}/namespaces/.keep"] = ""
@@ -92,9 +97,6 @@ def main(argv: list[str]) -> None:
         bot.post(f"/repos/{org}/{repo}/contents", json={"branch": s.git_default_branch, "new_branch": s.git_default_branch,
                                                         "message": "cluster-configs: initial layout", "files": ops}).raise_for_status()
         print(f"seeded {len(files)} files")
-    else:
-        r.raise_for_status()
-        print(f"repository {org}/{repo} present")
 
     # 4. branch protection: no direct push, every required context green before a merge
     body = {"branch_name": s.git_default_branch, "rule_name": s.git_default_branch, "enable_push": False,

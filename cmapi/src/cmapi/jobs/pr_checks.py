@@ -1,7 +1,8 @@
 """pr_checks: the PR is open. Run the checks CI would run on the PR head (kubeconform, the Kyverno
 bundle) and the cmapi check (the request is approved and the head holds exactly the approved
 plan), post each as a commit status, and merge with the expected head when all are green. A
-closed PR, a failed check, or a head that moved is failed; a Git host outage is retried."""
+closed PR, a failed check, or a head that moved is failed; a Git host outage, or a validator that
+could not run, is retried."""
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -45,7 +46,10 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
     for p, t in row.plan["files"].items():
         if t is None and p not in tree:
             actual[p] = None
-    cmapi_ok = tree == expected and plan_hash(actual) == row.plan_hash
+    # The folder comparison sees only the folder. The bot alone writes this branch, so any other head means
+    # someone pushed, possibly outside the folder (another namespace's folder, CI files): the merge would carry it.
+    outside = sorted(ctx.git.changed_paths(head) - set(row.plan["files"]))
+    cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env)
     kc = [f for f in findings if f.source in ("kubeconform", "cmapi")]
     ky = [f for f in findings if f.source == "kyverno"]
@@ -56,7 +60,7 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
                       "; ".join(f"{f.rule}: {f.message}" for f in ky)[:200] or "policies ok", link)
     ctx.git.set_check(head, CONTEXT_CMAPI, "success" if cmapi_ok else "failure",
                       f"request {row.request_id} approved, head == plan {row.plan_hash[:12]}" if cmapi_ok
-                      else f"head differs from the approved plan {row.plan_hash[:12]}", link)
+                      else f"head differs from the approved plan {row.plan_hash[:12]}, moved after it was opened, or touches {outside[:3]}", link)
     repo.event(row, "ci", "ci", f"kubeconform: {'pass' if not kc else 'fail'}; kyverno: {'pass' if not ky else 'fail'}; "
                                 f"cmapi check: {'pass' if cmapi_ok else 'fail'}",
                {"findings": [f.message for f in findings], "head": head})

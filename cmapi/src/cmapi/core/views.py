@@ -22,7 +22,9 @@ def request_view(repo: RequestRepo, row: ChangeRequestRow, *, with_events: bool 
         "requestId": row.request_id, "instance": row.instance, "clusterId": row.cluster_id, "namespace": row.namespace,
         "env": row.env, "plugin": row.plugin, "action": row.action, "reason": row.reason,
         "justification": row.justification, "status": row.status, "planHash": row.plan_hash, "baseSha": row.base_sha,
-        "approval": approval_view(req, ledger), "requester": row.requester,
+        # submittedBySub is a stable identifier the ledger needs (self-approval through onBehalfOf); it is not
+        # part of the public contract, so it stays in the row and out of the response.
+        "approval": approval_view(req, ledger), "requester": {k: v for k, v in row.requester.items() if k != "submittedBySub"},
         "pr": None if not pr else {"number": pr["number"], "url": pr["url"], "branch": pr["branch"], "head": pr["head"][:8]},
         "mergeSha": row.merge_sha and row.merge_sha[:8],
         "files": diff_files(plan.get("prev", {}), plan.get("files", {})),

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Response
 
 from cmapi import __version__
 from cmapi.core.context import AppContext
+from cmapi.core.db.repo import JobRepo
 from cmapi.core.docs import DocumentedRouter
 from cmapi.core.models import Api, Health
 from cmapi.routers import ctx
@@ -30,20 +31,30 @@ def healthz(c: AppContext = Depends(ctx)) -> dict:
 
 @router.get("/readyz", summary="Readiness", include_in_schema=False)
 def readyz(response: Response, c: AppContext = Depends(ctx)) -> dict:
-    """Ready when the database answers; a cluster being down does not make the API unready."""
+    """Ready when the database answers and its schema is at or past the revision this code needs; a cluster
+    being down does not make the API unready. During a rolling upgrade an older pod stays ready on a newer schema."""
     db = c.db.ping()
-    if db != "ok":
+    schema = c.db.schema_status() if db == "ok" else "unavailable"
+    ready = db == "ok" and schema == "ok"
+    if not ready:
         response.status_code = 503
-    return {"status": "ok" if db == "ok" else "degraded", "database": db}
+    return {"status": "ok" if ready else "degraded", "database": db, "schema": schema}
 
 
+# async, with no I/O: the liveness probe, so a saturated thread pool or database never restarts the pod
 @version_router.read("/version", summary="Version and commit of the running build", permission=None, response_model=Version)
-def version() -> dict:
+async def version() -> dict:
     """The commit the image was built from, so a deployment can be checked against its source."""
     return {"version": __version__, "commit": os.environ.get("CMAPI_GIT_COMMIT", "unknown"),
             "component": os.environ.get("CMAPI_COMPONENT", "api")}
 
 
 def _health(c: AppContext) -> dict:
-    return {"status": "ok", "instance": c.cfg.name, "version": __version__, "issuer": c.issuer, "audience": c.audience,
-            "database": c.db.ping(), "git": c.git.repository, "clusters": c.registry.status_map()}
+    db = c.db.ping()
+    due = None
+    if db == "ok":
+        with c.db.session() as s:
+            due = JobRepo(s).oldest_due_seconds()
+    return {"status": "ok" if db == "ok" else "degraded", "instance": c.cfg.name, "version": __version__, "issuer": c.issuer,
+            "audience": c.audience, "database": db, "git": c.git.repository, "clusters": c.registry.status_map(),
+            "oldestDueJobSeconds": due}
