@@ -28,6 +28,12 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
 export function serve(dir) {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname)).replace(/^(\.\.[/\\])+/, "");
+    // Installed Chrome asks every served page for this, and a 404 is a console error that fails a --record run.
+    if (path === "/favicon.ico") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     try {
       const body = await readFile(join(dir, path));
       res.writeHead(200, { "content-type": TYPES[extname(path)] || "application/octet-stream" });

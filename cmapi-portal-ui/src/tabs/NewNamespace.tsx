@@ -15,7 +15,7 @@ export function NewNamespace({ v }: TabProps) {
       <Grid hasGutter>
         <GridItem md={12} lg={7}>
           <Panel>
-            <Form onSubmit={v.nsSubmit}>
+            <Form noValidate={false} onSubmit={v.nsSubmit}>
               <FormGroup label="Environment" role="group" fieldId="ns-env">
                 <Choices label="Environment" options={v.envOpts} />
                 <Hint>This is the {v.inst.display} portal: it serves {v.inst.envs} only.</Hint>

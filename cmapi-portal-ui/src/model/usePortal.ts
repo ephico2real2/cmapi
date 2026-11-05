@@ -15,9 +15,10 @@ const current = (logic: Component) => ({ instance: logic.state.inst as string, s
 /**
  * The portal's one source of state: the mockup's logic class, standing in for the API until it exists.
  * The hash holds the instance and tab. It follows the portal's own controls, and a changed hash reopens the portal.
+ * `session` changes with each reopening: keyed on it, fields the logic does not hold (Justification, Team DL) start over too.
  */
-export function usePortal(): Vals {
-  const [logic, setLogic] = useState(() => new Component(fromHash()));
+export function usePortal(): { v: Vals; session: number } {
+  const [{ logic, session }, setPortal] = useState(() => ({ logic: new Component(fromHash()), session: 0 }));
   const subscribe = useCallback((listener: () => void) => logic.subscribe(listener), [logic]);
   useSyncExternalStore(subscribe, () => logic.state);
 
@@ -31,7 +32,13 @@ export function usePortal(): Vals {
     const onHash = () => {
       const wanted = fromHash();
       const now = current(logic);
-      if (wanted.instance !== now.instance || wanted.startTab !== now.startTab) setLogic(new Component(wanted));
+      if (wanted.instance !== now.instance || wanted.startTab !== now.startTab) {
+        const reopened = new Component(wanted);
+        setPortal((was) => ({ logic: reopened, session: was.session + 1 }));
+      } else {
+        // The same view under another hash, such as a bad one on the defaults: no render will correct it, so do it here.
+        history.replaceState(null, "", `#${now.instance}/${now.startTab}`);
+      }
     };
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
@@ -40,5 +47,5 @@ export function usePortal(): Vals {
   // Playback runs on a timer the logic owns.
   useEffect(() => () => logic.componentWillUnmount(), [logic]);
 
-  return logic.renderVals() as unknown as Vals;
+  return { v: logic.renderVals() as unknown as Vals, session };
 }

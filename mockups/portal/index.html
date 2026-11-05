@@ -43,13 +43,17 @@
     });
   }
 
-  // The portal's own controls change its state, so the hash follows the state rather than leading it.
-  function follow(logic) {
-    current = { instance: logic.state.inst, startTab: logic.state.tab || logic.props.startTab };
+  function writeHash() {
     var hash = "#" + current.instance + "/" + current.startTab;
     if (location.hash !== hash) {
       try { history.replaceState(null, "", hash); } catch (e) { /* a sandboxed frame may refuse; the page still works */ }
     }
+  }
+
+  // The portal's own controls change its state, so the hash follows the state rather than leading it.
+  function follow(logic) {
+    current = { instance: logic.state.inst, startTab: logic.state.tab || logic.props.startTab };
+    writeHash();
     showBar();
   }
 
@@ -72,6 +76,7 @@
     addEventListener("hashchange", function () {
       var wanted = fromHash();
       if (wanted.instance !== current.instance || wanted.startTab !== current.startTab) mountFromHash();
+      else writeHash(); // A hash that means the view already on screen, such as a bad one on the defaults: show the real one.
     });
   }
 

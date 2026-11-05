@@ -9,7 +9,7 @@
     "prebuild": "npm run model",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node scripts/extract-model.mjs --check && node scripts/check-discipline.mjs && tsc --noEmit && vite build && node tests/parity.test.mjs"
+    "test": "node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && node tests/behaviour.test.mjs && node tests/parity.test.mjs"
   },
   "dependencies": {
     "@patternfly/react-core": "6.7.0",

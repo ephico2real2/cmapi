@@ -18,7 +18,7 @@ export function Kpis({ v }: TabProps) {
           {v.sys.comps.map((c: any) => (
             <Panel key={c.name} title={c.name} pill={<Pill tone={c.tone}>{c.badge}</Pill>}>
               <Small>{c.meta}</Small>
-              {c.meters.map((m: any) => <Meter key={m.label} title={m.label} label={m.value} value={m.now} pct={m.pct} bar={m.bar} />)}
+              {c.meters.map((m: any) => <Meter key={m.label} title={m.label} label={m.value} value={m.now} pct={m.pct} bar={m.bar} mark={m.mark} />)}
               <Rule cls={c.ruleCls}>{c.rule}</Rule>
             </Panel>
           ))}
@@ -27,7 +27,7 @@ export function Kpis({ v }: TabProps) {
       </Panel>
       <Panel title="Database · PostgreSQL, schemas cmapi and capacity" pill={<Pill tone={v.db.tone}>{v.db.pill}</Pill>}>
         <Gallery hasGutter minWidths={{ default: "280px" }}>
-          {v.db.meters.map((m: any) => <Meter key={m.label} title={m.label} label={m.value} value={m.now} pct={m.pct} bar={m.bar} />)}
+          {v.db.meters.map((m: any) => <Meter key={m.label} title={m.label} label={m.value} value={m.now} pct={m.pct} bar={m.bar} mark={m.mark} />)}
         </Gallery>
         <KV rows={v.db.rows} />
         <Rule cls={v.db.ruleCls}>{v.db.rule}</Rule>

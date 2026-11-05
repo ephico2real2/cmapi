@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node logic.test.mjs && node interactions.test.mjs"
+    "test": "node logic.test.mjs && node interactions.test.mjs && node standalone.test.mjs"
   },
   "devDependencies": {
     "acorn": "8.19.0",

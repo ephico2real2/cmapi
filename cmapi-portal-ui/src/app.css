@@ -5,3 +5,7 @@
 .cp-pre-line { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Cards scroll when content overflows, and paths and URLs in the sample data are long unbroken tokens. */
 .cp-wrap { overflow-wrap: anywhere; }
+/* The threshold tick and the current lane: PatternFly has no prop for either. */
+.cp-meter { position: relative; }
+.cp-mark { position: absolute; inset-block-end: 0; block-size: var(--pf-t--global--spacer--sm); inline-size: var(--pf-t--global--border--width--strong); background-color: var(--pf-t--global--text--color--regular); }
+.cp-active { outline: var(--pf-t--global--border--width--strong) solid var(--pf-t--global--border--color--brand--default); }
