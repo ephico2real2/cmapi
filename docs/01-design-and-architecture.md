@@ -162,7 +162,7 @@ Each layer only calls the one below it through a published interface: clients th
 | Plugin test kit: fake cluster, local Git server, contract tests | cmapi-core\[testing\] | Every plugin's CI |
 | Operation step library | cmapi-ops | builtin engine, Argo Workflows, Tekton |
 | Generated SDK and CLI | cmapi-sdk | Portal, CLI, pipelines, operation steps |
-| Portal UI kit: WorkflowViewer, PlanView, SchemaForm, RequestTable, PlacementView, PagedTable (search, filters, sort, letter jump, paging, export) | cmapi-portal-ui | Every portal screen and every plugin |
+| Portal UI kit (React, TypeScript, Vite, PatternFly): WorkflowViewer, PlanView, SchemaForm, RequestTable, PlacementView, PagedTable (search, filters, sort, letter jump, paging, export) | cmapi-portal-ui | Every portal screen and every plugin |
 | Kyverno policy bundle | cluster-configs policies, tagged | API plan, CI, admission, every instance |
 | Helm chart | helm/cmapi | Every instance |
 
@@ -860,6 +860,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | cmapi writes plain Kubernetes manifests, one folder per namespace; tiers in config/tiers.yaml; namespace-configuration-operator's quota and LimitRange configs retired | project-meta.yml expanded on the cluster by an operator | No extra renderer or CRD to maintain; the PR diff, CI checks and plan hash cover exactly what Argo CD applies |
 | Requester identity from the token; employee ID and names in the database only; required team DL, format-checked | Individual owner email in the request body; employee ID on the namespace; DL lookup in the directory | Callers cannot misstate who asked; personal data stays out of Git; DLs are not reliably in Keycloak |
 | Access by Keycloak role only (authz-roles.yaml, optional per-role environments); any namespace name outside the reserved ones; cmapi-onboarding (create only) for people and local automation accounts such as bot-user | Scope bindings in authz-scopes.yaml (retired): per-team namespace prefixes, cmapi.net/team checked against the caller, and onBehalfOf required of every service | Team-prefix gating did not scale and cannot fit a bot account; Keycloak alone decides who may do what; an AI agent can onboard namespaces with least privilege |
+| The portal (cmapi-portal-ui) is React with TypeScript, built with Vite, using PatternFly as the component library | Preact | PatternFly is Red Hat's design system, built on React, and the OpenShift console is made from it. Users already know its tables, filters, forms and wizards, and it brings accessibility we would otherwise build and test ourselves. It keeps open the option of turning parts of the portal into an OpenShift console plugin later. Preact's advantage is bundle size, which matters little for an internal portal; PatternFly and most of these libraries reach Preact only through its React-compatibility layer, which they do not officially support. |
 
 **Open questions.**
 
