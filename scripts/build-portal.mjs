@@ -14,7 +14,8 @@ function build() {
   const runtime = readFileSync(join(portal, "runtime", "dc-lite.js"), "utf8");
   const source = readFileSync(join(portal, "Main.dc.html"), "utf8");
   if (!page.includes(RUNTIME_TAG)) throw new Error(`index.html no longer contains ${RUNTIME_TAG}`);
-  if (/<\/script/i.test(runtime)) throw new Error("dc-lite.js must not contain a closing script tag");
+  // "<!-- <script" puts the HTML parser in a state where the closing tag no longer ends the block, and the page dies silently.
+  if (/<\/script|<!--/i.test(runtime)) throw new Error("dc-lite.js must not contain a closing script tag or an HTML comment opener");
 
   // Escaping < keeps the source's own </script> from ending this block; JSON.parse turns it back.
   const data = JSON.stringify(source).replace(/</g, "\\u003c");

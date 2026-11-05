@@ -40,6 +40,7 @@ In `tests/portal/`, after `npm install` and `npx playwright install chromium`:
 |---|---|
 | `node logic.test.mjs` | The logic class with no browser: scenarios, 403 and 422 endings, paging, ES2019 syntax, `dist` up to date |
 | `node interactions.test.mjs` | Scripted walks with no console errors: every scenario, paging, type-ahead, forms, approvals, expiration, the hash, reflow, offline |
+| `node standalone.test.mjs` | The build's guard on the runtime, the caret on an untouched field, a bad hash on the view already showing |
 | `node capture.mjs <dir>` | Captures the acceptance views at 1320 px, as PNG and as canonical DOM |
 | `node diff.mjs <reference-dir> <dir>` | Pixel-diffs against references named like the captures; a view passes under 0.5% |
 

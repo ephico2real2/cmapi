@@ -52,6 +52,41 @@ const pageText = (page) => page.evaluate(() => {
 // Words PatternFly itself adds for screen readers, and the names blank table headings carry for them.
 const LIBRARY_TEXT = /^((Info|Success|Warning|Danger|Custom) alert:|Action|Used of hard)$/;
 
+// Everything the two pages show as data, in a form that does not depend on layout. Runs in the page.
+function readPage({ rootSelector, mock }) {
+  const squeezeText = (text) => text.replace(/\s+/g, "");
+  const root = document.querySelector(rootSelector);
+  const hidden = mock ? "[aria-hidden=true]" : ".pf-v6-screen-reader, .pf-v6-u-screen-reader";
+  const textOf = (el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let text = "";
+    while (walker.nextNode()) if (!walker.currentNode.parentElement.closest(hidden) && walker.currentNode.parentElement.localName !== "option") text += walker.currentNode.nodeValue;
+    return squeezeText(text);
+  };
+  const values = [...root.querySelectorAll("input, textarea, select")].map((el) => el.value);
+  const tables = [...root.querySelectorAll("table")].map((table) => [...table.querySelectorAll("tbody tr")].map((row) => [...row.children].map(textOf)));
+  const TONES = mock
+    ? [["ok", "success"], ["warn", "warning"], ["bad", "danger"], ["info", "info"]]
+    : [["pf-m-success", "success"], ["pf-m-warning", "warning"], ["pf-m-danger", "danger"], ["pf-m-info", "info"]];
+  const pills = [...root.querySelectorAll(mock ? ".pill" : ".pf-v6-c-label")].map((el) => `${(TONES.find(([cls]) => el.classList.contains(cls)) ?? [null, "none"])[1]}:${textOf(el)}`);
+  const pressed = [...root.querySelectorAll(mock ? ".segbtn[aria-pressed=true], .chip[aria-pressed=true], .scn[aria-pressed=true]" : ".pf-v6-c-toggle-group__button.pf-m-selected")].map(textOf);
+  const disabled = [...root.querySelectorAll("button:disabled, button[aria-disabled=true]")].map(textOf);
+  const meters = [...root.querySelectorAll(mock ? "[role=meter]" : "[role=progressbar]")].map((el) => el.getAttribute("aria-valuenow"));
+  return { text: textOf(root) + squeezeText(values.join("")), tables, pills, pressed, disabled, meters };
+}
+
+const counts = (items) => {
+  const found = new Map();
+  for (const item of items) found.set(item, (found.get(item) ?? 0) + 1);
+  return found;
+};
+// What a has more of than b.
+const excess = (a, b) => {
+  const have = counts(b);
+  return [...counts(a)].filter(([item, n]) => n > (have.get(item) ?? 0)).map(([item, n]) => `${item} (${n} against ${have.get(item) ?? 0})`);
+};
+const sorted = (items) => [...items].sort();
+
 const results = [];
 async function compare(name) {
   await settle(mock.page);
@@ -70,7 +105,24 @@ async function compare(name) {
     while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.add(walker.currentNode.nodeValue.trim());
     return [...found];
   })).filter((s) => !mockText.includes(squeeze(s)) && !LIBRARY_TEXT.test(s));
-  results.push({ name, strings: strings.length, missing, added });
+
+  // includes() cannot see a short string, a count or a value in the wrong column. These can.
+  const m = await mock.page.evaluate(readPage, { rootSelector: "#dc-root", mock: true });
+  const r = await real.page.evaluate(readPage, { rootSelector: "#root", mock: false });
+  const diffs = [];
+  const characters = [...excess([...m.text], [...r.text]), ...excess([...r.text], [...m.text])];
+  if (characters.length) diffs.push(`characters differ: ${characters.join(", ")}`);
+  m.tables.forEach((table, t) => {
+    if (JSON.stringify(table) !== JSON.stringify(r.tables[t])) diffs.push(`table ${t} differs: ${JSON.stringify(table).slice(0, 200)} against ${JSON.stringify(r.tables[t] ?? null).slice(0, 200)}`);
+  });
+  if (m.tables.length !== r.tables.length) diffs.push(`${m.tables.length} tables against ${r.tables.length}`);
+  const pills = excess(m.pills, r.pills);
+  if (pills.length) diffs.push(`pills: ${pills.join(", ")}`);
+  if (JSON.stringify(sorted(m.pressed)) !== JSON.stringify(sorted(r.pressed))) diffs.push(`selected: ${sorted(m.pressed)} against ${sorted(r.pressed)}`);
+  if (JSON.stringify(sorted(m.disabled)) !== JSON.stringify(sorted(r.disabled))) diffs.push(`disabled: ${sorted(m.disabled)} against ${sorted(r.disabled)}`);
+  const meters = excess(m.meters, r.meters);
+  if (meters.length) diffs.push(`meters: ${meters.join(", ")}`);
+  results.push({ name, strings: strings.length, missing, added, diffs });
 }
 
 const both = async (action) => {
@@ -159,12 +211,57 @@ await both((page) => page.getByRole("group", { name: "Action" }).getByRole("butt
 await press(/^Extend/);
 await compare("expiration submitted");
 
+// States a person reaches that the walk above never shows.
+const permanent = (page, which) => (which === "mock"
+  ? page.locator(".attn").getByRole("button", { name: /^Permanent/ }).click()
+  : page.getByRole("group", { name: "State", exact: true }).getByRole("button", { name: /^Permanent/ }).click());
+await both(permanent);
+await both((page) => page.locator("table tbody tr button").nth(1).click());
+await compare("expiration set a date");
+await both((page) => page.locator("#exp-until").fill("2026-12-25"));
+await compare("expiration date chosen");
+
+await tab("Requests");
+await both((page) => page.getByRole("button", { name: "Open at current step" }).first().click());
+await compare("workflow banner");
+await press("Next step");
+await compare("workflow past the position");
+await press("Back to current step");
+await compare("workflow back to the position");
+
+await tab("Quotas");
+await both((page, which) => (which === "mock"
+  ? page.locator(".attn").getByRole("button", { name: /^Recommendation/ }).click()
+  : page.getByRole("group", { name: "Needs attention", exact: true }).getByRole("button", { name: /^Recommendation/ }).click()));
+await both((page) => page.locator("table tbody tr button").nth(1).click());
+await compare("quotas recommendation");
+await press("Use this size");
+await compare("quotas recommendation used");
+await press("Export CSV");
+await compare("quotas export open");
+await press(/^Close$/);
+await compare("quotas export closed");
+
+await instance("prod");
+await tab("Quotas");
+await both((page, which) => (which === "mock"
+  ? page.locator(".attn").getByRole("button", { name: /^Open request/ }).click()
+  : page.getByRole("group", { name: "Needs attention", exact: true }).getByRole("button", { name: /^Open request/ }).click()));
+await both((page) => page.locator("table tbody tr button").first().click());
+await compare("quotas locked");
+await press("Open at current step");
+await compare("quotas locked opened");
+await instance("nonprod");
+
 // Each failure here is one string the mockup shows that the page does not.
 const failing = results.filter((r) => r.missing.length);
 const unique = [...new Set(failing.flatMap((r) => r.missing))];
 writeFileSync(join(out, "parity.json"), JSON.stringify(results, null, 1));
 console.log(`content parity: ${results.length} states, ${results.reduce((n, r) => n + r.strings, 0)} strings compared, ${failing.length} states with a missing string`);
 for (const s of unique.slice(0, 40)) console.log(`  missing: ${s.slice(0, 140)}`);
+const differing = results.filter((r) => r.diffs.length);
+console.log(`structure: ${differing.length} states differ`);
+for (const r of differing.slice(0, 20)) console.log(`  ${r.name}: ${r.diffs.join(" | ").slice(0, 400)}`);
 const invented = [...new Set(results.flatMap((r) => r.added))];
 console.log(`added by the page: ${invented.length}`);
 for (const s of invented.slice(0, 40)) console.log(`  added: ${s.slice(0, 140)}`);
@@ -201,6 +298,7 @@ server.close();
 const errors = [...new Set(real.errors)];
 if (errors.length) console.log(`console errors:\n  ${errors.slice(0, 15).map((e) => e.slice(0, 220)).join("\n  ")}`);
 assert.deepEqual(unique, [], "every string the mockup shows is on the page");
+assert.deepEqual(differing.map((r) => r.name), [], "tables, characters, pills, selection, disabled buttons and meters match");
 assert.deepEqual(invented, [], "the page says nothing the mockup does not");
 assert.deepEqual(findings, [], "layout and accessibility");
 assert.deepEqual(errors, [], "console errors");

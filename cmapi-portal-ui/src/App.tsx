@@ -14,7 +14,7 @@ import { Workflow } from "./tabs/Workflow";
 const PANELS = [Workflow, NewNamespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity, Kpis];
 
 export function App() {
-  const v = usePortal();
+  const { v, session } = usePortal();
   const active = v.tabs.findIndex((t) => t.current === "page");
 
   const masthead = (
@@ -46,7 +46,7 @@ export function App() {
         </Flex>
       </PageSection>
       <PageSection>
-        <Tabs activeKey={active} onSelect={(_, key) => v.tabs[Number(key)].pick()} aria-label="Portal sections" mountOnEnter unmountOnExit>
+        <Tabs key={session} activeKey={active} onSelect={(_, key) => v.tabs[Number(key)].pick()} aria-label="Portal sections" mountOnEnter unmountOnExit>
           {v.tabs.map((t, i) => {
             const Panel = PANELS[i];
             return (

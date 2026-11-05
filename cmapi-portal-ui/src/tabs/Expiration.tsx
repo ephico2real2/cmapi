@@ -47,7 +47,7 @@ export function Expiration({ v }: TabProps) {
               </GridItem>
               <GridItem md={12} lg={6}>
                 <Panel title={<>Change expiration · {d.ns}</>} pill={<Pill>{d.env} · {d.cluster}</Pill>}>
-                  <Form onSubmit={exp.submit}>
+                  <Form noValidate={false} onSubmit={exp.submit}>
                     {d.locked && <Callout tone="warn" title={d.lockTitle}>{d.lockText}</Callout>}
                     {d.open && (
                       <>

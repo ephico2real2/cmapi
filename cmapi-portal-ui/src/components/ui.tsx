@@ -32,7 +32,7 @@ export function Checks({ items }: { items: Check[] }) {
   return (
     <List isPlain>
       {items.map((c, i) => (
-        <ListItem key={i} icon={<Icon status={statusOf(c.s) ?? "info"}>{c.mark}</Icon>}>
+        <ListItem key={i} icon={<Icon status={statusOf(c.s)}>{c.mark}</Icon>}>
           {c.main} <Small>{c.note}</Small>
         </ListItem>
       ))}
@@ -145,19 +145,31 @@ export function Pager({ range, prev, next, prevDis, nextDis }: PageControls) {
 
 const BAR = { crit: "danger", warn: "warning" } as const;
 
-/** A usage meter. The mockup's threshold mark has no PatternFly form, so the rule beside the meter carries it. */
-export function Meter({ title, label, value, pct, bar, ariaLabel }: { title?: ReactNode; label: ReactNode; value?: unknown; pct?: string; bar?: string; ariaLabel?: string }) {
+/**
+ * A usage meter. PatternFly hides the label from assistive technology, so valueText carries it. Progress has no threshold
+ * mark, and the KPI footnote tells people to read one, so the tick sits over the bar; the label moves above the bar to let
+ * the bar span the whole width.
+ */
+export function Meter({ title, label, value, pct, bar, mark, ariaLabel }: { title?: ReactNode; label: ReactNode; value?: unknown; pct?: string; bar?: string; mark?: string; ariaLabel?: string }) {
   const number = typeof value === "number" ? value : parseFloat(String(value ?? pct));
-  return (
+  const progress = (
     <Progress
       size="sm"
       title={title}
       aria-label={title ? undefined : ariaLabel}
       value={Number.isFinite(number) ? number : 0}
       label={label}
-      measureLocation="outside"
+      valueText={typeof label === "string" ? label : undefined}
+      measureLocation={mark ? "top" : "outside"}
       variant={BAR[bar as keyof typeof BAR]}
     />
+  );
+  if (!mark) return progress;
+  return (
+    <div className="cp-meter">
+      {progress}
+      <span className="cp-mark" style={{ insetInlineStart: mark }} aria-hidden="true" />
+    </div>
   );
 }
 

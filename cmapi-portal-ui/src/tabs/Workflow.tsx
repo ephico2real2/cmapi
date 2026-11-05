@@ -7,7 +7,8 @@ const LANE = { "#6a57c9": "purple", "#a03c86": "yellow", "#1f5fd1": "blue", "#5b
 const laneColor = (hex?: string) => LANE[hex as keyof typeof LANE] ?? "grey";
 
 const STEP = { now: "info", done: "success" } as const;
-const stepVariant = (cls: string) => STEP[cls.split(" ")[0] as keyof typeof STEP] ?? "pending";
+// A step after a request's current position has not happened: "ahead" shows what comes next, even once stepped past.
+const stepVariant = (cls: string) => (cls.includes("ahead") ? "pending" : STEP[cls as keyof typeof STEP] ?? "pending");
 
 export function Workflow({ v }: TabProps) {
   const wf = v.wf;
@@ -40,7 +41,7 @@ export function Workflow({ v }: TabProps) {
 
       <Gallery hasGutter minWidths={{ default: "160px" }} aria-label="Systems involved" component="section">
         {wf.nodes.map((n: any) => (
-          <Card key={n.name} isCompact>
+          <Card key={n.name} isCompact className={n.cls === "active" ? "cp-active" : undefined} aria-current={n.cls === "active" ? "step" : undefined}>
             <CardBody>
               <Stack className="cp-wrap">
                 <div><Label isCompact variant={n.cls === "idle" ? "outline" : "filled"} color={n.cls === "blocked" ? "red" : laneColor(n.color)}>{n.name}</Label></div>
@@ -65,7 +66,7 @@ export function Workflow({ v }: TabProps) {
                   aria-label={`${s.lane}: ${s.title}`}
                   description={s.lane}
                 >
-                  <Button variant="link" isInline onClick={s.pick}>{s.n}. {s.title}</Button>
+                  <Button variant="link" isInline onClick={s.pick}>{s.n} {s.title}</Button>
                   {s.isPos && <> <Label isCompact status="info">current position</Label></>}
                 </ProgressStep>
               ))}

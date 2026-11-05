@@ -172,8 +172,6 @@
         bindEvent(el, name, value);
       } else if (name === "value" && CONTROLLED.has(el.tagName)) {
         el.__dcValue = value === null || value === undefined ? "" : String(value);
-        // React mirrors the value into the default too. Neither write touches what a person has typed.
-        el.defaultValue = el.__dcValue;
         hasValue = true;
       } else if (prev[name] !== value) {
         setAttr(el, name, value);
@@ -182,7 +180,12 @@
     el.__dcAttrs = next;
     patchChildren(el, vnode.kids);
     // After the children, because a select can only take a value once its options exist.
-    if (hasValue) writeValue(el);
+    if (hasValue) {
+      writeValue(el);
+      // React mirrors the value into the default, after the value: written first, it would change an untouched field
+      // without moving its caret, where React's write moves it to the end. A select has no default.
+      if (el.tagName !== "SELECT") el.defaultValue = el.__dcValue;
+    }
   }
 
   function bindEvent(el, attr, handler) {

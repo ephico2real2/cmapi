@@ -11,7 +11,7 @@ import { TABS, canonicalDom, distPage, gotoView, serve } from "./views.mjs";
 
 const flag = (name) => { const i = process.argv.indexOf(name); return i < 0 ? null : process.argv[i + 1]; };
 const sourceDir = flag("--source-dir");
-const server = sourceDir ? await serve(sourceDir) : null;
+const server = sourceDir ? await serve(sourceDir, { favicon: true }) : null;
 const url = server ? `http://127.0.0.1:${server.port}/Main.dc.html` : pathToFileURL(distPage).href;
 
 // PW_CHANNEL=chrome runs in the installed Chrome, and PW_HEADED=1 shows the window.

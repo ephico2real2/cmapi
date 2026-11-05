@@ -22,11 +22,11 @@ function Search({ v }: TabProps) {
       </TextInputGroup>
       {s.open && (
         <div className="cp-combo-menu">
-          <Menu id="q-sug" role="listbox" aria-label="Matching namespaces">
+          <Menu role="listbox">
             <MenuContent>
-              <MenuList>
+              <MenuList id="q-sug" aria-label="Matching namespaces">
                 {s.items.map((x: any) => (
-                  <MenuItem key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
+                  <MenuItem key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} isSelected={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
                 ))}
                 {s.none && <MenuItem isDisabled>No namespace matches "{s.text}".</MenuItem>}
               </MenuList>
@@ -141,7 +141,7 @@ export function Quotas({ v }: TabProps) {
           </GridItem>
           <GridItem md={12} lg={6}>
             <Panel title={<>Change quota · {qd.ns}</>} pill={<Pill>{qd.env} · {qd.cluster}</Pill>}>
-              <Form onSubmit={v.qSubmit}>
+              <Form noValidate={false} onSubmit={v.qSubmit}>
                 {qc.locked && (
                   <Callout tone="warn" title={qc.lockTitle}>
                     <Stack hasGutter>

@@ -24,15 +24,15 @@ Consequences until then:
 
 | Tab | State in the model | Datasets, and the API behind each | Actions |
 |---|---|---|---|
-| Workflow | `scn`, `i`, `pos`, `playing` | `wf`: `GET /api/v1/requests/{id}/events` | Scenario, step, Back, Next, Reset, Play |
+| Workflow | `tab`, `inst`, `scn`, `i`, `pos`, `playing` | `wf`: `GET /api/v1/requests/{id}/events` | Scenario, step, Back, Next, Reset, Play |
 | New namespace | `env`, `tier`, `team`, `region`, `name`, `nsExp`, `dry` | `place`, `appr`: `POST ...?dryRun=true`; `GET /api/v1/tiers` | Dry run, Submit |
-| Quotas | `qq`, `qenv`, `qcluster`, `qtier`, `qsort`, `qlimit`, `qcursor`, `qns`, `qsize` | `quotas`: `GET /api/v1/quotas` | Filter, sort, page, letter jump, type-ahead, export, plan, submit |
-| Expiration | `xstate`, `xq`, `xcursor`, `xsent` | `exp`: `GET /api/v1/expirations` | Extend, set a date, make permanent |
+| Quotas | `qq`, `qsugOpen`, `qsugIdx`, `qapplied`, `qenv`, `qcluster`, `qtier`, `qstate`, `qsort`, `qlimit`, `qcursor`, `qstarts`, `qat`, `qexport`, `qns`, `qsize`, `qcpu`, `qmem`, `qcpuRaw`, `qmemRaw`, `qplan`, `qsent` | `quotas`: `GET /api/v1/quotas` | Filter, sort, page, letter jump, type-ahead, export, plan, submit |
+| Expiration | `xstate`, `xenv`, `xq`, `xcursor`, `xsel`, `xact`, `xuntil`, `xsent` | `exp`: `GET /api/v1/expirations` | Extend, set a date, make permanent |
 | Requests | `filter`, `rq`, `rcursor` | `requests`: `GET /api/v1/requests` | Open at current step, replay |
 | Approvals | `apvDone`, `apvRejecting`, `apvComment` | `apv`: approvals on `/api/v1/requests` | Approve, reject with a reason, open |
 | Policies | `pcluster`, `ppolicy` | `pol`: `GET /api/v1/policies/results`, `/rejections` | Choose cluster, choose policy |
 | Capacity | none | `groups`, `clusters`: the capacity snapshots | None |
-| KPIs | none | `sys`, `db`, `kpis`: `GET /api/v1/admin/kpi` | None |
+| KPIs | none | `sys`, `db`, `kpis`, `dashboards`: `GET /api/v1/admin/kpi` | None |
 
 ## Where the page differs from the mockup, and why
 
@@ -40,15 +40,16 @@ Consequences until then:
 |---|---|
 | Look: colours, spacing, type, control shapes | PatternFly replaces them by design |
 | Paging is `Button`s, not `Pagination` | These lists page by cursor; `Pagination` expects to jump to any page |
-| Dates are `TextInput type="date"`, not `DatePicker` | Keeps the mockup's `min` and `max` as native limits |
+| Dates are `TextInput type="date"`, not `DatePicker` | Keeps the mockup's `min` and `max` as native limits. PatternFly's `Form` sets `noValidate`, so each form here turns it off |
 | The reject reason stays inline, not in a `Modal` | Keeps the mockup's flow, with the reason beside the request |
-| Meters have no threshold mark | `Progress` has no such mark; the rule text beside each meter says the same |
 | Lane colours are PatternFly label colours | No hex in the page; each lane keeps one colour |
 | Team DL can be edited | In the mockup it is a controlled field with no handler, so typing does nothing, which looks like a slip |
+| The selected type-ahead suggestion shows a check mark | `MenuItem` draws it with `isSelected`, which also gives the option its `aria-selected` |
 | The brand mark and avatar letter are gone | Both are decorative (`aria-hidden`) in the mockup |
 | Light theme only, with no switch | As the mockup specifies |
 
 ## Run it
 
-`npm install`, then `npm run dev`. `npm test` runs the model check, the style check, the type check, the build and the
-parity test. The parity test needs `mockups/portal/dist/portal.html` and `npx playwright install chromium`.
+`npm install`, then `npm run dev`. `npm test` checks that `mockups/portal/dist/portal.html` and the generated model are
+current, then runs the extractor and contract tests, the style check, the type check, the build, the behaviour test and
+the parity test. The browser tests need `npx playwright install chromium`.

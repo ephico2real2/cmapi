@@ -26,6 +26,7 @@ repo's (`cmp`).
 |---|---|---|
 | Logic with no browser | `node logic.test.mjs` | 8 passed |
 | Scripted walks, standalone checks | `node interactions.test.mjs` | 180 steps, no console errors |
+| Build guard, caret, bad hash | `node standalone.test.mjs` | Passed |
 | Walks compared with the canvas runtime | `--source-dir <folder> --record <file>`, then `--compare <file>` | 180 of 180 steps match on DOM, focus and caret |
 | Views compared with the canvas runtime | `node capture.mjs <dir> [<folder>]`, then `node diff.mjs` | 13 of 13 views: 0.000% different, DOM identical |
 
@@ -51,16 +52,23 @@ The original `test-paging.js` and `test-roles.js` could not be found on this mac
 | Generated model is current | `node scripts/extract-model.mjs --check` | Passed |
 | App styles use tokens only | `node scripts/check-discipline.mjs` | Passed |
 | Types and build | `tsc --noEmit`, `vite build` | Passed |
-| Nothing missing from the page | `node tests/parity.test.mjs` | 87 states, 14,088 strings, 0 missing |
+| Nothing missing from the page | `node tests/parity.test.mjs` | 98 states, 15,944 strings, 0 missing |
 | Nothing invented by the page | The same test | 0 added |
 | Layout at 1440, 820 and 390 px, all tabs | The same test | No sideways scroll, no leftover placeholders |
-| Accessibility, axe at 1440 and 390 px | The same test | No serious or critical findings |
+| Accessibility, axe at 1440 and 390 px | The same test | No serious or critical findings on each tab's first view |
+| What text cannot show: native form limits, threshold ticks, meter values for screen readers, the open type-ahead with axe | `node tests/behaviour.test.mjs` | Passed |
 
 The test drives the mockup and the page through the same steps and compares after each: all tabs on all instances,
-every nonprod scenario to its end, then Quotas, New namespace, Approvals and Expiration actions.
+every nonprod scenario to its end, then Quotas, New namespace, Approvals and Expiration actions. Each comparison checks
+the strings, the count of every character, each table cell by cell, each status pill's colour, which choices are selected,
+which buttons are disabled and each meter's value. A state the walk does not visit is not compared; `qPage.stale` has no
+path a person can take, so it is the one template state never rendered here.
 
-The check was seen to fail: changing the heading "Why it needs approval" made the test report it as missing in 6 states
-and report the new heading as added. The change was reverted and confirmed with a grep.
+One failing mutation was not enough. A changed heading made the first version of this test fail, and I took that as proof.
+An independent review then ran 16 mutants and 13 survived it: swapped columns, Fail showing Pass, every status pill the
+wrong colour. After the comparison was extended, 14 of 16 are caught. The two left are a state no person can reach and a
+region choice that changes nothing on screen. Four more mutants of my own were all caught: swapped columns, a wrong
+count, validation turned off, and ticks removed.
 
 **Not proven.** No API exists, so there are no contract tests, loading states or error states, and no sign-in to test.
 See `cmapi-portal-ui/MOCKUP-CONTRACT.md`. Keyboard use relies on PatternFly and axe; no walk tabs through every
@@ -77,6 +85,11 @@ control. No CI runs these suites yet.
 | Layout run at 820 px | PatternFly's overflow mode folded a tab into a menu | Scrolling tabs |
 | Axe | A long token made a KPI card a scrollable region no keyboard could reach | Text wraps inside cards |
 | Installed Chrome | `/favicon.ico` 404 reported as a console error; a dev server hid it | An inline icon |
+| Independent review | 17 defects the suites had passed, including forms submitting what the mockup refuses and a footnote about a tick that did not exist | See `docs/reviews/2026-11-05-portal-ui.md` |
 
-Mockup behaviour worth a decision, left unchanged in `Main.dc.html`: the Team DL field has a value and no handler, so
-typing in it does nothing. The React app makes it editable.
+Mockup behaviour worth a decision, left unchanged in `Main.dc.html`:
+
+- The Team DL field has a value and no handler, so typing in it does nothing. The React app makes it editable.
+- "Use this size" does nothing on a custom recommendation: line 2330 writes `qcpu` and `qmem`, and line 2333 reads
+  `qcpuRaw` and `qmemRaw`. Both UIs inherit this, and 24 of the 63 recommendations on each instance's first 100-row page
+  are custom.
