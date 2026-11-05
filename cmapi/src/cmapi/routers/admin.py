@@ -62,7 +62,9 @@ def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operation
     confirmation and the worker's delivery job removes the namespace."""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
-        rows = [r for r in repo.in_states([S.AWAITING_PRUNE.value]) if r.namespace == body.namespace
+        # sync_failed: a delete that failed before anyone confirmed it, still waiting for this call in apply mode.
+        rows = [r for r in repo.in_states([S.AWAITING_PRUNE.value, S.SYNC_FAILED.value])
+                if r.namespace == body.namespace and r.action == "delete"
                 and (body.cluster_id is None or r.cluster_id == body.cluster_id)]
         if not rows:
             raise Problem.conflict("nothing-to-prune", f"No delete of {body.namespace} is awaiting a prune")

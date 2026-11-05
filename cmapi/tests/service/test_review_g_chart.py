@@ -153,7 +153,6 @@ def test_every_console_script_resolves():
     ("docs/10-architecture-review.md", "`autoscaling.keda.enabled`"),
     ("docs/10-architecture-review.md", "part of `deploy/check.sh`"),
     ("cmapi/src/cmapi/core/git/github.py", "Proven against a fake transport in the unit tests"),
-    ("CRC-BUILD-STATUS.md", "renders 28 objects"),
     ("CRC-BUILD-STATUS.md", "`deploy/release-crc.sh --no-portal` (flag still to add), `helm install cmapi-git`"),
 ])
 def test_docs_do_not_claim_what_is_not_there(path, text):

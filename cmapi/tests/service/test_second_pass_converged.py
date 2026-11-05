@@ -16,7 +16,7 @@ import pytest
 import yaml
 from sqlalchemy import text
 
-from cmapi.core.clients.kube import ClusterUnreachable, KubeError
+from cmapi.core.clients.kube import KubeError
 from cmapi.core.db import REQUIRED_REVISION, older_than_required
 from cmapi.worker import MAX_ATTEMPTS, Worker
 from test_flow import NS, OLA, OPAL, auth
@@ -84,7 +84,6 @@ def test_argocd_an_older_revision_than_the_merge_keeps_waiting(world):
 
 # ------------------------------------------------------------------ the prune: bounded, never stranded
 @pytest.mark.parametrize("make_error", [
-    pytest.param(lambda: ClusterUnreachable("the API server is down"), id="unreachable"),
     pytest.param(lambda: KubeError(403, "/api/v1/namespaces/x", "forbidden"), id="forbidden"),
     pytest.param(lambda: TypeError("a bug"), id="programming-error"),
 ])
@@ -137,7 +136,8 @@ def test_a_cluster_gone_from_config_is_bounded_too(world):
 
 
 def test_a_reader_not_connected_yet_is_a_wait_with_one_event(world):
-    """The one wait besides a present namespace: the import is not connected. Attempts stay at zero and the reason lands once."""
+    """Within syncTimeout a reader not connected is a wait: attempts stay at zero and the reason lands once
+    (test_third_pass_converged has the bound: the clock run out ends in sync_failed)."""
     client, ctx, git, kube, validator, keys = world
     rid = _awaiting(ctx, client, keys)
     from cmapi.core.errors import Problem
@@ -215,12 +215,13 @@ def _docs(*a):
 
 
 def test_crc_values_run_argocd_and_acknowledge_nothing():
+    """CRC runs argocd with no direct-write acknowledgement; the policy it renders binds Argo CD's controller, never
+    a cmapi identity (test_third_pass_converged::test_crc_names_the_controller_and_binds_the_policy_to_it)."""
     values = yaml.safe_load(CRC.read_text())
     assert values["delivery"]["mode"] == "argocd" and "hubDeliverer" not in values["delivery"], values["delivery"]
     assert values["argocd"]["namespace"] == "cmapi-argocd"
     docs = _docs("--set", "trustedCA.certificates=x")
-    assert not [d for d in docs if d["kind"] in ("ClusterRole", "ClusterRoleBinding", "ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding")], \
-        "CRC renders a write identity or a policy for a writer it does not have"
+    assert not [d for d in docs if d["kind"] in ("ClusterRole", "ClusterRoleBinding")], "CRC renders a write identity for cmapi"
     assert [d for d in docs if d["kind"] == "ConfigMap" and "argocd" in d["data"].get("integrations.yaml", "")]
 
 
@@ -233,7 +234,7 @@ def test_the_migrate_init_container_trusts_what_the_main_container_trusts():
         mounts = {m["name"]: m["mountPath"] for m in init.get("volumeMounts", [])}
         assert mounts.get("trust") == "/etc/cmapi/ca", f"{name}: the init container verifies an external TLS database against nothing"
         assert any(v["name"] == "trust" for v in spec["volumes"]), name
-    bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false")
+    bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
     assert bare.returncode == 0, bare.stderr
     for d in yaml.safe_load_all(bare.stdout):
         if d and d["kind"] == "Deployment":

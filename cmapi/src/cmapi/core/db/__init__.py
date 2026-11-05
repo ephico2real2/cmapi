@@ -87,7 +87,7 @@ class Database:
 REQUIRED_REVISION = "0003"
 
 
-FUTURE_REVISION = re.compile(r"(\d{4})(?:_[a-z0-9_]+)?")   # the repository's convention: four digits, counting up
+FUTURE_REVISION = re.compile(r"([0-9]{4})(?:_[a-z0-9_]+)?")   # the repository's convention: four digits, counting up
 
 
 def script_directory():
@@ -111,10 +111,11 @@ def known_revision(version: str) -> bool:
     if not version:                                     # alembic asserts on an empty id instead of raising
         return False
     try:
-        script_directory().get_revision(version)
-        return True
+        revision = script_directory().get_revision(version)
     except (ResolutionError, CommandError):
         return False
+    # get_revision also resolves symbols ("head", "base", "0003@head"): a database holds the exact id of a migration.
+    return revision is not None and revision.revision == version
 
 
 def older_than_required(version: str) -> bool:

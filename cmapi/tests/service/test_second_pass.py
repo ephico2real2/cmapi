@@ -375,15 +375,8 @@ def test_the_policy_can_contain_argo_cds_controller():
     assert not [d for d in docs if d["kind"] in ("ClusterRole", "ClusterRoleBinding")], "no write identity for cmapi itself"
 
 
-def test_the_signal_can_read_one_application_per_namespace(world):
-    client, ctx, git, kube, validator, keys = world
-    client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA))
-    assert run_until(ctx, "watch_sync") == "watch_sync"
-    ctx.delivery = type(ctx.delivery)(mode="argocd", poll_seconds=0, argocd_root_application="cluster-configs-{clusterId}-{namespace}")
-    seen = []
-    kube.get = lambda path, params=None: seen.append(path) or app(git.heads["main"])
-    lease_expired(ctx); Worker(ctx, "w").run_one()
-    assert seen and seen[0].endswith("/applications/cluster-configs-CRC-payments-dev"), seen
+# The test that read one Application per namespace pinned the name cluster-configs-CRC-payments-dev, which the API
+# server refuses (upper case): removed in the third pass; test_third_pass_fixes holds the one with the real rule.
 
 
 def test_docs_sign_in_for_the_bot_carries_the_client_secret():
@@ -393,7 +386,7 @@ def test_docs_sign_in_for_the_bot_carries_the_client_secret():
 
 
 def test_secrets_survive_namespace_deletion_by_reading_the_keycloak_copy():
-    assert 'lookup "v1" "Secret" .Values.keycloak.realmImport.namespace "cmapi-realm-secrets"' in (CHART/"templates/secrets.yaml").read_text()
+    assert 'lookup "v1" "Secret" $r.namespace "cmapi-realm-secrets"' in (CHART/"templates/secrets.yaml").read_text()
 
 
 STUB = r"""#!/usr/bin/env bash
@@ -403,7 +396,8 @@ case "$(basename "$0")" in
     # build records the GIT_COMMIT build-arg; run (the stamp check) and oc exec read it back, as the real image would
     if [ "$1" = build ]; then for a in "$@"; do case "$a" in GIT_COMMIT=*) printf '%s' "${a#GIT_COMMIT=}" > "$STATE/commit" ;; esac; done; fi
     [ "$1" = push ] && touch "$STATE/pushed.$(date +%s%N)" && touch "$STATE/image"
-    if [ "$1" = run ]; then cat "$STATE/commit"; fi ;;
+    # a run of a registry image by digest reads the registry's stamp (registry-commit, when a test set one)
+    if [ "$1" = run ]; then case "$*" in *@sha256:*) cat "$STATE/registry-commit" 2>/dev/null || cat "$STATE/commit" ;; *) cat "$STATE/commit" ;; esac; fi ;;
   oc)
     case "$*" in
       "whoami") echo admin ;; "whoami -t") echo tok ;;
@@ -431,6 +425,7 @@ def _stubs(tmp_path):
 
 
 def test_release_runs_twice_in_a_row(tmp_path):
+    """The second run reuses the clean tag after reading its stamp (test_third_pass_converged has the mismatch)."""
     repo = tmp_path/"repo"; (repo/"cmapi").mkdir(parents=True)
     shutil.copytree(ROOT/"deploy", repo/"deploy"); shutil.copy(ROOT/"cmapi/pyproject.toml", repo/"cmapi/pyproject.toml")
     env, state = _stubs(tmp_path)

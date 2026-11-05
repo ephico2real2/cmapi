@@ -63,6 +63,14 @@ subjects:
 {{- if and (eq .Values.delivery.mode "apply") (not .Values.delivery.hubDeliverer.acknowledgeDirectWrites) }}
 {{- fail "delivery.mode=apply makes the worker a cluster-wide writer, which the design forbids: use argocd, or set delivery.hubDeliverer.acknowledgeDirectWrites on a cluster where that is accepted" }}
 {{- end }}
+{{- with .Values.argocd.controllerServiceAccount }}
+{{- if not (regexMatch "^system:serviceaccount:[a-z0-9]([-a-z0-9]*[a-z0-9])?:[a-z0-9]([-.a-z0-9]*[a-z0-9])?$" .) }}
+{{- fail (printf "argocd.controllerServiceAccount is %q: the policy compares it with the request's username, so it must read system:serviceaccount:<namespace>:<name>, or the policy matches nobody and contains nothing" .) }}
+{{- end }}
+{{- end }}
+{{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) (not .Values.argocd.acknowledgeUncontainedController) }}
+{{- fail "argocd.controllerServiceAccount is empty: no admission policy would contain Argo CD's controller, which can then write any namespace. Name it (system:serviceaccount:<argo namespace>:<controller>), or set argocd.acknowledgeUncontainedController on a cluster where that is accepted" }}
+{{- end }}
 {{- $writer := "" -}}
 {{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}{{ $writer = printf "system:serviceaccount:%s:%s-worker" .Release.Namespace $name }}{{ end -}}
 {{- if and (eq .Values.delivery.mode "argocd") .Values.argocd.controllerServiceAccount }}{{ $writer = .Values.argocd.controllerServiceAccount }}{{ end -}}

@@ -132,11 +132,12 @@ the approved plan, a revision Argo CD compared (`status.sync.revision`, or every
 adapter, measured on a real Gitea), this folder's own objects are `Synced` in `status.resources`, and a
 direct read of the cluster finds them; a delete waits in `awaiting_prune` for Argo CD's own confirmation and
 ends when a read finds the namespace gone. The Application name comes from `argocd.rootApplication`, which
-may use `{clusterId}` and `{namespace}`. **Nothing has run on a real Argo CD**: the Argo CD install in
+may use `{clusterId}` and `{namespace}`; `{clusterId}` is lower-cased with `_` as `-` (`cluster-configs-crc`): cmapi's cluster ids may be upper case (`CRC`, `clusters.yaml`), a Kubernetes object name may not (RFC 1123; the API server refuses `cluster-configs-CRC`, measured by a server dry run on CRC). `crc.yaml` names the controller identity the install must use, `system:serviceaccount:cmapi-argocd:argocd-application-controller`, so the chart binds `cmapi-deliverer-managed-only` to it from the first install; the chart refuses an empty or short identity in `argocd` mode unless `argocd.acknowledgeUncontainedController` says so. The policy alone does not contain the controller while its ClusterRole is `*` on `*` (#65). **Nothing has run on a real Argo CD**: the Argo CD install in
 namespace `cmapi-argocd`, the Application (or ApplicationSet) per cluster, the AppProject and the repository
 credential do not exist on CRC; they are the thin slice's design step under #63 (with Opus's candidate
 ApplicationSet, which would turn `Prune=confirm` into `Delete=confirm`, to prove on the kind cluster first). Until
-they exist a request on CRC stops at `merged`, and the end-to-end walk is incomplete.
+they exist a request on CRC waits at `merged` for `syncTimeout` (10 minutes), then goes to `sync_failed` with its lock
+held: `CmapiSyncStuck` fires and `:revert` or `:retry` is the way out, and the end-to-end walk is incomplete.
 
 Measured for that choice (read-only, 2026-11-05): the OpenShift GitOps operator in CRC's catalog (default
 channel `latest`, CSV `openshift-gitops-operator.v1.22.3`) supports only the `AllNamespaces` install mode, so
@@ -185,7 +186,7 @@ from the CNPG server CA, never `unsafeSsl`. Proof planned on kind.
 
 GitHub Actions is the project's CI, `.github/workflows/ci.yml`, on every pull request and push to `main`,
 four jobs: `reference-code` (`examples/` tests), `service` (`cmapi/tests/service` against a PostgreSQL
-service container pinned by digest, with Helm 4.3.1 for the chart tests, which lint and render the chart for
+service container pinned by digest, with Helm 3.19.0 (installed by the `azure/setup-helm` action v4.3.1; this Mac has Helm 4.3.1) for the chart tests, which lint and render the chart for
 CRC and for the Ingress variant), `portal-mockup` (Playwright) and `portal-ui` (Vitest). Absent: an image
 build, SBOM, a scan, and a deployment job; the image is built on the Mac by `deploy/release-crc.sh`, and Argo
 CD deploying cmapi itself from `deploy/environments/*.yaml` is not set up.

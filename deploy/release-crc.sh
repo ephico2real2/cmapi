@@ -76,8 +76,18 @@ if [ "$DEPLOY_ONLY" != true ]; then
   echo "# Written by deploy/release-crc.sh: the images the chart deploys, by digest. Commit ${COMMIT}." >> "$LOCK.tmp"
   for img in "${IMAGES[@]}"; do
     if oc get istag "${img}:${TAG}" -n "${NAMESPACE}" >/dev/null 2>&1 && [[ "$TAG" != *-dirty ]]; then
-      # Tags are immutable: a run that failed at the deploy, or a second run, keeps what the registry holds.
-      echo "exists  : ${img}:${TAG}, not pushed again"
+      # Tags are immutable: a run that failed at the deploy, or a second run, keeps what the registry holds. That image
+      # is not compared byte for byte with the one just built (measured 2026-11-05: podman build --no-cache of one
+      # commit gives another image id, so a digest comparison would fail every rerun); its stamp is read instead, by
+      # digest, so a tag pointing at another commit's image cannot be deployed as this one.
+      DIGEST=$(oc get istag "${img}:${TAG}" -n "${NAMESPACE}" -o jsonpath='{.image.metadata.name}')
+      podman pull --cert-dir "$CA_DIR" -q "${REGISTRY}/${NAMESPACE}/${img}@${DIGEST}" >/dev/null
+      got=$(podman run --rm --entrypoint sh "${REGISTRY}/${NAMESPACE}/${img}@${DIGEST}" -c 'echo "$CMAPI_GIT_COMMIT"' | tr -d '\r\n')
+      if [ "$got" != "$COMMIT" ]; then
+        echo "ERROR: the registry's ${img}:${TAG} (${DIGEST}) stamps CMAPI_GIT_COMMIT='${got}', expected '${COMMIT}': not this commit's image; delete the tag (oc delete istag ${img}:${TAG} -n ${NAMESPACE}) and run again" >&2
+        exit 1
+      fi
+      echo "verified: ${img}:${TAG} in the registry stamps ${COMMIT}, not pushed again"
     else
       podman tag "${img}:${TAG}" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}"
       podman push --cert-dir "$CA_DIR" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}" >/dev/null
@@ -99,10 +109,21 @@ trap 'rm -f "$TRUST"' EXIT
 { oc get secret keycloak-tls -n keycloak -o jsonpath='{.data.ca\.crt}' | base64 -d; echo
   oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}'; } > "$TRUST"
 grep -q 'BEGIN CERTIFICATE' "$TRUST" || { echo "ERROR: no CA certificate read from the cluster" >&2; exit 1; }
-# --atomic: a failed install or upgrade rolls back, so the release is never left half-made with "no deployed
-# releases" blocking the next run. The generated Secrets, the realm import and the imports namespace carry
+# --atomic: a failed install or upgrade rolls back, so a failure helm lives through leaves no half-made release with
+# "no deployed releases" blocking the next run. The generated Secrets, the realm import and the imports namespace carry
 # helm.sh/resource-policy: keep, so a rollback of a first install keeps them and the next run reuses them. To keep
 # a failed release's pods for inspection: RELEASE_ATOMIC=false.
+#
+# A helm killed, or cut off from the API at the moment it would roll back, cannot run that rollback (measured): the
+# release stays pending-*, and every later run stops on "another operation is in progress". Say which command ends it.
+RELEASE_STATE=$(helm status "${RELEASE}" --namespace "${NAMESPACE}" -o json 2>/dev/null \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["status"])' 2>/dev/null || true)
+case "$RELEASE_STATE" in
+  pending-install)
+    echo "ERROR: release ${RELEASE} is pending-install from a helm that did not finish. If no other helm is running: helm uninstall ${RELEASE} -n ${NAMESPACE} (the generated Secrets stay), then run this again" >&2; exit 1 ;;
+  pending-upgrade|pending-rollback)
+    echo "ERROR: release ${RELEASE} is ${RELEASE_STATE} from a helm that did not finish. If no other helm is running: helm rollback ${RELEASE} -n ${NAMESPACE}, then run this again" >&2; exit 1 ;;
+esac
 ATOMIC=$([ "${RELEASE_ATOMIC:-true}" = true ] && echo "--atomic --cleanup-on-fail" || echo "")
 # -f every time: helm upgrade starts from chart defaults and applies only what this call passes.
 helm upgrade --install "${RELEASE}" deploy/helm/cmapi --namespace "${NAMESPACE}" \

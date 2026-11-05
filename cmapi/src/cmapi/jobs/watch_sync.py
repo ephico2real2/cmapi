@@ -17,7 +17,7 @@ from cmapi.core.git.base import GitUnavailable
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import LEAD_TIME, log
 from cmapi.core.render.manifests import folder
-from cmapi.core.sync import ApplyDelivery, ArgoCdSignal, confirmed_by_read, not_synced
+from cmapi.core.sync import ApplyDelivery, ArgoCdSignal, application_name, confirmed_by_read, not_synced
 
 
 def _deliverer(ctx: AppContext, cluster_id: str):
@@ -108,12 +108,13 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             if st.client is None:
                 raise ClusterUnreachable(f"{row.cluster_id} is {st.status}")
             app = ArgoCdSignal(st.client, ctx.delivery.argocd_namespace,
-                               ctx.delivery.argocd_root_application.format(clusterId=row.cluster_id, namespace=row.namespace)).status(row.cluster_id)
+                               application_name(ctx.delivery.argocd_root_application, row.cluster_id, row.namespace)).status(row.cluster_id)
             observed = app.revisions or (frozenset({app.revision}) if app.revision else frozenset())
             repo.event(row, "argocd", "argocd", f"{app.sync} {app.health} at {','.join(sorted(r[:8] for r in observed)) or '?'}")
-            if row.merge_sha and not any(ctx.git.contains(r, row.merge_sha) for r in observed):
-                raise _NotYet(f"Argo CD compared {sorted(r[:8] for r in observed)}, none holding {row.merge_sha[:8]}")
-            waiting = not_synced(app, files)
+            # A merged request with no merge sha has nothing to compare: it fails closed, not open.
+            if not row.merge_sha or not any(ctx.git.contains(r, row.merge_sha) for r in observed):
+                raise _NotYet(f"Argo CD compared {sorted(r[:8] for r in observed)}, none holding {(row.merge_sha or 'an unknown merge')[:8]}")
+            waiting = not_synced(app, files, row.plan.get("prev") or {})
             if waiting:
                 raise _NotYet(f"Argo CD reports {waiting[:3]}")
         cache = _reader_cache(ctx, row.cluster_id)
@@ -162,14 +163,41 @@ def _prune_wait(repo: RequestRepo, jobs: JobRepo, row, job: JobRow, poll: int, w
     job.attempts = 0
 
 
+def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str) -> None:
+    """A cluster that cannot be read, unreachable or its reader not connected (never connecting included), is a wait
+    bounded by time, not by attempts: one clock from the first failed read, running for the design's syncTimeout, the
+    bound watch_sync gives the same failure. The registry's relist, up to five minutes away, never decides the outcome.
+    Within the bound the reason lands on the request once; past it the request is sync_failed, a legal state that
+    keeps the lock and offers :retry (this job again, a new clock) and :revert."""
+    now = datetime.now(timezone.utc)
+    since = (job.payload or {}).get("unreachable_since")
+    if since is None:
+        job.payload = {**(job.payload or {}), "unreachable_since": now.isoformat()}
+        since = now.isoformat()
+    waited = (now - datetime.fromisoformat(since)).total_seconds()
+    if waited < ctx.delivery.sync_timeout_seconds:
+        _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, why)
+        return
+    note = f"the cluster could not be read for {int(waited)} s: {why[:160]}"
+    if row.status == S.AWAITING_PRUNE.value:
+        repo.move(row, E.SYNC_TIMEOUT, "worker", note)
+    else:
+        repo.event(row, "error", "worker", note)
+    jobs.done(job)
+
+
 def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
     """Ends a delete: only a successful read that finds no namespace confirms it.
 
-    Two things are waiting, with the attempts reset and the reason on the request once: a reader that is not
-    connected yet, and a namespace still there (Active, Terminating, whatever). Everything else, a cluster read
-    that fails, a cluster gone from the config, a bug, is a failure: it takes the worker's bounded retry, and after
-    the last attempt the request is sync_failed, a legal state that keeps the lock and offers :retry (this job again)
-    and :revert. A done job on an awaiting_prune request, with nothing left to end it, can no longer happen."""
+    Three outcomes short of that. A cluster that cannot be read (unreachable, or its reader not connected, never
+    connecting included) waits for delivery.syncTimeout on one clock from the first failed read, with the reason on
+    the request once, then is sync_failed (_cannot_read). A successful read that finds the namespace still there
+    (Active, Terminating, whatever) is the operator's wait: unbounded, the reason once, CmapiPruneStuck after a day.
+    Everything else, a read refused, a cluster gone from the config, a bug, is a failure: it takes the worker's five
+    attempts, and after the last the request is sync_failed, a legal state that keeps the lock and offers :retry (this
+    job again) and :revert. A done job on an awaiting_prune request, with nothing left to end it, cannot happen.
+
+    Apply mode deletes only after POST /admin/prune:confirm. A :retry looks again, it confirms nothing."""
     repo, jobs = RequestRepo(s), JobRepo(s)
     row = repo.get(job.request_id)
     retrying = row.status == S.SYNC_FAILED.value and row.action == "delete"
@@ -179,10 +207,12 @@ def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
     mode = _mode(ctx, row.cluster_id)
     try:
         reader = _reader_cache(ctx, row.cluster_id).client
-    except _NotYet as exc:
-        _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, str(exc))
+        live = reader.get_object("Namespace", None, row.namespace)
+    except (_NotYet, ClusterUnreachable) as exc:
+        _cannot_read(ctx, repo, jobs, row, job, f"{type(exc).__name__}: {exc}")
         return
-    live = reader.get_object("Namespace", None, row.namespace)
+    if (job.payload or {}).get("unreachable_since"):        # a success clears the clock: a later outage starts its own
+        job.payload = {k: v for k, v in job.payload.items() if k != "unreachable_since"}
     if live is not None and not _managed(live):
         why = f"{row.namespace} on the cluster is not cmapi-managed; nothing deleted"
         if row.status == S.AWAITING_PRUNE.value:
@@ -192,10 +222,17 @@ def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
         jobs.done(job)
         return
     if mode == "apply" and live is not None and live.get("status", {}).get("phase") != "Terminating":
+        if not any(e.event == "prune_confirm" for e in repo.events(row.request_id)):
+            _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, "waiting for POST /admin/prune:confirm")
+            return
         jobs.fence()
         _deliverer(ctx, row.cluster_id).delete("Namespace", None, row.namespace)
         repo.event(row, "pruned", "cmapi-deliverer", "namespace delete issued")
-        live = reader.get_object("Namespace", None, row.namespace)
+        try:
+            live = reader.get_object("Namespace", None, row.namespace)
+        except ClusterUnreachable as exc:
+            _cannot_read(ctx, repo, jobs, row, job, f"after the delete, {type(exc).__name__}: {exc}")
+            return
     if live is not None:
         # Terminating is not gone: a finalizer can hold it for ever; CmapiPruneStuck says when it has waited too long.
         _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, f"namespace still present ({live.get('status', {}).get('phase', 'Unknown')})")

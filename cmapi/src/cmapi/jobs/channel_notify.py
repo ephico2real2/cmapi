@@ -21,6 +21,7 @@ def channel_notify(ctx: AppContext, s: Session, job: JobRow) -> None:
     kind = (job.payload or {}).get("kind", "pending")
     view = request_view(repo, row, with_events=False)
     groups = [sl["group"] for sl in (row.requirement or {}).get("slots", [])]
+    jobs.fence()                       # a message is an external side effect no rollback undoes: a stale worker sends none
     for ch in channels_for(ctx):
         try:
             detail = ch.notify_pending(view, groups) if kind == "pending" else ch.notify_decision(view, kind)

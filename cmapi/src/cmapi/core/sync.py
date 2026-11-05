@@ -82,6 +82,12 @@ class ApplyDelivery:
         self.client.delete("Namespace", None, namespace)
 
 
+def application_name(template: str, cluster_id: str, namespace: str) -> str:
+    """The Application to read. Kubernetes refuses an upper-case object name (measured on 1.35.6) and a cluster id is
+    upper-case (CRC), so {clusterId} takes the spelling deploy/baseline-crc.sh gives the cluster's import Secret."""
+    return template.format(clusterId=cluster_id.lower().replace("_", "-"), namespace=namespace)
+
+
 class ArgoCdSignal:
     """SyncSignal poll: the root Application's sync status and the prune-pending namespaces."""
 
@@ -105,17 +111,28 @@ class ArgoCdSignal:
                                          for r in st.get("resources", [])))
 
 
-def not_synced(app: AppStatus, files: Mapping[str, str]) -> list[str]:
-    """The planned objects Argo CD does not report Synced. The Application's own status covers every namespace in
-    its folder: one neighbour waiting for Prune=confirm leaves it OutOfSync, so it says nothing about this one."""
-    seen = {(k, ns, n): s for k, ns, n, s in app.resources}
-    out = []
+def _object_keys(files: Mapping[str, str]) -> list[tuple[str, str, str]]:
+    """(kind, namespace, name) of each object. A plan's previous folder is whatever Git held, so a document with no name
+    (a kustomization.yaml, say) is not an object Argo CD would report."""
+    keys = []
     for text in files.values():
         for d in yaml.safe_load_all(text):
-            if d:
-                key = (d["kind"], d["metadata"].get("namespace") or "", d["metadata"]["name"])
-                if seen.get(key) != "Synced":
-                    out.append(f"{key[0]}/{key[2]}: {seen.get(key, 'not in the Application')}")
+            meta = d.get("metadata") or {} if isinstance(d, dict) else {}
+            if meta.get("name") and d.get("kind"):
+                keys.append((d["kind"], meta.get("namespace") or "", meta["name"]))
+    return keys
+
+
+def not_synced(app: AppStatus, files: Mapping[str, str], previous: Mapping[str, str] | None = None) -> list[str]:
+    """The planned objects Argo CD does not report Synced, and the objects this plan removed that it still reports (a
+    removal is delivered when the object has left the Application: until then it is live, OutOfSync, requiresPruning).
+    The Application's own status covers every namespace in its folder: one neighbour waiting for Prune=confirm leaves
+    it OutOfSync, so it says nothing about this one."""
+    seen = {(k, ns, n): s for k, ns, n, s in app.resources}
+    planned = _object_keys(files)
+    out = [f"{k[0]}/{k[2]}: {seen.get(k, 'not in the Application')}" for k in planned if seen.get(k) != "Synced"]
+    out += [f"{k[0]}/{k[2]}: removed by this plan, still in the Application ({seen[k]})"
+            for k in _object_keys(previous or {}) if k not in planned and k in seen]
     return out
 
 

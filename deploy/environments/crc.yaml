@@ -67,10 +67,16 @@ delivery:
   syncTimeout: 10m
 argocd:
   # Nothing of this exists on CRC yet: the Argo CD install, the Application per cluster, the AppProject and the
-  # repository credential are the thin slice's design step (#63). Until they do, a request stops at merged.
+  # repository credential are the thin slice's design step (#63). Until they do, a request waits at merged for
+  # syncTimeout, then goes to sync_failed with its lock held; CmapiSyncStuck fires, and :revert or :retry is the way out.
   namespace: cmapi-argocd
+  # {clusterId} is lower-cased: cmapi's cluster ids may be upper case (CRC, clusters.yaml), a Kubernetes object name
+  # may not (RFC 1123, measured: the API server refuses cluster-configs-CRC), so cmapi reads cluster-configs-crc.
   rootApplication: cluster-configs-{clusterId}
-  controllerServiceAccount: ""      # set to system:serviceaccount:cmapi-argocd:<controller SA> to bind the containment policy
+  # The identity Argo CD's application controller will have (the install under #63 and #64 must use these names), so
+  # cmapi-deliverer-managed-only binds it from the first install. The policy alone does not contain the controller
+  # while its ClusterRole is * on * (it can delete the policy): #65 narrows the role.
+  controllerServiceAccount: system:serviceaccount:cmapi-argocd:argocd-application-controller
 
 portal:
   enabled: false                    # turned on once the portal runs on the API (CRC-BUILD-STATUS.md)

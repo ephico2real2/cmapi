@@ -93,6 +93,8 @@ class GiteaProvider(HostGitProvider):
         if revision == sha:
             return True
         r = self._call("compare", "GET", f"{self._repo()}/compare/{revision}...{sha}")
+        if r.status_code == 404:      # not this repository's: a multi-source Application's other source, or a force-pushed commit
+            return False
         if r.status_code != 200:
             raise GitUnavailable(f"compare {revision[:8]}...{sha[:8]}: {r.status_code} {r.text[:200]}")
         return r.json().get("total_commits", 1) == 0

@@ -10,3 +10,8 @@ Check it:
   oc get pods -n {{ .Release.Namespace }}
   oc get route -n {{ .Release.Namespace }} -o custom-columns=NAME:.metadata.name,HOST:.status.ingress[0].host
   curl -s https://$(oc get route {{ include "cmapi.name" . }}-api -n {{ .Release.Namespace }} -o jsonpath='{.status.ingress[0].host}')/healthz
+{{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) }}
+
+WARNING: argocd.controllerServiceAccount is empty (acknowledged), so no admission policy contains Argo CD's controller: once
+Argo CD applies this cluster's folders it can write any namespace, managed or not. Set it when the controller exists.
+{{- end }}

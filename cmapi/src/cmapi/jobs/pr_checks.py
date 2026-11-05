@@ -54,6 +54,7 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
     kc = [f for f in findings if f.source in ("kubeconform", "cmapi")]
     ky = [f for f in findings if f.source == "kyverno"]
     link = f"{ctx.cfg.raw_instance['instance'].get('publicUrl', '')}/api/v1/requests/{row.request_id}"
+    jobs.fence()                       # the statuses are external writes: a worker whose lease was claimed posts none
     ctx.git.set_check(head, CONTEXT_KUBECONFORM, "failure" if kc else "success",
                       "; ".join(f.message for f in kc)[:200] or "schema ok", link)
     ctx.git.set_check(head, CONTEXT_KYVERNO, "failure" if ky else "success",

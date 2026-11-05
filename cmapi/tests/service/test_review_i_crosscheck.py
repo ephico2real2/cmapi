@@ -142,9 +142,11 @@ def test_retry_after_a_smuggled_branch_does_not_merge_it(world):
 
 
 def test_the_design_is_the_default_and_apply_must_be_acknowledged():
-    plain = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false")
+    # argocd mode needs the controller's identity named (or the lack acknowledged) since the third pass
+    plain = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
     assert plain.returncode == 0, plain.stderr
-    assert "cmapi-deliverer" not in plain.stdout, "a default install gives the worker a cluster-wide write identity"
+    assert "cmapi-deliverer" not in [d["metadata"]["name"] for d in yaml.safe_load_all(plain.stdout) if d and d["kind"] in ("ClusterRole", "ClusterRoleBinding")], \
+        "a default install gives the worker a cluster-wide write identity"
     bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "delivery.mode=apply")
     assert bare.returncode != 0 and "acknowledgeDirectWrites" in bare.stderr
 
