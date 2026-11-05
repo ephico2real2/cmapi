@@ -8,13 +8,16 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC2086
 k() { $KUBECTL "$@"; }
 k create ns sect1 >/dev/null 2>&1 || true; k create ns sect2 >/dev/null 2>&1 || true
-A="--namespace sect1 --realm-namespace sect2 --kubectl $KUBECTL --no-ldap-bind"
+# The kubectl command carries its --kubeconfig, so it is one argument: an array, never a word-split string (the first
+# run of this harness split it and secrets.sh refused "--kubeconfig=..." as an unknown argument).
+A=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind)
+B=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL")
 S="$HERE/secrets.sh"
 T=$(mktemp); trap 'rm -f "$T"; k delete ns sect1 sect2 --wait=false >/dev/null 2>&1' EXIT
 h() { k get secret cmapi-keycloak -n sect1 -o json 2>/dev/null | python3 -c 'import sys,json,hashlib; d=json.load(sys.stdin)["data"]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:12])' || echo none; }
 fails=0
-# shellcheck disable=SC2086
-run() { "$S" $A "$@" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"; }
+run() { "$S" "${A[@]}" "$@" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"; }
+runb() { "$S" "${B[@]}" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"; }
 expect() { # label, expected rc, actual line
   case "$3" in "rc=$2 "*) echo "  ok   $1: $3";; *) echo "  FAIL $1 (expected rc=$2): $3"; fails=$((fails+1));; esac; }
 r=$(run); expect "1 fresh" 0 "$r"; H1=$(h)
@@ -53,14 +56,14 @@ CR
 r=$(run); expect "8 realm import exists, both copies gone: stops" 1 "$r"; [ "$(h)" = none ] || { echo "  FAIL 8: something was written"; fails=$((fails+1)); }
 k delete keycloakrealmimport cmapi -n sect2 >/dev/null; [ "${CRD_STAND_IN:-}" = true ] && k delete crd keycloakrealmimports.k8s.keycloak.org >/dev/null
 # 9: cmapi-ldap-bind is checked, never written
-r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"); expect "9a ldap-bind missing stops" 1 "$r"
+r=$(runb); expect "9a ldap-bind missing stops" 1 "$r"
 k create secret generic cmapi-ldap-bind -n sect1 --from-literal=bindDN=cn=x --from-literal=password=p >/dev/null
 k create secret generic cmapi-ldap-bind -n sect2 --from-literal=bindDN=cn=x >/dev/null
-r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"); expect "9b ldap-bind lacking a key stops" 1 "$r"
+r=$(runb); expect "9b ldap-bind lacking a key stops" 1 "$r"
 k delete secret cmapi-ldap-bind -n sect2 >/dev/null; k create secret generic cmapi-ldap-bind -n sect2 --from-literal=bindDN=cn=x --from-literal=password=other >/dev/null
-r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"); expect "9c ldap-bind copies differ stops" 1 "$r"
+r=$(runb); expect "9c ldap-bind copies differ stops" 1 "$r"
 k delete secret cmapi-ldap-bind -n sect2 >/dev/null; k create secret generic cmapi-ldap-bind -n sect2 --from-literal=bindDN=cn=x --from-literal=password=p >/dev/null
-r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)"); expect "9d ldap-bind equal passes" 0 "$r"
+r=$(runb); expect "9d ldap-bind equal passes" 0 "$r"
 # 10: the GitHub App Secret is validated and never replaced
 KEYF=$(mktemp); printf -- '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n' >"$KEYF"; chmod 600 "$KEYF"
 r=$(run --github-app-key "$KEYF" --github-app-id 1 --github-installation-id 2); expect "10a app secret written from a 0600 file" 0 "$r"

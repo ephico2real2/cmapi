@@ -47,15 +47,22 @@ for _ in $(seq 1 60); do ph=$(k -n cmapi get cluster cmapi-db -o jsonpath='{.sta
 say "cmapi-db: ${ph:-no phase}"
 [ "$ph" = "Cluster in healthy state" ] || { k -n cmapi get cluster cmapi-db -o yaml | tail -30; exit 1; }
 
-say "waiting for api and worker (120 s before looking at the migrate logs)"
+say "waiting for api and worker (60 s, then a DNS probe from the migrate container)"
 dns_fail=false
-if ! k -n cmapi rollout status deploy/cmapi-api --timeout=120s >/dev/null 2>&1; then
+if ! k -n cmapi rollout status deploy/cmapi-api --timeout=60s >/dev/null 2>&1; then
   pod=$(k -n cmapi get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
-  if k -n cmapi logs "$pod" -c migrate 2>/dev/null | grep -qi "could not translate host name\|Name or service not known\|Temporary failure in name resolution"; then
-    dns_fail=true
-    say "MEASURED: the migrate initContainer cannot resolve the database under the cmapi-metrics NetworkPolicy on podman kind; deleting the policy for this test only (the policy ships; the hosted runner and CRC decide)"
-    k -n cmapi delete networkpolicy cmapi-metrics >/dev/null
-    k -n cmapi delete pod -l app.kubernetes.io/part-of=cmapi,app.kubernetes.io/component --field-selector=status.phase!=Running >/dev/null 2>&1 || true
+  # The migrate container runs while it waits for the database, so it can be asked whether it resolves the Service at
+  # all; after the wait it crash-loops and its previous log says the same (psycopg: "failed to resolve host").
+  probe=$(k -n cmapi exec "$pod" -c migrate -- python3 -c "import socket; socket.getaddrinfo('cmapi-db-rw.cmapi.svc', 5432)" 2>&1 || true)
+  previous=$(k -n cmapi logs "$pod" -c migrate --previous 2>/dev/null || true)
+  if echo "$probe" | grep -q "Name or service not known" || echo "$previous" | grep -q "failed to resolve host"; then
+    mock=$(k -n cmapi get pod -l app.kubernetes.io/component=mockup -o jsonpath='{.items[0].metadata.name}')
+    if k -n cmapi exec "$mock" -- getent hosts cmapi-db-rw.cmapi.svc >/dev/null 2>&1; then
+      dns_fail=true
+      say "MEASURED: the migrate container (selected by the ingress-only NetworkPolicy cmapi-metrics) cannot resolve cmapi-db-rw while the mockup pod (not selected) can: the podman-kind DNS failure under a NetworkPolicy. Deleting the policy for this test only; it ships, and the hosted runner and CRC decide"
+      k -n cmapi delete networkpolicy cmapi-metrics >/dev/null
+      k -n cmapi delete pod -l app.kubernetes.io/component=api >/dev/null; k -n cmapi delete pod -l app.kubernetes.io/component=worker >/dev/null
+    fi
   fi
 fi
 k -n cmapi rollout status deploy/cmapi-api --timeout=600s
