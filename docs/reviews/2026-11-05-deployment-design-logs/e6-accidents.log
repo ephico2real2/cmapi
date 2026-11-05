@@ -1,0 +1,25 @@
+[0s] the upstream ClusterRoleBindings name namespace argocd (Opus's 'four changes'): fix the subjects
+patched clusterrolebinding.rbac.authorization.k8s.io/argocd-application-controller
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+[15s] managed namespaces: 3
+NAME                         SYNC     HEALTH
+cluster-configs-crc-team-a   Synced   Healthy
+cluster-configs-crc-team-b   Synced   Healthy
+cluster-configs-crc-team-d   Synced   Healthy
+[31s] === e6.py accidents
+[m] before: ['team-a', 'team-b', 'team-d'] {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'}
+[m] -- Git unreachable for 90 s: the Service selects nothing --
+[m] apps: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} namespaces: ['team-a', 'team-b', 'team-d'] appset: error generating params from git: error getting directories from repo: error retrieving Git Directories: rpc error: code = Internal desc = unable to resolve git revision 
+[m] Git back: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} ['team-a', 'team-b', 'team-d']
+[m] -- the ApplicationSet deleted by mistake --
+applicationset.argoproj.io "cluster-configs-crc" deleted from cmapi-argocd namespace
+[m] apps: {'team-a': 'deleting', 'team-b': 'deleting', 'team-d': 'deleting'} namespaces: ['team-a', 'team-b', 'team-d'] lost: []
+applicationset.argoproj.io/cluster-configs-crc created
+[m] reapplied, 45 s later: {'team-a': 'deleting', 'team-b': 'deleting', 'team-d': 'deleting'}
+[m] finalizers removed: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} ['team-a', 'team-b', 'team-d']
+[m] -- a bad merge removes every folder --
+[m] apps: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} namespaces: ['team-a', 'team-b', 'team-d'] lost: []
+[m] restored in Git, 40 s later: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'}
+[m] finalizers removed: {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} ['team-a', 'team-b', 'team-d']
+[361s] === e6 done

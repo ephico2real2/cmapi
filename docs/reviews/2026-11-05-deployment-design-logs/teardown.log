@@ -1,0 +1,5 @@
+Deleting cluster "cmapi-d1-m" ...
+Deleted nodes: ["cmapi-d1-m-control-plane"]
+cmapi-d1-m gone
+container gone
+cmapi-test-pg untouched (running)

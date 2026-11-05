@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmapi-worker
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+spec:
+  selector: {app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+  ports:
+    - {name: metrics, port: 9090, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cmapi-worker
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+    spec:
+      serviceAccountName: cmapi-worker
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      # SIGTERM lets the loop finish the job in hand; a lease covers a worker that dies mid-job.
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+        # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job. It waits
+        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet, and trusts the same bundle as
+        # the main container, so an external TLS database verifies at the first migration.
+        - name: migrate
+          image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
+          imagePullPolicy: IfNotPresent
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+            - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+      containers:
+        - name: worker
+          image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
+          imagePullPolicy: IfNotPresent
+          command: [cmapi-worker]
+          env:
+            - name: CMAPI_COMPONENT
+              value: worker
+            - name: CMAPI_METRICS_PORT
+              value: "9090"
+            - name: CMAPI_WORKER_ID
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: CMAPI_CONFIG_DIR
+              value: /etc/cmapi/config
+            - name: CMAPI_POLICIES_DIR
+              value: /etc/cmapi/policies
+            - name: CMAPI_IMPORTS_NAMESPACE
+              value: cmapi-imports
+            - name: CMAPI_GIT_TOKEN
+              valueFrom: {secretKeyRef: {name: cmapi-git, key: token, optional: true}}
+            - name: CMAPI_GIT_USER
+              valueFrom: {secretKeyRef: {name: cmapi-git, key: username, optional: true}}
+            - name: CMAPI_GIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: cmapi-git, key: password, optional: true}}
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+            - name: CMAPI_CURSOR_KEY
+              valueFrom: {secretKeyRef: {name: cmapi-keys, key: cursorKey}}
+            - name: CMAPI_LINK_KEY
+              valueFrom: {secretKeyRef: {name: cmapi-keys, key: linkKey}}
+            - name: CMAPI_DIRECTORY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: cmapi-keycloak, key: directoryClientSecret, optional: true}}
+            - name: CMAPI_CA_BUNDLE
+              value: /etc/cmapi/ca/ca-bundle.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/cmapi/ca/ca-bundle.crt
+            - name: SSL_CERT_FILE
+              value: /etc/cmapi/ca/ca-bundle.crt
+          envFrom:
+            # Per environment: CMAPI_GIT_PROVIDER, CMAPI_GIT_URL, CMAPI_GIT_DEFAULT_BRANCH, CMAPI_LOG_LEVEL
+            - configMapRef: {name: cmapi-env}
+          ports:
+            - {name: metrics, containerPort: 9090}
+          # The metrics endpoint answers as soon as the process is up; the heartbeat metric and its alert say whether
+          # the loop is alive, which a liveness probe on a port cannot.
+          livenessProbe:
+            httpGet: {path: /, port: metrics}
+            periodSeconds: 30
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/cmapi/config, readOnly: true}
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: cmapi-config}
+        - name: trust
+          projected:
+            sources:
+              - configMap:
+                  name: cmapi-trust
+                  items: [{key: ca-bundle.crt, path: ca-bundle.crt}]

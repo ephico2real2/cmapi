@@ -86,3 +86,50 @@ jobs:
       - name: Test
         working-directory: cmapi-portal-ui
         run: npm test
+
+  manifests:
+    # The plain manifests (deploy/manifests), the render, the scripts and the secrets cases: what deploys cmapi
+    # (docs/reviews/2026-11-05-deployment-design.md). kubeconform checks every object against the Kubernetes 1.35 schemas
+    # and the CRDs catalog for CloudNativePG; the secrets cases run on a kind cluster.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tools
+        run: |
+          curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
+          kubeconform -v
+          sudo apt-get install -y -q shellcheck >/dev/null
+      - name: Shellcheck
+        run: shellcheck deploy/render.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh
+      - name: The mockup ConfigMap is current
+        run: deploy/mockup-configmap.sh --check
+      - name: kubeconform on the manifests
+        env:
+          SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+          CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        run: kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
+      - name: render.sh fills the placeholder and refuses a tag
+        env:
+          SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+          CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        run: |
+          deploy/render.sh kind ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64}) /tmp/rendered
+          ! grep -rn 'sha256:DIGEST' /tmp/rendered
+          kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
+          if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
+          deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag
+      - name: kind for the secrets cases
+        run: |
+          curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind" | sha256sum -c -
+          chmod +x kind && sudo mv kind /usr/local/bin/
+          kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s
+      - name: The secrets cases
+        run: deploy/secrets-test.sh "kubectl --kubeconfig=$PWD/.ci.kubeconfig"
+      - name: Delete the kind cluster
+        if: ${{ !cancelled() }}
+        run: kind delete cluster --name cmapi-ci --kubeconfig "$PWD/.ci.kubeconfig"

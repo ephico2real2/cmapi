@@ -1,0 +1,44 @@
+[0s] === accident 3, watched
+[m] before: ['team-a', 'team-b', 'team-d'] {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'}
+[m] commit e1aee818 at t=0
+[m] t=1s apps={'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} namespaces=['team-a', 'team-b', 'team-d'] appset-error='All applications have been generated successfully'
+[m] t=23s apps={'team-a': 'deleting', 'team-b': 'deleting', 'team-d': 'deleting'} namespaces=['team-a', 'team-b', 'team-d'] appset-error='All applications have been generated successfully'
+[m] after 180 s: lost: []
+[m] restored in Git, 45 s later: {'team-a': 'deleting', 'team-b': 'deleting', 'team-d': 'deleting'} ['team-a', 'team-b', 'team-d']
+[m] end: True {'team-a': 'Synced', 'team-b': 'Synced', 'team-d': 'Synced'} ['team-a', 'team-b', 'team-d']
+[236s] === e4 (digest on a branch; narrowed role with respectRBAC strict + SSAR; can-i list)
+201
+201
+clusterrole.rbac.authorization.k8s.io/argocd-application-controller configured
+namespace/cmapi-self-test created
+role.rbac.authorization.k8s.io/cmapi-self-writer created
+rolebinding.rbac.authorization.k8s.io/argocd-controller-writes-here created
+appproject.argoproj.io/cmapi-self created
+application.argoproj.io/cmapi created
+configmap/argocd-cm patched
+[m] digest A deployed from the branch: true after 0s
+[m] revision 54a5fac6 commit 54a5fac6 summary.images None
+[m] digest B reached the Deployment, no command: true after 171s
+[m] revision ff291848 commit ff291848
+[m] the revert rolled the Deployment back: FALSE after 180s
+[m] selfHeal: a hand edit of the image
+[m] selfHeal restored digest A: true after 40s
+[m] -- attacks as the controller identity --
+   can-i delete the containment policy: no
+   can-i create a ClusterRoleBinding: no
+   can-i read Secrets anywhere: no
+   can-i read Secrets in cmapi-self-test: no
+   can-i create a Deployment in kube-system: no
+   can-i create a Deployment in cmapi-self-test: yes
+   can-i create pods/exec anywhere: no
+   can-i impersonate: no
+   can-i escalate clusterroles: no
+   can-i update its own ClusterRole: no
+   can-i create a namespace: yes
+[650s] === namespaces' Applications after e4 (the narrowed role must still serve them)
+NAME                         SYNC     HEALTH
+cluster-configs-crc-team-a   Synced   Healthy
+cluster-configs-crc-team-b   Synced   Healthy
+cluster-configs-crc-team-d   Synced   Healthy
+cmapi                        Synced   Progressing
+[651s] === done
