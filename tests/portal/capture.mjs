@@ -17,7 +17,8 @@ mkdirSync(outDir, { recursive: true });
 
 const server = sourceDir ? await serve(sourceDir) : null;
 const url = server ? `http://127.0.0.1:${server.port}/Main.dc.html` : pathToFileURL(distPage).href;
-const browser = await chromium.launch();
+// PW_CHANNEL=chrome runs in the installed Chrome, and PW_HEADED=1 shows the window.
+const browser = await chromium.launch({ channel: process.env.PW_CHANNEL, headless: !process.env.PW_HEADED });
 const context = await browser.newContext({ viewport: { width: 1320, height: 1720 }, deviceScaleFactor: 1 });
 const page = await context.newPage();
 const problems = [];

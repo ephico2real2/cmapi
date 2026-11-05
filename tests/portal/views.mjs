@@ -23,7 +23,7 @@ export async function gotoView(page, view) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".css": "text/css" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 
 export function serve(dir) {
   const server = createServer(async (req, res) => {
