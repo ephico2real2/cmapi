@@ -88,8 +88,13 @@ Delete only the entries named in the LDIF, each by its full `dn`.
 Realm `cmapi` binds as its own read-only user, `cmapi-ldap-bind` in `ou=TrustedApplications`, and borrows no other project's
 credential. [`examples/cmapi-sso/ldap/apply-bind-user.sh`](../examples/cmapi-sso/ldap/apply-bind-user.sh) creates it.
 
-**Status: not created.** The Claude Code auto mode classifier refused the script twice, as a change to a shared resource. See
-issue #34. Until it runs, LDAP federation is unproven.
+**Status: created on 2026-11-05** by the coordinator with the owner's explicit permission, run twice (rc 0 both; #34, closed
+with the measurements): `cn=cmapi-ldap-bind,ou=TrustedApplications,dc=ephico2real,dc=com` reads `ou=People` and the ten
+`cmapi-*` groups, sees no password hash, cannot read `ou=TrustedApplications`, and a write fails (exit 50); the server's rules
+are still five, two of them extended by the one `by dn=... read` line. Secret `cmapi-ldap-bind` (`bindDN`, `password`) is in
+namespaces `cmapi` and `keycloak`. **Keycloak federating through this user is unproven**: no realm has been imported yet, and
+no login through the federation has been tested. The script is tracked as executable since #86 (it was `100644`, so running
+it by its path failed with rc 126; `sh <path>` worked).
 
 The server's rules are exhaustive, so a user they do not name gets "No such object (32)", which looks like missing data. The
 script adds the user to the rules for `ou=People` and `ou=Groups` only, as one atomic modify, then fails unless the user can

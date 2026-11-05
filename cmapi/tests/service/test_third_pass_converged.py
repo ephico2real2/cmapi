@@ -294,3 +294,17 @@ def test_a_reused_clean_tag_must_carry_this_commits_stamp(tmp_path):
     r = subprocess.run(["bash", "deploy/release-crc.sh", "--no-portal"], cwd=repo, env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and "verified" in r.stdout, (r.stdout, r.stderr[-300:])
     assert len(list(state.glob("pushed.*"))) == 1
+
+
+# ------------------------------------------------------------------ #86: a documented script must be runnable by its path
+def test_every_shell_script_under_examples_and_deploy_is_executable():
+    """Measured 2026-11-05: apply-bind-user.sh was tracked as 100644, so its documented command failed with rc 126."""
+    out = subprocess.run(["git", "ls-files", "-s", "examples", "deploy"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    wrong = []
+    for line in out.splitlines():
+        mode, _blob, _stage, path = line.split(None, 3)
+        f = ROOT / path
+        if f.suffix == ".sh" or (f.is_file() and f.read_bytes()[:2] == b"#!" and b"sh" in f.read_bytes().split(b"\n", 1)[0]):
+            if mode != "100755":
+                wrong.append(f"{path} is {mode}")
+    assert not wrong, wrong
