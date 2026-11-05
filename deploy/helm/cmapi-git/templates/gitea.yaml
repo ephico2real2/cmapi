@@ -1,0 +1,180 @@
+{{- $name := .Release.Name -}}
+{{- $admin := (lookup "v1" "Secret" .Release.Namespace "cmapi-git-admin").data | default dict -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cmapi-git-admin
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+  annotations:
+    helm.sh/resource-policy: keep
+    cmapi.net/purpose: "The Gitea administrator the git-bootstrap Job signs in as once"
+type: Opaque
+data:
+  CMAPI_GIT_ADMIN_USER: {{ (index $admin "CMAPI_GIT_ADMIN_USER") | default ("gitea-admin" | b64enc) }}
+  CMAPI_GIT_ADMIN_PASSWORD: {{ (index $admin "CMAPI_GIT_ADMIN_PASSWORD") | default (randAlphaNum 32 | b64enc) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ .Values.storage.size }}}}
+  {{- with .Values.storage.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-gitea
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+    spec:
+      securityContext:
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+        seccompProfile: {{ toYaml .Values.securityContext.seccompProfile | nindent 10 }}
+        {{- if .Values.securityContext.runAsUser }}
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        {{- end }}
+        {{- if .Values.securityContext.fsGroup }}
+        fsGroup: {{ .Values.securityContext.fsGroup }}
+        {{- end }}
+      containers:
+        - name: gitea
+          image: {{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag }}{{ end }}
+          # The rootless image writes its config to /etc/gitea and its data to /var/lib/gitea; both are
+          # volumes here so an arbitrary UID (OpenShift) can write them. Settings come from the
+          # environment (GITEA__section__KEY), rendered into app.ini by the entrypoint.
+          env:
+            - {name: GITEA_WORK_DIR, value: /var/lib/gitea}
+            - {name: GITEA_CUSTOM, value: /var/lib/gitea/custom}
+            - {name: GITEA_TEMP, value: /tmp/gitea}
+            - {name: HOME, value: /var/lib/gitea/git}
+            - {name: USER, value: git}
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__database__PATH, value: /var/lib/gitea/data/gitea.db}
+            - {name: GITEA__repository__ROOT, value: /var/lib/gitea/git/repositories}
+            - {name: GITEA__server__HTTP_PORT, value: "3000"}
+            - {name: GITEA__server__DOMAIN, value: {{ include "cmapi-git.domain" . | quote }}}
+            - {name: GITEA__server__ROOT_URL, value: {{ include "cmapi-git.rootUrl" . | quote }}}
+            - {name: GITEA__server__SSH_DOMAIN, value: {{ include "cmapi-git.domain" . | quote }}}
+            - {name: GITEA__server__DISABLE_SSH, value: "true"}
+            - {name: GITEA__server__START_SSH_SERVER, value: "false"}
+            - {name: GITEA__server__OFFLINE_MODE, value: "true"}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+            - {name: GITEA__service__REQUIRE_SIGNIN_VIEW, value: "true"}
+            - {name: GITEA__service__DEFAULT_ORG_VISIBILITY, value: private}
+            - {name: GITEA__repository__DEFAULT_PRIVATE, value: private}
+            - {name: GITEA__log__LEVEL, value: Info}
+            - {name: GITEA__log__MODE, value: console}
+            - {name: GITEA__mailer__ENABLED, value: "false"}
+            - {name: GITEA__webhook__ALLOWED_HOST_LIST, value: "private"}
+            - {name: GITEA__cache__ADAPTER, value: memory}
+            - {name: GITEA__session__PROVIDER, value: memory}
+            - {name: GITEA__actions__ENABLED, value: "false"}
+            - {name: GITEA__metrics__ENABLED, value: "false"}
+          envFrom:
+            - secretRef: {name: cmapi-git-admin}
+          # The administrator the cmapi git-bootstrap Job signs in as. Created here, after the entrypoint has written
+          # app.ini, because `gitea admin` needs the installed config (measured: it cannot run before `gitea web`; the
+          # image's GITEA_APP_INI=/etc/gitea/app.ini points the CLI at it, so no --config is passed).
+          # Idempotent: a user that exists is left alone. The password reaches the CLI inside this container only.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    until gitea admin user list >/tmp/users 2>/dev/null; do sleep 2; done
+                    if ! grep -q "[[:space:]]${CMAPI_GIT_ADMIN_USER}[[:space:]]" /tmp/users; then
+                      gitea admin user create --admin --username "$CMAPI_GIT_ADMIN_USER" \
+                        --password "$CMAPI_GIT_ADMIN_PASSWORD" --email cmapi-admin@invalid.example \
+                        --must-change-password=false
+                    fi
+          ports:
+            - {name: http, containerPort: 3000}
+          readinessProbe:
+            httpGet: {path: /api/healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/healthz, port: http}
+            periodSeconds: 30
+            failureThreshold: 5
+          startupProbe:
+            httpGet: {path: /api/healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 36
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/gitea}
+            - {name: config, mountPath: /etc/gitea}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ $name }}-data}
+        - name: config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-gitea
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+spec:
+  selector: {app.kubernetes.io/name: {{ $name }}}
+  ports:
+    - {name: http, port: 3000, targetPort: http}
+{{- if eq .Values.exposure "Route" }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: {{ $name }}}
+spec:
+  {{- if .Values.route.host }}
+  host: {{ .Values.route.host }}
+  {{- else }}
+  subdomain: {{ $name }}
+  {{- end }}
+  to: {kind: Service, name: {{ $name }}-gitea}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
+{{- else if eq .Values.exposure "Ingress" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ required "ingress.host is required" .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: {{ $name }}-gitea, port: {number: 3000}}}
+{{- end }}

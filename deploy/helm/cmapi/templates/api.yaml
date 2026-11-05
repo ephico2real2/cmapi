@@ -1,0 +1,107 @@
+{{- $name := include "cmapi.name" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {{- include "cmapi.labels" . | nindent 8 }}
+        {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ $name }}-api
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+        # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job.
+        - name: migrate
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+            {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+            - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+            {{- end }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
+          {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+          {{- end }}
+      containers:
+        - name: api
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-api]
+          env:
+            - name: CMAPI_COMPONENT
+              value: api
+            - name: CMAPI_LOG_LEVEL
+              value: {{ .Values.api.logLevel | quote }}
+            - name: CMAPI_BIND_PORT
+              value: "8080"
+            - name: CMAPI_METRICS_PORT
+              value: "9090"
+            {{- include "cmapi.commonEnv" . | nindent 12 }}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: metrics, containerPort: 9090}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # Liveness on the route with no I/O: a slow database or a full thread pool is not cured by a restart.
+          livenessProbe:
+            httpGet: {path: /api/v1/version, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            failureThreshold: 24
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts: {{- include "cmapi.commonVolumeMounts" . | nindent 12 }}
+      volumes: {{- include "cmapi.commonVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 4 }}
+spec:
+  selector: {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: metrics, port: 9090, targetPort: metrics}
+{{- if .Values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 6 }}
+{{- end }}

@@ -1,0 +1,183 @@
+{{/*
+ServiceAccounts and the least RBAC each needs:
+- api and worker: get, list and watch Secrets in the imports namespace (docs/01: cmapi has only
+  that there, so the import writer's grant never touches cmapi's own secrets);
+- worker only, apply delivery on the hub: the cmapi-deliverer ClusterRole (create, patch, delete on
+  the kinds cmapi renders, and bind on the token-issuer ClusterRole). The api never holds it.
+*/}}
+{{- $name := include "cmapi.name" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-jobs
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+{{- if .Values.imports.createNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.imports.namespace }}
+  labels:
+    app.kubernetes.io/part-of: cmapi
+    cmapi.net/instance: {{ .Values.instance.name }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-imports-reader
+  namespace: {{ .Values.imports.namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-imports-reader
+  namespace: {{ .Values.imports.namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-imports-reader}
+subjects:
+  - {kind: ServiceAccount, name: {{ $name }}-api, namespace: {{ .Release.Namespace }}}
+  - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+{{- if and (eq .Values.delivery.mode "apply") (not .Values.delivery.hubDeliverer.acknowledgeDirectWrites) }}
+{{- fail "delivery.mode=apply makes the worker a cluster-wide writer, which the design forbids: use argocd, or set delivery.hubDeliverer.acknowledgeDirectWrites on a cluster where that is accepted" }}
+{{- end }}
+{{- with .Values.argocd.controllerServiceAccount }}
+{{- if not (regexMatch "^system:serviceaccount:[a-z0-9]([-a-z0-9]*[a-z0-9])?:[a-z0-9]([-.a-z0-9]*[a-z0-9])?$" .) }}
+{{- fail (printf "argocd.controllerServiceAccount is %q: the policy compares it with the request's username, so it must read system:serviceaccount:<namespace>:<name>, or the policy matches nobody and contains nothing" .) }}
+{{- end }}
+{{- end }}
+{{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) (not .Values.argocd.acknowledgeUncontainedController) }}
+{{- fail "argocd.controllerServiceAccount is empty: no admission policy would contain Argo CD's controller, which can then write any namespace. Name it (system:serviceaccount:<argo namespace>:<controller>), or set argocd.acknowledgeUncontainedController on a cluster where that is accepted" }}
+{{- end }}
+{{- $writer := "" -}}
+{{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}{{ $writer = printf "system:serviceaccount:%s:%s-worker" .Release.Namespace $name }}{{ end -}}
+{{- if and (eq .Values.delivery.mode "argocd") .Values.argocd.controllerServiceAccount }}{{ $writer = .Values.argocd.controllerServiceAccount }}{{ end -}}
+{{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}
+---
+# The one cluster write path, and only for the worker: server-side apply of the approved plan once Git
+# main's folder is seen to equal it. RBAC cannot scope these verbs to the namespaces cmapi manages, so the
+# ValidatingAdmissionPolicy below is what keeps this identity away from other projects' namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cmapi-deliverer
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [cmapi-token-issuer]   # no route grants view, edit or admin yet; widen when one does
+    verbs: [bind]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cmapi-deliverer
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-deliverer}
+subjects:
+  - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+{{- end }}
+{{- if $writer }}
+---
+# Containment: this identity may only touch namespaces carrying cmapi.net/managed=true, and only create
+# namespaces carrying it. An unmanaged namespace, whoever owns it, is refused at admission.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cmapi-deliverer-managed-only
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [rolebindings]
+  matchConditions:
+    - name: only-the-deliverer
+      expression: request.userInfo.username == {{ $writer | quote }}
+  variables:
+    - name: isNamespace
+      expression: request.kind.kind == "Namespace"
+    - name: labels
+      expression: >-
+        variables.isNamespace
+        ? (request.operation == "CREATE" ? object.metadata.labels : (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}))
+        : (has(namespaceObject.metadata.labels) ? namespaceObject.metadata.labels : {})
+    # What the request leaves on a Namespace, and what was there. OpenShift's controllers write reserved keys on
+    # every namespace (pod-security sync, sa.scc ranges), so only a key this request adds or changes is refused.
+    - name: newLabels
+      expression: 'variables.isNamespace && request.operation != "DELETE" && has(object.metadata.labels) ? object.metadata.labels : {}'
+    - name: oldLabels
+      expression: 'variables.isNamespace && request.operation == "UPDATE" && has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}'
+    - name: newAnnotations
+      expression: 'variables.isNamespace && request.operation != "DELETE" && has(object.metadata.annotations) ? object.metadata.annotations : {}'
+    - name: oldAnnotations
+      expression: 'variables.isNamespace && request.operation == "UPDATE" && has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}'
+    - name: reservedKey
+      expression: '"^([a-z0-9.-]+[.])?(kubernetes[.]io|k8s[.]io|openshift[.]io)/"'
+  validations:
+    # Can it label another project's namespace first? No: on UPDATE the label is read from oldObject.
+    - expression: '"cmapi.net/managed" in variables.labels && variables.labels["cmapi.net/managed"] == "true"'
+      message: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true
+    - expression: >-
+        !(variables.isNamespace && request.operation == "CREATE")
+        || !object.metadata.name.matches("^(default|openshift|openshift-.*|kube-.*|cmapi|cmapi-system|cmapi-imports{{ range .Values.instance.reservedPatterns }}|{{ . | replace "*" ".*" }}{{ end }})$")
+      message: cmapi-deliverer may not create a namespace under a reserved name
+    - expression: >-
+        variables.newLabels.all(k, k == "kubernetes.io/metadata.name" || !k.matches(variables.reservedKey)
+        || (k in variables.oldLabels && variables.oldLabels[k] == variables.newLabels[k]))
+      message: cmapi-deliverer may not set a kubernetes.io, k8s.io or openshift.io label
+    - expression: >-
+        variables.newAnnotations.all(k, !k.matches(variables.reservedKey)
+        || (k in variables.oldAnnotations && variables.oldAnnotations[k] == variables.newAnnotations[k]))
+      message: cmapi-deliverer may not set a kubernetes.io, k8s.io or openshift.io annotation
+    # The only binding the renderer writes today (TOKEN_ISSUER in core/render/manifests.py), to the only subject.
+    - expression: >-
+        request.kind.kind != "RoleBinding" || request.operation == "DELETE"
+        || (object.roleRef.name == "cmapi-token-issuer"
+            && object.subjects.all(s, s.kind == "ServiceAccount" && s.name == "cmapi-reader" && s.namespace == "cmapi-system"))
+      message: cmapi-deliverer may only bind cmapi-token-issuer to cmapi-system/cmapi-reader
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cmapi-deliverer-managed-only
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  policyName: cmapi-deliverer-managed-only
+  validationActions: [Deny]
+{{- end }}

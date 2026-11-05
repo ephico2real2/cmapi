@@ -1,0 +1,86 @@
+{{- if .Values.portal.enabled }}
+{{- $name := include "cmapi.name" . -}}
+{{/*
+The portal (cmapi-portal-ui, static files behind nginx) and the standalone mockup, one image, two
+hosts: nginx picks the site by server_name. The portal learns the API URL and the OIDC settings
+from config.json, written here, so the same image serves any instance.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-portal-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {
+      "apiUrl": {{ .Values.instance.publicUrl | quote }},
+      "issuer": {{ .Values.auth.issuer | quote }},
+      "clientId": {{ .Values.portal.oidcClientId | quote }},
+      "audience": {{ .Values.auth.audience | quote }},
+      "instance": {{ .Values.instance.name | quote }},
+      "displayName": {{ .Values.instance.displayName | quote }},
+      "environments": {{ toJson .Values.instance.allowedEnvironments }},
+      "otherInstances": {{ toJson .Values.instance.directory }}
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-portal
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 4 }}
+spec:
+  replicas: {{ .Values.portal.replicas }}
+  selector:
+    matchLabels: {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cmapi.labels" . | nindent 8 }}
+        {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson (dict "instance" .Values.instance "auth" .Values.auth "portal" .Values.portal) | sha256sum }}
+    spec:
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: portal
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi_portal") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - name: PORTAL_HOST
+              value: {{ include "cmapi.portalHost" . | quote }}
+            - name: MOCKUP_HOST
+              value: {{ include "cmapi.mockupHost" . | quote }}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.portal.resources | nindent 12 }}
+          volumeMounts:
+            - name: portal-config
+              mountPath: /opt/app-root/src/portal/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: portal-config
+          configMap:
+            name: {{ $name }}-portal-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-portal
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 4 }}
+spec:
+  selector: {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+{{- end }}

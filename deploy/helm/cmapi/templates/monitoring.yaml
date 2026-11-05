@@ -1,0 +1,128 @@
+{{- $name := include "cmapi.name" . -}}
+{{- if .Values.networkPolicy.enabled }}
+# Only the router reaches the API port, and only monitoring reaches the metrics ports.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: In, values: [api, worker]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}}
+      ports:
+        - {port: 9090, protocol: TCP}
+    - {{- if eq .Values.exposure "Route" }}
+      from:
+        - namespaceSelector:
+            matchLabels: {network.openshift.io/policy-group: ingress}
+        - podSelector: {}
+      {{- end }}
+      ports:
+        - {port: 8080, protocol: TCP}
+{{- end }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+{{- range $c := list "api" "worker" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-{{ $c }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {{- include "cmapi.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "cmapi.component" (dict "component" $c "Release" $.Release) | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $.Values.monitoring.serviceMonitor.interval }}
+{{- end }}
+{{- end }}
+{{- if .Values.monitoring.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: cmapi.alerts
+      rules:
+        - alert: CmapiHighErrorRate
+          expr: |
+            sum(rate(cmapi_http_requests_total{status=~"5..", namespace="{{ .Release.Namespace }}"}[5m]))
+              / sum(rate(cmapi_http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0.02
+          for: 10m
+          labels: {severity: critical}
+          annotations: {summary: "cmapi 5xx above 2% of requests for 10 minutes"}
+        - alert: CmapiIdpUnavailable
+          expr: sum(increase(cmapi_idp_unavailable_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0
+          for: 5m
+          labels: {severity: critical}
+          annotations: {summary: "Callers are getting idp-unavailable (Keycloak signing keys unreachable)"}
+        - alert: CmapiGitUnavailable
+          expr: |
+            sum(rate(cmapi_git_operations_total{result="failure", namespace="{{ .Release.Namespace }}"}[5m]))
+              / sum(rate(cmapi_git_operations_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0.20
+          for: 5m
+          labels: {severity: critical}
+          annotations: {summary: "Git host operation failures above 20% for 5 minutes"}
+        - alert: CmapiWorkerNotLooping
+          # A Running worker whose loop died would pass its probes while every request stalls; absent() is the
+          # worker that is gone or never started, which the age alone cannot see (measured with promtool).
+          expr: |
+            absent(cmapi_worker_last_loop_timestamp_seconds{namespace="{{ .Release.Namespace }}"})
+            or
+            (time() - max(cmapi_worker_last_loop_timestamp_seconds{namespace="{{ .Release.Namespace }}"})) > {{ .Values.monitoring.prometheusRule.workerNotLoopingSeconds }}
+          for: 2m
+          labels: {severity: critical}
+          annotations: {summary: "The cmapi worker loop has not run for {{ .Values.monitoring.prometheusRule.workerNotLoopingSeconds }} seconds"}
+        - alert: CmapiClusterUnreachable
+          expr: cmapi_cluster_status{status="unreachable", namespace="{{ .Release.Namespace }}"} == 1
+          for: 10m
+          labels: {severity: warning}
+          annotations: {summary: "Cluster {{ "{{ $labels.cluster_id }}" }} unreachable for 10 minutes"}
+        - alert: CmapiSyncStuck
+          expr: cmapi_open_change_requests_oldest_age_seconds{status="sync_failed", namespace="{{ .Release.Namespace }}"} > 0
+          for: 5m
+          labels: {severity: warning}
+          annotations: {summary: "A request is in sync_failed"}
+        - alert: CmapiPruneStuck
+          expr: cmapi_open_change_requests_oldest_age_seconds{status="awaiting_prune", namespace="{{ .Release.Namespace }}"} > 86400
+          for: 5m
+          labels: {severity: warning}
+          annotations: {summary: "A delete has waited in awaiting_prune for over a day: no confirmation, or a namespace stuck Terminating"}
+        - alert: CmapiWorkerBacklog
+          expr: sum(cmapi_jobs_pending{namespace="{{ .Release.Namespace }}"}) > 100
+          for: 15m
+          labels: {severity: warning}
+          annotations: {summary: "More than 100 jobs pending for 15 minutes"}
+        - alert: CmapiAutoApprovalPaused
+          expr: cmapi_auto_approval_paused{namespace="{{ .Release.Namespace }}"} == 1
+          for: 24h
+          labels: {severity: info}
+          annotations: {summary: "The auto-approval kill switch has been on for 24 hours"}
+        - alert: CmapiMemoryNearLimit
+          expr: cmapi_process_memory_bytes / cmapi_process_memory_limit_bytes > 0.8
+          for: 15m
+          labels: {severity: warning}
+          annotations: {summary: "{{ "{{ $labels.component }}" }} above 80% of its memory limit"}
+        - alert: CmapiCpuThrottled
+          expr: rate(cmapi_process_cpu_throttled_periods_total[5m]) / rate(cmapi_process_cpu_periods_total[5m]) > 0.01
+          for: 30m
+          labels: {severity: warning}
+          annotations: {summary: "{{ "{{ $labels.component }}" }} throttled in more than 1% of CPU periods"}
+        - alert: CmapiPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}", container=~"api|worker"}[15m]) > 0
+          labels: {severity: warning}
+          annotations: {summary: "A cmapi container restarted in the last 15 minutes"}
+{{- end }}

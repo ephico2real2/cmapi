@@ -1,0 +1,61 @@
+{{/*
+One ConfigMap holds the instance's files: instance.yaml, clusters.yaml, integrations.yaml and
+capacity.yaml rendered from values; the policy files from the chart's config/ unless the site
+overrides one in configFiles. Mounted read-only at /etc/cmapi/config.
+*/}}
+{{- $inst := .Values.instance -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cmapi.name" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+data:
+  instance.yaml: |
+    instance:
+      name: {{ $inst.name }}
+      displayName: {{ $inst.displayName | quote }}
+      allowedEnvironments: {{ toJson $inst.allowedEnvironments }}
+      publicUrl: {{ $inst.publicUrl | quote }}
+      portalUrl: {{ $inst.portalUrl | quote }}
+      auth:
+        issuer: {{ .Values.auth.issuer | quote }}
+        audience: {{ .Values.auth.audience | quote }}
+      namespaces:
+        reservedPatterns: {{ toJson $inst.reservedPatterns }}
+      identity: {{ toJson $inst.identity }}
+      git:
+        repository: {{ .Values.git.repository | quote }}
+        webUrl: {{ .Values.git.webUrl | quote }}
+      directory: {{ toJson $inst.directory }}
+      docs: {{ toJson $inst.docs }}
+  clusters.yaml: |
+    clusters: {{ toJson .Values.clusters }}
+  integrations.yaml: |
+    delivery:
+      mode: {{ .Values.delivery.mode }}
+      syncTimeout: {{ .Values.delivery.syncTimeout }}
+      argocd: {{ toJson .Values.argocd }}
+    syncSignal:
+      default: poll
+      pollInterval: {{ .Values.delivery.pollInterval }}
+    operations:
+      engine: builtin
+    events:
+      publisher: none
+    notifier:
+      smtp: {{ toJson .Values.notifier.smtp }}
+  capacity.yaml: |
+    mode: {{ .Values.capacity.mode }}
+    snapshotInterval: {{ .Values.capacity.snapshotInterval }}
+    overcommit: {{ toJson .Values.capacity.overcommit }}
+    targets: {{ toJson .Values.capacity.targets }}
+{{- range $name := list "approval-rules.yaml" "authz-roles.yaml" "tiers.yaml" "expiration.yaml" "metadata-keys.yaml" }}
+  {{ $name }}: |
+{{- $override := index $.Values.configFiles $name }}
+{{- if $override }}
+{{ $override | indent 4 }}
+{{- else }}
+{{ $.Files.Get (printf "config/%s" $name) | indent 4 }}
+{{- end }}
+{{- end }}

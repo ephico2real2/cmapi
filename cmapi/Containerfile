@@ -1,0 +1,84 @@
+# cmapi: one image, three entry points (cmapi-api, cmapi-worker, cmapi-capacity) plus cmapi-migrate.
+# UBI9 python-312-minimal with kubeconform and the Kyverno CLI baked in (docs/01, Deployment topology),
+# and Swagger UI and ReDoc bundled so /docs works where no CDN is reachable.
+#
+# Every download is pinned by version and SHA-256; a mismatch fails the build. The base image is
+# pinned by digest. Runs as the base image's non-root user (1001, group 0) and fits the restricted SCC.
+FROM registry.access.redhat.com/ubi9/python-312-minimal@sha256:b99faaadaf10de740d60c713a047088df2f46ebdd766e9c6a0957896f44d0ea1 AS tools
+
+ARG KYVERNO_VERSION=v1.16.2
+ARG KYVERNO_SHA256=957fd264f011644394e22877505841fe4ec62a2e4c194075cd4e4b14dd07cf82
+ARG KUBECONFORM_VERSION=v0.6.7
+ARG KUBECONFORM_SHA256=95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
+# kubeconform's schemas, by commit and SHA-256: without them every plan depends on raw.githubusercontent.com
+ARG SCHEMAS_COMMIT=86d045595d3f93b703bbf439cf9eb4bd6830d58f
+ARG SCHEMAS_KUBERNETES=v1.33.0
+ARG SWAGGER_UI_VERSION=5.34.1
+ARG SWAGGER_UI_SHA256=8e7286de0230e431fc8a5a75490d28117af3d0c306413b6f9e17f7bb55045fb6
+ARG REDOC_VERSION=3.0.1
+ARG REDOC_SHA256=d9666cd5a1cb6c08c6d23f2433b025774a11354823d70357c8f506b988dac189
+
+USER 0
+WORKDIR /tmp/tools
+# tar and gzip are only needed to unpack the downloads; this stage is discarded
+RUN microdnf install -y tar gzip >/dev/null && microdnf clean all
+RUN set -eu; \
+    curl -sSfL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"; \
+    echo "${KYVERNO_SHA256}  kyverno.tgz" | sha256sum -c -; \
+    curl -sSfL -o kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"; \
+    echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -; \
+    curl -sSfL -o swagger.tgz "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-${SWAGGER_UI_VERSION}.tgz"; \
+    echo "${SWAGGER_UI_SHA256}  swagger.tgz" | sha256sum -c -; \
+    curl -sSfL -o redoc.tgz "https://registry.npmjs.org/redoc/-/redoc-${REDOC_VERSION}.tgz"; \
+    echo "${REDOC_SHA256}  redoc.tgz" | sha256sum -c -; \
+    mkdir -p bin static/swagger-ui static/redoc schemas; \
+    for pair in \
+      namespace-v1:324fae677b98d1a6d54340db0c334d053e8ffbafceb3f73326e41de2610d5843 \
+      resourcequota-v1:9546ed313e622ea84a0ab1ec7ef7e683f05acfbfe97beb746f0b5be6407691df \
+      limitrange-v1:de9bfabf9ea0bff36b71e5e686d3ecce5246b098061f39a70549f82f8f03acd7 \
+      serviceaccount-v1:8193d6c3561475c6d3d5c44e1faedb1df53905373d904bc17015694326d659cf \
+      rolebinding-rbac-v1:87ab620d0adddcd2803b92357fce2854af752326df8c5408a7588aae98b3031d; do \
+      name=${pair%%:*}; \
+      curl -sSfL -o "schemas/${name}.json" "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${SCHEMAS_COMMIT}/${SCHEMAS_KUBERNETES}-standalone-strict/${name}.json"; \
+      echo "${pair##*:}  schemas/${name}.json" | sha256sum -c -; \
+    done; \
+    tar xzf kyverno.tgz -C bin kyverno; \
+    tar xzf kubeconform.tgz -C bin kubeconform; \
+    tar xzf swagger.tgz -C static/swagger-ui --strip-components=1 package/swagger-ui-bundle.js package/swagger-ui.css package/favicon-32x32.png; \
+    tar xzf redoc.tgz -C static/redoc --strip-components=2 package/bundles/redoc.standalone.js; \
+    chmod 0755 bin/kyverno bin/kubeconform
+
+FROM registry.access.redhat.com/ubi9/python-312-minimal@sha256:b99faaadaf10de740d60c713a047088df2f46ebdd766e9c6a0957896f44d0ea1
+
+ARG GIT_COMMIT=unknown
+ARG BUILD_VERSION=0.0.0
+LABEL org.opencontainers.image.title="cmapi" \
+      org.opencontainers.image.source="https://github.com/ephico2real2/cmapi" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.version="${BUILD_VERSION}"
+
+# The commit is served by GET /api/v1/version and checked by the release script in the running pod.
+ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
+    CMAPI_STATIC_DIR=/opt/app-root/static \
+    CMAPI_KUBECONFORM_SCHEMAS="/opt/app-root/schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/opt/app-root/src
+
+USER 0
+COPY --from=tools /tmp/tools/bin/kyverno /tmp/tools/bin/kubeconform /usr/local/bin/
+COPY --from=tools /tmp/tools/static /opt/app-root/static
+COPY --from=tools /tmp/tools/schemas /opt/app-root/schemas
+WORKDIR /opt/app-root/src
+COPY pyproject.toml ./
+COPY src ./src
+RUN pip install --no-cache-dir . && \
+    rm -rf src build *.egg-info && \
+    mkdir -p /etc/cmapi/config /etc/cmapi/policies /opt/app-root/src/.kube && \
+    chown -R 1001:0 /opt/app-root && chmod -R g=u /opt/app-root
+COPY policies /etc/cmapi/policies
+
+USER 1001
+EXPOSE 8080 9090
+ENTRYPOINT ["cmapi-api"]

@@ -1,0 +1,29 @@
+# Gitea, rootless image by digest, SQLite on one PersistentVolumeClaim. Restricted security
+# context on both platforms. The admin credential is generated into Secret cmapi-git-admin; the
+# cmapi chart's git-bootstrap Job uses it once to create the bot user and the repository.
+image:
+  repository: docker.gitea.com/gitea
+  tag: 1.25.5-rootless
+  digest: sha256:be0b89adf2fc8657df508303d919c3be33e6413605882919f702177d62960c9a
+storage:
+  size: 1Gi
+  storageClass: ""
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 384Mi}
+exposure: Route            # Route | Ingress | none (ClusterIP only)
+route:
+  host: ""                 # empty: subdomain <release>
+ingress:
+  className: ""
+  host: ""
+# What Gitea tells browsers and the API clients its URL is (ROOT_URL). On CRC the Route's host.
+rootUrl: ""
+securityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+  runAsUser: null          # null: the platform chooses (OpenShift); kind sets 1000
+  fsGroup: null
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}

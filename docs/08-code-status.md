@@ -1,131 +1,99 @@
 # Code status: what is built, and what is not
 
-The short answer: **no, this is not the full cmapi code yet.** What exists:
+Updated 2026-11-05 with PR #40 (branch `app-on-crc`). The short answer: **the production service exists
+as code and tests, and nothing of it runs on a cluster yet.** What exists:
 
 - the complete design;
-- working, tested code for the core business logic;
-- a local application that runs that logic end to end against real Keycloak, Git and
-  Kubernetes, with stand-ins for Argo CD, capacity and the database.
+- the core business logic, tested (section 1);
+- the production service built on it: PostgreSQL store, the write pipeline, Git host adapters, the
+  validator, the cluster registry, the worker, an image and Helm charts (section 2);
+- the local application `examples/local` with its stand-ins (section 3).
 
-The production service is not built yet:
-
-- its PostgreSQL store;
-- the GitHub/GitLab, Argo CD and OpenShift adapters;
-- the capacity service;
-- the portal;
-- packaging.
+Not built: the portal on the API (the React app still runs the mockup's sample logic), the CLI and
+SDK, cmapi-capacity, and every plugin after the namespaces one. No cluster has run the service:
+`CRC-BUILD-STATUS.md` records what has been measured and what has not.
 
 The Module catalog in [02-technical-design-v2.md](02-technical-design-v2.md#module-catalog) is the
-authoritative list. It names every module with its phase and one of three statuses:
+authoritative list of modules, phases and the three statuses (Reference code, Protocol, Specified).
+This page summarises what the code tree holds today.
 
-| Status | Meaning |
-| --- | --- |
-| Reference code | Exists and is tested |
-| Protocol | The interface is fixed in `core/ports.py`; no adapter yet |
-| Specified | Designed only |
+## 1. Core logic (`cmapi/src/cmapi/core`, reference modules; 120 tests in `cmapi/tests/core`)
 
-This page summarises it.
-
-## 1. Built and tested: the core logic (`examples/src/cmapi`, about 2,700 lines, 120 tests)
+`examples/src/cmapi` and `examples/tests` are symlinks to these, so the documented paths still work.
 
 | Module | What it does |
 | --- | --- |
 | `core/tiers.py` | Tier catalog: resolve, custom bounds, normalise, match, compare, render, tier hash |
-| `core/approvals.py` | Approval rules (environment, patterns, thresholds), auto-approval guards, approval ledger with matching |
+| `core/approvals.py` | Approval rules, auto-approval guards (the kill switch now reports `paused` as its fallback), the ledger |
 | `core/expression.py` | The `when:` language of approval-rules.yaml |
 | `core/lifecycle.py` | Request state machine, lock and reservation ownership |
 | `core/metadata.py` | Label and annotation classes, validation, merge patch, change facts, render order |
-| `core/identity/claims.py`, `checks.py`, `directory.py`, `keycloak_admin.py` | Identity from the token; automation accounts (bot-user) and bots requesting in their own name or onBehalfOf; team DL and email domains; DirectoryProvider with cache; Keycloak admin client |
-| `core/authz.py` | Keycloak roles to permissions (`authz-roles.yaml`): the built-in roles including `cmapi-onboarding` (create only); optional per-role environments; no team or namespace-name scoping |
-| `core/naming.py` | Namespace names: DNS-1123, reserved names, never take over an unmanaged namespace |
+| `core/identity/claims.py`, `checks.py`, `directory.py`, `keycloak_admin.py` | Identity from the token, onBehalfOf, automation accounts, the DirectoryProvider with its cache, the Keycloak admin client |
+| `core/authz.py` | Keycloak roles to permissions (`authz-roles.yaml`) |
+| `core/naming.py` | Namespace names: DNS-1123, reserved, never an unmanaged namespace |
 | `core/render/manifests.py` | The plain-manifest renderer, plan hash, file diff |
-| `core/listquery.py` | Paging, search, cursor, facets, CSV export |
-| `core/ratelimit.py` | Token buckets |
-| `core/config.py` | Instance config loading and cross-file checks (no hot reload yet) |
-| `core/errors.py` | RFC 9457 problems |
-| `core/ports.py` | Protocols for every extension point |
+| `core/listquery.py` | Paging, search, cursor (now bound to the caller's scope through `context`), facets, CSV |
+| `core/ratelimit.py` | Token buckets; **no route uses it yet** |
+| `core/config.py` | Instance config loading and cross-file checks (no hot reload) |
+| `core/errors.py`, `core/ports.py` | RFC 9457 problems; the Protocols of every extension point |
 | `plugins/expiration/rules.py` | Expiration limits, grace and notices |
 
-## 2. Built for the local run only (`examples/local`, about 1,300 lines)
+## 2. The service (`cmapi/`, tested in `cmapi/tests/service` against PostgreSQL with in-memory fakes for the Git host and the cluster)
 
-This code makes the logic above run end to end. It is demo-grade: one process, state in memory.
-
-| Piece | Local version | Production module it stands in for |
+| Piece | Where | Status |
 | --- | --- | --- |
-| Token verification (JWKS, audience, issuer) and role checks | `caller()` and `CFG.roles` in `app.py` | `core/auth.py` |
-| Plan and submit | `plan_namespace()`, `submit()` in `app.py` | `core/pipeline.py` |
-| Endpoints | `/me`, `/tiers`, `/directory/users`; namespace create, patch, delete; `expiration:extend`; `/requests` list and get, `:approve`, `:reject`, `:cancel`; `/admin/prune:confirm`; `/quotas`; `/healthz`; `/admin/git-log` | `routers/*`, `plugins/*` (partly) |
-| Git | `LocalGit`: a bare repository; a PR is a branch | `core/git/` GitHub and GitLab REST adapters |
-| CI checks | `LocalValidator`: kubeconform and the Kyverno CLI, run in-process | `core/validate/` plus the Git host's CI and the cmapi check |
-| Cluster reads and sync | `KubeCluster`: kubectl against k3s, kind or any cluster; applies the merged folder in place of Argo CD | `core/clients/` (kube watch cache, argocd), `core/sync.py`, and Argo CD itself |
-| Capacity | `SimulatedCapacity`: a fixed cluster size | cmapi-capacity |
-| Worker | A thread: open PR, checks, merge, apply, prune hold | `worker.py` and `jobs/` |
-| Store | Python dicts | `core/db/` with PostgreSQL |
-| Realm setup | `keycloak_setup.py` | `examples/cmapi-sso/realm/ephico2real.yaml` and LDAP federation |
+| App factory, documented routers, `/docs`, `/redoc`, `/openapi.json` and `.yaml`; an undocumented route stops startup | `main.py`, `core/docs.py` | Built; contract test in `tests/service/test_api_contract.py` |
+| Token verification: RS256, iss and aud pinned, JWKS cached with single-flight refresh, stale-on-error with a persisted key set, `typ` other than `Bearer` refused | `core/auth.py` | Built and tested |
+| PostgreSQL store: change requests (one open request per namespace by a partial unique index), events, approvals (one per person per request), a `SKIP LOCKED` jobs queue with leases and a fencing generation, audit, JWKS cache, admin switches | `core/db/`, migrations `0001` to `0003` | Built; migrations run as an initContainer on every pod, serialised by an advisory lock |
+| The write pipeline: authorize, idempotency (key plus body fingerprint), lock, plan, decide; If-Match on changes | `core/pipeline.py`, `plugins/namespaces/router.py` | Built and tested |
+| Requests: list (paged), get, events, approval-status, `:approve`, `:reject`, `:cancel`, `:retry`, `:revert`; decisions serialised by a row lock | `routers/requests.py` | Built and tested |
+| Admin: `prune:confirm`, the auto-approval kill switch, integrations, Git log, KPIs | `routers/admin.py`, `core/kpi.py` | Built; KPIs read the database and the pod's cgroup |
+| Tiers, directory, quotas (list, suggest, CSV export) | `plugins/tiers`, `plugins/directory`, `plugins/quotas` | Built |
+| Cluster registry: the six import checks, a list-then-watch cache per cluster | `core/registry.py`, `core/clients/kube.py` | Built; the watch proven against a real kube-apiserver in the review, not on CRC |
+| Git host: Gitea (the stand-in on CRC, **being replaced by GitHub, GitHub Actions and GHCR**, #85) and GitHub | `core/git/` | Gitea proven against a real Gitea in the reviews; the provider contract (`contains()`, `changed_paths`, statuses, merge) holds on both adapters by mock; **GitHub never exercised against GitHub** (#61) |
+| Validator: Kyverno CLI and kubeconform, schemas baked into the image | `core/validate/` | Built |
+| Delivery: `argocd` (the design, the default, and what CRC's values select, #63) or `apply` (a deviation a site must acknowledge) | `core/sync.py`, `jobs/watch_sync.py` | Both built and tested with fakes; **nothing has run on a real Argo CD**, and its objects (install, Application, AppProject, repository credential) do not exist on CRC. `apply` is implemented and fake-tested; argocd status parsing exists (`revision`, `revisions`, per-object `resources`, `contains()` on the Git adapter), its convergence and prune observation are tested with fakes only |
+| Worker: `open_pr`, `pr_checks` (CI checks and the cmapi check as commit statuses), `watch_sync`, `prune` (bounded: a cluster that cannot be read, unreachable or its reader never connecting, waits for `delivery.syncTimeout` on one clock then ends in `sync_failed`; a refusal, a removed cluster or a bug ends there after five attempts; a namespace seen present waits for the operator and `CmapiPruneStuck` alerts), `approval_timeout`, `channel_notify`, `open_revert`; lease heartbeat and `JobRepo.fence()` before every external write (Git, cluster, commit statuses, notifications) | `worker.py`, `jobs/` | Built and tested with fakes; the fence's row lock and the blocked heartbeat measured by Codex with three workers against a real Gitea, not under kubelet |
+| Approval channels: portal, email (signed link) | `core/channels.py` | Built; email never sent in a test |
+| Capacity | `core/capacity_backend.py` | **Simulated** from `clusters.yaml`; cmapi-capacity, placement and reservations are not built, and the `cmapi-capacity` entry point was removed until the component exists |
+| Image | `cmapi/Containerfile` | Built locally; not pushed to a cluster |
+| Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
+| Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
 
-## 3. Not built yet
+## 3. Built for the local run only (`examples/local`, about 1,300 lines)
 
-**Service foundation**
+Unchanged: one process, state in memory, stand-ins for Git, CI, Argo CD and capacity. It still runs
+against the symlinked reference modules; section 2 is what replaces each stand-in.
 
-- The production service layout: routers per plugin, startup checks that every route is
-  documented, and `/openapi.yaml`.
-- `core/db/`: SQLAlchemy models, Alembic migrations, `audit_events`.
-- `core/kpi/` and `/metrics`.
-- Config hot reload.
+## 4. Not built yet
 
-**Adapters**
+**Service:** config hot reload; `core/kpi/` beyond the system figures and four database KPIs; the metadata
+plugin; `:probe`, `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry (none in the code);
+rate limits on routes.
 
-- GitHub and GitLab `GitProvider`: PRs, branch protection, the cmapi check as a check run.
-- Argo CD client and the sync webhook.
-- OpenShift `KubeReader` with a watch cache.
-- Policy report reader.
-- Optional LDAP directory.
+**Adapters:** OpenShift reader beyond the kinds the namespaces plugin needs; policy report reader; LDAP
+directory provider; Argo CD mode proven against a real Argo CD (none has run).
 
-**Endpoints not yet wired:**
+**Endpoints not yet wired:** expiration `:set`, `:makePermanent`, `GET /expirations`; `/tiers/{tier}`,
+`/tiers/{tier}/namespaces`; quota writes other than the namespace PATCH; metadata; service accounts,
+grants, SCC grants, SA tokens; policies; cluster import endpoint; capacity and placement; adoption,
+reports, operations; admin reload.
 
-| Area | Endpoints |
-| --- | --- |
-| Requests | `:retry`, `:revert`, `/events` |
-| Expiration | `:set`, `:makePermanent`, `GET /expirations` |
-| Tiers | `/tiers/{tier}`, `/tiers/{tier}/namespaces` |
-| Quotas | `:suggest`, `:export` |
-| Metadata | metadata endpoints |
-| Service accounts | service accounts, grants, SCC grants, SA token issuance |
-| Policies | policies |
-| Clusters | cluster import (the six checks) |
-| Capacity | capacity and placement |
-| Other plugins | adoption, reports |
-| Operations | operations |
-| Admin | admin KPI, reload, auto-approval pause/resume |
+**Worker jobs:** `expire_check`, `reservation_expiry`, `policy_report_sweep`, `import_clusters` (the
+registry relists instead), `reconcile`, `kpi_export`, `outbox_publish`, `operations`.
 
-**Worker jobs:** `approval_timeout`, `channel_notify`, `expire_check`, `reservation_expiry`,
-`policy_report_sweep`, `import_clusters`, `reconcile`, `kpi_export`, `outbox_publish`, `operations`.
+**cmapi-capacity:** all of it.
 
-**Approval channels and notifications:** email links, ServiceNow, Argo Events, chat; `Notifier`.
+**Portal:** `cmapi-portal-ui/` still runs the mockup's sample logic with no sign-in and no API call; it
+must not be deployed as the portal (`MOCKUP-CONTRACT.md`). The chart's `portal.enabled` is off.
 
-**cmapi-capacity:** Thanos source, snapshots, placement, reservations, usage sweep.
+**CLI and SDK:** not started.
 
-**Portal:** only the clickable mockups exist (`mockups/`). The portal app (React with TypeScript, built with Vite, using PatternFly) is not built against the API. `cmapi-portal-ui/` is a demo of all nine tabs on that stack, running on the mockup's sample logic: it has no sign-in and no API calls, and must not be deployed as the portal (see its `MOCKUP-CONTRACT.md`).
+**Delivery:** CI runs the reference, service and portal suites (`.github/workflows/ci.yml`); no image
+build or chart lint in CI yet; the Kyverno bundle release.
 
-**Packaging and delivery:**
+## 5. Order to finish it
 
-- container images (Dockerfiles);
-- the Helm chart (only `examples/helm/values-kpi.yaml` exists);
-- CI pipelines for cmapi's own repository;
-- the Kyverno bundle release;
-- `cmapi-sdk` and a CLI.
-
-## 4. Suggested order to finish it
-
-This follows the delivery plan's phases:
-
-| Phase | Work |
-| --- | --- |
-| 1 | Service skeleton, `core/auth.py`, `core/db/` with migrations, `/me`, directory, OpenShift reader, cluster import |
-| 2 | The namespaces plugin on the real pipeline, GitHub adapter and cmapi check, Argo CD sync, requests router, worker jobs, email approval channel, Helm chart and images. Phase 2 is the first deployable cmapi |
-| 3 | cmapi-capacity and the quotas plugin |
-| 4 | Service accounts, grants, SA tokens |
-| 5 | Expiration plugin and `expire_check`, policies, adoption, operations, reconcile |
-| 6 | Usage analysis |
-
-The portal follows the API: Quotas, Requests and Approvals first.
+Unchanged from the delivery plan: the thin slice on CRC first (phases 1 and 2 verified end to end), then
+phase 3 (cmapi-capacity, quotas), 4 (service accounts), 5 (lifecycle, policies, operations, launch), 6.
+The portal follows the API: New namespace, Requests and Approvals first.

@@ -1,0 +1,31 @@
+{{- if .Values.database.cnpg.enabled }}
+{{/*
+PostgreSQL through CloudNativePG (an open question in docs/01 answered for this deployment: the
+operator already runs on the cluster). One instance, a small shared_buffers, and the app Secret
+<name>-app that CNPG writes with the uri the pods read.
+*/}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.database.cnpg.name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.database.cnpg.instances }}
+  imageName: {{ .Values.database.cnpg.imageName }}
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: cmapi
+      owner: cmapi
+  storage:
+    size: {{ .Values.database.cnpg.storage }}
+    {{- with .Values.database.cnpg.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources: {{- toYaml .Values.database.cnpg.resources | nindent 4 }}
+  postgresql:
+    parameters: {{- toYaml .Values.database.cnpg.parameters | nindent 6 }}
+  monitoring:
+    enablePodMonitor: {{ .Values.monitoring.serviceMonitor.enabled }}
+{{- end }}

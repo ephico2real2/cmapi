@@ -1,0 +1,82 @@
+{{- $name := include "cmapi.name" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "worker" "Release" .Release) | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {{- include "cmapi.component" (dict "component" "worker" "Release" .Release) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cmapi.labels" . | nindent 8 }}
+        {{- include "cmapi.component" (dict "component" "worker" "Release" .Release) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ $name }}-worker
+      securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      # SIGTERM lets the loop finish the job in hand; a lease covers a worker that dies mid-job.
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+        # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job.
+        - name: migrate
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-migrate, head]
+          env:
+            - name: CMAPI_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+            {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+            - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+            {{- end }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
+          {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+          {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [cmapi-worker]
+          env:
+            - name: CMAPI_COMPONENT
+              value: worker
+            - name: CMAPI_LOG_LEVEL
+              value: {{ .Values.worker.logLevel | quote }}
+            - name: CMAPI_METRICS_PORT
+              value: "9090"
+            - name: CMAPI_WORKER_ID
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            {{- include "cmapi.commonEnv" . | nindent 12 }}
+          ports:
+            - {name: metrics, containerPort: 9090}
+          # The metrics endpoint answers as soon as the process is up; the heartbeat metric and its
+          # alert say whether the loop is alive, which a liveness probe on a port cannot.
+          livenessProbe:
+            httpGet: {path: /, port: metrics}
+            periodSeconds: 30
+            timeoutSeconds: 5
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts: {{- include "cmapi.commonVolumeMounts" . | nindent 12 }}
+      volumes: {{- include "cmapi.commonVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "worker" "Release" .Release) | nindent 4 }}
+spec:
+  selector: {{- include "cmapi.component" (dict "component" "worker" "Release" .Release) | nindent 4 }}
+  ports:
+    - {name: metrics, port: 9090, targetPort: metrics}
