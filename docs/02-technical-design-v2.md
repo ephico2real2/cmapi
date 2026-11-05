@@ -2045,7 +2045,7 @@ Each plugin folder has the same five files, so adding an offering is copying one
 
 ## Module catalog
 
-Every module cmapi needs for the features agreed so far: approval-first lifecycle, optional expiration, the Policies, Expiration, Quotas and Approvals views, system KPIs, identity from the token with a directory, the tier catalog, plain-manifest rendering and configurable email domains. Status says how far each is taken. **Reference code** is working, tested Python in examples/src/cmapi (112 tests in examples/tests, run with `PYTHONPATH=src:tests python -m pytest -q` from examples/). **Protocol** means the interface is fixed in core/ports.py and the adapter is still to write. **Specified** means the design text is complete and no code exists yet. Phases are the delivery plan's.
+Every module cmapi needs for the features agreed so far: approval-first lifecycle, optional expiration, the Policies, Expiration, Quotas and Approvals views, system KPIs, identity from the token with a directory, the tier catalog, plain-manifest rendering and configurable email domains. Status says how far each is taken. **Reference code** is working, tested Python in examples/src/cmapi (113 tests in examples/tests, run with `PYTHONPATH=src:tests python -m pytest -q` from examples/). **Protocol** means the interface is fixed in core/ports.py and the adapter is still to write. **Specified** means the design text is complete and no code exists yet. Phases are the delivery plan's.
 
 ### Core (cmapi-core)
 
@@ -2171,6 +2171,12 @@ An independent review of the reference code against this design then found sixte
 - **One fact name,** quotaBelowRequested, for a quota below what pods request (tiers.compare now emits it).
 - **Caller labels can no longer override system labels** in the renderer.
 - **`not` with a missing fact** stays false (three-valued evaluation), and the quota view's attention facets are part of the list contract.
+
+**Running it end to end.** examples/local runs the reference modules behind a FastAPI app against a real Keycloak 26 (tokens verified on its JWKS, employee\_id and middle\_name claims, the directory through the admin API), a local Git repository (bot PRs on branches, CI, merge with the expected head) and an air-gapped k3s cluster, with a stand-in for Argo CD that applies the merged folder and holds deletes for an operator. examples/local/run.sh stands it up and runs demo.py; transcript.txt is the result. Three more findings came from running it:
+
+- **The Kyverno 1.16 CLI applies 0 rules to a policies.kyverno.io/v1 document** and reports no failure, so a CI check on it passes vacuously. The policies use v1beta1, and the validator fails whenever the CLI reports "Applying 0 policy rule(s)".
+- **Every create counted as a sensitive-key change,** because a create sets cmapi.net/team for the first time, so no create could ever be auto-approved. Setting a sensitive key the first time is not a change; changing or removing it is.
+- **Tier refusals must reach the caller as 422 policy-violation** with errors\[\].code from the tier module, not as a server error.
 
 ## Optional integrations: sync signal, operations, events
 

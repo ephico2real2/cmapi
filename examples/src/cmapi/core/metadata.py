@@ -178,8 +178,11 @@ class MetadataKeys:
     def change_facts(self, before: Mapping[str, str], after: Mapping[str, str]) -> dict[str, Any]:
         """Facts for the approval engine: which classes changed, and whether a sensitive key did."""
         changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
+        # a sensitive key counts when an existing value changes or goes; setting it the first time
+        # (every create sets cmapi.net/team) is not a change of ownership
+        sensitive = {k for k in changed & self.sensitive if k in before}
         return {"keyClasses": sorted({self.classify(k) for k in changed}),
-                "sensitiveKeyChanged": bool(changed & self.sensitive)}
+                "sensitiveKeyChanged": bool(sensitive)}
 
     def ordered(self, items: Mapping[str, str]) -> dict[str, str]:
         """Render order: system keys first, then governed, then the rest; each group sorted."""

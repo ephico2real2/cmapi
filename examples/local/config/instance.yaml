@@ -1,0 +1,20 @@
+# Local run: the nonprod instance against a local Keycloak, a local Git repository and k3s.
+instance:
+  name: nonprod
+  displayName: Non-production (local)
+  allowedEnvironments: [rnd, dev]
+  publicUrl: http://localhost:8000
+  portalUrl: http://localhost:8000
+  auth:
+    issuer: http://localhost:8080/realms/ephico2real
+    audience: cmapi-nonprod
+  identity:
+    directory: keycloak
+    adminClient: cmapi-directory
+    cacheSeconds: 900
+    requireEmployeeId: true
+  git:
+    repository: /opt/stack/git/cluster-configs-nonprod.git
+  directory:
+    staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
+    prod:    {url: https://cmapi.ephico2real.com, environments: [prod]}

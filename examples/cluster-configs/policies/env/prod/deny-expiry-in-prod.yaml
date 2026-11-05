@@ -3,8 +3,9 @@
 # Synced only to prod clusters (their root Application includes policies/env/prod) and run by CI
 # against every clusters/<prod cluster>/namespaces/*/namespace.yaml (plain manifests, nothing to
 # expand), so a hand edit cannot add expiry metadata either.
-# Kyverno CEL policy; apiVersion policies.kyverno.io/v1alpha1 on Kyverno releases before v1.
-apiVersion: policies.kyverno.io/v1
+# Kyverno CEL policy. policies.kyverno.io/v1beta1: the Kyverno 1.16 CLI silently applies 0 rules to a
+# policies.kyverno.io/v1 document, so CI must also fail when the CLI reports "Applying 0 policy rule(s)".
+apiVersion: policies.kyverno.io/v1beta1
 kind: ValidatingPolicy
 metadata:
   name: deny-expiry-in-prod

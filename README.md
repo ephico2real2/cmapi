@@ -24,7 +24,7 @@ the final design and the source of truth: where another document disagrees, it w
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
 | [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance. Open in a browser | |
 | [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
-| [examples/](examples) | Config files and manifests from the design, at their target paths, plus the reference implementation (`examples/src/cmapi`, 112 tests) of the modules in the v2 Module catalog | |
+| [examples/](examples) | Config files and manifests from the design, at their target paths, plus the reference implementation (`examples/src/cmapi`, 113 tests) of the modules in the v2 Module catalog and a local end-to-end run (`examples/local`: Keycloak, Git, k3s) | |
 
 ## Agreed decisions at a glance
 

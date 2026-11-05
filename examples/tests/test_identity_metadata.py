@@ -174,3 +174,9 @@ def test_patch_cannot_remove_a_required_key(keys):
     assert codes(errs) == ["missing_required_key"]
     assert keys.validate({"app.ephico2real.com/x": "1"}, {}, operator=False, teams={"payments"},
                          current_labels=current_l, current_annotations=current_a) == []
+
+
+def test_first_set_of_a_sensitive_key_is_not_a_change(keys):
+    # found by the local end-to-end run: every create set cmapi.net/team and needed platform-leads
+    assert keys.change_facts({}, {"cmapi.net/team": "payments"})["sensitiveKeyChanged"] is False
+    assert keys.change_facts({"network.ephico2real.com/zone": "a"}, {})["sensitiveKeyChanged"] is True

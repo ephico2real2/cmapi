@@ -11,7 +11,8 @@ came from. Where two documents show the same file, the copy in
 | `config/tiers.yaml` | The tier catalog (combined reference): sizable keys, defaults, small/medium/large/custom, custom bounds and per-environment overrides. Read only by `cmapi.core.tiers` | Values are proposals |
 | `instances/<instance>/tiers.yaml` | Each instance's catalog: the same tiers, only its own environments | Derived |
 | `src/cmapi/` | Reference implementation of the pure-logic modules in the v2 Module catalog: `core/` config, errors, ports (Protocols for every extension point), authz, expression, metadata, tiers, approvals, lifecycle, listquery, ratelimit, `identity/` (claims, directory, keycloak_admin, checks), `render/manifests.py`; `plugins/expiration/rules.py` | Reference code |
-| `tests/` | 112 tests over every module above, against the example configs and the example namespace folder. Run from `examples/`: `PYTHONPATH=src:tests python -m pytest -q` | Reference code |
+| `tests/` | 113 tests over every module above, against the example configs and the example namespace folder. Run from `examples/`: `PYTHONPATH=src:tests python -m pytest -q` | Reference code |
+| `local/` | The reference modules behind a FastAPI app, run end to end against a real Keycloak, a local Git repository and an air-gapped k3s cluster: `run.sh`, `demo.py`, `transcript.txt` (see local/README.md) | Runnable |
 | `instances/<instance>/instance.yaml`, `expiration.yaml` | Each instance's identity file and expiry limits (prod: none) | Derived |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
 | `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |

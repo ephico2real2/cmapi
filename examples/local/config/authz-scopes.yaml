@@ -1,0 +1,29 @@
+# Local bindings: one cluster, OCP_LOCAL (k3s), serving dev.
+bindings:
+  - group: /cmapi/cmapi-payments-requesters
+    role: cmapi-requester
+    team: payments
+    clusters: [OCP_LOCAL]
+    environments: [rnd, dev]
+    namespaces: ["payments-*"]
+  - group: /cmapi/cmapi-platform-leads
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-platform-operators
+    role: cmapi-operator
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
+  - group: /cmapi/cmapi-platform-operators
+    role: cmapi-approver
+    clusters: ["*"]
+    environments: ["*"]
+    namespaces: ["*"]
+  - client: svc-payments-ci
+    role: cmapi-requester
+    team: payments
+    clusters: [OCP_LOCAL]
+    environments: [rnd, dev]
+    namespaces: ["payments-*"]
