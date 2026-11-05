@@ -82,6 +82,7 @@ class FakeGit(HostGitProvider):
     def __init__(self):
         self.branches: dict[str, dict[str, str]] = {"main": {"README.md": "cluster-configs (test)\n"}}
         self.heads: dict[str, str] = {"main": "a" * 40}
+        self.main_history: list[str] = ["a" * 40]
         self.prs: dict[int, dict[str, Any]] = {}
         self.statuses: dict[str, dict[str, str]] = {}
         self.commits: list[str] = ["aaaaaaaa initial"]
@@ -100,6 +101,8 @@ class FakeGit(HostGitProvider):
         import hashlib
         h = hashlib.sha1(("".join(sorted(f"{k}={v}" for k, v in self.branches[branch].items()))).encode()).hexdigest()
         self.heads[branch] = h
+        if branch == "main":
+            self.main_history.append(h)
         return h
 
     def branch_head(self, branch):
@@ -115,6 +118,11 @@ class FakeGit(HostGitProvider):
             raise GitUnavailable(f"no branch {ref}")
         files = {p: t for p, t in self.branches[branch].items() if p.startswith(path) and p.endswith(".yaml")}
         return files, self.heads[branch]
+
+    def contains(self, revision, sha):
+        self._check()
+        history = self.main_history
+        return revision == sha or (revision in history and sha in history and history.index(sha) <= history.index(revision))
 
     def changed_paths(self, head):
         self._check()

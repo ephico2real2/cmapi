@@ -124,4 +124,6 @@ above and on this design's own numbers. Revisit it if several applications come 
 
 ## Not covered here
 
-Realm `cmapi` is created by the build, not by this page. `docs/08-code-status.md` and `CRC-BUILD-STATUS.md` say what exists.
+The chart can request creation of the `cmapi` realm (a `KeycloakRealmImport` in namespace `keycloak`), but it has
+never been installed, so the realm does not exist yet; `CRC-BUILD-STATUS.md` is the deployment record and
+`docs/08-code-status.md` says what the code holds.

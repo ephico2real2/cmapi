@@ -52,13 +52,13 @@ This page summarises what the code tree holds today.
 | Cluster registry: the six import checks, a list-then-watch cache per cluster | `core/registry.py`, `core/clients/kube.py` | Built; the watch proven against a real kube-apiserver in the review, not on CRC |
 | Git host: Gitea (the stand-in on CRC) and GitHub | `core/git/` | Gitea proven against a real Gitea in the review; **GitHub never exercised** |
 | Validator: Kyverno CLI and kubeconform, schemas baked into the image | `core/validate/` | Built |
-| Delivery: `argocd` (the design, default) or `apply` (a deviation a site must acknowledge) | `core/sync.py`, `jobs/watch_sync.py` | Built; **neither proven on a cluster** |
-| Worker: `open_pr`, `pr_checks` (CI checks and the cmapi check as commit statuses), `watch_sync`, `prune`, `approval_timeout`, `channel_notify`, `open_revert`; lease heartbeat and fencing | `worker.py`, `jobs/` | Built and tested with fakes |
+| Delivery: `argocd` (the design, the default, and what CRC's values select, #63) or `apply` (a deviation a site must acknowledge) | `core/sync.py`, `jobs/watch_sync.py` | Both built and tested with fakes; **nothing has run on a real Argo CD**, and its objects (install, Application, AppProject, repository credential) do not exist on CRC. `apply` is implemented and fake-tested; argocd status parsing exists (`revision`, `revisions`, per-object `resources`, `contains()` on the Git adapter), its convergence and prune observation are tested with fakes only |
+| Worker: `open_pr`, `pr_checks` (CI checks and the cmapi check as commit statuses), `watch_sync`, `prune` (bounded: a read that keeps failing ends in `sync_failed`, which `:retry` leaves), `approval_timeout`, `channel_notify`, `open_revert`; lease heartbeat and fencing | `worker.py`, `jobs/` | Built and tested with fakes |
 | Approval channels: portal, email (signed link) | `core/channels.py` | Built; email never sent in a test |
 | Capacity | `core/capacity_backend.py` | **Simulated** from `clusters.yaml`; cmapi-capacity, placement and reservations are not built, and the `cmapi-capacity` entry point was removed until the component exists |
 | Image | `cmapi/Containerfile` | Built locally; not pushed to a cluster |
 | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed |
-| Release script, setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Written; not run against a cluster |
+| Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
 
 ## 3. Built for the local run only (`examples/local`, about 1,300 lines)
 
@@ -72,7 +72,7 @@ plugin; `:probe`, `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry 
 rate limits on routes.
 
 **Adapters:** OpenShift reader beyond the kinds the namespaces plugin needs; policy report reader; LDAP
-directory provider; Argo CD mode proven against an Argo CD.
+directory provider; Argo CD mode proven against a real Argo CD (none has run).
 
 **Endpoints not yet wired:** expiration `:set`, `:makePermanent`, `GET /expirations`; `/tiers/{tier}`,
 `/tiers/{tier}/namespaces`; quota writes other than the namespace PATCH; metadata; service accounts,

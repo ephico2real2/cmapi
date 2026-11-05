@@ -245,6 +245,13 @@ class JobRepo:
             raise LeaseLost(f"job {job_id}: lease generation {generation} of {worker_id} was superseded by "
                             f"{row[1] if row else 'none'} ({row[0] if row else 'no row'})")
 
+    def fence(self) -> None:
+        """Call before a side effect a rollback cannot undo (a merge, a close, a delete). Refuses a stale worker, and
+        keeps the job's row locked until this transaction ends, so nobody can claim it while the side effect runs."""
+        lease = self.s.info.get("lease")
+        if lease:
+            self.assert_lease(*lease)
+
     def done(self, job: JobRow) -> None:
         job.done_at = utcnow()
         job.locked_until = None

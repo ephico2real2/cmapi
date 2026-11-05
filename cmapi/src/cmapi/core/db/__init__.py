@@ -5,6 +5,7 @@ engine per process, sessions per request or per job.
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -77,14 +78,19 @@ class Database:
             return type(exc).__name__
         if version is None:
             return "not-migrated"
-        return "ok" if not older_than_required(version) else f"behind: at {version}, needs {REQUIRED_REVISION}"
+        try:
+            return "ok" if not older_than_required(version) else f"behind: at {version}, needs {REQUIRED_REVISION}"
+        except ValueError as exc:                                # garbage, or a divergent history: not ready
+            return str(exc)
 
 
 REQUIRED_REVISION = "0003"
 
 
-def older_than_required(version: str) -> bool:
-    """Whether a revision is a strict ancestor of REQUIRED_REVISION in the migration history."""
+FUTURE_REVISION = re.compile(r"(\d{4})(?:_[a-z0-9_]+)?")   # the repository's convention: four digits, counting up
+
+
+def script_directory():
     from pathlib import Path
 
     from alembic.config import Config
@@ -93,6 +99,41 @@ def older_than_required(version: str) -> bool:
     here = Path(__file__).parent
     cfg = Config(str(here / "alembic.ini"))
     cfg.set_main_option("script_location", str(here / "migrations"))
-    script = ScriptDirectory.from_config(cfg)
-    ancestors = {r.revision for r in script.iterate_revisions(REQUIRED_REVISION, "base")} - {REQUIRED_REVISION}
-    return version in ancestors
+    return ScriptDirectory.from_config(cfg)
+
+
+def known_revision(version: str) -> bool:
+    # ScriptDirectory wraps the map's ResolutionError in CommandError; a partial id shorter than four characters
+    # raises the same way.
+    from alembic.script.revision import ResolutionError
+    from alembic.util.exc import CommandError
+
+    if not version:                                     # alembic asserts on an empty id instead of raising
+        return False
+    try:
+        script_directory().get_revision(version)
+        return True
+    except (ResolutionError, CommandError):
+        return False
+
+
+def older_than_required(version: str) -> bool:
+    """Whether the database's revision is a strict ancestor of REQUIRED_REVISION.
+
+    False for REQUIRED_REVISION itself, for a known descendant, and for an unknown revision that follows the
+    four-digit convention with a higher number (a later release migrated; migrations are expand-only, so this
+    code runs on it). ValueError for anything else: a known revision on a divergent branch, or garbage, which
+    must never read as ready."""
+    script = script_directory()
+    if known_revision(version):
+        ancestors = {r.revision for r in script.iterate_revisions(REQUIRED_REVISION, "base")}
+        if version in ancestors:
+            return version != REQUIRED_REVISION
+        if REQUIRED_REVISION in {r.revision for r in script.iterate_revisions(version, "base")}:
+            return False
+        raise ValueError(f"schema revision {version} is on a divergent branch")
+    m = FUTURE_REVISION.fullmatch(version)
+    need = int(REQUIRED_REVISION[:4])
+    if m and int(m.group(1)) > need:
+        return False
+    raise ValueError(f"unknown schema revision {version!r}")

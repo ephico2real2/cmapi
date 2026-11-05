@@ -86,6 +86,25 @@ spec:
             - {name: GITEA__session__PROVIDER, value: memory}
             - {name: GITEA__actions__ENABLED, value: "false"}
             - {name: GITEA__metrics__ENABLED, value: "false"}
+          envFrom:
+            - secretRef: {name: cmapi-git-admin}
+          # The administrator the cmapi git-bootstrap Job signs in as. Created here, after the entrypoint has written
+          # app.ini, because `gitea admin` needs the installed config (measured: it cannot run before `gitea web`; the
+          # image's GITEA_APP_INI=/etc/gitea/app.ini points the CLI at it, so no --config is passed).
+          # Idempotent: a user that exists is left alone. The password reaches the CLI inside this container only.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    until gitea admin user list >/tmp/users 2>/dev/null; do sleep 2; done
+                    if ! grep -q "[[:space:]]${CMAPI_GIT_ADMIN_USER}[[:space:]]" /tmp/users; then
+                      gitea admin user create --admin --username "$CMAPI_GIT_ADMIN_USER" \
+                        --password "$CMAPI_GIT_ADMIN_PASSWORD" --email cmapi-admin@invalid.example \
+                        --must-change-password=false
+                    fi
           ports:
             - {name: http, containerPort: 3000}
           readinessProbe:

@@ -46,6 +46,15 @@ def test_retry_and_sync_failed():
     assert set(allowed_events(S.SYNC_FAILED)) == {E.RETRY, E.SYNCED, E.REVERT}
 
 
+def test_a_prune_that_cannot_be_confirmed_ends_in_sync_failed():
+    """A delete whose prune job exhausted its attempts: a legal state that keeps the lock and offers a way out,
+    instead of a done job on an awaiting_prune request that nothing would ever end."""
+    t = transition(S.AWAITING_PRUNE, E.SYNC_TIMEOUT)
+    assert t.after == S.SYNC_FAILED and holds_lock(t.after)
+    assert not t.releases_lock and not t.releases_reservation, "the reservation went at awaiting_prune; the lock stays until the way out is taken"
+    assert {E.RETRY, E.REVERT} <= set(allowed_events(S.SYNC_FAILED))
+
+
 def test_every_terminal_state_releases_everything():
     for st in (S.SYNCED, S.REJECTED, S.CANCELLED, S.TIMEOUT, S.SUPERSEDED, S.FAILED):
         assert not holds_lock(st)

@@ -24,7 +24,10 @@ from test_review_i_crosscheck import ROOT, rendered
 
 
 def test_prune_read_outage_does_not_exhaust_the_only_job(world):
-    """Codex X5: six failed reads in a row leave the request awaiting_prune with its job still pending."""
+    """Codex X5, as settled in the second pass: a failed read is a bounded retry, not a wait. A short outage leaves the
+    request awaiting_prune with the same job pending (attempts counted, not reset); the same job then confirms. An
+    outage longer than MAX_ATTEMPTS ends in sync_failed, which :retry leaves (test_second_pass_converged)."""
+    from cmapi.worker import MAX_ATTEMPTS
     client, ctx, _git, kube, _validator, keys = world
     ctx.delivery = type(ctx.delivery)(mode="argocd")
     client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA))
@@ -38,14 +41,14 @@ def test_prune_read_outage_does_not_exhaust_the_only_job(world):
     kube.get_object = lambda *_a, **_k: (_ for _ in ()).throw(ClusterUnreachable("the API server is down"))
     try:
         worker = Worker(ctx, "w")
-        for _ in range(6):
+        for _ in range(MAX_ATTEMPTS - 2):
             lease_expired(ctx)
             worker.run_one()
         with ctx.db.session() as s:
             pending = s.scalar(select(func.count()).select_from(JobRow).where(JobRow.kind == "prune", JobRow.done_at.is_(None)))
             attempts = s.scalar(select(JobRow.attempts).where(JobRow.kind == "prune"))
         assert status(client, keys, rid)["status"] == "awaiting_prune"
-        assert pending == 1 and attempts == 0, (pending, attempts)
+        assert pending == 1 and attempts == MAX_ATTEMPTS - 2, (pending, attempts)
     finally:
         kube.get_object = real
     # the cluster is back: the same job confirms the prune once the namespace is gone

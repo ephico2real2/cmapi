@@ -68,6 +68,7 @@ _T: dict[tuple[State | None, Event], State] = {
     (S.MERGED, E.PRUNE_PENDING): S.AWAITING_PRUNE,
     (S.MERGED, E.SYNC_TIMEOUT): S.SYNC_FAILED,
     (S.AWAITING_PRUNE, E.PRUNE_CONFIRMED): S.SYNCED,
+    (S.AWAITING_PRUNE, E.SYNC_TIMEOUT): S.SYNC_FAILED,   # the namespace on the cluster is not ours: :revert is the way out
     (S.FAILED, E.RETRY): S.APPROVED,              # re-acquires lock and reservation; 409 if another request holds the lock
     (S.SYNC_FAILED, E.RETRY): S.SYNC_FAILED,      # restarts the sync watch; the worker moves it on with SYNCED
     (S.SYNC_FAILED, E.SYNCED): S.SYNCED,

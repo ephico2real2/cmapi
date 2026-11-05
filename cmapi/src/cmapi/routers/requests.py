@@ -163,7 +163,7 @@ def cancel(request_id: str, who: Identity = Depends(require("requests:cancel")),
               problems=["object-not-found", "invalid-transition", "change-pending"])
 def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
     """From failed: re-takes the namespace lock (409 if another request holds it) and opens the PR again.
-    From sync_failed: watches the sync again."""
+    From sync_failed: watches the sync again, or for a delete, looks for the pruned namespace again."""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
         row = repo.get(request_id)
@@ -174,6 +174,8 @@ def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c
         AuditRepo(s).record(who, "request.retry", request_id, {"from": before})
         if after is S.APPROVED:
             jobs.enqueue("open_pr", request_id=request_id, cluster_id=row.cluster_id)
+        elif row.action == "delete":                       # sync_failed after a prune that could not be confirmed
+            jobs.enqueue("prune", request_id=request_id, cluster_id=row.cluster_id)
         else:
             jobs.enqueue("watch_sync", request_id=request_id, cluster_id=row.cluster_id, payload={"since": utcnow().isoformat()})
         return request_view(repo, row)

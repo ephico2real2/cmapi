@@ -122,6 +122,9 @@ delivery:
     enabled: false
     acknowledgeDirectWrites: false
 argocd:
+  # The application controller's identity: when set, cmapi-deliverer-managed-only binds it instead of the worker.
+  # Argo CD's own ClusterRole is * on *, and an AppProject is enforced by Argo CD itself, not by the API server.
+  controllerServiceAccount: ""     # system:serviceaccount:<argo namespace>:argocd-application-controller
   namespace: openshift-gitops
   rootApplication: cluster-configs-{clusterId}
 

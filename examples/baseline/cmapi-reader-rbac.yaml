@@ -1,8 +1,29 @@
 # Source: docs/02-technical-design-v2.md
 # Applied to every cluster by the cluster-baseline process, not by cmapi
 apiVersion: v1
+kind: Namespace
+metadata: {name: cmapi-system}
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata: {name: cmapi-reader, namespace: cmapi-system}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cmapi-reader-token
+  namespace: cmapi-system
+  annotations: {kubernetes.io/service-account.name: cmapi-reader}
+type: kubernetes.io/service-account-token
+---
+# Bound in each managed namespace by the rendered token-issuer-rolebinding.yaml: never cluster-wide (docs/02).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: cmapi-token-issuer}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

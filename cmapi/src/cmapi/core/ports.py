@@ -57,6 +57,8 @@ class AppStatus:
     sync: Literal["Synced", "OutOfSync", "Unknown"]
     health: str
     phase: str | None
+    revisions: frozenset[str] = frozenset()       # status.sync.revisions (multi-source) or {status.sync.revision}
+    resources: tuple[tuple[str, str, str, str], ...] = ()   # (kind, namespace, name, status) from status.resources
     prune_pending: frozenset[str] = frozenset()   # namespaces waiting on Prune=confirm
 
 

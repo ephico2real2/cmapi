@@ -12,7 +12,9 @@ are hypotheses until a measurement supports them.
 ## 1. Inventory
 
 **Code.** Python 3.12 service (`cmapi/src/cmapi`): FastAPI app factory (`main.py`), a worker
-(`worker.py`), one image with three entry points (api, worker, capacity). Portal: React 19.3.1,
+(`worker.py`), one image with four installed scripts (`cmapi/pyproject.toml`): `cmapi-api`, `cmapi-worker`,
+`cmapi-migrate` (the initContainer) and `cmapi-tools` (`git-bootstrap`, `realm-sync`). There is no capacity
+entry point: the component is not built (section 7). Portal: React 19.3.1,
 TypeScript, Vite 8.3.5, PatternFly 6.7.0 (`cmapi-portal-ui/package.json`). Inbound: HTTPS from the
 portal, the CLI and pipelines, all with Keycloak bearer tokens. Outbound: Keycloak (JWKS, admin API as
 `cmapi-directory`), the Git host REST API (Gitea on CRC, GitHub adapter unproven there), the cluster
@@ -37,7 +39,7 @@ incubating projects only).
 | Kyverno CLI + kubeconform | 1.16.2 + 0.6.7, baked into the image | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
 | Prometheus (user workload monitoring on CRC) | OpenShift 4.22.14 stack | Apache-2.0 | yes | graduated | any OpenMetrics scraper |
 | Perses (Cluster Observability Operator 1.5.3 on CRC) | COO 1.5.3 | Apache-2.0 | yes | not on the CNCF page read; status not verified here | Grafana (chart value `dashboards.provider`) |
-| Argo CD | not installed on CRC; OpenShift GitOps operator 1.10 to 1.14 in the catalog, `AllNamespaces` install mode only (measured) | Apache-2.0 | yes | graduated | `apply` delivery, a deviation a site must acknowledge (see §5) |
+| Argo CD | not installed on CRC; the OpenShift GitOps operator in the catalog (default channel `latest`, CSV `openshift-gitops-operator.v1.22.3`, `AllNamespaces` install mode only, measured 2026-11-05) | Apache-2.0 | yes | graduated | `apply` delivery, a deviation a site must acknowledge (see §5); CRC runs `argocd` (#63) |
 | Helm | 4.x client on the Mac (`helm version`) | Apache-2.0 | yes | graduated | plain manifests from `helm template` |
 | OpenTelemetry | planned (§3) | Apache-2.0 | yes | graduated | — |
 | KEDA | not installed on CRC (`oc get crd scaledobjects.keda.sh`: none) | Apache-2.0 | yes | graduated | plain HPA (§7) |
@@ -66,28 +68,27 @@ deploy/environments/crc.yaml` deploying by digest. The build refuses a dirty tre
 
 ## 3. Observability against the layered standard
 
-OpenTelemetry is the only pipeline: the SDK in the process, OTLP out when a collector exists
-(`CMAPI_OTEL_EXPORTER_OTLP_ENDPOINT`), off by default as `docs/01` says. Metrics stay in the Prometheus
-format on `/metrics` because the hub's user workload monitoring scrapes it; traces and logs go over
-OTLP. No collector is installed on CRC (`oc get crd opentelemetrycollectors.opentelemetry.io`: none), and
-the hard limits forbid a cluster-wide operator for it, so on CRC the exporter stays off and the
-instrumentation is proven by the in-process span export to stdout in the integration test.
+Prometheus-format metrics and JSON stdout logs exist. OpenTelemetry, OTLP export, spans, traceparent
+propagation and baggage are not implemented: no OpenTelemetry package is a dependency, and `docs/01`'s
+layered standard (L1 client instrumentation, L3 business spans) is a plan for a later phase. Nothing has been
+scraped on a deployed cmapi; no cmapi pod has run on a cluster. No collector is installed on CRC
+(`oc get crd opentelemetrycollectors.opentelemetry.io`: none), and the hard limits forbid a cluster-wide
+operator for it.
 
-| Call or dependency | Layer | Evidence | Gap |
-| --- | --- | --- | --- |
-| Inbound HTTP | RED metrics `cmapi_http_*` (`core/observability.py`). **No OpenTelemetry yet**: it is in no dependency list, and every L1 and L3 span, the `traceparent` in `jobs.payload` and the baggage rows below are planned, not built | not scraped yet: nothing is deployed | L1 |
-| Keycloak JWKS, admin API | L1 (httpx instrumentation); `cmapi_jwks_refresh_total`, `cmapi_auth_failures_total` | — | *to measure* |
-| PostgreSQL | L1 (SQLAlchemy instrumentation); pool gauges | — | *to measure* |
-| Git host | L1 httpx + `cmapi_git_operations_total{operation,result}` | — | — |
-| Cluster API | L1 httpx + `cmapi_cluster_api_calls_total` | — | — |
-| Worker job loop | L3: one span per job with `job.kind` and `request_id`; `cmapi_worker_last_loop_timestamp_seconds` (the "healthy but dead loop" lesson from group-sync-dashboard's `GroupSyncDashboardNotPolling`) | alert `CmapiWorkerNotLooping` | — |
-| Business operations: plan, submit, approve, merge, sync | L3 spans and `cmapi_change_requests_total`, `cmapi_change_lead_time_seconds` | — | — |
-| Context through the queue | W3C `traceparent` stored in `jobs.payload` and restored when the job runs | *to measure* | — |
-| Baggage | `cmapi.instance`, `cmapi.cluster_id`, `cmapi.plugin` set at the front door and copied by an allow-listed span processor; never a user or a token | — | — |
-| CI guard | `cmapi/tests/service/test_api_contract.py`: every `/api` route documented (startup check `core/docs.py`). It is not in CI, and outbound clients are not instrumented | — | wire it into CI |
+What exists, by name (every one defined in `core/observability.py` or `worker.py`, with the test that reads it):
 
-Personal data (names, employee ID) and tokens never go in telemetry: structlog logs `sub` and
-`client`, never a username, an address or a token; spans carry no label values from the request body.
+| Signal | Metric names | Test |
+| --- | --- | --- |
+| Inbound HTTP (RED, route template as the label, never the path) | `cmapi_http_requests_total`, `cmapi_http_request_duration_seconds` | `tests/service/test_review_f_obs.py` |
+| Authorization and environments | `cmapi_authz_denied_total`, `cmapi_environment_not_served_total` | same |
+| Change requests | `cmapi_change_requests_total`, `cmapi_change_lead_time_seconds`, `cmapi_approval_wait_seconds`, `cmapi_open_change_requests_oldest_age_seconds`, `cmapi_auto_approvals_total`, `cmapi_auto_approval_fallbacks_total`, `cmapi_auto_approval_paused` | same |
+| Git host and clusters | `cmapi_git_operations_total`, `cmapi_git_operation_duration_seconds`, `cmapi_cluster_api_calls_total`, `cmapi_cluster_status`, `cmapi_namespaces`, `cmapi_sync_drift_total`, `cmapi_validation_failures_total` | same |
+| Worker | `cmapi_jobs_pending`, `cmapi_job_failures_total`, `cmapi_worker_last_loop_timestamp_seconds` (the "healthy but dead loop" lesson from group-sync-dashboard's `GroupSyncDashboardNotPolling`; alert `CmapiWorkerNotLooping` uses `absent()` so a gone worker fires too) | `test_review_g_chart.py`, `test_review_i_crosscheck.py` |
+| Build | `cmapi_build_info`, `cmapi_config_info` | — |
+
+Logs: structlog JSON on stdout with `request_id`, `route`, `status`, `caller_sub` and `client`; never a
+username, an address or a token. The CI guard `tests/service/test_api_contract.py` (every `/api` route
+documented, startup check `core/docs.py`) runs in the `service` job of `.github/workflows/ci.yml`.
 
 ## 4. Security, adversarially (STRIDE per trust boundary)
 
@@ -97,7 +98,7 @@ Personal data (names, employee ID) and tokens never go in telemetry: structlog l
 | cmapi → Keycloak admin API | Elevation (the directory credential) | `cmapi-directory` holds `view-users` and `query-users` only; secret from a Kubernetes Secret, never in the realm CR | realm import reviewed; `GET /admin/realms/cmapi/users` with the credential returns 200, `POST` returns 403 (*to measure*) |
 | cmapi → Git host | Tampering (a PR edited after approval), repudiation | Plan hash stored at submit, re-checked before the PR opens and before the merge (`jobs/pr_checks.py`, which also refuses a head that moved, so a file pushed outside the folder cannot ride along); the bot token is the only identity that merges under `clusters/`; branch protection requires the `cmapi/check` status | integration: edit the bot branch after approval → `failed`, cmapi check `failure` |
 | cmapi → cluster (read) | Elevation | `cmapi-reader` ClusterRole from `examples/baseline/cmapi-reader-rbac.yaml`: get/list/watch only; the import check refuses a token whose identity is not `cmapi-system:cmapi-reader` | `oc auth can-i create namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader` → no |
-| worker → cluster (`apply` delivery, a deviation; off by default) | Elevation, tampering | The worker's ServiceAccount gets the `cmapi-deliverer` ClusterRole only when the site acknowledges direct writes; it applies the stored approved plan after reading that Git `main`'s folder equals it, refuses an unmanaged namespace, and is contained by the `cmapi-deliverer-managed-only` ValidatingAdmissionPolicy. The API pods never hold it. A compromised worker can still delete or starve any managed namespace and skip `prune:confirm` | `tests/service/test_review_d_delivery.py`, the policy attacked on a real kube-apiserver 1.33.5 in the review (19 denied, 14 allowed), not on CRC |
+| worker → cluster (`apply` delivery, a deviation; off by default and not selected for CRC) | Elevation, tampering | The worker's ServiceAccount gets the `cmapi-deliverer` ClusterRole only when the site acknowledges direct writes; it applies the stored approved plan after reading that Git `main`'s folder equals it, refuses an unmanaged namespace, and is contained by the `cmapi-deliverer-managed-only` ValidatingAdmissionPolicy. The API pods never hold it. A compromised worker can still delete or starve any managed namespace and skip `prune:confirm` | `tests/service/test_review_d_delivery.py`, the policy attacked on a real kube-apiserver 1.33.5 in the review (19 denied, 14 allowed), not on CRC |
 | Portal (browser) → Keycloak | Spoofing, CSRF | Authorization Code + PKCE through the public `cmapi-portal` client, redirect URIs pinned to the portal Route; tokens in memory, not local storage | Playwright walk: a token from `cmapi-cli` cannot be used by the portal client (different `azp`, same audience: allowed by design; recorded) |
 | Secrets | Information disclosure | Nothing secret in git, logs or the report; generated Secrets; the Git token and DB URL only as env from Secrets; the idempotency cache never keeps token-issuing responses | none yet: `deploy/check.sh` is planned |
 | Supply chain | Tampering | Base images by digest, CLI tarballs by SHA-256, Python pins, npm lock | the Containerfile fails on a checksum mismatch |
@@ -112,28 +113,38 @@ behind one pipeline, adapters behind `core/ports.py`. No further split is recomm
 the one separately deployable service the design names (isolation of Thanos work), and it runs
 embedded (`capacity.mode: embedded`) on CRC to save memory.
 
-**Delivery without Argo CD on CRC.** `docs/01` has every write applied by each cluster's Argo CD. CRC
-has no Argo CD, and installing OpenShift GitOps is a cluster-wide operator the hard limits refuse while a
-namespace-scoped way exists. The build adds a `delivery` setting to `config/integrations.yaml`:
-`argocd` (the design: the worker only reads Applications) or `apply` (the worker applies the merged
-folder from Git `main` with a separate deliverer credential, confirmed by a read, and holds deletes for
-an operator exactly as `Prune=confirm` does). This departs from the design's read-only credential: the
-worker holds a cluster-wide write identity, contained by the chart's `cmapi-deliverer-managed-only`
-ValidatingAdmissionPolicy, proven on a real kube-apiserver. A compromised worker can still delete or starve every
-managed namespace and ignore `prune:confirm`, which only Argo CD's own confirmation prevents. So `apply` is opt-in
-(`delivery.hubDeliverer.acknowledgeDirectWrites`), for a development cluster, never production. `docs/01` and
-`docs/02` are not amended: the design's rule stands, and the deviation is a deployment value, recorded in
-`docs/reviews/2026-11-05-pr40.md` with the measurements behind the choice for CRC. The `argocd` adapter exists;
-no test or cluster has exercised it yet.
+**Delivery on CRC: Argo CD, the design (#63, decided by the coordinator on 2026-11-05).** `docs/01` has
+every write applied by each cluster's Argo CD, and that is what CRC runs: `deploy/environments/crc.yaml`
+selects `delivery.mode: argocd` and acknowledges nothing. The build's `delivery` setting in
+`config/integrations.yaml` offers `argocd` (the worker only reads Applications and the cluster) or `apply`
+(the worker applies the merged folder from Git `main` with a deliverer credential, confirmed by a read, and
+holds deletes for an operator as `Prune=confirm` does). `apply` stays in the chart as a deviation a site must
+acknowledge (`delivery.hubDeliverer.acknowledgeDirectWrites`), never for production: the worker then holds a
+cluster-wide write identity, contained by the `cmapi-deliverer-managed-only` ValidatingAdmissionPolicy (proven on
+a real kube-apiserver 1.35.6 in the review, not on CRC), and a compromised worker can still delete or starve
+every managed namespace and ignore `prune:confirm`, which only Argo CD's own confirmation prevents. `docs/01`
+and `docs/02` are not amended. The recommendation that went the other way, and the counter-argument that won,
+are in `docs/reviews/2026-11-05-pr40.md` (C6 and the second pass).
 
-Measured for that choice (read-only, 2026-11-05): the OpenShift GitOps operator in CRC's catalog
-(channels gitops-1.10 to 1.14) supports only the `AllNamespaces` install mode, so it is a cluster-wide
-operator; its documented defaults for one Argo CD instance request 1024Mi (application controller),
-512Mi (applicationset controller), 256Mi (repo server), 128Mi each for the server, Redis and Dex, about
-2.2 GiB in requests before the operator pod ([Red Hat, OpenShift GitOps 1.16, Installing GitOps](https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.16/html-single/installing_gitops/)).
-The node has 15525Mi of memory requested out of 19.6 GiB allocatable (79%): about 4 GiB left to
-schedule into, before cmapi's own requests (about 0.6 GiB). `ValidatingAdmissionPolicy` is a served
-built-in API on this cluster (14 policies exist).
+What the `argocd` mode does, in code and tests only: a request confirms when Git `main`'s folder still equals
+the approved plan, a revision Argo CD compared (`status.sync.revision`, or every entry of
+`status.sync.revisions` for a multi-source Application) contains the merge commit (`contains()` on the Git
+adapter, measured on a real Gitea), this folder's own objects are `Synced` in `status.resources`, and a
+direct read of the cluster finds them; a delete waits in `awaiting_prune` for Argo CD's own confirmation and
+ends when a read finds the namespace gone. The Application name comes from `argocd.rootApplication`, which
+may use `{clusterId}` and `{namespace}`. **Nothing has run on a real Argo CD**: the Argo CD install in
+namespace `cmapi-argocd`, the Application (or ApplicationSet) per cluster, the AppProject and the repository
+credential do not exist on CRC; they are the thin slice's design step under #63 (with Opus's candidate
+ApplicationSet, which would turn `Prune=confirm` into `Delete=confirm`, to prove on the kind cluster first). Until
+they exist a request on CRC stops at `merged`, and the end-to-end walk is incomplete.
+
+Measured for that choice (read-only, 2026-11-05): the OpenShift GitOps operator in CRC's catalog (default
+channel `latest`, CSV `openshift-gitops-operator.v1.22.3`) supports only the `AllNamespaces` install mode, so
+it is a cluster-wide operator; the memory figures cited in the first review pass for one Argo CD instance (about
+2.2 GiB of requests) were read from the OpenShift GitOps 1.16 documentation, not the catalog's version, and the
+1.22.3 defaults are unmeasured. The node has 15525Mi of memory requested out of 19.6 GiB allocatable (79%):
+about 4 GiB left to schedule into, before cmapi's own requests (about 0.6 GiB). `ValidatingAdmissionPolicy` is
+a served built-in API on this cluster (13 policies exist, `oc get validatingadmissionpolicies`).
 
 **Lifecycle and recovery** (to prove on the running system, phase 2): a worker killed mid-job leaves a
 lease that expires and the job runs again idempotently (open_pr checks for an existing branch; merge
@@ -172,9 +183,12 @@ from the CNPG server CA, never `unsafeSsl`. Proof planned on kind.
 
 ## 8. CI/CD
 
-GitHub Actions is the project's CI (none exists yet on this branch): unit tests, the API contract test,
-the portal suites, image build with SBOM and a scan, chart lint and `helm template` against the kind
-values. Argo CD deploys from `deploy/environments/*.yaml`. Added in phase 2.
+GitHub Actions is the project's CI, `.github/workflows/ci.yml`, on every pull request and push to `main`,
+four jobs: `reference-code` (`examples/` tests), `service` (`cmapi/tests/service` against a PostgreSQL
+service container pinned by digest, with Helm 4.3.1 for the chart tests, which lint and render the chart for
+CRC and for the Ingress variant), `portal-mockup` (Playwright) and `portal-ui` (Vitest). Absent: an image
+build, SBOM, a scan, and a deployment job; the image is built on the Mac by `deploy/release-crc.sh`, and Argo
+CD deploying cmapi itself from `deploy/environments/*.yaml` is not set up.
 
 ## 9. Product capabilities that make the app operable
 

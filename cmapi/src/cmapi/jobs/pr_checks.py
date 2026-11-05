@@ -68,9 +68,11 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
         if head != pr.head_sha:
             repo.event(row, "head_moved", "ci", f"PR head moved from {pr.head_sha[:8]} to {head[:8]} after approval")
         repo.move(row, E.PR_FAILED, "ci", "checks failed")
+        jobs.fence()
         ctx.git.close(pr, f"cmapi: checks failed for {row.request_id}; the request is failed and may be retried.")
         jobs.done(job)
         return
+    jobs.fence()
     merge_sha = ctx.git.merge(pr, head)
     row.merge_sha = merge_sha
     repo.move(row, E.MERGED, "cmapi-bot", f"merged {merge_sha[:8]}")

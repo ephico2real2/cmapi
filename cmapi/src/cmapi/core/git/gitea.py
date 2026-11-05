@@ -89,6 +89,14 @@ class GiteaProvider(HostGitProvider):
             raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
         return self._pr_ref(r.json())
 
+    def contains(self, revision: str, sha: str) -> bool:
+        if revision == sha:
+            return True
+        r = self._call("compare", "GET", f"{self._repo()}/compare/{revision}...{sha}")
+        if r.status_code != 200:
+            raise GitUnavailable(f"compare {revision[:8]}...{sha[:8]}: {r.status_code} {r.text[:200]}")
+        return r.json().get("total_commits", 1) == 0
+
     def changed_paths(self, head: str) -> set[str]:
         r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
         if r.status_code != 200:

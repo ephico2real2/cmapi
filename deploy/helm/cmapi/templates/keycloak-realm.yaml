@@ -11,7 +11,8 @@ Content mirrors examples/cmapi-sso/realm/ephico2real.yaml and the clients in doc
   cmapi-portal      public, Authorization Code + PKCE S256
   cmapi-docs        public, PKCE, for Swagger UI's Authorize button
   cmapi-cli         public, Device Authorization Grant, offline_access optional
-  cmapi-automation  confidential, password grant, for local automation accounts (bot-user) only
+  cmapi-automation  confidential, password grant: for bot-user, though Keycloak cannot limit it to one account, so
+                    anyone holding this client's secret and a user's password gets a token (measured on 26.6.4)
   svc-payments-ci   confidential, service account, the example pipeline client
   cmapi-directory   confidential, realm-management view-users and query-users only
   cmapi-realm-admin confidential, realm-management realm-admin: the sync Job's identity

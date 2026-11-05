@@ -68,7 +68,7 @@ class Plan:
     def view(self) -> dict[str, Any]:
         r = self.requirement
         return {"changes": self.changes, "planHash": self.hash, "etag": self.etag,
-                "requester": self.requester.record(),
+                "requester": {k: v for k, v in self.requester.record().items() if k != "submittedBySub"},
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh,
                              "bindingResource": self.capacity.binding_resource, **dict(self.capacity.detail)},
                 "approval": approval_view(r, None),

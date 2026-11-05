@@ -38,6 +38,7 @@ LAST_LOOP = Gauge("cmapi_worker_last_loop_timestamp_seconds", "When the worker l
 BACKOFF = (5, 15, 45, 135, 405)
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 300
+MAX_JOB_SECONDS = 1800   # past every timeout a job can add up: a handler still running is wedged, so stop renewing its lease
 
 
 class Worker:
@@ -66,7 +67,11 @@ class Worker:
                 OPEN_REQUEST_AGE.labels(status, env).set(age)
 
     def _heartbeat(self, job_id: int, finished: threading.Event) -> None:
+        started = time.monotonic()
         while not finished.wait(LEASE_SECONDS / 3):
+            if time.monotonic() - started > MAX_JOB_SECONDS:
+                log.error("lease_abandoned", job=job_id, worker=self.worker_id, seconds=MAX_JOB_SECONDS)
+                return
             try:
                 with self.ctx.db.session() as s:
                     s.execute(update(JobRow).where(JobRow.job_id == job_id, JobRow.locked_by == self.worker_id,
@@ -92,6 +97,7 @@ class Worker:
                 raise RuntimeError(f"no handler for job kind {kind}")
             with self.ctx.db.session() as s:
                 job = s.get(type(job), job_id)
+                s.info["lease"] = (job_id, self.worker_id, generation)
                 handler(self.ctx, s, job)
                 # Every handler ends with jobs.done() or jobs.retry(); claim() set the lease, retry() cleared
                 # it, so a lease still held after the handler means the job finished without saying so.
@@ -107,28 +113,34 @@ class Worker:
             err = f"{type(exc).__name__}: {exc}"
             log.error("job_failed", job=job_id, kind=kind, request_id=request_id, attempt=attempts, error=err[:300],
                       trace=traceback.format_exc()[-1500:])
-            with self.ctx.db.session() as s:
-                jobs, repo = JobRepo(s), RequestRepo(s)
-                job = s.get(type(job), job_id)
-                JobRepo(s).assert_lease(job_id, self.worker_id, generation)     # a stale worker records no failure either
-                if attempts >= MAX_ATTEMPTS or kind in RECURRING:
-                    jobs.done(job)
-                    if request_id and kind not in RECURRING:
-                        row = repo.get(request_id)
-                        repo.event(row, "error", "worker", err[:300])
-                        if row.status in (S.APPROVED.value, S.PR_OPEN.value):
-                            repo.move(row, E.PR_FAILED, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
-                        elif row.status == S.MERGED.value:
-                            repo.move(row, E.SYNC_TIMEOUT, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
-                    if kind in RECURRING:
-                        jobs.enqueue(kind, delay=RECURRING[kind], payload={"every": RECURRING[kind]})
-                else:
-                    jobs.retry(job, err, BACKOFF[min(attempts, len(BACKOFF)) - 1])
-                    if request_id:
-                        repo.event(repo.get(request_id), "error", "worker", f"{kind}: {err[:200]}; retrying")
+            try:
+                self._record_failure(job_id, kind, request_id, attempts, generation, err)
+            except LeaseLost as lost:                                 # a stale worker records no failure either
+                log.warning("lease_lost", job=job_id, kind=kind, request_id=request_id, worker=self.worker_id, detail=str(lost)[:200])
         finally:
             finished.set()
         return True
+
+    def _record_failure(self, job_id: int, kind: str, request_id: str | None, attempts: int, generation: int, err: str) -> None:
+        with self.ctx.db.session() as s:
+            jobs, repo = JobRepo(s), RequestRepo(s)
+            job = s.get(JobRow, job_id)
+            JobRepo(s).assert_lease(job_id, self.worker_id, generation)
+            if attempts >= MAX_ATTEMPTS or kind in RECURRING:
+                jobs.done(job)
+                if request_id and kind not in RECURRING:
+                    row = repo.get(request_id)
+                    repo.event(row, "error", "worker", err[:300])
+                    if row.status in (S.APPROVED.value, S.PR_OPEN.value):
+                        repo.move(row, E.PR_FAILED, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
+                    elif row.status in (S.MERGED.value, S.AWAITING_PRUNE.value):
+                        repo.move(row, E.SYNC_TIMEOUT, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
+                if kind in RECURRING:
+                    jobs.enqueue(kind, delay=RECURRING[kind], payload={"every": RECURRING[kind]})
+            else:
+                jobs.retry(job, err, BACKOFF[min(attempts, len(BACKOFF)) - 1])
+                if request_id:
+                    repo.event(repo.get(request_id), "error", "worker", f"{kind}: {err[:200]}; retrying")
 
     def loop(self) -> None:
         last_gauges = 0.0
@@ -136,8 +148,8 @@ class Worker:
         while not self._stop.is_set():
             LAST_LOOP.set_to_current_time()
             try:
-                # In the loop, not before it: on first install the migrate hook runs after helm --wait, and helm
-                # waits for this pod. A worker that died here would hold the migration back forever.
+                # In the loop, not before it: this replica's own migrate initContainer may be behind another's
+                # commit, and a database restart must not end the process.
                 if not recurring_ready:
                     self.ensure_recurring()
                     recurring_ready = True

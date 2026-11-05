@@ -63,6 +63,9 @@ subjects:
 {{- if and (eq .Values.delivery.mode "apply") (not .Values.delivery.hubDeliverer.acknowledgeDirectWrites) }}
 {{- fail "delivery.mode=apply makes the worker a cluster-wide writer, which the design forbids: use argocd, or set delivery.hubDeliverer.acknowledgeDirectWrites on a cluster where that is accepted" }}
 {{- end }}
+{{- $writer := "" -}}
+{{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}{{ $writer = printf "system:serviceaccount:%s:%s-worker" .Release.Namespace $name }}{{ end -}}
+{{- if and (eq .Values.delivery.mode "argocd") .Values.argocd.controllerServiceAccount }}{{ $writer = .Values.argocd.controllerServiceAccount }}{{ end -}}
 {{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}
 ---
 # The one cluster write path, and only for the worker: server-side apply of the approved plan once Git
@@ -93,6 +96,8 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-deliverer}
 subjects:
   - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+{{- end }}
+{{- if $writer }}
 ---
 # Containment: this identity may only touch namespaces carrying cmapi.net/managed=true, and only create
 # namespaces carrying it. An unmanaged namespace, whoever owns it, is refused at admission.
@@ -115,7 +120,7 @@ spec:
         resources: [rolebindings]
   matchConditions:
     - name: only-the-deliverer
-      expression: request.userInfo.username == "system:serviceaccount:{{ .Release.Namespace }}:{{ $name }}-worker"
+      expression: request.userInfo.username == {{ $writer | quote }}
   variables:
     - name: isNamespace
       expression: request.kind.kind == "Namespace"

@@ -149,13 +149,17 @@ def test_the_design_is_the_default_and_apply_must_be_acknowledged():
     assert bare.returncode != 0 and "acknowledgeDirectWrites" in bare.stderr
 
 
-def test_crc_keeps_apply_only_by_saying_so():
-    docs = rendered()
-    assert [d for d in docs if d["kind"] == "ClusterRole" and d["metadata"]["name"] == "cmapi-deliverer"]
+APPLY = ("--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
+
+
+def test_crc_runs_the_design_and_apply_stays_a_deviation_to_say_out_loud():
+    """#63: CRC's values select argocd; the write identity renders only when apply is chosen and acknowledged."""
+    assert not [d for d in rendered() if d["kind"] == "ClusterRole" and d["metadata"]["name"] == "cmapi-deliverer"]
+    assert [d for d in rendered(*APPLY) if d["kind"] == "ClusterRole" and d["metadata"]["name"] == "cmapi-deliverer"]
 
 
 def test_policy_refuses_what_the_first_version_let_through():
-    vap = next(d for d in rendered() if d["kind"] == "ValidatingAdmissionPolicy")
+    vap = next(d for d in rendered(*APPLY) if d["kind"] == "ValidatingAdmissionPolicy")
     exprs = " ".join(v["expression"] for v in vap["spec"]["validations"])
     for needle in ("openshift-.*", "kube-.*", "ocp-.*", "cmapi-reader", "newLabels", "newAnnotations"):
         assert needle in exprs, needle

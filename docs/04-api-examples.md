@@ -63,7 +63,7 @@ A new pipeline gets its client through a PR to the realm repository (`cmapi-sso/
 
 ```bash
 TOKEN=$(curl -s "$KC/token" \
-  -d grant_type=password -d client_id=cmapi-automation \
+  -d grant_type=password -d client_id=cmapi-automation -d client_secret="$AUTOMATION_CLIENT_SECRET" \
   -d username=bot-user -d password="$BOT_PASSWORD" | jq -r .access_token)
 curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/me" | jq .access
 ```

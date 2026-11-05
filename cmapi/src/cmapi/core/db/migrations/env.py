@@ -28,6 +28,10 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         # Serialises concurrent migrators; PostgreSQL's transactional DDL makes each one all or nothing.
         connection.exec_driver_sql("SELECT pg_advisory_lock(727364)")
+        # DDL waiting behind an old pod's open transaction queues every later query on that table behind it. Give up
+        # instead: the process exits non-zero, the lock goes with the connection, and the initContainer tries again.
+        lock_timeout = os.environ.get("CMAPI_MIGRATE_LOCK_TIMEOUT", "30s")
+        connection.exec_driver_sql(f"SET lock_timeout = '{int(lock_timeout.rstrip('s'))}s'")
         connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

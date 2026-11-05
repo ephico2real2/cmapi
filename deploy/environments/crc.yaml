@@ -62,12 +62,15 @@ clusters:
     simulatedCapacity: {cpu: 64, memory: 256Gi}
 
 delivery:
-  mode: apply                       # no Argo CD on this cluster; the worker applies merged folders itself
-  hubDeliverer:                     # the deviation, accepted for this development cluster only (docs/10 section 5)
-    enabled: true
-    acknowledgeDirectWrites: true
+  mode: argocd                      # the design's delivery (#63): Argo CD applies merged folders, cmapi only reads
   pollInterval: 10s
   syncTimeout: 10m
+argocd:
+  # Nothing of this exists on CRC yet: the Argo CD install, the Application per cluster, the AppProject and the
+  # repository credential are the thin slice's design step (#63). Until they do, a request stops at merged.
+  namespace: cmapi-argocd
+  rootApplication: cluster-configs-{clusterId}
+  controllerServiceAccount: ""      # set to system:serviceaccount:cmapi-argocd:<controller SA> to bind the containment policy
 
 portal:
   enabled: false                    # turned on once the portal runs on the API (CRC-BUILD-STATUS.md)

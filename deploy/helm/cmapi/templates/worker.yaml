@@ -31,8 +31,16 @@ spec:
           env:
             - name: CMAPI_DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "cmapi.dbSecret" . }}, key: uri}}
+            {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+            - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+            {{- end }}
           securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources: {{- toYaml .Values.migrate.resources | nindent 12 }}
+          {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+          {{- end }}
       containers:
         - name: worker
           image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi") }}

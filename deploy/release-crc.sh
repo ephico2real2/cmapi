@@ -76,10 +76,12 @@ if [ "$DEPLOY_ONLY" != true ]; then
   echo "# Written by deploy/release-crc.sh: the images the chart deploys, by digest. Commit ${COMMIT}." >> "$LOCK.tmp"
   for img in "${IMAGES[@]}"; do
     if oc get istag "${img}:${TAG}" -n "${NAMESPACE}" >/dev/null 2>&1 && [[ "$TAG" != *-dirty ]]; then
-      echo "ERROR: ${img}:${TAG} already exists in the registry; tags are immutable, commit to advance it" >&2; exit 1
+      # Tags are immutable: a run that failed at the deploy, or a second run, keeps what the registry holds.
+      echo "exists  : ${img}:${TAG}, not pushed again"
+    else
+      podman tag "${img}:${TAG}" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}"
+      podman push --cert-dir "$CA_DIR" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}" >/dev/null
     fi
-    podman tag "${img}:${TAG}" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}"
-    podman push --cert-dir "$CA_DIR" "${REGISTRY}/${NAMESPACE}/${img}:${TAG}" >/dev/null
     DIGEST=$(oc get istag "${img}:${TAG}" -n "${NAMESPACE}" -o jsonpath='{.image.metadata.name}')
     echo "pushed  : ${REGISTRY}/${NAMESPACE}/${img}:${TAG} ${DIGEST}"
     printf '%s:\n  repository: %s/%s/%s\n  tag: %s\n  digest: %s\n' "${img//-/_}" "${INTERNAL_REGISTRY}" "${NAMESPACE}" "${img}" "${TAG}" "${DIGEST}" >> "$LOCK.tmp"
@@ -97,9 +99,14 @@ trap 'rm -f "$TRUST"' EXIT
 { oc get secret keycloak-tls -n keycloak -o jsonpath='{.data.ca\.crt}' | base64 -d; echo
   oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}'; } > "$TRUST"
 grep -q 'BEGIN CERTIFICATE' "$TRUST" || { echo "ERROR: no CA certificate read from the cluster" >&2; exit 1; }
+# --atomic: a failed install or upgrade rolls back, so the release is never left half-made with "no deployed
+# releases" blocking the next run. The generated Secrets, the realm import and the imports namespace carry
+# helm.sh/resource-policy: keep, so a rollback of a first install keeps them and the next run reuses them. To keep
+# a failed release's pods for inspection: RELEASE_ATOMIC=false.
+ATOMIC=$([ "${RELEASE_ATOMIC:-true}" = true ] && echo "--atomic --cleanup-on-fail" || echo "")
 # -f every time: helm upgrade starts from chart defaults and applies only what this call passes.
 helm upgrade --install "${RELEASE}" deploy/helm/cmapi --namespace "${NAMESPACE}" \
-  -f "$RELEASE_VALUES" -f "$LOCK" --set-file "trustedCA.certificates=$TRUST" --wait --timeout 10m
+  -f "$RELEASE_VALUES" -f "$LOCK" --set-file "trustedCA.certificates=$TRUST" --wait --timeout 10m ${ATOMIC}
 oc rollout status "deploy/${RELEASE}-api" -n "${NAMESPACE}" --timeout=300s
 oc rollout status "deploy/${RELEASE}-worker" -n "${NAMESPACE}" --timeout=300s
 

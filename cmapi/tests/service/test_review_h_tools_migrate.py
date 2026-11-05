@@ -174,7 +174,8 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
     s = Settings(config_dir=tmp_path, database_url=DB_URL, git_provider="gitea", git_url="http://x/api/v1", git_user="b", git_password="p", cursor_key="k", link_key="l", metrics_port=0,
                  directory_client_secret="d", policies_dir=ROOT / "cmapi/policies", kube_token_file=pathlib.Path("/nonexistent"), kube_ca_file=pathlib.Path("/nonexistent"))
     ctx = build_context(s, start_registry=False)
-    assert ctx.delivery.mode == "apply" and ctx.delivery.poll_seconds == 10 and ctx.delivery.sync_timeout_seconds == 600
+    assert ctx.delivery.mode == "argocd" and ctx.delivery.poll_seconds == 10 and ctx.delivery.sync_timeout_seconds == 600
+    assert ctx.delivery.argocd_namespace == "cmapi-argocd" and ctx.delivery.argocd_root_application == "cluster-configs-{clusterId}"
     assert ctx.issuer == "https://keycloak.apps-crc.testing/realms/cmapi" and ctx.audience == "cmapi-nonprod"
     assert ctx.directory is not None and ctx.registry.policies["CRC"].environment == "dev"
 

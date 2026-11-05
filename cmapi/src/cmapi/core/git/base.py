@@ -81,6 +81,10 @@ class HostGitProvider:
         """An open PR from the branch, so a retried open_pr never opens a second one."""
         raise NotImplementedError
 
+    def contains(self, revision: str, sha: str) -> bool:
+        """Whether sha is revision or one of its ancestors."""
+        raise NotImplementedError
+
     def changed_paths(self, head: str) -> set[str]:
         """Every path any commit on head touches since it left the default branch."""
         raise NotImplementedError

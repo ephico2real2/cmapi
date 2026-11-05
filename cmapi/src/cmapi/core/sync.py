@@ -97,9 +97,26 @@ class ArgoCdSignal:
         op = st.get("operationState", {}) or {}
         prune = frozenset(r["name"] for r in st.get("resources", []) if r.get("kind") == "Namespace"
                           and r.get("requiresPruning"))
+        revisions = frozenset(r for r in (sync.get("revisions") or [sync.get("revision")]) if r)
         return AppStatus(cluster_id=cluster_id, revision=sync.get("revision", ""),
                          sync=sync.get("status", "Unknown"), health=st.get("health", {}).get("status", "Unknown"),
-                         phase=op.get("phase"), prune_pending=prune)
+                         phase=op.get("phase"), prune_pending=prune, revisions=revisions,
+                         resources=tuple((r.get("kind", ""), r.get("namespace") or "", r.get("name", ""), r.get("status", "Unknown"))
+                                         for r in st.get("resources", [])))
+
+
+def not_synced(app: AppStatus, files: Mapping[str, str]) -> list[str]:
+    """The planned objects Argo CD does not report Synced. The Application's own status covers every namespace in
+    its folder: one neighbour waiting for Prune=confirm leaves it OutOfSync, so it says nothing about this one."""
+    seen = {(k, ns, n): s for k, ns, n, s in app.resources}
+    out = []
+    for text in files.values():
+        for d in yaml.safe_load_all(text):
+            if d:
+                key = (d["kind"], d["metadata"].get("namespace") or "", d["metadata"]["name"])
+                if seen.get(key) != "Synced":
+                    out.append(f"{key[0]}/{key[2]}: {seen.get(key, 'not in the Application')}")
+    return out
 
 
 def confirmed_by_read(cache_get: Any, namespace: str, files: Mapping[str, str]) -> tuple[bool, str]:

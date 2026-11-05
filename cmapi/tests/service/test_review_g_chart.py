@@ -30,6 +30,17 @@ def docs(tmp_path):
     return render(tmp_path)
 
 
+@pytest.fixture
+def deviation(tmp_path):
+    """The apply deviation, which CRC's values no longer select: the write identity and its containment policy."""
+    (tmp_path / "ca.crt").write_text(PEM)
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+                        "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}", "--set", "delivery.mode=apply",
+                        "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return [d for d in yaml.safe_load_all(r.stdout) if d]
+
+
 def find(docs, kind, name=None):
     return [d for d in docs if d["kind"] == kind and (name is None or d["metadata"]["name"] == name)]
 
@@ -42,17 +53,17 @@ def test_only_declared_objects_leave_namespace_cmapi(docs):
     assert not [o for o in outside if o[1] not in ("keycloak", "cmapi-imports", "<cluster>")]
 
 
-def test_deliverer_cannot_bind_admin_edit_or_view_anywhere(docs):
-    cr = find(docs, "ClusterRole", "cmapi-deliverer")[0]
+def test_deliverer_cannot_bind_admin_edit_or_view_anywhere(deviation):
+    cr = find(deviation, "ClusterRole", "cmapi-deliverer")[0]
     bind = [r for r in cr["rules"] if "bind" in r["verbs"]][0]
     assert set(bind["resourceNames"]) == {"cmapi-token-issuer"}, f"bind on {bind['resourceNames']}: a rolebinding to admin in any namespace, namespace keycloak included"
 
 
-def test_deliverer_is_contained_by_an_admission_policy(docs):
-    vap = find(docs, "ValidatingAdmissionPolicy", "cmapi-deliverer-managed-only")
+def test_deliverer_is_contained_by_an_admission_policy(deviation):
+    vap = find(deviation, "ValidatingAdmissionPolicy", "cmapi-deliverer-managed-only")
     assert vap, "RBAC alone: create, patch and delete on rolebindings and namespaces in every namespace on a shared cluster"
     assert "system:serviceaccount:cmapi:cmapi-worker" in vap[0]["spec"]["matchConditions"][0]["expression"]
-    assert find(docs, "ValidatingAdmissionPolicyBinding", "cmapi-deliverer-managed-only")[0]["spec"]["validationActions"] == ["Deny"]
+    assert find(deviation, "ValidatingAdmissionPolicyBinding", "cmapi-deliverer-managed-only")[0]["spec"]["validationActions"] == ["Deny"]
 
 
 def test_api_port_is_not_open_to_every_namespace(docs):

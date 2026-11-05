@@ -50,6 +50,7 @@ def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
     req = row.requirement or {}
     body = (f"Request: {row.request_id}\nPlan hash: {row.plan_hash}\nApproval: {req.get('auto') or 'approved in cmapi'}\n"
             f"Requester: {row.requester_username}\nInstance: {row.instance}")
+    jobs.fence()
     pr = ctx.git.open_pr(branch, files, title, body, base_sha)
     try:
         repo.move(row, E.PR_OPENED, "cmapi-bot", f"{pr.branch} #{pr.number}")
