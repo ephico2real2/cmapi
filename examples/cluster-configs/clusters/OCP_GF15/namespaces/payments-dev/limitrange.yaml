@@ -1,0 +1,33 @@
+# Source: docs/02-technical-design-v2.md, "Tiers"
+# clusters/OCP_GF15/namespaces/payments-dev/limitrange.yaml
+# Rendered by cmapi.core.tiers.render() from config/tiers.yaml (dev, medium: defaults merged with the tier).
+# cmapi.net/tier-hash is the hash of the resolved tier; a different current hash marks the
+# namespace tier-outdated until the tiers-rerender operation re-renders it.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: payments-dev-limits
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: 'true'
+    cmapi.net/tier: medium
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+    cmapi.net/tier-hash: dec3e603bf8d
+spec:
+  limits:
+  - type: Container
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    default:
+      cpu: 500m
+      memory: 512Mi
+    max:
+      cpu: '4'
+      memory: 8Gi
+  - type: PersistentVolumeClaim
+    max:
+      storage: 50Gi

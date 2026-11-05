@@ -1,0 +1,26 @@
+# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# clusters/OCP_GF15/namespaces/payments-dev/namespace.yaml
+# Rendered by cmapi (raw manifest renderer). Keys sorted, system keys first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15       # system
+    cmapi.net/env: dev                   # system
+    cmapi.net/expiry: managed            # system; non-prod only, when an expiry was asked for
+    cmapi.net/managed: "true"            # system
+    cmapi.net/requested-by-user: ola     # system: preferred_username from the requester's token
+    cmapi.net/tier: medium               # system
+    cmapi.net/cost-center: cc-4410       # governed
+    cmapi.net/team: payments             # governed, required
+    app.ephico2real.com/component: api   # team
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true   # system: deletes wait for an operator
+    cmapi.net/expires-at: "2026-12-15"   # system; optional, never in prod
+    cmapi.net/instance: nonprod          # system
+    cmapi.net/request-id: req-20261104-2b17               # system
+    cmapi.net/requested-by: ola@ephico2real.com           # system: email from the token
+    cmapi.net/team-dl: payments-team@ephico2real.com      # governed, required; format-checked only
+    ops.ephico2real.com/pager: payments-oncall            # team
+# Employee ID and the requester's names are kept in cmapi's database, never here.

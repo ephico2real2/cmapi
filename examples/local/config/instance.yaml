@@ -1,0 +1,26 @@
+# Local run: the nonprod instance against a local Keycloak, a local Git repository and k3s.
+instance:
+  name: nonprod
+  displayName: Non-production (local)
+  allowedEnvironments: [rnd, dev]
+  publicUrl: http://localhost:8000
+  portalUrl: http://localhost:8000
+  auth:
+    issuer: http://localhost:8080/realms/ephico2real
+    audience: cmapi-nonprod
+  namespaces:
+    # Names nobody may ask for, beyond the built-in default, openshift, openshift-*, kube-*,
+    # cmapi-system and cmapi-imports. Any other DNS-1123 name is allowed to anyone with namespaces:create.
+    reservedPatterns: ["ocp-*", "kubernetes-*"]
+  identity:
+    directory: keycloak
+    adminClient: cmapi-directory
+    cacheSeconds: 900
+    requireEmployeeId: true
+    requireOnBehalfOf: false         # bots (service-account clients) may request in their own name
+    automationRoles: [cmapi-onboarding]   # accounts with these roles need no employee ID (bot-user)
+  git:
+    repository: /opt/stack/git/cluster-configs-nonprod.git
+  directory:
+    staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
+    prod:    {url: https://cmapi.ephico2real.com, environments: [prod]}

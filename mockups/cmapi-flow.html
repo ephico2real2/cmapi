@@ -191,7 +191,7 @@ table.res td .pill { font-size: 0.72rem; }
   <header class="top">
     <div>
       <h1>cmapi Request Flow</h1>
-      <p class="lede">Follow a request from the caller's Keycloak token through cmapi, placement on stored capacity snapshots, the cluster-configs pull request and the destination cluster's own Argo CD. Pick a scenario, then step through.</p>
+      <p class="lede">Follow a request from the caller's Keycloak token through cmapi, placement on stored capacity snapshots, approval in cmapi (nothing reaches Git before it), the bot's pull request to cluster-configs and the destination cluster's own Argo CD. Pick a scenario, then step through.</p>
     </div>
     <div class="controls" aria-label="Playback">
       <button class="btn" id="btn-reset" type="button">Reset</button>
@@ -264,7 +264,7 @@ table.res td .pill { font-size: 0.72rem; }
   /* ---------- Create scenario (rnd auto-approved, or prod with a reviewer) ---------- */
   function createScenario(o) {
     var prod = o.env === "prod";
-    var file = "clusters/" + o.cluster + "/namespaces/" + o.ns + "/" + o.ns + "-" + o.env + "-project-meta.yml";
+    var dir = "clusters/" + o.cluster + "/namespaces/" + o.ns + "/"; var file = dir + "namespace.yaml";
     var T = o.times;
     var init = {
       cluster: o.cluster, laneNames: { api: { name: "cmapi-api", sub: o.inst + " instance" } },
@@ -276,38 +276,44 @@ table.res td .pill { font-size: 0.72rem; }
     };
     var steps = [];
     var ranked = o.ranked, top = ranked[0];
+    var A = o.actor || { user: "ola", email: "ola@ephico2real.com", azp: "cmapi-portal-" + o.inst, role: "cmapi-requester", roles: ["cmapi-requester", "cmapi-viewer"], groups: ["/cmapi/cmapi-requesters"], team: "payments", agent: false, sub: "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14" };
 
     steps.push({
       lane: "caller", title: "Ask where it should go",
-      body: "Before creating <b>" + o.ns + "</b>, the portal asks cmapi to place a " + o.env + " namespace of tier medium (16 cores, 32Gi, 100 pods) for the payments team in region us-central. The caller does not have to know which " + o.env + " clusters have room.",
+      body: (A.agent ? "An AI agent, signed in to cmapi as <b>bot-user</b>, onboards a namespace. " : "") + "Before creating <b>" + o.ns + "</b>, " + (A.agent ? "the agent" : "the portal") + " asks cmapi to place a " + o.env + " namespace of tier medium (16 cores, 32Gi, 100 pods) for the " + A.team + " team in region us-central. The caller does not have to know which " + o.env + " clusters have room.",
       code: { label: "POST /api/v1/capacity:place", text:
         'curl -s -X POST "$CMAPI/capacity:place" \\\n' +
         '  -H "Authorization: Bearer $TOKEN" \\\n' +
         '  -H "Content-Type: application/json" \\\n' +
-        "  -d '{\"environment\": \"" + o.env + "\", \"team\": \"payments\", \"tier\": \"medium\",\n" +
+        "  -d '{\"environment\": \"" + o.env + "\", \"team\": \"" + A.team + "\", \"tier\": \"medium\",\n" +
         "       \"constraints\": {\"region\": \"us-central\"}}'" },
       apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
     });
 
     steps.push({
-      lane: "keycloak", title: "The token came from Keycloak",
-      body: "The portal got this token at sign-in (Authorization Code + PKCE; Keycloak checked the password against LDAP) and refreshes it every 5 minutes. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys.",
-      code: { label: "Decoded access token (5-minute lifetime)", text: J({ iss: "https://sso.ephico2real.com/realms/ephico2real", aud: INSTANCES[o.inst].aud, azp: "cmapi-portal-" + o.inst, sub: "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14", preferred_username: "ola", groups: ["/cmapi/cmapi-payments-requesters"], resource_access: { "cmapi-roles": ["cmapi-requester", "cmapi-viewer"] }, exp: 1793725800 }).replace('"cmapi-roles": [', '"' + INSTANCES[o.inst].aud + '": {"roles": [').replace('"cmapi-viewer"\n    ]', '"cmapi-viewer"\n    ]}') },
-      apply: function (s) { s.node.keycloak = "Not contacted (JWKS cached)"; }
-    });
+    lane: "keycloak", title: A.agent ? "The agent's token came from Keycloak" : "The token came from Keycloak",
+    body: A.agent
+      ? "The agent signed in through the <b>cmapi-automation</b> client as <b>bot-user</b>, a local Keycloak account (not from LDAP) whose password it reads from a vault. bot-user holds one client role, <b>cmapi-onboarding</b>, assigned to the account itself; it has no employee ID. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys."
+      : "The portal got this token at sign-in (Authorization Code + PKCE; Keycloak checked the password against LDAP) and refreshes it every 5 minutes. ola holds <b>cmapi-requester</b> through the Keycloak group /cmapi/cmapi-requesters. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys.",
+    code: { label: "Decoded access token (5-minute lifetime)", text: (function () {
+      var t = { iss: "https://sso.ephico2real.com/realms/ephico2real", aud: INSTANCES[o.inst].aud, azp: A.azp, sub: A.sub, preferred_username: A.user, email: A.email };
+      if (!A.agent) t.employee_id = "1001";
+      t.groups = A.groups; t.resource_access = {}; t.resource_access[INSTANCES[o.inst].aud] = { roles: A.roles }; t.exp = 1793725800;
+      return J(t); })() },
+    apply: function (s) { s.node.keycloak = "Not contacted (JWKS cached)"; }
+  });
 
-    steps.push({
-      lane: "api", title: "Authenticate and authorize",
-      body: "cmapi checks issuer, audience and expiry, then looks for a scope binding. The binding for /cmapi/cmapi-payments-requesters pairs <b>cmapi-requester</b> with region us-central, every environment and payments-*, so placement may consider any " + o.env + " cluster in that region.",
-      checks: [
-        { s: "pass", l: "JWT signature, issuer, audience, expiry", n: "offline, JWKS cache" },
-        { s: "pass", l: "Role grants namespaces:write", n: "cmapi-requester" },
-        { s: "pass", l: "Scope binding covers the target", n: "clusterSelector region=us-central · " + o.env + " · payments-*" }
-      ],
-      code: { label: "Matched binding (config/authz-scopes.yaml)", text:
-        "- subject: /cmapi/cmapi-payments-requesters\n  role: cmapi-requester\n  team: payments\n  clusterSelector: {matchLabels: {region: us-central}}\n  environments: [" + INSTANCES[o.inst].envs.join(", ") + "]\n  namespaces: [\"payments-*\"]" },
-      apply: function (s) { s.node.api = "Authorized"; }
-    });
+  steps.push({
+    lane: "api", title: "Authenticate and authorize",
+    body: "cmapi checks issuer, audience and expiry, then the roles in the token. <b>" + A.role + "</b> grants namespaces:create in every environment this instance serves (config/authz-roles.yaml). There is no team or namespace-name rule: any team may be named, and the name only has to be a DNS-1123 label that is not reserved and not a namespace on a cluster outside cmapi." + (A.agent ? " cmapi-onboarding is an automation role, so the missing employee ID is expected and the request is recorded as automated." : "") + " Placement may consider any " + o.env + " cluster in region us-central.",
+    checks: [
+      { s: "pass", l: "JWT signature, issuer, audience, expiry", n: "offline, JWKS cache" },
+      { s: "pass", l: "Role grants namespaces:create", n: A.role + " · " + o.env },
+      { s: "pass", l: "Name allowed", n: "not reserved, not on a cluster outside cmapi" }
+    ].concat(A.agent ? [{ s: "pass", l: "Automation account", n: "no employee ID needed (identity.automationRoles)" }] : []),
+    code: { label: "Role policy (config/authz-roles.yaml, excerpt)", text: "roles:\n  cmapi-onboarding: {}   # viewer + namespaces:create, requests:cancel: create only\n  cmapi-requester: {}    # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write\n\n# the token: resource_access." + INSTANCES[o.inst].aud + ".roles = [" + A.roles.join(", ") + "]\n# no scope bindings: no clusters, namespace patterns or teams per caller" },
+    apply: function (s) { s.node.api = "Authorized"; }
+  });
 
     var excl = o.excluded.map(function (x) { return x.cluster + "  " + x.reason + "  (" + x.detail + ")"; }).join("\n");
     steps.push({
@@ -318,13 +324,13 @@ table.res td .pill { font-size: 0.72rem; }
         { s: "pass", l: top.cluster + " ranked first, reserved", n: "score " + top.score },
         { s: "warn", l: o.excluded.length + " cluster" + (o.excluded.length > 1 ? "s" : "") + " excluded with a reason", n: o.excluded.map(function (x) { return x.reason; }).join(", ") }
       ],
-      code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 } }; if (prod) c.cpu.zoneFailureHeadroomAfter = r.zf; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
+      code: { label: "200 · " + o.placementId, text: J({ placementId: o.placementId, asOf: "2026-11-03T17:00:00Z", ranked: ranked.map(function (r, i) { var c = { clusterId: r.cluster, score: r.score, reserved: i === 0, cpu: { quotaHeadroomBefore: r.before, quotaHeadroomAfter: r.before - 16, usageP95: r.p95 }, memory: { quotaHeadroomBefore: r.mem + "Gi", quotaHeadroomAfter: (r.mem - 32) + "Gi" } }; if (prod) { c.cpu.zoneFailureHeadroomAfter = r.zf; c.memory.zoneFailureHeadroomAfter = r.zfMem + "Gi"; } c.boundBy = (r.before - 16) / r.before <= (r.mem - 32) / r.mem ? "cpu" : "memory"; return c; }), excluded: o.excluded.map(function (x) { return { clusterId: x.cluster, reason: x.reason, detail: x.detail }; }) }) },
       apply: function (s) {
         s.node.api = "Reserved on " + top.cluster; s.node.capacity = "Rows read (no Thanos call)"; s.node.caller = "Placement received";
         s.cap = { title: "Placement · " + o.placementId, pill: { t: "reserved 15 min", tone: "info" },
-          meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit,
-          cols: prod ? ["Cluster", "Score", "CPU headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "p95"],
-          rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16)]; if (prod) row.push(String(r.zf)); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason]; if (prod) row.push("—"); row.push("—"); return row; })),
+          meta: o.env + " · tier medium · 16 cores, 32Gi · region us-central · snapshot 17:00 (5 min old) · overcommit cpu " + o.overcommit + ", memory " + { rnd: "1.25", dev: "1.25", qa: "1.1", uat: "1.0", prod: "1.0" }[o.env],
+          cols: prod ? ["Cluster", "Score", "CPU headroom", "Memory headroom", "Zone-loss after", "p95"] : ["Cluster", "Score", "CPU headroom", "Memory headroom", "p95"],
+          rows: ranked.map(function (r, i) { var row = [r.cluster + (i === 0 ? " ★" : ""), String(r.score), r.before + " → " + (r.before - 16), r.mem + " → " + (r.mem - 32) + " Gi"]; if (prod) row.push(r.zf + " cores · " + r.zfMem + " Gi"); row.push(String(r.p95)); return row; }).concat(o.excluded.map(function (x) { var row = [x.cluster, { t: "excluded", tone: "warn" }, x.reason, "—"]; if (prod) row.push("—"); row.push("—"); return row; })),
           note: "Excluded: " + o.excluded.map(function (x) { return x.cluster + " " + x.detail; }).join("; ") + "." };
         ev(s, 0, "placed", "api-bot", o.placementId + ": " + top.cluster + " reserved for 15 min", "ok");
       }
@@ -344,15 +350,15 @@ table.res td .pill { font-size: 0.72rem; }
         '    "env": "' + o.env + '",\n' +
         '    "tier": "medium",\n' +
         '    "placementId": "' + o.placementId + '",\n' +
-        '    "labels": {"cmapi.net/team": "payments"},\n' +
-        '    "annotations": {"cmapi.net/owner": "ola@ephico2real.com"}\n' +
+        '    "labels": {"cmapi.net/team": "' + A.team + '"},\n' +
+        '    "annotations": {"cmapi.net/team-dl": "' + A.team + '-team@ephico2real.com"}\n' +
         "  }'" },
       apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
     });
 
     steps.push({
       lane: "api", title: "Plan: idempotency, lock, validate, render",
-      body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the project-meta file; the Kyverno policy bundle and kubeconform run on it offline. The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
+      body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the namespace folder as plain manifests: the Namespace, the ResourceQuota and LimitRange written out from tiers.yaml (medium), and the token-issuer RoleBinding. The Kyverno policy bundle and kubeconform run on those files offline. Who asked comes from the token (" + A.user + ", " + A.email + "), not from the body; " + (A.agent ? "bot-user holds an automation role, so no employee ID is needed and the request is stored with automated: true." : "the employee ID is stored with the request, never in Git.") + " The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
       checks: [
         { s: "pass", l: "Idempotency key new, object lock free" },
         { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 policies pass" },
@@ -360,8 +366,7 @@ table.res td .pill { font-size: 0.72rem; }
         { s: "pass", l: "Capacity: fits on fresh data", n: "reservation " + o.placementId }
       ],
       code: { label: "Plan diff · " + file, diff: true, text:
-        "+++ " + file + "\n+namespace: " + o.ns + "\n+env: " + o.env + "\n+labels:\n+  cmapi.net/cluster-id: " + o.cluster + "\n" +
-        '+  cmapi.net/managed: "true"\n+  cmapi.net/tier: medium\n+  cmapi.net/team: payments\n+annotations:\n+  cmapi.net/owner: ola@ephico2real.com\n+  cmapi.net/request-id: ' + o.reqId },
+        "+++ " + file + "\n+apiVersion: v1\n+kind: Namespace\n+metadata:\n+  name: " + o.ns + "\n+  labels:\n+    cmapi.net/cluster-id: " + o.cluster + "\n+    cmapi.net/env: " + o.env + '\n+    cmapi.net/managed: "true"\n+    cmapi.net/requested-by-user: ' + A.user + '\n+    cmapi.net/tier: medium\n+    cmapi.net/team: ' + A.team + '\n+  annotations:\n+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n+    cmapi.net/request-id: ' + o.reqId + '\n+    cmapi.net/requested-by: ' + A.email + '\n+    cmapi.net/team-dl: ' + A.team + '-team@ephico2real.com\n\n+++ ' + dir + 'resourcequota.yaml   requests.cpu 16 · requests.memory 32Gi · pods 100\n+++ ' + dir + 'limitrange.yaml      tier medium defaults\n+++ ' + dir + 'token-issuer-rolebinding.yaml' },
       apply: function (s) {
         s.node.api = "Plan ready";
         s.req = { id: o.reqId, status: "validated", cluster: o.cluster, ns: o.ns, action: "create Namespace", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
@@ -369,101 +374,91 @@ table.res td .pill { font-size: 0.72rem; }
       }
     });
 
-    if (prod) {
-      steps.push({
-        lane: "api", title: "Approval: one prod approver",
-        body: "prod needs one approval for a create, from prod-approvers. No auto-approval policy covers prod creates, and no pattern or threshold adds more. Self-approval is off. cmapi answers <b>202</b> now; the worker opens the PR a moment later.",
-        code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "validated", approval: { rule: "prod-create", requiredCount: 1, autoApproved: false, eligibleGroup: "prod-approvers" }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId } }) },
-        apply: function (s) { s.req.rule = "prod-create"; s.req.need = 1; s.node.api = "Rule: prod-create (1)"; s.node.caller = "202 received"; }
-      });
-    } else {
-      steps.push({
-        lane: "api", title: "Approval: auto-approved by policy",
-        body: "rnd needs one approval for a create, but the <b>baseline-rnd-namespace</b> policy matches: plugin namespaces, action create, environment rnd, tier medium, region us-central. Every guard passes: not a delete, no threshold added approvers, placement fits on fresh data, no plan warnings, and the team has used 3 of its 20 auto-approvals today. cmapi answers <b>202</b> now.",
-        checks: [
-          { s: "pass", l: "Master switch and policy enabled", n: "kill switch not paused" },
-          { s: "pass", l: "Guards: no delete, no extra approvers, no warnings" },
-          { s: "pass", l: "Placement fits on fresh data" },
-          { s: "pass", l: "Team allowance", n: "3 of 20 today" }
-        ],
-        code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "validated", approval: { rule: "rnd-create", requiredCount: 0, autoApproved: true, autoPolicy: "baseline-rnd-namespace" }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId } }) },
-        apply: function (s) { s.req.rule = "auto: baseline-rnd-namespace"; s.req.need = 0; s.node.api = "Auto-approved"; s.node.caller = "202 received"; ev(s, T.validated, "auto_approved", "auto:baseline-rnd-namespace", "requiredCount 0", "ok"); }
-      });
-    }
 
-    steps.push({
-      lane: "git", title: "The worker opens the pull request",
-      body: "The open_pr job pushes <code>" + o.branch + "</code>, commits the file as the bot with a Requested-by trailer, and opens PR #" + o.pr + " with the plan and placement in its body. " + (prod ? "It is labelled approval/prod-create-1 and requests prod-approvers." : "It is labelled approval/auto-baseline-rnd-namespace and auto-merge is switched on."),
-      code: { label: "PR #" + o.pr + " body (excerpt)", text:
-        "cmapi plan · " + o.cluster + " · " + o.ns + " (create)\n" +
-        "placement        " + o.placementId + " · score " + top.score + " · cpu headroom " + top.before + " → " + (top.before - 16) + "\n" +
-        "policy bundle    v1.4.0, 7/7 pass\n" +
-        "approval         " + (prod ? "prod-create · 1 of prod-approvers" : "auto-approved by policy baseline-rnd-namespace") },
-      apply: function (s) {
-        s.req.status = "pr_open"; s.req.pr = "#" + o.pr;
-        s.pr = { num: o.pr, title: "Create namespace " + o.ns + " on " + o.cluster, branch: o.branch, state: "open", label: prod ? "approval/prod-create-1" : "approval/auto-baseline-rnd-namespace", auto: !prod,
-          files: [{ path: file, add: 11, del: 0 }],
-          checks: [{ n: "kyverno-bundle", s: "pending" }, { n: "kubeconform", s: "pending" }, { n: "approval-count", s: "pending", note: prod ? "0 of 1" : "auto" }],
-          reviewers: prod ? [{ who: "prod-approvers", s: "requested" }] : [] };
-        s.node.git = "PR #" + o.pr + " open"; s.node.api = "Tracking";
-        ev(s, T.pr, "pr_opened", "api-bot", "PR #" + o.pr + " on " + o.branch);
-      }
-    });
-
-    steps.push({
-      lane: "git", title: "CI checks the pull request",
-      body: "CI runs the same Kyverno bundle and kubeconform, so a hand edit to the branch cannot slip through. The approval-count check asks cmapi which reviews count. " + (prod ? "It stays red until one eligible prod approver, not the requester, approves." : "It passes with the reason auto-approved by policy baseline-rnd-namespace."),
-      code: { label: "approval-count check", text: prod
-        ? "rule        prod-create\nrequired    1 (prod-approvers, requester excluded by sub)\napproved    —\nresult      0 of 1 · pending"
-        : "rule        rnd-create\nrequired    0 (auto-approved by policy baseline-rnd-namespace)\nresult      pass" },
-      apply: function (s) {
-        s.pr.checks = [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "approval-count", s: prod ? "pending" : "pass", note: prod ? "0 of 1" : "auto-approved" }];
-        s.node.git = prod ? "Waiting for approval" : "All checks green";
-        ev(s, T.ci, "ci_passed", "ci", prod ? "Policy and kubeconform green; waiting for approval" : "All checks green", "ok");
-      }
-    });
-
-    if (prod) {
-      steps.push({
-        lane: "git", title: "A reviewer approves",
-        body: "<b>" + o.reviewer + "</b>, in prod-approvers, approves. The approval-count check counts 1 of 1 and turns green, so branch protection allows the merge. cmapi mirrors the decision into its approvals table.",
-        code: { label: "approval-count check", text: "rule        prod-create\nrequired    1 (prod-approvers, requester excluded)\napproved    " + o.reviewer + "\nresult      1 of 1 · pass" },
-        apply: function (s) {
-          s.pr.reviewers = [{ who: o.reviewer, s: "approved" }];
-          s.pr.checks[2] = { n: "approval-count", s: "pass", note: "1 of 1" };
-          s.req.status = "approved"; s.req.have = 1; s.node.git = "Approved";
-          ev(s, T.approved, "approval_received", o.reviewer, "1 of 1 approvals (prod-approvers)", "ok");
-        }
-      });
-    }
-
-    steps.push({
-      lane: "git", title: prod ? "Merge to main" : "Auto-merge to main",
-      body: prod
-        ? "The approver merges PR #" + o.pr + ". Commit <code>" + o.sha + "</code> is the desired state for " + o.cluster + ", and the Git webhook moves the request to merged."
-        : "The Git host's auto-merge fires the moment the checks are green; no person and no bot review was needed. Commit <code>" + o.sha + "</code> is the desired state for " + o.cluster + ".",
-      code: { label: "Webhook → POST /api/v1/webhooks/git", text: J({ event: "pull_request.closed", merged: true, pr: o.pr, merge_commit: o.sha, base: "main", signature: "verified" }) },
-      apply: function (s) {
-        s.pr.state = "merged"; s.req.status = "merged"; s.node.git = "main @ " + o.sha;
-        ev(s, T.merged, "merged", prod ? o.reviewer : "auto-merge", "Merged as " + o.sha);
-      }
-    });
-
+var _auto = !prod, _group = prod ? "prod-approvers" : "platform-leads", _rule = o.env + "-create", _hash = "sha256:" + o.sha + "9e41";
+if (!_auto) T = { validated: T.validated, approved: T.approved, pr: T.approved + 5, ci: T.approved + 125, merged: T.approved + 130, synced: T.approved + 130 + (T.synced - T.merged) };
+if (!_auto) {
+  steps.push({
+    lane: "api", title: "Waiting for approval in cmapi",
+    body: o.env + " needs one approval for a create, from " + _group + ". No auto-approval policy covers it, and no pattern or threshold adds more. cmapi answers <b>202 pending_approval</b>, and <b>nothing is written to Git yet</b>. The approval channels tell " + _group + " through the portal's Approvals tab and an email with a signed link that opens the request.",
+    checks: [
+      { s: "pass", l: "Rule " + _rule, n: "1 approval from " + _group },
+      { s: "pending", l: "Approvals", n: "0 of 1" },
+      { s: "pass", l: "Channels notified", n: "portal, email" }
+    ],
+    code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "pending_approval", prUrl: null, approval: { rule: _rule, requiredCount: 1, count: 0, autoApproved: false, eligibleGroup: _group }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId, approve: "/api/v1/requests/" + o.reqId + ":approve" } }) },
+    apply: function (s) { s.req.status = "pending_approval"; s.req.rule = _rule; s.req.need = 1; s.node.api = "Waiting for " + _group; s.node.caller = "202 received"; s.prMsg = "No pull request yet. cmapi opens one only after the request is approved."; ev(s, T.validated, "pending_approval", "api-bot", "Notified " + _group + " (portal, email)"); }
+  });
+  steps.push({
+    lane: "api", also: ["caller"], title: "An approver approves in cmapi",
+    body: "<b>" + o.reviewer + "</b> opens the request from the email link, reads the plan in the portal and approves. cmapi checks the approver role and the " + _group + " group in their token, that their role grants requests:approve in " + o.env + ", and that they are not the requester. The count reaches 1 of 1, capacity is checked again on fresh data (the reservation still holds), and the request is <b>approved</b>.",
+    checks: [
+      { s: "pass", l: "Approver role and group", n: _group },
+      { s: "pass", l: "Not the requester or the pipeline's owner", n: "" },
+      { s: "pass", l: "Capacity checked again", n: "still fits" }
+    ],
+    code: { label: "POST /api/v1/requests/" + o.reqId + ":approve", text: "curl -s -X POST \"$CMAPI/requests/" + o.reqId + ":approve\" \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -d '{\"comment\": \"Placement and quota look right\"}'\n\n" + J({ requestId: o.reqId, status: "approved", approval: { rule: _rule, requiredCount: 1, count: 1, approvers: [o.reviewer] } }) },
+    apply: function (s) { s.req.status = "approved"; s.req.have = 1; s.node.api = "Approved"; s.node.caller = "Approved by " + o.reviewer.split("@")[0]; ev(s, T.approved, "approved", o.reviewer, "1 of 1 approvals (" + _group + ")", "ok"); }
+  });
+} else {
+  steps.push({
+    lane: "api", title: "Auto-approved by policy",
+    body: o.env + " needs one approval for a create, but the <b>baseline-rnd-namespace</b> policy matches: plugin namespaces, action create, environment " + o.env + ", tier medium, region us-central. Every guard passes: not a delete, no threshold added approvers, placement fits on fresh data, no plan warnings, and the team has used 3 of its 20 a day. The request is approved at once by <code>auto:baseline-rnd-namespace</code>, and cmapi answers <b>202 approved</b>." + (A.agent ? " An agent's request follows the same rules as anyone's; approval-rules.yaml can treat agent requests differently with the <code>automated</code> fact, for example to auto-approve only small tiers." : ""),
+    checks: [
+      { s: "pass", l: "Master switch and policy enabled", n: "kill switch not paused" },
+      { s: "pass", l: "Guards: no delete, no extra approvers, no warnings", n: "" },
+      { s: "pass", l: "Placement fits on fresh data", n: "" },
+      { s: "pass", l: "Team allowance", n: "3 of 20 today" }
+    ],
+    code: { label: "202 Accepted → caller", text: J({ requestId: o.reqId, clusterId: o.cluster, plugin: "namespaces", action: "create", namespace: o.ns, status: "approved", prUrl: null, approval: { rule: _rule, requiredCount: 0, autoApproved: true, autoPolicy: "baseline-rnd-namespace" }, placementId: o.placementId, links: { self: "/api/v1/requests/" + o.reqId } }) },
+    apply: function (s) { s.req.status = "approved"; s.req.rule = "auto: baseline-rnd-namespace"; s.req.need = 0; s.node.api = "Auto-approved"; s.node.caller = "202 received"; ev(s, T.validated, "approved", "auto:baseline-rnd-namespace", "requiredCount 0", "ok"); }
+  });
+}
+steps.push({
+  lane: "git", title: "Only now: the worker opens a bot PR",
+  body: "The request is approved, so the open_pr job renders the approved plan, confirms its hash, pushes <code>" + o.branch + "</code> and opens PR #" + o.pr + " as the cmapi bot, with the request ID and plan hash in its body and auto-merge on. No reviewers are requested: Git reviews carry no authority.",
+  code: { label: "PR #" + o.pr + " body (excerpt)", text: "cmapi request   " + o.reqId + " · approved (" + (_auto ? "auto:baseline-rnd-namespace" : o.reviewer) + ")\nplan hash       " + _hash + "\nplacement       " + o.placementId + " · score " + top.score + " · cpu " + top.before + " → " + (top.before - 16) + " cores\npolicy bundle   v1.4.0, 7/7 pass" },
+  apply: function (s) {
+    s.req.status = "pr_open"; s.req.pr = "#" + o.pr; s.prMsg = "";
+    s.pr = { num: o.pr, title: "Create namespace " + o.ns + " on " + o.cluster, branch: o.branch, state: "open", label: "cmapi/" + o.reqId, auto: true,
+      files: [{ path: dir + "namespace.yaml", add: 19, del: 0 }, { path: dir + "resourcequota.yaml", add: 16, del: 0 }, { path: dir + "limitrange.yaml", add: 17, del: 0 }, { path: dir + "token-issuer-rolebinding.yaml", add: 17, del: 0 }],
+      checks: [{ n: "kyverno-bundle", s: "pending" }, { n: "kubeconform", s: "pending" }, { n: "cmapi-check", s: "pending", note: "approved · hash" }],
+      reviewers: [] };
+    s.node.git = "PR #" + o.pr + " open"; s.node.api = "Tracking";
+    ev(s, T.pr, "pr_opened", "api-bot", "PR #" + o.pr + " on " + o.branch);
+  }
+});
+steps.push({
+  lane: "git", title: "CI and the cmapi check pass",
+  body: "CI runs the same Kyverno bundle and kubeconform, so a hand edit to the branch cannot slip through. The cmapi check asks cmapi whether request " + o.reqId + " is approved and whether the PR head matches the approved plan hash; a push after approval, or a PR with no approved request, fails it.",
+  code: { label: "cmapi check", text: "request     " + o.reqId + "\nstatus      approved (" + (_auto ? "auto:baseline-rnd-namespace" : "1 of 1, " + _group) + ")\nplan hash   " + _hash + " = PR head\nresult      pass" },
+  apply: function (s) {
+    s.pr.checks = [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "cmapi-check", s: "pass", note: "approved · hash matches" }];
+    s.node.git = "All checks green";
+    ev(s, T.ci, "ci_passed", "ci", "Policy, kubeconform and the cmapi check green", "ok");
+  }
+});
+steps.push({
+  lane: "git", title: "The bot merges to main",
+  body: "With every check green the cmapi bot merges PR #" + o.pr + "; only the bot may merge under <code>clusters/</code>. Commit <code>" + o.sha + "</code> is the desired state for " + o.cluster + ", and the Git webhook moves the request to merged.",
+  code: { label: "Webhook → POST /api/v1/webhooks/git", text: J({ event: "pull_request.closed", merged: true, pr: o.pr, merge_commit: o.sha, merged_by: "cmapi-bot", base: "main", signature: "verified" }) },
+  apply: function (s) { s.pr.state = "merged"; s.req.status = "merged"; s.node.git = "main @ " + o.sha; ev(s, T.merged, "merged", "cmapi-bot", "Merged as " + o.sha); }
+});
     steps.push({
       lane: "argo", title: "Argo CD on " + o.cluster + " syncs",
-      body: "The cluster's own Argo CD watches only <code>clusters/" + o.cluster + "/</code>. It finds " + o.sha + ", creates the Namespace, and Kyverno admission checks it against the same bundle. namespace-configuration-operator sees <code>cmapi.net/tier: medium</code> and stamps the ResourceQuota and LimitRange. cmapi learns the result " + (prod ? "from Argo CD Notifications (syncSignal: notify on " + o.cluster + ")." : "by polling the root Application every 30 seconds (syncSignal: poll)."),
+      body: "The cluster's own Argo CD watches only <code>clusters/" + o.cluster + "/</code>. It finds " + o.sha + ", creates the Namespace, and Kyverno admission checks it against the same bundle. The ResourceQuota, LimitRange and token-issuer RoleBinding come from the same folder, so what syncs is exactly what was reviewed and hashed; nothing on the cluster expands them. cmapi learns the result " + (prod ? "from Argo CD Notifications (syncSignal: notify on " + o.cluster + ")." : "by polling the root Application every 30 seconds (syncSignal: poll)."),
       checks: [
         { s: "pass", l: "Kyverno admission", n: "bundle v1.4.0, Enforce" },
         { s: "pass", l: "Namespace created", n: "wave 0" },
-        { s: "pass", l: "Quota and limits stamped", n: "namespace-configuration-operator" }
+        { s: "pass", l: "Quota, limits and RoleBinding synced", n: "from the namespace folder" }
       ],
-      code: { label: "Live ResourceQuota on " + o.cluster, text: "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: namespace-quota\n  namespace: " + o.ns + "\n  labels:\n    cmapi.net/cluster-id: " + o.cluster + "\n    cmapi.net/tier: medium\nspec:\n  hard:\n    requests.cpu: \"16\"\n    requests.memory: 32Gi\n    pods: \"100\"" },
+      code: { label: "Live ResourceQuota on " + o.cluster, text: "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: " + o.ns + "-quota\n  namespace: " + o.ns + "\n  labels:\n    cmapi.net/cluster-id: " + o.cluster + "\n    cmapi.net/tier: medium\nspec:\n  hard:\n    requests.cpu: \"16\"\n    requests.memory: 32Gi\n    pods: \"100\"" },
       apply: function (s) {
         s.argo.rev = o.sha; s.argo.sync = "OutOfSync"; s.argo.health = "Progressing"; s.argo.note = "";
         s.argo.resources = [
           { wave: "0", kind: "Namespace", name: o.ns, by: "Argo CD", st: "Synced" },
-          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Created" },
-          { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Created" }
+          { wave: "—", kind: "ResourceQuota", name: o.ns + "-quota", by: "Argo CD", st: "Created" },
+          { wave: "—", kind: "LimitRange", name: o.ns + "-limits", by: "Argo CD", st: "Created" }
         ];
         s.node.argo = "Syncing @ " + o.sha;
       }
@@ -471,7 +466,7 @@ table.res td .pill { font-size: 0.72rem; }
 
     steps.push({
       lane: "argo", also: ["api"], title: "Synced; reservation released",
-      body: "The Application is Synced and Healthy. The status worker records synced, and the reservation ends as soon as the new ResourceQuota appears in cmapi's watch cache of " + o.cluster + ", so those 16 cores are counted once, as committed quota. Lead time: <b>" + dur(T.synced) + "</b>" + (prod ? ", most of it waiting for review." : ", with no person involved."),
+      body: "The Application is Synced and Healthy. The status worker records synced, and the reservation ends once a direct read of " + o.cluster + " shows the new ResourceQuota, so those 16 cores are counted once, as committed quota. Lead time: <b>" + dur(T.synced) + "</b>" + (prod ? ", most of it waiting for review." : ", with no person involved."),
       code: { label: "GET /api/v1/requests/" + o.reqId, text: J({ requestId: o.reqId, clusterId: o.cluster, status: "synced", prNumber: o.pr, mergeCommit: o.sha, syncStatus: "Synced", health: "Healthy", reservation: { id: o.placementId, released: "observed" }, leadTimeSeconds: T.synced }) },
       apply: function (s) {
         s.argo.sync = "Synced"; s.argo.health = "Healthy";
@@ -484,29 +479,36 @@ table.res td .pill { font-size: 0.72rem; }
       }
     });
 
-    return { init: init, steps: steps };
+    if (A.agent) steps.push({
+    lane: "caller", title: "The agent cannot change or delete it",
+    body: "cmapi-onboarding creates and nothing else. When the agent tries to raise " + o.ns + " to tier large or delete it, cmapi answers <b>403</b> before any plan: no role in its token grants namespaces:write. Changes go to a person or pipeline holding cmapi-requester, through the normal approval rules.",
+    checks: [{ s: "fail", l: "PATCH tier large", n: "403 forbidden" }, { s: "fail", l: "DELETE", n: "403 forbidden" }],
+    code: { label: "403 · application/problem+json", text: J({ type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission namespaces:write: no role in your token grants it (roles: ['cmapi-onboarding'])" }) },
+    apply: function (s) { s.node.caller = "403 on change or delete"; ev(s, T.synced + 60, "refused", "bot-user", "PATCH and DELETE: namespaces:write not granted", "fail"); }
+  });
+  return { init: init, steps: steps };
   }
 
   /* ---------- Quota change on an existing namespace: live usage through the gateway ---------- */
   function quotaScenario() {
     var c = "OCP_GF1", ns = "payments-prod", req = "req-20261103-9c02", pr = 418, sha = "c7d21f0", prev = "a41c9e2";
     var branch = c + "/" + ns + "/" + req;
-    var file = "clusters/" + c + "/namespaces/" + ns + "/" + ns + "-prod-project-meta.yml";
+    var dir = "clusters/" + c + "/namespaces/" + ns + "/"; var file = dir + "resourcequota.yaml";
     var init = {
       cluster: c, laneNames: { api: { name: "cmapi-api", sub: "prod instance" } }, node: baseNodes(prev), req: null, pr: null, cap: null,
       capNote: "No usage read yet. Namespace usage is never stored per interval; it is read live only when a plan needs it.",
       argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
         resources: [
           { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: medium" },
-          { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16" },
-          { wave: "—", kind: "LimitRange", name: "namespace-limits", by: "operator", st: "Synced", ch: "" }
+          { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 16 · memory 32Gi" },
+          { wave: "—", kind: "LimitRange", name: ns + "-limits", by: "Argo CD", st: "Synced", ch: "" }
         ] },
       events: [], blocked: {}
     };
     var steps = [];
     steps.push({
       lane: "caller", title: "Ask for a bigger tier",
-      body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its CPU quota from 16 to 32 cores. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
+      body: "The team asks to move <b>" + ns + "</b> from tier medium to large, doubling its quota from 16 to 32 cores and from 32 to 64 Gi of memory. The PATCH carries the ETag from their last GET in If-Match, so a stale edit cannot overwrite someone else's change.",
       code: { label: "PATCH /api/v1/clusters/" + c + "/namespaces/" + ns, text:
         'curl -s -X PATCH "$CMAPI/clusters/' + c + '/namespaces/' + ns + '" \\\n' +
         '  -H "Authorization: Bearer $TOKEN" \\\n' +
@@ -519,13 +521,13 @@ table.res td .pill { font-size: 0.72rem; }
     });
     steps.push({
       lane: "api", title: "Authenticate, authorize, lock",
-      body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write, and the payments binding covers " + c + " prod. The If-Match ETag equals the Git blob SHA of the project-meta file, and no other request is open on this namespace.",
+      body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write in prod (config/authz-roles.yaml); there is no team or namespace scope to check. The If-Match ETag equals the Git blob SHA of resourcequota.yaml, and no other request is open on this namespace.",
       checks: [
-        { s: "pass", l: "JWT, role and scope binding", n: "cmapi-requester · " + c + " · prod" },
+        { s: "pass", l: "JWT and role", n: "cmapi-requester · " + c + " · prod" },
         { s: "pass", l: "If-Match matches current ETag", n: "9b2e4f1c8a7d" },
         { s: "pass", l: "Object lock free", n: "Namespace " + ns }
       ],
-      code: { label: "Pre-checks", text: "etag (git blob of project-meta)   9b2e4f1c8a7d   matches If-Match\nopen request (" + c + ", Namespace, " + ns + ")   none\nidempotency key 3d9e0b7a…   new" },
+      code: { label: "Pre-checks", text: "etag (git blob of resourcequota.yaml)   9b2e4f1c8a7d   matches If-Match\nopen request (" + c + ", Namespace, " + ns + ")   none\nidempotency key 3d9e0b7a…   new" },
       apply: function (s) { s.node.api = "Lock free"; s.node.keycloak = "Not contacted (JWKS cached)"; }
     });
     steps.push({
@@ -540,7 +542,7 @@ table.res td .pill { font-size: 0.72rem; }
         "                 now    7d avg   14d p95   14d peak   quota\n" +
         "cpu (cores)      6.1    5.4      8.2       9.6        16 → 32\n" +
         "memory (Gi)      11.8   10.9     15.9      17.2       32 → 64\n" +
-        "request / peak   32 / 9.6 = 3.3   > 3, flagged" },
+        "request / peak   cpu 32 / 9.6 = 3.3 · memory 64 / 17.2 = 3.7   > 3, flagged" },
       apply: function (s) {
         s.node.capacity = "Thanos read, cached 10 min"; s.node.api = "Planning";
         s.cap = { title: "Live usage · " + ns + " · 14 days", pill: { t: "not stored", tone: "info" },
@@ -550,73 +552,73 @@ table.res td .pill { font-size: 0.72rem; }
           note: "If Thanos had not answered in 10 seconds, the plan would carry usage: unavailable and need a platform approval instead of failing." };
       }
     });
+
+steps.push({
+  lane: "api", title: "Plan and capacity check",
+  body: "The tier change renders as the tier label on namespace.yaml and the large values from tiers.yaml in resourcequota.yaml and limitrange.yaml, and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota and active reservations leaves 64 cores and 192 Gi of quota headroom, 48 cores and 160 Gi after this change, so it fits. But commitment rises from 78% to 84% on CPU and from 76% to 80% on memory, past prod's 80% warning line. The +16 cores and +32 Gi are reserved so no other request can take them while this one waits.",
+  checks: [
+    { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
+    { s: "warn", l: "Capacity fits, at warn", n: "cpu 78% → 84% · memory 76% → 80% (prod warns at 80%)" },
+    { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" },
+    { s: "pass", l: "Delta reserved", n: "+16 cores, +32 Gi on " + c }
+  ],
+  code: { label: "Diff · " + file, diff: true, text: "--- a/" + file + "\n+++ b/" + file + "\n   metadata:\n     labels:\n-      cmapi.net/tier: medium\n+      cmapi.net/tier: large\n   spec:\n     hard:\n-      requests.cpu: \"16\"\n+      requests.cpu: \"32\"\n-      requests.memory: 32Gi\n+      requests.memory: 64Gi\n-      pods: \"100\"\n+      pods: \"200\"\n\n(namespace.yaml: the tier label · limitrange.yaml: tier large defaults)" },
+  apply: function (s) {
+    s.req = { id: req, status: "validated", cluster: c, ns: ns, action: "patch Namespace (tier)", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
+    s.node.api = "Plan ready, 2 warnings";
+    ev(s, 2, "validated", "api-bot", "Plan passed with 2 warnings: capacity warn, 3.3× 14-day peak", "");
+  }
+});
+steps.push({
+  lane: "api", title: "Waiting for three approvals in cmapi",
+  body: "A prod change needs one prod approver. Two thresholds each add one from platform-leads: the request-to-peak ratio is over 3, and capacity would be at warn. No auto-approval can apply, because thresholds added approvers and the plan has warnings. cmapi answers <b>202 pending_approval</b>; nothing is written to Git while the approvers decide.",
+  code: { label: "202 Accepted → caller", text: J({ requestId: req, status: "pending_approval", prUrl: null, approval: { rule: "prod-change", requiredCount: 3, count: 0, autoApproved: false, eligibleGroups: { "prod-approvers": 1, "platform-leads": 2 }, reasons: ["Environment 'prod' requires 1 approval for change", "requestToPeakRatio 3.3 > 3 (+1 platform-leads)", "capacity warn on " + c + " (+1 platform-leads)"] }, facts: { quotaIncreasePct: 100, requestToPeakRatio: 3.3, capacity: "warn" } }) },
+  apply: function (s) { s.req.status = "pending_approval"; s.req.rule = "prod-change"; s.req.need = 3; s.node.api = "Waiting: 0 of 3"; s.node.caller = "202 received"; s.prMsg = "No pull request yet. cmapi opens one only after all three approvals."; ev(s, 3, "pending_approval", "api-bot", "Notified prod-approvers and platform-leads (portal, email)"); }
+});
+steps.push({
+  lane: "api", also: ["caller"], title: "Three approvals in cmapi",
+  body: "sre-lead approves for prod-approvers. Two platform-leads approve after reading the usage table in the portal, noting that the load test runs for three weeks and that " + c + " should be watched while it does. Each approval is a :approve call with the person's own token. At 3 of 3 cmapi checks capacity again (still fits, at warn) and the request is <b>approved</b>.",
+  checks: [
+    { s: "pass", l: "sre-lead", n: "prod-approvers" },
+    { s: "pass", l: "platform-lead", n: "platform-leads (ratio)" },
+    { s: "pass", l: "capacity-lead", n: "platform-leads (capacity)" },
+    { s: "pass", l: "Capacity checked again", n: "fits, at warn" }
+  ],
+  code: { label: "GET /api/v1/requests/" + req + "/approval-status", text: "rule        prod-change\nrequired    3 (prod-approvers 1, platform-leads 2)\napproved    sre-lead, platform-lead, capacity-lead\nrequester   excluded (dev-lead)\nresult      3 of 3 · approved" },
+  apply: function (s) {
+    s.req.status = "approved"; s.req.have = 3; s.node.api = "Approved 3 of 3"; s.node.caller = "Approved";
+    ev(s, 1260, "approval_received", "sre-lead@ephico2real.com", "1 of 3 approvals", "");
+    ev(s, 3480, "approval_received", "platform-lead@ephico2real.com", "2 of 3 approvals", "");
+    ev(s, 3600, "approved", "capacity-lead@ephico2real.com", "3 of 3 approvals", "ok");
+  }
+});
+steps.push({
+  lane: "git", title: "Bot PR with the evidence, merged on CI",
+  body: "Only now does the worker open PR #" + pr + ", with the one-line change, the request ID, the plan hash and the usage table in its body. CI re-runs the bundle and kubeconform, and the cmapi check confirms the request is approved and the head matches the plan. The bot merges as <code>" + sha + "</code>.",
+  code: { label: "PR #" + pr + " body (excerpt)", text: "cmapi request   " + req + " · approved 3 of 3 (sre-lead, platform-lead, capacity-lead)\nplan hash       sha256:" + sha + "77b0\n                 now    7d avg   14d peak   quota\ncpu (cores)      6.1    5.4      9.6        16 → 32\nmemory (Gi)      11.8   10.9     17.2       32 → 64\ncluster          cpu 78% → 84%, memory 76% → 80% committed (warn)" },
+  apply: function (s) {
+    s.req.status = "merged"; s.req.pr = "#" + pr; s.prMsg = "";
+    s.pr = { num: pr, title: "Change tier of " + ns + " to large on " + c, branch: branch, state: "merged", label: "cmapi/" + req, auto: true,
+      files: [{ path: dir + "namespace.yaml", add: 1, del: 1 }, { path: file, add: 4, del: 4 }, { path: dir + "limitrange.yaml", add: 3, del: 3 }],
+      checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "cmapi-check", s: "pass", note: "approved 3 of 3 · hash matches" }],
+      reviewers: [] };
+    s.node.git = "main @ " + sha;
+    ev(s, 3605, "pr_opened", "api-bot", "PR #" + pr + " on " + branch);
+    ev(s, 3725, "ci_passed", "ci", "Policy, kubeconform and the cmapi check green", "ok");
+    ev(s, 3730, "merged", "cmapi-bot", "Merged as " + sha);
+  }
+});
     steps.push({
-      lane: "api", title: "Plan and capacity check",
-      body: "The tier change renders as one label in the project-meta file and passes the policy bundle. The cluster check needs no Thanos call: " + c + "'s 17:00 snapshot plus committed quota from the watch cache and active reservations leaves 64 cores of quota headroom, 48 after this change.",
-      checks: [
-        { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 pass" },
-        { s: "pass", l: "Cluster capacity fits", n: "headroom 64 → 48 cores, prod overcommit 1.0" },
-        { s: "warn", l: "Plan warning", n: "request 3.3× the 14-day peak" }
-      ],
-      code: { label: "Diff · " + file, diff: true, text: "@@ labels @@\n   cmapi.net/cluster-id: " + c + "\n-  cmapi.net/tier: medium\n+  cmapi.net/tier: large\n   cmapi.net/team: payments" },
-      apply: function (s) {
-        s.req = { id: req, status: "validated", cluster: c, ns: ns, action: "patch Namespace (tier)", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
-        s.node.api = "Plan ready, 1 warning";
-        ev(s, 2, "validated", "api-bot", "Plan passed with 1 warning: 3.3× 14-day peak", "");
-      }
-    });
-    steps.push({
-      lane: "api", title: "Approval rules add a reviewer",
-      body: "A prod change needs one prod approver. The requestToPeakRatio threshold adds one from platform-leads. No auto-approval applies: a threshold added approvers and the plan has a warning, both guards that no policy can switch off. cmapi answers <b>202</b>.",
-      code: { label: "ApprovalRequirement", text: J({ rule: "prod-change", requiredCount: 2, autoApproved: false, eligibleGroup: "prod-approvers + platform-leads", reasons: ["Environment 'prod' requires 1 approval for change", "requestToPeakRatio 3.3 > 3: possible over-provisioning (+1 platform-leads)"], facts: { quotaIncreasePct: 100, requestToPeakRatio: 3.3, capacity: "fits", verdicts: ["right-sized"] } }) },
-      apply: function (s) { s.req.rule = "prod-change"; s.req.need = 2; s.node.api = "Rule: prod-change (2)"; s.node.caller = "202 received"; }
-    });
-    steps.push({
-      lane: "git", title: "Pull request with the evidence",
-      body: "The worker opens PR #" + pr + " with the one-line change and the usage table in its body, so reviewers see the numbers next to the diff. CI re-runs the bundle and kubeconform; approval-count waits for two eligible reviews.",
-      code: { label: "PR #" + pr + " body (excerpt)", text:
-        "cmapi plan · " + c + " · " + ns + " (tier medium → large)\n" +
-        "                 now    7d avg   14d peak   quota\n" +
-        "cpu (cores)      6.1    5.4      9.6        16 → 32\n" +
-        "memory (Gi)      11.8   10.9     17.2       32 → 64\n" +
-        "flag             request 3.3× 14-day peak (threshold 3×)\n" +
-        "cluster          quota headroom 64 → 48 cores, fits\n" +
-        "approval         prod-change · 2 (prod-approvers, platform-leads)" },
-      apply: function (s) {
-        s.req.status = "pr_open"; s.req.pr = "#" + pr;
-        s.pr = { num: pr, title: "Change tier of " + ns + " to large on " + c, branch: branch, state: "open", label: "approval/prod-change-2",
-          files: [{ path: file, add: 1, del: 1 }],
-          checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "kubeconform", s: "pass" }, { n: "approval-count", s: "pending", note: "0 of 2" }],
-          reviewers: [{ who: "prod-approvers", s: "requested" }, { who: "platform-leads", s: "requested" }] };
-        s.node.git = "PR #" + pr + " · 0 of 2";
-        ev(s, 4, "pr_opened", "api-bot", "PR #" + pr + " on " + branch);
-        ev(s, 125, "ci_passed", "ci", "Policy and kubeconform green; waiting for 2 approvals");
-      }
-    });
-    steps.push({
-      lane: "git", title: "Two reviewers approve, then merge",
-      body: "sre-lead approves for prod-approvers; platform-lead approves after reading the usage table, noting the load test runs for three weeks. approval-count reaches 2 of 2 and platform-lead merges as <code>" + sha + "</code>.",
-      code: { label: "approval-count check", text: "rule        prod-change\nrequired    2 (prod-approvers 1, platform-leads 1)\napproved    sre-lead@ephico2real.com, platform-lead@ephico2real.com\nresult      2 of 2 · pass" },
-      apply: function (s) {
-        s.pr.reviewers = [{ who: "sre-lead@ephico2real.com", s: "approved" }, { who: "platform-lead@ephico2real.com", s: "approved" }];
-        s.pr.checks[2] = { n: "approval-count", s: "pass", note: "2 of 2" };
-        s.pr.state = "merged"; s.req.status = "merged"; s.req.have = 2; s.node.git = "main @ " + sha;
-        ev(s, 1260, "approval_received", "sre-lead@ephico2real.com", "1 of 2 approvals", "");
-        ev(s, 3480, "approval_received", "platform-lead@ephico2real.com", "2 of 2 approvals", "ok");
-        ev(s, 3540, "merged", "platform-lead@ephico2real.com", "Merged as " + sha);
-      }
-    });
-    steps.push({
-      lane: "argo", title: "Sync: label applied, quota re-stamped",
-      body: "Argo CD on " + c + " patches the tier label; namespace-configuration-operator matches the large template and raises the ResourceQuota to 32 cores and 64Gi. Kyverno admission passes both. The request closes as synced after " + dur(3720) + ". The daily sweep keeps reading this namespace; if its peak stays near 9.6 cores it will record quota-oversized and propose a smaller quota, which still goes through a normal request.",
+      lane: "argo", title: "Sync: label and quota applied",
+      body: "Argo CD on " + c + " applies the three changed files: the tier label, the ResourceQuota at 32 cores and 64Gi and the large LimitRange, exactly as written in Git. Kyverno admission passes both. The request closes as synced after " + dur(3900) + ". The daily sweep keeps reading this namespace; if its peak stays near 9.6 cores it will record quota-oversized and propose a smaller quota, which still goes through a normal request.",
       code: { label: "Live ResourceQuota on " + c, diff: true, text: "spec:\n  hard:\n-   requests.cpu: \"16\"\n+   requests.cpu: \"32\"\n-   requests.memory: 32Gi\n+   requests.memory: 64Gi" },
       apply: function (s) {
         s.argo.rev = sha;
         s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "tier: large" };
-        s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: "namespace-quota", by: "operator", st: "Synced", ch: "cpu 16 → 32" };
-        s.req.status = "synced"; s.req.lead = dur(3720);
+        s.argo.resources[1] = { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 16 → 32 · memory 32Gi → 64Gi" };
+        s.req.status = "synced"; s.req.lead = dur(3900);
         s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Sees synced";
-        ev(s, 3720, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
+        ev(s, 3900, "synced", "argocd", c + " Synced and Healthy at " + sha, "ok");
       }
     });
     return { init: init, steps: steps };
@@ -649,9 +651,9 @@ table.res td .pill { font-size: 0.72rem; }
     });
     steps.push({
       lane: "api", title: "Authenticate, authorize, lock",
-      body: "The service-account token is valid, its role grants grants:write and its binding covers " + c + " payments-*. deploy-bot exists live in " + ns + ", and no open request targets this grant.",
+      body: "The service-account token is valid, its role, cmapi-requester, grants grants:write in prod. deploy-bot exists live in " + ns + ", and no open request targets this grant.",
       checks: [
-        { s: "pass", l: "JWT, role and scope binding", n: "svc-payments-ci · grants:write" },
+        { s: "pass", l: "JWT and role", n: "svc-payments-ci · grants:write" },
         { s: "pass", l: "ServiceAccount exists", n: ns + "/deploy-bot" },
         { s: "pass", l: "Object lock free" }
       ],
@@ -756,32 +758,35 @@ table.res td .pill { font-size: 0.72rem; }
       code: { label: "POST /api/v1/operations", text: 'curl -s -X POST "$CMAPI/operations" \\\n  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n  -d \'{"template": "cluster-onboard", "parameters": {"cluster-id": "' + c + '"}}\'\n\n# → 202 {"operationId": "' + op + '", "engine": "builtin", "phase": "Running"}' },
       apply: function (s) { s.req.status = "running"; s.req.action = "cluster-onboard"; s.node.api = "Operation running"; ev(s, 1800, "operation_started", "platform-operator@ephico2real.com", "cluster-onboard " + c); }
     });
-    steps.push({
-      lane: "git", title: "PR adds the clusters.yaml entry",
-      body: "propose-registry opens a request whose PR adds " + c + "'s policy and classification: environment, writes, sync signal, region, zones and placement settings. The connection never goes in Git; it stays in the import Secret.",
-      code: { label: "Diff · config/clusters.yaml", diff: true, text: "@@ end of file @@\n+- clusterId: " + c + "\n+  environment: rnd\n+  gitopsPath: clusters/" + c + "\n+  writes: true\n+  syncSignal: poll\n+  metadata:\n+    region: us-central\n+    zones: [us-central-1a, us-central-1b, us-central-1c]\n+    datacenter: dfw-dc2\n+    provider: vsphere\n+  placement:\n+    enabled: true\n+    maxNamespaces: 400" },
-      apply: function (s) {
-        s.req.pr = "#" + pr; s.node.git = "PR #" + pr + " open";
-        s.pr = { num: pr, title: "Register " + c + " (rnd, us-central)", branch: "registry/" + c + "/" + op, state: "open", label: "cluster-onboard",
-          files: [{ path: "config/clusters.yaml", add: 13, del: 0 }],
-          checks: [{ n: "config-validate", s: "pass", note: "metadata rules" }, { n: "approval-count", s: "pending", note: "0 of 1" }],
-          reviewers: [{ who: "platform-leads", s: "requested" }] };
-        ev(s, 1810, "pr_opened", "api-bot", "PR #" + pr + " adds " + c + " to clusters.yaml");
-      }
-    });
-    steps.push({
-      lane: "git", title: "Approved, merged, reloaded",
-      body: "A platform lead approves and merges. The ConfigMap updates and cmapi reloads it; the zones declared in Git match the nodes' topology labels, so no zone-mismatch finding is raised. " + c + " is now writable.",
-      code: { label: "GET /api/v1/clusters/" + c + " (after reload)", text: J({ clusterId: c, status: "connected", environment: "rnd", writable: true, labels: { region: "us-central", zone: ["us-central-1a", "us-central-1b", "us-central-1c"], environment: "rnd", provider: "vsphere", datacenter: "dfw-dc2" }, findings: [] }) },
-      apply: function (s) {
-        s.pr.reviewers = [{ who: "platform-lead@ephico2real.com", s: "approved" }]; s.pr.checks[1] = { n: "approval-count", s: "pass", note: "1 of 1" }; s.pr.state = "merged";
-        s.node.git = "main @ " + sha; s.node.api = "Writable";
-        ev(s, 2400, "merged", "platform-lead@ephico2real.com", "Registry entry merged as " + sha, "ok");
-      }
-    });
+
+steps.push({
+  lane: "api", also: ["caller"], title: "Registry change waits for approval in cmapi",
+  body: "propose-registry plans " + c + "'s clusters.yaml entry: environment, writes, sync signal, region, zones and placement settings. The connection never goes in Git; it stays in the import Secret. Registering a cluster needs one platform-lead, so the request waits in <b>pending_approval</b> and nothing is written to Git until a platform lead approves it in the portal.",
+  code: { label: "Plan · config/clusters.yaml", diff: true, text: "@@ end of file @@\n+- clusterId: " + c + "\n+  environment: rnd\n+  gitopsPath: clusters/" + c + "\n+  writes: true\n+  syncSignal: poll\n+  metadata:\n+    region: us-central\n+    zones: [us-central-1a, us-central-1b, us-central-1c]\n+    datacenter: dfw-dc2\n+    provider: vsphere\n+  placement:\n+    enabled: true\n+    maxNamespaces: 400" },
+  apply: function (s) {
+    s.req.status = "pending_approval"; s.req.rule = "cluster-onboard"; s.req.need = 1; s.req.have = 0; s.node.api = "Waiting for platform-leads";
+    s.prMsg = "No pull request yet. The registry change is opened as a bot PR only after a platform lead approves it in cmapi.";
+    ev(s, 1810, "pending_approval", "api-bot", "Registry change for " + c + " waits for platform-leads (portal, email)");
+  }
+});
+steps.push({
+  lane: "git", title: "Approved, bot PR merged, reloaded",
+  body: "A platform lead approves in the portal (:approve). Only then does the worker open PR #" + pr + " as the bot; config-validate and the cmapi check pass and the bot merges. The ConfigMap updates and cmapi reloads it; the zones declared in Git match the nodes' topology labels, so no zone-mismatch finding is raised. " + c + " is now writable.",
+  code: { label: "GET /api/v1/clusters/" + c + " (after reload)", text: J({ clusterId: c, status: "connected", environment: "rnd", writable: true, labels: { region: "us-central", zone: ["us-central-1a", "us-central-1b", "us-central-1c"], environment: "rnd", provider: "vsphere", datacenter: "dfw-dc2" }, findings: [] }) },
+  apply: function (s) {
+    s.req.have = 1; s.req.pr = "#" + pr; s.prMsg = "";
+    s.pr = { num: pr, title: "Register " + c + " (rnd, us-central)", branch: "registry/" + c + "/" + op, state: "merged", label: "cmapi/" + op, auto: true,
+      files: [{ path: "config/clusters.yaml", add: 13, del: 0 }],
+      checks: [{ n: "config-validate", s: "pass", note: "metadata rules" }, { n: "cmapi-check", s: "pass", note: "approved · hash matches" }],
+      reviewers: [] };
+    s.node.git = "main @ " + sha; s.node.api = "Writable";
+    ev(s, 2390, "approved", "platform-lead@ephico2real.com", "1 of 1 approvals (platform-leads)", "ok");
+    ev(s, 2400, "merged", "cmapi-bot", "Registry entry merged as " + sha, "ok");
+  }
+});
     steps.push({
       lane: "argo", title: "Smoke test through Argo CD",
-      body: "smoke-test creates an rnd namespace on " + c + " through the normal pipeline, waits for Argo CD to report it Synced, then deletes it through a second request. Both are ordinary requests, so the path every team will use is proven end to end.",
+      body: "smoke-test creates an rnd namespace on " + c + " through the normal pipeline, waits for Argo CD to report it Synced, then deletes it through a second request and confirms the prune itself. Both are ordinary requests, so the path every team will use is proven end to end.",
       code: { label: "smoke-test", text: "create   cmapi-smoke-0c4f   PR #422   synced in 2 min 40 s\ndelete   cmapi-smoke-0c4f   PR #423   pruned in 1 min 50 s\nresult   pass" },
       apply: function (s) {
         s.argo.resources = [{ wave: "0", kind: "Namespace", name: "cmapi-smoke-0c4f", by: "Argo CD", st: "Pruned", ch: "created then deleted" }];
@@ -837,7 +842,7 @@ table.res td .pill { font-size: 0.72rem; }
       lane: "api", title: "Environment not served",
       body: "Before any plan, cmapi checks the requested environment against its configured <code>allowedEnvironments</code>. prod is not in [rnd, dev], so it answers 422 with the instance that does serve it. No row, no placement, no PR.",
       checks: [
-        { s: "pass", l: "JWT, role and scope binding", n: "audience cmapi-nonprod" },
+        { s: "pass", l: "JWT and role", n: "audience cmapi-nonprod" },
         { s: "fail", l: "Environment served by this instance", n: "prod not in [rnd, dev]" }
       ],
       code: { label: "422 · application/problem+json", text: JSON.stringify({ type: "https://cmapi.ephico2real.com/problems/environment-not-served", title: "Environment not served by this instance", status: 422, detail: "This is the nonprod instance; it serves rnd, dev.", environment: env, instance: "nonprod", servedBy: "prod", instanceUrl: right.api + "/api/v1", portalUrl: right.portal }, null, 2) },
@@ -850,29 +855,128 @@ table.res td .pill { font-size: 0.72rem; }
     });
     steps.push({
       lane: "caller", title: "Go to the prod portal",
-      body: "The portal turns the problem into a link to <b>" + right.portal + "</b>. There the person signs in through the prod client and needs a role bound in the prod instance's authz-scopes.yaml; access in nonprod grants nothing in prod.",
+      body: "The portal turns the problem into a link to <b>" + right.portal + "</b>. There the person signs in through the prod client and needs a role on that instance's Keycloak client (" + right.aud + "); access in nonprod grants nothing in prod.",
       code: { label: "Portal message", text: "prod namespaces are created in the Production portal.\nOpen " + right.portal + " to continue.\nYour roles there come from the cmapi-prod client in Keycloak." },
       apply: function (s) { s.node.caller = "Redirected to prod"; }
     });
     return { init: init, steps: steps };
   }
 
+
+function expiryScenario() {
+  var c = "OCP_GF6", ns = "payments-perf-rnd", req = "req-20261103-e7d0", pr = 437, sha = "5b8e1aa", prev = "e90b3d4";
+  var file = "clusters/" + c + "/namespaces/" + ns + "/";
+  var init = {
+    cluster: c, laneNames: { caller: { name: "Team DL and operator", sub: "notified; confirms the prune" }, api: { name: "cmapi-api", sub: "nonprod instance" } },
+    node: baseNodes(prev), req: null, pr: null, cap: null,
+    capNote: "Nothing to place. When the namespace is gone its quota returns to " + c + "'s headroom.",
+    argo: { app: "cluster-configs-" + c, rev: prev, sync: "Synced", health: "Healthy", note: "",
+      resources: [
+        { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Synced", ch: "expires-at 2026-10-27" },
+        { wave: "—", kind: "ResourceQuota", name: ns + "-quota", by: "Argo CD", st: "Synced", ch: "cpu 8 · memory 16Gi" },
+        { wave: "—", kind: "LimitRange", name: ns + "-limits", by: "Argo CD", st: "Synced", ch: "" }
+      ] },
+    events: [], blocked: {}
+  };
+  var steps = [];
+  steps.push({
+    lane: "api", also: ["caller"], title: "Notices at 14, 7 and 1 days",
+    body: "<b>" + ns + "</b> was created on Sep 15 with an optional expiry of Oct 27 (rnd allows it; prod never does). The worker's daily <code>expire_check</code> sent notices to the payments team DL (payments-team@ephico2real.com) on Oct 13, Oct 20 and Oct 26, each with a link to the Expiration tab where Extend is one click. Nobody extended.",
+    checks: [
+      { s: "pass", l: "Expiry is optional and non-prod", n: "rnd" },
+      { s: "pass", l: "Notices sent", n: "14, 7 and 1 days before" },
+      { s: "pending", l: "Extensions", n: "none (30 days each, 180 in total)" }
+    ],
+    code: { label: "GET /api/v1/clusters/" + c + "/namespaces/" + ns + "/expiration", text: J({ expiresAt: "2026-10-27", state: "active", daysLeft: 1, lifetimeDaysUsed: 42, maxLifetimeDays: 180, maxExtensionDays: 30, notices: ["2026-10-13", "2026-10-20", "2026-10-26"], graceDays: 7 }) },
+    apply: function (s) { s.node.api = "Notices sent (3)"; s.node.caller = "Notified 3 times"; ev(s, 0, "expiry_notice", "expire_check", ns + ": expires Oct 27 (14, 7, 1 days)"); }
+  });
+  steps.push({
+    lane: "api", title: "Expiry date: grace begins",
+    body: "On Oct 27 the namespace enters a 7-day <b>grace</b>. It keeps running, it can still be extended or made permanent, and the Expiration tab flags it under In grace. Kyverno does nothing: cmapi never deletes on a timer, and a Kyverno cleanup would leave the folder in Git for Argo CD to recreate.",
+    checks: [
+      { s: "warn", l: "State", n: "grace, 7 days" },
+      { s: "pass", l: "Still running and extendable", n: "" }
+    ],
+    code: { label: "GET /api/v1/expirations?state=grace", text: J({ items: [{ clusterId: c, namespace: ns, team: "payments", expiresAt: "2026-10-27", state: "grace", graceEnds: "2026-11-03", noticesSent: 3 }], page: { limit: 50, total: 1, from: 1, to: 1, nextCursor: null, prevCursor: null } }) },
+    apply: function (s) { s.node.api = "In grace until Nov 3"; ev(s, 60, "expiry_grace", "expire_check", ns + ": grace until Nov 3", ""); }
+  });
+  steps.push({
+    lane: "api", title: "Grace over: a delete request, auto-approved",
+    body: "On Nov 3 the grace ends with no extension, so <code>expire_check</code> opens a delete request. The <b>expired-namespace</b> policy approves it, and its guards pass: no open request on the namespace, not protected, no extension in the last 24 hours, and at least two notices sent. Any other delete would wait for a person.",
+    checks: [
+      { s: "pass", l: "No open request, not protected", n: "" },
+      { s: "pass", l: "No extension in 24 h", n: "" },
+      { s: "pass", l: "Notices sent", n: "3 (at least 2)" },
+      { s: "pass", l: "Approved", n: "auto:expired-namespace" }
+    ],
+    code: { label: "Request " + req, text: J({ requestId: req, clusterId: c, plugin: "namespaces", action: "delete", namespace: ns, reason: "expired", status: "approved", approval: { rule: "rnd-delete", requiredCount: 0, autoApproved: true, autoPolicy: "expired-namespace" } }) },
+    apply: function (s) { s.req = { id: req, status: "approved", cluster: c, ns: ns, action: "delete (expired)", rule: "auto: expired-namespace", need: 0, have: 0, pr: "—", lead: "" }; s.node.api = "Delete approved"; ev(s, 120, "approved", "auto:expired-namespace", "Delete " + ns + " after grace", "ok"); }
+  });
+  steps.push({
+    lane: "git", title: "Bot PR removes the folder, merged on CI",
+    body: "The worker opens PR #" + pr + " as the bot, removing <code>" + file + "</code>. CI's delete guard checks that exactly one namespace folder is removed and that it matches an approved delete request; the cmapi check confirms the plan hash; the bot merges as <code>" + sha + "</code>.",
+    code: { label: "Diff · " + file, diff: true, text: "--- " + file + "namespace.yaml\n-apiVersion: v1\n-kind: Namespace\n-metadata:\n-  name: " + ns + "\n-  labels:\n-    cmapi.net/cluster-id: " + c + "\n-    cmapi.net/env: rnd\n-    cmapi.net/expiry: managed\n-  annotations:\n-    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n-    cmapi.net/expires-at: \"2026-10-27\"\n-    cmapi.net/team-dl: payments-team@ephico2real.com\n\n--- " + file + "resourcequota.yaml · limitrange.yaml · token-issuer-rolebinding.yaml (whole folder removed)" },
+    apply: function (s) {
+      s.req.status = "merged"; s.req.pr = "#" + pr;
+      s.pr = { num: pr, title: "Delete expired namespace " + ns + " on " + c, branch: c + "/" + ns + "/" + req, state: "merged", label: "cmapi/" + req, auto: true,
+        files: [{ path: file + "namespace.yaml", add: 0, del: 21 }, { path: file + "resourcequota.yaml", add: 0, del: 16 }, { path: file + "limitrange.yaml", add: 0, del: 17 }, { path: file + "token-issuer-rolebinding.yaml", add: 0, del: 17 }],
+        checks: [{ n: "kyverno-bundle", s: "pass" }, { n: "delete-guard", s: "pass", note: "1 folder, matching request" }, { n: "cmapi-check", s: "pass", note: "approved · hash matches" }],
+        reviewers: [] };
+      s.node.git = "main @ " + sha;
+      ev(s, 125, "pr_opened", "api-bot", "PR #" + pr); ev(s, 245, "merged", "cmapi-bot", "Merged as " + sha);
+    }
+  });
+  steps.push({
+    lane: "argo", title: "Argo CD waits for prune confirmation",
+    body: "Argo CD on " + c + " sees the folder gone. Namespaces are rendered with <code>Prune=confirm</code>, so it marks the Namespace for pruning and <b>waits</b>; the request is <b>awaiting_prune</b> and shows on the operators' queue. Data and PVCs are never removed by a timer alone.",
+    code: { label: "Application status (excerpt)", text: "sync:       OutOfSync\nresources:\n  Namespace/" + ns + "   requiresPruning: true\n  operation:  waiting for prune confirmation" },
+    apply: function (s) {
+      s.req.status = "awaiting_prune"; s.argo.rev = sha; s.argo.sync = "OutOfSync"; s.argo.health = "Healthy";
+      s.argo.resources[0] = { wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "OutOfSync", ch: "prune pending confirmation" };
+      s.node.argo = "Prune waiting"; s.node.api = "awaiting_prune";
+      ev(s, 300, "awaiting_prune", "argocd", ns + " needs prune confirmation", "");
+    }
+  });
+  steps.push({
+    lane: "argo", also: ["caller", "api"], title: "An operator confirms the prune",
+    body: "A platform operator checks the namespace (no PVCs worth keeping, team DL notified three times) and confirms the prune in Argo CD. The Namespace and its quota go; cmapi confirms with a direct read and the request is synced. The 8 cores and 16 Gi return to " + c + "'s headroom.",
+    code: { label: "GET /api/v1/requests/" + req, text: J({ requestId: req, status: "synced", action: "delete", reason: "expired", prune: { confirmedBy: "platform-operator@ephico2real.com" }, mergeCommit: sha }) },
+    apply: function (s) {
+      s.req.status = "synced"; s.req.lead = dur(5400);
+      s.argo.sync = "Synced"; s.argo.resources = [{ wave: "0", kind: "Namespace", name: ns, by: "Argo CD", st: "Pruned", ch: "deleted" }];
+      s.cap = { title: "Capacity returned · " + c, pill: { t: "headroom up", tone: "ok" }, meta: "committed quota drops when the namespace is gone",
+        cols: ["Resource", "Quota headroom"], rows: [["cpu", "96 → 104 cores"], ["memory", "410 → 426 Gi"]], note: "" };
+      s.node.argo = "Synced @ " + sha; s.node.api = "Request closed"; s.node.caller = "Prune confirmed";
+      ev(s, 5400, "synced", "platform-operator@ephico2real.com", "Prune confirmed; " + ns + " deleted", "ok");
+    }
+  });
+  return { init: init, steps: steps };
+}
+
   var SCENARIOS = [
     { id: "rnd-create", label: "New namespace · rnd", meta: "nonprod · auto-approved", build: function () {
       return createScenario({ inst: "nonprod", env: "rnd", cluster: "OCP_GF6", ns: "payments-rnd", reqId: "req-20261103-81bd", idem: "c41b77e0-9e2a-4d61-8b3f-2a6d0e5c9b18",
         placementId: "pl-20261103-5e17", overcommit: "2.0", pr: 413, branch: "OCP_GF6/payments-rnd/req-20261103-81bd", sha: "e90b3d4", prevSha: "4c1f8a2",
-        ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, p95: 0.62 }],
+        ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, mem: 410, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
         excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
         times: { validated: 3, pr: 5, ci: 120, merged: 124, synced: 300 } }); } },
     { id: "prod-create", label: "New namespace · prod", meta: "prod · 1 approval", build: function () {
       return createScenario({ inst: "prod", env: "prod", cluster: "OCP_GF1", ns: "payments-prod", reqId: "req-20261103-7f3a", idem: "7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40",
         placementId: "pl-20261103-2c81", overcommit: "1.0", pr: 412, branch: "OCP_GF1/payments-prod/req-20261103-7f3a", sha: "a41c9e2", prevSha: "5f02b1d", reviewer: "sre-lead@ephico2real.com",
-        ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, zf: 21, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, zf: 3, p95: 0.58 }],
+        ranked: [{ cluster: "OCP_GF1", score: 82, before: 64, mem: 192, zf: 21, zfMem: 78, p95: 0.41 }, { cluster: "OCP_GF2", score: 67, before: 40, mem: 230, zf: 3, zfMem: 88, p95: 0.58 }],
         excluded: [{ cluster: "OCP_GF4", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }, { cluster: "OCP_GF5", reason: "zone-failure-headroom", detail: "needs 16 cores, 9 left without zone c" }],
         times: { validated: 3, pr: 5, ci: 130, approved: 2640, merged: 2760, synced: 2980 } }); } },
-    { id: "quota-change", label: "Quota increase · prod", meta: "prod · live usage · 2 approvals", build: quotaScenario },
+    { id: "agent-onboard", label: "AI agent onboards · rnd", meta: "nonprod · bot-user · onboarding role", build: function () {
+      return createScenario({ inst: "nonprod", env: "rnd", cluster: "OCP_GF6", ns: "fraud-sandbox-rnd", reqId: "req-20261103-a9c4", idem: "0b7e4c2a-6d1f-4a39-8e52-91c3f07d2b6e",
+      placementId: "pl-20261103-6b02", overcommit: "2.0", pr: 414, branch: "OCP_GF6/fraud-sandbox-rnd/req-20261103-a9c4", sha: "b72e1f9", prevSha: "e90b3d4",
+      ranked: [{ cluster: "OCP_GF6", score: 74, before: 80, mem: 378, p95: 0.35 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
+      excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
+      times: { validated: 3, pr: 5, ci: 118, merged: 122, synced: 290 },
+      actor: { user: "bot-user", email: "bot-user@ephico2real.com", azp: "cmapi-automation", role: "cmapi-onboarding", roles: ["cmapi-onboarding"], groups: [], team: "fraud", agent: true, sub: "0d3b9f6e-27a4-4c1b-b8e0-5f2a7c914d63" } }); } },
+    { id: "quota-change", label: "Quota increase · prod", meta: "prod · live usage · 3 approvals", build: quotaScenario },
     { id: "policy-reject", label: "Grant rejected · policy", meta: "prod · 422 at plan", build: policyScenario },
     { id: "cluster-import", label: "New cluster · auto-import", meta: "nonprod · baseline Secret", build: importScenario },
+    { id: "expiry", label: "Expiry → delete", meta: "nonprod · grace · prune confirm", build: expiryScenario },
     { id: "wrong-instance", label: "Wrong instance", meta: "nonprod · 422 not served", build: wrongInstanceScenario }
   ];
 

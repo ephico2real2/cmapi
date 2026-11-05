@@ -1,0 +1,28 @@
+# examples/instances/staging/instance.yaml: deployed as config/instance.yaml on the staging instance.
+# Generated from examples/config/instance.yaml. ephico2real.com is a placeholder domain.
+instance:
+  name: staging
+  displayName: Staging
+  allowedEnvironments: [qa, uat]
+  publicUrl: https://cmapi-staging.ephico2real.com
+  portalUrl: https://portal-staging.ephico2real.com
+  auth:
+    issuer: https://sso.ephico2real.com/realms/ephico2real
+    audience: cmapi-staging          # a token minted for another instance is refused
+  namespaces:
+    # Names nobody may ask for, beyond the built-in default, openshift, openshift-*, kube-*,
+    # cmapi-system and cmapi-imports. Any other DNS-1123 name is allowed to anyone with namespaces:create.
+    reservedPatterns: ["ocp-*", "kubernetes-*"]
+  identity:                          # requester identity and the DirectoryProvider
+    directory: keycloak              # keycloak | ldap | msgraph
+    adminClient: cmapi-directory     # realm-management view-users and query-users only
+    cacheSeconds: 900                # served from cache when Keycloak is unreachable
+    requireEmployeeId: true          # 422 identity-incomplete without the employee_id claim
+    requireOnBehalfOf: false         # bots (service-account clients) may request in their own name
+    automationRoles: [cmapi-onboarding]   # accounts with these roles need no employee ID (bot-user)
+    # email domains for the team DL: emailDomains in cluster-configs/policies/metadata-keys.yaml
+  git:
+    repository: caas/cluster-configs-staging
+  directory:                         # where to send callers for other environments
+    nonprod: {url: https://cmapi-nonprod.ephico2real.com, environments: [rnd, dev]}
+    prod: {url: https://cmapi.ephico2real.com, environments: [prod]}

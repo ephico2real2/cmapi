@@ -1,10 +1,13 @@
-# Source: docs/02-technical-design-v2.md
-# config/approval-rules.yaml
+# Source: docs/02-technical-design-v2.md, updated to docs/01-design-and-architecture.md (Approvals)
+# config/approval-rules.yaml: COMBINED reference for all three instances. Each deployed instance
+# gets only its own environments (a key for another instance fails validation); see
+# examples/instances/<instance>/approval-rules.yaml. Approvals are recorded in cmapi
+# (POST /requests/{id}:approve); nothing reaches Git until the count is met.
 defaults: {required: 0, group: platform-leads, timeoutHours: 24, selfApproval: false}
 
 environments:
   rnd:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
-  dev:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # rnd's settings until dev's are agreed
+  dev:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
   # each instance's file holds only its allowedEnvironments: nonprod rnd, dev; staging qa, uat; prod prod
   qa:   {create: 1, change: 1, delete: 1, group: qa-leads,     timeoutHours: 24}
   uat:  {create: 1, change: 1, delete: 1, group: uat-leads,    timeoutHours: 24}
@@ -19,7 +22,8 @@ namespacePatterns:              # first match wins; can raise or waive
     waive: [create, change]
     reason: Temporary namespace
 
-thresholds:                     # facts come from the planner and the capacity plugin
+thresholds:                     # facts come from the planner and cmapi-capacity; an added approver
+                                # with no group comes from defaults.group (platform-leads)
   - when: quotaIncreasePct > 100
     add: 1
     group: platform-leads
@@ -28,7 +32,17 @@ thresholds:                     # facts come from the planner and the capacity p
     reason: Possible over-provisioning
   - when: capacity == "warn"
     add: 1
-  - when: action == "delete" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+  - when: quotaBelowRequested       # a decrease below what pods already request
+    add: 1
+  - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
+    add: 1
+    group: platform-leads
+    reason: Sensitive key changed
+  - when: expirationBeyondLimits    # past 180 days from creation, or make permanent
+    add: 1
+    group: platform-leads
+    reason: Expiry beyond limits
+  - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
     add: 1
 
 protected:                      # never deletable through the API
@@ -44,7 +58,7 @@ autoApproval:
       match:
         plugin: namespaces
         actions: [create]
-        environments: [rnd]
+        environments: [rnd, dev]
         tiers: [small, medium]
         clusterSelector: {matchLabels: {region: us-central}}   # optional
     - name: team-metadata
@@ -54,6 +68,15 @@ autoApproval:
         actions: [patch, update]
         environments: ["*"]
         keyClasses: [team]             # only team keys; a governed or sensitive key falls back
+    - name: expired-namespace          # the delete expire_check opens after the 7-day grace
+      enabled: true
+      match:
+        plugin: namespaces
+        actions: [delete]
+        environments: [rnd, dev, qa, uat] # never prod: prod namespaces cannot expire
+        reason: expired                   # only deletes opened by expire_check
+      guards: [noOpenRequest, notProtected, noExtensionInLast24h, noticesSentAtLeast2]
+      # Argo CD still waits for an operator to confirm the prune (Prune=confirm).
     - name: baseline-sa-grants
       enabled: false                   # written, not yet switched on
       match:

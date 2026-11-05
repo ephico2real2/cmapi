@@ -1,0 +1,114 @@
+# examples/instances/nonprod/approval-rules.yaml: deployed as config/approval-rules.yaml on the nonprod instance
+# allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
+defaults:
+  required: 0
+  group: platform-leads
+  timeoutHours: 24
+  selfApproval: false
+environments:
+  rnd:
+    create: 1
+    change: 0
+    delete: 1
+    selfApproval: true
+    timeoutHours: 8
+  dev:
+    create: 1
+    change: 0
+    delete: 1
+    selfApproval: true
+    timeoutHours: 8
+namespacePatterns:
+- match: critical-*
+  required: 2
+  group: platform-leads
+  reason: Critical namespace pattern
+- match: temp-*
+  waive:
+  - create
+  - change
+  reason: Temporary namespace
+thresholds:
+- when: quotaIncreasePct > 100
+  add: 1
+  group: platform-leads
+- when: requestToPeakRatio > 3
+  add: 1
+  reason: Possible over-provisioning
+- when: capacity == "warn"
+  add: 1
+- when: quotaBelowRequested
+  add: 1
+- when: sensitiveKeyChanged
+  add: 1
+  group: platform-leads
+  reason: Sensitive key changed
+- when: expirationBeyondLimits
+  add: 1
+  group: platform-leads
+  reason: Expiry beyond limits
+- when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+  add: 1
+protected:
+  labels:
+  - cmapi.net/protected=true
+  - do-not-delete=true
+autoApproval:
+  enabled: true
+  maxPerTeamPerDay: 20
+  policies:
+  - name: baseline-rnd-namespace
+    enabled: true
+    match:
+      plugin: namespaces
+      actions:
+      - create
+      environments:
+      - rnd
+      - dev
+      tiers:
+      - small
+      - medium
+      clusterSelector:
+        matchLabels:
+          region: us-central
+  - name: team-metadata
+    enabled: true
+    match:
+      plugin: metadata
+      actions:
+      - patch
+      - update
+      environments:
+      - '*'
+      keyClasses:
+      - team
+  - name: expired-namespace
+    enabled: true
+    match:
+      plugin: namespaces
+      actions:
+      - delete
+      environments:
+      - rnd
+      - dev
+      reason: expired
+    guards:
+    - noOpenRequest
+    - notProtected
+    - noExtensionInLast24h
+    - noticesSentAtLeast2
+  - name: baseline-sa-grants
+    enabled: false
+    match:
+      plugin: sa-grants
+      actions:
+      - create
+      environments:
+      - rnd
+      clusterRoles:
+      - view
+      - edit
+    requester:
+      clients:
+      - svc-payments-ci

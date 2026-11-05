@@ -1,0 +1,9 @@
+# The kind cluster for the cmapi local run (CLUSTER=kind ./run.sh).
+# kind v0.26.0; Kubernetes v1.31.4, the same minor as the k3s option. One node is enough: cmapi only
+# writes Namespaces, ResourceQuotas, LimitRanges, ServiceAccounts and RoleBindings.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cmapi-local
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.31.4

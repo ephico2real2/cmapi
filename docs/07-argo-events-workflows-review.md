@@ -17,12 +17,12 @@ Six of the 17 places reviewed gain from Argo Workflows or Argo Events; one more 
 | Request path: authenticate, authorize, idempotency, lock, plan, approval rules, commit | Synchronous, returns 202 or the Plan | Keep in cmapi | Sub-second budget; idempotency and the object lock are Postgres transactions. A pod per step costs seconds. |
 | Dry run | Returns the Plan, writes nothing | Keep in cmapi | Interactive; same budget as above |
 | open\_pr job | Pushes the branch and opens the PR | Keep in cmapi | Seconds long; updates the request row in the same transaction; one run per request |
-| sync\_pr\_state job and Git webhook receiver | Tracks PR approval and merge | Keep in cmapi | Already push-driven by Git webhooks |
+| sync\_pr\_state job and Git webhook receiver | Tracks PR checks and merge | Keep in cmapi | Already push-driven by Git webhooks |
 | watch\_sync job | Polls each cluster's ArgoCD until the request is Synced | Replace with Argo CD Notifications | Push instead of poll; lead time stops depending on the poll interval. Keep a slow reconcile poll as the backstop. |
 | notify job | Sends Teams or email updates | Keep now; move behind Argo Events later | Fine in cmapi until there is an event bus to publish to |
 | expire\_check job | Finds expired namespaces and opens delete PRs | Keep in cmapi | One daily scan; the delete must go through the normal pipeline so approvals and Prune=confirm apply |
 | capacity\_snapshot job | Hourly Thanos queries per cluster into Postgres | Keep in cmapi | One query batch per cluster; a CronWorkflow adds a pod every hour for nothing |
-| Kyverno, kubeconform, capacity and approval-count PR checks | Run in the Git host's CI | Keep in Git host CI | Branch protection needs them there. Argo Events plus Workflows only if the Git host has no CI. |
+| Kyverno, kubeconform and cmapi (approved request, plan hash) PR checks | Run in the Git host's CI | Keep in Git host CI | Branch protection needs them there. Argo Events plus Workflows only if the Git host has no CI. |
 | Adoption, steady state | Opens adoption PRs as labelled namespaces appear | Keep in cmapi | A few PRs a day |
 | Adoption, first fleet-wide sweep | Hundreds of adoption PRs at once | Argo Workflows | Needs batching and a cap on open PRs per cluster, and must resume after a failure |
 | Cluster onboarding (admin/clusters:propose) | Runbook plus one registry PR | Argo Workflows | Ordered steps with retries, a wait for merge, a smoke test, and cleanup on failure |
@@ -97,7 +97,7 @@ Argo Workflows runs the long, fan-out jobs; cmapi stays the only writer and the 
 
 1. **Workflows orchestrate; cmapi writes.** A workflow changes a managed object only by calling the cmapi API, so policy, approval rules, the per-object lock and the audit record all still apply. The only exceptions are read-only checks against clusters, and the bootstrap step of a cluster that has no ArgoCD yet.
 2. **cmapi is the front door.** Operations start through POST /api/v1/operations, never by submitting a Workflow directly. cmapi creates the Workflow from a WorkflowTemplate, labels it cmapi.net/operation-id and records an operations row. The Argo UI is read-only for everyone except cmapi-platform-admins.
-3. **One approval mechanism.** No suspend nodes. A step that needs approval opens a cmapi request and polls GET /api/v1/requests/{id} with backoff until it is synced or terminal; people approve in the PR as usual.
+3. **One approval mechanism.** No suspend nodes. A step that needs approval opens a cmapi request and polls GET /api/v1/requests/{id} with backoff until it is synced or terminal; people approve in cmapi (the portal or any approval channel) as usual.
 4. **One identity.** Argo Server signs in through the same Keycloak realm (client argo-workflows, groups claim) and maps groups to ServiceAccounts with workflows.argoproj.io/rbac-rule annotations. Workflow steps call cmapi as the service-account client svc-cmapi-workflows; each request they open records both that client and the operation's starter.
 
 **Deployment.** Namespaced install on the hub cluster in cmapi-workflows, so the controller only runs workflows there. The workflow archive goes to its own database on the existing PostgreSQL server; drift reports go to an S3 bucket on ODF. Pods run under the restricted SCC. The controller's metrics are scraped by a ServiceMonitor next to cmapi's.
@@ -217,7 +217,7 @@ spec:
         args: [cleanup, "--cluster-id={{workflow.parameters.cluster-id}}", "--status={{workflow.status}}"]
 ```
 
-wait-request polls for up to the approval rule's timeoutHours; the registry PR is approved in Git like any other change.
+wait-request polls for up to the approval rule's timeoutHours; the registry request is approved in cmapi like any other change, and only then does the bot open its PR.
 
 ## Argo Events for outbound integrations
 
@@ -282,7 +282,7 @@ The choice comes down to support policy, not features. Argo Workflows is stronge
 | UI and sign-in | Argo Server UI with Keycloak OIDC | OpenShift console with OpenShift login |
 | Event-driven starts | Argo Events Sensors | Tekton Triggers EventListeners |
 
-Two design choices already narrow the gap: approvals happen in the PR, so neither engine needs a pause node, and cmapi's per-object lock already prevents duplicate work across runs. The team already runs community components (Kyverno, namespace-configuration-operator), so owning one more may be within your existing support bar.
+Two design choices already narrow the gap: approvals happen in cmapi before any PR exists, so neither engine needs a pause node, and cmapi's per-namespace lock already prevents duplicate work across runs. The team already runs community components (Kyverno, and namespace-configuration-operator for what cmapi does not render), so owning one more may be within your existing support bar.
 
 ## Risks and operating cost
 

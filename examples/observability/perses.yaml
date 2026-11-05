@@ -33,8 +33,8 @@ spec:
           spec:
             url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
 ---
-# One PersesDashboard per dashboard. The seven are generated in CI from the Grafana JSON in
+# One PersesDashboard per dashboard. The eight are generated in CI from the Grafana JSON in
 # dashboards/ with `percli migrate`; the build fails if a panel or variable does not convert.
 #   service-health, change-flow, approvals, capacity-placement,
-#   namespace-efficiency, fleet-dependencies, access
+#   namespace-efficiency, fleet-dependencies, access, system
 # Access: platform team gets the Perses dashboard editor role in cmapi; everyone else viewer.

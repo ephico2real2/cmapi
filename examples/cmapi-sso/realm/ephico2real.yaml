@@ -21,3 +21,75 @@ clients:
     optionalClientScopes: [offline_access]
     attributes:
       oauth2.device.authorization.grant.enabled: "true"
+  - clientId: cmapi-automation                 # password grant for local automation accounts (bot-user) only
+    publicClient: true
+    standardFlowEnabled: false
+    directAccessGrantsEnabled: true
+
+# Identity additions (docs/02-technical-design-v2.md, "Identity claims")
+components:
+  org.keycloak.storage.ldap.mappers.LDAPStorageMapper:   # under the LDAP provider
+    - name: employee-id
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [employeeNumber]       # employeeID in Active Directory
+        user.model.attribute: [employeeId]
+        read.only: ["true"]
+        always.read.value.from.ldap: ["true"]
+    - name: middle-name
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [middleName]
+        user.model.attribute: [middleName]
+        read.only: ["true"]
+userProfile:                                    # declared, or Keycloak 24+ drops them
+  attributes:
+    - name: employeeId
+      permissions: {view: [admin], edit: []}
+    - name: middleName
+      permissions: {view: [admin, user], edit: []}
+clientScopes:
+  - name: cmapi-identity
+    protocol: openid-connect
+    protocolMappers:
+      - name: employee_id
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: employeeId, claim.name: employee_id, access.token.claim: "true", id.token.claim: "false", jsonType.label: String}
+      - name: middle_name
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: middleName, claim.name: middle_name, access.token.claim: "true", id.token.claim: "true", jsonType.label: String}
+# each instance client (cmapi-nonprod, cmapi-staging, cmapi-prod) lists cmapi-identity in defaultClientScopes;
+# the directory's admin client cmapi-directory holds realm-management view-users and query-users only
+
+# Access additions: roles gate the API (config/authz-roles.yaml); no team or namespace-name scoping.
+# The built-in client roles exist on every instance client; cmapi-onboarding may create namespaces only.
+roles:
+  client:
+    cmapi-nonprod: &cmapi-roles
+      - {name: cmapi-viewer}
+      - {name: cmapi-onboarding, description: "Create namespaces only. For people and local automation accounts"}
+      - {name: cmapi-requester}
+      - {name: cmapi-approver}
+      - {name: cmapi-operator}
+      - {name: cmapi-admin}
+      - {name: cmapi-auditor}
+      - {name: cmapi-approval-relay}
+    cmapi-staging: *cmapi-roles
+    cmapi-prod: *cmapi-roles
+groups:
+  - name: cmapi
+    subGroups:
+      - name: cmapi-onboarding                      # members may create namespaces on every instance
+        clientRoles: {cmapi-nonprod: [cmapi-onboarding], cmapi-staging: [cmapi-onboarding], cmapi-prod: [cmapi-onboarding]}
+      - name: cmapi-requesters
+        clientRoles: {cmapi-nonprod: [cmapi-requester], cmapi-staging: [cmapi-requester], cmapi-prod: [cmapi-requester]}
+# A local automation account (not from LDAP) for an AI agent or script. It needs no employee ID because
+# it holds an automation role (instance.yaml identity.automationRoles). Its password lives in a vault,
+# never in this file. Give it cmapi-onboarding only on the instances where it may onboard.
+users:
+  - username: bot-user
+    enabled: true
+    email: bot-user@ephico2real.com
+    firstName: Onboarding
+    lastName: Bot
+    clientRoles: {cmapi-nonprod: [cmapi-onboarding]}

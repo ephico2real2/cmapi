@@ -19,11 +19,11 @@ Every decision in the requirements doc still stands except the stack; v2 adds th
 | Read all RBAC, SCCs, users, groups; write only namespace SAs and their Role, ClusterRole and SCC grants | Requirements doc | Kept; one plugin per area |
 | N-of-M approvals by environment, namespace pattern, size and age | n8n design | Kept; becomes a rules engine fed by YAML |
 | Quota analysis against Thanos usage | n8n design | Kept; moves into the cmapi-capacity service. namespace peaks are 14-day windows read live from Thanos when a quota change is planned; cluster capacity is stored every 30 to 60 minutes for placement |
-| Expiration via Kyverno TTL; API never deletes on a schedule | Flask design | Kept |
+| Expiration optional and never in prod; after a 7-day grace the worker opens a delete request (Kyverno only reports) | Flask design | Kept |
 | Label and annotation validation to Kubernetes rules | n8n design, Namespace Configurator | Kept; moves into the Kyverno policy bundle |
 | Self-service forms, notifications, dry-run | n8n design | Kept as portal + dry-run plans + notifier |
 | Spring Boot + Fabric8 | Resource Management App | Replaced by FastAPI, Pydantic v2 and the kubernetes Python client |
-| Git file format (project-meta or raw manifests) | Open | Resolved by making the renderer a plugin point; project-meta renderer first |
+| Git file format (project-meta or raw manifests) | Open | Resolved by making the renderer a plugin point; raw manifest renderer first (project-meta as an alternative) |
 | Server-side dry-run vs offline validation | Open | Offline validation; see Missing pieces |
 | Idempotency, concurrency, status tracking, metrics, KPIs, plugin model | Not designed | New in v2 |
 
@@ -99,7 +99,7 @@ overrides:                       # keyed by instance, then environment; checked 
 
 | Extension point | Default | Alternatives |
 | --- | --- | --- |
-| Renderer (desired state to files) | project-meta.yml renderer | Raw manifest renderer, Kustomize overlay renderer |
+| Renderer (desired state to files) | Raw manifest renderer (one folder per namespace) | project-meta.yml renderer, Kustomize overlay renderer |
 | Git provider | GitHub REST (rest mode) | GitLab REST, GitPython clone with HTTPS or SSH |
 | Notifier | Email | Slack, Teams |
 
@@ -116,7 +116,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 - **Base path.** /api/v1/clusters/{clusterId}/…; the version moves to v2 only for breaking changes, with v1 kept for 6 months.
 - **Docs.** Swagger UI at /docs, ReDoc at /redoc, the spec at /openapi.json. A snapshot test fails the build when the spec changes without a version note.
 - **Field names.** camelCase in JSON (Pydantic aliases), snake\_case in Python.
-- **Lists.** limit (default 100, max 500) and an opaque continue token; labelSelector where the cluster supports it. Envelope: {clusterId, items, continue}.
+- **Lists.** limit 25, 50 (default) or 100, at most 200, and an opaque cursor; labelSelector where the cluster supports it. Envelope: {items, page: {limit, total, from, to, nextCursor, prevCursor}}, as defined under Lists in Design and Architecture.
 - **Time.** RFC 3339 in UTC.
 
 **Write semantics.**
@@ -150,7 +150,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | policy-violation | 422 | Allowlist, subject rule, reserved prefix, limits below requests |
 | capacity-exceeded | 422 | Requested quota does not fit the cluster's headroom (capacity check in the plan) |
 | unauthenticated | 401 | No or invalid token |
-| cluster-scope-forbidden | 403 | Role grants the permission, but no scope binding covers this cluster, environment or namespace |
+| environment-forbidden | 403 | A role grants the permission, but only in other environments (environments in authz-roles.yaml) |
 | forbidden | 403 | No Keycloak role the caller holds grants the route's permission |
 | idp-unavailable | 503 | Keycloak signing keys unreachable and no cached key matches; Retry-After set |
 | operations-engine-unavailable | 503 | The configured operations engine (Argo Workflows or Tekton) is unreachable; the request path is unaffected |
@@ -169,21 +169,23 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | Plugin | Endpoints | Mode |
 | --- | --- | --- |
 | core | GET /api/v1/clusters, POST /api/v1/clusters/{id}:probe, GET /, GET /health | Read |
-| core | GET /api/v1/requests/{id}, /events, GET /api/v1/requests?clusterId&status&requestedBy, POST /api/v1/requests/{id}:cancel | Database |
+| core | GET /api/v1/requests/{id}, /events, GET /api/v1/requests?clusterId&status&requestedBy, POST /api/v1/requests/{id}:cancel, :approve, :reject, :retry, :revert; GET /api/v1/requests?status=pending\_approval&approver=me | Database |
 | core | GET /api/v1/me; GET /api/v1/admin/plugins; POST /api/v1/admin/reload; POST /api/v1/admin/clusters:propose; POST /api/v1/webhooks/git; POST /api/v1/webhooks/argocd; POST, GET /api/v1/operations, GET /api/v1/operations/{id}, POST /api/v1/operations/{id}:cancel; GET /api/v1/admin/integrations | API |
 | namespaces | GET /namespaces, GET, POST, PATCH, DELETE /namespaces/{ns} | Read live; write Git |
 | metadata | GET, PATCH, PUT /namespaces/{ns}/metadata; GET, PATCH, PUT /namespaces/{ns}/serviceaccounts/{sa}/metadata | Write Git |
-| quotas | GET, PUT, PATCH /namespaces/{ns}/quota | Read live; write Git |
+| quotas | GET, PUT, PATCH /namespaces/{ns}/quota; GET /api/v1/quotas?q=&env=&clusterId=&team=&tier=&verdict=&state=&sort=name\|used\|severity&limit=50&cursor=&startsWith= (one page of namespaces in scope: hard and used for requests.cpu, requests.memory and pods, tier, verdict; with total, cursors, attention counts and letter counts); GET /api/v1/quotas:suggest?q= (up to 10 type-ahead matches); GET /api/v1/quotas:export?format=csv (every matching row) | Read live; write Git |
 | limitranges | GET, PUT, PATCH /namespaces/{ns}/limitrange | Read live; write Git |
-| expiration | GET /namespaces/{ns}/expiration, POST .../expiration:extend, POST .../expiration:makePermanent, GET /namespaces?expiring=7d or ?expired=true | Read live; write Git |
+| expiration | GET /namespaces/{ns}/expiration, POST .../expiration:extend, POST .../expiration:makePermanent, POST .../expiration:set, GET /api/v1/expirations?state=expiring\|grace\|pending\_delete\|permanent&within=14d (paged); refused in prod | Read live; write Git |
 | serviceaccounts | GET, POST /namespaces/{ns}/serviceaccounts, GET, DELETE .../{sa} | Read live; write Git |
 | sa-grants | GET, POST /namespaces/{ns}/serviceaccounts/{sa}/grants, DELETE .../grants/{grant} | Read live; write Git |
 | scc-grants | GET, POST /namespaces/{ns}/serviceaccounts/{sa}/scc, DELETE .../scc/{scc} | Read live; write Git |
 | sa-tokens | POST /namespaces/{ns}/serviceaccounts/{sa}/tokens | Direct (TokenRequest) |
+| directory | GET /directory/users?q=, GET /directory/users/{username} | Read (DirectoryProvider: Keycloak admin API, cached 15 min); employee ID returned to cmapi-operator and above only |
+| tiers | GET /tiers, GET /tiers/{tier}, GET /tiers/{tier}/namespaces | Read (config/tiers.yaml through core/tiers.py); re-rendering is the tiers-rerender operation |
 | rbac-read | GET /namespaces/{ns}/roles, /rolebindings; GET /clusterroles, /clusterrolebindings; GET /sccs | Read live |
 | identity-read | GET /users, /users/{name}, /users/{name}/bindings; GET /groups, /groups/{name}, /groups/{name}/bindings | Read live |
 | capacity | GET /capacity, /capacity/history, /namespaces/{ns}/usage, /namespaces/{ns}/analysis, /analysis/namespaces; POST /capacity/snapshots:run, /analysis/sweeps:run (gateway to cmapi-capacity); POST /capacity:check and /api/v1/capacity:place stay in the API | Read Thanos |
-| sync | GET /sync (ArgoCD Application), GET /namespaces/{ns}/drift (Git vs live) | Read live + Git |
+| sync | GET /sync (ArgoCD Application), GET /namespaces/{ns}/drift (Git vs live); the policies plugin adds GET /api/v1/policies, /policies/results and /policies/rejections from Kyverno policy reports | Read live + Git |
 | reports | GET /api/v1/reports/namespaces?createdSince=30d, /api/v1/reports/quota-efficiency | Database + capacity schema |
 
 The adoption plugin adds GET /adoption/candidates, GET /adoption/skipped, POST /namespaces/{ns}:adopt and POST /adoption:scan under the cluster path, and GET /api/v1/reports/unmanaged-namespaces; details are in Adoption plugin.
@@ -196,13 +198,13 @@ Authorization has two halves. Keycloak client roles decide what a caller may do;
 
 ![cmapi authentication · LDAP, Keycloak, callers, four checks](diagrams/v2-authentication.png)
 
-Every caller gets its token from Keycloak and sends it on each call; cmapi verifies it offline, checks the role, then checks a Git-managed binding before the write pipeline runs.
+Every caller gets its token from Keycloak and sends it on each call; cmapi verifies it offline, checks the role and, for a role limited to some environments, the target's environment before the write pipeline runs.
 
 **How it works at runtime.** A person signs in once per session; after that every call carries a short-lived token that cmapi checks without contacting Keycloak.
 
 1. **Sign-in.** The portal redirects to Keycloak (Authorization Code + PKCE). Keycloak checks the password by binding to LDAP as that user, imports the user on first login, and reads their cmapi-\* group memberships from LDAP.
 2. **Token.** Keycloak returns a 5-minute access token and a refresh token. The access token carries the user's ID, username, email, cmapi groups and effective cmapi roles, composite roles already expanded.
-3. **Call.** The portal sends the token as Authorization: Bearer. cmapi verifies the signature with its cached copy of the realm keys, builds the Principal, checks the route's permission, and checks the binding in pipeline step 2.
+3. **Call.** The portal sends the token as Authorization: Bearer. cmapi verifies the signature with its cached copy of the realm keys, builds the Principal, checks the route's permission, and checks the role's environments in pipeline step 2.
 4. **Refresh.** About every 5 minutes the portal swaps the refresh token for a new access token. Keycloak rebuilds it from current memberships, so a person removed from an LDAP group loses the role at the next refresh, and a disabled account cannot refresh at all.
 5. **Pipelines and the CLI.** Pipelines run the client-credentials flow on each job, with no LDAP involved. cmapi login runs the device flow: it prints a code, the person approves it in a browser, and the CLI keeps an offline refresh token in the OS keychain, good for 30 days idle and 90 days total.
 
@@ -213,19 +215,19 @@ A decoded access token for a person who requests for payments and approves prod:
 ```json
 {
   "iss": "https://sso.ephico2real.com/realms/ephico2real",
-  "aud": "cmapi",
+  "aud": "cmapi-prod",
   "azp": "cmapi-portal",
   "sub": "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14",
   "preferred_username": "ola",
   "email": "ola@ephico2real.com",
-  "groups": ["/cmapi/cmapi-payments-requesters", "/cmapi/cmapi-prod-approvers"],
-  "resource_access": {"cmapi": {"roles": ["cmapi-requester", "cmapi-approver", "cmapi-viewer"]}},
+  "groups": ["/cmapi/cmapi-requesters", "/cmapi/cmapi-prod-approvers"],
+  "resource_access": {"cmapi-prod": {"roles": ["cmapi-requester", "cmapi-approver", "cmapi-viewer"]}},
   "iat": 1793725500,
   "exp": 1793725800
 }
 ```
 
-With these bindings, Ola can create payments-\* namespaces on OCP\_GF1 and OCP\_GF2 and approve prod requests anywhere, but cannot create a prod namespace outside payments-\*. The requester role is only bound to payments.
+With these roles, Ola can ask for any namespace name on any cluster the prod instance serves (cmapi-requester) and approve prod requests where cmapi-prod-approvers is an approving group (cmapi-approver). Nothing ties her to a team or a name prefix; the approval rules decide what needs approval.
 
 ![Keycloak at runtime · sign-in, call, refresh](diagrams/v2-keycloak-runtime.png)
 
@@ -320,42 +322,29 @@ A client scope cmapi-audience holds an Audience mapper (aud: cmapi-\<instance>; 
 
 Approver deliberately does not include requester. One person can hold both through two groups, and the self-approval rule still excludes them on their own requests.
 
-**Scope bindings.** A binding pairs one role with one scope, like a Kubernetes RoleBinding. A request passes only when some binding matches the caller, the caller still holds that binding's role in the token, the role grants the permission, and the target falls inside that binding's scope. Pairing role with scope matters: with a flat union, someone who requests for payments and approves prod would gain request rights on every prod namespace.
+**Role policy.** What a caller may do comes only from the Keycloak client roles in its token, on the instance's own client (cmapi-nonprod, cmapi-staging, cmapi-prod). Keycloak decides who holds a role: a person directly or through a group the role is assigned to, a service-account client, or a local account such as bot-user. cmapi maps each role to permissions and, optionally, to some of the environments the instance serves. There is no team or namespace-name scope: anyone holding namespaces:create may ask for any valid name that is not reserved. Retired with this model: scope bindings and config/authz-scopes.yaml (a cluster list, namespace patterns and a team per caller), cluster-scope-forbidden, team\_not\_bound, mustMatchBinding and teams\_for().
 
-Bindings live in config/authz-scopes.yaml, versioned in Git and mounted from a ConfigMap like adoption.yaml, so a scope change is a reviewed PR. A subject is a Keycloak group path or a service-account client ID. Patterns use shell-style wildcards; environment is the one the planner resolves for the target (the namespace's env, else the cluster's registry environment).
+The mapping lives in config/authz-roles.yaml, one per instance, versioned in Git and mounted from a ConfigMap, so a change is a reviewed PR. A built-in role not listed keeps its built-in permissions in every served environment. An entry may replace a role's permissions (permissions), add another role's (inherits) or limit the role to some environments (environments); an unknown permission, an inheritance cycle or an environment the instance does not serve fails the config load. The environment checked is the one the planner resolves for the target (the namespace's env, else the cluster's registry environment).
 
 ```yaml
-# config/authz-scopes.yaml
-bindings:
-  - group: /cmapi/cmapi-payments-requesters
-    role: cmapi-requester
-    team: payments                 # value allowed in cmapi.net/team
-    clusters: [OCP_GF1, OCP_GF2]
-    environments: [rnd, dev, prod]
-    namespaces: ["payments-*"]
-  - group: /cmapi/cmapi-payments-viewers
-    role: cmapi-viewer
-    clusters: [OCP_GF1, OCP_GF2]
-    environments: ["*"]
-    namespaces: ["payments-*"]
-  - group: /cmapi/cmapi-prod-approvers
-    role: cmapi-approver
-    clusters: ["*"]
-    environments: [prod]
-    namespaces: ["*"]
-  - group: /cmapi/cmapi-platform-operators
-    role: cmapi-operator
-    clusters: ["*"]
-    environments: ["*"]
-    namespaces: ["*"]
-  - client: svc-payments-ci
-    role: cmapi-requester
-    clusters: [OCP_GF1]
-    environments: [rnd, dev]
-    namespaces: ["payments-*"]
+# config/authz-roles.yaml (nonprod)
+roles:
+  cmapi-viewer: {}          # clusters:read, objects:read, capacity:read, requests:read
+  cmapi-onboarding: {}      # viewer + namespaces:create, requests:cancel; create only (people, bot-user)
+  cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write
+  cmapi-approver: {}        # viewer + requests:approve, requests:reject
+  cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run
+  cmapi-admin: {}           # operator + config:write, clusters:onboard, admin:reload, approvals:pause
+  cmapi-auditor: {}         # viewer + events:read, audit:export
+  cmapi-approval-relay: {}  # requests:read, approvals:relay (email, ServiceNow and chat channels)
+  cmapi-bot-rnd:            # a role you add in Keycloak: a pipeline limited to rnd
+    inherits: [cmapi-requester]
+    environments: [rnd]
+  cmapi-quota-editor:       # may change quotas but not create namespaces
+    permissions: [clusters:read, objects:read, capacity:read, requests:read, quotas:write, requests:cancel]
 ```
 
-Cluster-scoped reads (ClusterRoles, ClusterRoleBindings, SCCs, users, groups) need a binding whose namespaces is "\*". List endpoints return only the items inside the caller's scope rather than failing.
+Cluster-scoped reads (ClusterRoles, ClusterRoleBindings, SCCs, users, groups) need objects:read. List endpoints return only the items in environments where the caller's roles grant the read, rather than failing.
 
 **Token verification.** core/auth.py checks every bearer token locally, with no call to Keycloak per request. It checks the RS256 signature against the realm JWKS (cached 10 minutes, refetched once on an unknown kid, so key rotation needs no restart), plus iss, aud = cmapi, and exp/nbf with 30 s leeway. The algorithm list is pinned, so none and HS256 tokens are refused. The 5-minute token lifetime bounds how long a disabled user keeps access.
 
@@ -376,7 +365,7 @@ from cmapi.core.errors import Problem
 class OIDCSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CMAPI_OIDC_")
     issuer: str = "https://sso.ephico2real.com/realms/ephico2real"
-    audience: str = "cmapi"
+    audience: str = "cmapi-nonprod"   # per instance, from config/instance.yaml
     leeway_seconds: int = 30
 
 
@@ -388,7 +377,7 @@ def settings() -> OIDCSettings:
 @lru_cache
 def jwks() -> jwt.PyJWKClient:
     return jwt.PyJWKClient(f"{settings().issuer}/protocol/openid-connect/certs",
-                           cache_keys=True, lifespan=600, timeout=5)
+                           cache_keys=True, lifespan=600, timeout=5)   # wrapped: if a refresh fails, the last good JWKS (persisted) keeps verifying
 
 
 # Reads the Authorization: Bearer header for every caller; also drives Swagger's Authorize button
@@ -436,82 +425,55 @@ def authenticate(token: str | None = Depends(oauth2)) -> Principal:
     )
 ```
 
-**Authorization.** require() guards the route by role; authorize\_target() runs as pipeline step 2, once the planner has resolved the target's environment.
+**Authorization.** RolePolicy.require() guards the route by permission; for a role limited to some environments it runs again as pipeline step 2, once the planner has resolved the target's environment. At create, core/naming.py then checks the name (DNS-1123, not reserved, not an unmanaged namespace on the cluster).
 
 ```python
-# cmapi/core/authz.py
-from fnmatch import fnmatchcase
-
-from fastapi import Depends
-from pydantic import BaseModel
-
-from cmapi.core.auth import Principal, authenticate
+# cmapi/core/authz.py (reference code: examples/src/cmapi/core/authz.py)
 from cmapi.core.errors import Problem
+from cmapi.core.identity.claims import Identity
 
 _VIEW = {"clusters:read", "objects:read", "capacity:read", "requests:read"}
-_REQUEST = _VIEW | {"namespaces:write", "quotas:write", "serviceaccounts:write",
-                    "grants:write", "requests:cancel"}
-_OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read"}
+# namespaces:create asks for a new namespace; namespaces:write changes or deletes one
+_ONBOARD = _VIEW | {"namespaces:create", "requests:cancel"}
+_REQUEST = _ONBOARD | {"namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write"}
+_OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read", "operations:run"}
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "cmapi-viewer": frozenset(_VIEW),
+    "cmapi-onboarding": frozenset(_ONBOARD),        # create only: people and bot-user
     "cmapi-requester": frozenset(_REQUEST),
-    "cmapi-approver": frozenset(_VIEW | {"requests:approve"}),
+    "cmapi-approver": frozenset(_VIEW | {"requests:approve", "requests:reject"}),
     "cmapi-operator": frozenset(_OPERATE),
-    "cmapi-admin": frozenset(_OPERATE | {"config:write", "clusters:onboard", "admin:reload"}),
+    "cmapi-admin": frozenset(_OPERATE | {"config:write", "clusters:onboard", "admin:reload",
+                                         "approvals:pause"}),
     "cmapi-auditor": frozenset(_VIEW | {"events:read", "audit:export"}),
+    "cmapi-approval-relay": frozenset({"requests:read", "approvals:relay"}),   # ServiceNow and similar
 }
 
 
-class Binding(BaseModel):
-    group: str | None = None       # Keycloak group path
-    client: str | None = None      # service-account client ID
-    team: str | None = None        # team slug this binding may set in cmapi.net/team
-    role: str
-    clusters: list[str]
-    environments: list[str]
-    namespaces: list[str]
+class RolePolicy:
+    """authz-roles.yaml: role -> permissions (replace), inherits (add), environments (limit)."""
 
-    def applies_to(self, p: Principal) -> bool:
-        if self.role not in p.roles:
-            return False
-        return self.group in p.groups or (p.kind == "service" and self.client == p.client_id)
+    def __init__(self, raw: dict | None, served: set[str]): ...   # unknown permission, cycle or
+                                                                   # unserved environment: load fails
+    def permissions(self, who: Identity, env: str | None = None) -> frozenset[str]:
+        return frozenset().union(*(g.permissions for g in self.held(who) if g.covers(env)))
 
-    def covers(self, cluster_id: str, env: str, namespace: str | None) -> bool:
-        def hit(value: str, patterns: list[str]) -> bool:
-            return any(fnmatchcase(value, pattern) for pattern in patterns)
-        ns_ok = "*" in self.namespaces if namespace is None else hit(namespace, self.namespaces)
-        return hit(cluster_id, self.clusters) and hit(env, self.environments) and ns_ok
-
-
-def permissions(p: Principal) -> frozenset[str]:
-    return frozenset().union(*(ROLE_PERMISSIONS.get(r, frozenset()) for r in p.roles))
-
-
-def require(permission: str):
-    """Route dependency: some role the caller holds grants this permission."""
-    def check(p: Principal = Depends(authenticate)) -> Principal:
-        if permission not in permissions(p):
-            raise Problem.forbidden(f"Missing permission {permission}")
-        return p
-    return check
-
-
-def authorize_target(p: Principal, permission: str, bindings: list[Binding],
-                     cluster_id: str, env: str, namespace: str | None) -> None:
-    """Pipeline step 2: one binding pairs a held role, this permission and this target."""
-    for b in bindings:
-        if (b.applies_to(p) and permission in ROLE_PERMISSIONS.get(b.role, frozenset())
-                and b.covers(cluster_id, env, namespace)):
+    def require(self, who: Identity, permission: str, env: str | None = None) -> None:
+        if self.allowed(who, permission, env):
             return
-    raise Problem.cluster_scope_forbidden(cluster_id)
+        if env is not None and self.allowed(who, permission):
+            raise Problem.forbidden(f"Your roles grant {permission} only in "
+                                    f"{sorted(self.environments(who, permission))}",
+                                    code="environment-forbidden")
+        raise Problem.forbidden(f"Missing permission {permission}")
 ```
 
 A route then reads: `caller: Principal = Depends(require("namespaces:write"))`. Swagger UI logs in through Keycloak with `FastAPI(swagger_ui_init_oauth={"clientId": "cmapi-docs", "usePkceWithAuthorizationCodeGrant": True, "scopes": "openid"})`.
 
-**GET /api/v1/me.** Returns the caller's username, kind, client, roles, expanded permissions and the bindings that apply to them. The portal uses it to show only the actions a person can take, and it is the first thing to check when someone reports a 403.
+**GET /api/v1/me.** Returns the caller's username, kind, client, roles, and access: each role with its permissions and environments, and the expanded permissions. The portal uses it to show only the actions a person can take, and it is the first thing to check when someone reports a 403.
 
-**Errors.** 401 unauthenticated now carries `WWW-Authenticate: Bearer error="invalid_token"`. Two problem types are new: forbidden (403, no held role grants the permission) and idp-unavailable (503, JWKS unreachable and no cached key matches). cluster-scope-forbidden (403) now means the role is right but no binding covers the target.
+**Errors.** 401 unauthenticated now carries `WWW-Authenticate: Bearer error="invalid_token"`. Two problem types are new: forbidden (403, no held role grants the permission) and idp-unavailable (503, JWKS unreachable and no cached key matches). environment-forbidden (403) means a role grants the permission, but only in other environments; cluster-scope-forbidden is retired with the scope bindings.
 
 **What gets recorded.** Requests and approvals are keyed to the Keycloak sub, not to a username or email that can change.
 
@@ -528,9 +490,13 @@ CREATE UNIQUE INDEX uq_cr_idempotency ON change_requests (requester_sub, idempot
 
 The cmapi.net/requested-by annotation keeps the email (the client ID for a service account), and the cmapi.net/requested-by-user label keeps preferred\_username or the client ID. Tokens are never logged; structlog records sub, username, client and kind.
 
-**Approvals and Git identity.** The approving groups in approval-rules.yaml become Keycloak group paths (/cmapi/cmapi-prod-approvers, /cmapi/cmapi-platform-leads). The approval-count CI check stops reading group lists itself. It calls GET /api/v1/requests/{id}/approval-status as the service account svc-cmapi-ci. cmapi maps each PR reviewer's Git username to a Keycloak user, then checks group, approver role, binding scope and self-approval by sub. That mapping only works if the Git host signs in through the same realm (or the same LDAP), so Git usernames equal preferred\_username. A reviewer with no Keycloak match does not count.
+**Approvals and Git identity.** The approving groups in approval-rules.yaml become Keycloak group paths (/cmapi/cmapi-prod-approvers, /cmapi/cmapi-platform-leads). Superseded: approvers act through POST /requests/{id}:approve with their own Keycloak token, so no Git username is mapped. The CI cmapi check calls GET /api/v1/requests/{id}/approval-status as svc-cmapi-ci only to confirm the request is approved and the PR head matches the plan hash. The text that follows described the earlier model: cmapi maps each PR reviewer's Git username to a Keycloak user, then checks group, approver role, binding scope and self-approval by sub. That mapping only works if the Git host signs in through the same realm (or the same LDAP), so Git usernames equal preferred\_username. A reviewer with no Keycloak match does not count.
 
-**Automation clients.** Each pipeline gets its own confidential client svc-{team}-{purpose} with the service account on and every browser flow off. Its role is assigned to the service account directly, and a client: binding sets its scope. Client authentication is a signed JWT where the CI system can sign one, otherwise a client secret rotated every 90 days from the CI secret store. New clients are added through the realm repository below, not self-service.
+**Automation clients.** Each pipeline gets its own confidential client svc-{team}-{purpose} with the service account on and every browser flow off. Its role is assigned to the service account directly; a role limited by environments in authz-roles.yaml (such as cmapi-bot-rnd) narrows where it may act. It may request in its own name, or name a person with onBehalfOf. Client authentication is a signed JWT where the CI system can sign one, otherwise a client secret rotated every 90 days from the CI secret store. New clients are added through the realm repository below, not self-service.
+
+**Onboarding and automation accounts.** cmapi-onboarding is viewer plus namespaces:create and requests:cancel: it creates namespaces and follows its requests, and cannot change or delete a namespace. cmapi-requester is onboarding plus namespaces:write, quotas:write, serviceaccounts:write and grants:write. Onboarding goes to people (directly or through the group /cmapi/cmapi-onboarding) or to a local Keycloak account such as bot-user, which an AI agent or a script signs in as. instance.yaml sets two identity rules: automationRoles (default \[cmapi-onboarding\]), whose holders need no employee ID and may send onBehalfOf, and requireOnBehalfOf (default false), which, when true, makes service clients and automation accounts name a person again. Every request records automated, and approval rules get the facts automated and requesterClient, so agent requests can be routed differently; otherwise they follow the same rules, auto-approval included. Anyone holding namespaces:write may change or delete any managed namespace; approval rules still apply, and a delete still needs its approvals and an operator's prune confirmation.
+
+**Namespace names.** With no name prefixes per team, the name itself is checked by core/naming.py: a DNS-1123 label of 2 to 63 characters (422 invalid-namespace-name); not reserved, either built in (default, openshift, openshift-\*, kube-\*, cmapi-system, cmapi-imports) or listed in instance.yaml namespaces.reservedPatterns, such as ocp-\* and kubernetes-\* (422 reserved-namespace); and at create, not a namespace already on the cluster without cmapi.net/managed (409 namespace-exists-unmanaged; adoption is the way in).
 
 ```bash
 TOKEN=$(curl -s https://sso.ephico2real.com/realms/ephico2real/protocol/openid-connect/token \
@@ -541,6 +507,48 @@ TOKEN=$(curl -s https://sso.ephico2real.com/realms/ephico2real/protocol/openid-c
 People use `cmapi login`, which runs the device flow and caches the refresh token for the SSO session.
 
 **Realm as code.** The realm, clients, client scopes, roles, group-to-role mappings and the LDAP provider live in cmapi-sso/realm/ephico2real.yaml. keycloak-config-cli applies them as an ArgoCD PostSync Job, so a rebuilt Keycloak converges from Git the same way the clusters do. The operator's KeycloakRealmImport is not used for this: it only creates a realm that does not exist yet and ignores later changes. The LDAP bind password and client secrets stay in Secrets, never in the realm file.
+
+**Identity claims.** The requester's username and email come from standard claims; employee ID and middle name need three additions to the realm file. Keycloak 24 and later ignores user attributes that the User Profile does not declare, so the declaration is not optional. The admin client the directory module uses is read-only: realm-management roles view-users and query-users, nothing else.
+
+```yaml
+# cmapi-sso/realm/ephico2real.yaml (keycloak-config-cli), identity additions
+components:
+  org.keycloak.storage.ldap.mappers.LDAPStorageMapper:   # under the LDAP provider
+    - name: employee-id
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [employeeNumber]       # employeeID in Active Directory
+        user.model.attribute: [employeeId]
+        read.only: ["true"]
+        always.read.value.from.ldap: ["true"]
+    - name: middle-name
+      providerId: user-attribute-ldap-mapper
+      config:
+        ldap.attribute: [middleName]
+        user.model.attribute: [middleName]
+        read.only: ["true"]
+userProfile:                                    # declared, or Keycloak drops them
+  attributes:
+    - name: employeeId
+      permissions: {view: [admin], edit: []}
+    - name: middleName
+      permissions: {view: [admin, user], edit: []}
+clientScopes:
+  - name: cmapi-identity
+    protocol: openid-connect
+    protocolMappers:
+      - name: employee_id
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: employeeId, claim.name: employee_id, access.token.claim: "true", id.token.claim: "false", jsonType.label: String}
+      - name: middle_name
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config: {user.attribute: middleName, claim.name: middle_name, access.token.claim: "true", id.token.claim: "true", jsonType.label: String}
+# each instance client (cmapi-nonprod, cmapi-staging, cmapi-prod) lists cmapi-identity in defaultClientScopes
+```
+
+**The identity module.** cmapi talks to Keycloak through two pieces of cmapi-core and no separate service. core/auth.py verifies every token offline against the cached JWKS, as above. core/identity/ does the rest: claims.py turns the verified token into an Identity (username, email, first, middle and last name, employee ID); keycloak\_admin.py is the only code that calls the admin API, with client credentials as cmapi-directory; directory.py is the DirectoryProvider protocol with its 15-minute cache, kept when Keycloak is unreachable; checks.py resolves onBehalfOf and runs the email-domain and team-DL checks. A separate microservice would add a network hop and a second credential holder for a few cached lookups an hour, and token verification has to stay in-process anyway; if the admin credential should not sit in the API pods, the directory calls can move to the worker behind the same protocol.
+
+**Email domains are configuration.** ephico2real.com in these documents is a placeholder. The allowed domains are one list, emailDomains in cluster-configs/policies/metadata-keys.yaml, which both cmapi and the Kyverno bundle read, so plan time, CI and admission agree. Every email-valued governed key (cmapi.net/team-dl, and any later one) uses format: email-in-domains instead of a regex with a domain in it. Emails taken from the token (cmapi.net/requested-by) are not checked against the list; they are whatever the directory holds.
 
 **Metrics and alerts.**
 
@@ -658,7 +666,7 @@ Each instance imports only its own clusters. The baseline writes a cluster's Sec
 
 An imported cluster with no clusters.yaml entry is read-only: reads work, and writes return 422 cluster-not-writable. The cluster-onboard operation adds that entry through a PR. The Thanos URL is read from the thanos-querier Route unless the entry overrides it.
 
-**Cluster metadata.** Each clusters.yaml entry can classify its cluster with a region, its availability zones, a few standard fields and free-form labels. cmapi turns these into a label set per cluster. Selectors over that set let approval rules, auto-approval, scope bindings, placement, integrations and operations pick clusters by what they are instead of listing IDs.
+**Cluster metadata.** Each clusters.yaml entry can classify its cluster with a region, its availability zones, a few standard fields and free-form labels. cmapi turns these into a label set per cluster. Selectors over that set let approval rules, auto-approval, placement, integrations and operations pick clusters by what they are instead of listing IDs.
 
 ```yaml
 # config/clusters.yaml: policy and classification per cluster; connections come from imports
@@ -699,9 +707,8 @@ clusterSelector:
 
 | Used by | How |
 | --- | --- |
-| Scope bindings (authz-scopes.yaml) | clusterSelector in place of, or as well as, a clusters list |
 | Approval rules and auto-approval | match.clusterSelector |
-| Placement | Hard constraints from the request (region, zones, labels) and from the team's binding |
+| Placement | Hard constraints from the request (region, zones, labels) and from the environments the caller's roles cover |
 | Integrations | Per-selector overrides, for example syncSignal: notify for a whole region |
 | Operations | Fan out by selector, for example bulk-migrate over region us-central |
 | Reads and reports | GET /api/v1/clusters?labelSelector=region=us-central; region on per-cluster metrics |
@@ -765,7 +772,7 @@ Each refusal is a finding on that cluster only; the other clusters keep being re
 | Outcomes are classified by who wrote the error, and a 403 never triggers rotation: the token is valid, the RBAC is not. | Same classification; forbidden names the missing grant. |
 | The proxy's skip-auth list drifted from the app's list for six days, so a forged X-Forwarded-User on a static path was recorded as a real person. | cmapi verifies the Keycloak JWT itself and never trusts an identity header. Only /healthz, /readyz and /metrics are unauthenticated, and /metrics is on a separate port. |
 | `oc auth can-i` said yes to deleting the user's own OAuth token, but the live call returned 403, because a SubjectAccessReview never sees a token's scope. Unit tests passed because they mocked the API. | Integration tests run against a real cluster and a mock OpenShift API, never only mocks. |
-| Asking each remote cluster to authorize every reader (remote-sar) added a failure mode for every call it made, all failing closed to a narrowed view. | One authorization source: Keycloak roles plus scope bindings. cmapi never asks a cluster about a person. |
+| Asking each remote cluster to authorize every reader (remote-sar) added a failure mode for every call it made, all failing closed to a narrowed view. | One authorization source: Keycloak roles, with the permissions authz-roles.yaml gives them. cmapi never asks a cluster about a person. |
 | Patching labels onto RBAC objects was refused by Kubernetes' privilege-escalation check (175 extra rule sets demanded to label one view binding). | cmapi never writes RBAC directly; ArgoCD applies it from Git. |
 | A Secret written with oc took up to one discovery interval (300 seconds) to be noticed; one written through the app took seconds. | Watch the import namespace, with a 5-minute relist as the backstop. |
 | Each finding is logged once when it appears and once when it clears, with phase, outcome, action and detail fields shared by the log, API and UI. | Adopted. |
@@ -815,14 +822,22 @@ class Api(BaseModel):
 class ClusterScoped(Api):
     cluster_id: ClusterId
 
-ChangeStatus = Literal["validated", "pr_open", "approved", "rejected", "merged",
-                       "synced", "failed", "cancelled", "timeout"]
+ChangeStatus = Literal["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "rejected",
+                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted"]
+
+class ApprovalSlot(Api):
+    group: str                    # approving group, e.g. "prod-approvers" (token path /cmapi/cmapi-prod-approvers)
+    count: int
+    reason: str
 
 class ApprovalRequirement(Api):
     rule: str                     # e.g. "prod-delete"
-    required_count: int
-    eligible_group: str           # Keycloak group path that may approve
+    slots: list[ApprovalSlot]     # one per group: 2 prod-approvers + 1 platform-leads is two slots
+    self_approval: bool
+    timeout_hours: int
     reasons: list[str]
+    auto: str | None = None       # "auto:<policy>" or "none-required" when approved at plan time
+    auto_fallback: str | None = None   # the guard that stopped a matching policy
 
 class Plan(ClusterScoped):
     plugin: str
@@ -845,7 +860,8 @@ class ChangeRequest(ClusterScoped):
     namespace: DnsLabel | None
     name: str
     status: ChangeStatus
-    requested_by: str
+    requested_by: str             # username from the token; names, email and employee ID stay in the database
+    submitted_by_client: str | None   # the service client, when a service submitted on someone's behalf
     pr_url: str | None
     approval: ApprovalRequirement | None
     created_at: datetime
@@ -858,7 +874,9 @@ class NamespaceCreate(ClusterScoped):
     quota: "QuotaSpec | None" = None
     labels: dict[str, str] = {}
     annotations: dict[str, str] = {}
-    ttl: date | None = None
+    expires_at: date | None = None        # optional; 422 expiration-not-allowed when env is prod
+    placement_id: str | None = None      # from POST /capacity:place; must match the path cluster, team and env
+    on_behalf_of: str | None = None      # username or employee ID; required when a service client submits
     justification: Annotated[str, StringConstraints(min_length=10)]
 ```
 
@@ -873,9 +891,9 @@ ALTER TABLE change_requests
 
 CREATE UNIQUE INDEX uq_cr_idempotency ON change_requests (requested_by, idempotency_key);
 
--- At most one open request per object: the per-object lock
-CREATE UNIQUE INDEX uq_cr_open_object ON change_requests (cluster_id, kind, (coalesce(namespace, '')), name)
-  WHERE status IN ('validated', 'pr_open', 'approved', 'merged');
+-- At most one open request per namespace (all of its files): the lock
+CREATE UNIQUE INDEX uq_cr_open_namespace ON change_requests (cluster_id, (coalesce(namespace, name)))
+  WHERE status IN ('pending_approval', 'approved', 'pr_open', 'merged', 'awaiting_prune', 'sync_failed');
 
 -- Work queue for the status worker (Postgres SKIP LOCKED, no extra broker)
 CREATE TABLE jobs (
@@ -921,23 +939,26 @@ CREATE TABLE capacity_snapshots (
 ) PARTITION BY RANGE (taken_at);               -- monthly partitions, kept 13 months
 ```
 
-**Git layout (desired state).** One folder per cluster; each cluster's ArgoCD root Application watches only its own folder. The project-meta renderer writes:
+**Git layout (desired state).** One folder per cluster; each cluster's ArgoCD root Application watches only its own folder. The raw manifest renderer writes plain Kubernetes manifests, one folder per namespace and one file per kind; nothing on the cluster expands them:
 
 ```
 cluster-configs/
 └── clusters/
-    └── OCP_GF1/                                   # = gitopsPath in the registry
-        ├── argocd/root-application.yaml           # bootstrap: points at this folder
+    └── OCP_GF15/                                  # = gitopsPath in the registry
+        ├── argocd/root-application.yaml           # bootstrap: syncs namespaces/ with directory recurse
         └── namespaces/
             └── payments-dev/
-                ├── payments-dev-dev-project-meta.yml  # namespace, tier, quota, labels, TTL
-                ├── serviceaccounts.yaml               # namespace ServiceAccounts
-                └── rolebindings.yaml                  # SA grants and SCC grants
+                ├── namespace.yaml                 # labels, annotations, optional expiry, Prune=confirm
+                ├── resourcequota.yaml             # tier values from config/tiers.yaml, or custom values
+                ├── limitrange.yaml                # tier defaults
+                ├── serviceaccounts.yaml           # namespace ServiceAccounts
+                ├── rolebindings.yaml              # SA grants and SCC grants
+                └── token-issuer-rolebinding.yaml  # cmapi-token-issuer, for sa-tokens
 ```
 
 If your cluster-configs repo keeps the existing segment/mnemonic/clusterEnv layout, the renderer maps clusterId to that path instead; the registry's gitopsPath is the only place the mapping lives.
 
-**Label and annotation conventions.** Every key the API writes or reads lives under cmapi.net/; only the Kyverno TTL label keeps Kyverno's own key.
+**Label and annotation conventions.** Every key the API writes or reads lives under cmapi.net/; expiry is cmapi.net/expires-at and cmapi.net/expiry, written only for non-prod namespaces (Kyverno's cleanup TTL is not used).
 
 | Key | Kind | Value | Set by | Used for |
 | --- | --- | --- | --- | --- |
@@ -945,14 +966,17 @@ If your cluster-configs repo keeps the existing segment/mnemonic/clusterEnv layo
 | cmapi.net/managed | Label | "true" | Renderer | Marks objects owned through Git; adoption skips them |
 | cmapi.net/adopt | Label | "true" | Namespace owner or platform | Opt-in for adoption; removed when adoption completes |
 | cmapi.net/protected | Label | "true" | Platform | Blocks delete through the API |
-| cmapi.net/tier | Label | small, medium, large, custom | Renderer | NamespaceConfig selector for quota and limit templates |
+| cmapi.net/tier | Label | small, medium, large, custom | Renderer | Picks the tier's ResourceQuota and LimitRange values from config/tiers.yaml; target of the tiers-rerender operation |
 | cmapi.net/requested-by | Annotation | Requester's email | Renderer | Reports; an email cannot be a label value |
 | cmapi.net/requested-by-user | Label | Username part only, e.g. ola | Renderer | Label-selector queries by requester |
 | cmapi.net/request-id | Annotation | Last change request ID | Renderer | Links a live object to its history |
-| cleanup.kyverno.io/ttl | Label | Date, e.g. 2026-12-15 | Renderer, from the TTL field | Kyverno cleanup; no colons in the value |
-| cmapi.net/team | Label | Team slug, e.g. payments | Caller (governed, required); must match a binding's team | Ownership, showback, label-selector queries by team |
+| cmapi.net/expires-at (annotation, non-prod only) | Label | Date, e.g. 2026-12-15 | Renderer, from expiresAt; never in prod | expire\_check notices, grace and the expired-namespace delete request |
+| cmapi.net/team | Label | Team slug, e.g. payments | Caller (governed, required); ownership and cost, any valid value, not checked against the caller | Ownership, showback, label-selector queries by team |
 | cmapi.net/cost-center | Label | e.g. cc-4410 | Caller (governed, optional) | Showback |
-| cmapi.net/owner | Annotation | Owner's email | Caller (governed, required) | Who to contact; ownership attestation |
+| cmapi.net/team-dl | Annotation | Team distribution list, e.g. payments-team@ephico2real.com | Caller (governed, required; format checked, not looked up) | Who to contact: expiry notices, approval requests, rightsizing, attestation. Replaces cmapi.net/owner |
+| cmapi.net/env | Label | rnd, dev, qa, uat, prod | Renderer | Environment of the namespace; Kyverno's deny-expiry-in-prod and the approval rules read it |
+| cmapi.net/instance | Annotation | nonprod, staging, prod | Renderer, on every object | Provenance: which instance wrote the object |
+| cmapi.net/tier-hash | Annotation | 12 hex digits, e.g. dec3e603bf8d | Renderer, on the ResourceQuota and LimitRange | Which catalog version rendered the tier; differs from the current hash means tier-outdated |
 
 Label values must be 63 characters or fewer and use only letters, digits, dots, dashes and underscores, which is why the email goes in an annotation.
 
@@ -962,10 +986,10 @@ Callers can set any number of labels and annotations on namespaces and service a
 
 | Class | Keys | Set by | Through the API |
 | --- | --- | --- | --- |
-| System | cmapi.net/cluster-id, managed, request-id, requested-by, requested-by-user, tier; cleanup.kyverno.io/ttl | The renderer | Refused (422 reserved\_key). Tier and TTL change through their own fields. |
+| System | cmapi.net/cluster-id, managed, request-id, requested-by, requested-by-user, tier, expiry; cmapi.net/expires-at | The renderer | Refused (422 reserved\_key). Tier and TTL change through their own fields. |
 | Operator only | cmapi.net/protected | cmapi-operator and above | Refused for requesters (403 forbidden) |
 | Platform reserved | kubernetes.io/, \*.kubernetes.io/, k8s.io/, openshift.io/, \*.openshift.io/, argocd.argoproj.io/, \*.kyverno.io/, redhatcop.redhat.io/ | Kubernetes, OpenShift and platform controllers | Refused (422 reserved\_key) |
-| Governed | cmapi.net/team (label, required), cmapi.net/cost-center (label), cmapi.net/owner (annotation, required) | The caller | Allowed; the value is checked against a pattern, and team must be one the caller is bound to |
+| Governed | cmapi.net/team (label, required), cmapi.net/cost-center (label), cmapi.net/team-dl (annotation, required) | The caller | Allowed; the value is checked against a pattern, and team must be one the caller is bound to |
 | Team | Everything else, limited to the allowed prefixes | The caller | Allowed within the limits below |
 
 **Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle's metadata-keys policy, so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses.
@@ -973,16 +997,16 @@ Callers can set any number of labels and annotations on namespaces and service a
 ```yaml
 # cluster-configs/policies/metadata-keys.yaml
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
-         cmapi.net/requested-by-user, cmapi.net/tier, cleanup.kyverno.io/ttl]
+         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/expiry, cmapi.net/expires-at]
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
 governed:
-  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$", mustMatchBinding: true}
+  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; not checked against the caller
   cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
   cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
   cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-  cmapi.net/owner:       {kind: annotation, required: true,  pattern: "^[^@\\s]+@ephico2real\\.com$"}
+  cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
 team:
   allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
   maxLabels: 50
@@ -990,9 +1014,10 @@ team:
   maxAnnotationValueBytes: 4096
   maxAnnotationBytesTotal: 65536
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
 ```
 
-Bindings in authz-scopes.yaml gain an optional team field, which is what mustMatchBinding checks: a payments requester can set cmapi.net/team: payments and nothing else. Operators are exempt.
+cmapi.net/team is required ownership and cost metadata. Any value matching the pattern is accepted from any caller; it is not checked against the caller's roles or groups (mustMatchBinding is retired).
 
 **Syntax.** Pydantic checks Kubernetes syntax before policy runs. A key is an optional DNS subdomain prefix of up to 253 characters, a slash, and a name of up to 63 characters that starts and ends with a letter or digit. Label values follow the same name rule or are empty. Annotation values can be any string. cmapi's byte caps sit well under Kubernetes' 256 KiB total because every value lands in Git and in PR diffs. A secret scanner runs in CI on every PR, since annotations are readable by anyone with Git access.
 
@@ -1087,34 +1112,154 @@ curl -s -X PATCH "$CMAPI/clusters/OCP_GF1/namespaces/payments-dev/metadata" \
 
 **Plan and PR.** The Plan lists added, changed and removed keys per class. The PR body shows that table, and the approval engine receives it as facts. A change to a sensitive key adds one platform-leads approval on top of the environment rule.
 
-**Rendering.** The renderer writes labels and annotations as sorted maps in the project-meta file, system keys first, so diffs stay stable and reviewers see only the keys that changed.
+**Rendering.** The renderer writes labels and annotations as sorted maps on each manifest, system keys first, so diffs stay stable and reviewers see only the keys that changed.
 
 ```yaml
-# clusters/OCP_GF1/namespaces/payments-dev/payments-dev-dev-project-meta.yml
-namespace: payments-dev
-env: dev
-labels:
-  cmapi.net/cluster-id: OCP_GF1        # system
-  cmapi.net/managed: "true"
-  cmapi.net/requested-by-user: ola
-  cmapi.net/tier: medium
-  cleanup.kyverno.io/ttl: "2026-12-15"
-  cmapi.net/cost-center: cc-4410       # governed
-  cmapi.net/team: payments
-  app.ephico2real.com/component: api   # team
-annotations:
-  cmapi.net/request-id: req-20261103-91c4
-  cmapi.net/requested-by: ola@ephico2real.com
-  cmapi.net/owner: ola@ephico2real.com
-  ops.ephico2real.com/pager: payments-oncall
-  ops.ephico2real.com/runbook: https://wiki.ephico2real.com/payments/runbook
+# clusters/OCP_GF15/namespaces/payments-dev/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15       # system
+    cmapi.net/env: dev
+    cmapi.net/expiry: managed            # system; never rendered in prod
+    cmapi.net/managed: "true"
+    cmapi.net/requested-by-user: ola     # preferred_username from the token
+    cmapi.net/tier: medium
+    cmapi.net/cost-center: cc-4410       # governed
+    cmapi.net/team: payments
+    app.ephico2real.com/component: api   # team
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true   # system
+    cmapi.net/expires-at: "2026-12-15"   # optional; extend through POST .../expiration:extend
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+    cmapi.net/requested-by: ola@ephico2real.com   # email from the token
+    cmapi.net/team-dl: payments-team@ephico2real.com   # governed, required
+    ops.ephico2real.com/pager: payments-oncall
+---
+# clusters/OCP_GF15/namespaces/payments-dev/resourcequota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: payments-dev-quota
+  namespace: payments-dev
+  labels: {cmapi.net/cluster-id: OCP_GF15, cmapi.net/managed: "true", cmapi.net/tier: medium}
+  annotations: {cmapi.net/instance: nonprod, cmapi.net/request-id: req-20261104-2b17}
+spec:
+  hard:                                  # config/tiers.yaml: medium
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    pods: "100"
 ```
 
 **On the cluster.** ArgoCD compares only the keys in Git. Keys that controllers add later, such as OpenShift's openshift.io/sa.scc.\* annotations or the pod-security sync labels, never show as drift. Removing a key from Git removes it from the cluster. Namespace Applications use the ServerSideApply=true sync option, so field ownership is explicit when ArgoCD and a controller write to the same object. A key someone changes by hand with oc label is reverted by self-heal if it is in Git. A new key added by hand stays, and shows as unmanaged in GET and in the drift report until a request adopts it into Git.
 
 **Adoption.** Adopting a namespace copies its existing governed and team keys into Git. Reserved and system keys stay on the cluster but out of the file. A missing required governed key blocks adoption and is listed in the unmanaged-namespaces report.
 
-**New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, team\_not\_bound, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden.
+**New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden. Identity and DL checks add three more 422 codes: identity-incomplete (a person's token has no employee\_id claim; automation accounts are exempt), unknown-user (onBehalfOf names nobody, or a disabled user) and invalid-team-dl (not an address in one of the emailDomains listed in metadata-keys.yaml). The DL is format-checked only; cmapi does not look it up or check membership. Namespace names add invalid-namespace-name and reserved-namespace (422) and namespace-exists-unmanaged (409, at create).
+
+## Tiers
+
+A tier is a named size for a namespace: the ResourceQuota and LimitRange cmapi writes into its folder. The catalog is config/tiers.yaml, and one module, core/tiers.py, is the only code that reads it. The planner, the renderer, the capacity check, the approval engine, the quota view, rightsizing and adoption all ask that module; none of them hold tier values of their own.
+
+**The file.** Four parts. sizable names the quota keys a request may size: requests.cpu, requests.memory and pods, the three the Quotas view tracks. defaults holds the quota keys and LimitRange every tier gets (PVC count and storage, no LoadBalancer or NodePort Services, container defaults). tiers holds small, medium, large and custom, each with an order, a description and its own values; custom takes its sizable values from the approved request. environments lists, per environment the instance serves, which tiers are offered, any per-tier overrides, the custom bounds, or inherit: another environment (dev inherits rnd). Each instance's file holds only its own environments.
+
+```yaml
+# config/tiers.yaml (combined reference; each instance keeps only its environments)
+apiVersion: cmapi.net/v1
+kind: TierCatalog
+sizable: [requests.cpu, requests.memory, pods]
+defaults:
+  quota: {persistentvolumeclaims: "20", requests.storage: 200Gi, services.loadbalancers: "0", services.nodeports: "0"}
+  limitRange:
+    container:
+      defaultRequest: {cpu: 100m, memory: 256Mi}
+      default:        {cpu: 500m, memory: 512Mi}
+      max:            {cpu: "2",  memory: 4Gi}
+    pvc: {max: {storage: 50Gi}}
+tiers:
+  small:  {order: 1, quota: {requests.cpu: "8",  requests.memory: 16Gi, pods: "50"}}
+  medium: {order: 2, quota: {requests.cpu: "16", requests.memory: 32Gi, pods: "100", persistentvolumeclaims: "30", requests.storage: 500Gi},
+           limitRange: {container: {max: {cpu: "4", memory: 8Gi}}}}
+  large:  {order: 3, quota: {requests.cpu: "32", requests.memory: 64Gi, pods: "200", persistentvolumeclaims: "50", requests.storage: 1Ti},
+           limitRange: {container: {defaultRequest: {cpu: 250m, memory: 512Mi}, default: {cpu: "1", memory: 1Gi}, max: {cpu: "8", memory: 16Gi}},
+                        pvc: {max: {storage: 200Gi}}}}
+  custom: {order: 4, custom: true}           # sizable values come from the approved request
+custom:                                      # bounds for custom values
+  min:  {requests.cpu: "2",  requests.memory: 4Gi,   pods: "10"}
+  max:  {requests.cpu: "64", requests.memory: 256Gi, pods: "500"}
+  step: {requests.cpu: "1",  requests.memory: 1Gi,   pods: "10"}
+environments:
+  rnd:  {offered: [small, medium, large, custom], custom: {max: {requests.cpu: "32", requests.memory: 64Gi, pods: "300"}}}
+  dev:  {inherit: rnd}
+  qa:   {offered: [small, medium, large, custom], custom: {max: {requests.cpu: "48", requests.memory: 128Gi, pods: "400"}}}
+  uat:  {offered: [small, medium, large, custom],
+         tiers: {medium: {limitRange: {container: {max: {cpu: "8", memory: 16Gi}}}}, large: {limitRange: {container: {max: {cpu: "16", memory: 32Gi}}}}}}
+  prod: {offered: [small, medium, large, custom],
+         tiers: {medium: {limitRange: {container: {max: {cpu: "8", memory: 16Gi}}}}, large: {limitRange: {container: {max: {cpu: "16", memory: 32Gi}}}}},
+         custom: {max: {requests.cpu: "128", requests.memory: 512Gi, pods: "1000"}}}
+```
+
+**Resolution.** For an environment and a tier, the values are defaults, then the tier, then the environment's override for that tier, merged key by key; custom bounds are the top-level custom block, then the environment's. Each resolved tier gets a hash, the first 12 hex digits of SHA-256 over its resolved quota and LimitRange, rendered as the annotation cmapi.net/tier-hash on both objects. For the custom tier the hash covers only the catalog's part (non-sizable keys and LimitRange); the sizable values belong to the namespace's approved request.
+
+**Validation.** The whole catalog is resolved and checked when it loads, so no request ever meets a bad tier:
+
+- Environments are exactly the instance's allowedEnvironments; inherit names a real environment and never loops; offered and override names are real tiers; at most one custom tier; orders are unique.
+- Every value is a Kubernetes quantity. Every named tier has all sizable keys; the custom tier fixes none of them.
+- Sizes grow with order: for each sizable key, small < medium < large in every environment.
+- Container limits are ordered min ≤ defaultRequest ≤ default ≤ max, and a container at its max fits the namespace: max ≤ the tier's requests.cpu and requests.memory (for custom, ≤ custom.min).
+- Custom bounds use sizable keys only, min ≤ max, and min and max sit on step.
+- Across files, every tier named in approval-rules.yaml (for example baseline-rnd-namespace's tiers: \[small, medium\]) exists in the catalog.
+
+At startup an invalid catalog stops cmapi with every problem listed. On reload cmapi keeps the running catalog, logs the problems and sets cmapi\_tier\_catalog\_reload\_failed to 1, shown on the System status panel.
+
+**Loading.** The Helm chart renders the instance's tiers.yaml into the ConfigMap cmapi-tiers, mounted by the API, the worker and cmapi-capacity. core/config watches it and swaps in a new catalog only when the new one validates; the catalog hash is exported as cmapi\_tier\_catalog\_info{hash} and is the ETag of GET /api/v1/tiers. A plan stores the resolved tier (values and hash), not just its name, so a catalog change between approval and commit cannot change what was approved: the commit renders from the plan, and the plan-hash check still holds.
+
+**Where it is used.**
+
+| Step | Call in core/tiers.py | Result |
+| --- | --- | --- |
+| Plan a create or tier change | resolve(env, tier), quota\_for(env, tier, quota) | The full spec.hard; a custom quota is checked against the bounds and step |
+| Capacity and placement | the resolved requests.cpu and requests.memory | The size reserved; an increase reserves only the delta |
+| Approval rules | compare(env, old tier, old hard, new tier, new hard, used) | Facts tier, tierChange (up, down, same, to-custom, from-custom, custom), quotaIncreasePct and quotaBelowRequested |
+| Render | render(namespace, cluster, instance, env, tier, request, quota) | resourcequota.yaml and limitrange.yaml, called by core/render/manifests.py |
+| PATCH or PUT .../quota | normalise(env, hard) | The named tier when the values equal one exactly, otherwise custom |
+| Quota view | is\_outdated(env, tier, rendered hash) | State tier-outdated, a filter on GET /api/v1/quotas |
+| Rightsizing | match(env, hard, tolerance 0.10) | Snaps a recommendation to a tier within 10% |
+| Adoption | match(env, live hard) | The named tier when the live quota equals one, otherwise custom with the live values |
+
+The Kyverno bundle does not read the catalog. It checks what it always checked (limits never below requests, the required labels) on the rendered files, so CI and admission need no tier logic.
+
+**API.**
+
+| Endpoint | Returns | Permission |
+| --- | --- | --- |
+| GET /api/v1/tiers?environment= | Every offered tier per environment the instance serves (or one), resolved, with hash, plus the custom bounds and the sizable keys. ETag: the catalog hash | Any authenticated caller (namespaces:read) |
+| GET /api/v1/tiers/{tier}?environment= | One resolved tier | Same |
+| GET /api/v1/tiers/{tier}/namespaces?environment=&state=current\|outdated&limit=&cursor= | Namespaces on that tier with their rendered and current hash, on the shared paging contract | Scoped like GET /api/v1/quotas |
+| POST /api/v1/operations with template tiers-rerender | An operation that re-renders outdated namespaces | operations:run (cmapi-operator) |
+
+Writes keep their shape: POST .../namespaces takes tier and, for custom only, quota; PATCH .../namespaces/{ns} with {"tier": "large"} changes tier; PATCH or PUT .../quota takes the sizable keys only. Refusals are 422 policy-violation with errors\[\].code: tier-unknown, tier-not-offered, quota-with-named-tier (quota sent with small, medium or large), quota-key-not-sizable, custom-quota-required (a sizable key missing) and custom-out-of-bounds (each offending key with its min, max and step).
+
+```json
+{"catalogHash": "618ae03a131d6626", "sizable": ["requests.cpu", "requests.memory", "pods"],
+ "environments": {"prod": {
+   "tiers": [{"name": "medium", "order": 2, "custom": false, "hash": "…",
+              "quota": {"requests.cpu": "16", "requests.memory": "32Gi", "pods": "100", "persistentvolumeclaims": "30",
+                        "requests.storage": "500Gi", "services.loadbalancers": "0", "services.nodeports": "0"},
+              "limitRange": {"container": {"defaultRequest": {"cpu": "100m", "memory": "256Mi"},
+                                           "default": {"cpu": "500m", "memory": "512Mi"}, "max": {"cpu": "8", "memory": "16Gi"}},
+                             "pvc": {"max": {"storage": "50Gi"}}}}, "…"],
+   "custom": {"min": {"requests.cpu": "2", "requests.memory": "4Gi", "pods": "10"},
+              "max": {"requests.cpu": "128", "requests.memory": "512Gi", "pods": "1000"},
+              "step": {"requests.cpu": "1", "requests.memory": "1Gi", "pods": "10"}}}}}
+```
+
+**Changing a tier.** A PR to tiers.yaml (platform-leads in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values; only their catalog part re-renders.
+
+**Reference implementation.** examples/src/cmapi/core/tiers.py, with 28 tests in examples/tests/test\_tiers.py that load every instance's file, cover each refusal and each catalog check, and render the example namespace's resourcequota.yaml and limitrange.yaml byte for byte.
 
 ## Capacity plugin (API side)
 
@@ -1176,7 +1321,7 @@ All Thanos work runs in one long-lived service, cmapi-capacity, deployed as its 
 
 **Database: one PostgreSQL, two schemas.** cmapi-capacity owns the capacity schema and is its only writer. The cmapi API's database role can only read it. Requests, approvals and reservations stay in the cmapi schema. Placement runs in the API, reading capacity snapshots and taking its reservation in one transaction under the cluster's advisory lock, so there is no transaction spanning two services. If the schemas ever move to separate databases, placement switches to the read API below and the one cross-schema foreign key (recommendations.request\_id) is dropped.
 
-**Reached only through cmapi.** cmapi-capacity is an internal microservice. It has no Route, no public hostname and no authentication of its own to manage. Callers use cmapi's cluster-first paths. The cmapi API acts as the gateway: it verifies the Keycloak token, checks the role and the scope binding for that cluster and namespace, then forwards the call to the service. cmapi-capacity trusts nothing but the gateway, and makes no authorization decisions of its own.
+**Reached only through cmapi.** cmapi-capacity is an internal microservice. It has no Route, no public hostname and no authentication of its own to manage. Callers use cmapi's cluster-first paths. The cmapi API acts as the gateway: it verifies the Keycloak token, checks the role and its environments, then forwards the call to the service. cmapi-capacity trusts nothing but the gateway, and makes no authorization decisions of its own.
 
 | Public path (cmapi API) | Permission and scope check | Forwarded to cmapi-capacity |
 | --- | --- | --- |
@@ -1212,7 +1357,7 @@ async def namespace_usage(
     capacity: CapacityBackend = Depends(capacity_backend),     # remote HTTP or in-process
 ) -> NamespaceUsage:
     env = await resolve_environment(cluster_id, namespace)     # namespace env, else the cluster's
-    authorize_target(caller, "capacity:read", bindings(), cluster_id, env, namespace)
+    roles().require(caller, "capacity:read", env)
     return await capacity.namespace_usage(cluster_id, namespace, window)
 ```
 
@@ -1310,7 +1455,7 @@ groupBy takes one or more of environment, region, zone, datacenter, provider, cl
 
 **Targets.** capacity.targets in capacity.yaml sets warn and critical levels per environment, for example prod: {commitment: {warn: 0.80, critical: 0.90}, utilisation: {warn: 0.70, critical: 0.85}}. Groups and clusters get a status against them. CmapiCapacityTargetBreached fires per cluster and per region when critical holds for an hour.
 
-**Scope.** Cluster and fleet capacity need capacity:read on the cluster through any binding: the totals reveal nothing about another team's namespaces. A fleet query only aggregates clusters inside the caller's bindings, and the response says how many matching clusters were left out for scope.
+**Scope.** Cluster and fleet capacity need capacity:read in the cluster's environment: the totals reveal nothing about any one namespace. A fleet query only aggregates clusters in environments where the caller's roles grant capacity:read, and the response says how many matching clusters were left out.
 
 ```json
 {
@@ -1386,7 +1531,7 @@ CREATE INDEX idx_resv_active ON capacity_reservations (cluster_id) WHERE release
 - environment does not match
 - not connected or not writable
 - placement.enabled is false
-- outside the requested region, zones or clusterSelector, or outside the team's scope binding
+- outside the requested region, zones or clusterSelector, or in an environment the caller's roles do not cover
 - stale or partial data
 - maxNamespaces reached
 - does not fit within quota headroom after reservations
@@ -1506,7 +1651,7 @@ Server-set fields (uid, resourceVersion, creationTimestamp, managedFields, statu
 
 1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller must be admin of each namespace, checked with a SubjectAccessReview on that cluster, or be a platform admin.
 2. **Plan.** The plugin reads live objects, applies the skip rules and policies, and renders the files. The diff between rendered and live must be empty apart from the managed labels; anything else is a finding.
-3. **PR.** One PR per namespace, labelled adoption, with the findings in the body. Approval: one namespace admin in rnd and qa, plus platform-leads in prod.
+3. **Approve, then PR. One request per namespace with the findings in its plan. Approval in cmapi: one namespace admin in rnd and qa, plus platform-leads in prod; once approved, the bot opens the PR**.
 4. **Sync.** On merge, the cluster's ArgoCD takes ownership. The first sync is a no-op except for the managed labels and the removal of cmapi.net/adopt, which marks adoption done.
 5. **Verify.** The worker confirms Synced and Healthy with no other changes; any unexpected diff fails the request and leaves the namespace as it was.
 
@@ -1521,6 +1666,8 @@ Server-set fields (uid, resourceVersion, creationTimestamp, managedFields, statu
 **RBAC.** The adoption plugin adds create on subjectaccessreviews (authorization.k8s.io) to each cluster's read ClusterRole, for the namespace-admin check.
 
 ## Approval rules engine
+
+**Superseded in part.** cmapi is now the record of approval: requests wait in pending\_approval and only approved requests are opened as bot PRs, merged when CI passes. Git reviews, approval labels and the reviewer-counting CI check described below are replaced by POST /requests/{id}:approve and the cmapi check (approved request ID, plan hash). The rules engine itself is unchanged.
 
 The n8n approval logic becomes one YAML file evaluated at plan time; the strictest matching rule wins, and the result rides into the PR where the Git host enforces it.
 
@@ -1554,7 +1701,15 @@ thresholds:                     # facts come from the planner and the capacity p
     reason: Possible over-provisioning
   - when: capacity == "warn"
     add: 1
-  - when: action == "delete" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+  - when: quotaBelowRequested       # a decrease below what pods already request
+    add: 1
+  - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
+    add: 1
+    group: platform-leads
+  - when: expirationBeyondLimits    # past 180 days from creation, or make permanent
+    add: 1
+    group: platform-leads
+  - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
     add: 1
 
 protected:                      # never deletable through the API
@@ -1565,9 +1720,9 @@ protected:                      # never deletable through the API
 
 1. The planner returns facts (action, environment, namespace age, quota increase, usage ratios, capacity result).
 2. The engine applies environment, then pattern, then thresholds, then any auto-approval policy and its guards, and returns an ApprovalRequirement: rule name, required count, approving group and every reason.
-3. Core writes it into the PR body and a label (approval/prod-delete-3), and stores it in the approvals table.
-4. A CI check reads the label and asks cmapi which PR reviewers count (Keycloak group, approver role and binding scope; the requester excluded by sub when self-approval is off), and stays red until the count is met; branch protection requires that check.
-5. A timeout job marks the request timeout and closes the PR after timeoutHours.
+3. Core stores it in the approvals table and the request waits in pending\_approval; approvers act through POST /requests/{id}:approve or :reject (see Approval of record in Design and Architecture). Nothing is written to Git until the count is met.
+4. Once the count is met the request is approved and the bot opens the PR. CI runs the Kyverno bundle and kubeconform, and the cmapi check confirms the request ID is approved and the PR head matches the plan hash; branch protection requires both, and only the bot can merge under clusters/.
+5. A timeout job marks a request still in pending\_approval as timeout after timeoutHours; no PR exists yet, so nothing in Git changes.
 
 Rule changes are PRs to this file and are versioned with the API; every ChangeRequest records the rules version it was evaluated against.
 
@@ -1623,12 +1778,12 @@ CI must still pass: auto-approval replaces the human review, not the checks.
 
 **How it runs.** The engine returns ApprovalRequirement with requiredCount 0, autoApproved true and the policy name. Core then:
 
-- labels the PR approval/auto-\<policy>;
+- approves the request in cmapi, so the bot opens its PR straight away;
 - turns on the Git host's auto-merge, so the PR merges the moment the checks pass;
-- has the approval-count check pass with the reason auto-approved by policy \<name>;
+- has the cmapi check pass, since the request is approved and the PR head matches the plan hash;
 - records an approvals row with approver auto:\<policy> and an auto\_approved event.
 
-Branch protection requires the approval-count check rather than a human review, so no bot account has to approve a PR. The cmapi bot is the CODEOWNER of clusters/\*\*/namespaces, so its own PRs can merge. A dry run shows whether the request would be auto-approved and, if not, which guard stopped it.
+Branch protection requires CI and the cmapi check rather than a human review, and only the cmapi bot can merge under clusters/; Git reviews carry no authority. A dry run shows whether the request would be auto-approved and, if not, which guard stopped it.
 
 **Changing the policies.** approval-rules.yaml is owned by platform-leads in CODEOWNERS. A PR that adds or widens a policy reaching prod needs two of them. cmapi\_auto\_approvals\_total{policy, environment} and cmapi\_auto\_approval\_fallbacks\_total{guard} show how often each baseline is used, and which guard sends requests back to humans.
 
@@ -1665,7 +1820,7 @@ Each cluster's root Application includes policies/ pinned to a bundle tag, and t
 
 ## Observability
 
-The API exposes /metrics for OpenShift user workload monitoring, ships dashboards (Perses in the OpenShift console by default, Grafana optional) and a PrometheusRule; the current set of seven dashboards, alerts and KPIs is under Observability, KPIs and dashboards in Design and Architecture, and this section keeps the detail, and logs JSON with clusterId and requestId on every line.
+The API exposes /metrics for OpenShift user workload monitoring, ships dashboards (Perses in the OpenShift console by default, Grafana optional) and a PrometheusRule; the current set of eight dashboards, alerts, KPIs and the self-reported system metrics (cgroup memory, CPU and throttling per component, event-loop lag, database pool, size, connections and backups) is under Observability, KPIs and dashboards in Design and Architecture, and this section keeps the detail, and logs JSON with clusterId and requestId on every line.
 
 **Metrics.** prometheus-fastapi-instrumentator covers HTTP; prometheus\_client covers the rest. Prefix cmapi\_. Labels stay low-cardinality: cluster\_id, plugin, kind, action, status; never namespace, user or request ID.
 
@@ -1720,7 +1875,7 @@ Capacity adds one gauge and one alert: cmapi\_capacity\_snapshot\_age\_seconds{c
 
 Adoption adds cmapi\_namespaces{cluster\_id, state} (state = managed, candidate, unmanaged, excluded) and cmapi\_adoptions\_total{cluster\_id, result}; the Change flow dashboard gets a managed-coverage panel per cluster.
 
-**Dashboards** (kept as Grafana JSON in the Helm chart and converted by percli into PersesDashboards for the OpenShift console; dashboards.provider picks perses, grafana or both; the data source is each instance hub's Thanos Querier). The first three of the seven:
+**Dashboards** (kept as Grafana JSON in the Helm chart and converted by percli into PersesDashboards for the OpenShift console; dashboards.provider picks perses, grafana or both; the data source is each instance hub's Thanos Querier). The first three of the eight:
 
 1. **Service health.** Request rate, error rate, p50/p95/p99 latency, pods, worker backlog.
 2. **Change flow.** Requests by cluster, plugin and status; lead time and approval wait percentiles; failures and rejections by reason.
@@ -1736,7 +1891,7 @@ The current KPI table, extended with auto-approval rate, placement accuracy, cap
 | --- | --- | --- | --- |
 | Lead time, no approval | Submit to synced, rnd requests | cmapi\_change\_lead\_time\_seconds p90 | Under 10 min |
 | Lead time, with approval | Submit to synced, approved requests | Same, rule label set | Under 1 business day p90 |
-| Approval turnaround | PR opened to required approvals met | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
+| Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
 | Self-service rate | Requests completed with no platform-team touch | change\_requests without a platform-leads approval or manual edit | Over 80% |
 | Change failure rate | Failed, sync-failed or reverted requests / merged requests | change\_requests, request\_events | Under 5% |
 | Validation reject rate | Rejected at plan / submitted | cmapi\_validation\_failures\_total | Tracked, not targeted; rising means unclear rules or forms |
@@ -1744,7 +1899,7 @@ The current KPI table, extended with auto-approval rate, placement accuracy, cap
 | Quota efficiency | Used CPU and memory / quota, per namespace, 14-day peak, read live from Thanos | Thanos (live), quota\_analyses, namespace\_verdicts | Over 40% median |
 | Cluster headroom | Quota headroom per cluster | capacity\_snapshots (cmapi-capacity) | Above 20% on every cluster |
 | API availability | Successful requests / all requests, excluding 4xx | cmapi\_http\_requests\_total | 99.5% monthly |
-| Expired namespaces cleaned | Namespaces past TTL still present after 24 h | Expiration reports | 0 |
+| Expired namespaces cleaned | Past grace with no delete request, or awaiting prune confirmation over 24 h | Expiration reports | 0 |
 | Rebuild recovery | Cluster bootstrap to Synced and Healthy | cluster\_sync\_state | Under 1 h |
 
 The Change flow dashboard carries the first six; a monthly report from the database covers the rest by cluster and team.
@@ -1763,7 +1918,7 @@ None of the earlier designs covered these; each is small, but launching without 
 | Idempotency and per-object lock | Retries and double clicks must not open two PRs | Idempotency-Key + the partial unique index in Schemas |
 | Drift detection | Someone edits a cluster by hand | GET /namespaces/{ns}/drift plus a drift\_detected event when the Application is OutOfSync with no open request |
 | Offline validation toolchain | Server-side dry-run would need write RBAC | Bake kubeconform, the Kyverno CLI and per-cluster OpenAPI schemas into the image; refresh schemas nightly |
-| Per-cluster bootstrap bundle | A new or rebuilt cluster must be ready for the API and ArgoCD | The cluster-baseline process creates cmapi-reader and its bindings; cmapi's Git folder template adds the ArgoCD root Application and Kyverno cleanup RBAC |
+| Per-cluster bootstrap bundle | A new or rebuilt cluster must be ready for the API and ArgoCD | The cluster-baseline process creates cmapi-reader and its bindings; cmapi's Git folder template adds the ArgoCD root Application and the Kyverno bundle tag for the cluster (no cleanup RBAC: expiry is a delete request) |
 | Cluster onboarding endpoint | Adding a cluster should be a reviewed change, not a hand edit | The cluster-onboard operation opens the clusters.yaml PR once the baseline's import Secret connects |
 | Credential rotation | Per-cluster tokens and the Git key expire or leak | The cluster baseline (or RHACM) rotates cluster tokens and cmapi alerts before expiry; GitHub App tokens minted hourly |
 | Notifier | Requesters and approvers need to know without watching Git | Slack and email on pr\_open, approval needed, synced, failed, timeout (the n8n messages) |
@@ -1782,56 +1937,213 @@ One repo for core and the first plugins, one image with two entry points (api an
 
 ```
 cmapi/
-├── pyproject.toml                    # FastAPI, Pydantic v2, SQLAlchemy 2 + asyncpg, Alembic,
-│                                     # kubernetes, httpx, prometheus-client, structlog
+├── pyproject.toml                    # FastAPI, Pydantic v2, SQLAlchemy 2 + asyncpg, Alembic, kubernetes, httpx,
+│                                     # PyYAML, PyJWT, prometheus-client, structlog
 ├── Containerfile                     # UBI9 python-312 minimal; kubeconform + kyverno CLI baked in
-├── helm/cmapi/                       # api, worker and capacity Deployments, Route, ServiceMonitor,
-│                                     # PrometheusRule, Perses and Grafana dashboards, Secret mounts, PDB
-├── config/
-│   ├── clusters.yaml                 # registry: environment, gitopsPath, writes, syncSignal, thanosUrl override, metadata, placement (policy only; connections are imported)
+├── helm/cmapi/                       # api, worker and capacity Deployments, Route, ServiceMonitor, PrometheusRule,
+│                                     # Perses and Grafana dashboards, one ConfigMap per config file, Secrets, PDB
+├── config/                           # one instance's files (examples/instances/<instance>/)
+│   ├── instance.yaml                 # name, allowedEnvironments, URLs, audience, identity, git, other instances
+│   ├── clusters.yaml                 # registry policy and metadata (connections are imported)
 │   ├── plugins.yaml
-│   ├── approval-rules.yaml
-│   ├── authz-scopes.yaml             # role + scope bindings for Keycloak groups and clients
-│   ├── integrations.yaml             # sync signal, operations engine, event publisher (all optional)
+│   ├── approval-rules.yaml           # environment rules, patterns, thresholds, auto-approval
+│   ├── authz-roles.yaml              # Keycloak roles to permissions, optional per-role environments
+│   ├── tiers.yaml                    # tier catalog
+│   ├── expiration.yaml               # optional expiry limits; prod never has an entry
+│   ├── capacity.yaml                 # snapshot interval, targets, overcommit
 │   ├── placement.yaml                # score weights, freshness limits, reservation TTL
-│   ├── capacity.yaml                 # snapshot interval, zone and role rows, retention
-│   ├── operations/                   # operation templates: cluster-onboard.yaml, rebuild-verify.yaml, ...
+│   ├── integrations.yaml             # sync signal, operations engine, event publisher, approval channels, notifier
+│   ├── operations/                   # templates: cluster-onboard, rebuild-verify, adoption-sweep, tiers-rerender, ...
 │   ├── policy-bundle.yaml            # tag of the Kyverno bundle in cluster-configs/policies
 │   └── adoption.yaml                 # mounted from the cmapi-adoption ConfigMap
 ├── src/cmapi/
-│   ├── main.py                       # app factory: loads registry, discovers plugins, mounts routers
-│   ├── worker.py                     # job loop: open_pr, sync_pr_state, watch_sync, notify, expire_check (capacity jobs only when capacity.mode is embedded)
+│   ├── main.py                       # app factory: loads config, discovers plugins, mounts routers
+│   ├── worker.py                     # runs the jobs in jobs/ (see Module catalog, Worker jobs)
 │   ├── core/
-│   │   ├── plugin.py                 # Plugin and Planner protocols, discovery
-│   │   ├── models.py                 # ClusterScoped, Plan, ChangeRequest, Problem
-│   │   ├── pipeline.py               # authorize -> idempotency -> lock -> plan -> approve -> commit
-│   │   ├── registry.py               # imports clusters from cmapi-imports Secrets, merges clusters.yaml policy
-│   │   ├── auth.py                   # Keycloak JWT verification (JWKS cache), Principal
-│   │   ├── authz.py                  # role permissions, scope bindings, require()
-│   │   ├── metadata.py               # label and annotation keys, classes, merge patch
-│   │   ├── operations.py             # OperationsEngine protocol; builtin, Argo Workflows and Tekton adapters
-│   │   ├── clients/                  # kube.py, argocd.py (per-cluster, read-only)
-│   │   ├── git/                      # provider.py (GitHub, GitLab REST), clone.py (GitPython https/ssh)
-│   │   ├── render/                   # renderer interface; project_meta.py, manifests.py
-│   │   ├── validate/                 # runs the Kyverno bundle and kubeconform; Python only for cross-object checks
-│   │   ├── approvals.py              # rules engine
+│   │   ├── config.py                 # loads one instance's files, cross-file checks, watch and reload
+│   │   ├── errors.py                 # RFC 9457 problems
+│   │   ├── ports.py                  # Protocols for every extension point and outside dependency
+│   │   ├── auth.py                   # Keycloak JWT verification (JWKS cache, stale-on-error)
+│   │   ├── identity/                 # claims.py, directory.py, keycloak_admin.py, ldap.py, checks.py
+│   │   ├── authz.py                  # RolePolicy: roles to permissions and environments, approving-group paths
+│   │   ├── expression.py             # the when: language of approval-rules.yaml
+│   │   ├── metadata.py               # key classes, validation, merge patch, render order
+│   │   ├── naming.py                 # namespace names: DNS-1123, reserved, never an unmanaged namespace
+│   │   ├── tiers.py                  # tier catalog: resolve, check, normalise, compare, render
+│   │   ├── approvals.py              # rules engine, auto-approval, approval ledger
+│   │   ├── channels/                 # ApprovalChannel adapters: portal, email, servicenow, argo_events, chat
+│   │   ├── lifecycle.py              # request state machine
+│   │   ├── pipeline.py               # authorize -> idempotency -> lock -> plan -> decide; approve -> commit
+│   │   ├── render/                   # manifests.py (default), project_meta.py; plan hash
+│   │   ├── validate/                 # Kyverno bundle and kubeconform on the rendered files
+│   │   ├── git/                      # provider.py (GitHub, GitLab REST), clone.py (GitPython)
+│   │   ├── clients/                  # kube.py (watch cache), argocd.py, policyreports.py (all read-only)
+│   │   ├── listquery.py              # paging, search, suggest, export
+│   │   ├── ratelimit.py              # token buckets, active placements per team
+│   │   ├── audit.py                  # audit_events
+│   │   ├── notify.py                 # Notifier: email, Teams, Slack
+│   │   ├── events.py                 # EventPublisher and the outbox
+│   │   ├── sync.py                   # SyncSignal: poll, Argo CD Notifications webhook
+│   │   ├── operations.py             # OperationsEngine: builtin, Argo Workflows, Tekton
+│   │   ├── kpi/                      # system metrics: one definition for /metrics and /admin/kpi
 │   │   ├── db/                       # SQLAlchemy models, repositories, Alembic migrations
-│   │   ├── errors.py                 # RFC 9457 problem types
 │   │   └── observability.py          # metrics, structlog, OpenTelemetry
+│   ├── routers/                      # core routes: requests, operations, admin, me
+│   ├── jobs/                         # worker jobs, one module each
 │   ├── ops/                          # operation step library; runs in the worker or as the cmapi-ops image
-│   ├── capacity/                     # cmapi-capacity service (own entrypoint): thanos.py client, snapshots, sweep, usage API
+│   ├── capacity/                     # cmapi-capacity service (own entrypoint)
 │   └── plugins/
-│       ├── namespaces/  metadata/  quotas/  limitranges/  expiration/
+│       ├── namespaces/  metadata/  quotas/  tiers/  expiration/
 │       ├── serviceaccounts/  sa_grants/  scc_grants/  sa_tokens/
-│       ├── rbac_read/  identity_read/  adoption/  sync/  reports/
+│       ├── rbac_read/  identity_read/  directory/  policies/
+│       ├── adoption/  sync/  reports/
 │       └── capacity/                 # each: __init__.py (plugin), router.py, models.py, planner.py, tests/
 └── tests/
     ├── contract/test_openapi_snapshot.py
-    ├── core/                         # pipeline, approvals, idempotency, lock
-    └── integration/                  # kind cluster + local Git server
+    ├── core/                         # tiers, metadata, approvals, lifecycle, listquery, render, identity, config
+    └── integration/                  # kind cluster + local Git server + Keycloak test realm
 ```
 
 Each plugin folder has the same five files, so adding an offering is copying one folder, renaming it and registering its entry point.
+
+## Module catalog
+
+Every module cmapi needs for the features agreed so far: approval-first lifecycle, optional expiration, the Policies, Expiration, Quotas and Approvals views, system KPIs, identity from the token with a directory, the tier catalog, plain-manifest rendering and configurable email domains. Status says how far each is taken. **Reference code** is working, tested Python in examples/src/cmapi (120 tests in examples/tests, run with `PYTHONPATH=src:tests python -m pytest -q` from examples/). **Protocol** means the interface is fixed in core/ports.py and the adapter is still to write. **Specified** means the design text is complete and no code exists yet. Phases are the delivery plan's.
+
+### Core (cmapi-core)
+
+| Module | Responsibility | Reads or exposes | Depends on | Phase | Status |
+| --- | --- | --- | --- | --- | --- |
+| core/config.py | Loads one instance's files, checks them against each other (environments served, prod never expires, auto-approval tiers exist in the catalog), reloads on a ConfigMap change and keeps the running config when the new one fails | config/\*.yaml, metadata-keys.yaml | approvals, tiers, expiration, metadata, authz | 1 | Reference code (load and checks); watch Specified |
+| core/errors.py | RFC 9457 problems: one shape for every refusal | {type, status, code, detail, errors\[\]} | — | 1 | Reference code |
+| core/ports.py | Protocols for every extension point and outside dependency | Authenticator, Renderer, GitProvider, Validator, CapacityBackend, MetricsSource, SyncSignal, OperationsEngine, EventPublisher, Notifier, ApprovalChannel, KubeReader, PolicyReportReader, AuditLog, Plugin | — | 1 | Reference code (Protocols) |
+| core/auth.py | Verifies every bearer token offline against the cached JWKS; stale-on-error | Identity | Keycloak JWKS | 1 | Specified (code in Identity and access) |
+| core/identity/claims.py | Identity from the verified token (username, email, names, employee ID); Person for directory entries | Identity, Person | — | 1 | Reference code |
+| core/identity/directory.py | DirectoryProvider protocol and the 15-minute cache with stale-on-error | DirectoryProvider, CachedDirectory | an adapter | 1 | Reference code |
+| core/identity/keycloak\_admin.py | The only Keycloak admin API client: client credentials as cmapi-directory, read-only lookups by username, employee ID and search | DirectoryProvider | Keycloak admin API | 1 | Reference code (HTTP injected) |
+| core/identity/ldap.py | Optional provider: direct read-only LDAP bind | DirectoryProvider | LDAP | Later | Specified |
+| core/identity/checks.py | Who the request is for (the caller, or onBehalfOf for services and automation accounts), automated, identity-incomplete, email-in-domains, team DL | Requester | directory | 1 | Reference code |
+| core/authz.py | Keycloak roles to permissions, optional per-role environments, approving-group paths; no team or namespace-name scope | RolePolicy: allowed(), require(), environments(), describe() | authz-roles.yaml | 1 | Reference code |
+| core/naming.py | Namespace names any caller may ask for: DNS-1123 label, built-in and configured reserved names, never a take-over of an unmanaged namespace | check\_name(), check\_not\_unmanaged(), reserved() | instance.yaml namespaces.reservedPatterns, cluster read | 2 | Reference code |
+| core/expression.py | The when: language of approval-rules.yaml: whitelisted AST, unknown facts refused at load | Expression | — | 2 | Reference code |
+| core/metadata.py | Key classes, validation and error codes, merge patch, change facts, render order | MetadataKeys | metadata-keys.yaml | 2 | Reference code |
+| core/tiers.py | Tier catalog: resolve, custom bounds, normalise, match, compare, render, tier hash | TierCatalog | tiers.yaml | 2 | Reference code |
+| core/approvals.py | Rules engine (environment, patterns, thresholds), auto-approval with fixed and policy guards, approval ledger with eligibility | ApprovalRules, Requirement, ApprovalLedger | approval-rules.yaml, expression, authz | 2 | Reference code |
+| core/channels/ | ApprovalChannel adapters: portal (default), email signed link, servicenow relay, argo-events, chat | notify\_pending, notify\_decision | Notifier, EventPublisher | 2 (portal, email); later others | Protocol |
+| core/lifecycle.py | Request state machine; lock and reservation ownership follow the state | State, Event, transition() | — | 2 | Reference code |
+| core/pipeline.py | authorize, idempotency, lock, plan (plugin planner, render, validate, capacity), decide; on approval, re-check capacity; commit hand-off to the worker | Plan, ChangeRequest | everything above | 2 | Specified |
+| core/render/manifests.py | Raw manifest renderer: the namespace folder, ordered keys, request ID kept on unchanged objects, folder delete, plan hash, file diff | ManifestRenderer, plan\_hash, diff\_files | tiers, metadata | 2 | Reference code |
+| core/render/project\_meta.py | Alternative renderer for the old project-meta format | Renderer | — | Later | Specified |
+| core/validate/ | Runs the Kyverno CLI bundle and kubeconform on the rendered files | Validator | kyverno, kubeconform binaries | 2 | Protocol |
+| core/git/ | GitHub REST (default), GitLab REST, GitPython clone; bot PRs and merges with an expected head | GitProvider | Git host | 2 | Protocol |
+| core/clients/ | kube.py watch cache, argocd.py Applications, policyreports.py Kyverno reports; all through the read-only cmapi-reader | KubeReader, SyncSignal, PolicyReportReader | clusters | 1 (kube, argocd), 5 (reports) | Protocol |
+| core/listquery.py | One paging, search, suggest and export contract: keyset cursor signed and bound to filters, letter jump, CSV export | Lister, ListQuery | — | 2 | Reference code |
+| core/ratelimit.py | Token buckets per caller and team, separate buckets for :place, :suggest, :export, active placements per team | RateLimiter | — | 2 | Reference code |
+| core/audit.py | audit\_events rows: reads of many, exports, approvals, token issuance; never token values | AuditLog | db | 1 | Protocol |
+| core/notify.py | Email (default), Teams, Slack; notices go to the team DL | Notifier | SMTP or webhooks | 2 | Protocol |
+| core/events.py | Outbox and EventPublisher (none, signed webhook, Kafka) | EventPublisher | db | Backlog | Protocol |
+| core/sync.py | poll (default) or Argo CD Notifications webhook, always confirmed by a read | SyncSignal | argocd client | 2 | Protocol |
+| core/operations.py | builtin engine, Argo Workflows, Tekton | OperationsEngine | ops/ | 5 | Protocol |
+| core/kpi/ | One definition per system metric for /metrics and GET /api/v1/admin/kpi | KPI registry | cgroup, db | 1 | Specified |
+| core/db/ | SQLAlchemy models, repositories, Alembic migrations (expand and contract) | tables in Data model | PostgreSQL | 1 | Specified |
+
+### Routers and plugins
+
+| Module | Endpoints | Uses | Phase | Status |
+| --- | --- | --- | --- | --- |
+| routers/requests.py | GET /requests (status=, approver=me, paged), GET /requests/{id}, /events; :approve, :reject, :cancel, :retry, :revert | lifecycle, approvals ledger, authz, listquery | 2 | Specified |
+| routers/operations.py | POST, GET /operations, :cancel | OperationsEngine | 5 | Specified |
+| routers/admin.py | GET /admin/kpi, POST /admin/reload, /admin/auto-approval:pause and :resume | kpi, config | 1, 2 | Specified |
+| routers/me.py | GET /me: identity, roles, permissions and their environments | authz, identity | 1 | Specified |
+| plugins/namespaces | POST, GET, PATCH, DELETE …/namespaces\[/{ns}\] | tiers, metadata, identity checks, expiration rules, render, approvals | 2 | Specified (its logic is reference code) |
+| plugins/metadata | GET, PATCH, PUT …/metadata for namespaces and service accounts | metadata | 2 | Specified |
+| plugins/quotas | GET, PUT, PATCH …/quota; GET /quotas, :suggest, :export | tiers.normalise and compare, listquery, CapacityBackend | 3 | Specified |
+| plugins/tiers | GET /tiers, /tiers/{tier}, /tiers/{tier}/namespaces | tiers, listquery | 2 | Specified (core module is reference code) |
+| plugins/expiration | GET, POST …/expiration, :extend, :set, :makePermanent; GET /expirations | plugins/expiration/rules.py, listquery | 5 | Reference code (rules) |
+| plugins/policies | GET /policies, /policies/results, /policies/rejections | PolicyReportReader, listquery | 5 | Specified |
+| plugins/directory | GET /directory/users?q=, /directory/users/{username} | identity | 1 | Specified |
+| plugins/serviceaccounts, sa\_grants, scc\_grants | …/serviceaccounts, /grants, /scc | render (rolebindings.yaml), allowlists | 4 | Specified |
+| plugins/sa\_tokens | POST …/serviceaccounts/{sa}/tokens (direct TokenRequest) | cmapi-token-issuer RoleBinding | 4 | Specified |
+| plugins/rbac\_read, identity\_read | Read-only RBAC, users and groups | clients | 1 | Specified |
+| plugins/adoption | Adoption requests for labelled namespaces | tiers.match, metadata, render | 5 | Specified |
+| plugins/sync | POST /webhooks/argocd (per-cluster token) and sync status | SyncSignal | 2 | Specified |
+| plugins/reports | Unmanaged namespaces, creations, drift | clients, db | 5 | Specified |
+| plugins/capacity | Gateway to cmapi-capacity: capacity, :place, usage, analysis | CapacityBackend | 3 | Specified |
+
+The limitranges plugin is gone: the LimitRange now comes from the tier catalog, and its read sits under quotas.
+
+### Worker jobs (jobs/)
+
+| Job | Trigger | Does | Phase |
+| --- | --- | --- | --- |
+| open\_pr | A request becomes approved | Renders from the stored plan, checks the plan hash, opens the bot PR; 5 attempts with backoff, then failed | 2 |
+| pr\_checks | Every PR open | Reads CI and the cmapi check; merges with the expected head when green; failed on a CI failure or a closed PR | 2 |
+| watch\_sync | Requests in merged | SyncSignal plus a direct read; synced, awaiting\_prune, or sync\_failed after 30 minutes | 2 |
+| prune\_watch | Requests in awaiting\_prune | Synced once the operator confirms the prune; CmapiPruneAwaiting after 24 hours | 5 |
+| approval\_timeout | Hourly | pending\_approval past timeoutHours becomes timeout | 2 |
+| channel\_notify | pending\_approval and each decision | ApprovalChannel adapters | 2 |
+| expire\_check | Daily | Notices at 14, 7 and 1 days, grace flags, expired-namespace deletes; deletes a guard holds are listed for action | 5 |
+| reservation\_expiry | Every minute | Ends placement reservations past their TTL | 3 |
+| policy\_report\_sweep | Every 5 minutes | cmapi\_policy\_results and the Policies tab cache | 5 |
+| import\_clusters | cmapi-imports watch | The six checks; token rotation at 80% of life | 1 |
+| reconcile | After a restore, or on demand | Rebuilds open requests from bot PRs; auto-approval starts paused | 5 |
+| kpi\_export | Monthly | KPI rows for the 30-day KPIs | 5 |
+| outbox\_publish | Continuous, when an EventPublisher is on | Drains the outbox | Backlog |
+| operations | POST /operations | tiers-rerender, adoption-sweep, cluster-onboard, rebuild-verify, bulk-migrate through OperationsEngine | 5 |
+
+### cmapi-capacity (capacity/)
+
+| Module | Responsibility | Phase | Status |
+| --- | --- | --- | --- |
+| capacity/thanos.py | MetricsSource for each cluster's Thanos Querier | 3 | Protocol |
+| capacity/snapshots.py | Cluster capacity every capacity.snapshotInterval, per zone and role | 3 | Specified |
+| capacity/placement.py | Ranking with reservations and zone-failure headroom, CPU and memory separately | 3 | Specified |
+| capacity/reservations.py | Reserve, release, expire | 3 | Specified |
+| capacity/sweep.py | Daily usage verdicts and recommendations (tiers.match snaps within 10%) | 6 | Specified |
+| capacity/api.py | The internal API behind the gateway | 3 | Specified |
+
+### Portal (cmapi-portal-ui)
+
+PagedTable on the list contract; WorkflowViewer for any request; schema-driven forms; TierPicker from GET /tiers; PeoplePicker from GET /directory/users; the Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs tabs. Specified, with the clickable mockup as the reference.
+
+### Review findings, fixed in this pass
+
+- **One approving group per request was not enough.** Thresholds add platform-leads on top of the environment's group, so ApprovalRequirement is now a list of slots, one per group, and the ledger fills them one person at a time.
+- **Missing facts in when: lines.** If every comparison with a missing fact were false, reason != "expired" would be false for an ordinary delete and the delete threshold would never fire. == and != now compare a missing fact as None; ordering and in stay false.
+- **Approving groups and token groups.** Rules name prod-approvers; tokens carry /cmapi/cmapi-prod-approvers. authz.GROUP\_PATH is the one convention joining them.
+- **List envelope.** Two shapes were written down; the contract is {items, page: {limit, total, from, to, nextCursor, prevCursor}, letters}.
+- **Request IDs on objects.** cmapi.net/request-id is the last request that changed an object, so the renderer keeps the old ID on objects whose content did not change, and a tier change touches only the three files it changes.
+- **Per-instance files.** instance.yaml and expiration.yaml now exist for each instance beside approval-rules, authz-roles and tiers, and config.py checks them together.
+- **Held expiry deletes.** When a guard fails (open request, protected, recent extension, too few notices), expire\_check does not open the delete; it lists the namespace for action and tries again the next day.
+- **The limitranges plugin** is folded into tiers and quotas.
+
+An independent review of the reference code against this design then found sixteen more, all fixed, each with a regression test:
+
+- **Sensitive keys** never added platform-leads and could be auto-approved: approval-rules.yaml now has a sensitiveKeyChanged threshold (+1 platform-leads), which also stops team-metadata auto-approval.
+- **Expiry beyond limits** (past 180 days, or make permanent) never reached the engine: the plan's expirationBeyondLimits fact now has its threshold.
+- **Slots were filled first come, first served,** so a person in two approving groups could block a second approver; the ledger now re-solves the assignment on every approve.
+- **Removing the last ServiceAccount or grant left its file in Git** (an access-revocation failure): the renderer now removes files that are no longer rendered.
+- **Lifecycle:** :retry from failed now says it must re-take the lock and the reservation; :retry from sync\_failed re-watches the sync without claiming a reservation it no longer has; :revert moves the request to a new terminal state, reverted, which releases its lock for the revert request; operators may cancel.
+- **Grace starts on the expiry date,** and lasts graceDays including that date.
+- **A namespace pattern's group** now replaces the environment's group (critical-\* needs 2 from platform-leads, not 2 prod-approvers).
+- **Requests made on someone's behalf:** the directory's user ID becomes the requester, so that person cannot approve their own request.
+- **The previous-page cursor** returned rows overlapping the current page after a letter jump or deletes.
+- **Missing capacity facts** no longer count as fits: namespaces and quotas creates and changes need capacity fits on fresh data to auto-approve.
+- **Notices** send the nearest threshold, so a short expiry still gets its 1-day notice.
+- **Trailing newlines** passed key, value and email checks (`$` matches before a final newline); every check now matches the whole string.
+- **Metadata limits and required keys** are checked on the merged result, so a PATCH cannot remove cmapi.net/team or slip past the caps.
+- **One fact name,** quotaBelowRequested, for a quota below what pods request (tiers.compare now emits it).
+- **Caller labels can no longer override system labels** in the renderer.
+- **`not` with a missing fact** stays false (three-valued evaluation), and the quota view's attention facets are part of the list contract.
+
+**Running it end to end.** examples/local runs the reference modules behind a FastAPI app against a real Keycloak 26 (tokens verified on its JWKS, employee\_id and middle\_name claims, the directory through the admin API), a local Git repository (bot PRs on branches, CI, merge with the expected head) and an air-gapped k3s cluster, with a stand-in for Argo CD that applies the merged folder and holds deletes for an operator. examples/local/run.sh stands it up and runs demo.py; transcript.txt is the result. It now also covers role-based refusals, reserved and unmanaged names and bot-user onboarding (14 scenarios). These findings came from running it:
+
+- **The Kyverno 1.16 CLI applies 0 rules to a policies.kyverno.io/v1 document** and reports no failure, so a CI check on it passes vacuously. The policies use v1beta1, and the validator fails whenever the CLI reports "Applying 0 policy rule(s)".
+- **Every create counted as a sensitive-key change,** because a create sets cmapi.net/team for the first time, so no create could ever be auto-approved. Setting a sensitive key the first time is not a change; changing or removing it is.
+- **Tier refusals must reach the caller as 422 policy-violation** with errors\[\].code from the tier module, not as a server error.
+- **POST /admin/prune:confirm with nothing awaiting a prune, and an unknown request ID, returned 500.** They now return 409 nothing-to-prune and 404 object-not-found.
+- **Cancel by the requester compared the wrong field** of the stored requester record, so a requester could never cancel; it now reads the requester's username.
+- **The access model changed** after running it: Keycloak roles only (authz-roles.yaml), no team or namespace-name gate, cmapi-onboarding for people and bot-user, and namespace-name checks in core/naming.py.
 
 ## Optional integrations: sync signal, operations, events
 
@@ -1986,20 +2298,20 @@ Each roadmap item is a plugin or a core extension point, so none of them changes
 
 **Showback.** Rates per environment in config (cost per core-hour and per GiB-hour of requests). GET /api/v1/reports/showback?month=2026-11 groups by cluster, cost-center and team. It needs the cmapi.net/cost-center label, which the policy bundle then requires on new namespaces.
 
-**Ownership attestation.** The policy bundle requires cmapi.net/owner and cmapi.net/team labels. Every 90 days the notifier asks the owner to confirm the namespace is still needed; confirming records cmapi.net/attested-at. No answer within 14 days opens a PR setting a TTL 30 days out. A daily check flags namespaces whose owner no longer appears in the LDAP-synced groups.
+**Ownership attestation.** The policy bundle requires the cmapi.net/team label and the cmapi.net/team-dl annotation. Every 90 days the notifier asks the team DL to confirm the namespace is still needed; confirming records cmapi.net/attested-at. No answer within 14 days opens an expiration:set request 30 days out, for non-prod namespaces only (prod never expires; there it alerts platform-leads instead). A daily check flags namespaces whose requester no longer appears in the directory, so the team DL can confirm who owns it now.
 
 **Outbound events.** An EventPublisher extension point emits CloudEvents 1.0 over HTTPS webhooks: net.cmapi.changerequest.created, .approved, .merged, .synced, .failed and .timeout, each with clusterId and requestId. Subscriptions live in an event\_subscriptions table with a signing secret per subscriber. A ServiceNow subscriber can open a change ticket for prod requests.
 
 **Tamper-evident audit.** request\_events gains prev\_hash and row\_hash, where row\_hash = SHA-256(prev\_hash + the canonical row). The application's database role gets INSERT and SELECT only on that table, with no UPDATE or DELETE. A daily job verifies the chain and alerts on a break.
 
-These items add three labels to the conventions table: cmapi.net/owner, cmapi.net/team and cmapi.net/cost-center, plus the cmapi.net/attested-at annotation.
+These items add three keys to the conventions table: cmapi.net/team-dl, cmapi.net/team and cmapi.net/cost-center, plus the cmapi.net/attested-at annotation.
 
 ## Delivery plan
 
 Superseded by the resequenced plan in Design and Architecture; kept here for reference. Five phases to launch, each ending in something a team can use, then one post-launch phase and a backlog; no phase starts until the previous one's exit check passes. Adoption and the single policy bundle are both in before launch.
 
-1. **Core and reads.** App factory, plugin discovery, cluster import (cmapi-imports Secrets plus clusters.yaml policy), Keycloak auth (realm as code, LDAP federation, token verification, roles and scope bindings), problem errors, metrics and logs; read plugins: namespaces (read), rbac-read, identity-read, sync. Exit: every read endpoint live on two clusters, Service health dashboard populated.
-2. **First write path.** Pipeline, idempotency and lock, the Kyverno policy bundle (API plan, CI and admission on every cluster), project-meta renderer, Git provider in rest mode, status worker, webhook receivers (Git; Argo CD Notifications where a cluster opts in, polling elsewhere), approvals engine; namespaces and metadata writes. Exit: an rnd namespace goes from POST to synced with no manual step.
+1. **Core and reads.** App factory, plugin discovery, cluster import (cmapi-imports Secrets plus clusters.yaml policy), Keycloak auth (realm as code, LDAP federation, token verification, roles mapped to permissions), problem errors, metrics and logs; read plugins: namespaces (read), rbac-read, identity-read, sync. Exit: every read endpoint live on two clusters, Service health dashboard populated.
+2. **First write path.** Pipeline, idempotency and lock, the Kyverno policy bundle (API plan, CI and admission on every cluster), raw manifest renderer with config/tiers.yaml, Git provider in rest mode, status worker, webhook receivers (Git; Argo CD Notifications where a cluster opts in, polling elsewhere), approvals engine; namespaces and metadata writes. Exit: an rnd namespace goes from POST to synced with no manual step.
 3. **Quota and capacity.** cmapi-capacity in remote mode, with the cluster-monitoring-view binding from the cluster baseline and snapshots every capacity.snapshotInterval, and the capacity plugin as its gateway; quotas and limitranges planners with capacity checks, quota analyses, cluster metadata and selectors in clusters.yaml, placement with reservations (POST /capacity:place), Change flow dashboard. Exit: an oversized quota request is flagged and routed to platform approval.
 4. **Access.** serviceaccounts, sa-grants and scc-grants with allowlists, sa-tokens. Exit: a team SA with a namespace edit grant and the anyuid SCC created through the API, audited end to end.
 5. **Lifecycle and launch.** adoption of labelled namespaces with the exclusion ConfigMap and the unmanaged-namespaces report, expiration, delete with extra approvals and Prune=confirm, reports, notifier, operations engine (built-in by default; Argo Workflows and Tekton adapters optional) with cluster-onboard and rebuild-verify, portal integration, generated CLI, runbooks, alerts. Exit: KPIs reported for one month; v1 contract frozen.

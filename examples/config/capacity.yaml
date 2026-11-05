@@ -7,3 +7,17 @@ perZone: true                # one row per zone; zones come from the API
 perRole: true                # worker, infra and master rows
 storage: true                # PVC requested and used, where the CSI driver reports it
 staleAfterIntervals: 2       # placement refuses a cluster whose newest complete snapshot is older
+mode: remote                 # remote (cmapi-capacity service) | embedded (the worker runs the jobs)
+targets:                     # per environment; a cluster's or group's status per resource
+  rnd:  {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+  dev:  {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+  qa:   {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+  uat:  {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+  prod: {commitment: {warn: 0.80, critical: 0.90}, utilisation: {warn: 0.70, critical: 0.85}}
+overcommit:                  # per environment and resource; a cluster's placement block can override
+  rnd:  {cpu: 2.0,  memory: 1.25}
+  dev:  {cpu: 2.0,  memory: 1.25}
+  qa:   {cpu: 1.5,  memory: 1.1}
+  uat:  {cpu: 1.25, memory: 1.0}
+  prod: {cpu: 1.0,  memory: 1.0}
+# Each instance's file holds only its allowedEnvironments.

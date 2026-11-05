@@ -1,0 +1,10 @@
+# Local cluster registry. Capacity is simulated: k3s here has 2 CPUs, so the cluster's size for
+# placement comes from this file, not from Thanos (there is none locally).
+clusters:
+  OCP_LOCAL:
+    environment: dev
+    gitopsPath: clusters/OCP_LOCAL
+    labels: {region: us-central}
+    simulatedCapacity: {cpu: 64, memory: 256Gi}
+overcommit: {cpu: 2.0, memory: 1.25}
+targets: {commitment: {warn: 0.85, critical: 0.95}}

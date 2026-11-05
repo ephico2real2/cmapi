@@ -1,0 +1,23 @@
+# Source: docs/02-technical-design-v2.md, "Read-only by design" (sa-tokens exception)
+# clusters/OCP_GF15/namespaces/payments-dev/token-issuer-rolebinding.yaml
+# Lets cmapi-reader create tokens for ServiceAccounts in this namespace only (never cluster-wide).
+# The ClusterRole cmapi-token-issuer (create on serviceaccounts/token) is applied by the baseline process.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-token-issuer
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: "true"
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-2b17
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cmapi-token-issuer
+subjects:
+- kind: ServiceAccount
+  name: cmapi-reader
+  namespace: cmapi-system

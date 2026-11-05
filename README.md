@@ -15,16 +15,18 @@ the final design and the source of truth: where another document disagrees, it w
 | Path | What it is | Status |
 | --- | --- | --- |
 | [docs/01-design-and-architecture.md](docs/01-design-and-architecture.md) | Final design: requirements, architecture, instances, modularity, lifecycle, identity, clusters, capacity, approvals, integrations, observability and KPIs, Swagger/ReDoc, topology, data model, delivery plan, decisions | **Current, source of truth** |
-| [docs/02-technical-design-v2.md](docs/02-technical-design-v2.md) | Field-level detail: plugin contract, schemas, Keycloak realm, labels, adoption, capacity internals | Current reference |
+| [docs/02-technical-design-v2.md](docs/02-technical-design-v2.md) | Field-level detail: plugin contract, schemas, Keycloak realm, labels, tiers, adoption, capacity internals, and the Module catalog (every module, its interface, phase and status) | Current reference |
 | [docs/03-usage-analysis.md](docs/03-usage-analysis.md) | Namespace verdicts, thresholds, rightsizing and the analysis API | Current reference |
 | [docs/04-api-examples.md](docs/04-api-examples.md) | Calling the API: which instance, tokens, curl, device flow, Python, errors | Current reference |
 | [docs/05-requirements-baseline.md](docs/05-requirements-baseline.md) | The consolidated business requirements | Baseline |
 | [docs/06-reference-architecture.md](docs/06-reference-architecture.md) | Early hub-and-spoke reference architecture | Historical; superseded by 01 |
 | [docs/07-argo-events-workflows-review.md](docs/07-argo-events-workflows-review.md) | Where Argo CD Notifications, Argo Workflows and Argo Events help, and why each is optional | Current reference |
+| [docs/08-code-status.md](docs/08-code-status.md) | What code is built and tested, what exists only for the local run, and what is still to build | Current |
+| [examples/local/INSTALL.md](examples/local/INSTALL.md) | Setup and installation guide for the local stack (Keycloak, k3s / kind / existing cluster, Kyverno CLI, kubeconform, Git, the API), with screenshots | Current |
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
-| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create, quota change, policy reject, cluster import, wrong instance. Open in a browser | |
-| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas) | |
-| [examples/](examples) | Config files and manifests from the design, at their target paths | |
+| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance, and an AI agent onboarding a namespace as bot-user (cmapi-onboarding: create only, change and delete refused). Open in a browser | |
+| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow (with the AI agent scenario), New namespace (any team, any non-reserved name), Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
+| [examples/](examples) | Config files and manifests from the design, at their target paths, plus the reference implementation (`examples/src/cmapi`, 120 tests) of the modules in the v2 Module catalog and a local end-to-end run (`examples/local`: Keycloak, Git, k3s) | |
 
 ## Agreed decisions at a glance
 
@@ -32,21 +34,30 @@ the final design and the source of truth: where another document disagrees, it w
 | --- | --- |
 | Environments and instances | rnd, dev, qa, uat, prod. Three instances, each serving its `allowedEnvironments`: **nonprod** (rnd, dev), **staging** (qa, uat), **prod** (prod). A request for another instance's environment gets 422 `environment-not-served` with that instance's URLs. dev uses rnd's settings until its own are agreed. |
 | Hosts | `cmapi-nonprod` / `portal-nonprod`, `cmapi-staging` / `portal-staging`, `cmapi` / `portal` `.ephico2real.com`. Each instance owns its database, capacity service, worker and imports namespace; only Keycloak is shared. |
-| Domain and labels | ephico2real.com; every cmapi label and annotation uses the `cmapi.net/` prefix. |
-| Writes | Only through Git (PR to cluster-configs, one repository per instance recommended). The one direct call is ServiceAccount token issuance. |
+| Domain and labels | ephico2real.com (a placeholder; email domains are the `emailDomains` setting); every cmapi label and annotation uses the `cmapi.net/` prefix. |
+| Git output | Plain Kubernetes manifests, one folder per namespace under `clusters/<clusterId>/namespaces/`: namespace, ResourceQuota, LimitRange, ServiceAccounts, RoleBindings, token-issuer RoleBinding. Tier values come from `config/tiers.yaml`; namespace-configuration-operator's quota and LimitRange configs are retired. Each cluster's root Application syncs the folders with directory recurse. |
+| Writes | Only through Git, and only after approval: cmapi approves first (auto-approval policy or `POST /requests/{id}:approve`), then the bot opens a PR to cluster-configs that merges when CI and the cmapi check (approved request, plan hash) pass. Git reviews carry no authority. One repository per instance recommended. The one direct call is ServiceAccount token issuance. |
 | Reads | Live, through the read-only `cmapi-reader` ServiceAccount on each cluster. |
-| Identity | Keycloak OIDC, realm `ephico2real`, read-only LDAP federation; one client per instance (audiences `cmapi-nonprod`, `cmapi-staging`, `cmapi-prod`). Roles in the token, scopes in Git. |
+| Identity | Keycloak OIDC, realm `ephico2real`, read-only LDAP federation; one client per instance (audiences `cmapi-nonprod`, `cmapi-staging`, `cmapi-prod`). Who may do what comes only from the client roles in the token. |
+| Access | Keycloak roles only: `config/authz-roles.yaml` maps each role to permissions and, optionally, to some environments. Roles reach people directly or through Keycloak groups, and bots through service-account clients or local accounts. No team or namespace-name gating: anyone with `namespaces:create` may ask for any name that is not reserved (built-in `default`, `openshift-*`, `kube-*`, cmapi system names, plus `reservedPatterns`) and not an unmanaged namespace on the cluster. `cmapi-onboarding` (create only, no change or delete) is for people and local automation accounts such as `bot-user`, which an AI agent signs in as. Anyone with `namespaces:write` may change or delete any managed namespace, through the approval rules. Scope bindings (`authz-scopes.yaml`) are retired. |
+| Requester identity | From the Keycloak token: username and email go on the Namespace; first, middle and last name and employee ID (LDAP mappers, declared in the User Profile, cmapi-identity client scope) stay in cmapi's database. Accounts holding an automation role (`identity.automationRoles`, default `cmapi-onboarding`) need no employee ID; service clients and automation accounts are the requester themselves or may name a person with `onBehalfOf` (`identity.requireOnBehalfOf` makes it mandatory); every request records `automated`. `cmapi.net/team` is required ownership and cost metadata, not checked against the caller. Every namespace names its team DL in the required `cmapi.net/team-dl`, checked only against `emailDomains` in `metadata-keys.yaml`. All Keycloak access is one module in cmapi-core (`core/auth.py`, `core/identity/`), not a separate service. |
 | User and group access | Granted by a separate process; cmapi only reads users and groups. cmapi grants ServiceAccount access only. |
 | SA token guardrails | Deferred (requirement 11 out of scope for now). |
 | Cluster credentials | Created by the baseline process and imported automatically from the `cmapi-imports` Secret after six checks. |
 | Argo Workflows / Events | Optional. cmapi works with or without them, Tekton, Kafka and Argo CD Notifications. |
 | Capacity | Cluster snapshots every `capacity.snapshotInterval` (30 min default, 15 to 60). Thanos is never queried on namespace creation or onboarding; namespace usage is read live (14 days) only for a quota change on an existing namespace, plus a daily off-peak sweep. |
 | cmapi-capacity | Internal microservice reached only through cmapi's scoped endpoints; no separate user auth. |
-| Placement | From stored snapshots, with reservations and zone-failure headroom. Overcommit CPU rnd 2.0 / qa 1.5 / uat 1.25 / prod 1.0; memory 1.25 / 1.1 / 1.0 / 1.0. |
-| Approvals | Per-environment rules; auto-approval with master, per-policy and kill switches plus fixed guards. |
-| Modularity | Plugins, adapters, services, instances; 11 extension points; shared `cmapi-core`, `cmapi-ops`, `cmapi-sdk`, `cmapi-portal-ui`, Kyverno bundle and Helm chart. |
+| Placement | From stored snapshots, with reservations and zone-failure headroom; CPU and memory checked separately, a cluster is as full as its fuller resource. Overcommit CPU rnd 2.0 / qa 1.5 / uat 1.25 / prod 1.0; memory 1.25 / 1.1 / 1.0 / 1.0. |
+| Tiers | `config/tiers.yaml` is the tier catalog (small, medium, large, custom; per-environment overrides and custom bounds), read only by `core/tiers.py`, served at `GET /api/v1/tiers`. Each rendered ResourceQuota and LimitRange carries `cmapi.net/tier-hash`; a catalog change marks namespaces tier-outdated until the `tiers-rerender` operation re-renders them through normal approvals. |
+| Quotas | GET /api/v1/quotas pages through every namespace's quota (CPU, memory, pods; used vs hard) from the watch cache: A to Z, 50 per page, keyset cursor, letter jump, type-ahead by name, team or app, filters, sort by name, % used or attention, attention counts and CSV export. The portal's Quotas tab plans and submits tier or custom changes. |
+| Lists | One paging, search, filter, sort and export contract in cmapi-core and one PagedTable in cmapi-portal-ui, reused by Quotas, Requests and Approvals. |
+| Approvals | cmapi is the record of approval. Per-environment rules; auto-approval (baseline-rnd-namespace for rnd and dev, expired-namespace) with master, per-policy and kill switches plus fixed guards. Approval channels are pluggable: portal, email link, Argo Events, ServiceNow, chat; all end in the same `:approve`. |
+| Expiration | Optional, never in prod (refused at validation and by a Kyverno policy). Extend in 30-day steps up to 180 days; notices at 14, 7 and 1 days; 7-day grace; then an auto-approved delete request. Every namespace delete waits for an operator to confirm the prune in Argo CD. |
+| Policies | The portal's Policies tab reads Kyverno policy reports per cluster (bundle tag vs pinned, results by policy, failing resources) beside cmapi's own plan-time and CI refusals. |
+| Modularity | Plugins, adapters, services, instances; 12 extension points (DirectoryProvider added); shared `cmapi-core`, `cmapi-ops`, `cmapi-sdk`, `cmapi-portal-ui`, Kyverno bundle and Helm chart. |
 | API docs | Swagger UI at `/docs`, ReDoc at `/redoc`, `/openapi.json` and `.yaml`; an undocumented route or model stops startup and fails CI. |
-| Observability | ServiceMonitor per component, PrometheusRule with 13 alerts, KPI recording rules, 18 KPIs, seven dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
+| Observability | ServiceMonitor per component, PrometheusRule with 23 alerts, KPI recording rules, 24 KPIs, eight dashboards in Perses (Cluster Observability Operator) with Grafana optional. |
+| System metrics | Each component self-reports its cgroup memory, CPU and throttling, event-loop lag and replicas; the database its pool, connections, size, WAL, volume and backups. One definition feeds /metrics and the portal's KPIs tab (GET /api/v1/admin/kpi); unmeasurable reads unavailable, never 0; thresholds in kpi.thresholds. Same pattern as the group-sync dashboard's KPI module. |
 
 Open questions are listed at the end of the design document.
 
@@ -60,4 +71,4 @@ These files are exports of documents and mockups that also exist as live pages:
 [Request flow mockup](https://claude.ai/artifact/HgsJovTGFbzyvaoJUChjky) ·
 [Portal mockup](https://claude.ai/artifact/HW3mp5RRmuapPhj8beBH1M)
 
-Exported November 3, 2026.
+Exported November 4, 2026.

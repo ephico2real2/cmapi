@@ -1,5 +1,7 @@
 # Source: docs/07-argo-events-workflows-review.md
 # clusters/OCP_GF1/bootstrap/notifications.yaml
+# Per-cluster token and cluster ID: the token is minted for OCP_GF1 only, and cmapi treats the
+# webhook as a hint, confirming the result by reading the Application before it changes state.
 apiVersion: argoproj.io/v1alpha1
 kind: NotificationsConfiguration
 metadata:
@@ -11,14 +13,15 @@ spec:
       url: https://cmapi.ephico2real.com/api/v1/webhooks/argocd
       headers:
         - name: Authorization
-          value: Bearer $cmapi-webhook-token      # key in argocd-notifications-secret
+          value: Bearer $cmapi-webhook-token-ocp-gf1   # per-cluster key in argocd-notifications-secret
   templates:
     template.cmapi-sync: |
       webhook:
         cmapi:
           method: POST
           body: |
-            {"app": "{{.app.metadata.name}}",
+            {"clusterId": "OCP_GF1",
+             "app": "{{.app.metadata.name}}",
              "revision": "{{.app.status.sync.revision}}",
              "syncStatus": "{{.app.status.sync.status}}",
              "health": "{{.app.status.health.status}}",

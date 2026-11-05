@@ -1,0 +1,44 @@
+# Source: docs/01-design-and-architecture.md, "What cmapi writes to Git"
+# clusters/OCP_GF15/namespaces/payments-dev/rolebindings.yaml
+# ServiceAccount grants only; user and group access is granted by a separate process.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: payments-deployer-edit
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: "true"
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-3c41
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+- kind: ServiceAccount
+  name: payments-deployer
+  namespace: payments-dev
+---
+# SCC grant: a RoleBinding to OpenShift's system:openshift:scc:<name> ClusterRole.
+# The SCC must be on the allowlist; cmapi never creates an SCC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: payments-deployer-scc-anyuid
+  namespace: payments-dev
+  labels:
+    cmapi.net/cluster-id: OCP_GF15
+    cmapi.net/managed: "true"
+  annotations:
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: req-20261104-3c41
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+- kind: ServiceAccount
+  name: payments-deployer
+  namespace: payments-dev
