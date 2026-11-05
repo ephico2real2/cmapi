@@ -1,0 +1,63 @@
+# The cmapi groups on the existing LDAP server. Names follow docs/02-technical-design-v2.md and approval-rules.yaml.
+# Members are example people already in the directory: groupOfNames requires at least one.
+
+dn: cn=cmapi-viewers,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-viewers
+description: Role cmapi-viewer
+member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-requesters,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-requesters
+description: Role cmapi-requester
+member: cn=john.doe,ou=People,dc=ephico2real,dc=com
+member: cn=jane.smith,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-onboarding,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-onboarding
+description: Role cmapi-onboarding: create namespaces only
+member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-prod-approvers,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-prod-approvers
+description: Role cmapi-approver; approves prod
+member: cn=jane.smith,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-qa-leads,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-qa-leads
+description: Role cmapi-approver; approves qa
+member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-uat-leads,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-uat-leads
+description: Role cmapi-approver; approves uat
+member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-platform-leads,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-platform-leads
+description: Role cmapi-approver; thresholds and sensitive changes
+member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-platform-operators,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-platform-operators
+description: Roles cmapi-operator and cmapi-approver
+member: cn=alice.cooper,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-platform-admins,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-platform-admins
+description: Role cmapi-admin
+member: cn=alice.cooper,ou=People,dc=ephico2real,dc=com
+
+dn: cn=cmapi-auditors,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: cmapi-auditors
+description: Role cmapi-auditor
+member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
