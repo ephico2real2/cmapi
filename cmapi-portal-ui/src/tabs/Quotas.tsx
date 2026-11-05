@@ -93,7 +93,7 @@ export function Quotas({ v }: TabProps) {
           label="Quotas"
           cols={["Namespace", "Cluster", "Env", "Tier", "CPU requests", "Memory requests", "Pods", "Verdict", ""]}
           rows={v.quotas as any[]}
-          selected={(q) => /\b(on|sel|selected)\b/.test(q.cls)}
+          selected={(q) => q.cls === "sel"}
           cells={(q) => [
             q.ns, q.cluster, q.env, q.tier,
             <Meter ariaLabel="CPU requests of quota" value={q.cpuNow} pct={q.cpuPct} bar={q.cpuBar} label={q.cpuText} />,

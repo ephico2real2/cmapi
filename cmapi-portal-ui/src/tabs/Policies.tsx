@@ -25,7 +25,7 @@ export function Policies({ v }: TabProps) {
           label="Results by policy"
           cols={["Policy", "Kind", "What it checks", "Pass", "Fail", "Warn", "Error", ""]}
           rows={pol.policies as any[]}
-          selected={(x) => /\b(on|sel|selected)\b/.test(x.cls)}
+          selected={(x) => x.cls === "sel"}
           cells={(x) => [<code>{x.name}</code>, x.kind, x.what, x.pass, x.fail, x.warn, x.error, <RowButton onClick={x.pick}>{x.btn}</RowButton>]}
         />
         <Small>{pol.legacy}</Small>

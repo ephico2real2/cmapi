@@ -50,7 +50,7 @@ const pageText = (page) => page.evaluate(() => {
 });
 
 // Words PatternFly itself adds for screen readers, and the names blank table headings carry for them.
-const LIBRARY_TEXT = /^((Info|Success|Warning|Danger|Custom) alert:|Action|Used of hard|(Open|Close|Clear) .*)$/;
+const LIBRARY_TEXT = /^((Info|Success|Warning|Danger|Custom) alert:|Action|Used of hard)$/;
 
 const results = [];
 async function compare(name) {

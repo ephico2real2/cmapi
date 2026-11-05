@@ -31,7 +31,7 @@ export function Expiration({ v }: TabProps) {
               label="Expiration"
               cols={["Namespace", "Cluster", "Env", "Team", "Expires", "Days left", "Lifetime", "State", ""]}
               rows={exp.rows as any[]}
-              selected={(x) => /\b(on|sel|selected)\b/.test(x.cls)}
+              selected={(x) => x.cls === "sel"}
               cells={(x) => [x.ns, x.cluster, x.env, x.team, x.expires, x.days, x.life, <Pill tone={x.tone}>{x.state}</Pill>, <RowButton onClick={x.pick}>{x.btn}</RowButton>]}
             />
             {exp.empty && <Empty>No namespace matches this state and search.</Empty>}
