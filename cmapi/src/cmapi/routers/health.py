@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, Response
 
 from cmapi import __version__
 from cmapi.core.context import AppContext
+from cmapi.core.docs import DocumentedRouter
 from cmapi.core.models import Api, Health
 from cmapi.routers import ctx
 from pydantic import Field
 
 router = APIRouter(tags=["health"])
+version_router = DocumentedRouter("core", prefix="/api/v1")
 
 
 class Version(Api):
@@ -35,8 +37,7 @@ def readyz(response: Response, c: AppContext = Depends(ctx)) -> dict:
     return {"status": "ok" if db == "ok" else "degraded", "database": db}
 
 
-@router.get("/api/v1/version", summary="Version and commit of the running build", response_model=Version,
-            operation_id="core_version", description="The commit the image was built from, so a deployment can be checked against its source.")
+@version_router.read("/version", summary="Version and commit of the running build", permission=None, response_model=Version)
 def version() -> dict:
     """The commit the image was built from, so a deployment can be checked against its source."""
     return {"version": __version__, "commit": os.environ.get("CMAPI_GIT_COMMIT", "unknown"),

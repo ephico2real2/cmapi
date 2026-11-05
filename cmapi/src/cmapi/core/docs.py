@@ -91,7 +91,7 @@ class DocumentedRouter(APIRouter):
         self.plugin = plugin
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
-                  response_model: Any, status_code: int, extra: dict[str, Any]) -> Callable:
+                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None) -> Callable:
         unknown = [p for p in problems if p not in PROBLEMS]
         if unknown:
             raise RuntimeError(f"{self.plugin} {method} {path}: unregistered problems {unknown}")
@@ -106,19 +106,26 @@ class DocumentedRouter(APIRouter):
             if permission:
                 desc += f"\n\n**Requires** `{permission}`."
             op_id = f"{self.plugin}_{fn.__name__}"
+            responses = problem_responses(codes)
+            x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin, **extra}
+            if media_type:
+                # a streamed body (CSV): declared by media type, since it has no JSON model
+                responses[status_code] = {"description": f"The body as {media_type}",
+                                          "content": {media_type: {"schema": {"type": "string"}}}}
+                x["x-cmapi-media-type"] = media_type
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
-                                          status_code=status_code, operation_id=op_id,
-                                          responses=problem_responses(codes),
-                                          openapi_extra={"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
-                                                         **extra})
+                                          status_code=status_code, operation_id=op_id, responses=responses,
+                                          openapi_extra=x)
             return self.api_route(path, methods=[method], **kwargs)(fn)
 
         return deco
 
     def read(self, path: str, *, summary: str, permission: str | None, problems: Sequence[str] = (),
-             response_model: Any, method: str = "GET", **extra: Any) -> Callable:
+             response_model: Any = None, method: str = "GET", media_type: str | None = None, **extra: Any) -> Callable:
+        if response_model is None and media_type is None:
+            raise RuntimeError(f"{self.plugin} {method} {path}: a read needs a response_model or a media_type")
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=200, extra=extra)
+                              response_model=response_model, status_code=200, extra=extra, media_type=media_type)
 
     def write(self, path: str, *, summary: str, permission: str, problems: Sequence[str] = (),
               response_model: Any, method: str = "POST", status_code: int = 202, **extra: Any) -> Callable:
@@ -170,7 +177,7 @@ def check_documented(app: FastAPI) -> None:
             problems.append(f"{route.path}: no summary")
         if not route.description:
             problems.append(f"{route.path}: no description")
-        if route.response_model is None:
+        if route.response_model is None and not (route.openapi_extra or {}).get("x-cmapi-media-type"):
             problems.append(f"{route.path}: no response model")
         else:
             for m in _models_in(route.response_model):

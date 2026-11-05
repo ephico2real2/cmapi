@@ -223,7 +223,10 @@ class Pipeline:
             raise Problem.policy_violation("Rendered files failed validation",
                                            [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message}
                                             for f in errors])
-        old_hard = self.cfg.tiers.quota_for(env, old_tier, old_quota) if old_tier else {}
+        old_hard = {}
+        if old_tier:
+            custom_before = self.cfg.tiers.resolve(env, old_tier).custom
+            old_hard = self.cfg.tiers.quota_for(env, old_tier, old_quota if custom_before else None)
         cpu_delta = float(qty(hard["requests.cpu"]) - qty(old_hard.get("requests.cpu", "0")))
         mem_delta = float(qty(hard["requests.memory"]) - qty(old_hard.get("requests.memory", "0")))
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))

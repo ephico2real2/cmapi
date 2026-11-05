@@ -78,7 +78,7 @@ def test_team_allowance_and_kill_switch(rules):
     f = facts(environment="rnd", namespace="payments-rnd", tier="small")
     assert rules.decide(f, team_auto_today=20).auto_fallback == "team-allowance"
     r = rules.decide(f, paused=True)
-    assert r.auto is None and r.slots[0].group == "platform-leads"
+    assert r.auto is None and r.slots[0].group == "platform-leads" and r.auto_fallback == "paused"
 
 
 def test_expired_namespace_delete(rules):

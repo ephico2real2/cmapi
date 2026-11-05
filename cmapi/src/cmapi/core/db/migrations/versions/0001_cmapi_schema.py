@@ -105,7 +105,8 @@ def upgrade() -> None:
     )
     op.create_index("idx_jobs_due", "jobs", ["run_after"], postgresql_where=sa.text("done_at IS NULL"))
     # One pending job of a kind per request (or one per recurring kind), so a retry never doubles work.
-    op.execute("CREATE UNIQUE INDEX uq_jobs_pending ON jobs (kind, coalesce(request_id, '')) WHERE done_at IS NULL")
+    op.execute("CREATE UNIQUE INDEX uq_jobs_pending ON jobs (kind, coalesce(request_id, ''), "
+               "coalesce(payload->>'kind', '')) WHERE done_at IS NULL")
 
     op.create_table(
         "audit_events",

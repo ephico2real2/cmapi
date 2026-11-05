@@ -49,7 +49,8 @@ def list_requests(
         views = [v for v in views if t in v["requestId"].lower() or t in v["namespace"].lower() or t in v["clusterId"].lower()]
     rows_for_paging = [{**v, "name": v["requestId"], "clusterId": v["clusterId"], "_created": v["createdAt"].timestamp()} for v in views]
     page = c.lister.page(rows_for_paging, ListQuery(q="", sort="newest", limit=limit, cursor=cursor,
-                                                   filters={"status": status or "", "approver": approver or ""}))
+                                                   context={"status": status or "", "approver": approver or "", "q": q,
+                                                            "clusterId": cluster_id or "", "requestedBy": requested_by or ""}))
     page["items"] = [{k: v for k, v in it.items() if k not in ("name", "_created")} for it in page["items"]]
     return page
 

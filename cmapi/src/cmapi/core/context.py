@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import yaml
@@ -43,6 +43,7 @@ class AppContext:
     capacity_cfg: dict[str, Any]
     issuer: str
     audience: str
+    deliverer_factory: Callable[[str], Any] | None = None   # tests inject a fake cluster write client
 
     def auto_paused(self) -> bool:
         with self.db.session() as s:

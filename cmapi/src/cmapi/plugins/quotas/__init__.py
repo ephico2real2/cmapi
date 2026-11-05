@@ -93,7 +93,7 @@ def suggest(q: str = Query(default="", description="Two or more characters"), wh
     return {"items": c.lister.suggest(quota_rows(c, who), q)}
 
 
-@router.read("/quotas:export", summary="Export the quota list as CSV", permission="objects:read", response_model=None)
+@router.read("/quotas:export", summary="Export the quota list as CSV", permission="objects:read", media_type="text/csv")
 def export(q: str = Query(default="", description="Match on name, team or app"),
            env: str | None = Query(default=None, description="Environment"),
            cluster_id: str | None = Query(default=None, alias="clusterId", description="Cluster"),

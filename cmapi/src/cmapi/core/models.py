@@ -268,6 +268,7 @@ class QuotaRow(Api):
     cluster_id: str = Field(description="Cluster", examples=["CRC"])
     env: str | None = Field(description="Environment", examples=["dev"])
     team: str | None = Field(description="Team", examples=["payments"])
+    app: str | None = Field(default=None, description="cmapi.net/app", examples=[None])
     tier: str | None = Field(description="Tier", examples=["small"])
     cpu: list[str | None] = Field(description="[used, hard] requests.cpu", examples=[["0", "8"]])
     memory: list[str | None] = Field(description="[used, hard] requests.memory", examples=[["0", "16Gi"]])

@@ -37,11 +37,12 @@ class ListQuery:
     limit: int = 50
     cursor: str | None = None
     starts_with: str | None = None
+    context: Mapping[str, str] = field(default_factory=dict)   # scope applied by the caller (status=, approver=me), bound into the cursor
 
     def key(self) -> str:
         """Hash of what the cursor depends on."""
         return hashlib.sha256(json.dumps({"q": self.q.lower(), "f": dict(sorted(self.filters.items())),
-                                          "s": self.sort}).encode()).hexdigest()[:16]
+                                          "s": self.sort, "c": dict(sorted(self.context.items()))}).encode()).hexdigest()[:16]
 
 
 @dataclass(frozen=True)

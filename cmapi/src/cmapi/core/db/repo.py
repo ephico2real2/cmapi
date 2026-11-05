@@ -194,9 +194,9 @@ class JobRepo:
         """At most one pending job per (kind, request): a duplicate is a no-op, not an error."""
         job = JobRow(kind=kind, request_id=request_id, cluster_id=cluster_id, payload=dict(payload) if payload else None,
                      run_after=utcnow() + timedelta(seconds=delay))
-        self.s.add(job)
         try:
             with self.s.begin_nested():
+                self.s.add(job)
                 self.s.flush()
         except IntegrityError:
             return None

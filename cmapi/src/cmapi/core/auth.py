@@ -107,7 +107,11 @@ class Authenticator:
         if header.get("alg") != "RS256" or not header.get("kid"):
             AUTH_FAILURES.labels("algorithm").inc()
             raise Problem(401, "unauthenticated", "Invalid token: unsupported algorithm")
-        key = self.jwks.key(header["kid"])
+        try:
+            key = self.jwks.key(header["kid"])
+        except jwt.PyJWTError as exc:
+            AUTH_FAILURES.labels("signature").inc()
+            raise Problem(401, "unauthenticated", "Invalid token: unknown signing key") from exc
         try:
             claims = jwt.decode(bearer, key.key, algorithms=["RS256"], audience=self.audience, issuer=self.issuer,
                                 leeway=self.leeway, options={"require": ["exp", "iat", "iss", "aud", "sub"]})

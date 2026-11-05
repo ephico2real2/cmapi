@@ -156,11 +156,13 @@ class ApprovalRules:
 
     def _auto(self, f: Mapping[str, Any], kind: str, added: bool, paused: bool,
               team_today: int) -> tuple[str | None, str | None]:
-        if not self.auto_enabled or paused:
+        if not self.auto_enabled:
             return None, None
         for p in self.policies:
             if not p.get("enabled", True) or not self._matches(p, f):
                 continue
+            if paused:                                  # the kill switch: recorded as the guard that stopped it
+                return None, "paused"
             expiry_policy = p.get("match", {}).get("reason") == "expired"
             if kind == "delete" and not expiry_policy:
                 return None, "delete"
