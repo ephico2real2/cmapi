@@ -256,7 +256,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
         <a class="doclink" href="{{inst.api}}/docs">Swagger</a>
         <a class="doclink" href="{{inst.api}}/redoc">ReDoc</a>
         <div class="avatar" aria-hidden="true">O</div>
-        <div><b>ola</b><span>requester · approver · via Keycloak</span></div>
+        <div><b>ola</b><span>cmapi-requester · cmapi-approver (Keycloak roles)</span></div>
       </div>
     </div>
   </header>
@@ -441,17 +441,14 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <div class="row2">
               <div class="field">
                 <label for="ns-team">Team</label>
-                <select id="ns-team" value="{{form.team}}" onChange="{{onTeam}}">
-                  <option value="payments">payments</option>
-                  <option value="ledger">ledger</option>
-                </select>
-                <span class="hint">Teams your scope bindings allow.</span>
+                <input id="ns-team" class="mono" value="{{form.team}}" onChange="{{onTeam}}">
+                <span class="hint">Who owns it, for cost and notices: any team name. Not checked against who you are; your Keycloak roles decide what you may do.</span>
               </div>
               <div class="field">
                 <label for="ns-region">Region</label>
                 <select id="ns-region" value="{{form.region}}" onChange="{{onRegion}}">
                   <option value="us-central">us-central</option>
-                  <option value="any">Any region in my scope</option>
+                  <option value="any">Any region</option>
                 </select>
                 <span class="hint">From clusters.yaml metadata.</span>
               </div>
@@ -459,7 +456,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <div class="field">
               <label for="ns-name">Namespace name</label>
               <input id="ns-name" class="mono" value="{{nsName}}" onChange="{{onName}}">
-              <span class="hint">DNS-1123, must match your binding's pattern (payments-*).</span>
+              <span class="hint">Any DNS-1123 name. Not allowed: reserved names (default, openshift-*, kube-*, cmapi-system, ocp-*) and a name already on the cluster outside cmapi.</span>
             </div>
             <div class="field">
               <span class="flabel">Tier</span>
@@ -543,7 +540,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
         <div class="head">
           <div>
             <h1>Quotas</h1>
-            <p class="lede">The ResourceQuota of every namespace your scope covers on the {{inst.label}} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.</p>
+            <p class="lede">The ResourceQuota of every namespace in the environments your roles cover on the {{inst.label}} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.</p>
           </div>
           <span class="pill">{{qHead}}</span>
         </div>
@@ -558,7 +555,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
               <sc-if value="{{qSug.open}}" hint-placeholder-val="{{false}}">
                 <ul class="sugg" id="q-sug" role="listbox">
                   <sc-for list="{{qSug.items}}" as="s" hint-placeholder-count="5"><li role="option" id="{{s.id}}" class="{{s.cls}}" aria-selected="{{s.sel}}"><button type="button" tabindex="-1" onClick="{{s.pick}}"><b>{{s.ns}}</b><span>{{s.where}}</span><em>{{s.why}}</em></button></li></sc-for>
-                  <sc-if value="{{qSug.none}}" hint-placeholder-val="{{false}}"><li class="none">No namespace in your scope matches "{{qSug.text}}".</li></sc-if>
+                  <sc-if value="{{qSug.none}}" hint-placeholder-val="{{false}}"><li class="none">No namespace matches "{{qSug.text}}".</li></sc-if>
                 </ul>
               </sc-if>
             </div>
@@ -901,7 +898,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             </table>
           </div>
           <sc-if value="{{pol.noFails}}" hint-placeholder-val="{{false}}"><p class="empty">Nothing failing for this selection.</p></sc-if>
-          <p class="foot">GET /api/v1/policies/results?result=fail,warn,error · scoped to your bindings · paged like every list.</p>
+          <p class="foot">GET /api/v1/policies/results?result=fail,warn,error · filtered to the environments your roles cover · paged like every list.</p>
         </div>
         <div class="card">
           <h3 class="lbl">Refused by cmapi before Git · last 7 days</h3>
@@ -941,7 +938,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
           </sc-for>
         </div>
         <div class="card">
-          <h3 class="lbl">Clusters in your scope</h3>
+          <h3 class="lbl">Clusters</h3>
           <div class="tablebox">
             <table class="res">
               <thead><tr><th>Cluster</th><th>Env</th><th>Zones</th><th>CPU commitment</th><th>Memory commitment</th><th>Quota headroom</th><th>Bound by</th><th>Snapshot</th><th>Status</th></tr></thead>
@@ -1060,27 +1057,35 @@ function createScenario(o) {
   };
   var steps = [];
   var ranked = o.ranked, top = ranked[0];
+    var A = o.actor || { user: "ola", email: "ola@ephico2real.com", azp: "cmapi-portal-" + o.inst, role: "cmapi-requester", roles: ["cmapi-requester", "cmapi-viewer"], groups: ["/cmapi/cmapi-requesters"], team: "payments", agent: false, sub: "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14" };
   steps.push({
     lane: "caller", title: "Ask where it should go",
-    body: "Before creating <b>" + o.ns + "</b>, the portal asks cmapi to place a " + o.env + " namespace of tier medium (16 cores, 32Gi, 100 pods) for the payments team in region us-central. The caller does not have to know which " + o.env + " clusters have room.",
-    code: { label: "POST /api/v1/capacity:place", text: 'curl -s -X POST "$CMAPI/capacity:place" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n' + "  -d '{\"environment\": \"" + o.env + "\", \"team\": \"payments\", \"tier\": \"medium\",\n       \"constraints\": {\"region\": \"us-central\"}}'" },
+    body: (A.agent ? "An AI agent, signed in to cmapi as <b>bot-user</b>, onboards a namespace. " : "") + "Before creating <b>" + o.ns + "</b>, " + (A.agent ? "the agent" : "the portal") + " asks cmapi to place a " + o.env + " namespace of tier medium (16 cores, 32Gi, 100 pods) for the " + A.team + " team in region us-central. The caller does not have to know which " + o.env + " clusters have room.",
+    code: { label: "POST /api/v1/capacity:place", text: 'curl -s -X POST "$CMAPI/capacity:place" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n' + "  -d '{\"environment\": \"" + o.env + "\", \"team\": \"" + A.team + "\", \"tier\": \"medium\",\n       \"constraints\": {\"region\": \"us-central\"}}'" },
     apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
   });
   steps.push({
-    lane: "keycloak", title: "The token came from Keycloak",
-    body: "The portal got this token at sign-in (Authorization Code + PKCE; Keycloak checked the password against LDAP) and refreshes it every 5 minutes. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys.",
-    code: { label: "Decoded access token (5-minute lifetime)", text: J({ iss: "https://sso.ephico2real.com/realms/ephico2real", aud: "cmapi", azp: "cmapi-portal", sub: "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14", preferred_username: "ola", groups: ["/cmapi/cmapi-payments-requesters"], resource_access: {}, exp: 1793725800, aud_note: "audience " + o.aud + ": refused by every other instance" }).replace('"resource_access": {}', '"resource_access": {"' + o.aud + '": {"roles": ["cmapi-requester", "cmapi-viewer"]}}').replace('"aud": "cmapi"', '"aud": "' + o.aud + '"') },
+    lane: "keycloak", title: A.agent ? "The agent's token came from Keycloak" : "The token came from Keycloak",
+    body: A.agent
+      ? "The agent signed in through the <b>cmapi-automation</b> client as <b>bot-user</b>, a local Keycloak account (not from LDAP) whose password it reads from a vault. bot-user holds one client role, <b>cmapi-onboarding</b>, assigned to the account itself; it has no employee ID. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys."
+      : "The portal got this token at sign-in (Authorization Code + PKCE; Keycloak checked the password against LDAP) and refreshes it every 5 minutes. ola holds <b>cmapi-requester</b> through the Keycloak group /cmapi/cmapi-requesters. Keycloak is <b>not called</b> on this request: cmapi verifies the signature offline with its cached copy of the realm keys.",
+    code: { label: "Decoded access token (5-minute lifetime)", text: (function () {
+      var t = { iss: "https://sso.ephico2real.com/realms/ephico2real", aud: INSTANCES[o.inst].aud, azp: A.azp, sub: A.sub, preferred_username: A.user, email: A.email };
+      if (!A.agent) t.employee_id = "1001";
+      t.groups = A.groups; t.resource_access = {}; t.resource_access[INSTANCES[o.inst].aud] = { roles: A.roles }; t.exp = 1793725800;
+      return J(t); })() },
     apply: function (s) { s.node.keycloak = "Not contacted (JWKS cached)"; }
   });
+
   steps.push({
     lane: "api", title: "Authenticate and authorize",
-    body: "cmapi checks issuer, audience and expiry, then looks for a scope binding. The binding for /cmapi/cmapi-payments-requesters pairs <b>cmapi-requester</b> with region us-central, the environments this instance serves and payments-*, so placement may consider any " + o.env + " cluster in that region.",
+    body: "cmapi checks issuer, audience and expiry, then the roles in the token. <b>" + A.role + "</b> grants namespaces:create in every environment this instance serves (config/authz-roles.yaml). There is no team or namespace-name rule: any team may be named, and the name only has to be a DNS-1123 label that is not reserved and not a namespace on a cluster outside cmapi." + (A.agent ? " cmapi-onboarding is an automation role, so the missing employee ID is expected and the request is recorded as automated." : "") + " Placement may consider any " + o.env + " cluster in region us-central.",
     checks: [
       { s: "pass", l: "JWT signature, issuer, audience, expiry", n: "offline, JWKS cache" },
-      { s: "pass", l: "Role grants namespaces:write", n: "cmapi-requester" },
-      { s: "pass", l: "Scope binding covers the target", n: "clusterSelector region=us-central · " + o.env + " · payments-*" }
-    ],
-    code: { label: "Matched binding (config/authz-scopes.yaml)", text: "- subject: /cmapi/cmapi-payments-requesters\n  role: cmapi-requester\n  team: payments\n  clusterSelector: {matchLabels: {region: us-central}}\n  environments: [" + INSTANCES[o.inst].envs.join(", ") + "]\n  namespaces: [\"payments-*\"]" },
+      { s: "pass", l: "Role grants namespaces:create", n: A.role + " · " + o.env },
+      { s: "pass", l: "Name allowed", n: "not reserved, not on a cluster outside cmapi" }
+    ].concat(A.agent ? [{ s: "pass", l: "Automation account", n: "no employee ID needed (identity.automationRoles)" }] : []),
+    code: { label: "Role policy (config/authz-roles.yaml, excerpt)", text: "roles:\n  cmapi-onboarding: {}   # viewer + namespaces:create, requests:cancel: create only\n  cmapi-requester: {}    # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write\n\n# the token: resource_access." + INSTANCES[o.inst].aud + ".roles = [" + A.roles.join(", ") + "]\n# no scope bindings: no clusters, namespace patterns or teams per caller" },
     apply: function (s) { s.node.api = "Authorized"; }
   });
   steps.push({
@@ -1105,19 +1110,19 @@ function createScenario(o) {
   steps.push({
     lane: "caller", title: "Submit the create with the placement",
     body: "The portal now creates <b>" + o.ns + "</b> on <b>" + top.cluster + "</b>, carrying the placementId so the reservation becomes this request's own. The cluster ID sits in the path and in the body; a mismatch would be rejected with 422.",
-    code: { label: "POST /api/v1/clusters/" + o.cluster + "/namespaces", text: 'curl -s -X POST "$CMAPI/clusters/' + o.cluster + '/namespaces" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: ' + o.idem + '" \\\n' + "  -d '{\n" + '    "clusterId": "' + o.cluster + '",\n    "namespace": "' + o.ns + '",\n    "env": "' + o.env + '",\n    "tier": "medium",\n    "placementId": "' + o.placementId + '",\n    "labels": {"cmapi.net/team": "payments"},\n    "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}\n' + "  }'" },
+    code: { label: "POST /api/v1/clusters/" + o.cluster + "/namespaces", text: 'curl -s -X POST "$CMAPI/clusters/' + o.cluster + '/namespaces" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: ' + o.idem + '" \\\n' + "  -d '{\n" + '    "clusterId": "' + o.cluster + '",\n    "namespace": "' + o.ns + '",\n    "env": "' + o.env + '",\n    "tier": "medium",\n    "placementId": "' + o.placementId + '",\n    "labels": {"cmapi.net/team": "' + A.team + '"},\n    "annotations": {"cmapi.net/team-dl": "' + A.team + '-team@ephico2real.com"}\n' + "  }'" },
     apply: function (s) { s.node.caller = "POST sent"; s.node.api = "Receiving"; }
   });
   steps.push({
     lane: "api", title: "Plan: idempotency, lock, validate, render",
-    body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the namespace folder as plain manifests: the Namespace, the ResourceQuota and LimitRange written out from tiers.yaml (medium), and the token-issuer RoleBinding. The Kyverno policy bundle and kubeconform run on those files offline. Who asked comes from the token (ola, ola@ephico2real.com), not from the body; the employee ID is stored with the request, never in Git. The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
+    body: "The Idempotency-Key is new and no open request targets this namespace. The namespaces plugin renders the namespace folder as plain manifests: the Namespace, the ResourceQuota and LimitRange written out from tiers.yaml (medium), and the token-issuer RoleBinding. The Kyverno policy bundle and kubeconform run on those files offline. Who asked comes from the token (" + A.user + ", " + A.email + "), not from the body; " + (A.agent ? "bot-user holds an automation role, so no employee ID is needed and the request is stored with automated: true." : "the employee ID is stored with the request, never in Git.") + " The capacity check uses the reservation, so it cannot be raced by another request. The request row is written as validated.",
     checks: [
       { s: "pass", l: "Idempotency key new, object lock free", n: "" },
       { s: "pass", l: "Kyverno bundle v1.4.0", n: "7 of 7 policies pass" },
       { s: "pass", l: "kubeconform", n: o.cluster + " OpenAPI" },
       { s: "pass", l: "Capacity: fits on fresh data", n: "reservation " + o.placementId }
     ],
-    code: { label: "Plan diff · " + file, diff: true, text: "+++ " + file + "\n+apiVersion: v1\n+kind: Namespace\n+metadata:\n+  name: " + o.ns + "\n+  labels:\n+    cmapi.net/cluster-id: " + o.cluster + "\n+    cmapi.net/env: " + o.env + '\n+    cmapi.net/managed: "true"\n+    cmapi.net/requested-by-user: ola\n+    cmapi.net/tier: medium\n+    cmapi.net/team: payments\n+  annotations:\n+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n+    cmapi.net/request-id: ' + o.reqId + '\n+    cmapi.net/requested-by: ola@ephico2real.com\n+    cmapi.net/team-dl: payments-team@ephico2real.com\n\n+++ ' + dir + 'resourcequota.yaml   requests.cpu 16 · requests.memory 32Gi · pods 100\n+++ ' + dir + 'limitrange.yaml      tier medium defaults\n+++ ' + dir + 'token-issuer-rolebinding.yaml' },
+    code: { label: "Plan diff · " + file, diff: true, text: "+++ " + file + "\n+apiVersion: v1\n+kind: Namespace\n+metadata:\n+  name: " + o.ns + "\n+  labels:\n+    cmapi.net/cluster-id: " + o.cluster + "\n+    cmapi.net/env: " + o.env + '\n+    cmapi.net/managed: "true"\n+    cmapi.net/requested-by-user: ' + A.user + '\n+    cmapi.net/tier: medium\n+    cmapi.net/team: ' + A.team + '\n+  annotations:\n+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n+    cmapi.net/request-id: ' + o.reqId + '\n+    cmapi.net/requested-by: ' + A.email + '\n+    cmapi.net/team-dl: ' + A.team + '-team@ephico2real.com\n\n+++ ' + dir + 'resourcequota.yaml   requests.cpu 16 · requests.memory 32Gi · pods 100\n+++ ' + dir + 'limitrange.yaml      tier medium defaults\n+++ ' + dir + 'token-issuer-rolebinding.yaml' },
     apply: function (s) {
       s.node.api = "Plan ready";
       s.req = { id: o.reqId, status: "validated", cluster: o.cluster, ns: o.ns, action: "create Namespace", rule: "—", need: 0, have: 0, pr: "—", lead: "" };
@@ -1141,7 +1146,7 @@ if (!_auto) {
   });
   steps.push({
     lane: "api", also: ["caller"], title: "An approver approves in cmapi",
-    body: "<b>" + o.reviewer + "</b> opens the request from the email link, reads the plan in the portal and approves. cmapi checks the approver role and the " + _group + " group in their token, the scope binding for " + o.cluster + ", and that they are not the requester. The count reaches 1 of 1, capacity is checked again on fresh data (the reservation still holds), and the request is <b>approved</b>.",
+    body: "<b>" + o.reviewer + "</b> opens the request from the email link, reads the plan in the portal and approves. cmapi checks the approver role and the " + _group + " group in their token, that their role grants requests:approve in " + o.env + ", and that they are not the requester. The count reaches 1 of 1, capacity is checked again on fresh data (the reservation still holds), and the request is <b>approved</b>.",
     checks: [
       { s: "pass", l: "Approver role and group", n: _group },
       { s: "pass", l: "Not the requester or the pipeline's owner", n: "" },
@@ -1153,7 +1158,7 @@ if (!_auto) {
 } else {
   steps.push({
     lane: "api", title: "Auto-approved by policy",
-    body: o.env + " needs one approval for a create, but the <b>baseline-rnd-namespace</b> policy matches: plugin namespaces, action create, environment " + o.env + ", tier medium, region us-central. Every guard passes: not a delete, no threshold added approvers, placement fits on fresh data, no plan warnings, and the team has used 3 of its 20 a day. The request is approved at once by <code>auto:baseline-rnd-namespace</code>, and cmapi answers <b>202 approved</b>.",
+    body: o.env + " needs one approval for a create, but the <b>baseline-rnd-namespace</b> policy matches: plugin namespaces, action create, environment " + o.env + ", tier medium, region us-central. Every guard passes: not a delete, no threshold added approvers, placement fits on fresh data, no plan warnings, and the team has used 3 of its 20 a day. The request is approved at once by <code>auto:baseline-rnd-namespace</code>, and cmapi answers <b>202 approved</b>." + (A.agent ? " An agent's request follows the same rules as anyone's; approval-rules.yaml can treat agent requests differently with the <code>automated</code> fact, for example to auto-approve only small tiers." : ""),
     checks: [
       { s: "pass", l: "Master switch and policy enabled", n: "kill switch not paused" },
       { s: "pass", l: "Guards: no delete, no extra approvers, no warnings", n: "" },
@@ -1227,6 +1232,13 @@ steps.push({
       ev(s, T.synced, "synced", "argocd", o.cluster + " Synced and Healthy at " + o.sha, "ok");
     }
   });
+  if (A.agent) steps.push({
+    lane: "caller", title: "The agent cannot change or delete it",
+    body: "cmapi-onboarding creates and nothing else. When the agent tries to raise " + o.ns + " to tier large or delete it, cmapi answers <b>403</b> before any plan: no role in its token grants namespaces:write. Changes go to a person or pipeline holding cmapi-requester, through the normal approval rules.",
+    checks: [{ s: "fail", l: "PATCH tier large", n: "403 forbidden" }, { s: "fail", l: "DELETE", n: "403 forbidden" }],
+    code: { label: "403 · application/problem+json", text: J({ type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission namespaces:write: no role in your token grants it (roles: ['cmapi-onboarding'])" }) },
+    apply: function (s) { s.node.caller = "403 on change or delete"; ev(s, T.synced + 60, "refused", "bot-user", "PATCH and DELETE: namespaces:write not granted", "fail"); }
+  });
   return { init: init, steps: steps };
 }
 
@@ -1254,9 +1266,9 @@ function quotaScenario() {
   });
   steps.push({
     lane: "api", title: "Authenticate, authorize, lock",
-    body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write, and the payments binding covers " + c + " prod. The If-Match ETag equals the Git blob SHA of resourcequota.yaml, and no other request is open on this namespace.",
+    body: "The Keycloak token is verified offline, cmapi-requester grants quotas:write in prod (config/authz-roles.yaml); there is no team or namespace scope to check. The If-Match ETag equals the Git blob SHA of resourcequota.yaml, and no other request is open on this namespace.",
     checks: [
-      { s: "pass", l: "JWT, role and scope binding", n: "cmapi-requester · " + c + " · prod" },
+      { s: "pass", l: "JWT and role", n: "cmapi-requester · " + c + " · prod" },
       { s: "pass", l: "If-Match matches current ETag", n: "9b2e4f1c8a7d" },
       { s: "pass", l: "Object lock free", n: "Namespace " + ns }
     ],
@@ -1374,9 +1386,9 @@ function policyScenario() {
   });
   steps.push({
     lane: "api", title: "Authenticate, authorize, lock",
-    body: "The service-account token is valid, its role grants grants:write and its binding covers " + c + " payments-*. deploy-bot exists live in " + ns + ", and no open request targets this grant.",
+    body: "The service-account token is valid, its role, cmapi-requester, grants grants:write in prod. deploy-bot exists live in " + ns + ", and no open request targets this grant.",
     checks: [
-      { s: "pass", l: "JWT, role and scope binding", n: "svc-payments-ci · grants:write" },
+      { s: "pass", l: "JWT and role", n: "svc-payments-ci · grants:write" },
       { s: "pass", l: "ServiceAccount exists", n: ns + "/deploy-bot" },
       { s: "pass", l: "Object lock free", n: "" }
     ],
@@ -1552,7 +1564,7 @@ function wrongInstanceScenario(inst, env) {
     lane: "api", title: "Environment not served",
     body: "Before any plan, cmapi checks the requested environment against its configured <code>allowedEnvironments</code>. " + env + " is not in [" + me.envs.join(", ") + "], so it answers 422 with the instance that does serve it. No row, no placement, no PR.",
     checks: [
-      { s: "pass", l: "JWT, role and scope binding", n: "audience " + me.aud },
+      { s: "pass", l: "JWT and role", n: "audience " + me.aud },
       { s: "fail", l: "Environment served by this instance", n: env + " not in [" + me.envs.join(", ") + "]" }
     ],
     code: { label: "422 · application/problem+json", text: J({ type: "https://cmapi.ephico2real.com/problems/environment-not-served", title: "Environment not served by this instance", status: 422, detail: "This is the " + me.label + " instance; it serves " + me.envs.join(", ") + ".", environment: env, instance: me.label, servedBy: right.label, instanceUrl: right.api + "/api/v1", portalUrl: right.portal }) },
@@ -1565,7 +1577,7 @@ function wrongInstanceScenario(inst, env) {
   });
   steps.push({
     lane: "caller", title: "Go to the " + right.label + " portal",
-    body: "The portal turns the problem into a link to <b>" + right.portal + "</b>. There the person signs in again through the " + right.label + " client and needs a role bound in that instance's authz-scopes.yaml; access in " + me.label + " grants nothing in " + right.label + ".",
+    body: "The portal turns the problem into a link to <b>" + right.portal + "</b>. There the person signs in again through the " + right.label + " client and needs a role on that instance's Keycloak client (" + right.aud + "); access in " + me.label + " grants nothing in " + right.label + ".",
     code: { label: "Portal message", text: env + " namespaces are created in the " + right.display + " portal.\nOpen " + right.portal + " to continue.\nYour roles there come from the cmapi-" + right.label + " client in Keycloak." },
     apply: function (s) { s.node.caller = "Redirected to " + right.label; }
   });
@@ -1670,6 +1682,13 @@ var SCENARIOS = [
       ranked: [{ cluster: "OCP_GF6", score: 78, before: 96, mem: 410, p95: 0.33 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
       excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
       times: { validated: 3, pr: 5, ci: 120, merged: 124, synced: 300 } }); } },
+  { id: "agent-onboard", label: "AI agent onboards · rnd", meta: "bot-user · onboarding role", build: function () {
+    return createScenario({ aud: "cmapi-nonprod", inst: "nonprod", env: "rnd", cluster: "OCP_GF6", ns: "fraud-sandbox-rnd", reqId: "req-20261103-a9c4", idem: "0b7e4c2a-6d1f-4a39-8e52-91c3f07d2b6e",
+      placementId: "pl-20261103-6b02", overcommit: "2.0", pr: 414, branch: "OCP_GF6/fraud-sandbox-rnd/req-20261103-a9c4", sha: "b72e1f9", prevSha: "e90b3d4",
+      ranked: [{ cluster: "OCP_GF6", score: 74, before: 80, mem: 378, p95: 0.35 }, { cluster: "OCP_GF8", score: 61, before: 52, mem: 140, p95: 0.62 }],
+      excluded: [{ cluster: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 15:30, older than 2 intervals" }],
+      times: { validated: 3, pr: 5, ci: 118, merged: 122, synced: 290 },
+      actor: { user: "bot-user", email: "bot-user@ephico2real.com", azp: "cmapi-automation", role: "cmapi-onboarding", roles: ["cmapi-onboarding"], groups: [], team: "fraud", agent: true, sub: "0d3b9f6e-27a4-4c1b-b8e0-5f2a7c914d63" } }); } },
   { id: "prod-create", label: "New namespace · prod", meta: "placed · 1 approval", build: function () {
     return createScenario({ inst: "prod", aud: "cmapi-prod", env: "prod", cluster: "OCP_GF1", ns: "payments-prod", reqId: "req-20261103-7f3a", idem: "7f3a2c1e-0b9d-4e2a-9a51-3c8d2f6b1a40",
       placementId: "pl-20261103-2c81", overcommit: "1.0", pr: 412, branch: "OCP_GF1/payments-prod/req-20261103-7f3a", sha: "a41c9e2", prevSha: "5f02b1d", reviewer: "sre-lead@ephico2real.com",
@@ -1690,7 +1709,7 @@ var SCENARIOS = [
   { id: "wrong-staging", label: "rnd asked of staging", meta: "422 environment-not-served", build: function () { return wrongInstanceScenario("staging", "rnd"); } },
   { id: "wrong-prod", label: "qa asked of prod", meta: "422 environment-not-served", build: function () { return wrongInstanceScenario("prod", "qa"); } }
 ];
-var INSTANCE_SCN = { nonprod: ["rnd-create", "cluster-import", "expiry", "wrong-nonprod"], staging: ["qa-create", "wrong-staging"], prod: ["prod-create", "quota-change", "policy-reject", "wrong-prod"] };
+var INSTANCE_SCN = { nonprod: ["rnd-create", "agent-onboard", "cluster-import", "expiry", "wrong-nonprod"], staging: ["qa-create", "wrong-staging"], prod: ["prod-create", "quota-change", "policy-reject", "wrong-prod"] };
 
 var TIERS = { small: { cpu: 8, mem: "16Gi", memGi: 16, pods: 50 }, medium: { cpu: 16, mem: "32Gi", memGi: 32, pods: 100 }, large: { cpu: 32, mem: "64Gi", memGi: 64, pods: 200 } };
 var PLACE = {
@@ -2415,7 +2434,7 @@ class Component extends DCLogic {
     var self = this, st = this.state;
     if (st.inst === "prod") {
       return { prod: true, nonprod: false, lede: "Expiration is optional for rnd, dev, qa and uat namespaces, and never applies in prod.", head: "prod · never expires",
-        prodRows: [{ k: "Namespaces", v: QUOTAS.prod.length + " in your scope, all permanent" }, { k: "Policy", v: "deny-expiry-in-prod (ValidatingPolicy) on OCP_GF1, OCP_GF2, OCP_GF4, OCP_GF5" }, { k: "Refused this week", v: "1 request (ledger-prod, Nov 3 10:05, expiration-not-allowed); see Policies" }],
+        prodRows: [{ k: "Namespaces", v: QUOTAS.prod.length + " in prod, all permanent" }, { k: "Policy", v: "deny-expiry-in-prod (ValidatingPolicy) on OCP_GF1, OCP_GF2, OCP_GF4, OCP_GF5" }, { k: "Refused this week", v: "1 request (ledger-prod, Nov 3 10:05, expiration-not-allowed); see Policies" }],
         states: [], envs: [], rows: [], text: "", onType: function () {}, range: "", prevCls: "off", prevDis: "true", nextCls: "off", nextDis: "true", prev: function () {}, next: function () {}, empty: false, foot: "", hasSel: false, submit: function () {},
         d: expDefault() };
     }
@@ -2528,7 +2547,7 @@ class Component extends DCLogic {
 
     var env = me.envs.indexOf(st.env) >= 0 ? st.env : me.envs[0];
     var tier = TIERS[st.tier], pl = PLACE[env];
-    var nsName = st.name || ("payments-" + env);
+    var nsName = st.name || ((st.team || "payments") + "-" + env);
     var ranked = [], excluded = pl.excluded.map(function (x) { return { cluster: x.c, reason: x.reason, detail: x.detail }; });
     pl.ranked.forEach(function (x) {
       var after = x.head - tier.cpu, memAfter = x.mem - tier.memGi, zfAfter = x.zf != null ? x.zf - tier.cpu : null, zfMem = x.zfMem != null ? x.zfMem - tier.memGi : null;

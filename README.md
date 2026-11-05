@@ -24,8 +24,8 @@ the final design and the source of truth: where another document disagrees, it w
 | [docs/08-code-status.md](docs/08-code-status.md) | What code is built and tested, what exists only for the local run, and what is still to build | Current |
 | [examples/local/INSTALL.md](examples/local/INSTALL.md) | Setup and installation guide for the local stack (Keycloak, k3s / kind / existing cluster, Kyverno CLI, kubeconform, Git, the API), with screenshots | Current |
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
-| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance. Open in a browser | |
-| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
+| [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance, and an AI agent onboarding a namespace as bot-user (cmapi-onboarding: create only, change and delete refused). Open in a browser | |
+| [mockups/portal/](mockups/portal) | Portal mockup source (Claude Design canvas): Workflow (with the AI agent scenario), New namespace (any team, any non-reserved name), Quotas, Expiration, Requests, Approvals, Policies, Capacity, KPIs | |
 | [examples/](examples) | Config files and manifests from the design, at their target paths, plus the reference implementation (`examples/src/cmapi`, 120 tests) of the modules in the v2 Module catalog and a local end-to-end run (`examples/local`: Keycloak, Git, k3s) | |
 
 ## Agreed decisions at a glance

@@ -9,8 +9,12 @@ What it shows, per instance (nonprod, staging, prod; switched with the `instance
 
 - **Workflow:** the request flow in the same lanes as `../cmapi-flow.html` (caller, Keycloak,
   cmapi-api, cmapi-capacity, cluster-configs, Argo CD), including a wrong-instance request that
-  gets 422 `environment-not-served` with the right instance's URL.
-- **New namespace:** schema-driven form limited to the instance's allowedEnvironments, with
+  gets 422 `environment-not-served` with the right instance's URL, and (nonprod) an AI agent signed in
+  as `bot-user` with the `cmapi-onboarding` role: it creates a namespace, auto-approved and recorded as
+  automated, and its change and delete are refused with 403.
+- **New namespace:** schema-driven form limited to the instance's allowedEnvironments. Access comes from
+  Keycloak roles only: the team is free text (ownership and cost) and any DNS-1123 name that is not
+  reserved may be asked for. With
   placement, an optional expiry date (hidden in prod) and plan preview.
 - **Quotas:** every namespace's ResourceQuota (requests.cpu, requests.memory, pods; used
   vs hard) with its usage verdict and any recommendation, for a few hundred generated namespaces
