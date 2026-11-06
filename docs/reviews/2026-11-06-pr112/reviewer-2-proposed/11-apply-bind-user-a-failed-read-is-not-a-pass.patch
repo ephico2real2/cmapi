@@ -1,0 +1,49 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -27,6 +27,9 @@
+   "get secret "*" -n "*" -o jsonpath={.data."*)
+     d=$LT_SECRETS/$5/$3; k=${7#jsonpath=\{.data.}; k=${k%\}}; k=${k//\\/}; [ -f "$d/$k" ] && base64 <"$d/$k"; exit 0;;
+   "get secret "*" -n "*" -o go-template="*) ls "$LT_SECRETS/$5/$3"; exit 0;;
++  "get secret "*" -n "*) [ -d "$LT_SECRETS/$5/$3" ]; exit $?;;
++  "get cm ldap-acls -n ldap-testing -o json") printf '{"metadata":{"name":"ldap-acls"},"data":{"configure-acls.ldif":""}}\n'; exit 0;;
++  "replace -f -") cat >/dev/null; exit 0;;
+   "create secret generic "*)
+     d=$LT_SECRETS/$6/$4; [ ! -e "$d" ] || { echo "already exists" >&2; exit 1; }; mkdir -p "$d"; cp "${7#--from-file=}"/* "$d/"; exit 0;;
+   "delete secret "*) rm -rf "${LT_SECRETS:?}/$5/$3"; exit 0;;
+@@ -371,6 +374,15 @@
+   # openssl on the machine running the script.
+   mkdir -p "$W/no-openssl"; printf '#!/bin/sh\nexit 1\n' >"$W/no-openssl/openssl"; chmod +x "$W/no-openssl/openssl"
+   local path=$PATH; PATH="$W/no-openssl:$PATH"; refused_clean "openssl fails: a Secret of empty passwords"; PATH=$path; remove_ours
++  # apply-bind-user.sh's proof, on the same server: the control, then each read that fails.
++  mkdir -p "$W/secrets/keycloak/cmapi-ldap-bind"
++  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" = 0 ] && ok "apply-bind-user.sh passes on this server: the control" || bad "apply-bind-user.sh, the control: rc $rc: $(tail -3 "$W/out")"
++  tool_fails ldapsearch '*userPassword*'
++  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" != 0 ] && ok "apply-bind-user.sh: a read for a password hash that fails is not zero hashes" || bad "apply-bind-user.sh passed a failed read for a password hash"
++  tool_back ldapsearch
++  tool_fails ldapsearch '*-b?ou=TrustedApplications*'
++  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" != 0 ] && ok "apply-bind-user.sh: a read of ou=TrustedApplications that fails otherwise than 32 is not proof it is hidden" || bad "apply-bind-user.sh passed a failed read of ou=TrustedApplications"
++  tool_back ldapsearch
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+--- a/examples/cmapi-sso/ldap/apply-bind-user.sh
++++ b/examples/cmapi-sso/ldap/apply-bind-user.sh
+@@ -111,11 +111,15 @@
+   # Any group here: apply-test-identities.sh makes the cmapi groups, needs this user first, and checks them as this user.
+   groups=$(as_user -b "ou=Groups,$LDAP_BASE_DN" "(objectClass=groupOfNames)" dn | grep -c "^dn:")
+   [ "$groups" -gt 0 ] && check "reads ou=Groups" yes yes || check "reads ou=Groups" no yes
+-  check "sees no password hash" "$(as_user -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" userPassword | grep -c "^userPassword")" 0
+-  check "cannot read ou=TrustedApplications" "$(as_user -b "ou=TrustedApplications,$LDAP_BASE_DN" "(objectClass=*)" dn | grep -c "^dn:")" 0
++  # Exit first: a read that failed for another reason has shown nothing, and its count of nothing would pass.
++  as_user -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" userPassword > "$f.out"
++  check "the read for a password hash answers (ldapsearch exit)" "$?" 0
++  check "sees no password hash" "$(grep -c "^userPassword" "$f.out")" 0
++  as_user -b "ou=TrustedApplications,$LDAP_BASE_DN" "(objectClass=*)" dn > "$f.out"
++  check "cannot read ou=TrustedApplications (ldapsearch exit)" "$?" 32
+   printf "dn: cn=cmapi-write-probe,ou=Groups,%s\nobjectClass: groupOfNames\ncn: cmapi-write-probe\nmember: %s\n" "$LDAP_BASE_DN" "$dn" |
+     ldapadd -x -H ldap://localhost -D "$dn" -y "$f" >/dev/null 2>&1
+   check "cannot write (ldapadd exit)" "$?" 50
+-  rm -f "$f"
++  rm -f "$f" "$f.out"
+   exit "$fail"
+ ' _ "$bind_dn" < "$password_file"

@@ -1,0 +1,58 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -39,15 +39,15 @@
+ 
+ # Rules as the server's: every identity not named is refused. What differs between the server and the stand-in is only who the third-party accounts are.
+ BIND_DN="cn=cmapi-ldap-bind,ou=TrustedApplications,$BASE"; BIND_PW=lt-bind-password
+-acls() { # acls <1: the bind user is in the rules>
+-  local by=""; [ "$1" = 1 ] && by="by dn=\"$BIND_DN\" read "
++acls() { # acls <1: the bind user is in the rules; people: in the rule for ou=People alone; 0: in neither>
++  local by="" by_groups=""; [ "$1" = 0 ] || by="by dn=\"$BIND_DN\" read "; [ "$1" != 1 ] || by_groups=$by
+   in_c ldapmodify -Y EXTERNAL -H ldapi:/// >/dev/null 2>&1 <<LDIF
+ dn: olcDatabase={1}mdb,cn=config
+ changetype: modify
+ replace: olcAccess
+ olcAccess: {0}to attrs=userPassword by self write by dn="cn=admin,$BASE" write by anonymous auth by * none
+ olcAccess: {1}to dn.subtree="ou=People,$BASE" by self read by dn="cn=admin,$BASE" write ${by}by * none
+-olcAccess: {2}to dn.subtree="ou=Groups,$BASE" by dn="cn=admin,$BASE" write ${by}by * none
++olcAccess: {2}to dn.subtree="ou=Groups,$BASE" by dn="cn=admin,$BASE" write ${by_groups}by * none
+ olcAccess: {3}to * by dn="cn=admin,$BASE" write by * none
+ LDIF
+ }
+@@ -331,6 +331,9 @@
+   printf 'dn: %s\nobjectClass: inetOrgPerson\ncn: Jos\303\251 Real\nsn: x\nuid: cmapi.viewer\n\n' "$jose" | adm ldapadd >/dev/null
+   refused_clean "a test user's uid held by a person whose name is not ASCII"; grep -q 'stranger base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
+   adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
++  # A precondition: measured before the write, not found after it.
++  acls people; refused_clean "a bind user the rule for ou=People names and the rule for ou=Groups does not"; grep -q 'reads nothing under ou=Groups' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
++  acls 1; remove_ours
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+--- a/docs/13-crc-deployment.md
++++ b/docs/13-crc-deployment.md
+@@ -225,7 +225,7 @@
+ 
+ Before any Keycloak step, because the realm's federation reads these. It writes the ten groups of `cmapi-groups.ldif`, the 13 users of `test-identities.tsv`, and Secret `cmapi-ldap-test-users` in `cmapi`, with passwords only as hashes in LDAP. A second run changes nothing. `docs/11`, "The test users".
+ 
+-**Stops when,** before anything is written: the bind user cannot read `ou=People`; the gate group `app-ssb-autobahnusers` cannot be read; OpenShift's login filter finds nobody, or finds a `cmapi.*` user; a `uidNumber` is held by another entry; an entry with one of these names is not what the script would write, or is a `cmapi.*` user or `app-cmapi-rbac-*` group it does not hold. **Stops when,** after: a digest of every other entry's name and non-password attributes under `ou=People` and `ou=Groups` moved; the gate's members moved; the bind user cannot read the 10 groups and 13 users, or can see a hash; a user cannot sign in to LDAP with the Secret's password. A stop after the write leaves what it wrote, and `apply-test-identities.sh --remove-test-identities` takes exactly that away.
++**Stops when,** before anything is written: the bind user cannot read `ou=People` or `ou=Groups`; the gate group `app-ssb-autobahnusers` cannot be read; OpenShift's login filter finds nobody, or finds a `cmapi.*` user; a `uidNumber` is held by another entry; an entry with one of these names is not what the script would write, or is a `cmapi.*` user or `app-cmapi-rbac-*` group it does not hold. **Stops when,** after: a digest of every other entry's name and non-password attributes under `ou=People` and `ou=Groups` moved; the gate's members moved; the bind user cannot read the 10 groups and 13 users, or can see a hash; a user cannot sign in to LDAP with the Secret's password. A stop after the write leaves what it wrote, and `apply-test-identities.sh --remove-test-identities` takes exactly that away.
+ 
+ ### Step 10: the ten old groups out of LDAP
+ 
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -262,10 +262,12 @@
+   bind="$1"
+   as_bind() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$bind" -y "$f" "$@"; }
+ '
+-# Before any write: the bind user reads ou=People at all, so its check after the write can only fail on what this adds.
++# Before any write: the bind user reads ou=People and ou=Groups at all, so its check after the write can only fail on what this adds. Rules that name it in one and not the other would otherwise stop the run with everything written.
+ in_pod "$as_bind_prog"'
+   n=$(as_bind -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" dn | grep -c "^dn:" || true)
+   [ "$n" -gt 0 ] || { echo "FAIL: the bind user reads no one under ou=People" >&2; exit 1; }
++  n=$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(objectClass=*)" dn | grep -c "^dn:" || true)
++  [ "$n" -gt 0 ] || { echo "FAIL: the bind user reads nothing under ou=Groups" >&2; exit 1; }
+ ' _ "$bind_dn" < "$tmp/bind-password"
+ 
+ measure "$tmp/ours" 0 > "$tmp/before"

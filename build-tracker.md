@@ -10,11 +10,11 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 | | |
 |---|---|
-| Merged to `main` | PR #40, PR #89 (plain YAML), PR #95 (Wave 1 design), PR #98 (Wave 1's code and its review fixes, `9e1860e`) |
-| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112 (#110, #109): group names `app-cmapi-rbac-<role>`, `cmapi.<role>` test users, CA-only keychain; Codex reviewed it and reviewer 2 is checking. PR #111 (`LOCAL-DEV-TRUST.md`): CI green at `4fd3c3a`, merge refused by Claude Code (#113) |
+| Merged to `main` | PR #40, PR #89 (plain YAML), PR #95 (Wave 1 design), PR #98 (Wave 1's code and review fixes), PR #111 (`LOCAL-DEV-TRUST.md`), PR #114 (`fix-defect` skill); `main` at `5dfdea3` |
+| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112 (#110, #109, #115, #116, #117, #118), draft, branch `ldap-rbac-names`: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Codex reviewed it. Reviewer 2's eleven patches are saved, unvalidated, in `docs/reviews/2026-11-06-pr112/`. CI red at `44083ff` |
 | On CRC | No cmapi workload, and realm `cmapi` does not exist (`/realms/cmapi` 404, read 2026-11-06). Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the old `cmapi-*` groups, which #110 replaces |
-| Next action | Reviewer 2 on PR #112, then its fixes, then CI green on the exact head. Merge needs the owner (#113). Then, with the owner's go-ahead, the first CRC run from `docs/13`. Meanwhile #87 and #91, which depend on none of this |
-| Running | Reviewer 2 on PR #112. `cmapi-test-pg` stays up for the service tests |
+| Next action | Validate those patches per `fix-defect` step 4, get #118 diagnosed and fixed, apply, CI green on the exact head, merge (the owner authorized merging once clear). Then ask the owner's go-ahead for the first CRC run. One agent at a time |
+| Running | Nothing should be, after the session cleared: check. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
@@ -77,6 +77,7 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 | Risk | What is known | Guard |
 |---|---|---|
+| Token spend | The owner stopped a side agent as waste on 2026-11-06. Two implementers and reviewers each used about 1M fresh input tokens plus 350,000 to 470,000 output | One agent at a time, only on what blocks the next step. Narrow briefs; agents run only the suites their change touches; the coordinator runs the full suites once |
 | `keycloak-0` on CRC restarted at 20:17:02 UTC on 2026-11-05 (exit 143, then failed probes) | cmapi changed nothing in `keycloak`. A kind cluster was running on the Mac at that time, so test load is not ruled out. Cause unknown. A later short kind run left the count at 1 | No kind cluster during a CRC step. Record the restart count around each one |
 | A realm import may restart the shared Keycloak, which has one instance | corp, inkcast-staging and inkcast-prod were imported on 10-28, 10-28 and 11-04 without restarting `keycloak-0`. Red Hat reports restarts on 22.x, 24.x and 26.0.x; CRC runs 26.6.7. The one measured restart took 2 min 42 s for every realm | The owner requires the other realms unaffected and not deleted, and no long outage. Exact names only; compare each realm's status and public key hash before and after; poll through the import; if it restarts, stop and take no action on Keycloak. A `pg_dump` first, approved by the owner, kept outside git and deleted once verified |
 | Keycloak's certificate has no Extended Key Usage | macOS's own check refuses it even with the right CA (measured); the ingress certificate passes. Chrome's result is unknown until the owner tries | If Chrome refuses it, reissuing `keycloak-tls` touches the shared Keycloak: the owner's decision |
@@ -89,4 +90,4 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 ## Open bugs
 
-#87 `pr_status` misses check runs. #91 connections to CNPG are encrypted but do not verify the server, in progress. #97 a private-CA-only bundle fails GitHub TLS. #109 the keychain loop, in PR #112. #110 group names, in PR #112. #113 a merge refused by Claude Code, for the owner. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.
+**Open under PR #112:** #115, #116, #117, #118, #110, #109. **Parked until Wave 1 is on CRC, to save tokens:** #87 (committed, unreviewed, branch `fix-pr-status-check-runs`), #91 (unfinished and unproven, branch `fix-cnpg-verify-full`). #97 a private-CA-only bundle fails GitHub TLS. #113 merge authority, closes with PR #112. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.

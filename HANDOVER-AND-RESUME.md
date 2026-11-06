@@ -2,7 +2,7 @@
 
 Read this first to continue the build from a new session, with nothing else in hand. The tracker is
 [`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-06, during Wave 1's review.
+[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-06, when the owner cleared the session during PR #112's review.
 
 ## Where these files are
 
@@ -21,8 +21,12 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 ## Where it stopped
 
 - `main` holds PR #40, PR #89, PR #95 and PR #98 (`9e1860e`), unless a later row of the tracker says otherwise. Nothing from them is on CRC yet.
-- **Wave 1 (#94): code merged, not run on CRC.** Realm `cmapi` does not exist yet. PR #112 sets the group names, `app-cmapi-rbac-<role>` (the owner's decision), which must land before the one-shot import. Review records: `docs/reviews/2026-11-06-wave1-review/README.md`. Get the owner's go-ahead before anything is applied to CRC.
-- **Merging:** Claude Code refused a merge the owner had not named (#113). A permission refusal stands, so name the pull request to the owner.
+- **Wave 1 (#94): code merged, not run on CRC.** Realm `cmapi` does not exist yet. PR #112 (draft, branch `ldap-rbac-names`, worktree `/Users/olasumbo/gitRepos/cmapi-design-crc`) sets the group names `app-cmapi-rbac-<role>` and the `cmapi.<role>` test users, the owner's decision, and must land before the one-shot import. Until it merges, **this file and the tracker on that branch are the current ones; `main`'s are older.**
+- **Exactly where the review stopped:** `docs/reviews/2026-11-06-pr112/README.md`. Reviewer 2's eleven patches are saved there, unvalidated. CI is red at `44083ff`: `reference-code` (#117) and `manifests` (#118, not diagnosed).
+- **Merging:** the owner, 2026-11-06: "i want you to merge once all things clear". Merge when CI is green on the exact head and the review has passed. This does not cover CRC: **the first CRC run still needs the owner's go-ahead, not yet given.**
+- **Tokens:** the owner, 2026-11-06: background agents were "wasting tokens". One agent at a time, only on what blocks the next step. #87 and #91 are parked until Wave 1 is on CRC.
+- **Defects:** the owner's process is `.claude/skills/fix-defect/SKILL.md`. Every defect gets an issue, including on an unmerged pull request.
+- **The owner's keychain step:** commands in `LOCAL-DEV-TRUST.md`. No result reported yet. Keycloak's certificate has no Extended Key Usage, so Chrome may refuse it.
 - **Branch protection requires CI, not a review.** GitHub will show a pull request as mergeable with its review unfinished. The review gate is held by the delivery loop alone, so do not merge on GitHub's word.
 - No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
@@ -32,14 +36,14 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 1. Check the state, read-only:
    ```bash
    gh pr list --state open
-   gh pr checks 89
+   gh pr checks 112
    git log --oneline -5 origin/main
    oc get all -n cmapi
    oc get pod keycloak-0 -n keycloak
    oc describe node crc | grep -E '^\s+memory\s'
    KIND_EXPERIMENTAL_PROVIDER=podman kind get clusters
    ```
-2. Find the first row of `build-tracker.md` not marked done, and carry on from it through the delivery loop in `CLAUDE.md`.
+2. Read `docs/reviews/2026-11-06-pr112/README.md`, then carry on from the tracker's next action through the delivery loop in `CLAUDE.md`.
 3. In the present order: Wave 1 on CRC, then the remaining waves.
 
 ## Who does what

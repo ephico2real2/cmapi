@@ -1,0 +1,30 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -323,6 +323,14 @@
+   tool_fails ldapsearch '*userPassword*'
+   rc=$(run); [ "$rc" != 0 ] && grep -q "could not check whether a password hash is readable" "$W/out" && ok "refused: the read for a password hash fails, which is not zero hashes" || bad "a failed read for a password hash passed: rc $rc"
+   tool_back ldapsearch; remove_ours
++  # Someone whose name LDIF can only give in base64 holds what a test user needs.
++  local jose; jose=$(printf 'cn=Jos\303\251 Real,ou=People,%s' "$BASE")
++  printf 'dn: %s\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\ncn: Jos\303\251 Real\nsn: x\nuid: jose.real\nuidNumber: 10105\ngidNumber: 1\nhomeDirectory: /x\n\n' "$jose" | adm ldapadd >/dev/null
++  refused_clean "a uidNumber held by a person whose name is not ASCII"; grep -q 'uidNumber 10105 is held by base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
++  adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
++  printf 'dn: %s\nobjectClass: inetOrgPerson\ncn: Jos\303\251 Real\nsn: x\nuid: cmapi.viewer\n\n' "$jose" | adm ldapadd >/dev/null
++  refused_clean "a test user's uid held by a person whose name is not ASCII"; grep -q 'stranger base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
++  adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -61,8 +61,8 @@
+   printf %s "$LDAP_ADMIN_PASSWORD" > "$w/admin"
+   admin="cn=admin,$LDAP_BASE_DN"
+   search() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$admin" -y "$w/admin" "$@" </dev/null; }
+-  # The names a search finds. Through a file, so a search that fails stops here and does not read as "found nobody".
+-  names() { search "$@" dn > "$w/raw"; sed -n "s/^dn: //p" "$w/raw"; }
++  # The names a search finds. Through a file, so a search that fails stops here and does not read as "found nobody". LDIF gives a name that is not ASCII as "dn:: <base64>": it is shown as that, so it matches none of ours, and is refused.
++  names() { search "$@" dn > "$w/raw"; sed -n "s/^dn:: */base64 /p; s/^dn: //p" "$w/raw"; }
+   # 0 there, 1 absent. Anything else stops: a server that did not answer has not said the entry is absent.
+   present() {
+     rc=0; search -b "$1" -s base dn >/dev/null 2>"$w/err" || rc=$?
