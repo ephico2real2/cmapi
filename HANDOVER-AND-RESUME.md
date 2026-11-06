@@ -85,7 +85,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 | When | What |
 |---|---|
 | Wave 1 | For the Chrome proofs: trust the two CAs in the login keychain, and sign in once as an LDAP person |
-| Wave 3 | Create the GitHub App from the manifest flow, and install it on `cluster-configs-nonprod` only |
+| Wave 3 | Create the GitHub App from the manifest flow, with Contents, Pull requests and Commit statuses read/write, Checks read and Metadata read, nothing on Workflows or Administration (Checks read is how the worker sees `ci/*`, #87), and install it on `cluster-configs-nonprod` only |
 | Wave 4 | Make each GHCR package public, after its first push |
 | Wave 8 | Decide #35 and #36 (LDAP) |
 

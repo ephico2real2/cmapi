@@ -25,6 +25,9 @@ class HostGitProvider:
 
     BOT_NAME = "cmapi-bot"
     BOT_EMAIL = "cmapi-bot@ephico2real.com"
+    # Whether the host's own CI reports ci/kubeconform and ci/kyverno. The worker then reads them there and posts only cmapi/check.
+    # False is the Gitea stand-in, which has no CI runner: the worker runs them and posts them itself (#60) until Wave 3 removes it.
+    external_ci = False
 
     def __init__(self, api_url: str, repository: str, token: str, *, default_branch: str = "main",
                  verify: str | bool = True, web_url: str | None = None, timeout: float = 20.0,
