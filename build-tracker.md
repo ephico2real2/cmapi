@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-05 evening by the coordinator, from `git`, `gh` and `oc`, when the owner stopped work.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-06 by the coordinator, from `git`, `gh` and `oc`, during the second review of PR #89.
 
 **Proof** says where a result came from: **CI** is GitHub Actions on the named run, **kind** is a throwaway cluster on the
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
@@ -11,10 +11,10 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40, merge commit `1f30ab1` |
-| In progress | PR #89 (`manifests-plain-yaml`, #88). Reviewed by Opus and Codex: **not safe to apply until its fixes land.** Rulings decided, fixes not applied. See `docs/reviews/2026-11-05-pr89/README.md` |
+| In progress | PR #89 (`manifests-plain-yaml`, #88, #90). First review's fixes applied at `d6c063e`. **Second review running: not ready to merge or apply.** See `docs/reviews/2026-11-05-pr89/README.md` |
 | On CRC | No cmapi workload. Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the `cmapi-*` groups |
-| Next action | Apply the rulings on PR #89: steps in `docs/reviews/2026-11-05-pr89/README.md`. Patches 01 to 07, then 09, not 08. Remove the patches folder in that commit |
-| Running | Nothing: no agents, kind clusters or Codex processes. `cmapi-test-pg` stays up for the service tests |
+| Next action | Check reviewer 2's result, apply the accepted fixes, then the remaining steps in `docs/reviews/2026-11-05-pr89/README.md` |
+| Running | Reviewer 2 (Opus 5.5 `high`) on an export. No kind cluster at this update. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
@@ -34,7 +34,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 | What | State | Proof so far |
 |---|---|---|
-| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, PR #89) | Review done, **fixes to apply**: API port open to every namespace; a failed Secret read treated as absent; `kind-test.sh`, `render.sh` and guide defects | kind: CNPG 1.30.1 healthy, api and worker Ready, `/readyz` 200, ten secrets cases pass in a separate run; `kind-test.sh` as a whole has never exited 0 on record. CI run 42138478365 on `8fe5408`: all five jobs, **on the code with its defects**, so green is not ready. GitHub shows it mergeable because protection requires CI, not a review |
+| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, #90, PR #89) | First review's fixes applied. Second review: Codex returned six findings at `d6c063e`; Opus is checking them and looking for what Codex missed. **Fixes to apply** | kind: `kind-test.sh` exit 0 at `16fa0fedcb`, image built from that commit; migrate connection `pg_stat_ssl True TLSv1.3`. Policy blocks another namespace, measured on running pods. **No pod has started under the policy on podman kind.** CI run 42174316759 on `d6c063e`: all five jobs. GitHub shows it mergeable because protection requires CI, not a review, so green is not ready. CRC: nothing applied |
 | Deployment design: one merged design with rulings | Goes in with PR #89 | kind: Argo CD 3.5.6, three accident tests, no namespace lost. `docs/reviews/2026-11-05-deployment-design.md` |
 
 ## Remaining, in waves
@@ -52,7 +52,7 @@ needs 3, Wave 5 needs 2 to 4, and Waves 6 and 7 need 5.
 | 5 | Argo CD on CRC adopting Wave 1's objects. A real request through a real PR, then a delete, screenshots. `apply` removed. **Thin slice done** | #64, #65, #85, #84 | None | Pending |
 | 6 | Portal on the API: OIDC PKCE, TanStack Query, its own image. New namespace, Requests and Approvals first. Team DL field | #33 | None | Pending |
 | 7 | CLI and `cmapi-sdk`. `cmapi-capacity`, the real capacity guard, quotas (phase 3) | #62 | None | Pending |
-| 8 | Service accounts, grants, tokens (phase 4). Lifecycle, policies, operations, OpenTelemetry (phase 5). LDAP hardening | #35, #36 | Decide #35 and #36 | Pending |
+| 8 | Service accounts, grants, tokens (phase 4). Lifecycle, policies, operations, OpenTelemetry, the remaining KPIs (phase 5). LDAP hardening. **Load test: the proof that KPIs work, and the budgets at 5,000 namespaces.** A month of KPI data is a later check on real use, not a gate | #35, #36, #92 | Decide #35 and #36 | Pending |
 | 9 | One Helm chart per component under `helm/`, none for Keycloak or LDAP. Final walk from a clean start using only the guide (admin, non-admin, CLI). Phase 6 | | None | Pending |
 
 ### Not built, by area (`docs/08` section 4)
@@ -64,7 +64,17 @@ needs 3, Wave 5 needs 2 to 4, and Waves 6 and 7 need 5.
 - **Portal:** every API call, sign-in, its Containerfile.
 - **CLI and SDK:** not started.
 
-Draft issues #6 to #29 are the product backlog and are not edited here.
+### Stories and epics
+
+Issues #7 to #12 are the epics and #13 to #29 the stories. The owner decided, on 2026-11-05: a pull request links with `Part of #N`, and a story closes only after the owner approves, with a comment citing the proof for each criterion and the cluster it ran on. An epic closes when all its stories have. No story has closed.
+
+| Linked so far | Stories |
+|---|---|
+| PR #40 | #13, #14, #15, #16, #17, #18, #19, #25, #27 (partial) |
+| PR #4 | #20 (mock data only) |
+| PR #89 | #28 (deployment only) |
+
+Paperclip, the source these drafts were published from, is off for now. Reading the five items it never published to GitHub is parked in #93. Issue #6 records these decisions. Its language review requirement stands and has not been done for any story; closing comments say so.
 
 ## Open risks
 
@@ -82,4 +92,4 @@ Draft issues #6 to #29 are the product backlog and are not edited here.
 
 ## Open bugs
 
-#87 `pr_status` misses check runs. #90 `secrets.sh` error message on Linux. **To file:** connections to CNPG are encrypted but do not verify the server (ruling 4). The Wave 1 issue is also still to file. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.
+#87 `pr_status` misses check runs. #90 `secrets.sh` error message on Linux, fixed on PR #89. #91 connections to CNPG are encrypted but do not verify the server, no wave yet. **To file:** the Wave 1 issue. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.

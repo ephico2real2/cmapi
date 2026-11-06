@@ -2,7 +2,7 @@
 
 Read this first to continue the build from a new session, with nothing else in hand. The tracker is
 [`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-05 evening, when the owner stopped work.
+[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-06, during the second review of PR #89.
 
 ## Where these files are
 
@@ -23,10 +23,10 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 ## Where it stopped
 
 - `main` is at the PR #40 merge, `1f30ab1`, unless a later row of the tracker says otherwise.
-- PR #89 (`manifests-plain-yaml`, `Closes #88`): **not safe to apply yet and not merged.** Opus and Codex both reviewed it at `d21599a`. The owner stopped work after the rulings were decided and before any fix was applied, so every defect is still on the branch. Findings, patches, tests, rulings and the remaining steps are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Start there.
-- **CI being green on #89 does not mean it is ready.** CI passed on `8fe5408` (run 42138478365, all five jobs), and GitHub shows the PR as mergeable, because branch protection requires CI and not a review. Those runs test the defects as they stand. Do not merge until the review record's steps are done.
-- **The nine files in `docs/reviews/2026-11-05-pr89/opus/patches/` are proposals, none applied** (checked with `git apply --check --reverse`). Apply 01 to 07, then 09, and not 08, whose content is already in the tracker. Remove that folder in the same commit. `main` holds no patch files and neither checkout has a stash.
-- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. No agent, kind cluster or Codex process was left running; `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at the stop.
+- PR #89 (`manifests-plain-yaml`, `Closes #88`, `Closes #90`): **not merged and not to be applied to CRC yet.** The first review's fixes are in, at `d6c063e`, and `deploy/kind-test.sh` exited 0 on real kind. A second review is running. The steps left are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Start there.
+- **CI being green on #89 does not mean it is ready.** CI passed on `d6c063e` (run 42174316759, all five jobs), and GitHub shows the PR as mergeable, because branch protection requires CI and not a review. Do not merge until the review record's steps are done.
+- **If a new session finds the second review unfinished:** its outputs are in the scratchpad, which is not kept. Codex's six findings are listed in the review record. Rerun reviewer 2 on a fresh export of the branch.
+- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
 
 ## Resume
@@ -51,8 +51,9 @@ The owner's latest words decide. On 2026-11-05: "Let us stop using fable for now
 | Role | Who |
 |---|---|
 | Implementer | Opus 5.5 at `high`: a fresh `general-purpose` agent with `model: opus`, `effort: high`, working in the worktree |
-| Reviewers | Codex (`codex exec -m gpt-5.6-sol`, on an export) and a separate Opus 5.5 agent at `high` that did not write the step. The PR states that this is one outside family |
-| Coordinator | The main session: briefs, re-checks every verdict, arbitrates, records, merges. Writes no application code |
+| Reviewer 1 | Codex (`codex exec -m gpt-5.6-sol`, with read and write access to its export). Returns the full code of each fix and test. The PR states that this is the one outside family |
+| Reviewer 2 | A separate Opus 5.5 agent at `high` that did not write the step, on an export. Checks each of reviewer 1's snippets against the design and the code and updates it, and reports with full code what reviewer 1 missed |
+| Coordinator | The main session: briefs, re-checks every verdict, arbitrates, records, merges. Applies reviewer 2's resulting fixes narrowly, and sends back any that do not fit. Authors no application code |
 
 Agents do not survive a session, so a new session starts fresh ones with a full brief. Codex's run script shape: `cd "$W" && codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort="high" -s workspace-write -c sandbox_workspace_write.network_access=true -C "$W" "$(cat "$W/brief.md")"`, with stdin from `/dev/null`, in the background. The scratchpad is not kept, so anything worth keeping goes in the repository.
 
@@ -65,6 +66,7 @@ Agents do not survive a session, so a new session starts fresh ones with a full 
 - **`cluster-configs-nonprod` is public.** GitHub refuses branch protection on private repos on this account (403). Requester names and emails there are world-readable, which is acceptable only because CRC's directory is fake.
 - **The worker posts `cmapi/check`; Actions posts `ci/*`,** each pinned by `app_id`. Codex's signed permit is the recorded next step on #60.
 - **Wave 1 is interim:** `oc apply` with the image in CRC's internal registry. Argo CD adopts those objects in Wave 5.
+- **Stories close on the owner's approval,** with the proof for each criterion cited. Paperclip is off for now. A load test (#92) proves the KPIs; a month of data is a later check. See the tracker's "Stories and epics".
 
 The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with the coordinator's nine rulings at its end. Those rulings change some of the tables above them, so read them.
 

@@ -1,8 +1,8 @@
 # Review of PR #89, and the coordinator's rulings
 
-Reviewed at `d21599a` by Opus 5.5 (`opus/`) and Codex (`codex/`), independently, on exports. **The rulings below are decided and not yet applied:** the owner stopped work before the implementer changed anything, so the branch still has every defect listed. Patches were made against `d21599a`. Neither reviewer's fixes have been cross-checked yet.
+Reviewed at `d21599a` by Opus 5.5 (`opus/`) and Codex (`codex/`), independently, on exports. **The rulings below are applied at `d6c063e`** by a separate Opus 5.5 implementer. The measured results are in `results/`, and the test record is `docs/reviews/2026-11-05-plain-manifests-test.md`.
 
-Verdict from both: do not apply this to the shared cluster until H1 and H2 are fixed. Merging alone writes nothing to a cluster.
+Verdict from both on `d21599a`: do not apply this to the shared cluster until H1 and H2 are fixed. Merging alone writes nothing to a cluster.
 
 ## Rulings
 
@@ -17,12 +17,24 @@ Verdict from both: do not apply this to the shared cluster until H1 and H2 are f
 
 ## Still to do on this PR
 
-1. Apply the rulings. New commits only. **Remove `opus/patches/` in the commit that applies them,** so patch files do not reach `main` looking like pending work; git history and `opus/answer.md` keep the record. None of the nine was applied at `8fe5408` (`git apply --check --reverse` on each).
-2. Run the whole `deploy/kind-test.sh` on a real `cmapi-test` cluster to exit 0, with the image built from the branch. It has never exited 0 on record, and the patched script has only run on stubs. Record `keycloak-0`'s restart count before and after.
-3. Run `codex/review-tests/` and `opus/tests/` against the fixed tree. Where a Codex test expects Codex's exact form and not the behaviour (ruling 3), say so; do not bend the code to it.
+Done at `d6c063e`: the rulings applied and `opus/patches/` removed; `deploy/kind-test.sh` exit 0 on real kind at `16fa0fedcb`; both reviewers' earlier tests run (`results/`); CI run 42174316759 green on that head, all five jobs.
+
+1. Second review, in the owner's flow: Codex first, on an export of `d6c063e`, returning full code. A separate Opus checks each snippet against the design and the code, updates it, and adds what Codex missed. With Fable paused, Codex is the one outside family.
+2. The coordinator applies the resulting fixes narrowly, as new commits, with the tests from the review.
+3. Rerun `deploy/kind-test.sh` to exit 0 if a fix touches the manifests, `render.sh`, `secrets.sh` or `kind-test.sh`.
 4. CI green on that exact head, all five jobs.
-5. Cross-check: Codex on the applied Opus fixes and the checksum, a separate Opus reviewer on the rest. With Fable paused, Codex is the one outside family.
-6. Merge, then add `manifests` to the required checks. GitHub already shows this PR as mergeable (`CLEAN`), because branch protection requires CI and not a review. The review gate is held by these steps alone, so do not merge on GitHub's word.
+5. Merge, then add `manifests` to the required checks. GitHub already shows this PR as mergeable (`CLEAN`), because branch protection requires CI and not a review. The review gate is held by these steps alone, so do not merge on GitHub's word.
+
+Codex's six findings at `d6c063e`, not yet checked by reviewer 2 and not applied:
+
+| Severity (Codex's) | Where | Finding |
+|---|---|---|
+| Medium | `deploy/render.sh` | A failed render destroys the last good render and leaves a marked partial tree |
+| Medium | `deploy/secrets.sh` | Reads of later Secrets happen after three Secrets are written, so an empty late Secret stops too late |
+| Medium | `40-networkpolicy.yaml` | The Route rule uses the older router label. CRC's `openshift-ingress` carries both labels (read with `oc`), so it works here |
+| Medium | `deploy/kind-test.sh` | A partial `kind create` failure leaks the cluster |
+| Medium | `docs/12` section 5 | `pg_restore` can leave the target partly restored after an error |
+| High | `test_plain_manifests.py`, `render-test.sh` | A workload image from another repository survives the image guards |
 
 ## Refusals, recorded
 
