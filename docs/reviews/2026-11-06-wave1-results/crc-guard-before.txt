@@ -1,0 +1,16 @@
+# deploy/tests/crc-guard-test.py, its cases on crc-guard.py as designed (before these fixes), on a stub oc and a local TLS server
+Traceback (most recent call last):
+Traceback (most recent call last):
+  FAIL issuer: an answer cut short is neither, with no traceback
+  FAIL issuer: an answer that is not HTTP is neither, with no traceback
+  FAIL issuer: JSON that is not an object is neither, with no traceback
+  FAIL preflight stops on another user
+  FAIL preflight stops on a developer
+  FAIL preflight stops on another context's user
+  FAIL preflight stops on another cluster's context
+  FAIL preflight stops on a context on another server
+  FAIL preflight stops when oc cannot be run, with a reason
+  FAIL an answer cut short stops the run, and the watch lives
+  FAIL an answer that is not HTTP stops the run, and the watch lives
+  FAIL Done, but the watch stopped the run while it ran: stops, deletes nothing
+guard cases failed: 12, mutants survived: 0
