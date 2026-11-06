@@ -20,8 +20,9 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 
 ## Where it stopped
 
-- `main` holds PR #40 and PR #89 (`9fd230a`), unless a later row of the tracker says otherwise. PR #89's reviews and rulings are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Nothing from it is on CRC yet.
-- **Wave 1 (#94): built and reviewed, draft PR #98, not run on CRC.** Review record: `docs/reviews/2026-11-06-wave1-review/README.md`. Waiting on the owner's decision about the LDAP names and test users, which must settle before the one-shot import. Tell the owner before anything is applied to CRC.
+- `main` holds PR #40, PR #89, PR #95 and PR #98 (`9e1860e`), unless a later row of the tracker says otherwise. Nothing from them is on CRC yet.
+- **Wave 1 (#94): code merged, not run on CRC.** Realm `cmapi` does not exist yet. PR #112 sets the group names, `app-cmapi-rbac-<role>` (the owner's decision), which must land before the one-shot import. Review records: `docs/reviews/2026-11-06-wave1-review/README.md`. Get the owner's go-ahead before anything is applied to CRC.
+- **Merging:** Claude Code refused a merge the owner had not named (#113). A permission refusal stands, so name the pull request to the owner.
 - **Branch protection requires CI, not a review.** GitHub will show a pull request as mergeable with its review unfinished. The review gate is held by the delivery loop alone, so do not merge on GitHub's word.
 - No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
