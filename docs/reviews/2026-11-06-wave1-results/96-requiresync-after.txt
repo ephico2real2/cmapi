@@ -1,0 +1,4 @@
+.
+[measure] two cmapi-migrate at once, 5 rounds: [[(0, 'migrated to head'), (0, 'migrated to head')], [(0, 'migrated to head'), (0, 'migrated to head')], [(0, 'migrated to head'), (0, 'migrated to head')], [(0, 'migrated to head'), (0, 'migrated to head')], [(0, 'migrated to head'), (0, 'migrated to head')]]
+..............                                                          [100%]
+15 passed in 15.49s

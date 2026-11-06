@@ -206,3 +206,43 @@ def test_synced_only_after_a_read_confirms(world):
     kube.apply = lambda doc, field_manager="x": None if doc["kind"] == "ResourceQuota" else real(doc, field_manager)
     run_jobs(ctx, limit=3)
     assert status(client, keys, rid)["status"] == "merged"
+
+
+@pytest.mark.parametrize("sync,expect_exit", [
+    ((200, {"added": 3, "updated": 0, "failed": 0}), False),
+    ((200, {"added": 0, "updated": 3, "failed": 0}), False),
+    ((200, {"added": 0, "updated": 0, "failed": 0}), True),   # what Keycloak 26.6.4 answers for a directory it cannot reach (measured)
+    ((200, {"added": 1, "updated": 0, "failed": 1}), True),
+    ((500, {"error": "x"}), True),
+    ((200, ["not", "counts"]), True),
+])
+def test_realm_sync_require_sync_fails_on_a_federation_that_read_nobody(sync, expect_exit, monkeypatch):
+    import importlib
+    rs = importlib.import_module("cmapi.tools.realm_sync")
+    status, body = sync
+
+    class RM:
+        def get(self, path, **kw):
+            return {"id": "r"} if path == "" else ([{"name": "ldap", "id": "c"}] if kw.get("params", {}).get("type", "").endswith("UserStorageProvider") else [])
+
+        def call(self, method, path, **kw):
+            return httpx.Response(status, json=body) if "/sync" in path else httpx.Response(204)
+
+    monkeypatch.setenv("bindDN", "cn=x"); monkeypatch.setenv("password", "p")
+    cfg = {"enabled": True, "requireSync": True, "connectionUrl": "ldaps://x", "usersDn": "u", "groupsDn": "g"}
+    if expect_exit:
+        with pytest.raises(SystemExit):
+            rs.ldap(RM(), cfg)
+    else:
+        rs.ldap(RM(), cfg)
+    rs.ldap(RM(), {**cfg, "requireSync": False})           # without the flag the old behaviour stands
+
+
+def test_realm_sync_require_sync_fails_with_no_bind_credential(monkeypatch):
+    import importlib
+    rs = importlib.import_module("cmapi.tools.realm_sync")
+    for k in ("bindDN", "password", "CMAPI_LDAP_BIND_DN", "CMAPI_LDAP_BIND_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    with pytest.raises(SystemExit):
+        rs.ldap(None, {"enabled": True, "requireSync": True})
+    rs.ldap(None, {"enabled": True})

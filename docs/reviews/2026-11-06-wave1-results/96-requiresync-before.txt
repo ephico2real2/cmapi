@@ -1,0 +1,15 @@
+        rs = importlib.import_module("cmapi.tools.realm_sync")
+        for k in ("bindDN", "password", "CMAPI_LDAP_BIND_DN", "CMAPI_LDAP_BIND_PASSWORD"):
+            monkeypatch.delenv(k, raising=False)
+>       with pytest.raises(SystemExit):
+E       Failed: DID NOT RAISE <class 'SystemExit'>
+
+tests/service/test_review_h_tools_migrate.py:245: Failed
+----------------------------- Captured stdout call -----------------------------
+LDAP federation: NOT configured, Secret cmapi-ldap-bind (bindDN, password) is absent
+=========================== short test summary info ============================
+FAILED tests/service/test_review_h_tools_migrate.py::test_realm_sync_require_sync_fails_on_a_federation_that_read_nobody[sync2-True]
+FAILED tests/service/test_review_h_tools_migrate.py::test_realm_sync_require_sync_fails_on_a_federation_that_read_nobody[sync3-True]
+FAILED tests/service/test_review_h_tools_migrate.py::test_realm_sync_require_sync_fails_on_a_federation_that_read_nobody[sync4-True]
+FAILED tests/service/test_review_h_tools_migrate.py::test_realm_sync_require_sync_fails_with_no_bind_credential
+4 failed, 2 passed, 8 deselected in 0.36s
