@@ -76,9 +76,31 @@ want "bytes moved between two files change it" "bytes moved between two files di
 # An image change alone restarts through the image, not through this value.
 "$R" kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'd%.0s' {1..64})" "$W/s6" >/dev/null; want "another image keeps the value" "another image changed the checksum" [ "$(sums "$W/s6")" = "$A0" ]
 # A placeholder left fails the render, and a ConfigMap no file declares stops it before the last render is touched.
+"$R" kind "$GOOD" "$W/s7" >/dev/null; echo keep >"$W/s7/keep"
 printf 'x: CMAPI_CONFIG_CHECKSUM\n' >"$D/manifests/components/cmapi/97-odd.yml"
 if quiet "$R" kind "$GOOD" "$W/s7"; then bad "a checksum placeholder in a .yml passed"; else ok "a checksum placeholder the render cannot fill fails"; fi
 rm -f "$D/manifests/components/cmapi/97-odd.yml"
+want "a failed render leaves the last good one" "a failed render replaced the last good one" [ -e "$W/s7/keep" ]
+want "and its IMAGE" "a failed render removed IMAGE" [ -f "$W/s7/IMAGE" ]
+left=$(find "$W" -maxdepth 1 -name '.s7.*'); want "and nothing beside it" "a failed render left $left beside the out dir" [ -z "$left" ]
+# The swap itself failing puts the last good render back.
+REAL_MV=$(command -v mv); mkdir "$W/bin"
+cat >"$W/bin/mv" <<STUB
+#!/usr/bin/env bash
+case "\$1" in */new) echo "mv: refused by the test" >&2; exit 1;; esac
+exec "$REAL_MV" "\$@"
+STUB
+chmod +x "$W/bin/mv"
+"$R" kind "$GOOD" "$W/s9" >/dev/null; echo keep >"$W/s9/keep"
+if PATH="$W/bin:$PATH" quiet "$R" kind "$GOOD" "$W/s9"; then bad "a failed swap passed"; else want "a failed swap puts the last good render back" "a failed swap lost the last good render" [ -e "$W/s9/keep" ]; fi
+# The out dir is what mkdir makes, not mktemp's 0700: a render other users or a container read must stay readable.
+( umask 022; "$R" kind "$GOOD" "$W/s10" >/dev/null ); m=$(stat -c '%a' "$W/s10" 2>/dev/null || stat -f '%Lp' "$W/s10")
+want "the out dir has the umask's mode" "the out dir is mode $m, not 755" [ "$m" = 755 ]
+# A trailing slash, and "link/": the link is what is replaced, and what it pointed at stays.
+"$R" kind "$GOOD" "$W/s11/" >/dev/null; "$R" kind "$GOOD" "$W/s11/" >/dev/null; want "a trailing slash renders" "a trailing slash did not render" [ -f "$W/s11/IMAGE" ]
+"$R" kind "$GOOD" "$W/s12" >/dev/null; ln -s "$W/s12" "$W/s12link"
+want "a link/ to a render renders" "a link/ to a render failed" quiet "$R" kind "$GOOD" "$W/s12link/"
+want "and what it pointed at stays" "a link/ deleted what it pointed at" [ -f "$W/s12/IMAGE" ]
 for f in 10-env 20-config 30-trust; do
   mv "$D/manifests/environments/kind/$f.yaml" "$W/keep.yaml"
   if quiet "$R" kind "$GOOD" "$W/o2"; then bad "a render without $f passed"; else want "no $f stops the render and the last render stays" "the failure without $f deleted the last render" [ -e "$W/o2/keep" ]; fi
