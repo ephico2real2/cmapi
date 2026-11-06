@@ -13,6 +13,11 @@ OC = r'''#!/usr/bin/env python3
 import json,os,sys
 s=json.load(open(os.environ["STUB_STATE"])); a=sys.argv[1:]
 open(os.environ["STUB_ARGV"],"a").write(" ".join(a)+"\n")
+# What the API server's going away looks like: reads of our import and its pods fail, after reads_ok of them have worked and for fail_reads of them, then work again.
+if a[:2] in (["get","keycloakrealmimport"],["get","pods"]) and s.get("fail_reads",0)>0:
+    if s.get("reads_ok",0)>0: s["reads_ok"]-=1
+    else: s["fail_reads"]-=1; json.dump(s,open(os.environ["STUB_STATE"],"w")); print("Unable to connect to the server",file=sys.stderr); sys.exit(1)
+    json.dump(s,open(os.environ["STUB_STATE"],"w"))
 def out(o): print(json.dumps(o)); sys.exit(0)
 if a[:2]==["whoami","--show-server"]: print(s["server"]); sys.exit(0)
 if a==["whoami"]: print(s["user"]); sys.exit(0)
@@ -269,8 +274,8 @@ def cases(guard):
     rc, text, _ = watch(lambda s: None, 0.5)
     yield "a watch that ended cleanly leaves the gate open", rc == 0 and not os.path.exists(stop + ".alive") and run(guard, "gate", stop).returncode == 0
     # the import's wait, and its withdrawal: only ever our own, by name
-    def waits(our, pods, stop_set=False, watch_gone=False, **env):
-        open(ARGV, "w").close(); s = base_state(); s["our_import"] = our; s["import_pods"] = pods; save(s)
+    def waits(our, pods, stop_set=False, watch_gone=False, fail_reads=0, reads_ok=0, **env):
+        open(ARGV, "w").close(); s = base_state(); s["our_import"] = our; s["import_pods"] = pods; s["fail_reads"] = fail_reads; s["reads_ok"] = reads_ok; save(s)
         if os.path.exists(stop): os.unlink(stop)
         if stop_set: open(stop, "w").close()
         if watch_gone: open(stop + ".alive", "w").write("999999")
@@ -288,6 +293,15 @@ def cases(guard):
     rc, d = waits(started, [], watch_gone=True, CMAPI_GUARD_SCHEDULE_DEADLINE="60"); yield "the watch gone, not started: withdrawn", rc == 1 and d == only_ours
     rc, d = waits(started, [running]); yield "running too long: reported, never interrupted", rc == 1 and d == []
     rc, d = waits(errors, [{"status": {"phase": "Failed", "containerStatuses": [{"state": {"terminated": {}}}]}}]); yield "failed: withdrawn, so the Job does not try again", rc == 1 and d == only_ours
+    rc, d = waits(errors, [running]); yield "HasErrors while its pod runs, the operator's own error: never interrupted", rc == 1 and d == []
+    rc, d = waits(errors, [pending]); yield "HasErrors with no pod started: withdrawn at the deadline", rc == 1 and d == only_ours
+    rc, d = waits(errors, [{"status": {"phase": "Running", "containerStatuses": [{"state": {"terminated": {"exitCode": 137}}}]}}]); yield "HasErrors, a container killed: withdrawn", rc == 1 and d == only_ours
+    rc, d = waits(started, [pending], fail_reads=10 ** 6); yield "reads failing, not started: still withdrawn at the deadline, not left to fire", rc == 1 and d == only_ours
+    rc, d = waits(started, [running], fail_reads=10 ** 6, reads_ok=2); yield "reads failing after it started: reported, never interrupted", rc == 1 and d == []
+    s = base_state(); s["http"]["cmapi"] = [200, '{"realm":"cmapi","public_key":"k"}']; base_http = s["http"]
+    open(ARGV, "w").close(); s["our_import"] = done; s["import_pods"] = [running]; s["fail_reads"] = 2; save(s)
+    if os.path.exists(stop): os.unlink(stop)
+    r = run(guard, "import-wait", stop); yield "a read that fails twice does not end the follow: Done, passes", r.returncode == 0 and "delete" not in open(ARGV).read()
     open(ARGV, "w").close(); s = base_state(); s["our_import"] = done; s["import_pods"] = [running]; s["http"]["cmapi"] = base_http["cmapi"]; save(s)
     r = run(guard, "import-wait", stop); yield "Done and the realm answers: passes, deletes nothing", r.returncode == 0 and "delete" not in open(ARGV).read()
     open(stop, "w").close()
@@ -312,7 +326,7 @@ MUTANTS = {
     "no context check": ("if not context.endswith(CONTEXT_SUFFIX):", "if False:"),
     "no principal check": ("if user not in PRINCIPALS:", "if False:"),
     "an answer cut short ends the watch": ("except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):", "except (urllib.error.URLError, OSError, ValueError):"),
-    "an unreadable pod ends the watch": ("except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:", "except Stop as e:"),
+    "an unreadable pod ends the watch": ("except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:\n                    kc = {}", "except Stop as e:\n                    kc = {}"),
     "a breach during the import does not stop the run": ("if why_stopped(stop_file):\n                # A running", "if False:\n                # A running"),
     "the realm name is not checked": ('r"^    realm: cmapi$")', 'r"^  realm:$")'),
     "a second document is allowed": ('if re.search(r"^---", text, re.M) or re.search(r"^\\.\\.\\.", text, re.M):', "if False:"),
@@ -325,6 +339,9 @@ MUTANTS = {
     "the heartbeat outlives a clean end": ("    os.unlink(alive)\n", ""),
     "the watch never beats": ("            os.utime(alive)\n", ""),
     "import-wait ignores a dead watch": ("        if not started and why_stopped(stop_file):", "        if not started and os.path.exists(stop_file):"),
+    "HasErrors alone interrupts a running import": ('if condition(kri, "HasErrors") == "true" and any(pod_failed(p) for p in pods):', 'if condition(kri, "HasErrors") == "true" and started:'),
+    "a failed read ends the follow": ("except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:\n            print(f\"{now()} could not read the import", "except ZeroDivisionError as e:\n            print(f\"{now()} could not read the import"),
+    "a failed read forgets it started": ("kri, started = {}, started_at is not None", "kri, started = {}, False"),
     "the watch ignores a restart": ('problems.append(f"keycloak-0 restarted: {kc}")', "pass"),
     "the watch never reports": ("if down and waited >= REPORT_AFTER_SECONDS and not reported:", "if False:"),
     "the watch does not stop the run": ("open(stop_file, \"a\").close()", "pass"),

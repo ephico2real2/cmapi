@@ -351,6 +351,12 @@ def container_started(pod: dict) -> bool:
     return False
 
 
+def pod_failed(pod: dict) -> bool:
+    if pod.get("status", {}).get("phase") == "Failed":
+        return True
+    return any((c.get("state", {}).get("terminated") or {}).get("exitCode") not in (None, 0) for c in pod.get("status", {}).get("containerStatuses") or [])
+
+
 def withdraw(reason: str) -> None:
     """Delete our import, by name and only by name. The operator owns its Job and Secret through owner references (GarbageCollected,
     KeycloakRealmImportJobDependentResource.java:59), so they go with it, and a pod that has not started never will."""
@@ -363,12 +369,18 @@ def withdraw(reason: str) -> None:
 def import_wait(stop_file: str) -> int:
     t0 = time.monotonic()
     started_at = None
+    pods: list[dict] = []
     while True:
-        kri = oc_json("get", "keycloakrealmimport", OURS, "-n", NS, "--ignore-not-found")
-        if not kri:
-            raise Stop(f"KeycloakRealmImport {OURS} is not there")
-        pods = import_pods()
-        started = any(container_started(p) for p in pods)
+        # A read that fails says nothing about the import, and ending here would leave a pending one to start unattended. So go on, on what was last known, to the same deadlines.
+        try:
+            kri, pods = oc_json("get", "keycloakrealmimport", OURS, "-n", NS, "--ignore-not-found"), import_pods()
+            if not kri:
+                print(f"STOP: KeycloakRealmImport {OURS} is not there", file=sys.stderr)
+                return 1
+            started = any(container_started(p) for p in pods)
+        except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:
+            print(f"{now()} could not read the import: {str(e)[:200]}", flush=True)
+            kri, started = {}, started_at is not None
         if started and started_at is None:
             started_at = time.monotonic()
             print(f"{now()} the import's container started {int(started_at - t0)} s after the apply", flush=True)
@@ -380,7 +392,8 @@ def import_wait(stop_file: str) -> int:
                 print(f"{now()} the watch stopped the run while the import ran; nothing more runs until the owner has been told", flush=True)
                 return 1
             return 0 if state == "present" else 1
-        if condition(kri, "HasErrors") == "true" and started:
+        # A failed pod, not the condition alone: the operator also sets HasErrors for an error of its own while a pod runs on (updateErrorStatus, KeycloakRealmImportController.java:101-109), and a running import is never interrupted.
+        if condition(kri, "HasErrors") == "true" and any(pod_failed(p) for p in pods):
             # The Job has no backoffLimit of its own (buildJob sets none), so Kubernetes' default of 6 would start more pods.
             withdraw("the import failed; this stops the Job's further attempts")
             return 1

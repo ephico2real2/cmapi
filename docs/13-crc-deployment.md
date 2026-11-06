@@ -275,7 +275,8 @@ If RHBK's Job needs more than the 1 Gi limit, it is killed, the wait in step 14 
 | Our pod's container not started | 300 s from the apply. An earlier import here waited about 6.5 days | Deletes `KeycloakRealmImport cmapi`, by name |
 | The run stopped, not started | At once | The same delete |
 | Started, not done | 300 s after start; 79 s measured at this CPU limit | Reports. **Never interrupted** |
-| `HasErrors` with a started pod | At once | The same delete, which stops the Job's further attempts |
+| `HasErrors` with a failed pod | At once | The same delete, which stops the Job's further attempts. `HasErrors` alone is not enough: the operator also sets it for an error of its own while a pod runs on (its 26.6.4 source; RHBK's is inferred) |
+| A read that fails | Goes on, on what it last knew, to these same bounds | Logged. It does not leave a pending import unfollowed |
 | `Done`, realm present | | rc 0, unless the watch stopped the run meanwhile |
 | `Done`, realm absent | | Stops |
 
