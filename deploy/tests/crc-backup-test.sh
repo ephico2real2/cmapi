@@ -57,7 +57,8 @@ echo "the image's rules: $(in_c "grep -E '^(local|host) +all' $HBA | tr -s ' ' |
 rc=$(B); [ "$rc" = 0 ] && ok "a backup on the image as it ships" || bad "a backup on the image as it ships: rc $rc: $(tail -2 "$W/out")"
 tail -1 "$W/out" | grep -q '7 realms, read to its end' && ok "it counted the seven realm rows: $(tail -1 "$W/out" | sed 's/^backup in [^:]*: //')" || bad "its last line: $(tail -1 "$W/out")"
 f=$(find "$W/backup" -type f -name 'keycloak-*.dump'); [ -n "$f" ] && ok "one dump in the directory" || bad "no dump"
-m() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }; [ "$(m "$W/backup")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$W/backup") $(m "$f")"
+# The GNU form first: GNU's -f writes the file system's details on stdout before it fails, while BSD's stat refuses -c with nothing on stdout (#90).
+m() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }; [ "$(m "$W/backup")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$W/backup") $(m "$f")"
 if grep -qF -e "$PW" -e "$f" "$W/out"; then bad "the password or the path reached the output"; else ok "no password and no path in the output"; fi
 if grep -qF "$PW" "$ARGV_LOG"; then bad "the password reached an argument"; else ok "no password on any argument"; fi
 # The file restores: into an empty database, the steps docs/13 gives the owner.

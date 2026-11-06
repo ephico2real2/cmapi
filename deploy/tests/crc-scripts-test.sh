@@ -63,7 +63,7 @@ P
 cat >"$W/bin/skopeo" <<'P'
 #!/usr/bin/env bash
 printf 'skopeo %s\n' "$*" >>"$ARGV_LOG"
-while [ $# -gt 0 ]; do case "$1" in --digestfile) printf 'sha256:aaaa' >"$2"; shift;; --dest-authfile) cp "$2" "$ARGV_LOG.auth"; stat -f '%Lp' "$2" 2>/dev/null >"$ARGV_LOG.mode" || stat -c '%a' "$2" >"$ARGV_LOG.mode"; shift;; esac; shift; done; exit "${STUB_SKOPEO_RC:-0}"
+while [ $# -gt 0 ]; do case "$1" in --digestfile) printf 'sha256:aaaa' >"$2"; shift;; --dest-authfile) cp "$2" "$ARGV_LOG.auth"; stat -c '%a' "$2" 2>/dev/null >"$ARGV_LOG.mode" || stat -f '%Lp' "$2" >"$ARGV_LOG.mode"; shift;; esac; shift; done; exit "${STUB_SKOPEO_RC:-0}"
 P
 cat >"$W/bin/curl" <<'P'
 #!/usr/bin/env bash
@@ -147,7 +147,8 @@ want "backup --inspect" 0 "$(run "$D/crc-backup.sh" --inspect)"; if grep -q 'lit
 grep -q 'POSTGRESQL_USER' "$W/out" && ok "--inspect names the variables" || bad "--inspect names nothing"
 want "backup" 0 "$(run "$D/crc-backup.sh")"
 f=$(find "$B" -type f -name 'keycloak-*.dump'); [ -n "$f" ] && ok "a dump in the directory" || bad "no dump"
-m() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }; [ "$(m "$B")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$B") $(m "$f")"
+# The GNU form first: GNU's -f writes the file system's details on stdout before it fails, while BSD's stat refuses -c with nothing on stdout (#90).
+m() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }; [ "$(m "$B")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$B") $(m "$f")"
 if grep -qF -e "$DUMP_MARK" -e "$f" "$W/out" "$ARGV_LOG"; then bad "the dump's content or path reached the output"; else ok "no content and no path in the output"; fi
 if grep -qE 'pg_dump.*(> *[/a-z]|-f )' "$ARGV_LOG"; then bad "the dump is written inside the pod"; else ok "the dump goes to stdout"; fi
 if grep -qE 'exec (-[a-z]+ )*-t' "$ARGV_LOG"; then bad "a TTY would corrupt the stream"; else ok "no TTY on the stream"; fi
