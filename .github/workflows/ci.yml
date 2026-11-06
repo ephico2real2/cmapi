@@ -90,12 +90,15 @@ jobs:
   manifests:
     # The plain manifests (deploy/manifests), the render, the scripts and the secrets cases: what deploys cmapi
     # (docs/reviews/2026-11-05-deployment-design.md). kubeconform checks every object against the Kubernetes 1.35 schemas
-    # and the CRDs catalog for CloudNativePG; the secrets cases run on a kind cluster.
-    runs-on: ubuntu-latest
+    # and the CRDs catalog for CloudNativePG; the secrets cases and the NetworkPolicy's reach run on a kind cluster.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
       - name: Tools
         run: |
           curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
@@ -113,8 +116,18 @@ jobs:
           echo "874d5e72dbb819f43cff16bcd1e4f8bac5b7f2361fe1e55049b0a6c676fb0cbf  kubectl" | sha256sum -c -
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
           kubectl version --client
+          # The stubs and the guards read YAML.
+          python -m pip install pyyaml==6.0.2
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
+      - name: This job's own guards
+        run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
+      - name: docs/12's commands and claims
+        run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
+      - name: kind-test.sh's failures, on stubs
+        run: deploy/tests/kind-test-stubbed.sh
+      - name: The secrets cases against mutants of secrets.sh, on a stub
+        run: python deploy/tests/mutate-secrets.py
       - name: The mockup ConfigMap is current
         run: deploy/mockup-configmap.sh --check
       - name: kubeconform on the manifests
@@ -143,6 +156,8 @@ jobs:
           kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s
       - name: The secrets cases
         run: deploy/secrets-test.sh "kubectl --kubeconfig=$PWD/.ci.kubeconfig"
+      - name: Who reaches the API port under the NetworkPolicy
+        run: deploy/tests/np-reach-test.sh "$PWD/.ci.kubeconfig"
       - name: Delete the kind cluster
         if: ${{ !cancelled() }}
         run: kind delete cluster --name cmapi-ci --kubeconfig "$PWD/.ci.kubeconfig"
