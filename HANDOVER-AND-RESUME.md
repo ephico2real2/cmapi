@@ -10,7 +10,7 @@ This file and `build-tracker.md` are at the root of the repository, on `main` fr
 
 To start the next session, paste this:
 
-> Read `HANDOVER-AND-RESUME.md` and `build-tracker.md` in full, then continue from the next action in the tracker. Check the state
+> On branch `ldap-rbac-names`, in the worktree `/Users/olasumbo/gitRepos/cmapi-design-crc`, read `HANDOVER-AND-RESUME.md`, `build-tracker.md` and `docs/reviews/2026-11-06-pr112/README.md` in full, then continue from the next action in the tracker. Check the state
 > first. Update both documents as you go.
 
 ## The goal
@@ -20,15 +20,15 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 
 ## Where it stopped
 
-- `main` holds PR #40, PR #89, PR #95 and PR #98 (`9e1860e`), unless a later row of the tracker says otherwise. Nothing from them is on CRC yet.
+- `main` is at `5dfdea3`: PR #40, #89, #95, #98, #111 and #114. Nothing from them is on CRC yet.
 - **Wave 1 (#94): code merged, not run on CRC.** Realm `cmapi` does not exist yet. PR #112 (draft, branch `ldap-rbac-names`, worktree `/Users/olasumbo/gitRepos/cmapi-design-crc`) sets the group names `app-cmapi-rbac-<role>` and the `cmapi.<role>` test users, the owner's decision, and must land before the one-shot import. Until it merges, **this file and the tracker on that branch are the current ones; `main`'s are older.**
-- **Exactly where the review stopped:** `docs/reviews/2026-11-06-pr112/README.md`. Reviewer 2's eleven patches are saved there, unvalidated. CI is red at `44083ff`: `reference-code` (#117) and `manifests` (#118, not diagnosed).
+- **Exactly where the review stopped:** `docs/reviews/2026-11-06-pr112/README.md`, with both reviewers' answers. Reviewer 2's eleven patches are saved there, **unvalidated, and its proofs are unfinished**: that file lists the six still to run, starting with the service suite. They are not on the branch yet. New defects it reproduced: #119 to #126, of which #119 (rollback deleting what it did not write) is the worst. CI is red on the branch: `reference-code` (#117), and `manifests` (#118, not diagnosed) at `44083ff`; the run at `53bd801` had not finished at this update. Those patches, including their tests, are what fix #117; nothing yet addresses #118.
 - **Merging:** the owner, 2026-11-06: "i want you to merge once all things clear". Merge when CI is green on the exact head and the review has passed. This does not cover CRC: **the first CRC run still needs the owner's go-ahead, not yet given.**
 - **Tokens:** the owner, 2026-11-06: background agents were "wasting tokens". One agent at a time, only on what blocks the next step. #87 and #91 are parked until Wave 1 is on CRC.
 - **Defects:** the owner's process is `.claude/skills/fix-defect/SKILL.md`. Every defect gets an issue, including on an unmerged pull request.
 - **The owner's keychain step:** commands in `LOCAL-DEV-TRUST.md`. No result reported yet. Keycloak's certificate has no Extended Key Usage, so Chrome may refuse it.
 - **Branch protection requires CI, not a review.** GitHub will show a pull request as mergeable with its review unfinished. The review gate is held by the delivery loop alone, so do not merge on GitHub's word.
-- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
+- No cmapi workload on CRC, and `/realms/cmapi` answers 404 (read at this update). Check before trusting this: `oc get all -n cmapi`. No agent, test or kind cluster was running at this update, and `cmapi-test-pg` is the only container, up for the service tests. `keycloak-0` was still at 1 restart.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
 
 ## Resume

@@ -11,10 +11,10 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40, PR #89 (plain YAML), PR #95 (Wave 1 design), PR #98 (Wave 1's code and review fixes), PR #111 (`LOCAL-DEV-TRUST.md`), PR #114 (`fix-defect` skill); `main` at `5dfdea3` |
-| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112, draft, branch `ldap-rbac-names`: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Codex reviewed it. Reviewer 2's eleven patches are saved, unvalidated, in `docs/reviews/2026-11-06-pr112/`. CI red at `44083ff` |
+| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112, draft, branch `ldap-rbac-names`, head `53bd801` before this record: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Both reviewers have answered. Reviewer 2's eleven patches are saved, unvalidated and not applied, in `docs/reviews/2026-11-06-pr112/`, with six proofs unfinished. CI red: `reference-code` (#117) and, at `44083ff`, `manifests` (#118) |
 | On CRC | No cmapi workload, and realm `cmapi` does not exist (`/realms/cmapi` 404, read 2026-11-06). Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the old `cmapi-*` groups, which #110 replaces |
 | Next action | Finish the proofs listed in `docs/reviews/2026-11-06-pr112/README.md` and validate those patches per `fix-defect` step 4, get #118 diagnosed and fixed, apply, CI green on the exact head, merge (the owner authorized merging once clear). Then ask the owner's go-ahead for the first CRC run. One agent at a time |
-| Running | Nothing should be, after the session cleared: check. `cmapi-test-pg` stays up for the service tests |
+| Running | Nothing, read at this update: no agent, test or kind cluster. `cmapi-test-pg` stays up for the service tests. Check again on resuming |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
