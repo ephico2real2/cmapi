@@ -9,7 +9,8 @@
   snapshot FILE                the other realms and their imports, keycloak-0, postgres-0, the Keycloak CR, with no credential
   compare BEFORE AFTER         stop on any difference
   watch LOG STOPFILE BASELINE  poll every realm every 5 s until LOG.done appears; on a breach write STOPFILE and report at 300 s
-  gate STOPFILE                exit 1 if the watch has stopped the run
+  gate STOPFILE                exit 1 if the run is stopped, or a watch that began is no longer looking
+  watching STOPFILE            exit 1 unless the watch of this run has begun and is looking
   import-wait STOPFILE         follow our import; withdraw it, by name, if it has not started in time
 
 Exit codes: 0 fine, 1 stop, 2 usage."""
@@ -45,6 +46,9 @@ POLL_SECONDS = float(os.environ.get("CMAPI_GUARD_POLL", "5"))
 REPORT_AFTER_SECONDS = float(os.environ.get("CMAPI_GUARD_REPORT_AFTER", "300"))
 SCHEDULE_DEADLINE = float(os.environ.get("CMAPI_GUARD_SCHEDULE_DEADLINE", "300"))
 RUN_DEADLINE = float(os.environ.get("CMAPI_GUARD_RUN_DEADLINE", "300"))
+# Longer than one round of the watch can take: five realms at 3 s, oc's 60 s, the poll.
+WATCH_STALE_SECONDS = float(os.environ.get("CMAPI_GUARD_WATCH_STALE", "120"))
+WATCH_START_SECONDS = float(os.environ.get("CMAPI_GUARD_WATCH_START", "15"))
 
 
 class Stop(Exception):
@@ -227,6 +231,39 @@ def stop_the_run(stop_file: str) -> None:
     open(stop_file, "a").close()
 
 
+def why_stopped(stop_file: str) -> str | None:
+    """Why nothing more may run, or None. The stop file, or a watch that began and is no longer looking: killed, hung or asleep with the Mac, it writes nothing,
+    so the file alone would read that blindness as all well. No heartbeat means it has not begun, or ended cleanly."""
+    if os.path.exists(stop_file):
+        return f"this run is stopped ({stop_file}); nothing more runs until the owner has been told"
+    alive = stop_file + ".alive"
+    try:
+        with open(alive) as f:
+            pid = int(f.read())
+            age = time.time() - os.fstat(f.fileno()).st_mtime
+    except FileNotFoundError:
+        return None
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):           # PermissionError: another user's process has that number now, so it is not the watch
+        return f"the watch (pid {pid}) is not running, so nothing is watching Keycloak"
+    if age > WATCH_STALE_SECONDS:
+        return f"the watch (pid {pid}) has not looked for {int(age)} s"
+    return None
+
+
+def watching(stop_file: str) -> None:
+    t0 = time.monotonic()
+    while not os.path.exists(stop_file + ".alive"):
+        if os.path.exists(stop_file) or time.monotonic() - t0 > WATCH_START_SECONDS:
+            raise Stop("the watch did not begin; read its output")
+        time.sleep(0.1)
+    why = why_stopped(stop_file)
+    if why:
+        raise Stop(why)
+    print(f"{now()} the watch is looking")
+
+
 def watch(log: str, stop_file: str, baseline_file: str) -> int:
     """A watch that ends before LOG.done, for any reason, is one nobody is reading: the run stops. A guard that cannot look never reads as healthy."""
     try:
@@ -240,6 +277,11 @@ def watch(log: str, stop_file: str, baseline_file: str) -> int:
 def follow(log: str, stop_file: str, baseline_file: str) -> int:
     base = json.load(open(baseline_file))
     realms = sorted(base["realms"])
+    alive = stop_file + ".alive"
+    # Whole or not at all: gate and watching read it at any moment.
+    with open(alive + ".new", "w") as f:
+        f.write(str(os.getpid()))
+    os.replace(alive + ".new", alive)
     breach_since = None
     reported = recovered = False
     rc = 0
@@ -249,6 +291,7 @@ def follow(log: str, stop_file: str, baseline_file: str) -> int:
         say(f"watch: every {POLL_SECONDS:g} s, realms {realms}")
         while not os.path.exists(log + ".done"):
             t0 = time.monotonic()
+            os.utime(alive)
             problems = []
             statuses = {}
             kc = {}
@@ -292,6 +335,7 @@ def follow(log: str, stop_file: str, baseline_file: str) -> int:
                     say(f"Keycloak answers again after {int(waited)} s; the run stays stopped")
             time.sleep(max(0.0, POLL_SECONDS - (time.monotonic() - t0)))
         say(f"watch ended rc={rc}")
+    os.unlink(alive)
     return rc
 
 
@@ -331,7 +375,7 @@ def import_wait(stop_file: str) -> int:
         if condition(kri, "Done") == "true" and condition(kri, "HasErrors") != "true":
             state = issuer_state()
             print(f"{now()} import Done after {int(time.monotonic() - t0)} s; realm cmapi is {state}")
-            if os.path.exists(stop_file):
+            if why_stopped(stop_file):
                 # A running import is left to finish, but a breach during it still stops what comes next.
                 print(f"{now()} the watch stopped the run while the import ran; nothing more runs until the owner has been told", flush=True)
                 return 1
@@ -340,7 +384,7 @@ def import_wait(stop_file: str) -> int:
             # The Job has no backoffLimit of its own (buildJob sets none), so Kubernetes' default of 6 would start more pods.
             withdraw("the import failed; this stops the Job's further attempts")
             return 1
-        if not started and os.path.exists(stop_file):
+        if not started and why_stopped(stop_file):
             withdraw("the run is stopped and the import has not started")
             return 1
         if not started and time.monotonic() - t0 > SCHEDULE_DEADLINE:
@@ -364,6 +408,7 @@ def main() -> int:
     p = sub.add_parser("compare"); p.add_argument("before"); p.add_argument("after")
     p = sub.add_parser("watch"); p.add_argument("log"); p.add_argument("stop_file"); p.add_argument("baseline")
     p = sub.add_parser("gate"); p.add_argument("stop_file")
+    p = sub.add_parser("watching"); p.add_argument("stop_file")
     p = sub.add_parser("import-wait"); p.add_argument("stop_file")
     a = ap.parse_args()
     try:
@@ -390,8 +435,11 @@ def main() -> int:
         elif a.cmd == "watch":
             return watch(a.log, a.stop_file, a.baseline)
         elif a.cmd == "gate":
-            if os.path.exists(a.stop_file):
-                raise Stop("the watch has stopped this run; nothing more runs until the owner has been told")
+            why = why_stopped(a.stop_file)
+            if why:
+                raise Stop(why)
+        elif a.cmd == "watching":
+            watching(a.stop_file)
         elif a.cmd == "import-wait":
             return import_wait(a.stop_file)
     except Stop as e:

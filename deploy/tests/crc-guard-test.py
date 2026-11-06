@@ -87,7 +87,7 @@ KIND = os.path.join(W, "bin", "kind")
 open(KIND, "w").write('#!/bin/sh\n[ -z "$STUB_KIND" ] || echo "$STUB_KIND"\n'); os.chmod(KIND, 0o755)
 ENV = {**os.environ, "CMAPI_OC": os.path.join(W, "oc"), "STUB_STATE": STATE, "STUB_ARGV": ARGV, "CMAPI_CRC_CA": os.path.join(W, "ca.crt"),
        "CMAPI_KEYCLOAK_URL": f"https://localhost:{PORT}", "PATH": os.path.join(W, "bin") + ":" + os.environ["PATH"],
-       "CMAPI_GUARD_POLL": "0.1", "CMAPI_GUARD_REPORT_AFTER": "0.5", "CMAPI_GUARD_SCHEDULE_DEADLINE": "0.4", "CMAPI_GUARD_RUN_DEADLINE": "0.4"}
+       "CMAPI_GUARD_POLL": "0.1", "CMAPI_GUARD_REPORT_AFTER": "0.5", "CMAPI_GUARD_SCHEDULE_DEADLINE": "0.4", "CMAPI_GUARD_RUN_DEADLINE": "0.4", "CMAPI_GUARD_WATCH_START": "0.5"}
 
 
 def run(guard, *args, **env):
@@ -201,7 +201,7 @@ def cases(guard):
     save(base_state()); run(guard, "snapshot", a)
     log = os.path.join(W, "w.log"); stop = os.path.join(W, "stop")
     def watch(mut, seconds=1.2, baseline=None, **env):
-        for x in (log, log + ".done", stop):
+        for x in (log, log + ".done", stop, stop + ".alive"):
             if os.path.exists(x): os.unlink(x)
         s = base_state(); mut(s); save(s)
         p = subprocess.Popen([sys.executable, guard, "watch", log, stop, baseline or a], env={**ENV, **env}, stdout=subprocess.PIPE, text=True)
@@ -237,12 +237,45 @@ def cases(guard):
     yield "gate: stopped", run(guard, "gate", stop).returncode == 1
     if os.path.exists(stop): os.unlink(stop)
     yield "gate: open", run(guard, "gate", stop).returncode == 0
+    # A watch that says nothing because it is gone: the stop file alone would read that as all well.
+    def wait_for(path):
+        for _ in range(100):
+            if os.path.exists(path): return True
+            time.sleep(0.05)
+        return False
+    for x in (log, log + ".done", stop, stop + ".alive"):
+        if os.path.exists(x): os.unlink(x)
+    save(base_state())
+    yield "watching: no watch is a stop", run(guard, "watching", stop).returncode == 1
+    p = subprocess.Popen([sys.executable, guard, "watch", log, stop, a], env=ENV, stdout=subprocess.DEVNULL)
+    # Read before any yield: a mutant ends at its first wrong case, and a watch left running here would never end.
+    up = wait_for(stop + ".alive")
+    began = up and run(guard, "watching", stop).returncode == 0
+    open_while_looking = run(guard, "gate", stop).returncode == 0
+    beats = False
+    if up:
+        old = time.time() - 1000; os.utime(stop + ".alive", (old, old)); time.sleep(0.5); beats = os.stat(stop + ".alive").st_mtime > old + 500
+    p.kill(); p.wait()
+    yield "watching: a watch that began", began
+    yield "gate: open while the watch looks", open_while_looking
+    yield "the watch beats, every round", beats
+    yield "gate: a killed watch stops the run, with no stop file", not os.path.exists(stop) and run(guard, "gate", stop).returncode == 1
+    yield "watching: a killed watch is a stop", run(guard, "watching", stop).returncode == 1
+    open(stop + ".alive", "w").write(str(os.getpid())); old = time.time() - 121; os.utime(stop + ".alive", (old, old))
+    yield "gate: a hung watch stops the run", run(guard, "gate", stop, CMAPI_GUARD_WATCH_STALE="120").returncode == 1
+    os.utime(stop + ".alive")
+    yield "gate: a watch that looked just now passes", run(guard, "gate", stop, CMAPI_GUARD_WATCH_STALE="120").returncode == 0
+    os.unlink(stop + ".alive")
+    rc, text, _ = watch(lambda s: None, 0.5)
+    yield "a watch that ended cleanly leaves the gate open", rc == 0 and not os.path.exists(stop + ".alive") and run(guard, "gate", stop).returncode == 0
     # the import's wait, and its withdrawal: only ever our own, by name
-    def waits(our, pods, stop_set=False):
+    def waits(our, pods, stop_set=False, watch_gone=False, **env):
         open(ARGV, "w").close(); s = base_state(); s["our_import"] = our; s["import_pods"] = pods; save(s)
         if os.path.exists(stop): os.unlink(stop)
         if stop_set: open(stop, "w").close()
-        r = run(guard, "import-wait", stop); deletes = [l.strip() for l in open(ARGV) if l.startswith("delete")]
+        if watch_gone: open(stop + ".alive", "w").write("999999")
+        r = run(guard, "import-wait", stop, **env); deletes = [l.strip() for l in open(ARGV) if l.startswith("delete")]
+        if watch_gone: os.unlink(stop + ".alive")
         return r.returncode, deletes
     only_ours = ["delete keycloakrealmimport cmapi -n keycloak --wait=true --timeout=60s"]
     pending = {"status": {"phase": "Pending"}}; running = {"status": {"phase": "Running", "containerStatuses": [{"state": {"running": {}}}]}}
@@ -252,6 +285,7 @@ def cases(guard):
     s = base_state(); s["http"]["cmapi"] = [200, '{"realm":"cmapi","public_key":"k"}']; base_http = s["http"]
     rc, d = waits(started, [pending]); yield "not started by the deadline: withdrawn, by name only", rc == 1 and d == only_ours
     rc, d = waits(started, [], stop_set=True); yield "the run stopped, not started: withdrawn", rc == 1 and d == only_ours
+    rc, d = waits(started, [], watch_gone=True, CMAPI_GUARD_SCHEDULE_DEADLINE="60"); yield "the watch gone, not started: withdrawn", rc == 1 and d == only_ours
     rc, d = waits(started, [running]); yield "running too long: reported, never interrupted", rc == 1 and d == []
     rc, d = waits(errors, [{"status": {"phase": "Failed", "containerStatuses": [{"state": {"terminated": {}}}]}}]); yield "failed: withdrawn, so the Job does not try again", rc == 1 and d == only_ours
     open(ARGV, "w").close(); s = base_state(); s["our_import"] = done; s["import_pods"] = [running]; s["http"]["cmapi"] = base_http["cmapi"]; save(s)
@@ -279,12 +313,18 @@ MUTANTS = {
     "no principal check": ("if user not in PRINCIPALS:", "if False:"),
     "an answer cut short ends the watch": ("except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):", "except (urllib.error.URLError, OSError, ValueError):"),
     "an unreadable pod ends the watch": ("except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:", "except Stop as e:"),
-    "a breach during the import does not stop the run": ("if os.path.exists(stop_file):\n                # A running", "if False:\n                # A running"),
+    "a breach during the import does not stop the run": ("if why_stopped(stop_file):\n                # A running", "if False:\n                # A running"),
     "the realm name is not checked": ('r"^    realm: cmapi$")', 'r"^  realm:$")'),
     "a second document is allowed": ('if re.search(r"^---", text, re.M) or re.search(r"^\\.\\.\\.", text, re.M):', "if False:"),
     "an error answer cut short loses its status": ('            return e.code, b""', "            raise"),
     "a surprise ends the watch": ("            except Exception as e:\n                problems.append(f\"the watch could not look", "            except ZeroDivisionError as e:\n                problems.append(f\"the watch could not look"),
     "a watch that ends leaves no stop file": ("        stop_the_run(stop_file)\n        print(f\"{now()} BREACH, the run is stopped: the watch ended", "        print(f\"{now()} BREACH, the run is stopped: the watch ended"),
+    "a killed watch reads as all well": ('        return f"the watch (pid {pid}) is not running, so nothing is watching Keycloak"', "        return None"),
+    "a hung watch reads as all well": ("    if age > WATCH_STALE_SECONDS:", "    if False:"),
+    "no watch passes for a watch": ('            raise Stop("the watch did not begin; read its output")', "            return"),
+    "the heartbeat outlives a clean end": ("    os.unlink(alive)\n", ""),
+    "the watch never beats": ("            os.utime(alive)\n", ""),
+    "import-wait ignores a dead watch": ("        if not started and why_stopped(stop_file):", "        if not started and os.path.exists(stop_file):"),
     "the watch ignores a restart": ('problems.append(f"keycloak-0 restarted: {kc}")', "pass"),
     "the watch never reports": ("if down and waited >= REPORT_AFTER_SECONDS and not reported:", "if False:"),
     "the watch does not stop the run": ("open(stop_file, \"a\").close()", "pass"),
@@ -305,8 +345,9 @@ try:
         for name, (old, new) in MUTANTS.items():
             assert text.count(old) == 1, (name, old, text.count(old))
             m = os.path.join(W, "mutant.py"); open(m, "w").write(text.replace(old, new))
-            f = [l for l, ok in score(m) if not ok]
-            print(f"  {'killed  ' if f else 'SURVIVED'} {name}" + (f" ({f[0]})" if f else ""))
+            # To the first wrong case and no further: every case on every mutant is most of this job's time.
+            f = next((l for l, ok in cases(m) if not ok), None)
+            print(f"  {'killed  ' if f else 'SURVIVED'} {name}" + (f" ({f})" if f else ""), flush=True)
             wrong += 0 if f else 1
     print(f"guard cases failed: {len(bad)}, mutants survived: {wrong}")
     sys.exit(1 if bad or wrong else 0)
