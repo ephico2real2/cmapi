@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 COMPONENTS = ROOT / "deploy/manifests/components"
 PLACEHOLDER = "ghcr.io/ephico2real2/cmapi@sha256:DIGEST"
 TRUST = "/etc/cmapi/ca/ca-bundle.crt"
+CHECKSUM_PLACEHOLDER = "CMAPI_CONFIG_CHECKSUM"
 
 
 def docs():
@@ -31,6 +32,22 @@ def deployments():
 
 def env(container):
     return {e["name"]: e for e in container.get("env", [])}
+
+
+def pod_annotations(name):
+    d = next(d for d in deployments() if d["metadata"]["name"] == name)
+    return d["spec"]["template"]["metadata"].get("annotations") or {}
+
+
+@pytest.mark.parametrize("name", ["cmapi-api", "cmapi-worker"])
+def test_a_changed_configuration_changes_the_pod_template(name):
+    """The process reads its configuration once, at start, and the ConfigMaps are mutable, so without this a changed one leaves
+    the running pods on the old values. deploy/render-test.sh proves the fill; this proves the two Deployments ask for it."""
+    assert pod_annotations(name)["checksum/config"] == CHECKSUM_PLACEHOLDER
+
+
+def test_the_mockup_reads_none_of_that_configuration():
+    assert "checksum/config" not in pod_annotations("cmapi-mockup")
 
 
 def test_api_port_is_not_open_to_every_namespace():

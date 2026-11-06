@@ -2,9 +2,10 @@
 
 Every file here is a Kubernetes object a person can read and apply with `kubectl apply --server-side -R -f` (or `oc`;
 server-side because the mockup ConfigMap is larger than a client-side apply's last-applied annotation allows, measured). No Helm, no
-Kustomize, no templating: the one substitution is the image digest, which `deploy/render.sh` fills into a copy of this
-tree (`ghcr.io/ephico2real2/cmapi@sha256:DIGEST` is the placeholder; a copy with it left in fails the render). Argo CD
-reads the rendered copy as a recursive directory (the deployment design, `docs/reviews/2026-11-05-deployment-design.md`);
+Kustomize, no templating: there are two substitutions, both in `deploy/render.sh`, which fills them into a copy of this tree:
+the image digest (placeholder `ghcr.io/ephico2real2/cmapi@sha256:DIGEST`) and the configuration checksum
+(placeholder `CMAPI_CONFIG_CHECKSUM`, in the `checksum/config` annotation of the api's and the worker's pod templates). A
+copy with either left in fails the render. Argo CD reads the rendered copy as a recursive directory (the deployment design, `docs/reviews/2026-11-05-deployment-design.md`);
 the `argocd.argoproj.io/sync-wave` annotations order it there and mean nothing to `kubectl`.
 
 | Folder | What | Applied by |
@@ -25,8 +26,10 @@ Order for a person: namespaces, the CNPG operator (1.30.1, a prerequisite, not h
 
 What the charts did that these files do not, so a person or `environments/<env>/` must:
 
-- **A changed `cmapi-config`, `cmapi-env` or `cmapi-trust` does not restart anything** (the chart's `checksum/config`
-  annotation did, and the process reads its config once, at start): `oc -n cmapi rollout restart deploy cmapi-api cmapi-worker`.
+- **A changed `cmapi-config`, `cmapi-env` or `cmapi-trust` restarts the api and the worker only through a render.** The
+  process reads its config once, at start. `deploy/render.sh` puts a SHA-256 over those three files into the pod templates
+  (as the chart's `checksum/config` did), so render again and apply both the environment and the components. Applying a
+  changed ConfigMap alone restarts nothing.
 - **`cmapi-env` on CRC carries `CMAPI_OIDC_JWKS_URL` and `CMAPI_KEYCLOAK_ADMIN_URL`** (the Keycloak Service, as
   `deploy/environments/crc.yaml` sets them), or the pods go through the issuer's Route.
 - **Namespace `cmapi-imports` must exist first** (it does not on CRC, measured 2026-11-05; the chart created it): the

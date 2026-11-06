@@ -16,7 +16,7 @@ n=$(grep -r "sha256:DIGEST" "$D/manifests/components" "$D/manifests/environments
 [ "$n" -gt 0 ] || bad "the source holds no placeholder: this case proves nothing"
 m=$(grep -rF "$GOOD" "$W/o1/components" "$W/o1/environment" | wc -l | tr -d ' ')
 want "$n placeholders, $m filled" "$n placeholders, $m filled with the image" [ "$m" = "$n" ]
-if diff -r "$D/manifests/components" "$W/o1/components" | grep '^[<>]' | grep -v 'image: ' | grep -q .; then bad "a line other than an image changed"; else ok "only image lines changed"; fi
+if diff -r "$D/manifests/components" "$W/o1/components" | grep '^[<>]' | grep -vE 'image: |checksum/config: ' | grep -q .; then bad "a line other than an image or the checksum changed"; else ok "only image and checksum lines changed"; fi
 want "the mockup's own image is untouched" "the mockup's image changed" grep -q 'nginx-unprivileged@sha256:' "$W/o1/components/portal/10-mockup.yaml"
 want "IMAGE names it" "IMAGE does not name it" [ "$(cat "$W/o1/IMAGE")" = "$GOOD" ]
 if grep -rq 'sha256:DIGEST' "$W/o1"; then bad "a placeholder is left"; fi
@@ -26,7 +26,7 @@ if quiet "$R" kind localhost/cmapi:dev "$W/o2"; then bad "a tag was accepted"; e
 want "a tag with --allow-tag on kind" "--allow-tag refused on kind" quiet "$R" kind localhost/cmapi:dev "$W/o3" --allow-tag
 grep -q 'image: localhost/cmapi:dev' "$W/o3/components/cmapi/20-api.yaml" || bad "--allow-tag did not fill the image"
 # --allow-tag means a kind test, never a deployment.
-mkdir -p "$D/manifests/environments/crc"; cp "$D/manifests/environments/kind/10-env.yaml" "$D/manifests/environments/crc/"
+cp -R "$D/manifests/environments/kind" "$D/manifests/environments/crc"
 if "$R" crc localhost/cmapi:dev "$W/o4" --allow-tag >/dev/null 2>&1; then bad "--allow-tag was accepted for crc"; else ok "--allow-tag is refused for anything but kind"; fi
 # The internal registry's digest is what Wave 1 deploys, by digest; no flag that says "never a deployment".
 want "the internal registry by digest" "the internal registry's digest needs --allow-tag" quiet "$R" crc "$INTERNAL" "$W/o5"
@@ -42,6 +42,49 @@ want "and its leftovers are gone" "a partly written render's leftover stayed" [ 
 printf 'image: ghcr.io/x@sha256:DIGEST\n' >"$D/manifests/components/cmapi/98-odd.yml"
 if "$R" kind "$GOOD" "$W/o9" >/dev/null 2>&1; then bad "a placeholder in a .yml passed"; else ok "a placeholder the render cannot fill fails"; fi
 rm -f "$D/manifests/components/cmapi/98-odd.yml"
+# checksum/config: the api's and the worker's pods restart when any of the three ConfigMaps changes, and nothing else does.
+sums() { grep -h 'checksum/config:' "$1/components/cmapi/20-api.yaml" "$1/components/cmapi/30-worker.yaml" | sed -E 's/^ *checksum\/config: //'; }
+A0=$(sums "$W/o1"); n=$(printf '%s\n' "$A0" | sort -u | wc -l | tr -d ' ')
+want "both Deployments carry one value" "the Deployments' checksums differ: $A0" [ "$n" = 1 ]
+[ "$(printf '%s\n' "$A0" | wc -l | tr -d ' ')" = 2 ] || bad "the checksum is not in both Deployments: $A0"
+printf '%s\n' "$A0" | head -1 | grep -qE '^"[0-9a-f]{64}"$' || bad "the checksum is not a quoted SHA-256: $A0"
+if grep -rq 'checksum/config\|CMAPI_CONFIG_CHECKSUM' "$W/o1/components/portal" "$W/o1/components/database-cnpg"; then bad "the checksum reached the mockup or the database"; else ok "the mockup and the database carry no checksum"; fi
+want "the mockup's files are the source's" "a mockup file changed" diff -r "$D/manifests/components/portal" "$W/o1/components/portal"
+"$R" kind "$GOOD" "$W/s1" >/dev/null; want "two renders are identical" "two renders differ" diff -r "$W/o1" "$W/s1"
+# Not the path: the same files in another checkout give the same value, or a change of directory would restart the pods.
+mkdir -p "$W/elsewhere/deploy"; cp "$HERE/render.sh" "$W/elsewhere/deploy/"; cp -R "$D/manifests" "$W/elsewhere/deploy/"
+"$W/elsewhere/deploy/render.sh" kind "$GOOD" "$W/s2" >/dev/null; want "another checkout gives the same value" "the value depends on the path" [ "$(sums "$W/s2")" = "$A0" ]
+# Pinned, so a change of method (and so a restart of every pod at the next deploy) is a decision, and macOS and Linux agree.
+G=$D/manifests/environments/gold; mkdir -p "$G"; for c in env config trust; do printf 'metadata:\n  name: cmapi-%s\n' "$c" >"$G/$c.yaml"; done
+"$R" gold "$GOOD" "$W/s3" >/dev/null; want "the method is the one recorded" "the checksum method changed: $(sums "$W/s3" | head -1)" [ "$(sums "$W/s3" | head -1)" = '"dff6162fb72d31b5c1b3d66e83a5df01f57cff923f79db8ea8bc53277b14aa15"' ]
+rm -rf "$G"
+for f in 10-env 20-config 30-trust; do
+  cp "$D/manifests/environments/kind/$f.yaml" "$W/keep.yaml"; printf '# changed\n' >>"$D/manifests/environments/kind/$f.yaml"
+  "$R" kind "$GOOD" "$W/s4" >/dev/null; B=$(sums "$W/s4")
+  [ "$(printf '%s\n' "$B" | sort -u | wc -l | tr -d ' ')" = 1 ] && [ "$(printf '%s\n' "$B" | wc -l | tr -d ' ')" = 2 ] || bad "after changing $f the Deployments disagree: $B"
+  want "a changed $f changes it in both Deployments" "a changed $f did not change the checksum" [ "$B" != "$A0" ]
+  cp "$W/keep.yaml" "$D/manifests/environments/kind/$f.yaml"
+done
+# Moving bytes from one file's end to the next file's start changes it: the files are hashed one by one, not concatenated.
+cp "$D/manifests/environments/kind/10-env.yaml" "$W/keep1.yaml"; cp "$D/manifests/environments/kind/20-config.yaml" "$W/keep2.yaml"
+printf '# moved\n' >>"$D/manifests/environments/kind/10-env.yaml"; "$R" kind "$GOOD" "$W/s5" >/dev/null; M1=$(sums "$W/s5")
+cp "$W/keep1.yaml" "$D/manifests/environments/kind/10-env.yaml"; { printf '# moved\n'; cat "$W/keep2.yaml"; } >"$D/manifests/environments/kind/20-config.yaml"; "$R" kind "$GOOD" "$W/s5" >/dev/null; M2=$(sums "$W/s5")
+cp "$W/keep2.yaml" "$D/manifests/environments/kind/20-config.yaml"
+want "bytes moved between two files change it" "bytes moved between two files did not change it" [ "$M1" != "$M2" ]
+# An image change alone restarts through the image, not through this value.
+"$R" kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'd%.0s' {1..64})" "$W/s6" >/dev/null; want "another image keeps the value" "another image changed the checksum" [ "$(sums "$W/s6")" = "$A0" ]
+# A placeholder left fails the render, and a ConfigMap no file declares stops it before the last render is touched.
+printf 'x: CMAPI_CONFIG_CHECKSUM\n' >"$D/manifests/components/cmapi/97-odd.yml"
+if quiet "$R" kind "$GOOD" "$W/s7"; then bad "a checksum placeholder in a .yml passed"; else ok "a checksum placeholder the render cannot fill fails"; fi
+rm -f "$D/manifests/components/cmapi/97-odd.yml"
+for f in 10-env 20-config 30-trust; do
+  mv "$D/manifests/environments/kind/$f.yaml" "$W/keep.yaml"
+  if quiet "$R" kind "$GOOD" "$W/o2"; then bad "a render without $f passed"; else want "no $f stops the render and the last render stays" "the failure without $f deleted the last render" [ -e "$W/o2/keep" ]; fi
+  mv "$W/keep.yaml" "$D/manifests/environments/kind/$f.yaml"
+done
+cp "$D/manifests/environments/kind/10-env.yaml" "$D/manifests/environments/kind/11-env-again.yaml"
+if quiet "$R" kind "$GOOD" "$W/s8"; then bad "two files declaring cmapi-env passed"; else ok "two files declaring one ConfigMap stop the render"; fi
+rm -f "$D/manifests/environments/kind/11-env-again.yaml"
 # It deletes only its own output: a directory it did not write is refused.
 mkdir -p "$W/mine"; echo precious >"$W/mine/file"
 if quiet "$R" kind "$GOOD" "$W/mine"; then bad "render.sh replaced a directory it did not write"; else want "a directory it did not write is refused" "refused, and deleted it anyway" [ -e "$W/mine/file" ]; fi

@@ -24,6 +24,10 @@ spec:
   template:
     metadata:
       labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-worker, app.kubernetes.io/component: worker}
+      annotations:
+        # deploy/render.sh fills this with the checksum of cmapi-env, cmapi-config and cmapi-trust: the process reads them once,
+        # at start, so a changed one must change the pod template. Quoted: a digest of digits and one "e" is a YAML number.
+        checksum/config: "CMAPI_CONFIG_CHECKSUM"
     spec:
       serviceAccountName: cmapi-worker
       securityContext:
