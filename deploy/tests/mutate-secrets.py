@@ -65,6 +65,8 @@ MUTANTS = {
     "X anything but a 200 reads as absent": [('        *) echo "ERROR: cannot tell whether the realm exists at $ISSUER: $state. Nothing is generated. Run this again when Keycloak answers." >&2; exit 1 ;;', '        *) ;;')],
     "Y any 404 reads as absent": [("""elif c=="404" and d=={"error":"Realm does not exist"}: print("absent")""", """elif c=="404": print("absent")""")],
     "Z a curl failure reads as absent": [('if [ "$rc" -ne 0 ]; then rm -f "$body"; echo "no answer (curl rc $rc)"; return; fi', 'if [ "$rc" -ne 0 ]; then rm -f "$body"; echo absent; return; fi')],
+    "AD an issuer naming another realm is asked": [('if [ "$ISSUER_CHECK" = true ] && ! [[ "$ISSUER" =~ ^https://[^/?#]+/realms/cmapi$ ]]; then', 'if false; then')],
+    "AE a glob on the end of the issuer": [('! [[ "$ISSUER" =~ ^https://[^/?#]+/realms/cmapi$ ]]', '! [[ "$ISSUER" =~ /realms/cmapi$ ]]')],
     "AA forgetting the flag skips the check": [('if [ "$ISSUER_CHECK" = true ] && [ -z "$ISSUER" ]; then echo "ERROR: --issuer is required (or --no-issuer-check on a cluster with no Keycloak)" >&2; exit 2; fi', 'if [ -z "$ISSUER" ]; then ISSUER_CHECK=false; fi')],
     "AB verification off": [('code=$(curl -sS -m 15 ${CA_FILE:+--cacert "$CA_FILE"} -o', 'code=$(curl -k -sS -m 15 ${CA_FILE:+--cacert "$CA_FILE"} -o')],
     "AC the issuer is asked after the first write": [

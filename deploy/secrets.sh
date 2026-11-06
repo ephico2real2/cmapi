@@ -30,6 +30,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --test-users) TEST_USERS=true; shift;;
   *) echo "unknown argument $1" >&2; exit 2;; esac; done
 if [ "$ISSUER_CHECK" = true ] && [ -z "$ISSUER" ]; then echo "ERROR: --issuer is required (or --no-issuer-check on a cluster with no Keycloak)" >&2; exit 2; fi
+# The whole URL, and realm cmapi: a 404 for any other realm is also Keycloak's own, and would read as "cmapi is absent" and mint. A glob on the end would pass ?x=/realms/cmapi.
+if [ "$ISSUER_CHECK" = true ] && ! [[ "$ISSUER" =~ ^https://[^/?#]+/realms/cmapi$ ]]; then echo "ERROR: --issuer must be https://<Keycloak host>/realms/cmapi, not $ISSUER" >&2; exit 2; fi
 if [ -n "$CA_FILE" ] && [ ! -r "$CA_FILE" ]; then echo "ERROR: cannot read the CA file $CA_FILE" >&2; exit 2; fi
 # shellcheck disable=SC2086  # KUBECTL may carry --kubeconfig
 kc() { $KUBECTL "$@"; }

@@ -195,6 +195,11 @@ r=$(runi 000 '' 28); expect "11f a timeout is not absent" 1 "$r"; said "11f it c
 r=$(runi 000 '' 60); expect "11g a certificate failure is not absent" 1 "$r"; none_written 11g
 grep -q -- '--cacert' "$CURL_LOG" || { echo "  FAIL 11: the CA file was not used"; fails=$((fails+1)); }
 if grep -qE -- '(^| )(-k|--insecure)( |$)' "$CURL_LOG"; then echo "  FAIL 11: TLS verification was turned off"; fails=$((fails+1)); fi
+# Keycloak's own 404 is what a request for any other realm gets too, so the URL itself has to name this realm. The curl stub would say "absent" to each.
+for bad in https://kc.test/realms/not-cmapi https://kc.test/realms/cmapi/ 'https://kc.test/realms/not-cmapi?x=/realms/cmapi' 'https://kc.test/realms/not-cmapi#/realms/cmapi' http://kc.test/realms/cmapi https://kc.test/x/realms/cmapi; do
+  : >"$CURL_LOG"; r=$(PATH="$W/bin:$PATH" ISSUER_CODE=404 ISSUER_BODY='{"error":"Realm does not exist"}' "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer "$bad" --ca-file "$W/ca.pem" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)")
+  expect "11j --issuer $bad stops" 2 "$r"; none_written "11j $bad"; [ ! -s "$CURL_LOG" ] || { echo "  FAIL 11j: it asked $bad"; fails=$((fails+1)); }
+done
 r=$(runi 404 '{"error":"Realm does not exist"}'); expect "11h Keycloak's own 404: generates" 0 "$r"; [ "$(h)" != none ] || { echo "  FAIL 11h: nothing written"; fails=$((fails+1)); }
 : >"$CURL_LOG"; r=$(runi 503 'down'); expect "11i Secrets present: nothing to mint, Keycloak not needed" 0 "$r"; [ ! -s "$CURL_LOG" ] || { echo "  FAIL 11i: asked the issuer when nothing was to be minted"; fails=$((fails+1)); }
 collect
