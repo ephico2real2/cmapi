@@ -341,3 +341,17 @@ def test_crc_realm_sync_runs_on_an_account_and_secrets_that_exist():
     assert all(name in written for name in secrets)
     assert container["command"] == ["cmapi-tools", "realm-sync"]
     assert 'cmapi-tools = "cmapi.tools:run"' in (ROOT / "cmapi/pyproject.toml").read_text()
+
+
+def test_crc_rollback_names_every_object_the_run_creates():
+    """deploy/crc-rollback.sh deletes by name from a fixed list, so an object added to the manifests and not to the list would stay behind on a shared cluster, with nothing to say so.
+    Objects in cmapi-imports and cmapi-system go with their namespace; namespace cmapi was there before this wave."""
+    text = (ROOT / "deploy/crc-rollback.sh").read_text()
+    missing = []
+    for d in [*docs(), *crc_docs()]:
+        kind, name, ns = d["kind"], d["metadata"]["name"], d["metadata"].get("namespace")
+        if ns in ("cmapi-imports", "cmapi-system") or (kind == "Namespace" and name == "cmapi"):
+            continue
+        if not re.search(rf"\b{kind.lower()}(\.[a-z.]+)? {re.escape(name)}\b", text):
+            missing.append(f"{kind}/{name}")
+    assert missing == []

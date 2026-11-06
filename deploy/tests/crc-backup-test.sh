@@ -6,7 +6,7 @@
 # registry.redhat.io/rhel9/postgresql-16@sha256:... where a login exists. One container, cmapi-w1-backup, labelled, no published port, removed at the end. Never touches a cluster.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mktemp -d)
-C=${CONTAINER:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}
+C=${CONTAINER:-docker}   # CONTAINER=podman on a Mac
 PG_IMAGE=${PG_IMAGE:-quay.io/sclorg/postgresql-16-c9s@sha256:29e66548679f0d14b63e2a210dfcc783c376330366bd24b97f2968e7c3bff0f7}
 N=cmapi-w1-backup; LABEL=cmapi.test=crc-backup-test; PW=test-only-backup-password
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
