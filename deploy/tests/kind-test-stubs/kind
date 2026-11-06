@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 echo "kind $*" >>"$KT_LOG"
 case "$1" in
-  create) if [ "${KT_CLUSTER_EXISTS:-false}" = true ]; then echo 'ERROR: failed to create cluster: node(s) already exist for a cluster with the name "cmapi-test"' >&2; exit 1; fi;;
+  get)
+    [ "${KT_CLUSTER_READ_FAIL:-false}" != true ] || exit 2
+    [ "${KT_CLUSTER_EXISTS:-false}" != true ] || echo cmapi-test
+    [ "${KT_CLUSTER_OTHER:-false}" != true ] || { echo cmapi-test-2; echo not-cmapi-test; };;
+  create)
+    # The exact text of pkg/cluster/internal/create/create.go, v0.33.0.
+    if [ "${KT_CREATE_RACE:-false}" = true ] || [ "${KT_CLUSTER_EXISTS:-false}" = true ]; then echo 'ERROR: failed to create cluster: node(s) already exist for a cluster with the name "cmapi-test"' >&2; exit 1; fi
+    if [ "${KT_CREATE_PARTIAL:-false}" = true ]; then echo 'ERROR: failed to create cluster: could not export kubeconfig' >&2; exit 1; fi
+    prev=; for a in "$@"; do if [ "$prev" = --kubeconfig ] && [ ! -e "$a" ]; then : >"$a"; fi; prev=$a; done;;
 esac
 exit 0

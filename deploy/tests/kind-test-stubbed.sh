@@ -56,6 +56,20 @@ one "the image has no revision label"                  nonzero KT_LABEL=
 one "the worker has crash-looped since its rollout"    nonzero KT_WORKER_RESTARTS=4
 one "a cluster named cmapi-test already exists"        nonzero KT_CLUSTER_EXISTS=true
 want_field "somebody else's cluster is not deleted" no "$LAST_KILLED"
+one "the existing-cluster read fails"                  nonzero KT_CLUSTER_READ_FAIL=true
+want_field "a failed ownership read deletes nothing" no "$LAST_KILLED"
+one "a cluster whose name only contains cmapi-test"    0       KT_CLUSTER_OTHER=true
+one "kind fails after making part of this run's cluster" nonzero KT_CREATE_PARTIAL=true
+want_field "this run's partial cluster is deleted" yes "$LAST_KILLED"
+one "another run took the name after the check"        nonzero KT_CREATE_RACE=true
+want_field "the other run's cluster is not deleted" no "$LAST_KILLED"
+# KIND_TEST_KUBECONFIG may name a file with other clusters in it: only a file this run created goes.
+one "a kubeconfig this run created"                    0
+[ ! -e "$W/kc" ] || { echo "WRONG: a kubeconfig this run created was left behind"; fails=$((fails+1)); rm -f "$W/kc"; }
+echo other-clusters >"$W/kc"
+one "a kubeconfig that was already there"              0
+[ "$(cat "$W/kc" 2>/dev/null)" = other-clusters ] || { echo "WRONG: a kubeconfig this run did not create was deleted"; fails=$((fails+1)); }
+rm -f "$W/kc"
 one "probe resolves now, old previous log says failed" 0       KT_API_SLOW=true 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.wrong'
 want_field "the policy stays: the container resolves the Service now" no "$LAST_DELETED"
 one "the probe could not run, the previous log says it"  0       KT_API_SLOW=true 'KT_PROBE=error: container not running' 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.cmapi'

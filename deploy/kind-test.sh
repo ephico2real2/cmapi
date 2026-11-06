@@ -17,21 +17,32 @@ CNPG_SHA=37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
 export KIND_EXPERIMENTAL_PROVIDER=podman
 t0=$(date +%s); say() { echo "[$(( $(date +%s) - t0 ))s] $*"; }
 k() { kubectl --kubeconfig="$KC" "$@"; }
-# Only a cluster this run created: "kind create" fails when the name is taken, and that cluster is somebody else's.
+# Only a cluster this run created, and only a kubeconfig it created: KIND_TEST_KUBECONFIG may name a file with other clusters in it.
 created=false
+kc_existed=false; [ ! -e "$KC" ] || kc_existed=true
 # A port-forward left behind holds its port and would answer a later run's curl from this run's cluster.
 PF=
-finish() { rc=$?; [ -z "$PF" ] || kill "$PF" 2>/dev/null || true; [ -z "${T:-}" ] || rm -rf "$T"; if [ "$created" = true ] && [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; rm -f "$KC"; fi; exit $rc; }
+finish() { rc=$?; [ -z "$PF" ] || kill "$PF" 2>/dev/null || true; [ -z "${T:-}" ] || rm -rf "$T"; if [ "$created" = true ] && [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; [ "$kc_existed" = true ] || rm -f "$KC"; fi; exit $rc; }
 trap finish EXIT
 
+T=$(mktemp -d)
+# A name already taken is somebody else's cluster. Not "| grep -q" in an if: under pipefail an early match can read as none.
+clusters=$(kind get clusters)
+case $'\n'"$clusters"$'\n' in *$'\n'cmapi-test$'\n'*) echo "ERROR: kind cluster cmapi-test already exists; this run neither uses nor deletes a cluster it did not create" >&2; exit 1;; esac
 say "kind create cluster cmapi-test ($NODE_IMAGE)"
-kind create cluster --name cmapi-test --image "$NODE_IMAGE" --kubeconfig "$KC" --wait 120s >/dev/null
+# kind removes what it made when a step fails, but not when it is interrupted or when its last step, the kubeconfig export,
+# fails (pkg/cluster/internal/create/create.go, v0.33.0), so this run owns the name from here. The exception is another run
+# taking the name after the check above: kind then stops before creating anything, and that cluster is the other run's.
 created=true
+if ! { kind create cluster --name cmapi-test --image "$NODE_IMAGE" --kubeconfig "$KC" --wait 120s >/dev/null; } 2>&1 | tee "$T/kind-create.err" >&2; then
+  case "$(cat "$T/kind-create.err")" in *"node(s) already exist for a cluster"*) created=false;; esac
+  echo "ERROR: kind create cluster failed" >&2; exit 1
+fi
 [ "$(k config current-context)" = kind-cmapi-test ] || { echo "ERROR: the kubeconfig's context is not kind-cmapi-test" >&2; exit 1; }
 say "node: $(k get nodes -o jsonpath='{.items[0].metadata.name} {.items[0].status.nodeInfo.kubeletVersion}')"
 
 say "CloudNativePG operator 1.30.1"
-T=$(mktemp -d); curl -fsSL "$CNPG_URL" -o "$T/cnpg.yaml"
+curl -fsSL "$CNPG_URL" -o "$T/cnpg.yaml"
 echo "$CNPG_SHA  $T/cnpg.yaml" | shasum -a 256 -c - >/dev/null || { echo "ERROR: cnpg-1.30.1.yaml checksum mismatch" >&2; exit 1; }
 k apply --server-side -f "$T/cnpg.yaml" >/dev/null
 k -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s >/dev/null; say "cnpg operator ready"
