@@ -21,7 +21,7 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 ## Where it stopped
 
 - `main` holds PR #40 and PR #89 (`9fd230a`), unless a later row of the tracker says otherwise. PR #89's reviews and rulings are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Nothing from it is on CRC yet.
-- **Wave 1 (#94) is at its design stage.** Codex's design is in `docs/reviews/2026-11-06-wave1-design/`, not accepted. If Opus's has not landed there, its scratchpad is not kept, so rerun it. Read #94's comments, which carry the owner's requirements and corrected measurements the two designs may lack. Tell the owner before anything is applied to CRC.
+- **Wave 1 (#94): design arbitrated, not built.** Start from `docs/reviews/2026-11-06-wave1-design/README.md`, whose rulings override `opus-design.md`, the base. Tell the owner before anything is applied to CRC.
 - **Branch protection requires CI, not a review.** GitHub will show a pull request as mergeable with its review unfinished. The review gate is held by the delivery loop alone, so do not merge on GitHub's word.
 - No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
@@ -75,7 +75,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 - **The other realms must stay unaffected and undeleted, and a restart must not bleed long** (the owner, 2026-11-06). See the tracker's risks. Before the first import, take the `pg_dump` of the Keycloak database the owner approved: outside git, deleted once verified, restored only on the owner's decision.
 - **CRC is shared.** Never restart the VM or a shared service, no `crc stop/delete/config set`. Do not touch `inkcast`, `corp` or group-sync. In `keycloak`, only realm `cmapi` and its import resources, with no master admin credential. In LDAP, only `cmapi-*` additions. Delete only what cmapi created.
 - kind clusters are named with the `cmapi-` prefix and use `KIND_EXPERIMENTAL_PROVIDER=podman`, an explicit `--kubeconfig`, node image v1.35.8. **Never run one during a CRC step.**
-- Reviewers work on an export, never in a repository. Throwaway containers need a bind check, a marker guard, their own ports and an explicit `--kubeconfig`.
+- Reviewers work on an export, never in a repository. Keep Codex's briefs narrow: its Wave 1 design cost 401,608 tokens, and the owner does not want them wasted. Throwaway containers need a bind check, a marker guard, their own ports and an explicit `--kubeconfig`.
 - Cite CI only from a run whose `headSha` equals the head, after it finished.
 - No Co-Authored-By or "Generated with" lines. Never force-push or rewrite history.
 - Report what was measured, what was inferred and what was not tested. Say which cluster each result came from.
@@ -84,6 +84,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 
 | When | What |
 |---|---|
+| Wave 1 | For the Chrome proofs: trust the two CAs in the login keychain, and sign in once as an LDAP person |
 | Wave 3 | Create the GitHub App from the manifest flow, and install it on `cluster-configs-nonprod` only |
 | Wave 4 | Make each GHCR package public, after its first push |
 | Wave 8 | Decide #35 and #36 (LDAP) |

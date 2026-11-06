@@ -11,10 +11,10 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40 and PR #89 (plain YAML) |
-| In progress | Wave 1 (#94), design stage. Codex's design is in `docs/reviews/2026-11-06-wave1-design/`, not accepted. Opus's is still being written. Nothing is applied to CRC |
+| In progress | Wave 1 (#94). Design arbitrated in `docs/reviews/2026-11-06-wave1-design/README.md`. Next, the implementer builds it. Nothing is applied to CRC |
 | On CRC | No cmapi workload. Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the `cmapi-*` groups |
-| Next action | Arbitrate the two Wave 1 designs, adding the owner's requirements on #94, then build through the delivery loop in `CLAUDE.md`. Tell the owner before anything is applied to CRC |
-| Running | Opus's Wave 1 design, on an export. No kind cluster. `cmapi-test-pg` stays up for the service tests |
+| Next action | The implementer builds Wave 1 from that design, then the review flow in `CLAUDE.md`. Tell the owner before anything is applied to CRC |
+| Running | Nothing at this update. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
@@ -40,9 +40,9 @@ needs 3, Wave 5 needs 2 to 4, and Waves 6 and 7 need 5.
 | Wave | Work | Issues | Owner step | State |
 |---|---|---|---|---|
 | 0 | Plain YAML merged | #88, #90 | None | **Done** |
-| 1 | **Interim deployment on CRC:** `oc apply`, image in CRC's internal registry by digest, realm import, reader baseline, Routes, screenshots. No real namespace request yet. Also: `secrets.sh` checks `GET <issuer>` so it cannot mint values behind a kept realm; `cmapi-imports` namespace; the two Keycloak URLs. Prove the Route through the NetworkPolicy: CRC's router uses `HostNetwork` on one node (read with `oc`), so the same-node rule should allow it, which is inferred until it answers. **The other realms stay unaffected and undeleted, and a backup of the Keycloak database comes first (see the risks)** | #94 | None | Design |
+| 1 | **Interim deployment on CRC:** `oc apply`, image in CRC's internal registry by digest, realm import, reader baseline, Routes, screenshots. No real namespace request yet. Also: `secrets.sh` checks `GET <issuer>` so it cannot mint values behind a kept realm; `cmapi-imports` namespace; the two Keycloak URLs. Prove the Route through the NetworkPolicy: CRC's router uses `HostNetwork` on one node (read with `oc`), so the same-node rule should allow it, which is inferred until it answers. **The other realms stay unaffected and undeleted, and a backup of the Keycloak database comes first (see the risks)** | #94, #96 | Trust the two CAs in the login keychain for Chrome; sign in once as an LDAP person | Design done, build next |
 | 2 | Argo CD on kind: bootstrap, narrowed role, policies, approver. Per-namespace ApplicationSet, `Delete=confirm`, `core/sync.py`, `watch_sync`, `docs/01`. Tests `e5`, approver, and `scale` before the layout merges | #65, #64 | None | Pending |
-| 3 | GitHub adapter, App auth, `pr_status`, config repo checks, a real PR on `cluster-configs-nonprod`. Gitea removed | #87, #60, #61, #59 | Create and install the GitHub App | Pending |
+| 3 | GitHub adapter, App auth, `pr_status`, config repo checks, a real PR on `cluster-configs-nonprod`. Gitea removed | #87, #60, #61, #59, #97 | Create and install the GitHub App | Pending |
 | 4 | End-to-end CI on kind; release to GHCR with attestation, `deployed/crc`, rollback. Charts removed, each test mapped to its YAML replacement | #85 | Make each GHCR package public | Pending |
 | 5 | Argo CD on CRC adopting Wave 1's objects. A real request through a real PR, then a delete, screenshots. `apply` removed. **Thin slice done** | #64, #65, #85, #84 | None | Pending |
 | 6 | Portal on the API: OIDC PKCE, TanStack Query, its own image. New namespace, Requests and Approvals first. Team DL field | #33 | None | Pending |
@@ -86,4 +86,4 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 ## Open bugs
 
-#87 `pr_status` misses check runs. #91 connections to CNPG are encrypted but do not verify the server, no wave yet. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.
+#87 `pr_status` misses check runs. #96 `realm_sync` reads an unreachable directory as success. #97 a private-CA-only bundle fails GitHub TLS. #91 connections to CNPG are encrypted but do not verify the server, no wave yet. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.

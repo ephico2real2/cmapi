@@ -1,4 +1,4 @@
-> **Status: one of two independent designs for Wave 1 (#94), by Codex on an export of `9fd230a`. Not arbitrated and not accepted.** It predates the owner's requirements on the other realms and the Keycloak backup, and the corrected Keycloak CA, all on #94. Nothing here has been applied.
+> **Status: one of two independent designs for Wave 1 (#94), by Codex on an export of `9fd230a`. Arbitrated in `README.md`; most of its choices were not taken.** It predates the owner's requirements on the other realms and the backup. Nothing here has been applied.
 
 # cmapi Wave 1 (#94) — independent deployment design
 
