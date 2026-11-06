@@ -54,15 +54,17 @@ ours=$(get "$NS" cmapi-keycloak); theirs=$(get "$REALM_NS" cmapi-realm-secrets)
 verdict=$(OURS="$ours" THEIRS="$theirs" PAIRS="$PAIRS" python3 - <<'PY'
 import json,os
 pairs=[p.split(":") for p in os.environ["PAIRS"].split()]
-o=(json.loads(os.environ["OURS"]) if os.environ["OURS"] else {}).get("data",{}) or {}
-t=(json.loads(os.environ["THEIRS"]) if os.environ["THEIRS"] else {}).get("data",{}) or {}
+# Whether the object exists, not whether its data is truthy: an existing Secret with no data is a partial copy, never absent.
+oe,te=bool(os.environ["OURS"]),bool(os.environ["THEIRS"])
+o=(json.loads(os.environ["OURS"]) if oe else {}).get("data",{}) or {}
+t=(json.loads(os.environ["THEIRS"]) if te else {}).get("data",{}) or {}
 oa,ta=[a for a,_ in pairs],[b for _,b in pairs]
 om=[k for k in oa if not o.get(k)]; tm=[k for k in ta if not t.get(k)]
-if not o and not t: print("generate")
-elif t and tm: print("partial realm copy, missing "+",".join(tm))
-elif o and om: print("partial namespace copy, missing "+",".join(om))
-elif t and not o: print("from-realm")
-elif o and not t: print("from-ours")
+if not oe and not te: print("generate")
+elif te and tm: print("partial realm copy, missing "+",".join(tm))
+elif oe and om: print("partial namespace copy, missing "+",".join(om))
+elif te and not oe: print("from-realm")
+elif oe and not te: print("from-ours")
 else:
     d=[a for a,b in pairs if o[a]!=t[b]]
     print("same" if not d else "copies differ on "+",".join(d))
@@ -128,6 +130,7 @@ if [ -n "$gh_existing" ]; then
 elif [ -n "$KEY" ]; then
   if [ -z "$APP_ID" ] || [ -z "$INST_ID" ]; then echo "ERROR: --github-app-key needs --github-app-id and --github-installation-id" >&2; exit 2; fi
   [ -r "$KEY" ] || { echo "ERROR: cannot read $KEY" >&2; exit 2; }
-  mode=$(stat -f '%Lp' "$KEY" 2>/dev/null || stat -c '%a' "$KEY"); case "$mode" in *[1-7][0-7]|*[0-7][1-7]) echo "ERROR: $KEY is mode $mode; make it 0600" >&2; exit 2;; esac
+  # The GNU form first: GNU's -f reports the file system on stdout before failing on %Lp, while BSD's stat refuses -c with nothing on stdout (#90).
+  mode=$(stat -c '%a' "$KEY" 2>/dev/null || stat -f '%Lp' "$KEY"); case "$mode" in *[1-7][0-7]|*[0-7][1-7]) echo "ERROR: $KEY is mode $mode; make it 0600" >&2; exit 2;; esac
   printf 'appId %s\ninstallationId %s\nprivateKey %s\n' "$(b64 "$APP_ID")" "$(b64 "$INST_ID")" "$(base64 <"$KEY" | tr -d '\n')" | apply_secret "$NS" cmapi-github-app
 fi

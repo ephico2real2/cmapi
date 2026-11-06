@@ -31,12 +31,21 @@ while i<len(s):
             for v in (it.get("data") or {}).values():
                 print(v); print(base64.b64decode(v).decode("utf-8","replace").split("\n")[0])
 ' | awk 'length($0)>=12' >>"$VALUES"; }
-# A kubectl that answers a 500 on the reads named in FAIL_READS ("get secret cmapi-keys|get keycloakrealmimport") and passes the rest.
+# A kubectl that answers a 500 on the reads named in FAIL_READS ("get secret cmapi-keys|get keycloakrealmimport") and on the
+# write of the Secret named in FAIL_WRITE, answers "absent" on the reads in STALE_READS, and passes the rest.
 cat >"$W/kubectl-failing" <<WRAP
 #!/usr/bin/env bash
 for pat in \$(printf '%s' "\${FAIL_READS:-}" | tr ' ' '_' | tr '|' ' '); do
   case "\$(printf '%s' "\$*" | tr ' ' '_')" in "\$pat"_*|"\$pat") echo 'Error from server (InternalError): an error on the server' >&2; exit 1;; esac
 done
+for pat in \$(printf '%s' "\${STALE_READS:-}" | tr ' ' '_' | tr '|' ' '); do
+  case "\$(printf '%s' "\$*" | tr ' ' '_')" in "\$pat"_*|"\$pat") exit 0;; esac
+done
+if [ -n "\${FAIL_WRITE:-}" ] && [ "\$1" = create ] && [ "\$2" = -f ]; then
+  doc=\$(cat)
+  case "\$doc" in *"name: \$FAIL_WRITE,"*) echo 'Error from server (InternalError): the write failed' >&2; exit 1;; esac
+  printf '%s\n' "\$doc" | $KUBECTL "\$@"; exit \$?
+fi
 exec $KUBECTL "\$@"
 WRAP
 chmod +x "$W/kubectl-failing"
@@ -49,6 +58,8 @@ run() { "$S" "${A[@]}" "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc
 runb() { "$S" "${B[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
 same() { # label, expected, actual
   [ "$2" = "$3" ] || { echo "  FAIL $1: expected $2, got $3"; fails=$((fails+1)); }; }
+said() { # label, text the last run must have printed. The rc alone cannot tell which guard stopped it.
+  grep -qF -- "$2" "$T" || { echo "  FAIL $1: the output does not say: $2"; fails=$((fails+1)); }; }
 expect() { # label, expected rc, actual line
   case "$3" in "rc=$2 "*) echo "  ok   $1: $3";; *) echo "  FAIL $1 (expected rc=$2): $3"; fails=$((fails+1));; esac; }
 r=$(run); expect "1 fresh" 0 "$r"; H1=$(h); R1=$(hs sect2 cmapi-realm-secrets); K1=$(hs sect1 cmapi-keys); collect
@@ -58,6 +69,9 @@ same "2 the realm copy" "$R1" "$(hs sect2 cmapi-realm-secrets)"; same "2 cmapi-k
 k get secret cmapi-keycloak -n sect1 -o json | python3 -c 'import base64,json,sys; d=json.load(sys.stdin)["data"]; v=[base64.b64decode(x) for x in d.values()]; sys.exit(0 if len(set(v))==4 and all(len(x)==48 for x in v) else 1)' || { echo "  FAIL 2: the four client secrets are not four 48-character values"; fails=$((fails+1)); }
 # A read that errors is not an absent Secret: each of these minted or replaced before the fix.
 r=$(runf "get secret cmapi-keys"); expect "2a a failed read of cmapi-keys stops" 1 "$r"; same "2a cmapi-keys" "$K1" "$(hs sect1 cmapi-keys)"
+said "2a it stops at the read, not at the write" "an error on the server"
+# A Secret that appeared after the read (a second run, a person) stops the write: it is created, never applied over.
+r=$(STALE_READS="get secret cmapi-keys" runf ""); expect "2g a read that is already stale stops at the write" 1 "$r"; same "2g cmapi-keys is not overwritten" "$K1" "$(hs sect1 cmapi-keys)"
 r=$(runf "get secret cmapi-keycloak|get secret cmapi-realm-secrets|get keycloakrealmimport"); expect "2b failed reads of the realm's Secrets stop" 1 "$r"
 same "2b the realm copy" "$R1" "$(hs sect2 cmapi-realm-secrets)"; [ "$(h)" = "$H1" ] || { echo "  FAIL 2b: ours changed"; fails=$((fails+1)); }
 # from-ours: the realm's copy gone, ours complete: copied back, equal.
@@ -66,6 +80,7 @@ r=$(run); expect "2c realm copy deleted, copied from ours" 0 "$r"; same "2c the 
 # A partial copy of ours stops and changes nothing.
 k patch secret cmapi-keycloak -n sect1 --type=json -p '[{"op":"remove","path":"/data/directoryClientSecret"}]' >/dev/null; H2=$(h)
 r=$(run); expect "2d partial namespace copy stops" 1 "$r"; same "2d ours untouched" "$H2" "$(h)"; same "2d the realm copy" "$R1" "$(hs sect2 cmapi-realm-secrets)"
+said "2d it names the partial copy" "ERROR: partial namespace copy, missing directoryClientSecret"
 k delete secret cmapi-keycloak -n sect1 >/dev/null; r=$(run); expect "2e ours restored from the realm" 0 "$r"; [ "$(h)" = "$H1" ] || { echo "  FAIL 2e: the hash changed"; fails=$((fails+1)); }
 # A partial cmapi-keys stops; it is never filled in or replaced.
 k patch secret cmapi-keys -n sect1 --type=json -p '[{"op":"remove","path":"/data/cursorKey"}]' >/dev/null; K2=$(hs sect1 cmapi-keys)
@@ -77,10 +92,21 @@ r=$(run); expect "4 partial realm copy stops" 1 "$r"; [ "$(h)" = "$H1" ] || { ec
 k delete secret cmapi-keycloak -n sect1 >/dev/null
 r=$(run); expect "5 partial realm copy, ours gone, stops" 1 "$r"; [ "$(h)" = none ] || { echo "  FAIL 5: something was written"; fails=$((fails+1)); }
 k delete secret cmapi-realm-secrets -n sect2 >/dev/null
+# The realm's copy is written first: a failure between the two writes leaves the authority, and the next run heals ours from it.
+r=$(FAIL_WRITE=cmapi-keycloak runf ""); expect "5a the second write fails" 1 "$r"; same "5a ours is not written" none "$(h)"; R5=$(hs sect2 cmapi-realm-secrets)
+[ "$R5" != none ] || { echo "  FAIL 5a: the realm's copy was not written first"; fails=$((fails+1)); }
+r=$(run); expect "5b the next run copies the realm's" 0 "$r"; same "5b the realm copy is kept" "$R5" "$(hs sect2 cmapi-realm-secrets)"; [ "$(h)" != none ] || { echo "  FAIL 5b: ours was not written"; fails=$((fails+1)); }; collect
+k delete secret cmapi-keycloak -n sect1 >/dev/null; k delete secret cmapi-realm-secrets -n sect2 >/dev/null
 r=$(run); expect "6 all gone, no realm import: generates" 0 "$r"; if [ "$(h)" = "$H1" ] || [ "$(h)" = none ]; then echo "  FAIL 6"; fails=$((fails+1)); fi; collect
 k patch secret cmapi-keycloak -n sect1 --type=merge -p '{"data":{"automationClientSecret":"eHh4"}}' >/dev/null
 r=$(run); expect "7 copies differ, stops" 1 "$r"
 k delete secret cmapi-keycloak cmapi-keys -n sect1 >/dev/null; k delete secret cmapi-realm-secrets -n sect2 >/dev/null
+# 7a, 7b: a Secret that exists with no data is a partial copy, not an absent one. The realm's empty copy once meant "generate".
+k create secret generic cmapi-realm-secrets -n sect2 >/dev/null
+r=$(run); expect "7a an empty realm copy stops" 1 "$r"; said "7a it names the partial copy" "ERROR: partial realm copy"; same "7a ours is not written" none "$(h)"; same "7a cmapi-keys is not written" none "$(hs sect1 cmapi-keys)"
+k delete secret cmapi-realm-secrets -n sect2 >/dev/null; k create secret generic cmapi-keycloak -n sect1 >/dev/null
+r=$(run); expect "7b an empty namespace copy stops" 1 "$r"; said "7b it names the partial copy" "ERROR: partial namespace copy"; same "7b the realm's copy is not written" none "$(hs sect2 cmapi-realm-secrets)"; same "7b cmapi-keys is not written" none "$(hs sect1 cmapi-keys)"
+k delete secret cmapi-keycloak -n sect1 >/dev/null
 # 8: a realm import exists and both copies are gone. The CRD may be absent on this cluster: a stand-in CRD stands for it.
 if ! k get crd keycloakrealmimports.k8s.keycloak.org >/dev/null 2>&1; then
   k apply -f - >/dev/null <<'CRD'
@@ -129,6 +155,8 @@ r=$(run --github-app-key "$KEYF" --github-app-id 777 --github-installation-id 88
 r=$(runf "get secret cmapi-github-app" --github-app-key "$KEYF" --github-app-id 777 --github-installation-id 888); expect "10e a failed read of the app secret stops" 1 "$r"; same "10e not replaced" "$G1" "$(hs sect1 cmapi-github-app)"
 k delete secret cmapi-github-app -n sect1 >/dev/null; chmod 644 "$KEYF"
 r=$(run --github-app-key "$KEYF" --github-app-id 1 --github-installation-id 2); expect "10c a key file that others can read is refused" 2 "$r"
+# One line naming the mode: GNU stat -f once put the file system's details in the message (#90), and the rc alone cannot see it.
+grep -qxF "ERROR: $KEYF is mode 644; make it 0600" "$T" || { echo "  FAIL 10c: the ERROR line is not the mode alone"; fails=$((fails+1)); }
 rm -f "$KEYF"
 # Nothing secret may have reached the output of any case: every value the cases generated, encoded and decoded, against
 # everything every run printed. The count alone is printed, never a match.
