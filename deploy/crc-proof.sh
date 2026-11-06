@@ -91,6 +91,12 @@ say "a namespace plan stops at 422 cluster-not-writable; dryRun, so nothing coul
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
 db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
 case "$db" in *"|0") [ "${db%%|*}" -gt 0 ] || fail "no application connections"; say "pg_stat_ssl: application connections on TLS|not: $db";; *) fail "pg_stat_ssl: $db";; esac
+# The server cannot see whether a client verified it. Each container's own libpq says which sslmode its URI and environment come to.
+for c in api worker; do
+  mode=$(oc_ exec "deploy/cmapi-$c" -n cmapi -c "$c" -- python3 -c 'import os, psycopg; print(next(o.val.decode() for o in psycopg.connect(os.environ["CMAPI_DATABASE_URL"]).pgconn.info if o.keyword == b"sslmode"))') || fail "the $c could not connect to the database to say how it connects"
+  [ "$mode" = verify-full ] || fail "the $c connects to the database with sslmode=$mode"
+done
+say "the api and the worker connect to the database with sslmode=verify-full"
 
 # Prometheus, with no secret on any command line and none in the targets: Thanos Querier's Route, the session's token on stdin.
 thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}')

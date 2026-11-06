@@ -18,9 +18,13 @@ the `argocd.argoproj.io/sync-wave` annotations order it there and mean nothing t
 
 Secrets are not here: `deploy/secrets.sh` writes `cmapi-keys`, `cmapi-keycloak` (with its copy `cmapi-realm-secrets` in
 the Keycloak namespace), `cmapi-test-users` with `--test-users`, and `cmapi-github-app`, and checks `cmapi-ldap-bind`; CNPG
-writes `cmapi-db-app`. It requires `--issuer` or `--no-issuer-check`, so that CRC cannot skip asking the realm by forgetting a
-flag. Monitoring objects (ServiceMonitors, PrometheusRule) and the realm-sync Job need CRDs and services kind does not have,
-so they live in `environments/crc/`, not in `components/`.
+writes `cmapi-db-app` and `cmapi-db-ca`. `secrets.sh` requires `--issuer` or `--no-issuer-check`, so that CRC cannot skip asking the
+realm by forgetting a flag. Monitoring objects (ServiceMonitors, PrometheusRule) and the realm-sync Job need CRDs and services kind
+does not have, so they live in `environments/crc/`, not in `components/`.
+
+Every environment connects to CNPG the same way, so it is in `components/cmapi/`, not in `environments/<env>/`: the api, the worker and
+both migrate containers set `PGSSLMODE=verify-full` and read `ca.crt` of `cmapi-db-ca` through the `trust` volume. A `ca.crt` that CNPG
+renews reaches running pods through that volume, with no restart; `checksum/config` does not read it.
 
 `environments/crc/`: `oc apply --server-side --field-manager=cmapi-wave1 -f environment/` applies its top-level files. Never
 `-R`: `reader/` and `realm/` are applied by name, in the steps of `docs/13-crc-deployment.md`. Their files are outside what

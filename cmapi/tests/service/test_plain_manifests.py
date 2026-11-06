@@ -79,7 +79,8 @@ def test_both_workloads_migrate_first_trusting_what_the_main_container_trusts(na
     assert init["command"] == ["cmapi-migrate", "head"]
     e = env(init)
     assert e["SSL_CERT_FILE"]["value"] == TRUST
-    assert "PGSSLROOTCERT" not in e, "with CNPG's URI and a bundle without its CA, libpq falls back to plaintext (measured)"
+    # With CNPG's URI and a bundle without its CA, sslmode=prefer falls back to plaintext (measured), so this never names the bundle.
+    assert e["PGSSLROOTCERT"]["value"] != TRUST and e["PGSSLMODE"]["value"] == "verify-full"
     assert {"name": "trust", "mountPath": "/etc/cmapi/ca", "readOnly": True} in init["volumeMounts"]
     main = spec["containers"][0]
     assert {"name": "trust", "mountPath": "/etc/cmapi/ca", "readOnly": True} in main["volumeMounts"]
