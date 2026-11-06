@@ -17,12 +17,12 @@ Verdict from both: do not apply this to the shared cluster until H1 and H2 are f
 
 ## Still to do on this PR
 
-1. Apply the rulings. New commits only.
+1. Apply the rulings. New commits only. **Remove `opus/patches/` in the commit that applies them,** so patch files do not reach `main` looking like pending work; git history and `opus/answer.md` keep the record. None of the nine was applied at `8fe5408` (`git apply --check --reverse` on each).
 2. Run the whole `deploy/kind-test.sh` on a real `cmapi-test` cluster to exit 0, with the image built from the branch. It has never exited 0 on record, and the patched script has only run on stubs. Record `keycloak-0`'s restart count before and after.
 3. Run `codex/review-tests/` and `opus/tests/` against the fixed tree. Where a Codex test expects Codex's exact form and not the behaviour (ruling 3), say so; do not bend the code to it.
 4. CI green on that exact head, all five jobs.
 5. Cross-check: Codex on the applied Opus fixes and the checksum, a separate Opus reviewer on the rest. With Fable paused, Codex is the one outside family.
-6. Merge, then add `manifests` to the required checks.
+6. Merge, then add `manifests` to the required checks. GitHub already shows this PR as mergeable (`CLEAN`), because branch protection requires CI and not a review. The review gate is held by these steps alone, so do not merge on GitHub's word.
 
 ## Refusals, recorded
 

@@ -12,8 +12,9 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 |---|---|
 | Merged to `main` | PR #40, merge commit `1f30ab1` |
 | In progress | PR #89 (`manifests-plain-yaml`, #88). Reviewed by Opus and Codex: **not safe to apply until its fixes land.** Rulings decided, fixes not applied. See `docs/reviews/2026-11-05-pr89/README.md` |
-| On CRC | No cmapi workload. Namespace `cmapi` holds only Secret `cmapi-ldap-bind`. LDAP holds the bind user and the `cmapi-*` groups |
-| Next action | Apply the rulings on PR #89: steps in `docs/reviews/2026-11-05-pr89/README.md` |
+| On CRC | No cmapi workload. Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the `cmapi-*` groups |
+| Next action | Apply the rulings on PR #89: steps in `docs/reviews/2026-11-05-pr89/README.md`. Patches 01 to 07, then 09, not 08. Remove the patches folder in that commit |
+| Running | Nothing: no agents, kind clusters or Codex processes. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
@@ -33,7 +34,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 | What | State | Proof so far |
 |---|---|---|
-| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, PR #89) | Review done, **fixes to apply**: API port open to every namespace; a failed Secret read treated as absent; `kind-test.sh`, `render.sh` and guide defects | kind: CNPG 1.30.1 healthy, api and worker Ready, `/readyz` 200, ten secrets cases pass in a separate run; `kind-test.sh` as a whole has never exited 0 on record. CI run 42130344182 on `e8afca9`: all five jobs |
+| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, PR #89) | Review done, **fixes to apply**: API port open to every namespace; a failed Secret read treated as absent; `kind-test.sh`, `render.sh` and guide defects | kind: CNPG 1.30.1 healthy, api and worker Ready, `/readyz` 200, ten secrets cases pass in a separate run; `kind-test.sh` as a whole has never exited 0 on record. CI run 42138478365 on `8fe5408`: all five jobs, **on the code with its defects**, so green is not ready. GitHub shows it mergeable because protection requires CI, not a review |
 | Deployment design: one merged design with rulings | Goes in with PR #89 | kind: Argo CD 3.5.6, three accident tests, no namespace lost. `docs/reviews/2026-11-05-deployment-design.md` |
 
 ## Remaining, in waves
@@ -76,6 +77,8 @@ Draft issues #6 to #29 are the product backlog and are not edited here.
 | Argo CD's cluster-wide read of ConfigMaps | 535 on CRC, mostly other projects' | Wave 2 tests narrowing |
 | Network policies break DNS on podman kind | Measured, cause unknown. The test deletes the policy on podman kind only; it ships unchanged | Hosted runner and CRC decide |
 | Memory on CRC | Requests 15,525 Mi of 19,543 Mi. The plan adds 832 Mi with Argo CD | Stop if headroom is under 2 GiB |
+| PR #89 can be merged by mistake | GitHub shows it as `CLEAN` with its defects still on the branch: protection requires CI, not a review | Hold it to the review record's steps |
+| Remote MacBook | The owner mentioned one. Which machine it is and its purpose are unconfirmed. Tailscale lists `olasumbos-macbook-pro` | Ask before connecting or planning around it |
 | CI floats on upstream schema URLs | kubeconform's schema URLs track `master` and `main` | To pin |
 
 ## Open bugs

@@ -24,7 +24,9 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 
 - `main` is at the PR #40 merge, `1f30ab1`, unless a later row of the tracker says otherwise.
 - PR #89 (`manifests-plain-yaml`, `Closes #88`): **not safe to apply yet and not merged.** Opus and Codex both reviewed it at `d21599a`. The owner stopped work after the rulings were decided and before any fix was applied, so every defect is still on the branch. Findings, patches, tests, rulings and the remaining steps are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Start there.
-- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. All agents were stopped and no kind cluster was left running.
+- **CI being green on #89 does not mean it is ready.** CI passed on `8fe5408` (run 42138478365, all five jobs), and GitHub shows the PR as mergeable, because branch protection requires CI and not a review. Those runs test the defects as they stand. Do not merge until the review record's steps are done.
+- **The nine files in `docs/reviews/2026-11-05-pr89/opus/patches/` are proposals, none applied** (checked with `git apply --check --reverse`). Apply 01 to 07, then 09, and not 08, whose content is already in the tracker. Remove that folder in the same commit. `main` holds no patch files and neither checkout has a stash.
+- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. No agent, kind cluster or Codex process was left running; `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at the stop.
 - **Open question for the owner:** they mentioned a remote MacBook whose address I could not find. Tailscale lists `olasumbos-macbook-pro`, unconfirmed. Ask which machine it is and what it is for (kind and test work, or the CRC target) before planning around it. Do not connect until they confirm.
 
 ## Resume
@@ -85,7 +87,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 | Wave 3 | Create the GitHub App from the manifest flow, and install it on `cluster-configs-nonprod` only |
 | Wave 4 | Make each GHCR package public, after its first push |
 | Wave 8 | Decide #35 and #36 (LDAP) |
-| Optional | `~/.claude/tools/sweep-stale.py --sweep`, for a stale Codex broker; it was refused for the coordinator |
+| Next session | Answer the remote MacBook question above |
 
 ## Environment facts
 
