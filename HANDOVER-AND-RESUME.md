@@ -27,7 +27,7 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 - **CI being green on #89 does not mean it is ready.** CI passed on `8fe5408` (run 42138478365, all five jobs), and GitHub shows the PR as mergeable, because branch protection requires CI and not a review. Those runs test the defects as they stand. Do not merge until the review record's steps are done.
 - **The nine files in `docs/reviews/2026-11-05-pr89/opus/patches/` are proposals, none applied** (checked with `git apply --check --reverse`). Apply 01 to 07, then 09, and not 08, whose content is already in the tracker. Remove that folder in the same commit. `main` holds no patch files and neither checkout has a stash.
 - No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. No agent, kind cluster or Codex process was left running; `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at the stop.
-- **CRC runs on this Mac,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
+- **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
 
 ## Resume
 
@@ -93,7 +93,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 - CRC: OpenShift 4.22.14, Kubernetes 1.35.6. Node requests 15,525 Mi of 19,543 Mi allocatable. 277 listable kinds.
 - Keycloak: namespace `keycloak`, RHBK 26.6.7, `KeycloakRealmImport` is `k8s.keycloak.org/v2beta1`. LDAP: namespace `ldap-testing`, base `dc=ephico2real,dc=com`.
 - Internal registry route: `default-route-openshift-image-registry.apps-crc.testing`.
-- Mac: 32 GiB, podman machine at 8 GiB, Docker off. `cmapi-test-pg` on port 55432 is the service tests' database.
+- Mac: hostname `olas-MacBook-Pro.local`, 32 GiB, podman machine at 8 GiB, Docker off. `cmapi-test-pg` on port 55432 is the service tests' database.
 - zsh does not split words, and `echo ===` fails there. Use bash for scripts.
 
 ## Not proven anywhere yet
