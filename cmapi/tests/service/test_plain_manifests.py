@@ -178,3 +178,166 @@ def test_the_database_keeps_itself_and_names_no_storage_class():
 
 def test_nothing_here_is_kind_only_or_a_secret():
     assert not [d["metadata"]["name"] for d in docs() if d["kind"] in ("Secret", "Namespace")]
+
+
+# ---------------------------------------------------------------- environments/crc (Wave 1)
+CRC = ROOT / "deploy/manifests/environments/crc"
+
+
+def crc_docs(pattern="**/*.yaml"):
+    for f in sorted(CRC.glob(pattern)):
+        for d in yaml.safe_load_all(f.read_text()):
+            if d:
+                yield d
+
+
+def crc(kind, name):
+    return next(d for d in crc_docs() if d["kind"] == kind and d["metadata"]["name"] == name)
+
+
+def config_file(env, name):
+    root = ROOT / "deploy/manifests/environments" / env / "20-config.yaml"
+    return next(yaml.safe_load_all(root.read_text()))["data"][name]
+
+
+def test_crc_has_exactly_one_more_image_placeholder_and_it_is_the_realm_sync():
+    """Ruling: a Job on this image is a decision. components stays at four (test_every_image_is_the_placeholder_or_a_known_digest); CRC adds the realm sync, nothing else."""
+    found = [(d["kind"], d["metadata"]["name"]) for d in crc_docs() for image in images(d) if image == PLACEHOLDER]
+    assert found == [("Job", "cmapi-realm-sync")]
+    assert [i for d in crc_docs() for i in images(d) if i != PLACEHOLDER] == []
+
+
+@pytest.mark.parametrize("name", ["approval-rules.yaml", "authz-roles.yaml", "tiers.yaml", "expiration.yaml", "metadata-keys.yaml", "capacity.yaml"])
+def test_crc_policy_files_are_the_kind_files(name):
+    assert config_file("crc", name) == config_file("kind", name)
+
+
+def test_crc_nothing_can_write_or_reach_a_git_host_in_wave_1():
+    """No GitHub until Wave 3 and no Argo CD until Wave 5: delivery stays argocd, so the worker never writes to a cluster, the one cluster refuses writes, and the Git URL cannot resolve."""
+    integrations = yaml.safe_load(config_file("crc", "integrations.yaml"))
+    clusters = yaml.safe_load(config_file("crc", "clusters.yaml"))["clusters"]
+    assert integrations["delivery"]["mode"] == "argocd"
+    assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is False and "delivery" not in clusters["CRC"]
+    env = crc("ConfigMap", "cmapi-env")["data"]
+    assert env["CMAPI_GIT_PROVIDER"] == "github", "settings.py's default is the provider that is leaving"
+    assert env["CMAPI_GIT_URL"].endswith(".invalid"), "RFC 6761: it can never resolve"
+    text = "\n".join(p.read_text() for p in CRC.rglob("*.yaml")).lower()
+    assert "gitea" not in text and "cmapi-git" not in text
+
+
+def test_crc_pods_reach_keycloak_by_its_service_and_tokens_carry_the_route():
+    env = crc("ConfigMap", "cmapi-env")["data"]
+    assert env["CMAPI_OIDC_JWKS_URL"] == "https://keycloak-service.keycloak.svc:8443/realms/cmapi/protocol/openid-connect/certs"
+    assert env["CMAPI_KEYCLOAK_ADMIN_URL"] == "https://keycloak-service.keycloak.svc:8443"
+    assert yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["auth"]["issuer"] == "https://keycloak.apps-crc.testing/realms/cmapi"
+
+
+def test_crc_routes():
+    """kubeconform skips Route: the pinned CRDs catalog has no schema for it (404, measured). So its shape is held here."""
+    routes = {d["metadata"]["name"]: d["spec"] for d in crc_docs() if d["kind"] == "Route"}
+    assert set(routes) == {"cmapi-api", "cmapi-mockup"}, "no portal Route: the portal does not run on the API yet"
+    for name, spec in routes.items():
+        assert set(spec) == {"host", "to", "port", "tls"}
+        assert spec["host"] == f"{name}.apps-crc.testing"
+        assert spec["to"] == {"kind": "Service", "name": name}
+        assert spec["port"] == {"targetPort": "http"}, "never the metrics port"
+        assert spec["tls"] == {"termination": "edge", "insecureEdgeTerminationPolicy": "Redirect"}
+
+
+def test_crc_redirect_uri_is_the_docs_route():
+    realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
+    docs_client = next(c for c in realm["clients"] if c["clientId"] == "cmapi-docs")
+    host = crc("Route", "cmapi-api")["spec"]["host"]
+    assert docs_client["redirectUris"] == [f"https://{host}/docs/oauth2-redirect"]
+    assert yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["publicUrl"] == f"https://{host}"
+
+
+def test_crc_realm_import_names_cmapi_and_holds_no_secret():
+    kri = crc("KeycloakRealmImport", "cmapi")
+    assert (kri["metadata"]["name"], kri["metadata"]["namespace"]) == ("cmapi", "keycloak")
+    spec = kri["spec"]
+    assert spec["keycloakCRName"] == "keycloak" and spec["realm"]["realm"] == "cmapi" and "id" not in spec["realm"]
+    # Without this the operator asks for 1700Mi (Utils.addResources), which with cmapi's 576 Mi is under the stop line.
+    assert spec["resources"] == {"requests": {"cpu": "100m", "memory": "768Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}}
+    assert {p["secret"]["name"] for p in spec["placeholders"].values()} == {"cmapi-realm-secrets"}
+    confidential = [c for c in spec["realm"]["clients"] if "secret" in c]
+    assert confidential and all(c["secret"] == "${%s}" % next(k for k in spec["placeholders"] if k in c["secret"]) for c in confidential)
+    assert len(list(yaml.safe_load_all((CRC / "realm/10-realm-import.yaml").read_text()))) == 1
+
+
+def test_crc_realm_sync_is_one_try_and_requires_the_federation():
+    job = crc("Job", "cmapi-realm-sync")["spec"]
+    assert job["backoffLimit"] == 0 and job["template"]["spec"]["restartPolicy"] == "Never", "no retries against a Keycloak that is down"
+    assert job["activeDeadlineSeconds"] <= 600
+    container = job["template"]["spec"]["containers"][0]
+    e = env(container)
+    assert e["CMAPI_REALM_ADMIN_URL"]["value"].startswith("https://keycloak-service.keycloak.svc")
+    ldap = __import__("json").loads(e["CMAPI_REALM_LDAP"]["value"])
+    assert ldap["requireSync"] is True and ldap["groupsFilter"] == "(cn=cmapi-*)" and ldap["connectionUrl"].startswith("ldaps://")
+
+
+def test_crc_reader_reads_only_what_the_code_reads():
+    from_code = {"namespaces", "resourcequotas", "limitranges", "pods", "persistentvolumeclaims"}
+    rules = crc("ClusterRole", "cmapi-reader")["rules"]
+    assert {r for rule in rules for r in rule["resources"]} == from_code
+    assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules) and all(rule["apiGroups"] == [""] for rule in rules)
+    token = crc("Secret", "cmapi-reader-token")
+    assert "data" not in token and "stringData" not in token, "the controller fills it; no value in Git"
+    assert token["type"] == "kubernetes.io/service-account-token"
+
+
+def test_crc_trust_holds_certificates_only():
+    data = crc("ConfigMap", "cmapi-trust")["data"]["ca-bundle.crt"]
+    assert "PRIVATE KEY" not in data and data.count("BEGIN CERTIFICATE") >= 1
+    assert "kind stand-in" not in (CRC / "30-trust.yaml").read_text()
+
+
+def test_crc_monitoring_selects_the_services_and_the_policy_lets_it_in():
+    services = {d["metadata"]["name"]: d for d in docs() if d["kind"] == "Service"}
+    for c in ("api", "worker"):
+        sm = crc("ServiceMonitor", f"cmapi-{c}")["spec"]
+        svc = services[f"cmapi-{c}"]
+        assert sm["selector"]["matchLabels"].items() <= svc["metadata"]["labels"].items()
+        assert sm["endpoints"][0]["port"] in {p["name"] for p in svc["spec"]["ports"]}
+        assert "bearerTokenSecret" not in sm["endpoints"][0] and "authorization" not in sm["endpoints"][0]
+    policy = next(d for d in docs() if d["kind"] == "NetworkPolicy")
+    metrics = next(r for r in policy["spec"]["ingress"] if any(p["port"] == 9090 for p in r["ports"]))
+    assert metrics["from"] == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-user-workload-monitoring"}}}]
+
+
+def test_crc_memory_requests_are_the_planned_576_mi():
+    """docs/13's arithmetic: the stop line is 2 GiB of request headroom. A request raised here must change the plan with it."""
+    def mi(q):
+        return int(q[:-2]) * (1024 if q.endswith("Gi") else 1)
+    total = 0
+    for d in docs():
+        if d["kind"] == "Deployment":
+            spec = d["spec"]["template"]["spec"]
+            main = sum(mi(c["resources"]["requests"]["memory"]) for c in spec["containers"])
+            init = max([mi(c["resources"]["requests"]["memory"]) for c in spec.get("initContainers", [])] or [0])
+            total += max(main, init)                       # Kubernetes' effective request for a pod
+        if d["kind"] == "Cluster":
+            total += mi(d["spec"]["resources"]["requests"]["memory"])
+    assert total == 576
+
+
+def test_crc_routes_name_a_port_their_service_has():
+    """kubeconform skips Route, and a Route whose targetPort the Service does not name answers 503 with every pod healthy."""
+    services = {d["metadata"]["name"]: d for d in docs() if d["kind"] == "Service"}
+    for d in crc_docs():
+        if d["kind"] == "Route":
+            assert d["spec"]["port"]["targetPort"] in {p["name"] for p in services[d["spec"]["to"]["name"]]["spec"]["ports"]}
+
+
+def test_crc_realm_sync_runs_on_an_account_and_secrets_that_exist():
+    """A Job with a name that resolves to nothing would sit Pending, and only on CRC."""
+    spec = crc("Job", "cmapi-realm-sync")["spec"]["template"]["spec"]
+    accounts = {d["metadata"]["name"] for d in docs() if d["kind"] == "ServiceAccount"}
+    assert spec["serviceAccountName"] in accounts
+    container = spec["containers"][0]
+    secrets = {s["secretRef"]["name"] for s in container["envFrom"]} | {e["valueFrom"]["secretKeyRef"]["name"] for e in container["env"] if "valueFrom" in e}
+    assert secrets == {"cmapi-test-users", "cmapi-ldap-bind", "cmapi-keycloak"}
+    written = (ROOT / "deploy/secrets.sh").read_text()
+    assert all(name in written for name in secrets)
+    assert container["command"] == ["cmapi-tools", "realm-sync"]
+    assert 'cmapi-tools = "cmapi.tools:run"' in (ROOT / "cmapi/pyproject.toml").read_text()

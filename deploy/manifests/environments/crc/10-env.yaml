@@ -1,0 +1,18 @@
+# Environment variables the components read through envFrom on CRC. Wave 1 has no Git host: GitHub arrives in Wave 3. The code
+# needs a provider kind to start (settings.py defaults to one that is leaving, so it is named here) and a URL; .invalid never
+# resolves (RFC 6761), so nothing can leave for a Git host. clusters.yaml has writes: false, so a request stops at 422 first.
+# The pods reach Keycloak through its Service: its certificate names keycloak-service.keycloak.svc. Tokens still carry the
+# public issuer, in cmapi-config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-env
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+data:
+  CMAPI_GIT_PROVIDER: github
+  CMAPI_GIT_URL: https://git-not-configured.invalid
+  CMAPI_GIT_DEFAULT_BRANCH: main
+  CMAPI_LOG_LEVEL: INFO
+  CMAPI_OIDC_JWKS_URL: https://keycloak-service.keycloak.svc:8443/realms/cmapi/protocol/openid-connect/certs
+  CMAPI_KEYCLOAK_ADMIN_URL: https://keycloak-service.keycloak.svc:8443

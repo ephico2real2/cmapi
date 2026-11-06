@@ -1,0 +1,27 @@
+# Edge: the router terminates TLS with the cluster's ingress certificate and speaks HTTP to the pod, which serves no TLS.
+# Redirect: plain HTTP on 80 goes to HTTPS, so a token is never sent in the clear. spec.host is explicit because the realm's
+# redirect URI and instance.yaml's publicUrl name it. targetPort http only: the metrics port is not reachable through a Route.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: cmapi-api
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  host: cmapi-api.apps-crc.testing
+  to: {kind: Service, name: cmapi-api}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
+---
+# The standalone mockup: a static page with no API behind it, not the portal, and not evidence that the application works.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: cmapi-mockup
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  host: cmapi-mockup.apps-crc.testing
+  to: {kind: Service, name: cmapi-mockup}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
