@@ -31,9 +31,10 @@ MARK = ["--label", LABEL]
 W = tempfile.mkdtemp(prefix="realm-test.")
 def cleanup():
     # Only what this test labelled: a container with one of these names and no label is somebody else's, and `run` below stops on it.
-    # One at a time, newest first as ps lists them: the database owns the network the others join, and goes last.
-    for i in sh(C, "ps", "-a", "-q", "--filter", f"label={LABEL}").stdout.split():
-        sh(C, "rm", "-f", i)
+    # One at a time, in rounds: the database owns the network the others join, so it refuses to go first, and ps's order differs between runtimes (podman lists it first, measured).
+    for _ in range(3):
+        for i in sh(C, "ps", "-a", "-q", "--filter", f"label={LABEL}").stdout.split():
+            sh(C, "rm", "-f", i)
 try:
     cleanup()
     # One network namespace, as a pod is: the database owns it, and only Keycloak's port is published, to 127.0.0.1.

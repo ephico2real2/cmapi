@@ -188,6 +188,7 @@ def cases(guard):
     def imp(text):
         open(f, "w").write(text); return run(guard, "check-import", f).returncode
     yield "the import file passes", imp(IMPORT_OK) == 0
+    yield "the file that ships passes", run(guard, "check-import", os.path.join(HERE, "..", "manifests", "environments", "crc", "realm", "10-realm-import.yaml")).returncode == 0
     for label, text in (("realm corp", IMPORT_OK.replace("    realm: cmapi", "    realm: corp")), ("name corp", IMPORT_OK.replace("  name: cmapi", "  name: corp")),
                         ("another namespace", IMPORT_OK.replace("namespace: keycloak", "namespace: inkcast")), ("another Keycloak CR", IMPORT_OK.replace("keycloakCRName: keycloak", "keycloakCRName: other")),
                         ("a second document", IMPORT_OK + "---\napiVersion: v1\nkind: Secret\n"), ("an id of another realm", IMPORT_OK.replace("    enabled: true", "    id: corp\n    enabled: true")),
