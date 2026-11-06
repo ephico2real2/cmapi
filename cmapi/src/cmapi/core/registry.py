@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+import re
 import tempfile
 import threading
 import time
@@ -39,6 +40,7 @@ READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 INSECURE_ALLOWED = {"rnd"}
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "environment-not-served")
+PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
 @dataclass
@@ -138,6 +140,15 @@ class HubImportSource(ImportSource):
         return [_secret(s) for s in r.json().get("items", [])]
 
 
+def _valid_ca_data(ca_data: str) -> bool:
+    """Each PEM block by itself: a service account's ca.crt is usually a bundle, and base64 padding may end any block, so the blocks joined are not base64 even when each one is."""
+    bodies = PEM_CERTIFICATE.findall(ca_data) or ["".join(l for l in ca_data.splitlines() if not l.startswith("-----"))]
+    try:
+        return all(base64.b64decode("".join(b.split()), validate=True) for b in bodies)
+    except (binascii.Error, ValueError):
+        return False
+
+
 def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
     meta = doc.get("metadata", {})
     data = {k: base64.b64decode(v).decode() for k, v in (doc.get("data") or {}).items()}
@@ -190,13 +201,8 @@ class ClusterRegistry:
         ca_data = d.get("caData")
         if insecure and ca_data:
             findings.append("insecure with caData")
-        if ca_data:
-            try:
-                der = base64.b64decode("".join(l for l in ca_data.splitlines() if not l.startswith("-----")), validate=True)
-                if not der:
-                    raise ValueError
-            except (binascii.Error, ValueError):
-                findings.append("invalid caData")
+        if ca_data and not _valid_ca_data(ca_data):
+            findings.append("invalid caData")
         # 3. TLS mode
         env = st.policy.environment if st.policy else None
         if insecure and env not in INSECURE_ALLOWED:
