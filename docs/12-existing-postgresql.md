@@ -90,30 +90,50 @@ applying section 3's Opaque Secret over it fails (`type: field is immutable`), a
 back at once; deleting the `Cluster` garbage-collects it, and removes the PVC too (measured, CNPG 1.30.1 on kind). So prove
 the copy first, with the workloads at 0, and only then delete the `Cluster` and create the Secret.
 
+Where Argo CD syncs cmapi, turn its automated sync off first and put it back at the end: the Deployments say `replicas: 1`,
+and self-heal undoes a hand edit (measured at 40 s on an image, the deployment design, D3), so the workloads would come back
+during the dump. The block below stops if they did.
+
 ```bash
-( set -eu   # a subshell: set -e in a terminal's own shell would close it on the first failure
+( set -euo pipefail   # a subshell: set -e in a terminal's own shell would close it on the first failure
   oc -n cmapi scale deploy cmapi-api cmapi-worker --replicas=0
+  # scale returns at once, and a worker finishes the job in hand for up to 60 s: what it writes after the dump's snapshot is lost.
+  oc -n cmapi wait --for=delete pod -l 'app.kubernetes.io/component in (api,worker)' --timeout=120s
   # On the pod's socket only the database user postgres may connect (peer, CNPG's ident map); -U cmapi is refused there.
   oc -n cmapi exec cmapi-db-1 -c postgres -- pg_dump -Fc -U postgres cmapi > cmapi.dump
   test -s cmapi.dump
-  # ca-bundle.crt is the server's CA on this machine: verify-full with no root certificate is an error. pg_restore must be
-  # 17 or later (CNPG's pg_dump is 17; a 16 client refuses the archive: "unsupported version (1.16) in file header").
+  # ca-bundle.crt is the server's CA on this machine: verify-full with no root certificate is an error. pg_restore and psql must
+  # be 17 or later (CNPG's pg_dump is 17; a 16 client refuses the archive: "unsupported version (1.16) in file header").
   export PGSSLROOTCERT=$PWD/ca-bundle.crt
   TARGET="postgresql://cmapi@db.example.internal:5432/cmapi?sslmode=verify-full"
-  pg_restore -d "$TARGET" --no-owner --role=cmapi cmapi.dump
+  # All or nothing, on 16 and 17, through psql and not pg_restore -d. pg_restore 17 always opens with SET transaction_timeout,
+  # which PostgreSQL 16 does not have (measured): plain pg_restore -d restores everything and then exits 1, which stops this
+  # block, and pg_restore --single-transaction fails on it before the first object. The awk removes that one line, the first
+  # match only, so table data cannot be touched. A failed restore leaves the target as it was, so it can simply be run again.
+  pg_restore -f - --no-owner --role=cmapi cmapi.dump \
+    | LC_ALL=C awk '!done && $0 == "SET transaction_timeout = 0;" { done = 1; next } { print }' \
+    | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -d "$TARGET" -f - >/dev/null
   # These two counts must match. Keep cmapi.dump: the next step destroys the source.
-  oc -n cmapi exec cmapi-db-1 -c postgres -- psql -U postgres -d cmapi -Atc 'select count(*) from change_requests'
-  psql "$TARGET" -Atc 'select count(*) from change_requests'
+  source_rows=$(oc -n cmapi exec cmapi-db-1 -c postgres -- psql -U postgres -d cmapi -Atc 'select count(*) from change_requests')
+  target_rows=$(psql "$TARGET" -Atc 'select count(*) from change_requests')
+  echo "change_requests: source $source_rows, target $target_rows"
+  [ "$source_rows" = "$target_rows" ]
+  # And nothing came back while it ran, or the dump is not the last word.
+  [ -z "$(oc -n cmapi get pod -l 'app.kubernetes.io/component in (api,worker)' -o name)" ]
 )
 ```
 
 Then, in this order: take `components/database-cnpg/` out of what is applied (the `Cluster` carries
 `Prune=false,Delete=false`, so removing its file from Git does not delete it, and leaving the file in would recreate it);
-`oc -n cmapi delete cluster cmapi-db`; create the Secret (section 3, step 3); scale back up; confirm `/readyz` is 200.
+`oc -n cmapi delete cluster cmapi-db`; create the Secret (section 3, step 3); scale back up, or turn Argo CD's automated sync
+back on; confirm `/readyz` is 200.
 
 ## 6. Not measured
 
 Run against a PostgreSQL 16 with TLS in a container (sections 2 and 3: the real migrator, `verify-full`, a wrong CA and a
-wrong name refused, `pg_stat_ssl` true) and against CNPG 1.30.1 on kind (section 5's dump and the Secret's ownership). No
+wrong name refused, `pg_stat_ssl` true) and against CNPG 1.30.1 on kind (section 5's dump and the Secret's ownership).
+Section 5's restore ran from the CNPG image's pg_restore and psql 17.11, without TLS, on the real migrations' schema and on
+PostgreSQL 16.15 and 17.11 targets: a complete copy, and a failure on the last table leaving the target as it was. Not run:
+that restore of a dump from a real CNPG cluster, or Argo CD's automated sync being turned off around it. No
 run against a real external server on a cluster exists yet: the first site that does one records `pg_stat_ssl`, the
 migration time and the connection count here.
