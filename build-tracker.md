@@ -11,9 +11,9 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40, PR #89 (plain YAML), PR #95 (Wave 1 design), PR #98 (Wave 1's code and review fixes), PR #111 (`LOCAL-DEV-TRUST.md`), PR #114 (`fix-defect` skill); `main` at `5dfdea3` |
-| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112 (#110, #109, #115, #116, #117, #118), draft, branch `ldap-rbac-names`: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Codex reviewed it. Reviewer 2's eleven patches are saved, unvalidated, in `docs/reviews/2026-11-06-pr112/`. CI red at `44083ff` |
+| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112, draft, branch `ldap-rbac-names`: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Codex reviewed it. Reviewer 2's eleven patches are saved, unvalidated, in `docs/reviews/2026-11-06-pr112/`. CI red at `44083ff` |
 | On CRC | No cmapi workload, and realm `cmapi` does not exist (`/realms/cmapi` 404, read 2026-11-06). Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the old `cmapi-*` groups, which #110 replaces |
-| Next action | Validate those patches per `fix-defect` step 4, get #118 diagnosed and fixed, apply, CI green on the exact head, merge (the owner authorized merging once clear). Then ask the owner's go-ahead for the first CRC run. One agent at a time |
+| Next action | Finish the proofs listed in `docs/reviews/2026-11-06-pr112/README.md` and validate those patches per `fix-defect` step 4, get #118 diagnosed and fixed, apply, CI green on the exact head, merge (the owner authorized merging once clear). Then ask the owner's go-ahead for the first CRC run. One agent at a time |
 | Running | Nothing should be, after the session cleared: check. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
@@ -90,4 +90,4 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 ## Open bugs
 
-**Open under PR #112:** #115, #116, #117, #118, #110, #109. **Parked until Wave 1 is on CRC, to save tokens:** #87 (committed, unreviewed, branch `fix-pr-status-check-runs`), #91 (unfinished and unproven, branch `fix-cnpg-verify-full`). #97 a private-CA-only bundle fails GitHub TLS. #113 merge authority, closes with PR #112. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.
+**Open under PR #112:** #115, #116, #117, #118, #119, #120, #121, #122, #123, #124, #125, #126, #110, #109. **Parked until Wave 1 is on CRC, to save tokens:** #87 (committed, unreviewed, branch `fix-pr-status-check-runs`), #91 (unfinished and unproven, branch `fix-cnpg-verify-full`). #97 a private-CA-only bundle fails GitHub TLS. #113 merge authority, closes with PR #112. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.
