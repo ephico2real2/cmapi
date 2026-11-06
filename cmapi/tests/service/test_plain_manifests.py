@@ -54,8 +54,12 @@ def test_api_port_is_not_open_to_every_namespace():
     policy = next(d for d in docs() if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "cmapi-metrics")
     api = next(r for r in policy["spec"]["ingress"] if any(p["port"] == 8080 for p in r["ports"]))
     assert api.get("from"), "a rule with no from: any pod on the shared cluster reaches 8080"
-    labels = [p.get("namespaceSelector", {}).get("matchLabels", {}) for p in api["from"]]
-    assert {"network.openshift.io/policy-group": "ingress"} in labels, "the router's namespace"
+    # Whole, not "the router's label is among them": an added peer with an empty namespaceSelector would match every namespace
+    # and still hold that label's peer.
+    assert api["from"] == [
+        {"namespaceSelector": {"matchLabels": {"policy-group.network.openshift.io/ingress": ""}}},
+        {"podSelector": {}},
+    ]
 
 
 @pytest.mark.parametrize("name", ["cmapi-api", "cmapi-worker"])

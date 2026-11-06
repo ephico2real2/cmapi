@@ -17,12 +17,15 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: openshift-user-workload-monitoring}
       ports:
         - {port: 9090, protocol: TCP}
-    # OpenShift's router namespace carries policy-group: ingress; the second peer is this namespace. A rule with no from
-    # would open 8080 to every pod of every project on a shared cluster. On a cluster with no such label only this
-    # namespace matches, and kubectl port-forward does not pass through the policy.
+    # OpenShift's router namespace carries policy-group.network.openshift.io/ingress, the label its documentation prefers; the
+    # older network.openshift.io/policy-group is the one it calls legacy. CRC's openshift-ingress carries both (oc get ns, measured).
+    # The second peer is this namespace. A rule with no from would open 8080 to every pod of every project on a shared cluster.
+    # On a cluster with no such label only this namespace matches, and kubectl port-forward does not pass through the policy.
+    # A router on the host network is not this namespace's pod: from its own node the traffic is always allowed (CRC has one
+    # node); from another node it would need a peer for policy-group.network.openshift.io/host-network as well.
     - from:
         - namespaceSelector:
-            matchLabels: {network.openshift.io/policy-group: ingress}
+            matchLabels: {policy-group.network.openshift.io/ingress: ""}
         - podSelector: {}
       ports:
         - {port: 8080, protocol: TCP}
