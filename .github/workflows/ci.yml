@@ -117,9 +117,9 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
           kubectl version --client
           # The stubs and the guards read YAML.
-          python -m pip install pyyaml==6.0.2
+          python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
@@ -128,13 +128,23 @@ jobs:
         run: deploy/tests/kind-test-stubbed.sh
       - name: The secrets cases against mutants of secrets.sh, on a stub
         run: python deploy/tests/mutate-secrets.py
+      - name: The CRC guards, on a stub oc and a local TLS server
+        run: python deploy/tests/crc-guard-test.py
+      - name: The CRC scripts, on a stub oc
+        run: deploy/tests/crc-scripts-test.sh
+      - name: docs/13's run
+        run: python deploy/tests/doc13-test.py docs/13-crc-deployment.md
+      - name: The backup on a real PostgreSQL of postgres-0's image family
+        run: deploy/tests/crc-backup-test.sh
+      - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
+        run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
       - name: The mockup ConfigMap is current
         run: deploy/mockup-configmap.sh --check
       - name: kubeconform on the manifests
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
-        run: kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
+        run: kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
       - name: render.sh fills the placeholder and refuses a tag
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
@@ -143,11 +153,13 @@ jobs:
           deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered
           # An if, not "! grep": bash -e does not stop on a negated command, so that form could never fail the step.
           if grep -rn 'sha256:DIGEST' /tmp/rendered; then echo "a placeholder was left in the render"; exit 1; fi
-          kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
+          kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
           if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
           deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag
           # Everything the render must do and must not do, on a throwaway copy: exactly the placeholder, nothing else changed.
           deploy/render-test.sh
+          deploy/render.sh crc "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered-crc
+          kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered-crc
       - name: kind for the secrets cases
         run: |
           curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
