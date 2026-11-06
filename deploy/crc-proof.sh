@@ -59,7 +59,11 @@ oc_ run np-probe -n "$probe_ns" --image="$image_probe" --restart=Never --command
 oc_ wait pod/np-probe -n "$probe_ns" --for=condition=Ready --timeout=120s >/dev/null || fail "the probe pod did not start"
 # The control first: the mockup is in the same namespace and no policy selects it, so this path must work, or "blocked" below would prove nothing.
 oc_ exec np-probe -n "$probe_ns" -- wget -q -O /dev/null --timeout=5 http://cmapi-mockup.cmapi.svc:8080/portal.html >/dev/null 2>&1 || fail "the probe cannot reach the unselected mockup: the check below would prove nothing"
-if oc_ exec np-probe -n "$probe_ns" -- wget -q -O /dev/null --timeout=5 http://cmapi-api.cmapi.svc:8080/readyz 2>/dev/null; then fail "another namespace reaches 8080: the policy is not enforced"; fi
+# Failing is not being blocked: a dropped connection is this image's "download timed out", and a bad address, a refused connection or oc exec itself failing each say something else (measured, BusyBox 1.37).
+if blocked=$(oc_ exec np-probe -n "$probe_ns" -- wget -q -O /dev/null --timeout=5 http://cmapi-api.cmapi.svc:8080/readyz 2>&1 >/dev/null); then fail "another namespace reaches 8080: the policy is not enforced"; fi
+case "$blocked" in *"wget: download timed out"*) ;; *) fail "the probe of the api failed, but not by a dropped connection, so this says nothing about the policy: ${blocked:0:200}";; esac
+# A server that accepts and then hangs times out the same way (measured), so the api must answer the router right after that timeout.
+[ "$(c -o /dev/null -w '%{http_code}' "$API/readyz")" = 200 ] || fail "the api does not answer the router after the probe: the timeout may be the api's, not the policy's"
 say "another namespace's pod reaches the mockup and is blocked from the api (the policy is enforced on OVN-Kubernetes)"
 cleanup_probe; trap - EXIT
 

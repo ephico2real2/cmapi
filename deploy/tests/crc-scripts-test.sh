@@ -46,7 +46,7 @@ pod=lambda n,c:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},
 print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]}))'; exit 0;;
   "get networkpolicy cmapi-metrics"*) printf '2026-11-06T09:00:00Z'; exit 0;;
   "exec np-probe"*"cmapi-mockup"*) exit "${STUB_CONTROL_RC:-0}";;
-  "exec np-probe"*"cmapi-api"*) exit "${STUB_BLOCK_RC:-1}";;
+  "exec np-probe"*"cmapi-api"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
   "get secret cmapi-test-users"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
@@ -73,7 +73,7 @@ if [ -n "${STUB_PROOF:-}" ]; then
   url=; code=; for a in "$@"; do case "$a" in http*) url=$a;; esac; done; case "$*" in *-w*) wants=1;; *) wants=;; esac
   [ ! -p /dev/stdin ] || cat >/dev/null
   case "$url" in
-    */readyz) code=${STUB_READYZ:-200}; case "$url" in http://*) code=302;; esac;;
+    */readyz) code=${STUB_READYZ:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_READYZ_AFTER:-$code}; case "$url" in http://*) code=302;; esac;;
     */api/v1/version) printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0;;
     */metrics) code=${STUB_METRICS:-404};;
     */api/v1/me) case "$*" in *--config*) printf '{"username":"bot-user","roles":["cmapi-onboarding"]}'; exit 0;; *) code=401;; esac;;
@@ -168,7 +168,7 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
 no_secret "$W/out" "proof"
-pstop() { local label=$1; shift; local got; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
+pstop() { local label=$1; shift; local got; rm -f "$ARGV_LOG.probed"; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
 pstop "a pod under another SCC" STUB_SCC=anyuid
 pstop "a restart" STUB_RESTARTS=1
 pstop "another image running" STUB_IMAGE_ID=sha256:bbbb
@@ -178,6 +178,12 @@ pstop "another commit" STUB_COMMIT=other
 pstop "/metrics on the Route" STUB_METRICS=200
 pstop "the probe reaching the api: the policy not enforced" STUB_BLOCK_RC=0
 pstop "the control failing: the block would prove nothing" STUB_CONTROL_RC=1
+pstop "the api's name not resolving: broken, not blocked" "STUB_BLOCK_ERR=wget: bad address 'cmapi-api.cmapi.svc:8080'"
+pstop "a refused connection: broken, not blocked" "STUB_BLOCK_ERR=wget: can't connect to remote host (10.0.0.1): Connection refused"
+pstop "the api answering 503: not blocked" "STUB_BLOCK_ERR=wget: server returned error: HTTP/1.0 503 down"
+pstop "oc exec failing: nothing was probed" "STUB_BLOCK_ERR=Error from server: error dialing backend: EOF"
+pstop "no reason at all" STUB_BLOCK_ERR=
+pstop "a timeout from an api that then does not answer the router" STUB_READYZ_AFTER=503
 pstop "a worker that may write" STUB_WRITER=yes
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
 pstop "a plan that passes" STUB_PLAN=200
