@@ -1,0 +1,67 @@
+--- a/deploy/manifests/components/cmapi/20-api.yaml
++++ b/deploy/manifests/components/cmapi/20-api.yaml
+@@ -37,8 +37,9 @@
+       initContainers:
+         # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+         # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job. It waits
+-        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet, and trusts the same bundle as
+-        # the main container, so an external TLS database verifies at the first migration.
++        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet. An external TLS database verifies
++        # through sslrootcert in its URI, as the main container does. No PGSSLROOTCERT here: with CNPG's URI (no sslmode) and
++        # a bundle without CNPG's CA, libpq's verification fails and sslmode=prefer retries in plaintext (measured).
+         - name: migrate
+           image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
+           imagePullPolicy: IfNotPresent
+@@ -46,7 +47,6 @@
+           env:
+             - name: CMAPI_DATABASE_URL
+               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+-            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+             - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+           securityContext:
+             allowPrivilegeEscalation: false
+--- a/deploy/manifests/components/cmapi/30-worker.yaml
++++ b/deploy/manifests/components/cmapi/30-worker.yaml
+@@ -34,8 +34,9 @@
+       initContainers:
+         # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
+         # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job. It waits
+-        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet, and trusts the same bundle as
+-        # the main container, so an external TLS database verifies at the first migration.
++        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet. An external TLS database verifies
++        # through sslrootcert in its URI, as the main container does. No PGSSLROOTCERT here: with CNPG's URI (no sslmode) and
++        # a bundle without CNPG's CA, libpq's verification fails and sslmode=prefer retries in plaintext (measured).
+         - name: migrate
+           image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
+           imagePullPolicy: IfNotPresent
+@@ -43,7 +44,6 @@
+           env:
+             - name: CMAPI_DATABASE_URL
+               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+-            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
+             - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
+           securityContext:
+             allowPrivilegeEscalation: false
+--- a/docs/12-existing-postgresql.md
++++ b/docs/12-existing-postgresql.md
+@@ -14,7 +14,7 @@
+ | Version | PostgreSQL 16 or 17 | `cmapi/tests/service` runs on 16; CNPG ships 17 (`ghcr.io/cloudnative-pg/postgresql:17`) |
+ | Database | `cmapi`, owned by a role `cmapi` that is **not** a superuser | `bootstrap.initdb` in the CNPG `Cluster`; the migrations create every table |
+ | Connections | each api or worker pod holds a pool of **5 plus 5 overflow**; the migrate initContainer one more while it runs | `core/db/__init__.py` (`pool_size=5, max_overflow=5`) |
+-| TLS | `sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt` in the URI, against the server's CA in ConfigMap `cmapi-trust` | The URI is what both containers share: `PGSSLROOTCERT` is on the initContainer only, so a URI without `sslrootcert` migrates and then every main container fails with `root certificate file ... does not exist` (measured) |
++| TLS | `sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt` in the URI, against the server's CA in ConfigMap `cmapi-trust` | The URI is the one place: neither container sets `PGSSLROOTCERT`, so a URI without `sslrootcert` fails at the first migration with `root certificate file ... does not exist` (measured) |
+ | An advisory lock | `pg_advisory_lock(727364)` serialises migrators; `lock_timeout` 30 s (`CMAPI_MIGRATE_LOCK_TIMEOUT`) bounds each DDL wait | `core/db/migrations/env.py` |
+ | Time to come up | the migrate initContainer waits up to 540 s (`CMAPI_MIGRATE_WAIT_SECONDS`) for a server that is not listening | `core/db/migrate.py` |
+ 
+--- a/cmapi/tests/service/test_plain_manifests.py
++++ b/cmapi/tests/service/test_plain_manifests.py
+@@ -47,7 +47,8 @@
+     init = spec["initContainers"][0]
+     assert init["command"] == ["cmapi-migrate", "head"]
+     e = env(init)
+-    assert e["PGSSLROOTCERT"]["value"] == TRUST and e["SSL_CERT_FILE"]["value"] == TRUST
++    assert e["SSL_CERT_FILE"]["value"] == TRUST
++    assert "PGSSLROOTCERT" not in e, "with CNPG's URI and a bundle without its CA, libpq falls back to plaintext (measured)"
+     assert {"name": "trust", "mountPath": "/etc/cmapi/ca", "readOnly": True} in init["volumeMounts"]
+     main = spec["containers"][0]
+     assert {"name": "trust", "mountPath": "/etc/cmapi/ca", "readOnly": True} in main["volumeMounts"]

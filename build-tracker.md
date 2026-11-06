@@ -11,7 +11,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40, merge commit `1f30ab1` |
-| In progress | PR #89 (`manifests-plain-yaml`, #88), CI green on `e8afca9`, adversarial review not yet done |
+| In progress | PR #89 (`manifests-plain-yaml`, #88). Reviewed by Opus and Codex: **not safe to apply until its fixes land.** Rulings decided, fixes not applied. See `docs/reviews/2026-11-05-pr89/README.md` |
 | On CRC | No cmapi workload. Namespace `cmapi` holds only Secret `cmapi-ldap-bind`. LDAP holds the bind user and the `cmapi-*` groups |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
@@ -32,7 +32,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 | What | State | Proof so far |
 |---|---|---|
-| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, PR #89) | Awaiting review | kind: CNPG 1.30.1 healthy, api and worker Ready, `/readyz` 200, ten secrets cases pass. CI run 42130344182 on `e8afca9`: all five jobs |
+| Plain YAML, `render.sh`, `secrets.sh`, `kind-test.sh`, existing-PostgreSQL guide, `manifests` CI job (#88, PR #89) | Review done, **fixes to apply**: API port open to every namespace; a failed Secret read treated as absent; `kind-test.sh`, `render.sh` and guide defects | kind: CNPG 1.30.1 healthy, api and worker Ready, `/readyz` 200, ten secrets cases pass in a separate run; `kind-test.sh` as a whole has never exited 0 on record. CI run 42130344182 on `e8afca9`: all five jobs |
 | Deployment design: one merged design with rulings | Goes in with PR #89 | kind: Argo CD 3.5.6, three accident tests, no namespace lost. `docs/reviews/2026-11-05-deployment-design.md` |
 
 ## Remaining, in waves
@@ -42,8 +42,8 @@ needs 3, Wave 5 needs 2 to 4, and Waves 6 and 7 need 5.
 
 | Wave | Work | Issues | Owner step | State |
 |---|---|---|---|---|
-| 0 | Plain YAML merged | #88 | None | In review |
-| 1 | **Interim deployment on CRC:** `oc apply`, image in CRC's internal registry by digest, realm import, reader baseline, Routes, screenshots. No real namespace request yet | To file | None | Next |
+| 0 | Plain YAML merged | #88, #90 | None | Fixes to apply |
+| 1 | **Interim deployment on CRC:** `oc apply`, image in CRC's internal registry by digest, realm import, reader baseline, Routes, screenshots. No real namespace request yet. Also: `secrets.sh` checks `GET <issuer>` so it cannot mint values behind a kept realm; `cmapi-imports` namespace; the two Keycloak URLs | To file | None | Next |
 | 2 | Argo CD on kind: bootstrap, narrowed role, policies, approver. Per-namespace ApplicationSet, `Delete=confirm`, `core/sync.py`, `watch_sync`, `docs/01`. Tests `e5`, approver, and `scale` before the layout merges | #65, #64 | None | Pending |
 | 3 | GitHub adapter, App auth, `pr_status`, config repo checks, a real PR on `cluster-configs-nonprod`. Gitea removed | #87, #60, #61, #59 | Create and install the GitHub App | Pending |
 | 4 | End-to-end CI on kind; release to GHCR with attestation, `deployed/crc`, rollback. Charts removed, each test mapped to its YAML replacement | #85 | Make each GHCR package public | Pending |

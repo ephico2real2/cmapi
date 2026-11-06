@@ -12,8 +12,9 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 ## Where it stopped
 
 - `main` is at the PR #40 merge, `1f30ab1`, unless a later row of the tracker says otherwise.
-- PR #89 (`manifests-plain-yaml`, `Closes #88`): CI green on `e8afca9`, adversarial review not done when this was written.
-- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`.
+- PR #89 (`manifests-plain-yaml`, `Closes #88`): **not safe to apply yet and not merged.** Opus and Codex both reviewed it at `d21599a`. The owner stopped work after the rulings were decided and before any fix was applied, so every defect is still on the branch. Findings, patches, tests, rulings and the remaining steps are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Start there.
+- No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. All agents were stopped and no kind cluster was left running.
+- **Open question for the owner:** they mentioned a remote MacBook whose address I could not find. Tailscale lists `olasumbos-macbook-pro`, unconfirmed. Ask which machine it is and what it is for (kind and test work, or the CRC target) before planning around it. Do not connect until they confirm.
 
 ## Resume
 
@@ -28,7 +29,7 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
    KIND_EXPERIMENTAL_PROVIDER=podman kind get clusters
    ```
 2. Find the first row of `build-tracker.md` not marked done, and carry on from it through the delivery loop in `CLAUDE.md`.
-3. In the present order: finish review and merge #89, add `manifests` to the required checks, then Wave 1 on CRC, then the remaining waves.
+3. In the present order: apply the rulings on #89 and finish the steps in its review record, merge, add `manifests` to the required checks, then Wave 1 on CRC, then the remaining waves.
 
 ## Who does what
 
