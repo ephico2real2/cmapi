@@ -3,8 +3,9 @@
 # Creates the cluster (KIND_EXPERIMENTAL_PROVIDER=podman, kind v0.33.0, node image v1.35.8 by digest), installs the
 # CloudNativePG operator 1.30.1, loads the image (default localhost/cmapi:dev, built from this tree), applies
 # environments/kind, writes the Secrets, renders components with the image and applies them, then checks: api and worker
-# Ready, /readyz 200, /api/v1/version naming the built commit, and the secrets cases. Every kubectl call carries an
-# explicit --kubeconfig (KIND_TEST_KUBECONFIG, default ./.cmapi-test.kubeconfig, git-ignored). KIND_TEST_KEEP=true keeps
+# Ready, the migrate container's environment reaching the database over TLS, /readyz 200, /api/v1/version naming the built
+# commit, no restart after the rollout, a changed cmapi-env restarting the api and the worker, and the secrets cases. Every
+# kubectl call carries an explicit --kubeconfig (KIND_TEST_KUBECONFIG, default ./.cmapi-test.kubeconfig, git-ignored). KIND_TEST_KEEP=true keeps
 # the cluster; otherwise it is deleted by name at the end. Prints what it measured; exits non-zero on the first failure.
 set -euo pipefail
 IMAGE=${1:-localhost/cmapi:dev}
@@ -18,7 +19,9 @@ t0=$(date +%s); say() { echo "[$(( $(date +%s) - t0 ))s] $*"; }
 k() { kubectl --kubeconfig="$KC" "$@"; }
 # Only a cluster this run created: "kind create" fails when the name is taken, and that cluster is somebody else's.
 created=false
-finish() { rc=$?; if [ "$created" = true ] && [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; rm -f "$KC"; fi; exit $rc; }
+# A port-forward left behind holds its port and would answer a later run's curl from this run's cluster.
+PF=
+finish() { rc=$?; [ -z "$PF" ] || kill "$PF" 2>/dev/null || true; [ -z "${T:-}" ] || rm -rf "$T"; if [ "$created" = true ] && [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; rm -f "$KC"; fi; exit $rc; }
 trap finish EXIT
 
 say "kind create cluster cmapi-test ($NODE_IMAGE)"
@@ -80,17 +83,36 @@ k -n cmapi rollout status deploy/cmapi-worker --timeout=300s
 k -n cmapi rollout status deploy/cmapi-mockup --timeout=180s
 say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount --no-headers | tr '\n' ';')"
 
+say "what the migrate container's environment gets from the database"
+# libpq falls back to plaintext without a word when PGSSLROOTCERT names a bundle that does not cover the server, so this is
+# measured, not assumed: a pod made from the api Deployment's own migrate initContainer, its environment and mounts untouched,
+# connecting as cmapi-migrate connects. Its labels put it under the same NetworkPolicy and in no Service.
+SSL_CHECK='import os
+from sqlalchemy import create_engine, pool
+from cmapi.core.db import sqlalchemy_url
+with create_engine(sqlalchemy_url(os.environ["CMAPI_DATABASE_URL"]), poolclass=pool.NullPool).connect() as c:
+    print("pg_stat_ssl", *c.exec_driver_sql("select ssl, version from pg_stat_ssl where pid = pg_backend_pid()").one())'
+k -n cmapi get deploy cmapi-api -o json | python3 -c 'import json,sys
+spec=json.load(sys.stdin)["spec"]["template"]["spec"]
+c=spec["initContainers"][0]; c.update(name="pg-ssl-check", command=["python3","-c",sys.argv[1]])
+print(json.dumps({"apiVersion":"v1","kind":"Pod","metadata":{"name":"pg-ssl-check","namespace":"cmapi","labels":{"app.kubernetes.io/component":"api"}},
+  "spec":{"restartPolicy":"Never","serviceAccountName":spec["serviceAccountName"],"securityContext":spec["securityContext"],"volumes":spec["volumes"],"containers":[c]}}))' "$SSL_CHECK" | k apply -f - >/dev/null
+k -n cmapi wait pod/pg-ssl-check --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s >/dev/null || { k -n cmapi logs pg-ssl-check --tail=3 >&2 || true; echo "ERROR: the pg_stat_ssl check did not finish" >&2; exit 1; }
+ssl_line=$(k -n cmapi logs pg-ssl-check); say "measured, with the migrate container's env: $ssl_line"
+k -n cmapi delete pod pg-ssl-check >/dev/null
+case "$ssl_line" in "pg_stat_ssl True "*) ;; *) echo "ERROR: the migrate container's environment does not reach the database over TLS: $ssl_line" >&2; exit 1;; esac
+
 say "/readyz and /api/v1/version through a port-forward"
 # kubectl itself, not k: a function in the background is a subshell, so kill $! would leave kubectl holding the port, and
 # a later run's curl would read that old cluster. A port-forward that died (port taken) is a failure, not a read of whatever listens.
 kubectl --kubeconfig="$KC" -n cmapi port-forward svc/cmapi-api 18080:8080 >/dev/null 2>&1 & PF=$!; sleep 3
 kill -0 "$PF" 2>/dev/null || { echo "ERROR: the port-forward to cmapi-api died (port 18080 taken?)" >&2; exit 1; }
-READY=$(curl -s -o "$T/readyz" -w '%{http_code}' http://127.0.0.1:18080/readyz); echo "readyz: $READY $(cat "$T/readyz")"
-VERSION=$(curl -s http://127.0.0.1:18080/api/v1/version); echo "version: $VERSION"
-kill $PF 2>/dev/null || true
+READY=$(curl -s -m 10 -o "$T/readyz" -w '%{http_code}' http://127.0.0.1:18080/readyz); echo "readyz: $READY $(cat "$T/readyz")"
+VERSION=$(curl -s -m 10 http://127.0.0.1:18080/api/v1/version); echo "version: $VERSION"
+kill "$PF" 2>/dev/null || true
 kubectl --kubeconfig="$KC" -n cmapi port-forward svc/cmapi-mockup 18081:8080 >/dev/null 2>&1 & PF=$!; sleep 2
 kill -0 "$PF" 2>/dev/null || { echo "ERROR: the port-forward to cmapi-mockup died (port 18081 taken?)" >&2; exit 1; }
-MOCK=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/portal.html); echo "mockup: $MOCK"; kill $PF 2>/dev/null || true
+MOCK=$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/portal.html); echo "mockup: $MOCK"; kill "$PF" 2>/dev/null || true; PF=
 [ "$READY" = 200 ] || { echo "ERROR: /readyz is $READY" >&2; exit 1; }
 # The running process must name the commit the image says it was built from; that it differs from the tree's HEAD is only a note.
 BUILT=$(podman image inspect "$IMAGE" --format '{{index .Labels "org.opencontainers.image.revision"}}')
@@ -103,6 +125,27 @@ EXPECT=$(git -C "$HERE/.." rev-parse --short=10 HEAD 2>/dev/null || echo unknown
 sleep 15
 restarts=$(k -n cmapi get pods -o jsonpath='{range .items[*]}{.metadata.name}={.status.containerStatuses[0].restartCount} {end}')
 case " $restarts" in *=[1-9]*) echo "ERROR: a container restarted after its rollout: $restarts" >&2; exit 1;; esac
+
+say "a changed cmapi-env restarts the api and the worker: render again, apply both"
+before=$(k -n cmapi get pods -l 'app.kubernetes.io/component in (api,worker)' -o name | tr '\n' ' ')
+[ -n "$before" ] || { echo "ERROR: no api or worker pod to replace" >&2; exit 1; }
+C=$T/changed; mkdir -p "$C"; cp "$HERE/render.sh" "$C/"; cp -R "$HERE/manifests" "$C/"
+sed -i.bak 's/^  CMAPI_LOG_LEVEL: INFO$/  CMAPI_LOG_LEVEL: DEBUG/' "$C/manifests/environments/kind/10-env.yaml"; rm -f "$C/manifests/environments/kind/10-env.yaml.bak"
+"$C/render.sh" kind "$IMAGE" "$C/out" --allow-tag >/dev/null
+# Applied with everything else, the policy this run deleted would bring the same DNS failure back to the new pods.
+[ "$dns_fail" != true ] || rm -f "$C/out/components/cmapi/40-networkpolicy.yaml"
+k apply -f "$C/out/environment/" >/dev/null
+k apply --server-side -R -f "$C/out/components" >/dev/null
+k -n cmapi rollout status deploy/cmapi-api --timeout=300s >/dev/null
+k -n cmapi rollout status deploy/cmapi-worker --timeout=300s >/dev/null
+# shellcheck disable=SC2086  # one argument per pod
+k -n cmapi wait --for=delete $before --timeout=180s >/dev/null || { echo "ERROR: the pods from before the change are still there: $before" >&2; exit 1; }
+for c in api worker; do
+  pod=$(k -n cmapi get pod -l "app.kubernetes.io/component=$c" -o jsonpath='{.items[0].metadata.name}')
+  level=$(k -n cmapi exec "$pod" -c "$c" -- printenv CMAPI_LOG_LEVEL)
+  [ "$level" = DEBUG ] || { echo "ERROR: $pod reads CMAPI_LOG_LEVEL=$level after the change" >&2; exit 1; }
+done
+say "replaced: $before; the new pods read CMAPI_LOG_LEVEL=DEBUG"
 
 say "secrets cases"
 "$HERE/secrets-test.sh" "kubectl --kubeconfig=$KC"

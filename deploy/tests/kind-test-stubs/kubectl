@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Stub of kubectl for deploy/kind-test.sh. KT_* in the environment pick the scenario. Every call goes to $KT_LOG.
+echo "kubectl $*" >>"$KT_LOG"
+a=" $* "
+case "$a" in
+  *" config current-context "*) echo kind-cmapi-test;;
+  *" get nodes "*) echo "cmapi-test-control-plane v1.35.8";;
+  *" get cluster cmapi-db "*) echo "Cluster in healthy state";;
+  *" rollout status deploy/cmapi-api --timeout=60s "*) if [ "${KT_API_SLOW:-false}" = true ]; then exit 1; fi;;
+  *" rollout status deploy/cmapi-api --timeout=600s "*) if [ "${KT_API_NEVER:-false}" = true ]; then exit 1; fi;;
+  *" get deploy cmapi-api -o json "*) echo '{"spec":{"template":{"spec":{"serviceAccountName":"cmapi-api","securityContext":{},"volumes":[],"initContainers":[{"name":"migrate"}]}}}}';;
+  *" wait pod/pg-ssl-check "*) exit "${KT_SSL_WAIT_RC:-0}";;
+  *" logs pg-ssl-check "*) echo "${KT_SSL-pg_stat_ssl True TLSv1.3}";;
+  *" get pods -l "*) echo pod/cmapi-api-1; echo pod/cmapi-worker-1;;
+  *" wait --for=delete "*) exit "${KT_NOT_REPLACED_RC:-0}";;
+  *" get pod -l app.kubernetes.io/component=api "*) printf cmapi-api-1;;
+  *" get pod -l app.kubernetes.io/component=worker "*) printf cmapi-worker-1;;
+  *" get pod -l app.kubernetes.io/component=mockup "*) printf cmapi-mockup-1;;
+  *" exec cmapi-api-1 -c migrate "*) if [ -n "${KT_PROBE:-}" ]; then echo "$KT_PROBE"; exit 1; fi;;
+  *" logs cmapi-api-1 -c migrate --previous "*) echo "${KT_PREVIOUS:-}";;
+  *" exec cmapi-api-1 -c api "*|*" exec cmapi-worker-1 -c worker "*) echo "${KT_LEVEL-DEBUG}";;
+  *" exec cmapi-mockup-1 "*) exit "${KT_MOCK_RC:-0}";;
+  *" get pods -o custom-columns"*) echo "cmapi-worker-1 true ${KT_WORKER_RESTARTS:-0};";;
+  *" get pods -o jsonpath"*) echo "cmapi-api-1=0 cmapi-worker-1=${KT_WORKER_RESTARTS:-0} cmapi-mockup-1=0";;
+  *" port-forward "*) if [ "${KT_PF_DIE:-false}" = true ]; then exit 1; fi; exec sleep "$KT_PF_SLEEP";;
+  *" delete networkpolicy "*) echo "POLICY-DELETED" >>"$KT_LOG";;
+  *" apply "*)
+    case "$a" in *" -f - "*) cat >/dev/null;; esac
+    for x in "$@"; do case "$x" in */changed/out/components) if [ -e "$x/cmapi/40-networkpolicy.yaml" ]; then echo "POLICY-REAPPLIED" >>"$KT_LOG"; fi;; esac; done;;
+esac
+exit 0

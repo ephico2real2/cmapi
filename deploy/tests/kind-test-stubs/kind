@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+echo "kind $*" >>"$KT_LOG"
+case "$1" in
+  create) if [ "${KT_CLUSTER_EXISTS:-false}" = true ]; then echo 'ERROR: failed to create cluster: node(s) already exist for a cluster with the name "cmapi-test"' >&2; exit 1; fi;;
+esac
+exit 0
