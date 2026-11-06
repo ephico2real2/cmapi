@@ -1,0 +1,8 @@
+# deploy/tests/crc-guard-test.py --no-mutants under this Mac's python3 (Python 3.14.7), which is what runs the guard on the real run. CI uses 3.12. Head d54caa0a78.
+guard cases failed: 0, mutants survived: 0
+
+# the same with the X509-strict clearing removed from a copy of the guard: this Python refuses a chain with no Authority Key Identifier, as the real CA has none (openssl x509 -ext authorityKeyIdentifier prints nothing for it)
+  FAIL issuer: Keycloak's 404 is absent
+  FAIL issuer: a 200 with the realm is present
+  FAIL snapshot succeeds
+guard cases failed: 3, mutants survived: 0

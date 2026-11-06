@@ -1,0 +1,163 @@
+$ python deploy/tests/crc-guard-test.py
+head 9e7a64b0f1
+Traceback (most recent call last):
+  File "<tmp> line 385, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "<tmp> line 368, in main
+    return watch(a.log, a.stop_file, a.baseline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 237, in watch
+    s = realm_state(r, timeout=3)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 94, in realm_state
+    status, body = http_get(f"{KEYCLOAK}/realms/{name}", timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 85, in http_get
+    return r.status, r.read()
+                     ^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 510, in read
+    s = self._safe_read(self.length)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 671, in _safe_read
+    raise IncompleteRead(data, amt - len(data))
+http.client.IncompleteRead: IncompleteRead(1 bytes read, 999 more expected)
+Traceback (most recent call last):
+  File "<tmp> line 385, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "<tmp> line 368, in main
+    return watch(a.log, a.stop_file, a.baseline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 237, in watch
+    s = realm_state(r, timeout=3)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 94, in realm_state
+    status, body = http_get(f"{KEYCLOAK}/realms/{name}", timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<tmp> line 84, in http_get
+    with urllib.request.urlopen(url, timeout=timeout, context=tls()) as r:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 215, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 515, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 532, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 492, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 1392, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py", line 1348, in do_open
+    r = h.getresponse()
+        ^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 1478, in getresponse
+    response.begin()
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 343, in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 325, in _read_status
+    raise BadStatusLine(line)
+http.client.BadStatusLine: not http
+
+STOP: the guard could not check: KeyError: 'uid'
+  ok   issuer: Keycloak's 404 is absent
+  ok   issuer: a 200 with the realm is present
+  ok   issuer: a router's 503 is neither
+  ok   issuer: a router's 404 is neither
+  ok   issuer: a JSON 404 that is not Keycloak's is neither
+  ok   issuer: a 200 for another realm is neither
+  ok   issuer: a certificate from another CA is neither
+  ok   no CA named: it stops, TLS is never off
+  ok   issuer: nothing listening is neither
+  ok   issuer: an answer cut short is neither, with no traceback
+  ok   issuer: an answer that is not HTTP is neither, with no traceback
+  ok   issuer: JSON that is not an object is neither, with no traceback
+  ok   snapshot succeeds
+  ok   snapshot names every realm
+  ok   snapshot holds no key material, only its hash
+  ok   two snapshots compare equal
+  ok   compare stops on a realm's public key
+  ok   compare stops on a realm's status
+  ok   compare stops on a realm gone
+  ok   compare stops on an import's uid
+  ok   compare stops on an import's creationTimestamp
+  ok   compare stops on an import's Done
+  ok   compare stops on an import gone
+  ok   compare stops on keycloak-0's uid
+  ok   compare stops on keycloak-0's start
+  ok   compare stops on keycloak-0's restart count
+  ok   compare stops on postgres-0's restart count
+  ok   compare stops on the Keycloak CR's generation
+  ok   our own import is not a difference
+  ok   headroom 4018 with 768 passes
+  ok   headroom: exactly the stop line passes
+  ok   headroom: one over stops
+  ok   headroom under 2 GiB stops with nothing needed
+  ok   preflight passes
+  ok   preflight stops on a kind cluster
+  ok   preflight stops on another cluster
+  ok   preflight passes for the principal kube:admin
+  ok   preflight passes for the principal kubeadmin
+  ok   preflight stops on another user
+  ok   preflight stops on a developer
+  ok   preflight stops on another context's user
+  ok   preflight stops on another cluster's context
+  ok   preflight stops on a context on another server
+  ok   preflight stops when kind cannot be run, with a reason
+  ok   preflight stops when oc cannot be run, with a reason
+  ok   preflight stops on an unready Keycloak
+  ok   the import file passes
+  ok   the import file stops on realm corp
+  ok   the import file stops on name corp
+  ok   the import file stops on another namespace
+  ok   the import file stops on another Keycloak CR
+  ok   the import file stops on a second document
+  ok   the import file stops on an id of another realm
+  ok   the import file stops on two realm lines
+  ok   the watch stays quiet when all is well
+  ok   the watch's lines are timestamped
+  ok   a realm's 503 stops the run
+  ok   still down at the bound: report to the owner
+  ok   an answer cut short stops the run, and the watch lives
+  ok   an answer that is not HTTP stops the run, and the watch lives
+  ok   an unreadable keycloak-0 stops the run, and the watch lives
+  ok   a changed key stops the run
+  ok   a restart stops the run
+  ok   gate: stopped
+  ok   gate: open
+  ok   not started by the deadline: withdrawn, by name only
+  ok   the run stopped, not started: withdrawn
+  ok   running too long: reported, never interrupted
+  ok   failed: withdrawn, so the Job does not try again
+  ok   Done and the realm answers: passes, deletes nothing
+  ok   Done, but the watch stopped the run while it ran: stops, deletes nothing
+  ok   Done but no realm: stops
+  killed   any 404 is absent (issuer: a JSON 404 that is not Keycloak's is neither)
+  killed   the snapshot leaves out keycloak-0's restarts (snapshot succeeds)
+  killed   the snapshot drops the keys (compare stops on a realm's public key)
+  killed   compare never differs (compare stops on a realm's public key)
+  killed   the stop line moves (headroom: one over stops)
+  killed   no kind check (preflight stops on a kind cluster)
+  killed   no server check (preflight stops on another cluster)
+  killed   no context check (preflight stops on another context's user)
+  killed   no principal check (preflight stops on another user)
+  killed   an answer cut short ends the watch (issuer: an answer cut short is neither, with no traceback)
+  killed   an unreadable pod ends the watch (an unreadable keycloak-0 stops the run, and the watch lives)
+  killed   a breach during the import does not stop the run (Done, but the watch stopped the run while it ran: stops, deletes nothing)
+  killed   the realm name is not checked (the import file stops on two realm lines)
+  killed   a second document is allowed (the import file stops on a second document)
+  killed   the watch ignores a restart (a restart stops the run)
+  killed   the watch never reports (still down at the bound: report to the owner)
+  killed   the watch does not stop the run (a realm's 503 stops the run)
+  killed   a pending import is left to fire (not started by the deadline: withdrawn, by name only)
+  killed   withdrawal deletes every import (not started by the deadline: withdrawn, by name only)
+  killed   a running import is killed (running too long: reported, never interrupted)
+  killed   verification off (issuer: a certificate from another CA is neither)
+guard cases failed: 0, mutants survived: 0
+rc=0

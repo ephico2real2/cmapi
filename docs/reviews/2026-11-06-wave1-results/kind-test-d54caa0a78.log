@@ -1,0 +1,109 @@
+$ KIND_TEST_KUBECONFIG=<scratch> KIND_TEST_KEEP=true deploy/kind-test.sh localhost/cmapi:w1-d54caa0a78
+tree head: d54caa0a78; image revision label: d54caa0a78; started 2026-11-06T10:50:13Z
+using podman due to KIND_EXPERIMENTAL_PROVIDER
+enabling experimental podman provider
+No kind clusters found.
+[0s] kind create cluster cmapi-test (kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0)
+using podman due to KIND_EXPERIMENTAL_PROVIDER
+enabling experimental podman provider
+Creating cluster "cmapi-test" ...
+ • Ensuring node image (kindest/node:v1.35.8) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.35.8) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 2m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 2m0s for control-plane = Ready ⏳
+ • Ready after 15s 💚
+Set kubectl context to "kind-cmapi-test"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-cmapi-test --kubeconfig /private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/aa3f1eb5-68be-4391-a918-9de29dd6cd7d/scratchpad/cmapi-test.kubeconfig
+
+Have a nice day! 👋
+[52s] node: cmapi-test-control-plane v1.35.8
+[52s] CloudNativePG operator 1.30.1
+[70s] cnpg operator ready
+[70s] load image localhost/cmapi:w1-d54caa0a78 (podman save, then kind load image-archive: the podman provider's reliable path)
+using podman due to KIND_EXPERIMENTAL_PROVIDER
+enabling experimental podman provider
+[135s] environments/kind applied
+wrote Secret cmapi-imports/cmapi-realm-secrets
+wrote Secret cmapi/cmapi-keycloak
+wrote Secret cmapi/cmapi-keys
+note    : localhost/cmapi:w1-d54caa0a78 is not a GHCR digest; accepted because of --allow-tag (a kind test, never a deployment)
+rendered: /var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/tmp.9cWzQbawOg/rendered for kind with localhost/cmapi:w1-d54caa0a78
+[138s] components applied (server-side)
+[138s] waiting for the database
+[221s] cmapi-db: Cluster in healthy state
+[221s] waiting for api and worker (60 s, then a DNS probe from the migrate container)
+[302s] MEASURED: the migrate container (selected by the ingress-only NetworkPolicy cmapi-metrics) cannot resolve cmapi-db-rw while the mockup pod (not selected) can: the podman-kind DNS failure under a NetworkPolicy. Deleting the policy for this test only; it ships, and the hosted runner and CRC decide
+deployment "cmapi-api" successfully rolled out
+deployment "cmapi-worker" successfully rolled out
+deployment "cmapi-mockup" successfully rolled out
+[369s] ready: cmapi-api-855fdfcfd4-x55gs     true   0;cmapi-db-1                     true   0;cmapi-mockup-864587966-h57hl   true   0;cmapi-worker-878fb857d-m7hf8   true   0;
+[369s] what the migrate container's environment gets from the database
+[374s] measured, with the migrate container's env: pg_stat_ssl True TLSv1.3
+[374s] /readyz and /api/v1/version through a port-forward
+readyz: 200 {"status":"ok","database":"ok","schema":"ok"}
+version: {"version":"0.2.0","commit":"d54caa0a78","component":"api"}
+mockup: 200
+[395s] a changed cmapi-env restarts the api and the worker: render again, apply both
+[410s] replaced: pod/cmapi-api-855fdfcfd4-x55gs pod/cmapi-worker-878fb857d-m7hf8 ; the new pods read CMAPI_LOG_LEVEL=DEBUG
+[410s] secrets cases
+  ok   0a an empty app Secret stops: rc=1 ERROR: Secret sect1/cmapi-github-app exists but lacks appId; it is never replaced automatically: fix or delete it by hand
+  ok   0b a failed late read stops: rc=1 Error from server (InternalError): an error on the server
+  ok   0c an empty cmapi-keys stops: rc=1 ERROR: Secret sect1/cmapi-keys exists but lacks cursorKey; it is never replaced automatically: fix or delete it by hand
+  ok   0d a missing cmapi-ldap-bind stops: rc=1 ERROR: Secret sect1/cmapi-ldap-bind is missing; the owner creates it (docs/11), this script never does
+  ok   0e a key file others can read stops: rc=2 ERROR: /var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/tmp.tVDTtZgm0k/key0 is mode 644; make it 0600
+  ok   0f a key file with no ids stops: rc=2 ERROR: --github-app-key needs --github-app-id and --github-installation-id
+  ok   1 fresh: rc=0 wrote Secret sect1/cmapi-keys
+  ok   2 second run: rc=0 cmapi-keys: present, kept
+  ok   2a a failed read of cmapi-keys stops: rc=1 Error from server (InternalError): an error on the server
+  ok   2g a read that is already stale stops at the write: rc=1 Error from server (AlreadyExists): error when creating "STDIN": secrets "cmapi-keys" already exists
+  ok   2b failed reads of the realm's Secrets stop: rc=1 Error from server (InternalError): an error on the server
+  ok   2c realm copy deleted, copied from ours: rc=0 cmapi-keys: present, kept
+  ok   2d partial namespace copy stops: rc=1 ERROR: partial namespace copy, missing directoryClientSecret. A realm keeps the values it first imported, so nothing is generated. Fix it by
+  ok   2e ours restored from the realm: rc=0 cmapi-keys: present, kept
+  ok   2f partial cmapi-keys stops: rc=1 ERROR: Secret sect1/cmapi-keys exists but lacks cursorKey; it is never replaced automatically: fix or delete it by hand
+  ok   3 ours deleted, copied from the realm: rc=0 wrote Secret sect1/cmapi-keys
+  ok   4 partial realm copy stops: rc=1 ERROR: partial realm copy, missing CMAPI_DIRECTORY_SECRET. A realm keeps the values it first imported, so nothing is generated. Fix it by ha
+  ok   5 partial realm copy, ours gone, stops: rc=1 ERROR: partial realm copy, missing CMAPI_DIRECTORY_SECRET. A realm keeps the values it first imported, so nothing is generated. Fix it by ha
+  ok   5a the second write fails: rc=1 Error from server (InternalError): the write failed
+  ok   5b the next run copies the realm's: rc=0 cmapi-keys: present, kept
+  ok   6 all gone, no realm import: generates: rc=0 cmapi-keys: present, kept
+  ok   7 copies differ, stops: rc=1 ERROR: copies differ on automationClientSecret. A realm keeps the values it first imported, so nothing is generated. Fix it by hand from the
+  ok   7a an empty realm copy stops: rc=1 ERROR: partial realm copy, missing CMAPI_REALM_ADMIN_SECRET,CMAPI_DIRECTORY_SECRET,CMAPI_SVC_PAYMENTS_CI_SECRET,CMAPI_AUTOMATION_SECRET. A r
+  ok   7b an empty namespace copy stops: rc=1 ERROR: partial namespace copy, missing realmAdminClientSecret,directoryClientSecret,svcPaymentsCiSecret,automationClientSecret. A realm keep
+  ok   8 realm import exists, both copies gone: stops: rc=1 ERROR: KeycloakRealmImport cmapi exists in sect2 and both Secrets are gone. New values would not match the realm. Read the clients' secrets 
+  ok   8a a failed read of the import stops, it is not 'no import': rc=1 ERROR: cannot tell whether KeycloakRealmImport cmapi exists in sect2: Error from server (InternalError): an error on the server
+  ok   9a ldap-bind missing stops: rc=1 ERROR: Secret sect1/cmapi-ldap-bind is missing; the owner creates it (docs/11), this script never does
+  ok   9b ldap-bind lacking a key stops: rc=1 ERROR: Secret sect2/cmapi-ldap-bind lacks password
+  ok   9c ldap-bind copies differ stops: rc=1 ERROR: cmapi-ldap-bind differs between the namespaces on password; make them equal by hand, nothing is written
+  ok   9d ldap-bind equal passes: rc=0 cmapi-ldap-bind: present in both namespaces with bindDN and password, equal
+  ok   10a app secret written from a 0600 file: rc=0 wrote Secret sect1/cmapi-github-app
+  ok   10b existing app secret lacking a key stops, not replaced: rc=1 ERROR: Secret sect1/cmapi-github-app exists but lacks privateKey; it is never replaced automatically: fix or delete it by hand
+  ok   10d a complete app secret with other arguments is kept: rc=0 note    : --github-app-key ignored, the Secret exists
+  ok   10e a failed read of the app secret stops: rc=1 Error from server (InternalError): an error on the server
+  ok   10c a key file that others can read is refused: rc=2 ERROR: /var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/tmp.tTdS7OhyEp is mode 644; make it 0600
+  ok   11a neither --issuer nor --no-issuer-check stops: rc=2 ERROR: --issuer is required (or --no-issuer-check on a cluster with no Keycloak)
+  ok   11b the realm exists, both Secrets gone: stops: rc=1 ERROR: realm cmapi exists at https://kc.test/realms/cmapi and both Secrets are gone. New values would not match the realm. Read the clients'
+  ok   11c a router's 503 during a restart is not absent: rc=1 ERROR: cannot tell whether the realm exists at https://kc.test/realms/cmapi: HTTP 503 that is neither a realm document nor Keycloak's own 40
+  ok   11d a 404 that is not Keycloak's is not absent: rc=1 ERROR: cannot tell whether the realm exists at https://kc.test/realms/cmapi: HTTP 404 that is neither a realm document nor Keycloak's own 40
+  ok   11e a 200 for another realm is not this realm, and not absent: rc=1 ERROR: cannot tell whether the realm exists at https://kc.test/realms/cmapi: HTTP 200 that is neither a realm document nor Keycloak's own 40
+  ok   11f a timeout is not absent: rc=1 ERROR: cannot tell whether the realm exists at https://kc.test/realms/cmapi: no answer (curl rc 28). Nothing is generated. Run this again wh
+  ok   11g a certificate failure is not absent: rc=1 ERROR: cannot tell whether the realm exists at https://kc.test/realms/cmapi: no answer (curl rc 60). Nothing is generated. Run this again wh
+  ok   11h Keycloak's own 404: generates: rc=0 wrote Secret sect1/cmapi-keys
+  ok   11i Secrets present: nothing to mint, Keycloak not needed: rc=0 cmapi-keys: present, kept
+  ok   12a test users written: rc=0 wrote Secret sect1/cmapi-test-users
+  ok   12b test users kept: rc=0 cmapi-test-users: present, kept
+secrets cases failed: 0
+[474s] done; NetworkPolicy deleted for DNS: true
+kind-test.sh exit code: 0; ended 2026-11-06T10:58:07Z

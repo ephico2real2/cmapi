@@ -1,0 +1,58 @@
+  ok   the LDAP stand-in is seeded
+  ok   before the import the issuer is Keycloak's own 404: {"error":"Realm does not exist"}
+  ok   the import succeeds under its own limits, 1g and 1 CPU, in 71 s
+  ok   no client secret in the import's log
+  ok   the live server serves the new realm, with no restart
+  ok   the other realms' status and public key are unchanged
+  ok   the server did not restart
+  ok   a second import changes nothing: 'already exists'
+  ok   and no key changed
+  ok   the Job requires the sync
+user profile: employeeId, middleName declared
+cmapi-realm-admin: realm-management ['realm-admin'] present
+cmapi-directory: realm-management ['view-users', 'query-users'] present
+groups under /cmapi: 10 with their client roles
+LDAP federation: created (read-only)
+LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, cn=cmapi-*)
+LDAP full sync: 200 {"ignored":false,"added":1,"updated":0,"removed":0,"failed":0,"status":"1 imported users, 0 updated users"}
+user ola: created
+user amy: created
+user opal: created
+user bot-user: created
+realm cmapi at https://keycloak.apps-crc.testing: in sync
+user profile: employeeId, middleName present
+cmapi-realm-admin: realm-management ['realm-admin'] present
+cmapi-directory: realm-management ['view-users', 'query-users'] present
+groups under /cmapi: 10 with their client roles
+LDAP federation: updated (read-only)
+LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, cn=cmapi-*)
+LDAP full sync: 200 {"ignored":false,"added":0,"updated":1,"removed":0,"failed":0,"status":"0 imported users, 1 updated users"}
+user ola: present
+user amy: present
+user opal: present
+user bot-user: present
+realm cmapi at https://keycloak.apps-crc.testing: in sync
+  ok   realm_sync.py twice, exit 0
+  ok   a login through LDAP federation
+  ok   the token carries the public issuer, though it was asked for elsewhere
+  ok   audience
+  ok   employee_id from uidNumber
+  ok   groups, filtered on cmapi-*: ['/cmapi/cmapi-requesters']
+  ok   the group's role
+  ok   a wrong LDAP password is refused
+  ok   the local bot user signs in
+  ok   cmapi-realm-admin cannot delete another realm
+user profile: employeeId, middleName present
+cmapi-realm-admin: realm-management ['realm-admin'] present
+cmapi-directory: realm-management ['view-users', 'query-users'] present
+groups under /cmapi: 10 with their client roles
+LDAP federation: updated (read-only)
+LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, cn=cmapi-*)
+LDAP full sync: 200 {"ignored":false,"added":0,"updated":0,"removed":0,"failed":0,"status":"0 imported users, 0 updated users"}
+  ok   a federation that cannot sync fails the Job: LDAP full sync read no user: 200 {"ignored":false,"added":0,
+  ok   cmapi-realm-admin deletes its own realm, with no master credential
+  ok   and the issuer is Keycloak's own 404 again
+  ok   the other realms' status and public key are unchanged at the end
+  ok   no container left behind: []
+realm cases failed: 0
+rc=0

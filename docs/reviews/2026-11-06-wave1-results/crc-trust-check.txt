@@ -1,0 +1,3 @@
+# deploy/crc-trust.sh --check, the one allowed: a TLS handshake against https://keycloak.apps-crc.testing with 30-trust.yaml as the only CA. GET /realms/master, no credential, no Secret read. 2026-11-06T10:13:31Z, head 9e7a64b0f1, from this Mac to CRC.
+30-trust.yaml verifies https://keycloak.apps-crc.testing
+rc=0

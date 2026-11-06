@@ -1,0 +1,33 @@
+$ python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
+head 9e7a64b0f1
+  ok   step 3: the password survives URI and YAML encoding
+  ok   step 3: verify-full and sslrootcert are in the URI
+  ok   step 3: Secret cmapi-db-app, key uri, nothing else
+  ok   step 3: pw.txt is deleted after a write
+  ok   step 3: no pw.txt writes no Secret with an empty password
+  ok   step 3: a failed oc apply keeps pw.txt, the only copy of the password
+  ok   step 4: the pod's image is pinned (ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa110036)
+  ok   step 4: no --env that the overrides silently drop
+  ok   step 4: psql gets the password, decoded, in PGPASSWORD
+  ok   step 4: no password on psql's argument list
+  ok   step 4: the rest of the URI reaches psql whole
+  ok   section 5: pg_dump is not -U cmapi on the socket (measured: Peer authentication failed)
+  ok   section 5: pg_restore has a root certificate for verify-full
+  ok   section 5: the block runs through on a good copy (rc 0: change_requests: source 7, target 7
+)
+  ok   section 5: pg_restore writes a script, so PostgreSQL 16's error on SET transaction_timeout is not fatal
+  ok   section 5: the restore is one transaction that stops at the first error
+  ok   section 5: the header's SET transaction_timeout is gone, and a table row with the same text stays
+  ok   section 5: nothing else is removed from the script
+  ok   section 5: the dump waits for the old pods to go: ['scale', 'wait', 'exec']
+  ok   section 5: pods that do not go stop it before the dump
+  ok   section 5: pg_restore failing stops it before the counts (pipefail)
+  ok   section 5: psql failing stops it before the counts (pipefail)
+  ok   section 5: counts that differ stop it
+  ok   section 5: a workload that came back stops it
+  ok   section 5: does not say to replace the Secret while the Cluster exists (measured: immutable type)
+  ok   section 5: the Cluster is deleted before the Secret is created
+  ok   section 1: does not claim PGSSLROOTCERT on the main containers (measured: initContainer only)
+  ok   section 2: CONNECTION LIMIT 45 holds both pods' pools through a rolling update (4 x 10) plus two migrators
+doc cases failed: 0
+rc=0

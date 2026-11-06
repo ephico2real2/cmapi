@@ -351,7 +351,7 @@ Approved by the owner on 2026-11-06, as the step immediately before the import. 
 - **The stream.** To stdout, over `oc exec` with no TTY, redirected on the Mac. Nothing is written in the pod.
 - **Storage.** `~/.cmapi-keycloak-backup/`, directory 0700, file 0600, a symbolic link refused, excluded from Time Machine, outside Git. Deleting a file on APFS does not wipe its blocks, and a local snapshot may hold it (inferred).
 - **The proof, before the import.** `pg_restore --list` alone is not enough: a file 100 bytes short lists with rc 0 (measured). So, on the pod's own `pg_restore`, with any failure stopping the run and removing the file: non-empty and starting `PGDMP`; `--list` shows table data; `-f /dev/null` reads to the end; the rows of `realm` in the archive equal `select count(*) from realm`.
-- **Measured on stubs of `oc`:** `deploy/tests/crc-backup-test.sh` runs the script on a real PostgreSQL of that image and restores its dump into an empty database, rows the same. It has not run against `postgres-0`, and `oc exec` carrying the stream on CRC is the first run's check.
+- **Measured short of CRC:** `deploy/tests/crc-backup-test.sh` runs the script on a real PostgreSQL of that image, with the container runtime's exec standing in for `oc exec`, and restores its dump into an empty database, rows the same. `oc` 4.22.18 on a kind cluster, against CloudNativePG's pod: `oc exec` passes the remote status, the dump arrives whole with no TTY, `oc exec -i` reaches EOF on stdin, and a file 100 bytes short fails the full read. The script has not run against `postgres-0`, which is the first run's check.
 
 ### Restoring
 
@@ -433,4 +433,4 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 
 ## Not proven before the run
 
-RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; `oc exec` streaming the dump; what `oc whoami` prints for kubeadmin on this CRC (either form passes). `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.
+RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; what `oc whoami` prints for kubeadmin on this CRC (either form passes). `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.

@@ -1,0 +1,16 @@
+# the local suite as job manifests runs it, then cmapi/tests/service against cmapi-test-pg. Python 3.12, this Mac, no cluster unless named. Head 9e7a64b0f1, except where noted.
+shellcheck rc=0 2s
+ci-guard rc=0 0s
+doc12-test rc=0 8s
+doc13-test rc=0 1s
+render-test rc=0 13s
+mockup-configmap rc=0 0s
+kind-test-stubbed rc=0 58s
+secrets-test-stub rc=0 64s
+mutate-secrets rc=0 553s
+crc-guard-test rc=0 723s
+crc-scripts-test rc=0 47s
+crc-backup-test rc=0 25s
+service-tests rc=0 218s
+realm-test rc=1 on 9e7a64b0f1: every realm case passed, and the new check found a container left behind. Fixed in d54caa0a78; rerun there: rc=0, realm-test.txt
+crc-guard-test --no-mutants at d54caa0a78, one case added since the mutant run: guard cases failed: 0, mutants survived: 0
