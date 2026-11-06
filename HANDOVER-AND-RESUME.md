@@ -2,7 +2,7 @@
 
 Read this first to continue the build from a new session, with nothing else in hand. The tracker is
 [`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-06, when PR #89 was ready to merge.
+[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-06, during Wave 1's design.
 
 ## Where these files are
 
@@ -20,8 +20,8 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 
 ## Where it stopped
 
-- `main` holds PR #40 and PR #89, unless a later row of the tracker says otherwise. PR #89's reviews and rulings are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Nothing from it is on CRC yet.
-- The next step is Wave 1 on CRC, with its issue still to file. The tracker's row lists what it must do, including proving the Route through the NetworkPolicy.
+- `main` holds PR #40 and PR #89 (`9fd230a`), unless a later row of the tracker says otherwise. PR #89's reviews and rulings are in [`docs/reviews/2026-11-05-pr89/README.md`](docs/reviews/2026-11-05-pr89/README.md). Nothing from it is on CRC yet.
+- **Wave 1 (#94) is at its design stage.** Codex's design is in `docs/reviews/2026-11-06-wave1-design/`, not accepted. If Opus's has not landed there, its scratchpad is not kept, so rerun it. Read #94's comments, which carry the owner's requirements and corrected measurements the two designs may lack. Tell the owner before anything is applied to CRC.
 - **Branch protection requires CI, not a review.** GitHub will show a pull request as mergeable with its review unfinished. The review gate is held by the delivery loop alone, so do not merge on GitHub's word.
 - No cmapi workload on CRC. Check before trusting this: `oc get all -n cmapi`. `cmapi-test-pg` stays up for the service tests. `keycloak-0` was still at 1 restart at this update.
 - **CRC runs on this Mac, `olas-MacBook-Pro.local`,** and `crc status` here shows it running OpenShift 4.22.14. The owner's "remote MacBook" is this same Mac, as seen from the one they developed on before moving here. There is no second machine to plan around.
@@ -72,6 +72,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 - Autonomy: research and choose best practice instead of asking. Every bug gets an issue, then a fix with a test that fails before and passes after.
 - A Claude Code permission refusal stands. Do not route around it or edit permission settings. Report the exact command.
 - No secrets in git, logs, reports or command lines. TLS verification never off.
+- **The other realms must stay unaffected and undeleted, and a restart must not bleed long** (the owner, 2026-11-06). See the tracker's risks. Before the first import, take the `pg_dump` of the Keycloak database the owner approved: outside git, deleted once verified, restored only on the owner's decision.
 - **CRC is shared.** Never restart the VM or a shared service, no `crc stop/delete/config set`. Do not touch `inkcast`, `corp` or group-sync. In `keycloak`, only realm `cmapi` and its import resources, with no master admin credential. In LDAP, only `cmapi-*` additions. Delete only what cmapi created.
 - kind clusters are named with the `cmapi-` prefix and use `KIND_EXPERIMENTAL_PROVIDER=podman`, an explicit `--kubeconfig`, node image v1.35.8. **Never run one during a CRC step.**
 - Reviewers work on an export, never in a repository. Throwaway containers need a bind check, a marker guard, their own ports and an explicit `--kubeconfig`.
@@ -90,7 +91,7 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 ## Environment facts
 
 - CRC: OpenShift 4.22.14, Kubernetes 1.35.6. Node requests 15,525 Mi of 19,543 Mi allocatable. 277 listable kinds.
-- Keycloak: namespace `keycloak`, RHBK 26.6.7, `KeycloakRealmImport` is `k8s.keycloak.org/v2beta1`. LDAP: namespace `ldap-testing`, base `dc=ephico2real,dc=com`.
+- Keycloak: namespace `keycloak`, RHBK 26.6.7, `KeycloakRealmImport` is `k8s.keycloak.org/v2beta1`. One instance. Route passthrough, certificate from ClusterIssuer `enterprise-ca`, so its public CA is `ca.crt` in Secret `keycloak-tls`, not the ingress CA. LDAP: namespace `ldap-testing`, base `dc=ephico2real,dc=com`.
 - Internal registry route: `default-route-openshift-image-registry.apps-crc.testing`.
 - Mac: hostname `olas-MacBook-Pro.local`, 32 GiB, podman machine at 8 GiB, Docker off. `cmapi-test-pg` on port 55432 is the service tests' database.
 - zsh does not split words, and `echo ===` fails there. Use bash for scripts.
