@@ -1,0 +1,32 @@
+tree: f3ebd9aa9d, on this Mac, no cluster
+
+$ shellcheck version: 0.11.0, the job's file list
+exit=0
+
+$ deploy/mockup-configmap.sh --check
+mockup ConfigMap is current
+exit=0
+
+$ deploy/tests/ci-guard.py
+ci cases failed: 0
+exit=0
+
+$ deploy/tests/doc12-test.py
+doc cases failed: 0
+exit=0
+
+$ deploy/render-test.sh
+render cases failed: 0
+exit=0
+
+$ deploy/tests/kind-test-stubbed.sh
+wrong: 0
+exit=0
+
+$ deploy/secrets-test.sh on its stub
+secrets cases failed: 0
+exit=0
+
+$ deploy/tests/mutate-secrets.py
+mutants: 22, wrong: 0
+exit=0

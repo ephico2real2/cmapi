@@ -15,26 +15,27 @@ Verdict from both on `d21599a`: do not apply this to the shared cluster until H1
 7. Opus's stated limit (import and both Secrets deleted while the realm stays, so the script mints values) moves to Wave 1, which has the issuer URL: an unauthenticated `GET <issuer>` shows whether the realm exists.
 8. Patch 08 (tracker): its reference-modules correction is applied by hand; its other lines are overtaken by the coordinator's updates to the tracker, so **do not apply patch 08**. Patch 09 goes on top of patches 01 to 07; on the current head, 01 to 07 pass `git apply --check` individually.
 
-## Still to do on this PR
+## The steps on this PR
 
-Done at `d6c063e`: the rulings applied and `opus/patches/` removed; `deploy/kind-test.sh` exit 0 on real kind at `16fa0fedcb`; both reviewers' earlier tests run (`results/`); CI run 42174316759 green on that head, all five jobs.
+All of it is done. At `d6c063e`: the rulings applied and `opus/patches/` removed; `deploy/kind-test.sh` exit 0 on real kind at `16fa0fedcb`; both reviewers' earlier tests run (`results/`).
 
-1. Second review, in the owner's flow: Codex first, on an export of `d6c063e`, returning full code. A separate Opus checks each snippet against the design and the code, updates it, and adds what Codex missed. With Fable paused, Codex is the one outside family.
-2. The coordinator applies the resulting fixes narrowly, as new commits, with the tests from the review.
-3. Rerun `deploy/kind-test.sh` to exit 0 if a fix touches the manifests, `render.sh`, `secrets.sh` or `kind-test.sh`.
-4. CI green on that exact head, all five jobs.
-5. Merge, then add `manifests` to the required checks. GitHub already shows this PR as mergeable (`CLEAN`), because branch protection requires CI and not a review. The review gate is held by these steps alone, so do not merge on GitHub's word.
+Then a second review, in the owner's flow, on exports of `d6c063e`: Codex returned findings with full code (`second-review/codex-answer.md`). A separate Opus checked each against the design and the code, updated it, and added what Codex missed (`second-review/opus-answer.md`, which holds the final code in full). The coordinator accepted all eight resulting patches and applied them unchanged, one commit each, `0ec0e99` to `f3ebd9a`. With Fable paused, Codex was the one outside family.
 
-Codex's six findings at `d6c063e`, not yet checked by reviewer 2 and not applied:
+| # | Finding | Codex's severity | Final | Reviewer 2's verdict |
+|---|---|---|---|---|
+| 1 | A failed render destroys the last good one | Medium | Low | Amended: Codex's fix changed the render's mode from 755 to 700 |
+| 2 | Late Secret checks run after writes | Medium | Low | Code accepted, tests strengthened |
+| 3 | The Route rule uses the older router label | Medium | Low | The documented label as the single selector; CRC's `openshift-ingress` carries both (read with `oc`) |
+| 4 | A partial `kind create` leaks the cluster | Medium | Low | Amended: Codex's fix could delete another run's cluster |
+| 5 | `pg_restore` can leave a partial target | Medium | Medium | Fix replaced: Codex's failed every time on PostgreSQL 16 (measured) |
+| 6 | An unreviewed image survives the guards | High | Low | Amended: it guards against a mistake, since whoever edits the manifests can edit the guard |
+| N1 | The shipped restore exits 1 on a PostgreSQL 16 target | | Medium | Fixed with 5 |
+| N2 | The dump does not wait for the worker, and the row counts are only printed | | Medium | Fixed |
+| N3 to N9 | A kubeconfig the run did not create deleted; a test that passes with every namespace allowed; the guard's blind spots; surviving render mutants; a password on an argument list; no apply order in the README; `link/` deleting its target | | Low | Fixed |
 
-| Severity (Codex's) | Where | Finding |
-|---|---|---|
-| Medium | `deploy/render.sh` | A failed render destroys the last good render and leaves a marked partial tree |
-| Medium | `deploy/secrets.sh` | Reads of later Secrets happen after three Secrets are written, so an empty late Secret stops too late |
-| Medium | `40-networkpolicy.yaml` | The Route rule uses the older router label. CRC's `openshift-ingress` carries both labels (read with `oc`), so it works here |
-| Medium | `deploy/kind-test.sh` | A partial `kind create` failure leaks the cluster |
-| Medium | `docs/12` section 5 | `pg_restore` can leave the target partly restored after an error |
-| High | `test_plain_manifests.py`, `render-test.sh` | A workload image from another repository survives the image guards |
+The proof on the applied tree is in `results/second-review/` and in `docs/reviews/2026-11-05-plain-manifests-test.md`. CI run 42183308668 was green on `f3ebd9a`, all five jobs, with the first kubeconform run on these manifests. The final head is cited on the PR.
+
+Not proven, carried to Wave 1: the Route through the NetworkPolicy on CRC. The router there uses `HostNetwork` on one node (read with `oc`), so the same-node rule should allow it, which is inferred until the Route answers.
 
 ## Refusals, recorded
 

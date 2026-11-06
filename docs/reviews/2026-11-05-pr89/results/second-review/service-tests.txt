@@ -1,0 +1,6 @@
+tree: f3ebd9aa9d, against cmapi-test-pg
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+312 passed, 58 warnings in 207.79s (0:03:27)
+exit=0
