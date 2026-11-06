@@ -14,6 +14,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(HERE)
 GEN = '    printf \'%s\' "$lines" | apply_secret "$NS" cmapi-keycloak ;;'
 IMPORT_GUARD = "    if realm_import_exists; then"
+# A write ahead of one check: the case that names that check must see it.
+EARLY_WRITE = '  printf \'CMAPI_REALM_ADMIN_SECRET %s\\n\' "$(b64 "$(rnd)")" | apply_secret "$REALM_NS" cmapi-realm-secrets >/dev/null\n'
+KEYS_CHECK = 'if [ -n "$keys_existing" ]; then\n'
+LDAP_CHECK = '  for pair in "$NS:$lb_ours" "$REALM_NS:$lb_theirs"; do\n'
+APP_CHECK = 'if [ -n "$gh_existing" ]; then\n  for k in appId'
+KEY_FILE_CHECK = 'elif [ -n "$KEY" ]; then\n  if [ -z "$APP_ID" ]'
 MUTANTS = {
     "base (no mutation)": [],
     "A prints every generated value to the terminal": [(GEN, '    printf \'%s\' "$lines"; printf \'%s\' "$lines" | apply_secret "$NS" cmapi-keycloak ;;')],
@@ -51,6 +57,13 @@ MUTANTS = {
     "P an existing Secret with no data counts as absent again": [('if not oe and not te: print("generate")', 'if not o and not t: print("generate")')],
     "Q apply again instead of create: a stale read can overwrite": [(
         'kc create -f - >/dev/null; echo "wrote Secret $1/$2"; }', 'kc apply --server-side --field-manager=cmapi-secrets -f - >/dev/null; echo "wrote Secret $1/$2"; }')],
+    "R a Secret written before the check of an existing cmapi-keys": [(KEYS_CHECK, KEYS_CHECK + EARLY_WRITE)],
+    "S a Secret written before the cmapi-ldap-bind check": [(LDAP_CHECK, EARLY_WRITE + LDAP_CHECK)],
+    "T a Secret written before the check of an existing app Secret": [(APP_CHECK, APP_CHECK.replace("then\n", "then\n" + EARLY_WRITE))],
+    "U a Secret written before the key file's checks": [(KEY_FILE_CHECK, KEY_FILE_CHECK.replace("then\n", "then\n" + EARLY_WRITE))],
+    "V the app Secret read after the writes again": [
+        ('gh_existing=$(get "$NS" cmapi-github-app)\n', "gh_existing=\n"),
+        ("# The GitHub App credential: validated", 'gh_existing=$(get "$NS" cmapi-github-app)\n# The GitHub App credential: validated')],
 }
 
 

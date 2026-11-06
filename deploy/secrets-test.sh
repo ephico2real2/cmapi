@@ -62,6 +62,21 @@ said() { # label, text the last run must have printed. The rc alone cannot tell 
   grep -qF -- "$2" "$T" || { echo "  FAIL $1: the output does not say: $2"; fails=$((fails+1)); }; }
 expect() { # label, expected rc, actual line
   case "$3" in "rc=$2 "*) echo "  ok   $1: $3";; *) echo "  FAIL $1 (expected rc=$2): $3"; fails=$((fails+1));; esac; }
+# 0: every check that can stop a run comes before the first write, so a stop leaves nothing half done: the existing Secrets of a
+# late check, a late read, the bind user and the key file, each on an otherwise fresh install.
+none_written() { same "$1 no realm Secret was written" none "$(hs sect2 cmapi-realm-secrets)"; same "$1 no client Secret was written" none "$(h)"; same "$1 no keys Secret was written" none "$(hs sect1 cmapi-keys)"; }
+k create secret generic cmapi-github-app -n sect1 >/dev/null
+r=$(run); expect "0a an empty app Secret stops" 1 "$r"; none_written 0a
+k delete secret cmapi-github-app -n sect1 >/dev/null
+r=$(runf "get secret cmapi-github-app"); expect "0b a failed late read stops" 1 "$r"; none_written 0b; said "0b it stops at the read" "an error on the server"
+k create secret generic cmapi-keys -n sect1 >/dev/null
+r=$(run); expect "0c an empty cmapi-keys stops" 1 "$r"; same "0c no realm Secret was written" none "$(hs sect2 cmapi-realm-secrets)"; same "0c no client Secret was written" none "$(h)"
+k delete secret cmapi-keys -n sect1 >/dev/null
+r=$(runb); expect "0d a missing cmapi-ldap-bind stops" 1 "$r"; none_written 0d
+printf 'not a key\n' >"$W/key0"; chmod 644 "$W/key0"
+r=$(run --github-app-key "$W/key0" --github-app-id 1 --github-installation-id 2); expect "0e a key file others can read stops" 2 "$r"; none_written 0e
+chmod 600 "$W/key0"
+r=$(run --github-app-key "$W/key0"); expect "0f a key file with no ids stops" 2 "$r"; none_written 0f
 r=$(run); expect "1 fresh" 0 "$r"; H1=$(h); R1=$(hs sect2 cmapi-realm-secrets); K1=$(hs sect1 cmapi-keys); collect
 r=$(run); expect "2 second run" 0 "$r"; [ "$(h)" = "$H1" ] || { echo "  FAIL 2: the hash changed"; fails=$((fails+1)); }
 same "2 the realm copy" "$R1" "$(hs sect2 cmapi-realm-secrets)"; same "2 cmapi-keys is written once" "$K1" "$(hs sect1 cmapi-keys)"

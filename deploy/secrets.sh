@@ -50,7 +50,14 @@ apply_secret() { { printf 'apiVersion: v1\nkind: Secret\ntype: Opaque\nmetadata:
 # keys_of JSON: the data keys whose value is non-empty, one per line
 keys_of() { printf '%s' "$1" | python3 -c 'import json,sys; d=sys.stdin.read(); print("\n".join(k for k,v in ((json.loads(d) if d else {}).get("data") or {}).items() if v))'; }
 
+# Read and validate every existing object before the first create. A late read error or partial Secret must not leave an
+# otherwise unrelated Secret created by this run.
 ours=$(get "$NS" cmapi-keycloak); theirs=$(get "$REALM_NS" cmapi-realm-secrets)
+keys_existing=$(get "$NS" cmapi-keys)
+if [ "$LDAP_BIND" = true ]; then
+  lb_ours=$(get "$NS" cmapi-ldap-bind); lb_theirs=$(get "$REALM_NS" cmapi-ldap-bind)
+fi
+gh_existing=$(get "$NS" cmapi-github-app)
 verdict=$(OURS="$ours" THEIRS="$theirs" PAIRS="$PAIRS" python3 - <<'PY'
 import json,os
 pairs=[p.split(":") for p in os.environ["PAIRS"].split()]
@@ -71,6 +78,36 @@ else:
 PY
 )
 case "$verdict" in
+  generate|from-realm|from-ours|same) ;;
+  *) echo "ERROR: $verdict. A realm keeps the values it first imported, so nothing is generated. Fix it by hand from the realm's own client secrets." >&2; exit 1 ;;
+esac
+if [ -n "$keys_existing" ]; then
+  for k in cursorKey linkKey; do
+    keys_of "$keys_existing" | grep -qx "$k" || { echo "ERROR: Secret $NS/cmapi-keys exists but lacks $k; it is never replaced automatically: fix or delete it by hand" >&2; exit 1; }
+  done
+fi
+if [ "$LDAP_BIND" = true ]; then
+  for pair in "$NS:$lb_ours" "$REALM_NS:$lb_theirs"; do
+    n=${pair%%:*}; j=${pair#*:}
+    [ -n "$j" ] || { echo "ERROR: Secret $n/cmapi-ldap-bind is missing; the owner creates it (docs/11), this script never does" >&2; exit 1; }
+    for k in bindDN password; do keys_of "$j" | grep -qx "$k" || { echo "ERROR: Secret $n/cmapi-ldap-bind lacks $k" >&2; exit 1; }; done
+  done
+  OURS="$lb_ours" THEIRS="$lb_theirs" python3 -c 'import json,os
+o=json.loads(os.environ["OURS"])["data"]; t=json.loads(os.environ["THEIRS"])["data"]
+d=[k for k in ("bindDN","password") if o[k]!=t[k]]
+raise SystemExit("ERROR: cmapi-ldap-bind differs between the namespaces on "+",".join(d)+"; make them equal by hand, nothing is written" if d else 0)' || exit 1
+fi
+if [ -n "$gh_existing" ]; then
+  for k in appId installationId privateKey; do
+    keys_of "$gh_existing" | grep -qx "$k" || { echo "ERROR: Secret $NS/cmapi-github-app exists but lacks $k; it is never replaced automatically: fix or delete it by hand" >&2; exit 1; }
+  done
+elif [ -n "$KEY" ]; then
+  if [ -z "$APP_ID" ] || [ -z "$INST_ID" ]; then echo "ERROR: --github-app-key needs --github-app-id and --github-installation-id" >&2; exit 2; fi
+  [ -r "$KEY" ] || { echo "ERROR: cannot read $KEY" >&2; exit 2; }
+  # The GNU form first: GNU's -f reports the file system on stdout before failing on %Lp, while BSD's stat refuses -c with nothing on stdout (#90).
+  mode=$(stat -c '%a' "$KEY" 2>/dev/null || stat -f '%Lp' "$KEY"); case "$mode" in *[1-7][0-7]|*[0-7][1-7]) echo "ERROR: $KEY is mode $mode; make it 0600" >&2; exit 2;; esac
+fi
+case "$verdict" in
   generate)
     # No Secret anywhere, but the realm was imported: its clients hold values nobody here knows any more.
     if realm_import_exists; then
@@ -90,47 +127,24 @@ o=json.loads(os.environ["OURS"])["data"]
 for p in os.environ["PAIRS"].split():
     a,b=p.split(":"); print(b,o[a])' | apply_secret "$REALM_NS" cmapi-realm-secrets ;;
   same) echo "realm secrets: both copies present and equal, nothing to do" ;;
-  *) echo "ERROR: $verdict. A realm keeps the values it first imported, so nothing is generated. Fix it by hand from the realm's own client secrets." >&2; exit 1 ;;
 esac
 
-keys_existing=$(get "$NS" cmapi-keys)
 if [ -z "$keys_existing" ]; then
   printf 'linkKey %s\ncursorKey %s\n' "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" | apply_secret "$NS" cmapi-keys
 else
-  for k in cursorKey linkKey; do
-    keys_of "$keys_existing" | grep -qx "$k" || { echo "ERROR: Secret $NS/cmapi-keys exists but lacks $k; it is never replaced automatically: fix or delete it by hand" >&2; exit 1; }
-  done
   echo "cmapi-keys: present, kept"
 fi
 
 # The LDAP bind user is the owner's (docs/11, #34): checked, never generated. Both copies must exist, carry bindDN and
 # password, and be equal, or Keycloak's federation and the realm sync would disagree.
 if [ "$LDAP_BIND" = true ]; then
-  lb_ours=$(get "$NS" cmapi-ldap-bind); lb_theirs=$(get "$REALM_NS" cmapi-ldap-bind)
-  for pair in "$NS:$lb_ours" "$REALM_NS:$lb_theirs"; do
-    n=${pair%%:*}; j=${pair#*:}
-    [ -n "$j" ] || { echo "ERROR: Secret $n/cmapi-ldap-bind is missing; the owner creates it (docs/11), this script never does" >&2; exit 1; }
-    for k in bindDN password; do keys_of "$j" | grep -qx "$k" || { echo "ERROR: Secret $n/cmapi-ldap-bind lacks $k" >&2; exit 1; }; done
-  done
-  OURS="$lb_ours" THEIRS="$lb_theirs" python3 -c 'import json,os
-o=json.loads(os.environ["OURS"])["data"]; t=json.loads(os.environ["THEIRS"])["data"]
-d=[k for k in ("bindDN","password") if o[k]!=t[k]]
-raise SystemExit("ERROR: cmapi-ldap-bind differs between the namespaces on "+",".join(d)+"; make them equal by hand, nothing is written" if d else 0)' || exit 1
   echo "cmapi-ldap-bind: present in both namespaces with bindDN and password, equal"
 fi
 
 # The GitHub App credential: validated when present (never replaced), written only when absent and a key file is given.
-gh_existing=$(get "$NS" cmapi-github-app)
 if [ -n "$gh_existing" ]; then
-  for k in appId installationId privateKey; do
-    keys_of "$gh_existing" | grep -qx "$k" || { echo "ERROR: Secret $NS/cmapi-github-app exists but lacks $k; it is never replaced automatically: fix or delete it by hand" >&2; exit 1; }
-  done
   echo "cmapi-github-app: present with appId, installationId and privateKey, kept"
   [ -z "$KEY" ] || echo "note    : --github-app-key ignored, the Secret exists"
 elif [ -n "$KEY" ]; then
-  if [ -z "$APP_ID" ] || [ -z "$INST_ID" ]; then echo "ERROR: --github-app-key needs --github-app-id and --github-installation-id" >&2; exit 2; fi
-  [ -r "$KEY" ] || { echo "ERROR: cannot read $KEY" >&2; exit 2; }
-  # The GNU form first: GNU's -f reports the file system on stdout before failing on %Lp, while BSD's stat refuses -c with nothing on stdout (#90).
-  mode=$(stat -c '%a' "$KEY" 2>/dev/null || stat -f '%Lp' "$KEY"); case "$mode" in *[1-7][0-7]|*[0-7][1-7]) echo "ERROR: $KEY is mode $mode; make it 0600" >&2; exit 2;; esac
   printf 'appId %s\ninstallationId %s\nprivateKey %s\n' "$(b64 "$APP_ID")" "$(b64 "$INST_ID")" "$(base64 <"$KEY" | tr -d '\n')" | apply_secret "$NS" cmapi-github-app
 fi
