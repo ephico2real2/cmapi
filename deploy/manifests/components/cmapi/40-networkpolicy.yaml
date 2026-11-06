@@ -17,5 +17,12 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: openshift-user-workload-monitoring}
       ports:
         - {port: 9090, protocol: TCP}
-    - ports:
+    # OpenShift's router namespace carries policy-group: ingress; the second peer is this namespace. A rule with no from
+    # would open 8080 to every pod of every project on a shared cluster. On a cluster with no such label only this
+    # namespace matches, and kubectl port-forward does not pass through the policy.
+    - from:
+        - namespaceSelector:
+            matchLabels: {network.openshift.io/policy-group: ingress}
+        - podSelector: {}
+      ports:
         - {port: 8080, protocol: TCP}

@@ -14,6 +14,8 @@
 # cmapi-github-app is validated (appId, installationId, privateKey) and never replaced; a missing one is written from the
 # key file. Written as the deployment design (docs/reviews/2026-11-05-deployment-design.md, D4) decided, from Opus's
 # script with Codex's two checks.
+# A limit: the realm is only known through its import. Deleting KeycloakRealmImport cmapi and both Secrets while the realm
+# stays looks like a first install and mints values the realm refuses; keep the import while the realm exists.
 set -euo pipefail
 NS=cmapi; REALM_NS=keycloak; KEY=; APP_ID=; INST_ID=; KUBECTL=oc; LDAP_BIND=true
 while [ $# -gt 0 ]; do case "$1" in
@@ -26,11 +28,25 @@ kc() { $KUBECTL "$@"; }
 PAIRS="realmAdminClientSecret:CMAPI_REALM_ADMIN_SECRET directoryClientSecret:CMAPI_DIRECTORY_SECRET svcPaymentsCiSecret:CMAPI_SVC_PAYMENTS_CI_SECRET automationClientSecret:CMAPI_AUTOMATION_SECRET"
 rnd() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48; }
 b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
-get() { kc get secret "$2" -n "$1" -o json 2>/dev/null || true; }
+# get NS NAME: the object's JSON, empty only when the API says it does not exist. Any other failure (a timeout, a 500, a
+# Forbidden) stops the run: "could not read" is not "absent", and treating it so mints new values behind a kept realm.
+get() { kc get secret "$2" -n "$1" --ignore-not-found -o json; }
+# True when the realm import exists. No such type on this server (no Keycloak operator, kind) is "no import"; any other
+# failure stops the run for the same reason as get.
+realm_import_exists() {
+  local out rc=0
+  out=$(kc get keycloakrealmimport cmapi -n "$REALM_NS" --ignore-not-found -o name 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in *"doesn't have a resource type"*) return 1;; esac
+    echo "ERROR: cannot tell whether KeycloakRealmImport cmapi exists in $REALM_NS: $out" >&2; exit 1
+  fi
+  [ -n "$out" ]
+}
 # apply_secret NS NAME: stdin is "key base64value" lines. The document goes to kubectl on stdin, so no value reaches an
-# argument list or a process listing.
+# argument list or a process listing. Create, never apply: every write here fills an absent Secret, so a Secret that
+# appeared since the read (a second run, a person) stops the run instead of being overwritten.
 apply_secret() { { printf 'apiVersion: v1\nkind: Secret\ntype: Opaque\nmetadata: {name: %s, namespace: %s, labels: {app.kubernetes.io/part-of: cmapi}}\ndata:\n' "$2" "$1"
-                   while read -r k v; do printf '  %s: %s\n' "$k" "$v"; done; } | kc apply --server-side --field-manager=cmapi-secrets -f - >/dev/null; echo "wrote Secret $1/$2"; }
+                   while read -r k v; do printf '  %s: %s\n' "$k" "$v"; done; } | kc create -f - >/dev/null; echo "wrote Secret $1/$2"; }
 # keys_of JSON: the data keys whose value is non-empty, one per line
 keys_of() { printf '%s' "$1" | python3 -c 'import json,sys; d=sys.stdin.read(); print("\n".join(k for k,v in ((json.loads(d) if d else {}).get("data") or {}).items() if v))'; }
 
@@ -55,7 +71,7 @@ PY
 case "$verdict" in
   generate)
     # No Secret anywhere, but the realm was imported: its clients hold values nobody here knows any more.
-    if kc get keycloakrealmimport cmapi -n "$REALM_NS" >/dev/null 2>&1; then
+    if realm_import_exists; then
       echo "ERROR: KeycloakRealmImport cmapi exists in $REALM_NS and both Secrets are gone. New values would not match the realm. Read the clients' secrets from the realm, or delete the realm and its import first." >&2; exit 1
     fi
     lines=""; for p in $PAIRS; do lines+="${p%%:*} $(b64 "$(rnd)")"$'\n'; done
@@ -75,9 +91,13 @@ for p in os.environ["PAIRS"].split():
   *) echo "ERROR: $verdict. A realm keeps the values it first imported, so nothing is generated. Fix it by hand from the realm's own client secrets." >&2; exit 1 ;;
 esac
 
-if [ -z "$(get "$NS" cmapi-keys)" ]; then
+keys_existing=$(get "$NS" cmapi-keys)
+if [ -z "$keys_existing" ]; then
   printf 'linkKey %s\ncursorKey %s\n' "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" | apply_secret "$NS" cmapi-keys
 else
+  for k in cursorKey linkKey; do
+    keys_of "$keys_existing" | grep -qx "$k" || { echo "ERROR: Secret $NS/cmapi-keys exists but lacks $k; it is never replaced automatically: fix or delete it by hand" >&2; exit 1; }
+  done
   echo "cmapi-keys: present, kept"
 fi
 

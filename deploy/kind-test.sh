@@ -16,11 +16,14 @@ CNPG_SHA=37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
 export KIND_EXPERIMENTAL_PROVIDER=podman
 t0=$(date +%s); say() { echo "[$(( $(date +%s) - t0 ))s] $*"; }
 k() { kubectl --kubeconfig="$KC" "$@"; }
-finish() { rc=$?; if [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; rm -f "$KC"; fi; exit $rc; }
+# Only a cluster this run created: "kind create" fails when the name is taken, and that cluster is somebody else's.
+created=false
+finish() { rc=$?; if [ "$created" = true ] && [ "${KIND_TEST_KEEP:-false}" != true ]; then say "deleting kind cluster cmapi-test"; kind delete cluster --name cmapi-test --kubeconfig "$KC" >/dev/null 2>&1 || true; rm -f "$KC"; fi; exit $rc; }
 trap finish EXIT
 
 say "kind create cluster cmapi-test ($NODE_IMAGE)"
 kind create cluster --name cmapi-test --image "$NODE_IMAGE" --kubeconfig "$KC" --wait 120s >/dev/null
+created=true
 [ "$(k config current-context)" = kind-cmapi-test ] || { echo "ERROR: the kubeconfig's context is not kind-cmapi-test" >&2; exit 1; }
 say "node: $(k get nodes -o jsonpath='{.items[0].metadata.name} {.items[0].status.nodeInfo.kubeletVersion}')"
 
@@ -53,9 +56,16 @@ if ! k -n cmapi rollout status deploy/cmapi-api --timeout=60s >/dev/null 2>&1; t
   pod=$(k -n cmapi get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
   # The migrate container runs while it waits for the database, so it can be asked whether it resolves the Service at
   # all; after the wait it crash-loops and its previous log says the same (psycopg: "failed to resolve host").
-  probe=$(k -n cmapi exec "$pod" -c migrate -- python3 -c "import socket; socket.getaddrinfo('cmapi-db-rw.cmapi.svc', 5432)" 2>&1 || true)
-  previous=$(k -n cmapi logs "$pod" -c migrate --previous 2>/dev/null || true)
-  if echo "$probe" | grep -q "Name or service not known" || echo "$previous" | grep -q "failed to resolve host"; then
+  # A probe that ran and resolved settles it, whatever an older log says; the log counts only when the probe could not run.
+  dns_evidence=false
+  if probe=$(k -n cmapi exec "$pod" -c migrate -- python3 -c "import socket; socket.getaddrinfo('cmapi-db-rw.cmapi.svc', 5432)" 2>&1); then
+    :
+  elif echo "$probe" | grep -q "Name or service not known"; then
+    dns_evidence=true
+  elif k -n cmapi logs "$pod" -c migrate --previous 2>/dev/null | grep -q "failed to resolve host"; then
+    dns_evidence=true
+  fi
+  if [ "$dns_evidence" = true ]; then
     mock=$(k -n cmapi get pod -l app.kubernetes.io/component=mockup -o jsonpath='{.items[0].metadata.name}')
     if k -n cmapi exec "$mock" -- getent hosts cmapi-db-rw.cmapi.svc >/dev/null 2>&1; then
       dns_fail=true
@@ -71,16 +81,28 @@ k -n cmapi rollout status deploy/cmapi-mockup --timeout=180s
 say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount --no-headers | tr '\n' ';')"
 
 say "/readyz and /api/v1/version through a port-forward"
-k -n cmapi port-forward svc/cmapi-api 18080:8080 >/dev/null 2>&1 & PF=$!; sleep 3
+# kubectl itself, not k: a function in the background is a subshell, so kill $! would leave kubectl holding the port, and
+# a later run's curl would read that old cluster. A port-forward that died (port taken) is a failure, not a read of whatever listens.
+kubectl --kubeconfig="$KC" -n cmapi port-forward svc/cmapi-api 18080:8080 >/dev/null 2>&1 & PF=$!; sleep 3
+kill -0 "$PF" 2>/dev/null || { echo "ERROR: the port-forward to cmapi-api died (port 18080 taken?)" >&2; exit 1; }
 READY=$(curl -s -o "$T/readyz" -w '%{http_code}' http://127.0.0.1:18080/readyz); echo "readyz: $READY $(cat "$T/readyz")"
 VERSION=$(curl -s http://127.0.0.1:18080/api/v1/version); echo "version: $VERSION"
 kill $PF 2>/dev/null || true
-k -n cmapi port-forward svc/cmapi-mockup 18081:8080 >/dev/null 2>&1 & PF=$!; sleep 2
+kubectl --kubeconfig="$KC" -n cmapi port-forward svc/cmapi-mockup 18081:8080 >/dev/null 2>&1 & PF=$!; sleep 2
+kill -0 "$PF" 2>/dev/null || { echo "ERROR: the port-forward to cmapi-mockup died (port 18081 taken?)" >&2; exit 1; }
 MOCK=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/portal.html); echo "mockup: $MOCK"; kill $PF 2>/dev/null || true
 [ "$READY" = 200 ] || { echo "ERROR: /readyz is $READY" >&2; exit 1; }
+# The running process must name the commit the image says it was built from; that it differs from the tree's HEAD is only a note.
+BUILT=$(podman image inspect "$IMAGE" --format '{{index .Labels "org.opencontainers.image.revision"}}')
+case "$BUILT" in ""|unknown|"<no value>") echo "ERROR: $IMAGE has no revision label ($BUILT); build it with --build-arg GIT_COMMIT=" >&2; exit 1;; esac
+echo "$VERSION" | grep -q "\"commit\":\"$BUILT\"" || { echo "ERROR: /api/v1/version does not name the built commit $BUILT: $VERSION" >&2; exit 1; }
 EXPECT=$(git -C "$HERE/.." rev-parse --short=10 HEAD 2>/dev/null || echo unknown)
-echo "$VERSION" | grep -q "\"commit\":\"${EXPECT:0:7}" || echo "note    : /version commit does not start with the tree's HEAD ${EXPECT}; the image was built from another commit"
+[ "$BUILT" = "$EXPECT" ] || echo "note    : the image was built from $BUILT; the tree's HEAD is $EXPECT"
 [ "$MOCK" = 200 ] || { echo "ERROR: the mockup is $MOCK" >&2; exit 1; }
+# rollout status passes at the first start, and the worker has no readiness probe: a process that dies after that shows only here.
+sleep 15
+restarts=$(k -n cmapi get pods -o jsonpath='{range .items[*]}{.metadata.name}={.status.containerStatuses[0].restartCount} {end}')
+case " $restarts" in *=[1-9]*) echo "ERROR: a container restarted after its rollout: $restarts" >&2; exit 1;; esac
 
 say "secrets cases"
 "$HERE/secrets-test.sh" "kubectl --kubeconfig=$KC"

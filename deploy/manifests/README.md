@@ -22,3 +22,14 @@ arrive with `environments/crc/` in the CRC pull request, not in `components/`.
 Order for a person: namespaces, the CNPG operator (1.30.1, a prerequisite, not here), `environments/<env>/`,
 `deploy/secrets.sh`, then `components/` through `deploy/render.sh`'s output. `deploy/kind-test.sh` does exactly that on a
 `cmapi-test` kind cluster and is the functional test.
+
+What the charts did that these files do not, so a person or `environments/<env>/` must:
+
+- **A changed `cmapi-config`, `cmapi-env` or `cmapi-trust` does not restart anything** (the chart's `checksum/config`
+  annotation did, and the process reads its config once, at start): `oc -n cmapi rollout restart deploy cmapi-api cmapi-worker`.
+- **`cmapi-env` on CRC carries `CMAPI_OIDC_JWKS_URL` and `CMAPI_KEYCLOAK_ADMIN_URL`** (the Keycloak Service, as
+  `deploy/environments/crc.yaml` sets them), or the pods go through the issuer's Route.
+- **Namespace `cmapi-imports` must exist first** (it does not on CRC, measured 2026-11-05; the chart created it): the
+  imports reader Role lives there, and `kubectl apply -R` stops short of it otherwise. `environments/crc/` carries it
+  until the bootstrap set of Wave 2 does.
+- **Secret `cmapi-test-users`** (the realm sync's test users, optional) is not written by `deploy/secrets.sh`.

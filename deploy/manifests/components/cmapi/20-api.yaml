@@ -37,8 +37,9 @@ spec:
       initContainers:
         # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
         # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job. It waits
-        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet, and trusts the same bundle as
-        # the main container, so an external TLS database verifies at the first migration.
+        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet. An external TLS database verifies
+        # through sslrootcert in its URI, as the main container does. No PGSSLROOTCERT here: with CNPG's URI (no sslmode) and
+        # a bundle without CNPG's CA, libpq's verification fails and sslmode=prefer retries in plaintext (measured).
         - name: migrate
           image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
           imagePullPolicy: IfNotPresent
@@ -46,7 +47,6 @@ spec:
           env:
             - name: CMAPI_DATABASE_URL
               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
-            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/ca-bundle.crt}
             - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
           securityContext:
             allowPrivilegeEscalation: false
@@ -95,7 +95,8 @@ spec:
             - name: SSL_CERT_FILE
               value: /etc/cmapi/ca/ca-bundle.crt
           envFrom:
-            # Per environment: CMAPI_GIT_PROVIDER, CMAPI_GIT_URL, CMAPI_GIT_DEFAULT_BRANCH, CMAPI_LOG_LEVEL
+            # Per environment: CMAPI_GIT_PROVIDER, CMAPI_GIT_URL, CMAPI_GIT_DEFAULT_BRANCH, CMAPI_LOG_LEVEL, and where the
+            # pods reach Keycloak when not through the issuer: CMAPI_OIDC_JWKS_URL, CMAPI_KEYCLOAK_ADMIN_URL (CRC needs both)
             - configMapRef: {name: cmapi-env}
           ports:
             - {name: http, containerPort: 8080}
