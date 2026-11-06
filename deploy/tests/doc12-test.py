@@ -53,6 +53,19 @@ ov = json.loads(next(a.split("=", 1)[1] for a in argv if a.startswith("--overrid
 c = ov["spec"]["containers"][0]
 check("@sha256:" in c["image"], f"step 4: the pod's image is pinned ({c['image'][:60]})")
 check(not any(a.startswith("--env") for a in argv) or c.get("env"), "step 4: no --env that the overrides silently drop")
+# The password stays off psql's argument list, decoded right for scram: the pod's command, run with a stub psql.
+def run_pgcheck(pw):
+    t = tempfile.mkdtemp(); bindir = os.path.join(t, "bin"); os.mkdir(bindir)
+    uri = os.path.join(t, "uri"); open(uri, "w").write("postgresql://cmapi:" + urllib.parse.quote(pw, safe="") + "@db.example.internal:5432/cmapi?sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt\n")
+    p = os.path.join(bindir, "psql"); open(p, "w").write('#!/bin/sh\nprintf "%s\\n" "$PGPASSWORD" > "$STUB_OUT/password"\nfor a in "$@"; do printf "%s\\n" "$a"; done > "$STUB_OUT/argv"\n'); os.chmod(p, 0o755)
+    r = subprocess.run([c["command"][0], "-c", c["command"][2].replace("/run/db/uri", uri)], env=dict(os.environ, PATH=bindir + ":" + os.environ["PATH"], STUB_OUT=t), capture_output=True, text=True)
+    res = r.returncode, open(os.path.join(t, "password")).read().rstrip("\n"), open(os.path.join(t, "argv")).read()
+    shutil.rmtree(t)
+    return res
+rc, password, argv_seen = run_pgcheck(PW)
+check(rc == 0 and password == PW, "step 4: psql gets the password, decoded, in PGPASSWORD")
+check(urllib.parse.quote(PW, safe="") not in argv_seen and PW not in argv_seen, "step 4: no password on psql's argument list")
+check("postgresql://cmapi@db.example.internal:5432/cmapi?sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt" in argv_seen, "step 4: the rest of the URI reaches psql whole")
 # section 5
 check(not re.search(r"pg_dump[^\n]*-U cmapi", move), "section 5: pg_dump is not -U cmapi on the socket (measured: Peer authentication failed)")
 check("PGSSLROOTCERT" in move or "sslrootcert" in move.split("pg_restore")[1].split("\n")[0], "section 5: pg_restore has a root certificate for verify-full")

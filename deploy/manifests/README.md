@@ -28,8 +28,9 @@ What the charts did that these files do not, so a person or `environments/<env>/
 
 - **A changed `cmapi-config`, `cmapi-env` or `cmapi-trust` restarts the api and the worker only through a render.** The
   process reads its config once, at start. `deploy/render.sh` puts a SHA-256 over those three files into the pod templates
-  (as the chart's `checksum/config` did), so render again and apply both the environment and the components. Applying a
-  changed ConfigMap alone restarts nothing.
+  (as the chart's `checksum/config` did), so render again and apply the environment, then the components, in that order:
+  pods restarted by the components before the ConfigMap changes read the old values, carry the new checksum, and nothing
+  restarts them again. Applying a changed ConfigMap alone restarts nothing.
 - **`cmapi-env` on CRC carries `CMAPI_OIDC_JWKS_URL` and `CMAPI_KEYCLOAK_ADMIN_URL`** (the Keycloak Service, as
   `deploy/environments/crc.yaml` sets them), or the pods go through the issuer's Route.
 - **Namespace `cmapi-imports` must exist first** (it does not on CRC, measured 2026-11-05; the chart created it): the

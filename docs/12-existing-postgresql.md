@@ -60,9 +60,10 @@ server certificate's name is the one the pods will connect to (`verify-full` che
 4. Check connectivity and the certificate name from inside the cluster, read-only, before the first migration:
 
    ```bash
-   # --overrides replaces the whole containers list, so the digest is repeated there and nothing else may rely on --image or --env
+   # --overrides replaces the whole containers list, so the digest is repeated there and nothing else may rely on --image or --env.
+   # The URI's password goes to psql decoded, in PGPASSWORD, and the rest of the URI as its argument: an argument list is readable.
    oc run -n cmapi pg-check --rm -it --restart=Never --image=ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e \
-     --overrides='{"spec":{"containers":[{"name":"pg-check","image":"ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e","command":["sh","-c","psql \"$(cat /run/db/uri)\" -c \"select version(), current_user, ssl.ssl from pg_stat_ssl ssl where pid = pg_backend_pid()\""],"volumeMounts":[{"name":"db","mountPath":"/run/db"},{"name":"ca","mountPath":"/etc/cmapi/ca"}]}],"volumes":[{"name":"db","secret":{"secretName":"cmapi-db-app"}},{"name":"ca","configMap":{"name":"cmapi-trust"}}]}}'
+     --overrides='{"spec":{"containers":[{"name":"pg-check","image":"ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e","command":["bash","-c","uri=$(cat /run/db/uri); pw=${uri#*://*:}; pw=${pw%%@*}; export PGPASSWORD=$(printf %b \"${pw//%/\\\\x}\"); exec psql \"${uri/\":$pw@\"/@}\" -c \"select version(), current_user, ssl.ssl from pg_stat_ssl ssl where pid = pg_backend_pid()\""],"volumeMounts":[{"name":"db","mountPath":"/run/db"},{"name":"ca","mountPath":"/etc/cmapi/ca"}]}],"volumes":[{"name":"db","secret":{"secretName":"cmapi-db-app"}},{"name":"ca","configMap":{"name":"cmapi-trust"}}]}}'
    ```
 
    It must print the version, `cmapi` and `ssl = t`. A wrong CA or name fails here with the same message the

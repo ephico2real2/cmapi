@@ -50,6 +50,12 @@ def test_a_changed_configuration_changes_the_pod_template(name):
     assert pod_annotations(name)["checksum/config"] == CHECKSUM_PLACEHOLDER
 
 
+def test_the_readme_says_the_configuration_goes_first():
+    """The checksum makes a restart, it does not order one: pods restarted before the ConfigMap changes keep the old values."""
+    text = " ".join((ROOT / "deploy/manifests/README.md").read_text().split())
+    assert "apply the environment, then the components, in that order" in text
+
+
 def test_the_mockup_reads_none_of_that_configuration():
     assert "checksum/config" not in pod_annotations("cmapi-mockup")
 
