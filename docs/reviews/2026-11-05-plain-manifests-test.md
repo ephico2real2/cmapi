@@ -130,7 +130,35 @@ Each new test was also run against the code from before its fix (`2026-11-05-pr8
 what CI can run without a cluster, and `np-reach-test.sh` on the job's. Not on real clusters: the 15 s settle catching a real
 crash (stubs only), and docs/12 section 5's corrected sequence as one piece.
 
+## After the second review of PR #89
+
+Run at `f3ebd9aa9d`, with the second review's eight patches applied, on a fresh **`cmapi-test` kind cluster** (podman), with an
+image built from that commit. Log: `2026-11-05-pr89/results/second-review/kind-test.log`. Exit code 0; the script deleted the cluster.
+
+```
+measured, with the migrate container's env: pg_stat_ssl True TLSv1.3
+version: {"version":"0.2.0","commit":"f3ebd9aa9d","component":"api"}
+replaced: pod/cmapi-api-784dcd8c4d-d9q8r pod/cmapi-worker-6bf57cb44-4p4xp ; the new pods read CMAPI_LOG_LEVEL=DEBUG
+kind-test.sh exit code: 0
+```
+
+`keycloak-0` on CRC, read before and after: restart count **1** both times.
+
+| Where | What | Result |
+|---|---|---|
+| This Mac | shellcheck, `ci-guard.py`, `doc12-test.py`, `render-test.sh`, `kind-test-stubbed.sh`, the secrets cases on the stub | 0 failed (`second-review/local-checks.txt`) |
+| This Mac | `mutate-secrets.py` | 22 mutants, 0 survive |
+| This Mac, `cmapi-test-pg` | `cmapi/tests/service` | 312 passed (`second-review/service-tests.txt`) |
+| CI run 42183308668, on `f3ebd9a` | All five jobs, including the first kubeconform run on these manifests | Success |
+| The same run, **Docker-backed kind** | `np-reach-test.sh` | No policy: other namespace reached. The policy: other namespace blocked, same namespace reached, port-forward 200 |
+
+Section 5 of `docs/12` ran on real PostgreSQL 16.15 and 17.11 with the real migrations, in the second review
+(`2026-11-05-pr89/second-review/opus-answer.md`): a complete copy, and a failure on the last table leaving the target as it was.
+
+Still not proven: a pod started under the NetworkPolicy on podman kind (the DNS failure above still happens); the Route through
+it on CRC, where the router uses `HostNetwork` on one node (read with `oc`), so the same-node rule should allow it; `docs/12`
+section 5 with TLS, on a dump from a real CNPG cluster, or with Argo CD's automated sync turned off around it.
+
 ## Not done
 
-- The `manifests` CI job: its result is cited in the pull request from the run whose `headSha` is the branch head.
 - `environments/crc/`, the bootstrap set, Argo CD and anything on CRC: later pull requests, by the deployment design.
