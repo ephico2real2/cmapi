@@ -21,6 +21,10 @@ want "$n placeholders, $m filled" "$n placeholders, $m filled with the image" [ 
 # Into a variable, not "| grep -q" in an if: under pipefail diff's own rc 1 made that pipeline false whatever it found.
 extra=$(diff -r "$D/manifests/components" "$W/o1/components" | grep '^[<>]' | grep -vE 'image: |checksum/config: ')
 if [ -n "$extra" ]; then bad "a line other than an image or the checksum changed: $extra"; else ok "only image and checksum lines changed"; fi
+# And the same files: the line diff above cannot see a file the render dropped or added. The environment has no placeholder.
+only=$(diff -r "$D/manifests/components" "$W/o1/components" | grep '^Only in')
+if [ -n "$only" ]; then bad "the render's files are not the source's: $only"; else ok "the render holds every file of components, and no other"; fi
+want "the environment is the source's, every byte" "the rendered environment differs" diff -r "$D/manifests/environments/kind" "$W/o1/environment"
 want "the mockup's own image is untouched" "the mockup's image changed" grep -q 'nginx-unprivileged@sha256:' "$W/o1/components/portal/10-mockup.yaml"
 want "IMAGE names it" "IMAGE does not name it" [ "$(cat "$W/o1/IMAGE")" = "$GOOD" ]
 if grep -rq 'sha256:DIGEST' "$W/o1"; then bad "a placeholder is left"; fi
@@ -35,6 +39,8 @@ if "$R" crc localhost/cmapi:dev "$W/o4" --allow-tag >/dev/null 2>&1; then bad "-
 # The internal registry's digest is what Wave 1 deploys, by digest; no flag that says "never a deployment".
 want "the internal registry by digest" "the internal registry's digest needs --allow-tag" quiet "$R" crc "$INTERNAL" "$W/o5"
 if "$R" crc "registry.example.com/x@sha256:$(printf 'c%.0s' {1..64})" "$W/o6" >/dev/null 2>&1; then bad "another registry was accepted"; else ok "another registry is refused"; fi
+if "$R" crc "ghcr.io/evil/cmapi@sha256:$(printf 'c%.0s' {1..64})" "$W/o6" >/dev/null 2>&1; then bad "another GHCR repository was accepted"; else ok "another GHCR repository is refused"; fi
+if "$R" crc "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'c%.0s' {1..63})" "$W/o6" >/dev/null 2>&1; then bad "a short digest was accepted"; else ok "a short digest is refused"; fi
 # The flag anywhere; the out dir is the out dir.
 "$R" kind localhost/cmapi:dev --allow-tag "$W/o7" >/dev/null 2>&1
 want "--allow-tag before the out dir" "--allow-tag before the out dir: the out dir was ignored" [ -f "$W/o7/IMAGE" ]
