@@ -92,6 +92,44 @@ and each outcome of the two tests (case 6).
 
 The render step's `! grep` could not fail: `bash -e` does not stop on a negated command (measured). It is an `if` now.
 
+## The whole script to exit 0, after the review of PR #89
+
+The runs above are the first ones. Until this one `kind-test.sh` had never exited 0 on record: it stopped at the harness bug,
+and the ten cases passed in a separate cluster. Run at `16fa0fedcb`, with the review's fixes and the coordinator's rulings
+(`2026-11-05-pr89/README.md`), on a fresh **`cmapi-test` kind cluster** (podman, kind v0.33.0, node v1.35.8), with an image built
+from that commit. Log: `2026-11-05-pr89/results/kind-test-16fa0fedcb.log`. Exit code 0 in 417 s; the script deleted the cluster.
+
+```
+[187s] cmapi-db: Cluster in healthy state
+[268s] MEASURED: the migrate container ... cannot resolve cmapi-db-rw while the mockup pod (not selected) can ... Deleting the policy for this test only
+[341s] ready: cmapi-api-5f67b85bc6-2pqmg true 0; cmapi-db-1 true 0; cmapi-mockup-864587966-r8wzw true 0; cmapi-worker-f4c8ddc9b-hq29f true 0;
+[346s] measured, with the migrate container's env: pg_stat_ssl True TLSv1.3
+readyz: 200 {"status":"ok","database":"ok","schema":"ok"}
+version: {"version":"0.2.0","commit":"16fa0fedcb","component":"api"}
+mockup: 200
+[382s] replaced: pod/cmapi-api-5f67b85bc6-2pqmg pod/cmapi-worker-f4c8ddc9b-hq29f ; the new pods read CMAPI_LOG_LEVEL=DEBUG
+secrets cases failed: 0
+[417s] done; NetworkPolicy deleted for DNS: true
+```
+
+`keycloak-0` on CRC, read with `oc get pod keycloak-0 -n keycloak` before and after: restart count **1** both times.
+
+**The podman-kind DNS failure still happens, so on this run the NetworkPolicy was deleted before the pods started**, as above.
+What that leaves unproven, and what was measured instead, on a kept `cmapi-test` cluster at `b4a60eb24a`
+(`2026-11-05-pr89/results/`):
+
+| Question | Measured |
+|---|---|
+| Is the restored `from` rule what stops another namespace? (`on-kind.txt`) | With no policy another namespace, this namespace and a port-forward all reach port 8080. With the policy another namespace is blocked and the other two still reach it |
+| Do the kubelet's probes pass under that rule? (`np-probes.txt`) | Applied to running pods for 180 s: api and worker stayed Ready, 0 restarts. No pod was started under it here, because of the DNS failure. That needs the hosted runner or CRC |
+| Is the migrate container's connection to CNPG encrypted? (`tls-measure.txt`) | With its env as it ships: `pg_stat_ssl True TLSv1.3`. With `PGSSLROOTCERT` added, as before patch 09: `False None`, so it did fall back to plaintext on CNPG. With `hostnossl all all all reject` in CNPG's `pg_hba`, the real migrate container of a restarted api exited 0, and the old env was refused (`no encryption`) |
+
+The connection is encrypted and **does not verify the server**: CNPG's `uri` has no `sslmode`, so libpq uses `prefer`.
+
+Each new test was also run against the code from before its fix (`2026-11-05-pr89/results/before-after/`). `deploy/tests/` holds
+what CI can run without a cluster, and `np-reach-test.sh` on the job's. Not on real clusters: the 15 s settle catching a real
+crash (stubs only), and docs/12 section 5's corrected sequence as one piece.
+
 ## Not done
 
 - The `manifests` CI job: its result is cited in the pull request from the run whose `headSha` is the branch head.

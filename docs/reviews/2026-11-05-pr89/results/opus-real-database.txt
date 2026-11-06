@@ -1,0 +1,120 @@
+image localhost/cmapi:dev revision: 1f30ab1ac4; cmapi/src differs from HEAD: 0 lines
+
+=== doc12/external-pg-test.sh
+--- section 2, the SQL verbatim, with a password from no command line
+CREATE ROLE
+CREATE DATABASE
+REVOKE
+rc=0
+--- section 3: the guide's URI, the real migrator
+[right CA, right name] rc=0: migrated to head
+alembic_version=0003
+owner of change_requests=cmapi
+[twice is a no-op] rc=0: migrated to head
+[wrong CA must fail] rc=1: (Background on this error at: https://sqlalche.me/e/21/e3q8)
+[wrong name must fail] rc=1: (Background on this error at: https://sqlalche.me/e/21/e3q8)
+--- the api's engine (make_engine) with the guide's URI
+[make_engine] rc=0: engine: ('cmapi', True, 'TLSv1.3')
+--- the same engine with no PGSSLROOTCERT in the environment but the URI's sslrootcert: that is what the main containers have
+--- now the default path's shape, a URI with no sslmode (CNPG's), server allowing both TLS and not
+[no sslmode, no PGSSLROOTCERT (main container)] rc=0: engine: ('cmapi', True, 'TLSv1.3')
+[no sslmode, PGSSLROOTCERT = bundle without the server's CA (migrate initContainer)] rc=0: engine: ('cmapi', False, None)
+[no sslmode, PGSSLROOTCERT = bundle with the server's CA] rc=0: engine: ('cmapi', True, 'TLSv1.3')
+
+=== doc12/restore-test.sh
+--- step 4's SQL
+ PostgreSQL 16.15 on      | t
+--- section 5, line 91's shape: verify-full, no sslrootcert, no root.crt on the machine
+Either provide the file, use the system's trusted roots with sslrootcert=system, or change sslmode to disable server certificate verification.
+--- a URI with verify-full and no sslrootcert, as the migrate container sees it (PGSSLROOTCERT set) and as the main container sees it (not set)
+[PGSSLROOTCERT setPGSSLROOTCERT=/etc/cmapi/ca/ca-bundle.crt
+] rc=0 1
+[PGSSLROOTCERT not set] rc=1 psycopg.OperationalError: connection failed: connection to server at "10.89.3.2", port 5432 failed: root certificate file "/opt/app-root/src/.postgresql/root.crt" does no
+--- migrate db cmapi, dump as postgres, restore with section 5's flags into another owner's database
+migrated to head
+restore rc=0
+10 tables, owner cmapi2
+revision 0003
+--- a dump really taken from CNPG's PostgreSQL 17, with a 16 client
+pg_restore (PostgreSQL) 16.15
+pg_restore: error: unsupported version (1.16) in file header
+pg_restore -l rc=1
+
+=== doc12/cnpg-move-test.sh on kind-cmapi-test
+cluster.postgresql.cnpg.io/cmapi-db condition met
+--- what CNPG wrote
+keys ['dbname', 'fqdn-jdbc-uri', 'fqdn-uri', 'host', 'jdbc-uri', 'password', 'pgpass', 'port', 'uri', 'user', 'username']
+ownerReferences [('Cluster', 'cmapi-db', True)]
+labels {'cnpg.io/cluster': 'cmapi-db', 'cnpg.io/reload': 'true', 'cnpg.io/userType': 'app'}
+uri -> cmapi-db-rw.cmapi 5432 /cmapi <no query>
+--- section 5, line 90 verbatim (oc -> kubectl)
+pg_dump: error: connection to server on socket "/controller/run/.s.PGSQL.5432" failed: FATAL:  Peer authentication failed for user "cmapi"
+command terminated with exit code 1
+rc=1 bytes=0
+--- the same, as the superuser the local socket maps to
+rc=0 bytes=26170
+--- the same over TCP with the Secret's own URI, read inside the pod's shell from a file-less env
+--- section 3's Secret applied over CNPG's, as section 5 says ('Then replace cmapi-db-app (section 3)')
+error: Apply failed with 1 conflict: conflict with "manager" using v1: .type
+Please review the fields above--they currently have other managers. Here
+are the ways you can resolve this warning:
+* If you intend to manage all of these fields, please re-run the apply
+  command with the `--force-conflicts` flag.
+* If you do not intend to manage all of the fields, please edit your
+  manifest to remove references to the fields that should keep their
+  current managers.
+* You may co-own fields by updating your manifest to match the existing
+  value; in this case, you'll become the manager if the other manager(s)
+  stop managing the field (remove it from their configuration).
+See https://kubernetes.io/docs/reference/using-api/server-side-apply/#conflicts
+apply rc=1
+immediately: uri -> cmapi-db-rw.cmapi 5432 /cmapi <no query>
+--- force a reconcile, as any later Cluster change or operator restart does
+t=10s uri -> cmapi-db-rw.cmapi 5432 /cmapi <no query>
+--- if it was not reverted, or re-applied now: delete the Cluster 'by hand when the move is proven'
+The Secret "cmapi-db-app" is invalid: type: Invalid value: "Opaque": field is immutable
+re-applied, uri -> cmapi-db-rw.cmapi 5432 /cmapi <no query>
+cluster.postgresql.cnpg.io "cmapi-db" deleted from cmapi namespace
+Error from server (NotFound): secrets "cmapi-db-app" not found
+pvcs: 1
+
+=== doc12/cnpg-replace-test.sh on kind-cmapi-test
+cluster.postgresql.cnpg.io/cmapi-db condition met
+CNPG's: cmapi-db-rw.cmapi type=kubernetes.io/basic-auth owners=1
+secret "cmapi-db-app" deleted from cmapi namespace
+error: Apply failed with 1 conflict: conflict with "manager" using v1: .type
+Please review the fields above--they currently have other managers. Here
+are the ways you can resolve this warning:
+* If you intend to manage all of these fields, please re-run the apply
+  command with the `--force-conflicts` flag.
+* If you do not intend to manage all of the fields, please edit your
+  manifest to remove references to the fields that should keep their
+  current managers.
+* You may co-own fields by updating your manifest to match the existing
+  value; in this case, you'll become the manager if the other manager(s)
+  stop managing the field (remove it from their configuration).
+See https://kubernetes.io/docs/reference/using-api/server-side-apply/#conflicts
+apply rc=1
+immediately: cmapi-db-rw.cmapi type=kubernetes.io/basic-auth owners=1
+30 s after a touch: cmapi-db-rw.cmapi type=kubernetes.io/basic-auth owners=1
+45 s after an operator restart: cmapi-db-rw.cmapi type=kubernetes.io/basic-auth owners=1
+cluster.postgresql.cnpg.io "cmapi-db" deleted from cmapi namespace
+after the Cluster is deleted: Error from server (NotFound): secrets "cmapi-db-app" not found
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import base64,json,sys,urllib.parse as u; d=json.load(sys.stdin); x=u.urlsplit(base64.b64decode(d["data"]["uri"]).decode()); print(x.hostname, "type="+d["type"], "owners="+str(len(d["metadata"].ge
+                                                ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)

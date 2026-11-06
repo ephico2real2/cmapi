@@ -1,0 +1,16 @@
+$ test_plain_manifests.py (fixed), manifests of bc19275
+FF.FFF.......                                                            [100%]
+=================================== FAILURES ===================================
+<scratch>/pt.1jzm/cmapi/tests/service/test_plain_manifests.py:46: KeyError: 'checksum/config'
+<scratch>/pt.1jzm/cmapi/tests/service/test_plain_manifests.py:46: KeyError: 'checksum/config'
+<scratch>/pt.1jzm/cmapi/tests/service/test_plain_manifests.py:56: AssertionError: a rule with no from: any pod on the shared cluster reaches 8080
+<scratch>/pt.1jzm/cmapi/tests/service/test_plain_manifests.py:68: AssertionError: with CNPG's URI and a bundle without its CA, libpq falls back to plaintext (measured)
+<scratch>/pt.1jzm/cmapi/tests/service/test_plain_manifests.py:68: AssertionError: with CNPG's URI and a bundle without its CA, libpq falls back to plaintext (measured)
+=========================== short test summary info ============================
+FAILED tests/service/test_plain_manifests.py::test_a_changed_configuration_changes_the_pod_template[cmapi-api]
+FAILED tests/service/test_plain_manifests.py::test_a_changed_configuration_changes_the_pod_template[cmapi-worker]
+FAILED tests/service/test_plain_manifests.py::test_api_port_is_not_open_to_every_namespace
+FAILED tests/service/test_plain_manifests.py::test_both_workloads_migrate_first_trusting_what_the_main_container_trusts[cmapi-api]
+FAILED tests/service/test_plain_manifests.py::test_both_workloads_migrate_first_trusting_what_the_main_container_trusts[cmapi-worker]
+5 failed, 8 passed in 1.97s
+exit=1

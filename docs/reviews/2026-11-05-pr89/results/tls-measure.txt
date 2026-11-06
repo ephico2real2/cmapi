@@ -1,0 +1,20 @@
+--- CNPG's uri has this shape: cmapi-db-rw.cmapi 5432 /cmapi <no query>
+--- 1. the migrate container's env as it ships after patch 09
+[ssl-after] env names: CMAPI_DATABASE_URL SSL_CERT_FILE 
+[ssl-after] pg_stat_ssl True TLSv1.3
+--- 2. the same env plus PGSSLROOTCERT, as before patch 09, with kind's stand-in CA in the bundle
+[ssl-before] env names: CMAPI_DATABASE_URL SSL_CERT_FILE PGSSLROOTCERT 
+[ssl-before] pg_stat_ssl False None
+--- 3. the real migrate container: pg_hba refuses plaintext, the api restarted, cmapi-migrate must pass
+hostnossl reject rules in force: 1
+the plaintext-fallback env under that rule (must fail):
+error: timed out waiting for the condition on pods/ssl-refused
+[ssl-refused] did not succeed: phase Failed
+connection to server at "10.96.97.22", port 5432 failed: FATAL:  pg_hba.conf rejects connection for host "10.244.0.19", user "cmapi", database "cmapi", no encryption
+(Background on this error at: https://sqlalche.me/e/21/e3q8)
+[ssl-refused] env names: CMAPI_DATABASE_URL SSL_CERT_FILE PGSSLROOTCERT 
+[ssl-refused] (Background on this error at: https://sqlalche.me/e/21/e3q8)
+Waiting for deployment "cmapi-api" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cmapi-api" rollout to finish: 1 old replicas are pending termination...
+deployment "cmapi-api" successfully rolled out
+newest api pod's migrate container: exit 0, restarts 0; log: migrated to head

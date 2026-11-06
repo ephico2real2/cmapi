@@ -1,0 +1,18 @@
+--- the kubelet's probes under the restored policy, on podman kind cluster cmapi-test
+before: cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+05:48:16
+networkpolicy.networking.k8s.io/cmapi-metrics created
+t=20s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=40s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=60s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=80s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=100s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=120s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=140s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=160s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+t=180s cmapi-api-866b9b4897-cxz2d ready=true restarts=0; cmapi-worker-bb84854b8-k9ll6 ready=true restarts=0; 
+Unhealthy events now listed:
+2026-11-06T05:47:49Z   cmapi-api-866b9b4897-cxz2d     Startup probe failed: Get "http://10.244.0.20:8080/readyz": dial tcp 10.244.0.20:8080: connect: connection refused
+2026-11-06T05:39:14Z   cmapi-mockup-864587966-bnj4d   Readiness probe failed: Get "http://10.244.0.8:8080/portal.html": dial tcp 10.244.0.8:8080: connect: connection refu
+05:51:20
+networkpolicy.networking.k8s.io "cmapi-metrics" deleted from cmapi namespace

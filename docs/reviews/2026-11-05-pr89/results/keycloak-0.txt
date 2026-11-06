@@ -1,0 +1,14 @@
+--- first run (b4a60eb24a)
+2026-11-06T05:36:27Z
+NAME         READY   STATUS    RESTARTS     AGE
+keycloak-0   1/1     Running   1 (9h ago)   8d
+--- then, after it
+restart count read again at the end of that run: 1
+--- final run (16fa0fedcb), before
+2026-11-06T06:05:43Z
+NAME         READY   STATUS    RESTARTS     AGE
+keycloak-0   1/1     Running   1 (9h ago)   8d
+--- after
+2026-11-06T06:14:12Z
+NAME         READY   STATUS    RESTARTS     AGE
+keycloak-0   1/1     Running   1 (9h ago)   8d

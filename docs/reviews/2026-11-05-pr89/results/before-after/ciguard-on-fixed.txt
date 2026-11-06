@@ -1,0 +1,31 @@
+$ deploy/tests/ci-guard.py, fixed
+  ok   the runner is a named release, not ubuntu-latest
+  ok   the schema URLs are pinned by commit, not master or main
+  ok   4 downloads
+  ok   kubeconform.tar.gz is verified by SHA-256
+  ok   shellcheck.tar.gz is verified by SHA-256
+  ok   kubectl is verified by SHA-256
+  ok   kind is verified by SHA-256
+  ok   contents: read, no widening in the job
+  ok   persist-credentials: false
+  ok   actions by full SHA
+  ok   kubectl is pinned too: the runner's floats with the runner image
+  ok   render.sh's result is checked, not only the absence of the placeholder
+  ok   the job runs deploy/secrets-test.sh
+  ok   the job runs deploy/tests/ci-guard.py
+  ok   the job runs deploy/tests/doc12-test.py
+  ok   the job runs deploy/tests/kind-test-stubbed.sh
+  ok   the job runs deploy/tests/mutate-secrets.py
+  ok   the job runs deploy/tests/np-reach-test.sh
+  ok   shellcheck covers the kind-test stubs
+  ok   shellcheck covers deploy/kind-test.sh
+  ok   shellcheck covers deploy/mockup-configmap.sh
+  ok   shellcheck covers deploy/render-test.sh
+  ok   shellcheck covers deploy/render.sh
+  ok   shellcheck covers deploy/secrets-test.sh
+  ok   shellcheck covers deploy/secrets.sh
+  ok   shellcheck covers deploy/tests/kind-test-stubbed.sh
+  ok   shellcheck covers deploy/tests/np-reach-test.sh
+  ok   shellcheck covers deploy/tests/secrets-stub/stub.sh
+ci cases failed: 0
+exit=0

@@ -1,0 +1,9 @@
+tree: /Users/olasumbo/gitRepos/cmapi-design-crc at 16fa0fedcb
+test-ci-schema-pins.sh               rc=0  PASS the manifests runner and kubeconform schema URLs are pinned
+test-config-rollout.sh               rc=1  FAIL unversioned ConfigMap: /Users/olasumbo/gitRepos/cmapi-design-crc/deploy/manifests/environments/kind/10-env.yaml
+test-empty-realm.sh                  rc=0  PASS empty realm Secret stopped: rc=1 applies=0
+test-kind-ownership.sh               rc=0  PASS existing cluster was refused and not deleted
+test-kind-version-guard.sh           rc=1  FAIL no fatal exact comparison of version and image stamp
+test-networkpolicy-api-source.sh     rc=0  PASS API ingress has the chart router/source guard
+test-postgres-guide.sh               rc=1  
+test-secret-read-errors.sh           rc=0  PASS Secret read error stopped without writes: rc=7 applies=0
