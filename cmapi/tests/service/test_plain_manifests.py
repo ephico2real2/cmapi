@@ -265,6 +265,16 @@ def test_crc_realm_import_names_cmapi_and_holds_no_secret():
     assert len(list(yaml.safe_load_all((CRC / "realm/10-realm-import.yaml").read_text()))) == 1
 
 
+def test_crc_realm_takes_a_password_only_through_the_automation_client_and_limits_guesses():
+    """A public client with direct grants takes a person's password with no secret. Keycloak gives every realm one, admin-cli, unless the import names it. Measured in deploy/tests/realm-test.py."""
+    realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
+    direct = [c["clientId"] for c in realm["clients"] if c.get("directAccessGrantsEnabled") and c.get("enabled")]
+    assert direct == ["cmapi-automation"]
+    admin_cli = next(c for c in realm["clients"] if c["clientId"] == "admin-cli")
+    assert admin_cli["enabled"] is False and admin_cli["directAccessGrantsEnabled"] is False
+    assert realm["bruteForceProtected"] is True and realm["permanentLockout"] is False
+
+
 def test_crc_realm_sync_is_one_try_and_requires_the_federation():
     job = crc("Job", "cmapi-realm-sync")["spec"]
     assert job["backoffLimit"] == 0 and job["template"]["spec"]["restartPolicy"] == "Never", "no retries against a Keycloak that is down"

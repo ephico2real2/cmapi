@@ -15,7 +15,7 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 | Namespace `cmapi-system` (new) | ServiceAccount `cmapi-reader` and its token Secret |
 | Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `list` on pods and persistentvolumeclaims |
 | Namespace `keycloak` | Secret `cmapi-realm-secrets`, and `KeycloakRealmImport cmapi`, deleted once Done |
-| Keycloak | Realm `cmapi`. Creating any realm also adds a client `cmapi-realm` to `master` (measured). That is the one known change outside realm `cmapi` |
+| Keycloak | Realm `cmapi`, with guesses limited (a temporary lockout, in this realm alone) and its default `admin-cli` client off, so no client takes a person's password without a secret. Creating any realm also adds a client `cmapi-realm` to `master` (measured). That is the one known change outside realm `cmapi` |
 
 In LDAP nothing is written: the realm reads it through the read-only `cmapi-ldap-bind`. See [`docs/11`](11-existing-identity-services.md).
 

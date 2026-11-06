@@ -120,6 +120,14 @@ member: cn=john.doe,ou=People,dc=ephico2real,dc=com
         check(c.get("groups") == ["/cmapi/cmapi-requesters"], f"groups, filtered on cmapi-*: {c.get('groups')}"); check("cmapi-requester" in c["resource_access"]["cmapi-nonprod"]["roles"], "the group's role")
     check(login("john.doe", "wrong").status_code == 401 or login("john.doe", "wrong").status_code == 400, "a wrong LDAP password is refused")
     check(login("bot-user", "rt-bot").status_code == 200, "the local bot user signs in")
+    # A person's password goes through one client, with its secret, and cannot be guessed without limit.
+    for client in ("admin-cli", "cmapi-portal", "cmapi-docs", "cmapi-cli", "account", "account-console", "security-admin-console"):
+        r = httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "password", "client_id": client, "username": "bot-user", "password": "rt-bot"}); check(r.status_code != 200, f"{client} takes no password with no client secret: {r.status_code}")
+    for _ in range(realm["failureFactor"]):
+        login("amy", "wrong")
+    time.sleep(1)                      # the protector counts on its own thread
+    check(login("amy", "rt-amy").status_code != 200, "after that many wrong guesses even the right password is refused for now")
+    check(login("ola", "rt-ola").status_code == 200, "and no one else is")
     adm = httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "client_credentials", "client_id": "cmapi-realm-admin", "client_secret": vals["CMAPI_REALM_ADMIN_SECRET"]}).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
     check(httpx.delete(f"{B}/admin/realms/corp-rt", headers=A).status_code == 403, "cmapi-realm-admin cannot delete another realm")
     # A sync that cannot reach LDAP must fail the Job.

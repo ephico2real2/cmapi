@@ -55,6 +55,11 @@ spec:
     offlineSessionMaxLifespan: 7776000
     revokeRefreshToken: true
     refreshTokenMaxReuse: 0
+    # This realm reads every person in the shared directory, and without this anyone who reaches the Route could guess their passwords without limit (40 in 1.1 s, measured).
+    # Temporary only: a lockout is in this realm, for 60 s and doubling, never in LDAP.
+    bruteForceProtected: true
+    permanentLockout: false
+    failureFactor: 10
     clientScopes:
     - name: basic
       protocol: openid-connect
@@ -219,6 +224,13 @@ spec:
         - name: cmapi-approval-relay
           description: approvals:relay for channel integrations
     clients:
+    # Every realm gets a public admin-cli that takes a password with no client secret, so cmapi-automation's secret would guard nothing (measured). Nothing here uses it.
+    - clientId: admin-cli
+      name: Not used in this realm
+      enabled: false
+      publicClient: true
+      standardFlowEnabled: false
+      directAccessGrantsEnabled: false
     - clientId: cmapi-nonprod
       name: cmapi nonprod API
       enabled: true
