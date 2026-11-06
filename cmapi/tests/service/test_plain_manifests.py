@@ -3,6 +3,7 @@ nothing reads these files until the charts are removed. Ruling 3 of the deployme
 the charts. Static: no cluster, no database."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,13 @@ COMPONENTS = ROOT / "deploy/manifests/components"
 PLACEHOLDER = "ghcr.io/ephico2real2/cmapi@sha256:DIGEST"
 TRUST = "/etc/cmapi/ca/ca-bundle.crt"
 CHECKSUM_PLACEHOLDER = "CMAPI_CONFIG_CHECKSUM"
+# The only images here that are not cmapi's, by repository. A digest bump changes nothing; a new repository is a decision.
+OTHER_IMAGES = {"docker.io/nginxinc/nginx-unprivileged", "ghcr.io/cloudnative-pg/postgresql:17"}
 
 
 def docs():
-    for f in sorted(COMPONENTS.rglob("*.yaml")):
+    # .yml too: kubectl apply -R and Argo CD take it, and render.sh only refuses one that holds a placeholder.
+    for f in sorted([*COMPONENTS.rglob("*.yaml"), *COMPONENTS.rglob("*.yml")]):
         for d in yaml.safe_load_all(f.read_text()):
             if d:
                 yield d
@@ -101,11 +105,63 @@ def test_every_container_has_requests_limits_and_the_restricted_shape():
             assert sc["allowPrivilegeEscalation"] is False and sc["capabilities"]["drop"] == ["ALL"] and "runAsUser" not in sc
 
 
-def test_every_image_is_the_placeholder_or_a_digest():
-    for d in deployments():
-        pod = d["spec"]["template"]["spec"]
-        for c in pod.get("initContainers", []) + pod["containers"]:
-            assert c["image"] == PLACEHOLDER or "@sha256:" in c["image"], c["image"]
+def images(node):
+    """Every image and imageName under an object, whatever its kind: a Job or a sidecar runs an image as well."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("image", "imageName") and isinstance(value, str):
+                yield value
+            else:
+                yield from images(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from images(value)
+
+
+def image_problems(objects):
+    """The api and the worker run the placeholder and nothing else, so render.sh decides what they run. Anything else is the
+    placeholder or a known repository pinned by a whole digest. Against a mistake (a digest pinned while debugging, a forgotten
+    tag), not an attacker: whoever can edit the manifests in a pull request can edit this too, and review is what stops them."""
+    problems = []
+    for d in objects:
+        name = d["metadata"]["name"]
+        for image in images(d):
+            repository, _, digest = image.partition("@sha256:")
+            pinned = repository in OTHER_IMAGES and re.fullmatch(r"[0-9a-f]{64}", digest)
+            ours = d["kind"] == "Deployment" and name in ("cmapi-api", "cmapi-worker")
+            if image != PLACEHOLDER and (ours or not pinned):
+                problems.append(f"{d['kind']}/{name}: {image}")
+    return problems
+
+
+def test_every_image_is_the_placeholder_or_a_known_digest():
+    objects = list(docs())
+    assert image_problems(objects) == []
+    assert sum(1 for d in objects for image in images(d) if image == PLACEHOLDER) == 4, "two Deployments, each a migrate and a main container"
+
+
+EVIL = "ghcr.io/evil/cmapi@sha256:" + "e" * 64
+
+
+def _containers(objects, name):
+    pod = next(d for d in objects if d["kind"] == "Deployment" and d["metadata"]["name"] == name)["spec"]["template"]["spec"]
+    return pod.get("initContainers", []) + pod["containers"]
+
+
+@pytest.mark.parametrize("change", [
+    pytest.param(lambda o: _containers(o, "cmapi-api")[0].update(image=EVIL), id="the api's migrate container"),
+    pytest.param(lambda o: _containers(o, "cmapi-worker")[1].update(image=EVIL), id="the worker's main container"),
+    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image=EVIL), id="the mockup, another repository"),
+    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image="docker.io/nginxinc/nginx-unprivileged:latest"), id="the mockup, a tag"),
+    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image="docker.io/nginxinc/nginx-unprivileged@sha256:abc"), id="the mockup, a short digest"),
+    pytest.param(lambda o: next(d for d in o if d["kind"] == "Cluster")["spec"].update(imageName="ghcr.io/cloudnative-pg/postgresql:17"), id="the database, a tag"),
+    pytest.param(lambda o: o.append({"kind": "Job", "metadata": {"name": "x"}, "spec": {"template": {"spec": {"containers": [{"name": "x", "image": EVIL}]}}}}), id="a Job"),
+])
+def test_the_image_guard_can_fail(change):
+    objects = list(docs())
+    assert image_problems(objects) == []
+    change(objects)
+    assert image_problems(objects), "the guard let this through"
 
 
 def test_the_database_keeps_itself_and_names_no_storage_class():

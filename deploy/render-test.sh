@@ -13,7 +13,9 @@ R=$D/render.sh
 # Fills exactly the placeholder: every other byte of every file is the source's.
 "$R" kind "$GOOD" "$W/o1" >/dev/null || bad "a digest was refused"
 n=$(grep -r "sha256:DIGEST" "$D/manifests/components" "$D/manifests/environments/kind" | wc -l | tr -d ' ')
-[ "$n" -gt 0 ] || bad "the source holds no placeholder: this case proves nothing"
+# Exactly four: two Deployments, each a migrate and a main container. One replaced by a pinned image would otherwise pass as
+# "3 placeholders, 3 filled"; a Job or a sidecar on this image is a decision, and changes this number with it.
+[ "$n" = 4 ] || bad "the source must hold the four cmapi image placeholders, got $n"
 m=$(grep -rF "$GOOD" "$W/o1/components" "$W/o1/environment" | wc -l | tr -d ' ')
 want "$n placeholders, $m filled" "$n placeholders, $m filled with the image" [ "$m" = "$n" ]
 # Into a variable, not "| grep -q" in an if: under pipefail diff's own rc 1 made that pipeline false whatever it found.
