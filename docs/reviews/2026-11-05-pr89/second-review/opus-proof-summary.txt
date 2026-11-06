@@ -1,0 +1,42 @@
+patch rc=0
+patch rc=0
+patch rc=0
+patch rc=0
+patch rc=0
+patch rc=0
+patch rc=0
+patch rc=0
+the patched tree equals the build
+01-before rc=1 render cases failed: 5
+01-after rc=0 render cases failed: 0
+02-before rc=1 secrets cases failed: 18
+02-after rc=0 secrets cases failed: 0
+03-before rc=1 1 failed, 12 deselected in 0.17s
+03-after rc=0 1 passed, 12 deselected in 0.12s
+04-before rc=1 wrong: 4
+04-after rc=0 wrong: 0
+05-before rc=1 doc cases failed: 9
+05-after rc=0 doc cases failed: 0
+06-before-pytest-on-mutant rc=0 1 passed, 12 deselected in 0.28s
+06-before-render-test-on-mutant rc=0 render cases failed: 0
+06-after-pytest-on-mutant rc=1 8 failed, 12 deselected in 1.95s
+06-after-render-test-on-mutant rc=1 render cases failed: 1
+06-after-clean rc=0 8 passed, 12 deselected in 1.83s
+06-after-clean-render rc=0 render cases failed: 0
+06-before-yml-job-mutant rc=0 1 passed, 12 deselected in 0.30s
+06-after-yml-job-mutant rc=1 1 failed, 19 deselected in 0.30s
+07-before rc=0 SURVIVED rc=0 a short digest accepted
+07-after rc=0 killed   rc=1 a short digest accepted  first: FAIL a short digest was accepted
+08-before rc=1 doc cases failed: 3
+08-after rc=0 doc cases failed: 0
+08-before-readme rc=1 1 failed, 20 deselected in 0.12s
+08-after-readme rc=0 1 passed, 20 deselected in 0.07s
+render-test        rc=0  render cases failed: 0
+secrets-test       rc=0  secrets cases failed: 0
+ci-guard           rc=0  ci cases failed: 0
+doc12              rc=0  doc cases failed: 0
+kind-stubbed       rc=0  wrong: 0
+mutate-secrets     rc=0  mutants: 22, wrong: 0
+mockup-check       rc=0  mockup ConfigMap is current
+plain-manifests    rc=0  21 passed in 3.21s
+shellcheck         rc=0  

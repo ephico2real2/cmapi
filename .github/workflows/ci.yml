@@ -86,3 +86,78 @@ jobs:
       - name: Test
         working-directory: cmapi-portal-ui
         run: npm test
+
+  manifests:
+    # The plain manifests (deploy/manifests), the render, the scripts and the secrets cases: what deploys cmapi
+    # (docs/reviews/2026-11-05-deployment-design.md). kubeconform checks every object against the Kubernetes 1.35 schemas
+    # and the CRDs catalog for CloudNativePG; the secrets cases and the NetworkPolicy's reach run on a kind cluster.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: |
+          curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
+          kubeconform -v
+          # Pinned like the others: apt's shellcheck is whatever the runner image's Ubuntu carries (0.9.0 on 24.04, measured),
+          # so CI and a developer's machine disagreed on the same file.
+          curl -fsSL -o shellcheck.tar.gz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz
+          echo "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6  shellcheck.tar.gz" | sha256sum -c -
+          tar xzf shellcheck.tar.gz --strip-components=1 shellcheck-v0.11.0/shellcheck && sudo mv shellcheck /usr/local/bin/
+          shellcheck --version
+          # The secrets cases read kubectl's own semantics (--ignore-not-found, error text), so not whatever the runner image carries.
+          curl -fsSL -o kubectl https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl
+          echo "874d5e72dbb819f43cff16bcd1e4f8bac5b7f2361fe1e55049b0a6c676fb0cbf  kubectl" | sha256sum -c -
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+          # The stubs and the guards read YAML.
+          python -m pip install pyyaml==6.0.2
+      - name: Shellcheck
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
+      - name: This job's own guards
+        run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
+      - name: docs/12's commands and claims
+        run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
+      - name: kind-test.sh's failures, on stubs
+        run: deploy/tests/kind-test-stubbed.sh
+      - name: The secrets cases against mutants of secrets.sh, on a stub
+        run: python deploy/tests/mutate-secrets.py
+      - name: The mockup ConfigMap is current
+        run: deploy/mockup-configmap.sh --check
+      - name: kubeconform on the manifests
+        env:
+          SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+          CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        run: kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
+      - name: render.sh fills the placeholder and refuses a tag
+        env:
+          SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+          CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        run: |
+          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered
+          # An if, not "! grep": bash -e does not stop on a negated command, so that form could never fail the step.
+          if grep -rn 'sha256:DIGEST' /tmp/rendered; then echo "a placeholder was left in the render"; exit 1; fi
+          kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
+          if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
+          deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag
+          # Everything the render must do and must not do, on a throwaway copy: exactly the placeholder, nothing else changed.
+          deploy/render-test.sh
+      - name: kind for the secrets cases
+        run: |
+          curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind" | sha256sum -c -
+          chmod +x kind && sudo mv kind /usr/local/bin/
+          kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s
+      - name: The secrets cases
+        run: deploy/secrets-test.sh "kubectl --kubeconfig=$PWD/.ci.kubeconfig"
+      - name: Who reaches the API port under the NetworkPolicy
+        run: deploy/tests/np-reach-test.sh "$PWD/.ci.kubeconfig"
+      - name: Delete the kind cluster
+        if: ${{ !cancelled() }}
+        run: kind delete cluster --name cmapi-ci --kubeconfig "$PWD/.ci.kubeconfig"

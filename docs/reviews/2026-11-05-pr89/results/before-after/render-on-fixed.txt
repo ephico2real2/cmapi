@@ -1,0 +1,34 @@
+$ deploy/render-test.sh (fixed), fixed
+  ok   4 placeholders, 4 filled
+  ok   only image and checksum lines changed
+  ok   the mockup's own image is untouched
+  ok   IMAGE names it
+  ok   a tag is refused and the last render stays
+  ok   a tag with --allow-tag on kind
+  ok   --allow-tag is refused for anything but kind
+  ok   the internal registry by digest
+  ok   another registry is refused
+  ok   --allow-tag before the out dir
+  ok   a partly written render is rendered again
+  ok   and its leftovers are gone
+  ok   a placeholder the render cannot fill fails
+  ok   both Deployments carry one value
+  ok   the mockup and the database carry no checksum
+  ok   the mockup's files are the source's
+  ok   two renders are identical
+  ok   another checkout gives the same value
+  ok   the method is the one recorded
+  ok   a changed 10-env changes it in both Deployments
+  ok   a changed 20-config changes it in both Deployments
+  ok   a changed 30-trust changes it in both Deployments
+  ok   bytes moved between two files change it
+  ok   another image keeps the value
+  ok   a checksum placeholder the render cannot fill fails
+  ok   no 10-env stops the render and the last render stays
+  ok   no 20-config stops the render and the last render stays
+  ok   no 30-trust stops the render and the last render stays
+  ok   two files declaring one ConfigMap stop the render
+  ok   a directory it did not write is refused
+  ok   deploy/ as the out dir does not delete deploy/
+render cases failed: 0
+exit=0

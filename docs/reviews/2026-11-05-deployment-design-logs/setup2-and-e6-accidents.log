@@ -1,0 +1,38 @@
+[0s] hypothesis: the four policies, and kindnet / network-policy logs
+  argocd-application-controller-network-policy types ['Ingress'] egress null
+  argocd-applicationset-controller-network-policy types ['Ingress'] egress null
+  argocd-redis-network-policy types ['Ingress'] egress null
+  argocd-repo-server-network-policy types ['Ingress'] egress null
+kindnet-2wfk6
+-- pod/kindnet-2wfk6
+I1105 17:41:48.740144       1 controller.go:178] "Waiting for the policy engine to become ready..."
+I1105 17:41:49.240658       1 controller.go:185] "Policy engine is ready."
+[1s] DNS with the policies: repo-server -> kube-dns
+resolves kubernetes.default: NO rc=2
+resolves argocd-redis: NO rc=2
+[82s] delete the four policies (as Opus did), DNS again
+resolves argocd-redis after delete: yes
+[90s] CRDs server-side (client-side apply failed: annotation too long)
+objects applied server-side: 34
+argoproj CRDs: 3
+partitioned roll out complete: 1 new pods have been updated...
+[96s] gitea user test + repo + seed
+user-test-created
+repo: 201
+seed commit: 09783bd7
+[103s] applicationset
+applicationset.argoproj.io/cluster-configs-crc created
+[314s] managed namespaces: 0
+NAME                         SYNC      HEALTH
+cluster-configs-crc-team-a   Unknown   Healthy
+cluster-configs-crc-team-b   Unknown   Healthy
+cluster-configs-crc-team-d   Unknown   Healthy
+[314s] set reconcile 20s and requeue 30s as Opus did
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+[339s] === e6.py accidents
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/aa3f1eb5-68be-4391-a918-9de29dd6cd7d/scratchpad/d1-merged/work/e6.py", line 3, in <module>
+    import json,subprocess,time,yaml,datetime,sys
+ModuleNotFoundError: No module named 'yaml'
+[339s] === e6 done

@@ -1,0 +1,12 @@
+# kind only: on CRC these come from the bootstrap set a person applies once (the deployment design, D4).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi-imports
+  labels: {app.kubernetes.io/part-of: cmapi}

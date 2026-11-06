@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# The script's waits would add minutes over these cases. Only the port-forward stub's sleep stays real: it is the process to kill.
+case "$1" in "$KT_PF_SLEEP") exec "$KT_REAL_SLEEP" "$1";; *) exec "$KT_REAL_SLEEP" 0.2;; esac

@@ -1,0 +1,18 @@
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+/usr/bin/sha256sum
+/usr/bin/shasum
+--- render-test
+render cases failed: 0
+exit=0
+--- render's value for kind, same as on the Mac?
+        checksum/config: "1c1a7446efd869312f35f3cd0483e7dbf0f6effddcd69021ea4fce2a364b1610"
+--- ci-guard
+ci cases failed: 0
+exit=0
+--- doc12-test
+doc cases failed: 0
+exit=0
+--- kind-test-stubbed
+port-forward processes left behind by the runs above: 0
+wrong: 0
+exit=0

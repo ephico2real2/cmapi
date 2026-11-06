@@ -1,0 +1,22 @@
+# The api and the worker read the cluster import Secrets (a reader token per cluster) in cmapi-imports, nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-imports-reader
+  namespace: cmapi-imports
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-imports-reader
+  namespace: cmapi-imports
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-imports-reader}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-api, namespace: cmapi}
+  - {kind: ServiceAccount, name: cmapi-worker, namespace: cmapi}

@@ -1,0 +1,23 @@
+# kind only: a stand-in CA so the trust bundle is a valid PEM (an invalid bundle crash-loops the api and worker with
+# NO_CERTIFICATE_OR_CRL_FOUND, measured). Its private key was discarded; nothing is signed by it. CRC's bundle holds the
+# Keycloak CA and the ingress CA, read from the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-trust
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+data:
+  ca-bundle.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIBrzCCAVWgAwIBAgIUba/NKnCLNmNIjKO6gJzj8+wxTe0wCgYIKoZIzj0EAwIw
+    LTErMCkGA1UEAwwiY21hcGkga2luZCBzdGFuZC1pbiBDQSAodGVzdCBvbmx5KTAe
+    Fw0yNjExMDUxODE4NDRaFw0zNjExMDIxODE4NDRaMC0xKzApBgNVBAMMImNtYXBp
+    IGtpbmQgc3RhbmQtaW4gQ0EgKHRlc3Qgb25seSkwWTATBgcqhkjOPQIBBggqhkjO
+    PQMBBwNCAATe5jl4rQmpBR82BlVPuweaut3nTiBcg9n+yjAkAIvPa6J5Wq2Iu9Ds
+    T/1Dc4Yv3kKp7TVMkV3SG6IPhVj1V/HJo1MwUTAdBgNVHQ4EFgQUJVeINaehxrIq
+    vjeU39E7Y9ORa+UwHwYDVR0jBBgwFoAUJVeINaehxrIqvjeU39E7Y9ORa+UwDwYD
+    VR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBkeJwQMWWZe/IlvOXXEyds
+    s6y6R2bxIrEpVs4UJINecQIhAO1Tx3kTfv62NqLR+Ju7u6VGdrU35vjs+68fc1aq
+    7uuN
+    -----END CERTIFICATE-----

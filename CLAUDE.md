@@ -19,10 +19,10 @@ The owner's required way of working, from `app-architect`, "Delivering the fixes
 
 1. One issue, one branch from `main`, and one pull request whose body starts `Closes #N`.
 2. Two independent designs from two model families, arbitrated into one, with the choice recorded in the PR.
-3. Fable builds it, and every line is read.
+3. The implementer builds it (see "Who does what"), and every line is read.
 4. A functional test on the running environment, its output saved, and a screenshot for a visible change.
-5. An adversarial review (`adversarial-review`) by two model families, each returning the full fix and its test, and each
-   reviewer's fixes cross-checked by the other. Never the author.
+5. An adversarial review (`adversarial-review`): reviewer 1, then reviewer 2 checking reviewer 1's code, each returning the
+   full code of the fix and its test (see "Who does what"). Never the author.
 6. The docs, the testing record and the diagrams updated from measured numbers.
 7. Merged only when CI is green and the review passed.
 
@@ -35,21 +35,33 @@ The owner's decision, on 2026-11-05:
 
 | Role | Who | Does |
 |---|---|---|
-| Implementer | Fable | Writes all code, tests and charts. The only one who changes application code |
-| Reviewers | Opus and Codex | Design each step independently, review the code, and generate the fix and test for each finding. Each cross-checks the other's fixes |
-| Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Writes no application code |
+| Implementer | Opus 5.5 at `high` | Writes the code, tests and manifests of a step |
+| Reviewer 1 | Codex, with read and write access to its export | Designs each step independently, reviews the code, and returns the full code of the fix and test for each finding |
+| Reviewer 2 | A separate Opus 5.5 agent at `high` that did not write the step | Checks each of reviewer 1's snippets against the design and the code and updates it, and reports with full code what reviewer 1 missed |
+| Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Applies reviewer 2's resulting fixes narrowly. Authors no application code |
 
-A reviewer's fix is a proposal. Fable applies it only after the coordinator has accepted it.
+The owner, 2026-11-05: "Let us stop using fable for now", then "Use opus 5.5 high". So Fable is paused until the owner says
+otherwise, and Opus 5.5 at `high` writes the code. Every pull request says who wrote what (which model wrote which commits or
+files). The agent that codes a step does not review it. With Fable paused, Codex is the only outside model family, so the pull
+request says the step had one. A second Opus agent reviewing is not independent in the same way.
 
-**Converging.** Fable helps Opus and Codex reach one answer. It reads both accounts, merges them into one list of findings or one
-design, and breaks ties where they disagree, with a written reason.
+The owner, 2026-11-05: "each reviwer must produce the full code snippet", and "reviewer 2 will review reviewer 1 code snippet and
+update rooted in the design logic and code so that Coordinator can surgically apply the resultant code fix", and "reviewer 2 also
+reports what codex missed". A finding without its full code does not count. A fix that does not fit when applied goes back to
+reviewer 2; the coordinator does not rewrite it.
 
-Fable wrote the code, so one limit applies. Where the disagreement is whether its own code is wrong, a test decides: the failing
-test stands unless it is shown to be wrong. A finding with a failing test is never dismissed by opinion, and the coordinator keeps
-the final call and records it.
+A reviewer's fix is a proposal. The coordinator applies it only after accepting it. Where the question is whether a fix or finding
+is right, a test decides: the failing test stands unless it is shown to be wrong. A finding with a failing test is never dismissed
+by opinion, and the coordinator keeps the final call and records it.
 
-Reviewers work on an export, never in a repository. If Fable is out of quota, stop coding and report it. Do not hand the code to
-another model.
+Reviewers work on an export, never in a repository. Codex's read and write access covers its export, so it can write and run its
+fixes and tests there.
+
+**Stories.** A pull request that delivers part of a story (#13 to #29) says `Part of #N`. A story closes after the owner approves,
+with a comment citing the proof for each acceptance criterion and the cluster it ran on. Paperclip is off for now (#6, #93).
+
+To continue the build from a new session, start with [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md) and
+[`build-tracker.md`](build-tracker.md).
 
 ### What the mandate does not change
 
@@ -93,6 +105,8 @@ These live in `/Users/olasumbo/gitRepos/diagram-kit/skill/`. Read the one that a
 | Portal mockup | In `tests/portal/`: `npm install`, `npx playwright install chromium`, `npm test` |
 | React app | In `cmapi-portal-ui/`: `npm install`, `npm test` |
 | Reference code | In `examples/`: `PYTHONPATH=src python -m pytest tests -q`, with `local/requirements.txt` installed |
+| Service | In `cmapi/`: `PYTHONPATH=src:tests/service python -m pytest tests/service -q -W ignore`, against a PostgreSQL 16 on `127.0.0.1:55432` |
+| Plain manifests | `deploy/kind-test.sh <image>` on a `cmapi-test` kind cluster (CNPG 1.30.1, `/readyz`, `/api/v1/version`, the secrets cases); `deploy/secrets-test.sh` alone on any throwaway cluster |
 
 `PW_CHANNEL=chrome` runs the browser suites in the installed Chrome. `docs/09-portal-ui-testing.md` records the method.
 

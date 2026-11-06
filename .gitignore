@@ -4,3 +4,5 @@ __pycache__/
 
 node_modules/
 .codegraph/
+.cmapi-test.kubeconfig
+deploy/rendered/

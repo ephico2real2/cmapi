@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stub of kubectl for deploy/kind-test.sh. KT_* in the environment pick the scenario. Every call goes to $KT_LOG.
+echo "kubectl $*" >>"$KT_LOG"
+a=" $* "
+case "$a" in
+  *" config current-context "*) echo kind-cmapi-test;;
+  *" get nodes "*) echo "cmapi-test-control-plane v1.35.8";;
+  *" get cluster cmapi-db "*) echo "Cluster in healthy state";;
+  *" rollout status deploy/cmapi-api --timeout=60s "*) [ "${KT_API_SLOW:-false}" = true ] && exit 1; exit 0;;
+  *" rollout status deploy/cmapi-api --timeout=600s "*) [ "${KT_API_NEVER:-false}" = true ] && exit 1; exit 0;;
+  *" rollout status "*) exit 0;;
+  *" get pod -l app.kubernetes.io/component=api "*) printf cmapi-api-1;;
+  *" get pod -l app.kubernetes.io/component=mockup "*) printf cmapi-mockup-1;;
+  *" exec cmapi-api-1 -c migrate "*) [ -n "${KT_PROBE:-}" ] && { echo "$KT_PROBE"; exit 1; }; exit 0;;
+  *" logs cmapi-api-1 -c migrate --previous "*) echo "${KT_PREVIOUS:-}";;
+  *" exec cmapi-mockup-1 "*) exit "${KT_MOCK_RC:-0}";;
+  *" get pods -o custom-columns"*) echo "cmapi-worker-1 true ${KT_WORKER_RESTARTS:-0};";;
+  *" get pods -o jsonpath"*) echo "cmapi-api-1=0 cmapi-worker-1=${KT_WORKER_RESTARTS:-0} cmapi-mockup-1=0";;
+  *" port-forward "*) exec sleep 25;;
+  *" delete networkpolicy "*) echo "POLICY-DELETED" >>"$KT_LOG";;
+  *) exit 0;;
+esac

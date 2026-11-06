@@ -1,0 +1,24 @@
+=== deploy/tests/np-reach-test.sh (repo) on kind-cmapi-test
+no policy : other namespace reached; same namespace reached; port-forward 200
+the policy: other namespace blocked; same namespace reached; port-forward 200
+np cases failed: 0
+exit=0
+=== opus/tests/np-reach-test.sh, the context guard's name changed from cmapi-pr89-a to cmapi-test, nothing else
+no policy        : other ns reached; same ns reached; port-forward 200
+cmapi/40-networkpolicy.yaml: other ns blocked; same ns reached; port-forward 200
+exit=0
+=== real API: deploy/secrets-test.sh (fixed), secrets.sh of 4ec04a2 (patch 02 alone): rulings 2 before
+  FAIL 7a it names the partial copy: the output does not say: ERROR: partial realm copy
+  FAIL 7b it names the partial copy: the output does not say: ERROR: partial namespace copy
+  FAIL 7b the realm's copy is not written: expected none, got fd098cb16765
+  FAIL 8 realm import exists, both copies gone: stops (expected rc=1): rc=0 wrote Secret sect1/cmapi-keys
+  FAIL 8: something was written
+  FAIL 8 the realm's copy was not written: expected none, got fd098cb16765
+  FAIL 8a a failed read of the import stops, it is not 'no import' (expected rc=1): rc=0 cmapi-keys: present, kept
+  FAIL 8a: something was written
+  FAIL 8a the realm's copy was not written: expected none, got fd098cb16765
+secrets cases failed: 9
+exit=1
+=== real API: opus/tests/secrets-test.sh (the reviewer's copy), fixed secrets.sh
+secrets cases failed: 0
+exit=0

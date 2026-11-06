@@ -1,0 +1,79 @@
+tree: 16fa0fedcb, on this Mac, no cluster
+
+$ shellcheck version: 0.11.0, the job's file list
+exit=0
+
+$ deploy/mockup-configmap.sh --check
+mockup ConfigMap is current
+exit=0
+
+$ deploy/tests/ci-guard.py
+ci cases failed: 0
+exit=0
+
+$ deploy/tests/doc12-test.py
+doc cases failed: 0
+exit=0
+
+$ deploy/render-test.sh
+  ok   4 placeholders, 4 filled
+  ok   only image and checksum lines changed
+  ok   the mockup's own image is untouched
+  ok   IMAGE names it
+  ok   a tag is refused and the last render stays
+  ok   a tag with --allow-tag on kind
+  ok   --allow-tag is refused for anything but kind
+  ok   the internal registry by digest
+  ok   another registry is refused
+  ok   --allow-tag before the out dir
+  ok   a partly written render is rendered again
+  ok   and its leftovers are gone
+  ok   a placeholder the render cannot fill fails
+  ok   both Deployments carry one value
+  ok   the mockup and the database carry no checksum
+  ok   the mockup's files are the source's
+  ok   two renders are identical
+  ok   another checkout gives the same value
+  ok   the method is the one recorded
+  ok   a changed 10-env changes it in both Deployments
+  ok   a changed 20-config changes it in both Deployments
+  ok   a changed 30-trust changes it in both Deployments
+  ok   bytes moved between two files change it
+  ok   another image keeps the value
+  ok   a checksum placeholder the render cannot fill fails
+  ok   no 10-env stops the render and the last render stays
+  ok   no 20-config stops the render and the last render stays
+  ok   no 30-trust stops the render and the last render stays
+  ok   two files declaring one ConfigMap stop the render
+  ok   a directory it did not write is refused
+  ok   deploy/ as the out dir does not delete deploy/
+render cases failed: 0
+exit=0
+
+$ deploy/tests/kind-test-stubbed.sh
+ok    rc=0   policy-deleted=no  cluster-deleted=yes all good
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /readyz is 503
+ok    rc=7   policy-deleted=no  cluster-deleted=yes /readyz refuses the connection
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the port-forward died
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the mockup is 404
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the secrets cases fail
+ok    rc=1   policy-deleted=no  cluster-deleted=yes api never rolls out
+ok    rc=0   policy-deleted=yes cluster-deleted=yes DNS proven: migrate cannot resolve, mockup can
+ok    rc=1   policy-deleted=no  cluster-deleted=yes DNS not proven: the mockup cannot resolve either
+ok    rc=0   policy-deleted=no  cluster-deleted=yes slow, no DNS failure
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version answers an error, not the commit
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version is empty
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version names another commit than built
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the image's revision label is unknown
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the image has no revision label
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the worker has crash-looped since its rollout
+ok    rc=1   policy-deleted=no  cluster-deleted=no  a cluster named cmapi-test already exists
+ok    rc=0   policy-deleted=no  cluster-deleted=yes probe resolves now, old previous log says failed
+ok    rc=0   policy-deleted=yes cluster-deleted=yes the probe could not run, the previous log says it
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the migrate env reaches the database in plaintext
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the pg_stat_ssl check never finishes
+ok    rc=1   policy-deleted=no  cluster-deleted=yes a changed cmapi-env leaves the old pods
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the new pods still read the old value
+port-forward processes left behind by the runs above: 0
+wrong: 0
+exit=0

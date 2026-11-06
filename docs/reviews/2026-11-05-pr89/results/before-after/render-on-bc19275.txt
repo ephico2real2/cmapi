@@ -1,0 +1,39 @@
+$ deploy/render-test.sh (fixed), render.sh and manifests of bc19275
+  ok   4 placeholders, 4 filled
+  ok   only image and checksum lines changed
+  ok   the mockup's own image is untouched
+  ok   IMAGE names it
+  ok   a tag is refused and the last render stays
+  ok   a tag with --allow-tag on kind
+  FAIL --allow-tag was accepted for crc
+  FAIL the internal registry's digest needs --allow-tag
+  ok   another registry is refused
+  FAIL --allow-tag before the out dir: the out dir was ignored
+  ok   a partly written render is rendered again
+  ok   and its leftovers are gone
+  ok   a placeholder the render cannot fill fails
+  ok   both Deployments carry one value
+  FAIL the checksum is not in both Deployments: 
+  FAIL the checksum is not a quoted SHA-256: 
+  ok   the mockup and the database carry no checksum
+  ok   the mockup's files are the source's
+  ok   two renders are identical
+  ok   another checkout gives the same value
+  FAIL the checksum method changed: 
+  FAIL after changing 10-env the Deployments disagree: 
+  FAIL a changed 10-env did not change the checksum
+  FAIL after changing 20-config the Deployments disagree: 
+  FAIL a changed 20-config did not change the checksum
+  FAIL after changing 30-trust the Deployments disagree: 
+  FAIL a changed 30-trust did not change the checksum
+  FAIL bytes moved between two files did not change it
+  ok   another image keeps the value
+  FAIL a checksum placeholder in a .yml passed
+  FAIL a render without 10-env passed
+  FAIL a render without 20-config passed
+  FAIL a render without 30-trust passed
+  FAIL two files declaring cmapi-env passed
+  FAIL render.sh replaced a directory it did not write
+  FAIL deploy/ as the out dir deleted the manifests
+render cases failed: 20
+exit=1

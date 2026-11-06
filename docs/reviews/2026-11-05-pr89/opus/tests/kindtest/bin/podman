@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+echo "podman $*" >>"$KT_LOG"
+case " $* " in
+  *" image inspect "*) echo "${KT_LABEL-abcdef1234}";;
+esac
+exit 0

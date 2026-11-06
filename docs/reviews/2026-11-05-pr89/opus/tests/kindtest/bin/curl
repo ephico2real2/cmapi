@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# the CNPG download is the real, already verified file; the port-forwarded answers are the scenario's
+out=""; prev=""; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
+case " $* " in
+  *cnpg-1.30.1.yaml*) cp "$KT_CNPG" "$out";;
+  *readyz*) [ -n "$out" ] && echo '{"status":"ok"}' >"$out"; printf '%s' "${KT_READY:-200}";;
+  *api/v1/version*) printf '%s' "${KT_VERSION-{\"version\":\"0.2.0\",\"commit\":\"abcdef1234\",\"component\":\"api\"\}}";;
+  *portal.html*) printf '%s' "${KT_MOCK:-200}";;
+esac

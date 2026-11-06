@@ -1,0 +1,8 @@
+$ render-test.sh of b4a60eb against a mutant that changes one other line
+  ok   only image and checksum lines changed
+render cases failed: 0
+exit=0
+$ render-test.sh fixed, same mutant
+  FAIL a line other than an image or the checksum changed: <       terminationGracePeriodSeconds: 60
+render cases failed: 1
+exit=1

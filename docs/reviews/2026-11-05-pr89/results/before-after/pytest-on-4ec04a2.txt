@@ -1,0 +1,10 @@
+$ test_plain_manifests.py (fixed), manifests of 4ec04a2
+FF...........                                                            [100%]
+=================================== FAILURES ===================================
+<scratch>/pt.8rhH/cmapi/tests/service/test_plain_manifests.py:46: KeyError: 'checksum/config'
+<scratch>/pt.8rhH/cmapi/tests/service/test_plain_manifests.py:46: KeyError: 'checksum/config'
+=========================== short test summary info ============================
+FAILED tests/service/test_plain_manifests.py::test_a_changed_configuration_changes_the_pod_template[cmapi-api]
+FAILED tests/service/test_plain_manifests.py::test_a_changed_configuration_changes_the_pod_template[cmapi-worker]
+2 failed, 11 passed in 1.88s
+exit=1

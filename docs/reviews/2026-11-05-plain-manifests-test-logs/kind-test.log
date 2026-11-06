@@ -1,0 +1,56 @@
+[0s] kind create cluster cmapi-test (kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0)
+[106s] node: cmapi-test-control-plane v1.35.8
+[106s] CloudNativePG operator 1.30.1
+[139s] cnpg operator ready
+[139s] load image localhost/cmapi:dev (podman save, then kind load image-archive: the podman provider's reliable path)
+[257s] environments/kind applied
+wrote Secret cmapi-imports/cmapi-realm-secrets
+wrote Secret cmapi/cmapi-keycloak
+wrote Secret cmapi/cmapi-keys
+note    : localhost/cmapi:dev is not a GHCR digest; accepted because of --allow-tag (a kind test, never a deployment)
+rendered: /var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/tmp.5SUYLQvhi7/rendered for kind with localhost/cmapi:dev
+[259s] components applied (server-side)
+[259s] waiting for the database
+[367s] cmapi-db: Cluster in healthy state
+[367s] waiting for api and worker (60 s, then a DNS probe from the migrate container)
+[449s] MEASURED: the migrate container (selected by the ingress-only NetworkPolicy cmapi-metrics) cannot resolve cmapi-db-rw while the mockup pod (not selected) can: the podman-kind DNS failure under a NetworkPolicy. Deleting the policy for this test only; it ships, and the hosted runner and CRC decide
+Waiting for deployment "cmapi-api" rollout to finish: 0 of 1 updated replicas are available...
+deployment "cmapi-api" successfully rolled out
+Waiting for deployment "cmapi-worker" rollout to finish: 0 of 1 updated replicas are available...
+deployment "cmapi-worker" successfully rolled out
+deployment "cmapi-mockup" successfully rolled out
+[461s] ready: cmapi-api-678c6fdb7c-gmr9t      true   0;cmapi-db-1                      true   0;cmapi-mockup-864587966-2txdj    true   0;cmapi-worker-5d44d697c9-25cp9   true   0;
+[461s] /readyz and /api/v1/version through a port-forward
+readyz: 200 {"status":"ok","database":"ok","schema":"ok"}
+version: {"version":"0.2.0","commit":"1f30ab1ac4","component":"api"}
+mockup: 200
+note    : /version commit does not start with the tree's HEAD f84aec8f61; the image was built from another commit
+[466s] secrets cases
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-keycloak" not found
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-realm-secrets" not found
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-keycloak" not found
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-realm-secrets" not found
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-keycloak" not found
+Error from server (NotFound): secrets "cmapi-keycloak" not found
+Error from server (NotFound): secrets "cmapi-keys" not found
+Error from server (NotFound): secrets "cmapi-realm-secrets" not found
+Traceback (most recent call last):
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): secrets "cmapi-github-app" not found
+Error from server (NotFound): secrets "cmapi-github-app" not found
+Error from server (NotFound): secrets "cmapi-github-app" not found
+Error from server (NotFound): secrets "cmapi-github-app" not found
+secrets cases failed: 13
+[480s] deleting kind cluster cmapi-test

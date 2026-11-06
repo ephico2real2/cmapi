@@ -1,0 +1,45 @@
+[0s] kind create
+kubectl cluster-info --context kind-cmapi-d1-m --kubeconfig /private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/aa3f1eb5-68be-4391-a918-9de29dd6cd7d/scratchpad/d1-merged/work/kc
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+kind-cmapi-d1-m
+NAME                       K8S
+cmapi-d1-m-control-plane   v1.35.8
+[78s] hypothesis: nfnetlink_queue on the node, kindnet log
+total 0
+-r--r--r--. 1 root root 0 Nov  5 17:42 nf_log
+-r--r-----. 1 root root 0 Nov  5 17:42 nfnetlink_queue
+nfnetlink_queue-PRESENT
+kindnet: no nfnetlink/error lines in the last 40
+[79s] argocd core
+namespace/cmapi-argocd created
+The CustomResourceDefinition "applicationsets.argoproj.io" is invalid: metadata.annotations: Too long: may not be more than 262144 bytes
+appproject.argoproj.io/cmapi-namespaces created
+[84s] gitstand
+Waiting for deployment "git" rollout to finish: 0 of 1 updated replicas are available...
+deployment "git" successfully rolled out
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+Waiting for deployment "argocd-repo-server" rollout to finish: 0 of 1 updated replicas are available...
+deployment "argocd-repo-server" successfully rolled out
+deployment "argocd-applicationset-controller" successfully rolled out
+[129s] DNS under Core's NetworkPolicies: controller log
+controller log lines with lookup/timeout: 4
+Defaulted container "argocd-repo-server" out of: argocd-repo-server, copyutil (init)
+repo-server resolves argocd-redis: NO (rc=2)
+networkpolicies:        4
+[216s] gitea admin + repo
+admin-created
+repo: 201
+repo get: 404
+Traceback (most recent call last):
+  File "<stdin>", line 7, in <module>
+  File "/private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/aa3f1eb5-68be-4391-a918-9de29dd6cd7d/scratchpad/d1-merged/work/gitlib.py", line 20, in commit
+    assert s in(200,201),(s,r)
+           ^^^^^^^^^^^^^
+AssertionError: (404, '{"errors":["user redirect does not exist [name: test]"],"message":"GetUserByName","url":"http://git.gitstand.svc:3000/api/swagger"}\n')
+[222s] applicationset
+error: resource mapping not found for name: "cluster-configs-crc" namespace: "cmapi-argocd" from "e2_set.yaml": no matches for kind "ApplicationSet" in version "argoproj.io/v1alpha1"
+ensure CRDs are installed first
+[433s] managed namespaces: 0
+NAME   SYNC   HEALTH

@@ -1,0 +1,11 @@
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+stat (GNU coreutils) 9.4
+--- secrets.sh: pre (pre = 4ec04a2, the BSD form first)
+exit=1
+  ok   10c a key file that others can read is refused: rc=2 644; make it 0600
+  FAIL 10c: the ERROR line is not the mode alone
+secrets cases failed: 10
+--- secrets.sh: fixed (pre = 4ec04a2, the BSD form first)
+exit=0
+  ok   10c a key file that others can read is refused: rc=2 ERROR: /tmp/tmp.sTuM2bCvZK is mode 644; make it 0600
+secrets cases failed: 0

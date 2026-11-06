@@ -1,0 +1,17 @@
+$ deploy/tests/doc12-test.py, docs/12 of bc19275
+  ok   step 3: the password survives URI and YAML encoding
+  ok   step 3: verify-full and sslrootcert are in the URI
+  ok   step 3: Secret cmapi-db-app, key uri, nothing else
+  ok   step 3: pw.txt is deleted after a write
+  FAIL step 3: no pw.txt writes no Secret with an empty password
+  FAIL step 3: a failed oc apply keeps pw.txt, the only copy of the password
+  FAIL step 4: the pod's image is pinned (ghcr.io/cloudnative-pg/postgresql:17)
+  FAIL step 4: no --env that the overrides silently drop
+  FAIL section 5: pg_dump is not -U cmapi on the socket (measured: Peer authentication failed)
+  FAIL section 5: pg_restore has a root certificate for verify-full
+  FAIL section 5: does not say to replace the Secret while the Cluster exists (measured: immutable type)
+  FAIL section 5: the Cluster is deleted before the Secret is created
+  FAIL section 1: does not claim PGSSLROOTCERT on the main containers (measured: initContainer only)
+  FAIL section 2: CONNECTION LIMIT 30 holds both pods' pools through a rolling update (4 x 10) plus two migrators
+doc cases failed: 10
+exit=1

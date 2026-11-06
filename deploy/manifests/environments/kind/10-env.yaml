@@ -1,0 +1,14 @@
+# Environment variables the components read through envFrom. kind has no Git host: the provider is named so the
+# process starts, and the first request fails at the Git step, which the e2e of a later pull request replaces with its
+# GitHub stand-in.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-env
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+data:
+  CMAPI_GIT_PROVIDER: github
+  CMAPI_GIT_URL: http://github-stand-in.cmapi.svc:8080
+  CMAPI_GIT_DEFAULT_BRANCH: main
+  CMAPI_LOG_LEVEL: INFO

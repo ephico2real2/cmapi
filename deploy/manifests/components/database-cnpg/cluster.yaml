@@ -1,0 +1,30 @@
+# One PostgreSQL instance: a single-node developer cluster has no HA to offer. The operator (CNPG 1.30.1 on CRC) is a
+# prerequisite. Prune=false,Delete=false: no Git change and no Application deletion removes the database.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cmapi-db
+  namespace: cmapi
+  labels:
+    app.kubernetes.io/part-of: cmapi
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17@sha256:70664ebcfa1100361b5bdc28bbf06fdbe08db2dc4ad7bd14de33c5e05fe8ea8e
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: cmapi
+      owner: cmapi
+  storage:
+    size: 2Gi                      # no storageClass: the cluster's default (CRC's is crc-csi-hostpath-provisioner)
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  postgresql:
+    parameters:
+      max_connections: "60"        # each cmapi pod holds a pool of 5 plus 5 overflow
+      shared_buffers: 64MB
