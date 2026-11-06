@@ -54,6 +54,9 @@ class H(http.server.BaseHTTPRequestHandler):
         if code == "short":                                 # a server going down: the answer stops before its length
             self.send_response(200); self.send_header("Content-Length", "1000"); self.end_headers(); self.wfile.write(b"{"); self.wfile.flush(); self.close_connection = True
             return
+        if code == "short503":                              # the same, on an error: urllib reads this body inside its HTTPError handler
+            self.send_response(503); self.send_header("Content-Length", "1000"); self.end_headers(); self.wfile.write(b"<"); self.wfile.flush(); self.close_connection = True
+            return
         if code == "garbage":                               # not HTTP at all
             self.wfile.write(b"not http\r\n\r\n"); self.wfile.flush(); self.close_connection = True
             return
@@ -122,7 +125,7 @@ def cases(guard):
     yield "issuer: a certificate from another CA is neither", run(guard, "issuer", CMAPI_CRC_CA=os.path.join(W, "other.crt")).returncode == 20
     yield "no CA named: it stops, TLS is never off", run(guard, "issuer", CMAPI_CRC_CA="").returncode != 0 and run(guard, "issuer", CMAPI_CRC_CA="").returncode != 10
     yield "issuer: nothing listening is neither", run(guard, "issuer", CMAPI_KEYCLOAK_URL="https://localhost:9").returncode == 20
-    for label, answer in (("an answer cut short", ["short", ""]), ("an answer that is not HTTP", ["garbage", ""]), ("JSON that is not an object", [200, '["cmapi"]'])):
+    for label, answer in (("an answer cut short", ["short", ""]), ("an error answer cut short", ["short503", ""]), ("an answer that is not HTTP", ["garbage", ""]), ("JSON that is not an object", [200, '["cmapi"]'])):
         s = base_state(); s["http"]["cmapi"] = answer; save(s)
         r = run(guard, "issuer"); yield f"issuer: {label} is neither, with no traceback", r.returncode == 20 and "Traceback" not in r.stderr
     save(base_state())
@@ -197,13 +200,13 @@ def cases(guard):
     # the watch
     save(base_state()); run(guard, "snapshot", a)
     log = os.path.join(W, "w.log"); stop = os.path.join(W, "stop")
-    def watch(mut, seconds=1.2):
+    def watch(mut, seconds=1.2, baseline=None, **env):
         for x in (log, log + ".done", stop):
             if os.path.exists(x): os.unlink(x)
         s = base_state(); mut(s); save(s)
-        p = subprocess.Popen([sys.executable, guard, "watch", log, stop, a], env=ENV, stdout=subprocess.PIPE, text=True)
+        p = subprocess.Popen([sys.executable, guard, "watch", log, stop, baseline or a], env={**ENV, **env}, stdout=subprocess.PIPE, text=True)
         time.sleep(seconds); open(log + ".done", "w").close(); out, _ = p.communicate(timeout=20)
-        return p.returncode, open(log).read(), out
+        return p.returncode, open(log).read() if os.path.exists(log) else "", out
     rc, text, _ = watch(lambda s: None, 0.5)
     yield "the watch stays quiet when all is well", rc == 0 and "BREACH" not in text and not os.path.exists(stop)
     yield "the watch's lines are timestamped", text.startswith("20") and "realms {" in text
@@ -215,6 +218,16 @@ def cases(guard):
     yield "an answer cut short stops the run, and the watch lives", rc == 3 and "BREACH corp=0" in text and "watch ended rc=3" in text
     rc, text, _ = watch(lambda s: s["http"].__setitem__("corp", ["garbage", ""]))
     yield "an answer that is not HTTP stops the run, and the watch lives", rc == 3 and "BREACH corp=0" in text and "watch ended rc=3" in text
+    rc, text, _ = watch(lambda s: s["http"].__setitem__("corp", ["short503", ""]))
+    yield "an error answer cut short stops the run, and the watch lives", rc == 3 and os.path.exists(stop) and "BREACH corp=503" in text and "watch ended rc=3" in text
+    # Past the listed cases: the CA file gone mid-run (Stop, from tls()), and an exception nobody wrote a case for (a baseline with no key).
+    rc, text, _ = watch(lambda s: None, CMAPI_CRC_CA=os.path.join(W, "no-such-ca"))
+    yield "a CA file gone mid-run stops the run, and the watch lives", rc == 3 and os.path.exists(stop) and "the watch could not look" in text and "watch ended rc=3" in text
+    odd = os.path.join(W, "odd.json"); json.dump({**json.load(open(a)), "realms": {"corp": {}}}, open(odd, "w"))
+    rc, text, _ = watch(lambda s: None, baseline=odd)
+    yield "an exception nobody listed stops the run, and the watch lives", rc == 3 and os.path.exists(stop) and "the watch could not look: KeyError" in text and "watch ended rc=3" in text
+    rc, _, out = watch(lambda s: None, 0.2, baseline=os.path.join(W, "no-such-baseline"))
+    yield "a watch that cannot begin stops the run", rc == 1 and os.path.exists(stop) and "the watch ended" in out
     rc, text, _ = watch(lambda s: s["pods"].__setitem__("keycloak-0", {"metadata": {}}))
     yield "an unreadable keycloak-0 stops the run, and the watch lives", rc == 3 and "keycloak-0 unreadable" in text and "watch ended rc=3" in text
     rc, text, _ = watch(lambda s: s["http"]["corp"].__setitem__(1, json.dumps({"realm": "corp", "public_key": "x"})))
@@ -269,6 +282,9 @@ MUTANTS = {
     "a breach during the import does not stop the run": ("if os.path.exists(stop_file):\n                # A running", "if False:\n                # A running"),
     "the realm name is not checked": ('r"^    realm: cmapi$")', 'r"^  realm:$")'),
     "a second document is allowed": ('if re.search(r"^---", text, re.M) or re.search(r"^\\.\\.\\.", text, re.M):', "if False:"),
+    "an error answer cut short loses its status": ('            return e.code, b""', "            raise"),
+    "a surprise ends the watch": ("            except Exception as e:\n                problems.append(f\"the watch could not look", "            except ZeroDivisionError as e:\n                problems.append(f\"the watch could not look"),
+    "a watch that ends leaves no stop file": ("        stop_the_run(stop_file)\n        print(f\"{now()} BREACH, the run is stopped: the watch ended", "        print(f\"{now()} BREACH, the run is stopped: the watch ended"),
     "the watch ignores a restart": ('problems.append(f"keycloak-0 restarted: {kc}")', "pass"),
     "the watch never reports": ("if down and waited >= REPORT_AFTER_SECONDS and not reported:", "if False:"),
     "the watch does not stop the run": ("open(stop_file, \"a\").close()", "pass"),

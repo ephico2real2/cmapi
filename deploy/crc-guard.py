@@ -84,7 +84,11 @@ def http_get(url: str, timeout: float = 5) -> tuple[int, bytes]:
         with urllib.request.urlopen(url, timeout=timeout, context=tls()) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        # The status came, the body may not: raised in this handler, the next one could not catch it.
+        try:
+            return e.code, e.read()
+        except (http.client.HTTPException, OSError, ValueError):
+            return e.code, b""
     # HTTPException: a Keycloak going down can cut an answer short, and that must read as no answer, not end the watch.
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return 0, b""
@@ -219,7 +223,21 @@ def check_import(path: str) -> None:
     print(f"{now()} {os.path.basename(path)}: KeycloakRealmImport cmapi, realm cmapi, namespace keycloak")
 
 
+def stop_the_run(stop_file: str) -> None:
+    open(stop_file, "a").close()
+
+
 def watch(log: str, stop_file: str, baseline_file: str) -> int:
+    """A watch that ends before LOG.done, for any reason, is one nobody is reading: the run stops. A guard that cannot look never reads as healthy."""
+    try:
+        return follow(log, stop_file, baseline_file)
+    except BaseException as e:
+        stop_the_run(stop_file)
+        print(f"{now()} BREACH, the run is stopped: the watch ended: {type(e).__name__}: {str(e)[:200]}", flush=True)
+        return 1
+
+
+def follow(log: str, stop_file: str, baseline_file: str) -> int:
     base = json.load(open(baseline_file))
     realms = sorted(base["realms"])
     breach_since = None
@@ -233,29 +251,34 @@ def watch(log: str, stop_file: str, baseline_file: str) -> int:
             t0 = time.monotonic()
             problems = []
             statuses = {}
-            for r in realms:
-                s = realm_state(r, timeout=3)
-                statuses[r] = s["status"]
-                if s["status"] != 200:
-                    problems.append(f"{r}={s['status']}")
-                elif s["public_key_sha256"] != base["realms"][r]["public_key_sha256"]:
-                    problems.append(f"{r}: public key changed")
+            kc = {}
+            # Every exception, not a list of them: the list is what let this die twice. It logs on, so the outage's length is on record.
             try:
-                kc = pod_state("keycloak-0")
-                b = base["keycloak-0"]
-                if (kc["uid"], kc["restarts"], kc["started"]) != (b["uid"], b["restarts"], b["started"]):
-                    problems.append(f"keycloak-0 restarted: {kc}")
-                elif not kc["ready"]:
-                    problems.append("keycloak-0 not Ready")
-            except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:
-                kc = {}
-                problems.append(f"keycloak-0 unreadable: {str(e)[:120]}")
+                for r in realms:
+                    s = realm_state(r, timeout=3)
+                    statuses[r] = s["status"]
+                    if s["status"] != 200:
+                        problems.append(f"{r}={s['status']}")
+                    elif s["public_key_sha256"] != base["realms"][r]["public_key_sha256"]:
+                        problems.append(f"{r}: public key changed")
+                try:
+                    kc = pod_state("keycloak-0")
+                    b = base["keycloak-0"]
+                    if (kc["uid"], kc["restarts"], kc["started"]) != (b["uid"], b["restarts"], b["started"]):
+                        problems.append(f"keycloak-0 restarted: {kc}")
+                    elif not kc["ready"]:
+                        problems.append("keycloak-0 not Ready")
+                except (Stop, KeyError, ValueError, OSError, subprocess.SubprocessError) as e:
+                    kc = {}
+                    problems.append(f"keycloak-0 unreadable: {str(e)[:120]}")
+            except Exception as e:
+                problems.append(f"the watch could not look: {type(e).__name__}: {str(e)[:120]}")
             say(f"realms {statuses} keycloak-0 {kc.get('restarts')}/{kc.get('ready')} {'BREACH ' + '; '.join(problems) if problems else 'ok'}")
             down = any(s != 200 for s in statuses.values()) or not kc.get("ready")
             if problems and breach_since is None:
                 breach_since = time.monotonic()
                 rc = 3
-                open(stop_file, "a").close()
+                stop_the_run(stop_file)
                 say("STOP: every cmapi step stops now. cmapi takes no action on Keycloak: no delete, no restart. Report to the owner")
                 print(f"{now()} BREACH, the run is stopped: {'; '.join(problems)}", flush=True)
             if breach_since is not None:
