@@ -10,7 +10,7 @@ When you reach a point where you would ask, research it instead:
 2. Choose the industry best practice, not the easy solution. Fix the cause, not the symptom.
 3. Do it, write the decision and its sources in the repository, and say so in your report.
 
-Every bug gets a GitHub issue. Refine it until it says what is wrong, where, and how to prove it. Then fix it, with a test
+Every bug gets a GitHub issue, handled by the `fix-defect` skill in `.claude/skills/`: logged with a research mandate, linked to its parent issue, fixed by a background agent, reviewed as usual, then validated and tested by the coordinator as arbiter. Refine the issue until it says what is wrong, where, and how to prove it. Then fix it, with a test
 that fails before the fix and passes after, and close the issue from the pull request.
 
 ## How to build: the delivery loop
@@ -96,6 +96,7 @@ These live in `/Users/olasumbo/gitRepos/diagram-kit/skill/`. Read the one that a
 | `app-architect` | The design standard: inventories, twelve factors, observability, security, delivery, scaling |
 | `mockup-to-page-react` | The portal, from the mockup to React, TypeScript, Vite and PatternFly |
 | `test-ui` | Proving a UI: DOM and pixels against the reference, recorded walks, mutants, the installed browser |
+| `fix-defect` (in this repository's `.claude/skills/`) | Any defect or bug found, at any stage: the owner's process from issue to merge |
 | `adversarial-review` | Before a change is called ready: two reviewers from other model families, never the author |
 
 ## Tests
