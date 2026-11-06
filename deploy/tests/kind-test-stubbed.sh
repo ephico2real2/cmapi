@@ -58,6 +58,8 @@ one "a cluster named cmapi-test already exists"        nonzero KT_CLUSTER_EXISTS
 want_field "somebody else's cluster is not deleted" no "$LAST_KILLED"
 one "probe resolves now, old previous log says failed" 0       KT_API_SLOW=true 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.wrong'
 want_field "the policy stays: the container resolves the Service now" no "$LAST_DELETED"
+one "the probe could not run, the previous log says it"  0       KT_API_SLOW=true 'KT_PROBE=error: container not running' 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.cmapi'
+want_field "the policy goes on the previous log when the probe could not run" yes "$LAST_DELETED"
 one "the migrate env reaches the database in plaintext" nonzero 'KT_SSL=pg_stat_ssl False None'
 one "the pg_stat_ssl check never finishes"             nonzero KT_SSL_WAIT_RC=1
 one "a changed cmapi-env leaves the old pods"          nonzero KT_NOT_REPLACED_RC=1

@@ -16,7 +16,9 @@ n=$(grep -r "sha256:DIGEST" "$D/manifests/components" "$D/manifests/environments
 [ "$n" -gt 0 ] || bad "the source holds no placeholder: this case proves nothing"
 m=$(grep -rF "$GOOD" "$W/o1/components" "$W/o1/environment" | wc -l | tr -d ' ')
 want "$n placeholders, $m filled" "$n placeholders, $m filled with the image" [ "$m" = "$n" ]
-if diff -r "$D/manifests/components" "$W/o1/components" | grep '^[<>]' | grep -vE 'image: |checksum/config: ' | grep -q .; then bad "a line other than an image or the checksum changed"; else ok "only image and checksum lines changed"; fi
+# Into a variable, not "| grep -q" in an if: under pipefail diff's own rc 1 made that pipeline false whatever it found.
+extra=$(diff -r "$D/manifests/components" "$W/o1/components" | grep '^[<>]' | grep -vE 'image: |checksum/config: ')
+if [ -n "$extra" ]; then bad "a line other than an image or the checksum changed: $extra"; else ok "only image and checksum lines changed"; fi
 want "the mockup's own image is untouched" "the mockup's image changed" grep -q 'nginx-unprivileged@sha256:' "$W/o1/components/portal/10-mockup.yaml"
 want "IMAGE names it" "IMAGE does not name it" [ "$(cat "$W/o1/IMAGE")" = "$GOOD" ]
 if grep -rq 'sha256:DIGEST' "$W/o1"; then bad "a placeholder is left"; fi

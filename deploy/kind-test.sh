@@ -65,8 +65,10 @@ if ! k -n cmapi rollout status deploy/cmapi-api --timeout=60s >/dev/null 2>&1; t
     :
   elif echo "$probe" | grep -q "Name or service not known"; then
     dns_evidence=true
-  elif k -n cmapi logs "$pod" -c migrate --previous 2>/dev/null | grep -q "failed to resolve host"; then
-    dns_evidence=true
+  else
+    # Not "| grep -q": under pipefail kubectl's SIGPIPE from an early match would read as no match.
+    previous=$(k -n cmapi logs "$pod" -c migrate --previous 2>/dev/null || true)
+    case "$previous" in *"failed to resolve host"*) dns_evidence=true;; esac
   fi
   if [ "$dns_evidence" = true ]; then
     mock=$(k -n cmapi get pod -l app.kubernetes.io/component=mockup -o jsonpath='{.items[0].metadata.name}')
