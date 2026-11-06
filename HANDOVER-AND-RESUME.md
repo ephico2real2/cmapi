@@ -2,7 +2,18 @@
 
 Read this first to continue the build from a new session, with nothing else in hand. The tracker is
 [`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-05.
+[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated 2026-11-05 evening, when the owner stopped work.
+
+## Where these files are
+
+Until PR #89 merges, this file and `build-tracker.md` exist only on branch `manifests-plain-yaml`, in the worktree
+`/Users/olasumbo/gitRepos/cmapi-design-crc`, not on `main`. `CLAUDE.md` on `main` does not mention them yet. The auto-memory
+note `project-cmapi-resume-point` points here for a session started in `/Users/olasumbo/gitRepos/cmapi-design`.
+
+To start the next session, paste this:
+
+> Read `/Users/olasumbo/gitRepos/cmapi-design-crc/HANDOVER-AND-RESUME.md` and `build-tracker.md` in full, then continue from
+> the next action in the tracker. Check the state first. Update both documents as you go.
 
 ## The goal
 
@@ -41,7 +52,7 @@ The owner's latest words decide. On 2026-11-05: "Let us stop using fable for now
 | Reviewers | Codex (`codex exec -m gpt-5.6-sol`, on an export) and a separate Opus 5.5 agent at `high` that did not write the step. The PR states that this is one outside family |
 | Coordinator | The main session: briefs, re-checks every verdict, arbitrates, records, merges. Writes no application code |
 
-Agents do not survive a session, so a new session starts fresh ones with a full brief.
+Agents do not survive a session, so a new session starts fresh ones with a full brief. Codex's run script shape: `cd "$W" && codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort="high" -s workspace-write -c sandbox_workspace_write.network_access=true -C "$W" "$(cat "$W/brief.md")"`, with stdin from `/dev/null`, in the background. The scratchpad is not kept, so anything worth keeping goes in the repository.
 
 ## Decisions that bind the work
 

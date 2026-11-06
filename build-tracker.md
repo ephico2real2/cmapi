@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-05 by the coordinator, from `git`, `gh` and `oc`.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-05 evening by the coordinator, from `git`, `gh` and `oc`, when the owner stopped work.
 
 **Proof** says where a result came from: **CI** is GitHub Actions on the named run, **kind** is a throwaway cluster on the
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
@@ -13,6 +13,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | Merged to `main` | PR #40, merge commit `1f30ab1` |
 | In progress | PR #89 (`manifests-plain-yaml`, #88). Reviewed by Opus and Codex: **not safe to apply until its fixes land.** Rulings decided, fixes not applied. See `docs/reviews/2026-11-05-pr89/README.md` |
 | On CRC | No cmapi workload. Namespace `cmapi` holds only Secret `cmapi-ldap-bind`. LDAP holds the bind user and the `cmapi-*` groups |
+| Next action | Apply the rulings on PR #89: steps in `docs/reviews/2026-11-05-pr89/README.md` |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
 ## Done
@@ -20,7 +21,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | What | Proof | Where |
 |---|---|---|
 | Service: API, worker jobs `open_pr`, `pr_checks`, `watch_sync`, `prune`, `channel_notify`, `open_revert`, migrations 0001 to 0003 | CI: 291 service tests. None on a real cluster until kind below | `cmapi/` |
-| Core reference modules | CI: 121 tests | `cmapi/src/cmapi/core`, `cmapi/tests/core` |
+| Reference modules | CI `reference-code`: 121 tests | `examples/src`, `examples/tests`. Their copy in `cmapi/src/cmapi/core` has `cmapi/tests/core`, which no CI job runs: None until one does |
 | Image | Built locally. Not published | `cmapi/Containerfile` |
 | Portal UI on mock data (no sign-in, no API call) | CI: `portal-ui`. **Must not be deployed as the portal** | `cmapi-portal-ui/` |
 | Portal mockup | CI: 8 tests | `mockups/portal/` |
@@ -79,4 +80,4 @@ Draft issues #6 to #29 are the product backlog and are not edited here.
 
 ## Open bugs
 
-#87 `pr_status` misses check runs. #90 `secrets.sh` error message on Linux. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.
+#87 `pr_status` misses check runs. #90 `secrets.sh` error message on Linux. **To file:** connections to CNPG are encrypted but do not verify the server (ruling 4). The Wave 1 issue is also still to file. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP.

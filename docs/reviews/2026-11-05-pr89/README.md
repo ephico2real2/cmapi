@@ -13,7 +13,7 @@ Verdict from both: do not apply this to the shared cluster until H1 and H2 are f
 5. Also take Codex's `runs-on: ubuntu-24.04` for job `manifests`.
 6. Fix #90 here, with a test on the `ERROR:` text, and add `Closes #90` to the PR body.
 7. Opus's stated limit (import and both Secrets deleted while the realm stays, so the script mints values) moves to Wave 1, which has the issuer URL: an unauthenticated `GET <issuer>` shows whether the realm exists.
-8. Apply the tracker edits from patch 08.
+8. Patch 08 (tracker): its reference-modules correction is applied by hand; its other lines are overtaken by the coordinator's updates to the tracker, so **do not apply patch 08**. Patch 09 goes on top of patches 01 to 07; on the current head, 01 to 07 pass `git apply --check` individually.
 
 ## Still to do on this PR
 
