@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-06 by the coordinator, from `git`, `gh` and `oc`, after PR #89 merged, during Wave 1's design.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-06 by the coordinator, from `git`, `gh` and `oc`, during Wave 1's review.
 
 **Proof** says where a result came from: **CI** is GitHub Actions on the named run, **kind** is a throwaway cluster on the
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
@@ -11,9 +11,9 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40 and PR #89 (plain YAML) |
-| In progress | Wave 1 (#94). Design arbitrated in `docs/reviews/2026-11-06-wave1-design/README.md`. Next, the implementer builds it. Nothing is applied to CRC |
+| In progress | Wave 1 (#94), draft PR #98. Built, and the review's nine patches applied (`docs/reviews/2026-11-06-wave1-review/README.md`). Nothing is applied to CRC |
 | On CRC | No cmapi workload. Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the `cmapi-*` groups |
-| Next action | The implementer builds Wave 1 from that design, then the review flow in `CLAUDE.md`. Tell the owner before anything is applied to CRC |
+| Next action | CI green on PR #98's exact head. The owner decides the LDAP naming plan (app-ocp-rbac-cmapi-<role>, test users, removing the old `cmapi-*` groups), since the realm import is one-shot. Then, with the owner's go-ahead, the first CRC run from `docs/13` |
 | Running | Nothing at this update. `cmapi-test-pg` stays up for the service tests |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
