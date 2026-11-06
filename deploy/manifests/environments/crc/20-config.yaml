@@ -1,0 +1,309 @@
+# The instance files the api and the worker read from /etc/cmapi/config (CMAPI_CONFIG_DIR) on CRC. From approval-rules.yaml on,
+# every file is byte for byte environments/kind's (test_crc_policy_files_are_the_kind_files).
+# Interim, until Wave 5: delivery.mode argocd, so the worker never writes to a cluster, with writes: false on the one cluster, so
+# a namespace request stops at 422 cluster-not-writable before any Git call.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-config
+  namespace: cmapi
+  labels:
+    app.kubernetes.io/part-of: cmapi
+data:
+  instance.yaml: |
+    instance:
+      name: nonprod
+      displayName: "Non-production (CRC)"
+      allowedEnvironments: ["rnd","dev"]
+      publicUrl: "https://cmapi-api.apps-crc.testing"
+      portalUrl: ""
+      auth:
+        issuer: "https://keycloak.apps-crc.testing/realms/cmapi"
+        audience: "cmapi-nonprod"
+      namespaces:
+        reservedPatterns: ["ocp-*","kubernetes-*"]
+      identity: {"adminClient":"cmapi-directory","automationRoles":["cmapi-onboarding"],"cacheSeconds":900,"directory":"keycloak","requireEmployeeId":true,"requireOnBehalfOf":false}
+      git:
+        repository: "ephico2real2/cluster-configs-nonprod"
+        webUrl: "https://github.com"
+      directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
+      docs: {"enabled":true}
+  clusters.yaml: |
+    clusters: {"CRC":{"environment":"dev","gitopsPath":"clusters/CRC","labels":{"region":"us-central"},"simulatedCapacity":{"cpu":64,"memory":"256Gi"},"writes":false}}
+  integrations.yaml: |
+    delivery:
+      mode: argocd
+      syncTimeout: 10m
+      argocd: {"acknowledgeUncontainedController":false,"controllerServiceAccount":"system:serviceaccount:cmapi-argocd:argocd-application-controller","namespace":"cmapi-argocd","rootApplication":"cluster-configs-{clusterId}"}
+    syncSignal:
+      default: poll
+      pollInterval: 10s
+    operations:
+      engine: builtin
+    events:
+      publisher: none
+    notifier:
+      smtp: {}
+  capacity.yaml: |
+    mode: embedded
+    snapshotInterval: 30m
+    overcommit: {"dev":{"cpu":2,"memory":1.25},"rnd":{"cpu":2,"memory":1.25}}
+    targets: {"dev":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}},"rnd":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}}}
+  approval-rules.yaml: |
+    # examples/instances/nonprod/approval-rules.yaml: deployed as config/approval-rules.yaml on the nonprod instance
+    # allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
+    defaults:
+      required: 0
+      group: platform-leads
+      timeoutHours: 24
+      selfApproval: false
+    environments:
+      rnd:
+        create: 1
+        change: 0
+        delete: 1
+        selfApproval: true
+        timeoutHours: 8
+      dev:
+        create: 1
+        change: 0
+        delete: 1
+        selfApproval: true
+        timeoutHours: 8
+    namespacePatterns:
+    - match: critical-*
+      required: 2
+      group: platform-leads
+      reason: Critical namespace pattern
+    - match: temp-*
+      waive:
+      - create
+      - change
+      reason: Temporary namespace
+    thresholds:
+    - when: quotaIncreasePct > 100
+      add: 1
+      group: platform-leads
+    - when: requestToPeakRatio > 3
+      add: 1
+      reason: Possible over-provisioning
+    - when: capacity == "warn"
+      add: 1
+    - when: quotaBelowRequested
+      add: 1
+    - when: sensitiveKeyChanged
+      add: 1
+      group: platform-leads
+      reason: Sensitive key changed
+    - when: expirationBeyondLimits
+      add: 1
+      group: platform-leads
+      reason: Expiry beyond limits
+    - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
+      add: 1
+    protected:
+      labels:
+      - cmapi.net/protected=true
+      - do-not-delete=true
+    autoApproval:
+      enabled: true
+      maxPerTeamPerDay: 20
+      policies:
+      - name: baseline-rnd-namespace
+        enabled: true
+        match:
+          plugin: namespaces
+          actions:
+          - create
+          environments:
+          - rnd
+          - dev
+          tiers:
+          - small
+          - medium
+          clusterSelector:
+            matchLabels:
+              region: us-central
+      - name: team-metadata
+        enabled: true
+        match:
+          plugin: metadata
+          actions:
+          - patch
+          - update
+          environments:
+          - '*'
+          keyClasses:
+          - team
+      - name: expired-namespace
+        enabled: true
+        match:
+          plugin: namespaces
+          actions:
+          - delete
+          environments:
+          - rnd
+          - dev
+          reason: expired
+        guards:
+        - noOpenRequest
+        - notProtected
+        - noExtensionInLast24h
+        - noticesSentAtLeast2
+      - name: baseline-sa-grants
+        enabled: false
+        match:
+          plugin: sa-grants
+          actions:
+          - create
+          environments:
+          - rnd
+          clusterRoles:
+          - view
+          - edit
+        requester:
+          clients:
+          - svc-payments-ci
+  authz-roles.yaml: |
+    # config/authz-roles.yaml: which Keycloak roles may do what on the nonprod instance (rnd, dev).
+    #
+    # Roles are client roles on this instance's Keycloak client (cmapi-nonprod) and arrive in the token
+    # (resource_access.cmapi-nonprod.roles). Assign them in Keycloak to a user, to a group (every member gets
+    # the role), or to a service-account client (a bot). cmapi does not check teams or namespace names:
+    # a role that grants namespaces:create may ask for any namespace name in the environments it covers.
+    # approval-rules.yaml decides what needs approval and which Keycloak groups approve.
+    #
+    # A built-in role keeps its built-in permissions in every served environment unless changed here.
+    #   permissions:   replaces the role's permissions
+    #   inherits:      adds another role's permissions
+    #   environments:  limits the role to some of the environments this instance serves
+    roles:
+      cmapi-viewer: {}          # clusters:read, objects:read, capacity:read, requests:read
+      cmapi-onboarding: {}      # viewer + namespaces:create, requests:cancel. Create only: no change or delete.
+                                # For people and local automation accounts (bot-user, an AI agent)
+      cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel
+      cmapi-approver: {}        # viewer + requests:approve, requests:reject
+      cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run
+      cmapi-admin: {}           # operator + config:write, clusters:onboard, admin:reload, approvals:pause
+      cmapi-auditor: {}         # viewer + events:read, audit:export
+      cmapi-approval-relay: {}  # requests:read, approvals:relay (the email, ServiceNow and chat channels)
+
+      # Roles you add in Keycloak (create the client role, then assign it to a user, group or bot):
+      cmapi-bot-rnd:              # a pipeline that may create and change namespaces in rnd only
+        inherits: [cmapi-requester]
+        environments: [rnd]
+      cmapi-quota-editor:         # may change quotas but not create namespaces
+        permissions: [clusters:read, objects:read, capacity:read, requests:read, quotas:write, requests:cancel]
+  tiers.yaml: |
+    # Source: docs/02-technical-design-v2.md, "Tiers"
+    # config/tiers.yaml for the nonprod instance (allowedEnvironments: rnd, dev).
+    # Generated from examples/config/tiers.yaml: same catalog, only this instance's environments.
+    # Read by cmapi.core.tiers at startup and on change (ConfigMap cmapi-tiers). Owned by
+    # platform-leads in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
+    # rendered cmapi.net/tier-hash differs show as tier-outdated until the tiers-rerender
+    # operation opens a normal, approved request for each.
+    #
+    # Resolution for (environment, tier), later wins, maps merged key by key:
+    #   defaults  ->  tiers.<tier>  ->  environments.<env>.tiers.<tier>
+    # Custom bounds:  custom  ->  environments.<env>.custom
+    apiVersion: cmapi.net/v1
+    kind: TierCatalog
+
+    # The only quota keys a request may size (a custom tier, or PATCH .../quota). Every other
+    # quota key comes from the catalog. These are also the three the Quotas view tracks.
+    sizable: [requests.cpu, requests.memory, pods]
+
+    defaults:                        # every tier gets these unless it overrides them
+      quota:
+        persistentvolumeclaims: "20"
+        requests.storage: 200Gi
+        services.loadbalancers: "0"
+        services.nodeports: "0"
+      limitRange:
+        container:
+          defaultRequest: {cpu: 100m, memory: 256Mi}
+          default:        {cpu: 500m, memory: 512Mi}
+          max:            {cpu: "2",  memory: 4Gi}
+        pvc:
+          max: {storage: 50Gi}
+
+    tiers:
+      small:
+        order: 1
+        description: A team sandbox or a single service
+        quota: {requests.cpu: "8", requests.memory: 16Gi, pods: "50"}
+      medium:
+        order: 2
+        description: A service with a few components
+        quota: {requests.cpu: "16", requests.memory: 32Gi, pods: "100",
+                persistentvolumeclaims: "30", requests.storage: 500Gi}
+        limitRange:
+          container: {max: {cpu: "4", memory: 8Gi}}
+      large:
+        order: 3
+        description: A platform team or a data workload
+        quota: {requests.cpu: "32", requests.memory: 64Gi, pods: "200",
+                persistentvolumeclaims: "50", requests.storage: 1Ti}
+        limitRange:
+          container:
+            defaultRequest: {cpu: 250m, memory: 512Mi}
+            default:        {cpu: "1",  memory: 1Gi}
+            max:            {cpu: "8",  memory: 16Gi}
+          pvc: {max: {storage: 200Gi}}
+      custom:
+        order: 4
+        custom: true                 # requests.cpu, requests.memory and pods come from the approved request
+        description: Sized to the request, within the environment's bounds
+
+    custom:                          # bounds for custom values; min must cover the custom tier's container max
+      min:  {requests.cpu: "2",   requests.memory: 4Gi,   pods: "10"}
+      max:  {requests.cpu: "64",  requests.memory: 256Gi, pods: "500"}
+      step: {requests.cpu: "1",   requests.memory: 1Gi,   pods: "10"}
+
+    environments:
+      rnd:
+        offered: [small, medium, large, custom]
+        custom:
+          max: {requests.cpu: "32", requests.memory: 64Gi, pods: "300"}
+      dev:
+        inherit: rnd                 # rnd's settings until dev's own are agreed
+  expiration.yaml: |
+    # Source: docs/01-design-and-architecture.md, "Namespace expiration"
+    # examples/instances/nonprod/expiration.yaml: deployed as config/expiration.yaml on the nonprod instance. prod has no entry:
+    # a prod request with any expiry field gets 422 expiration-not-allowed, and policies/env/prod
+    # denies the keys at admission.
+    defaults:
+      allowedAtCreate: true          # optional; leaving expiresAt out creates a permanent namespace
+      maxExtensionDays: 30           # each :extend adds at most this many days
+      maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds platform-leads
+      notifyDaysBefore: [14, 7, 1]   # Notifier to the team DL (cmapi.net/team-dl)
+      graceDays: 7                   # still running and extendable after the date
+      deleteAfterGrace: true         # expire_check opens a delete request (expired-namespace policy)
+      minNoticesBeforeDelete: 2
+    environments:
+      rnd: {}
+      dev: {}
+  metadata-keys.yaml: |
+    # Source: docs/02-technical-design-v2.md
+    # cluster-configs/policies/metadata-keys.yaml
+    system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
+             cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/expiry, cmapi.net/expires-at]
+    operatorOnly: [cmapi.net/protected]
+    reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+                       argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
+    governed:
+      cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; any team, not checked against the caller
+      cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
+      cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
+      cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
+      cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
+    team:
+      allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
+      maxLabels: 50
+      maxAnnotations: 50
+      maxAnnotationValueBytes: 4096
+      maxAnnotationBytesTotal: 65536
+    sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+    # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
+    # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
+    emailDomains: [ephico2real.com]

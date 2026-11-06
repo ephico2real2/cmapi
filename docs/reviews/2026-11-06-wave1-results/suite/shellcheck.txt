@@ -1,0 +1,3 @@
+$ bash -c shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh dep
+head 9e7a64b0f1
+rc=0

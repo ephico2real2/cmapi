@@ -12,8 +12,8 @@ case "$(k config current-context 2>/dev/null)" in kind-*) ;; *) echo "ERROR: $KU
 k create ns sect1 >/dev/null 2>&1 || true; k create ns sect2 >/dev/null 2>&1 || true
 # The kubectl command carries its --kubeconfig, so it is one argument: an array, never a word-split string (the first
 # run of this harness split it and secrets.sh refused "--kubeconfig=..." as an unknown argument).
-A=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind)
-B=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL")
+A=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --no-issuer-check)
+B=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-issuer-check)
 S="$HERE/secrets.sh"
 T=$(mktemp); ALL=$(mktemp); VALUES=$(mktemp); W=$(mktemp -d)
 trap 'rm -rf "$T" "$ALL" "$VALUES" "$W"; k delete ns sect1 sect2 --wait=false >/dev/null 2>&1' EXIT
@@ -51,7 +51,7 @@ WRAP
 chmod +x "$W/kubectl-failing"
 runf() { # the reads named in $1 fail; the writes still work
   local reads=$1; shift
-  FAIL_READS="$reads" "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$W/kubectl-failing" --no-ldap-bind "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+  FAIL_READS="$reads" "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$W/kubectl-failing" --no-ldap-bind --no-issuer-check "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
 h() { k get secret cmapi-keycloak -n sect1 -o json 2>/dev/null | python3 -c 'import sys,json,hashlib; d=json.load(sys.stdin)["data"]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:12])' 2>/dev/null || echo none; }
 fails=0
 run() { "$S" "${A[@]}" "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
@@ -173,6 +173,40 @@ r=$(run --github-app-key "$KEYF" --github-app-id 1 --github-installation-id 2); 
 # One line naming the mode: GNU stat -f once put the file system's details in the message (#90), and the rc alone cannot see it.
 grep -qxF "ERROR: $KEYF is mode 644; make it 0600" "$T" || { echo "  FAIL 10c: the ERROR line is not the mode alone"; fails=$((fails+1)); }
 rm -f "$KEYF"
+# 11: ruling 7, the realm asked before anything is minted. A curl stub answers what ISSUER_CODE and ISSUER_BODY say; ISSUER_RC is curl's own failure.
+mkdir -p "$W/bin"; cat >"$W/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CURL_LOG"
+[ "${ISSUER_RC:-0}" = 0 ] || exit "$ISSUER_RC"
+out=; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
+printf '%s' "$ISSUER_BODY" >"$out"; printf '%s' "$ISSUER_CODE"
+CURL
+chmod +x "$W/bin/curl"; export CURL_LOG="$W/curl.log"; : >"$CURL_LOG"
+printf 'not a real CA\n' >"$W/ca.pem"
+I=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer https://kc.test/realms/cmapi --ca-file "$W/ca.pem")
+runi() { PATH="$W/bin:$PATH" ISSUER_CODE=$1 ISSUER_BODY=$2 ISSUER_RC=${3:-0} "$S" "${I[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+k delete secret cmapi-keycloak cmapi-keys -n sect1 >/dev/null 2>&1; k delete secret cmapi-realm-secrets -n sect2 >/dev/null 2>&1
+r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind >"$T" 2>&1; echo "rc=$? $(tail -1 "$T")"); expect "11a neither --issuer nor --no-issuer-check stops" 2 "$r"; none_written 11a
+r=$(runi 200 '{"realm":"cmapi","public_key":"x"}'); expect "11b the realm exists, both Secrets gone: stops" 1 "$r"; said "11b it says so" "exists at"; none_written 11b
+r=$(runi 503 '<html>Application is not available</html>'); expect "11c a router's 503 during a restart is not absent" 1 "$r"; said "11c it cannot tell" "cannot tell"; none_written 11c
+r=$(runi 404 '<html>not found</html>'); expect "11d a 404 that is not Keycloak's is not absent" 1 "$r"; said "11d it cannot tell" "cannot tell"; none_written 11d
+r=$(runi 200 '{"realm":"corp"}'); expect "11e a 200 for another realm is not this realm, and not absent" 1 "$r"; none_written 11e
+r=$(runi 000 '' 28); expect "11f a timeout is not absent" 1 "$r"; said "11f it cannot tell" "cannot tell"; none_written 11f
+r=$(runi 000 '' 60); expect "11g a certificate failure is not absent" 1 "$r"; none_written 11g
+grep -q -- '--cacert' "$CURL_LOG" || { echo "  FAIL 11: the CA file was not used"; fails=$((fails+1)); }
+if grep -qE -- '(^| )(-k|--insecure)( |$)' "$CURL_LOG"; then echo "  FAIL 11: TLS verification was turned off"; fails=$((fails+1)); fi
+# Keycloak's own 404 is what a request for any other realm gets too, so the URL itself has to name this realm. The curl stub would say "absent" to each.
+for bad in https://kc.test/realms/not-cmapi https://kc.test/realms/cmapi/ 'https://kc.test/realms/not-cmapi?x=/realms/cmapi' 'https://kc.test/realms/not-cmapi#/realms/cmapi' http://kc.test/realms/cmapi https://kc.test/x/realms/cmapi; do
+  : >"$CURL_LOG"; r=$(PATH="$W/bin:$PATH" ISSUER_CODE=404 ISSUER_BODY='{"error":"Realm does not exist"}' "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer "$bad" --ca-file "$W/ca.pem" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)")
+  expect "11j --issuer $bad stops" 2 "$r"; none_written "11j $bad"; [ ! -s "$CURL_LOG" ] || { echo "  FAIL 11j: it asked $bad"; fails=$((fails+1)); }
+done
+r=$(runi 404 '{"error":"Realm does not exist"}'); expect "11h Keycloak's own 404: generates" 0 "$r"; [ "$(h)" != none ] || { echo "  FAIL 11h: nothing written"; fails=$((fails+1)); }
+: >"$CURL_LOG"; r=$(runi 503 'down'); expect "11i Secrets present: nothing to mint, Keycloak not needed" 0 "$r"; [ ! -s "$CURL_LOG" ] || { echo "  FAIL 11i: asked the issuer when nothing was to be minted"; fails=$((fails+1)); }
+collect
+# 12: the test users are written once and kept.
+r=$(run --test-users); expect "12a test users written" 0 "$r"; U1=$(hs sect1 cmapi-test-users); [ "$U1" != none ] || { echo "  FAIL 12a"; fails=$((fails+1)); }; collect
+r=$(run --test-users); expect "12b test users kept" 0 "$r"; same "12b not rotated" "$U1" "$(hs sect1 cmapi-test-users)"
+k delete secret cmapi-keycloak cmapi-keys cmapi-test-users -n sect1 >/dev/null 2>&1; k delete secret cmapi-realm-secrets -n sect2 >/dev/null 2>&1
 # Nothing secret may have reached the output of any case: every value the cases generated, encoded and decoded, against
 # everything every run printed. The count alone is printed, never a match.
 [ -s "$VALUES" ] || { echo "  FAIL: the scan collected no values"; fails=$((fails+1)); }

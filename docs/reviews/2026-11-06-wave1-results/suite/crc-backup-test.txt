@@ -1,0 +1,25 @@
+$ deploy/tests/crc-backup-test.sh
+head 9e7a64b0f1
+  ok   no port published
+image: quay.io/sclorg/postgresql-16-c9s@sha256:29e66548679f0d14b63e2a210dfcc783c376330366bd24b97f2968e7c3bff0f7: pg_dump (PostgreSQL) 16.15
+the image's rules: local all all trust;host all all 127.0.0.1/32 trust;host all all ::1/128 trust;host all all all md5;
+  ok   a backup on the image as it ships
+  ok   it counted the seven realm rows: 46629 bytes in 2 s, 2 tables with data, 7 realms, read to its end
+  ok   one dump in the directory
+  ok   directory 0700, file 0600
+  ok   no password and no path in the output
+  ok   no password on any argument
+  ok   restored into an empty database, the rows are the same: 7|2000|ff88c433ac874351087b912c542fc753
+  ok   --delete removes it
+  ok   stops: POSTGRESQL_USER empty: POSTGRESQL_USER, POSTGRESQL_DATABASE or POSTGRESQL_PASSWORD is not set in this pod
+  ok   stops: POSTGRESQL_DATABASE empty: POSTGRESQL_USER, POSTGRESQL_DATABASE or POSTGRESQL_PASSWORD is not set in this pod
+  ok   stops: POSTGRESQL_PASSWORD empty: POSTGRESQL_USER, POSTGRESQL_DATABASE or POSTGRESQL_PASSWORD is not set in this pod
+  ok   stops: a database that does not exist: psql: error: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "nothere" does not exist
+  ok   stops: a stream 100 bytes short with a clean status: the partial backup is removed
+  ok   stops: a stream half gone with a clean status: the partial backup is removed
+the tightened rules: local all all peer;host all all 127.0.0.1/32 md5;host all all ::1/128 md5;host all all all md5;
+  ok   the socket now refuses this user
+  ok   a backup under the tightened rules, by the password on the loopback
+  ok   stops: a wrong password: psql: error: connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for
+crc backup cases failed: 0
+rc=0

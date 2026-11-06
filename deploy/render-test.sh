@@ -34,10 +34,28 @@ if quiet "$R" kind localhost/cmapi:dev "$W/o2"; then bad "a tag was accepted"; e
 want "a tag with --allow-tag on kind" "--allow-tag refused on kind" quiet "$R" kind localhost/cmapi:dev "$W/o3" --allow-tag
 grep -q 'image: localhost/cmapi:dev' "$W/o3/components/cmapi/20-api.yaml" || bad "--allow-tag did not fill the image"
 # --allow-tag means a kind test, never a deployment.
-cp -R "$D/manifests/environments/kind" "$D/manifests/environments/crc"
 if "$R" crc localhost/cmapi:dev "$W/o4" --allow-tag >/dev/null 2>&1; then bad "--allow-tag was accepted for crc"; else ok "--allow-tag is refused for anything but kind"; fi
 # The internal registry's digest is what Wave 1 deploys, by digest; no flag that says "never a deployment".
 want "the internal registry by digest" "the internal registry's digest needs --allow-tag" quiet "$R" crc "$INTERNAL" "$W/o5"
+# Exactly five on CRC: the four, and the realm sync's Job, which only environments/crc carries. Every one filled, and the checksum over CRC's own three files.
+c=$(grep -r "sha256:DIGEST" "$D/manifests/environments/crc" | wc -l | tr -d ' ')
+want "one placeholder in environments/crc" "environments/crc holds $c placeholders, not 1" [ "$c" = 1 ]
+grep -q "sha256:DIGEST" "$D/manifests/environments/crc/realm/20-realm-sync.yaml" || bad "the placeholder is not the realm sync's"
+m=$(grep -rF "$INTERNAL" "$W/o5/components" "$W/o5/environment" | wc -l | tr -d ' ')
+want "five placeholders filled for crc" "$m filled for crc, not 5" [ "$m" = 5 ]
+want "the realm import has no image of ours" "the realm import names the image" sh -c "! grep -q cmapi@ '$W/o5/environment/realm/10-realm-import.yaml'"
+CK=$(grep -h 'checksum/config:' "$W/o5/components/cmapi/20-api.yaml" | sed -E 's/^ *checksum\/config: //')
+for f in 10-env 20-config 30-trust; do
+  cp "$D/manifests/environments/crc/$f.yaml" "$W/keep.yaml"; printf '# changed\n' >>"$D/manifests/environments/crc/$f.yaml"
+  "$R" crc "$INTERNAL" "$W/c5" >/dev/null; B=$(grep -h 'checksum/config:' "$W/c5/components/cmapi/20-api.yaml" | sed -E 's/^ *checksum\/config: //')
+  want "a changed crc $f changes the checksum" "a changed crc $f did not change the checksum" [ "$B" != "$CK" ]
+  cp "$W/keep.yaml" "$D/manifests/environments/crc/$f.yaml"
+done
+# A Route or a rule does not restart the pods, and the realm's files live outside what the checksum reads.
+cp "$D/manifests/environments/crc/realm/10-realm-import.yaml" "$W/keep.yaml"; printf '# changed\n' >>"$D/manifests/environments/crc/realm/10-realm-import.yaml"
+"$R" crc "$INTERNAL" "$W/c5" >/dev/null; B=$(grep -h 'checksum/config:' "$W/c5/components/cmapi/20-api.yaml" | sed -E 's/^ *checksum\/config: //')
+want "the realm import leaves the checksum" "the realm import changed the checksum" [ "$B" = "$CK" ]
+cp "$W/keep.yaml" "$D/manifests/environments/crc/realm/10-realm-import.yaml"
 if "$R" crc "registry.example.com/x@sha256:$(printf 'c%.0s' {1..64})" "$W/o6" >/dev/null 2>&1; then bad "another registry was accepted"; else ok "another registry is refused"; fi
 if "$R" crc "ghcr.io/evil/cmapi@sha256:$(printf 'c%.0s' {1..64})" "$W/o6" >/dev/null 2>&1; then bad "another GHCR repository was accepted"; else ok "another GHCR repository is refused"; fi
 if "$R" crc "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'c%.0s' {1..63})" "$W/o6" >/dev/null 2>&1; then bad "a short digest was accepted"; else ok "a short digest is refused"; fi

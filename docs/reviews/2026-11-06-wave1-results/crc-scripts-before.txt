@@ -1,0 +1,7 @@
+# deploy/tests/crc-scripts-test.sh on the scripts as designed (before these fixes), on stubs
+  FAIL a CA whose openssl goes on writing is still a CA: rc 1, not 0
+  FAIL reader import: rc 3, not 0
+  FAIL the import Secret
+  FAIL proof did not fail: no cmapi_cluster_status series at all
+  FAIL an apply without --field-manager=cmapi-wave1
+crc script cases failed: 5

@@ -1,0 +1,19 @@
+$ python deploy/tests/doc13-test.py docs/13-crc-deployment.md
+head 9e7a64b0f1
+  ok   docs/13 holds every rule
+  killed   an apply with no field manager (an apply without --server-side --field-manager=cmapi-wave1: oc apply --server-side -f "$R/)
+  killed   an apply not server-side (an apply without --server-side --field-manager=cmapi-wave1: oc apply --field-manager=cmapi)
+  killed   -R on the environment (-R on the environment: oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/enviro)
+  killed   the backup without the gate (step 11 does not start with the stop file: deploy/crc-backup.sh)
+  killed   the workloads without the gate (step 18 does not start with the stop file: oc apply --server-side --field-manager=cmapi-wa)
+  killed   a broad delete (--all in the run)
+  killed   TLS off (TLS off in the run)
+  killed   the issuer check skipped (secrets.sh without the issuer check)
+  killed   a compare dropped (step 16 does not compare with s0)
+  killed   a guard subcommand that does not exist (crc-guard.py has no room)
+  killed   a file that does not exist (cluster.yaml is not in step 17)
+  killed   a script that does not exist (no file deploy/crc-reader.sh)
+  killed   the owner's keychain step gone (the owner's keychain step, in and out)
+  killed   the import before the backup (crc-backup.sh is not in step 11)
+doc13 cases failed: 0, mutants survived: 0
+rc=0

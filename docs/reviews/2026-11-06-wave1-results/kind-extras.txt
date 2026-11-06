@@ -1,0 +1,52 @@
+# cluster: kind-cmapi-test, oc 4.22.18 server v1.35.8
+# step 17's wait, with the space in its value
+cluster.postgresql.cnpg.io/cmapi-db condition met
+  ok   oc wait --for=jsonpath with spaces
+  ok   and it does not pass on another value
+# oc exec as the backup uses it: the status comes back, the stream is binary-clean, stdin reaches EOF. On CNPG's pod here, never postgres-0
+command terminated with exit code 3
+  ok   oc exec passes the remote status: 3
+  dump rc=0, 26172 bytes
+  ok   the dump over oc exec, no TTY, starts PGDMP
+  ok   pg_restore --list over oc exec -i reaches EOF: 10 tables with data
+  ok   pg_restore -f /dev/null reads it to its end over oc exec -i
+  ok   a dump 100 bytes short fails the full read over oc exec -i: rc 1: command terminated with exit code 1
+# crc-proof.sh's SQL, from the server's side, on CNPG
+  on TLS|not: 2|0
+  ok   every cmapi connection on TLS
+# the reader, with the real script and the field manager, on a real API
+namespace/cmapi-system serverside-applied
+serviceaccount/cmapi-reader serverside-applied
+secret/cmapi-reader-token serverside-applied
+clusterrole.rbac.authorization.k8s.io/cmapi-reader serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/cmapi-reader serverside-applied
+import Secret cmapi-imports/cmapi-cluster-crc is current
+  ok   reader applied, import Secret written
+  keys: ['apiUrl', 'caData', 'token'] labels: {'app.kubernetes.io/part-of': 'cmapi', 'cmapi.net/cluster-id': 'CRC', 'cmapi.net/secret-type': 'cluster'} managers: ['cmapi-wave1']
+  ok   the import Secret, under cmapi-wave1
+  ok   the reader may list namespaces
+  ok   the reader may list resourcequotas
+  ok   the reader may list limitranges
+  ok   the reader may list pods
+  ok   the reader may list persistentvolumeclaims
+  ok   the reader may not get secrets
+  ok   the reader may not list secrets
+  ok   the reader may not create namespaces
+  ok   the reader may not list nodes
+  ok   the reader may not list rolebindings
+# the core objects of environments/crc, server-side dry run on kind's API. Routes, monitoring and the import need CRDs kind does not have
+  ok   00-namespaces.yaml
+  ok   10-env.yaml
+  ok   20-config.yaml
+  ok   30-trust.yaml
+  FAIL reader/00-cmapi-reader.yaml: Error from server (NotFound): namespaces "cmapi-system" not found
+  ok   realm/20-realm-sync.yaml
+# the realm sync's image and its env: cmapi-tools is in the image, and a Secret key with a dash reaches the process as a variable (bot-user), on Kubernetes 1.35
+  True True /opt/app-root/bin/cmapi-tools
+1 usage: cmapi-tools {git-bootstrap|realm-sync}
+  ok   bot-user reaches the process, and cmapi-tools is on its PATH
+extras done
+
+# Note on the one FAIL above: a server-side dry run of reader/00-cmapi-reader.yaml cannot create the Namespace it is dry-running, so its ServiceAccount finds no namespace once the earlier section has deleted it.
+# On the first pass of this script, with the namespace still terminating, it passed. The real apply of the same file in the section above, with the same flags, succeeded: "reader applied, import Secret written". So this is the check's order, not a defect in the file.
+# --force-conflicts appears in the dry run only, and on kind only, since this cluster already holds environments/kind's ConfigMaps under another manager. It is not in docs/13. The cluster was deleted by name afterwards.

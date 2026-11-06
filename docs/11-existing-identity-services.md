@@ -7,7 +7,7 @@ Checked on 2026-11-05.
 
 | Service | Where | cmapi adds | cmapi never touches |
 |---|---|---|---|
-| Existing Keycloak | Namespace `keycloak`, CR `keycloak`, `https://keycloak.apps-crc.testing`, RHBK operator | Realm `cmapi`, through one `KeycloakRealmImport` named `cmapi`, and the Secret `cmapi-realm-secrets` in the same namespace that holds the import's placeholders (generated client secrets, the same values as Secret `cmapi-keycloak` in `cmapi`) | The other realms, the `Keycloak` CR, its operator and database, the master admin credential |
+| Existing Keycloak | Namespace `keycloak`, CR `keycloak`, `https://keycloak.apps-crc.testing`, RHBK operator | Realm `cmapi`, through one `KeycloakRealmImport` named `cmapi`, applied once and deleted once Done (the operator's guide says to), and the Secret `cmapi-realm-secrets` in the same namespace that holds the import's placeholders (generated client secrets, the same values as Secret `cmapi-keycloak` in `cmapi`). Creating any realm also adds a client `cmapi-realm` to `master` (measured). Removing them: [`docs/13`](13-crc-deployment.md), "Rollback" | The other realms, the `Keycloak` CR, its operator and database, the master admin credential |
 | Existing LDAP server | Namespace `ldap-testing`, OpenLDAP, `openldap-service` on 389 and 636, base `dc=ephico2real,dc=com` | The ten `cmapi-*` groups in `ou=Groups` | Other groups, every person in `ou=People`, `ou=TrustedApplications` |
 
 The chart deploys neither service. It takes the issuer as a value. A site with its own Keycloak and directory does the
@@ -129,6 +129,5 @@ above and on this design's own numbers. Revisit it if several applications come 
 
 ## Not covered here
 
-The chart can request creation of the `cmapi` realm (a `KeycloakRealmImport` in namespace `keycloak`), but it has
-never been installed, so the realm does not exist yet; `CRC-BUILD-STATUS.md` is the deployment record and
-`docs/08-code-status.md` says what the code holds.
+The runbook that creates realm `cmapi` is [`docs/13-crc-deployment.md`](13-crc-deployment.md). It has not been run yet, so the
+realm does not exist yet; `CRC-BUILD-STATUS.md` is the deployment record and `docs/08-code-status.md` says what the code holds.

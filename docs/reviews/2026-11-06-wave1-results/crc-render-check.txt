@@ -1,0 +1,43 @@
+# Step 3: the CRC environment rendered with a fake digest and checked with no server. Head 9e7a64b0f1. Nothing here reached CRC.
+$ deploy/render.sh crc <internal registry>@sha256:ffff... <scratch>
+rendered: <scratch>/render-crc for crc with image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+rc=0
+
+image lines filled: 5 (components: 4, environment: 1)
+placeholders left: 0
+checksum in api and worker: checksum/config: "6656c7cdd9494bee3c1d316c6f59f5a02484f34a1197b93f1b0a26bc97b53375"
+
+# does oc apply --dry-run=client need a server? An empty kubeconfig and an address nothing listens on, so it cannot reach CRC.
+E1106 04:12:46.818562   33774 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:1/api?timeout=32s\": dial tcp 127.0.0.1:1: connect: connection
+E1106 04:12:46.819240   33774 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:1/api?timeout=32s\": dial tcp 127.0.0.1:1: connect: connection
+unable to recognize "<scratch>/render-crc/environment/00-namespaces.yaml": Get "https://127.0.0.1:1/
+  ok   ServiceAccount/cmapi-api
+  ok   ServiceAccount/cmapi-worker
+  ok   ServiceAccount/cmapi-jobs
+  ok   Role/cmapi-imports-reader
+  ok   RoleBinding/cmapi-imports-reader
+  ok   Service/cmapi-api
+  ok   Deployment/cmapi-api
+  ok   Service/cmapi-worker
+  ok   Deployment/cmapi-worker
+  ok   NetworkPolicy/cmapi-metrics
+  ok   Cluster/cmapi-db
+  ok   ConfigMap/cmapi-mockup
+  ok   Service/cmapi-mockup
+  ok   Deployment/cmapi-mockup
+  ok   Namespace/cmapi
+  ok   Namespace/cmapi-imports
+  ok   ConfigMap/cmapi-env
+  ok   ConfigMap/cmapi-config
+  ok   ConfigMap/cmapi-trust
+  ok   ServiceMonitor/cmapi-api
+  ok   ServiceMonitor/cmapi-worker
+  ok   PrometheusRule/cmapi
+  ok   Namespace/cmapi-system
+  ok   ServiceAccount/cmapi-reader
+  ok   Secret/cmapi-reader-token
+  ok   ClusterRole/cmapi-reader
+  ok   ClusterRoleBinding/cmapi-reader
+  ok   KeycloakRealmImport/cmapi
+  ok   Job/cmapi-realm-sync
+schema check: 29 objects validated, 0 with errors, skipped ['cmapi-api', 'cmapi-mockup'] (the pinned catalog has no Route schema; test_crc_routes holds its shape)

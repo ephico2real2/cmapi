@@ -1,0 +1,34 @@
+$ deploy/tests/kind-test-stubbed.sh
+head 9e7a64b0f1
+ok    rc=0   policy-deleted=no  cluster-deleted=yes all good
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /readyz is 503
+ok    rc=7   policy-deleted=no  cluster-deleted=yes /readyz refuses the connection
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the port-forward died
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the mockup is 404
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the secrets cases fail
+ok    rc=1   policy-deleted=no  cluster-deleted=yes api never rolls out
+ok    rc=0   policy-deleted=yes cluster-deleted=yes DNS proven: migrate cannot resolve, mockup can
+ok    rc=1   policy-deleted=no  cluster-deleted=yes DNS not proven: the mockup cannot resolve either
+ok    rc=0   policy-deleted=no  cluster-deleted=yes slow, no DNS failure
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version answers an error, not the commit
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version is empty
+ok    rc=1   policy-deleted=no  cluster-deleted=yes /api/v1/version names another commit than built
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the image's revision label is unknown
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the image has no revision label
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the worker has crash-looped since its rollout
+ok    rc=1   policy-deleted=no  cluster-deleted=no  a cluster named cmapi-test already exists
+ok    rc=2   policy-deleted=no  cluster-deleted=no  the existing-cluster read fails
+ok    rc=0   policy-deleted=no  cluster-deleted=yes a cluster whose name only contains cmapi-test
+ok    rc=1   policy-deleted=no  cluster-deleted=yes kind fails after making part of this run's cluster
+ok    rc=1   policy-deleted=no  cluster-deleted=no  another run took the name after the check
+ok    rc=0   policy-deleted=no  cluster-deleted=yes a kubeconfig this run created
+ok    rc=0   policy-deleted=no  cluster-deleted=yes a kubeconfig that was already there
+ok    rc=0   policy-deleted=no  cluster-deleted=yes probe resolves now, old previous log says failed
+ok    rc=0   policy-deleted=yes cluster-deleted=yes the probe could not run, the previous log says it
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the migrate env reaches the database in plaintext
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the pg_stat_ssl check never finishes
+ok    rc=1   policy-deleted=no  cluster-deleted=yes a changed cmapi-env leaves the old pods
+ok    rc=1   policy-deleted=no  cluster-deleted=yes the new pods still read the old value
+port-forward processes left behind by the runs above: 0
+wrong: 0
+rc=0

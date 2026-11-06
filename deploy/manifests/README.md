@@ -14,11 +14,17 @@ the `argocd.argoproj.io/sync-wave` annotations order it there and mean nothing t
 | `components/cmapi/` | ServiceAccounts, the imports reader Role, the api and the worker (migrations as initContainers), the metrics NetworkPolicy | same |
 | `components/portal/` | The standalone mockup behind nginx, until the portal runs on the API | same |
 | `environments/kind/` | What differs on kind: the namespaces, `cmapi-env`, `cmapi-config`, `cmapi-trust` (a stand-in CA) | a person |
+| `environments/crc/` | What differs on CRC: the namespaces, `cmapi-env`, `cmapi-config`, `cmapi-trust` (Keycloak's CA, written by `deploy/crc-trust.sh`), the Routes, the monitoring objects. `reader/` holds the reader baseline, and `realm/` the realm import and the realm-sync Job | a person, by [`docs/13-crc-deployment.md`](../../docs/13-crc-deployment.md) |
 
 Secrets are not here: `deploy/secrets.sh` writes `cmapi-keys`, `cmapi-keycloak` (with its copy `cmapi-realm-secrets` in
-the Keycloak namespace) and `cmapi-github-app`, and checks `cmapi-ldap-bind`; CNPG writes `cmapi-db-app`. Monitoring
-objects (ServiceMonitors, PrometheusRule) and the realm-sync Job need CRDs and services kind does not have, so they
-arrive with `environments/crc/` in the CRC pull request, not in `components/`.
+the Keycloak namespace), `cmapi-test-users` with `--test-users`, and `cmapi-github-app`, and checks `cmapi-ldap-bind`; CNPG
+writes `cmapi-db-app`. It requires `--issuer` or `--no-issuer-check`, so that CRC cannot skip asking the realm by forgetting a
+flag. Monitoring objects (ServiceMonitors, PrometheusRule) and the realm-sync Job need CRDs and services kind does not have,
+so they live in `environments/crc/`, not in `components/`.
+
+`environments/crc/`: `oc apply --server-side --field-manager=cmapi-wave1 -f environment/` applies its top-level files. Never
+`-R`: `reader/` and `realm/` are applied by name, in the steps of `docs/13-crc-deployment.md`. Their files are outside what
+`render.sh`'s checksum reads, and only `realm/20-realm-sync.yaml` carries an image placeholder of the environment's own.
 
 Order for a person: namespaces, the CNPG operator (1.30.1, a prerequisite, not here), `environments/<env>/`,
 `deploy/secrets.sh`, then `components/` through `deploy/render.sh`'s output. `deploy/kind-test.sh` does exactly that on a
@@ -36,4 +42,4 @@ What the charts did that these files do not, so a person or `environments/<env>/
 - **Namespace `cmapi-imports` must exist first** (it does not on CRC, measured 2026-11-05; the chart created it): the
   imports reader Role lives there, and `kubectl apply -R` stops short of it otherwise. `environments/crc/` carries it
   until the bootstrap set of Wave 2 does.
-- **Secret `cmapi-test-users`** (the realm sync's test users, optional) is not written by `deploy/secrets.sh`.
+- **Secret `cmapi-test-users`** (the realm sync's test users) is written by `deploy/secrets.sh` only with `--test-users`, once, and never rotated.

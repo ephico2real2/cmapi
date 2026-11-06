@@ -1,0 +1,48 @@
+# The reader baseline as plain YAML: what cmapi needs to read a cluster, and nothing more. From examples/baseline/cmapi-reader-rbac.yaml,
+# cut to what the code calls in Wave 1 (core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts).
+# The identity check needs no rule here: users/~ and selfsubjectreviews are for every authenticated user. Later waves add their own
+# rule in their own pull request. The import Secret holding this token is not YAML: deploy/crc-reader-import.sh writes it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi-system
+  labels: {app.kubernetes.io/part-of: cmapi}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cmapi-reader
+  namespace: cmapi-system
+  labels: {app.kubernetes.io/part-of: cmapi}
+---
+# Holds no value in Git: the token controller fills it on the cluster.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cmapi-reader-token
+  namespace: cmapi-system
+  labels: {app.kubernetes.io/part-of: cmapi}
+  annotations: {kubernetes.io/service-account.name: cmapi-reader}
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cmapi-reader
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
+    resources: [pods, persistentvolumeclaims]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cmapi-reader
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}

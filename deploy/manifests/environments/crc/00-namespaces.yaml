@@ -1,0 +1,13 @@
+# cmapi exists on CRC (created by hand on 2026-11-05, holding Secret cmapi-ldap-bind); a clean start needs it, and applying it
+# adds only the label. cmapi-imports does not exist. The reader's cmapi-system is in reader/. Wave 2's bootstrap set takes these over.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi-imports
+  labels: {app.kubernetes.io/part-of: cmapi}

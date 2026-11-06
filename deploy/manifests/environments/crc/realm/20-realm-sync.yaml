@@ -1,0 +1,58 @@
+# What the import cannot change once the realm exists: the user profile, group-to-role mappings, LDAP federation (read-only) and local
+# test users. Signs in as the realm's own cmapi-realm-admin, never the shared instance's master admin; the only other image placeholder
+# outside components/. One try and no retries: a Keycloak that is down is not helped by a Job hammering it. Rerun by deleting it by name:
+# a Job's template is immutable. requireSync: a federation that did not sync fails the Job, not only a log line.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cmapi-realm-sync
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-realm-sync, app.kubernetes.io/component: realm-sync}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-realm-sync, app.kubernetes.io/component: realm-sync}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: cmapi-jobs
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: sync
+          image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
+          imagePullPolicy: IfNotPresent
+          command: [cmapi-tools, realm-sync]
+          env:
+            - {name: CMAPI_REALM_ISSUER, value: "https://keycloak.apps-crc.testing/realms/cmapi"}
+            - {name: CMAPI_REALM_ADMIN_URL, value: "https://keycloak-service.keycloak.svc:8443"}
+            - name: CMAPI_REALM_ADMIN_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: cmapi-keycloak, key: realmAdminClientSecret}}
+            - {name: CMAPI_REALM_AUDIENCE, value: cmapi-nonprod}
+            - name: CMAPI_REALM_GROUPS
+              value: '{"cmapi-auditors":["cmapi-auditor"],"cmapi-onboarding":["cmapi-onboarding"],"cmapi-platform-admins":["cmapi-admin"],"cmapi-platform-leads":["cmapi-approver"],"cmapi-platform-operators":["cmapi-operator","cmapi-approver"],"cmapi-prod-approvers":["cmapi-approver"],"cmapi-qa-leads":["cmapi-approver"],"cmapi-requesters":["cmapi-requester"],"cmapi-uat-leads":["cmapi-approver"],"cmapi-viewers":["cmapi-viewer"]}'
+            - {name: CMAPI_REALM_TEST_USERS, value: "true"}
+            - name: CMAPI_REALM_LDAP
+              value: '{"bindSecret":"cmapi-ldap-bind","connectionUrl":"ldaps://ldaps-ldap-testing.apps-crc.testing:443","employeeIdAttribute":"uidNumber","enabled":true,"groupsDn":"ou=Groups,dc=ephico2real,dc=com","groupsFilter":"(cn=cmapi-*)","requireSync":true,"usersDn":"ou=People,dc=ephico2real,dc=com"}'
+            - {name: CMAPI_CA_BUNDLE, value: /etc/cmapi/ca/ca-bundle.crt}
+          envFrom:
+            - secretRef: {name: cmapi-test-users}
+            - secretRef: {name: cmapi-ldap-bind}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+      volumes:
+        - name: trust
+          projected:
+            sources:
+              - configMap:
+                  name: cmapi-trust
+                  items: [{key: ca-bundle.crt, path: ca-bundle.crt}]

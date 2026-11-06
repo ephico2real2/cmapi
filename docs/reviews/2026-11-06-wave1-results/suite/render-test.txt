@@ -1,0 +1,54 @@
+$ deploy/render-test.sh
+head 9e7a64b0f1
+  ok   4 placeholders, 4 filled
+  ok   only image and checksum lines changed
+  ok   the render holds every file of components, and no other
+  ok   the environment is the source's, every byte
+  ok   the mockup's own image is untouched
+  ok   IMAGE names it
+  ok   a tag is refused and the last render stays
+  ok   a tag with --allow-tag on kind
+  ok   --allow-tag is refused for anything but kind
+  ok   the internal registry by digest
+  ok   one placeholder in environments/crc
+  ok   five placeholders filled for crc
+  ok   the realm import has no image of ours
+  ok   a changed crc 10-env changes the checksum
+  ok   a changed crc 20-config changes the checksum
+  ok   a changed crc 30-trust changes the checksum
+  ok   the realm import leaves the checksum
+  ok   another registry is refused
+  ok   another GHCR repository is refused
+  ok   a short digest is refused
+  ok   --allow-tag before the out dir
+  ok   a partly written render is rendered again
+  ok   and its leftovers are gone
+  ok   a placeholder the render cannot fill fails
+  ok   both Deployments carry one value
+  ok   the mockup and the database carry no checksum
+  ok   the mockup's files are the source's
+  ok   two renders are identical
+  ok   another checkout gives the same value
+  ok   the method is the one recorded
+  ok   a changed 10-env changes it in both Deployments
+  ok   a changed 20-config changes it in both Deployments
+  ok   a changed 30-trust changes it in both Deployments
+  ok   bytes moved between two files change it
+  ok   another image keeps the value
+  ok   a checksum placeholder the render cannot fill fails
+  ok   a failed render leaves the last good one
+  ok   and its IMAGE
+  ok   and nothing beside it
+  ok   a failed swap puts the last good render back
+  ok   the out dir has the umask's mode
+  ok   a trailing slash renders
+  ok   a link/ to a render renders
+  ok   and what it pointed at stays
+  ok   no 10-env stops the render and the last render stays
+  ok   no 20-config stops the render and the last render stays
+  ok   no 30-trust stops the render and the last render stays
+  ok   two files declaring one ConfigMap stop the render
+  ok   a directory it did not write is refused
+  ok   deploy/ as the out dir does not delete deploy/
+render cases failed: 0
+rc=0

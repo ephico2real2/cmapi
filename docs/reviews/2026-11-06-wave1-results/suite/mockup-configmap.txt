@@ -1,0 +1,4 @@
+$ deploy/mockup-configmap.sh --check
+head 9e7a64b0f1
+mockup ConfigMap is current
+rc=0

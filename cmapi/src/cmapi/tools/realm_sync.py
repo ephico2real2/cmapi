@@ -127,6 +127,16 @@ def groups(rm: Realm, audience: str, mapping: dict[str, list[str]]) -> dict[str,
     return ids
 
 
+def _sync_read_someone(r: httpx.Response) -> bool:
+    if r.status_code != 200:
+        return False
+    try:
+        counts = r.json()
+    except ValueError:
+        return False
+    return isinstance(counts, dict) and not counts.get("failed") and counts.get("added", 0) + counts.get("updated", 0) > 0
+
+
 def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
     bind_dn, bind_pw = os.environ.get("bindDN") or os.environ.get("CMAPI_LDAP_BIND_DN"), \
         os.environ.get("password") or os.environ.get("CMAPI_LDAP_BIND_PASSWORD")
@@ -135,6 +145,8 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
         return
     if not (bind_dn and bind_pw):
         print(f"LDAP federation: NOT configured, Secret {cfg.get('bindSecret', 'cmapi-ldap-bind')} (bindDN, password) is absent")
+        if cfg.get("requireSync"):
+            sys.exit("LDAP federation is required here and its bind credential is absent")
         return
     realm_info = rm.get("")
     comps = rm.get("/components", params={"type": "org.keycloak.storage.UserStorageProvider"}) or []
@@ -188,6 +200,10 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
     print("LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, cn=cmapi-*)")
     r = rm.call("POST", f"/user-storage/{existing['id']}/sync", params={"action": "triggerFullSync"}, ok=(200, 400, 500))
     print(f"LDAP full sync: {r.status_code} {r.text[:120]}")
+    # A deployment that needs federation says so (#96). The status alone is not enough: a directory Keycloak cannot reach answers
+    # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none.
+    if cfg.get("requireSync") and not _sync_read_someone(r):
+        sys.exit(f"LDAP full sync read no user: {r.status_code} {r.text[:120]}")
 
 
 def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:

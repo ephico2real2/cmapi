@@ -1,0 +1,90 @@
+$ deploy/tests/crc-scripts-test.sh
+head 9e7a64b0f1
+  ok   the committed bundle holds one CA, and it is not kind's
+  ok   the committed CA is LDAP Enterprise Root CA
+  ok   trust --write from the committed certificate
+  ok   30-trust.yaml is byte for byte what --write produces
+  ok   a CA whose openssl goes on writing is still a CA
+  ok   trust --write
+  ok   trust --write asks for ca.crt alone
+  ok   the file declares cmapi-trust
+  ok   trust --extra-ca refuses a private key
+  ok   and the file stays
+  ok   trust --check passes
+  ok   --check reads no Secret
+  ok   --check verifies with the file
+  ok   trust --check: a failed handshake stops
+  ok   trust --check: not 200 stops
+  ok   trust --mac-ca
+  ok   both CAs in the Mac's bundle
+  ok   no script turns TLS verification off
+  ok   image: pushes and prints
+  ok   the last line is the reference render.sh takes
+  ok   image: no credential on an argument or in the output
+  ok   the auth file is 0600
+  ok   the auth file holds the session's token
+  ok   skopeo verifies against the ingress CA
+  ok   image: a pushed digest the image stream does not know stops
+  ok   image: a wrong label stops
+  ok   image: a failed push stops
+  ok   image: an existing tag of this commit is reused
+  ok   and not pushed again
+  ok   image: an existing tag of another commit stops
+  ok   image: a dirty tree stops
+  ok   reader import
+  ok   reader import: no credential on an argument or in the output
+  ok   the import Secret is what the registry reads
+  ok   reader import: an unfilled token stops
+  ok   backup --inspect
+  ok   --inspect prints names, never a value
+  ok   --inspect names the variables
+  ok   backup
+  ok   a dump in the directory
+  ok   directory 0700, file 0600
+  ok   no content and no path in the output
+  ok   the dump goes to stdout
+  ok   no TTY on the stream
+  ok   backup stops: a dump that fails partway
+  ok   backup stops: an empty dump
+  ok   backup stops: a list that fails
+  ok   backup stops: an archive that does not read to its end
+  ok   backup stops: realm counts that differ
+  ok   backup stops: too little room under the limit
+  ok   backup stops: too few free connections
+  ok   backup stops: a symbolic link for the directory
+  ok   backup --delete
+  ok   the backup is gone
+  ok   proof passes when all is right
+  ok   proof: no credential on an argument or in the output
+  ok   proof fails: a pod under another SCC
+  ok   proof fails: a restart
+  ok   proof fails: another image running
+  ok   proof fails: a pod started before the policy
+  ok   proof fails: /readyz not 200
+  ok   proof fails: another commit
+  ok   proof fails: /metrics on the Route
+  ok   proof fails: the probe reaching the api: the policy not enforced
+  ok   proof fails: the control failing: the block would prove nothing
+  ok   proof fails: a worker that may write
+  ok   proof fails: a reader reading Secrets
+  ok   proof fails: a plan that passes
+  ok   proof fails: a 422 of another kind
+  ok   proof fails: a connection without TLS
+  ok   proof fails: no connection at all
+  ok   proof fails: a target Prometheus does not scrape
+  ok   proof fails: no cmapi_cluster_status series at all
+  ok   proof fails: cmapi_cluster_status connected at 0
+  ok   rollback needs --yes
+  ok   and does nothing without it
+  ok   rollback
+  ok   rollback deletes only named objects from its list
+  ok   namespace cmapi, cmapi-ldap-bind and the realm's Secret stay
+  ok   the realm stays unless asked
+  ok   rollback: --delete-realm alone is refused
+  ok   a PV that is not ours stays
+  ok   no broad delete in any script
+  ok   every apply in the scripts is --server-side --field-manager=cmapi-wave1
+  ok   and that rule can fail
+  ok   and that rule can fail
+crc script cases failed: 0
+rc=0
