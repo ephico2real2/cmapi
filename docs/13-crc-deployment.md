@@ -74,17 +74,27 @@ Not measured: this Mac's trust has not been changed.
 
 Run these in one bash, not zsh, from the repository's root. Keep every output: it goes in `docs/reviews/`, once checked for secret values.
 
+**How a stop works.** Each step is a subshell with `set -euo pipefail`, as in `docs/12`: `set -e` in a terminal's own shell would close it on the first failure, and a pasted `exit` would lose the variables below and leave the next paste running somewhere else. `stopped` writes any failure to `$STOP`. So a stop ends that step, the terminal stays, and every later step refuses at its first line, however much later it is pasted. Keep `; stopped $?` on its own after the `)`: a list such as `( ... ) || stopped` turns `set -e` off inside the parentheses, which is bash's rule.
+
 ```bash
-set -uo pipefail
-git status --porcelain; git rev-parse --short=10 HEAD            # nothing printed by the first; the merged commit by the second
 RUN=$PWD/deploy/rendered/wave1-run; mkdir -p "$RUN"; R=$PWD/deploy/rendered/crc; STOP=$RUN/stop
-G=deploy/crc-guard.py
+G=deploy/crc-guard.py; export CMAPI_CRC_CA=$RUN/crc-ca.pem
+stopped() { [ "$1" = 0 ] && return 0; echo "STOP at step $2 (rc $1): report it. No retry and no workaround." | tee -a "$STOP"; return "$1"; }
+( set -euo pipefail
+  $G gate "$STOP"
+  [ -z "$(git status --porcelain)" ]
+  git rev-parse --short=10 HEAD                                    # the merged commit
+); stopped $? 0
 ```
 
 ### Step 1: the trust file still verifies Keycloak
 
 ```bash
-deploy/crc-trust.sh --check && deploy/crc-trust.sh --mac-ca "$RUN/crc-ca.pem" && export CMAPI_CRC_CA=$RUN/crc-ca.pem
+( set -euo pipefail
+  $G gate "$STOP"
+  deploy/crc-trust.sh --check
+  deploy/crc-trust.sh --mac-ca "$RUN/crc-ca.pem"
+); stopped $? 1
 ```
 
 **Stops when** `30-trust.yaml` no longer verifies Keycloak: a real TLS handshake against the Route, with that file as the only CA. It reads no Secret. See [If the CA rotates](#if-the-ca-rotates).
@@ -92,8 +102,12 @@ deploy/crc-trust.sh --check && deploy/crc-trust.sh --mac-ca "$RUN/crc-ca.pem" &&
 ### Step 2: this is CRC, and there is room
 
 ```bash
-$G preflight --needs 768 | tee "$RUN/preflight.txt"; echo "preflight rc=${PIPESTATUS[0]}"
-oc adm top node | tee "$RUN/top-before.txt"; oc get pv -o name >"$RUN/pv-before.txt"
+( set -euo pipefail
+  $G gate "$STOP"
+  $G preflight --needs 768 | tee "$RUN/preflight.txt"
+  oc adm top node | tee "$RUN/top-before.txt"
+  oc get pv -o name >"$RUN/pv-before.txt"
+); stopped $? 2
 ```
 
 **Stops when** the API server is not `https://api.crc.testing:6443`; the context is not `<namespace>/api-crc-testing:6443/kubeadmin`; `oc whoami` is not kubeadmin (`kube:admin` or `kubeadmin`); any kind cluster exists; request headroom minus 768 Mi is under 2 GiB; `keycloak-0` or `postgres-0` is not Ready.
@@ -101,9 +115,13 @@ oc adm top node | tee "$RUN/top-before.txt"; oc get pv -o name >"$RUN/pv-before.
 ### Step 3: nothing is there that this run did not make
 
 ```bash
-oc get ns cmapi-imports cmapi-system --ignore-not-found
-oc get clusterrole,clusterrolebinding cmapi-reader --ignore-not-found
-oc get ns cmapi -o jsonpath='{.metadata.labels}{"\n"}'
+( set -euo pipefail
+  $G gate "$STOP"
+  left=$(oc get ns cmapi-imports cmapi-system --ignore-not-found -o name)
+  left+=$(oc get clusterrole,clusterrolebinding cmapi-reader --ignore-not-found -o name)
+  [ -z "$left" ] || { echo "STOP: this run did not make: $left"; exit 1; }
+  oc get ns cmapi -o jsonpath='{.metadata.labels}{"\n"}'
+); stopped $? 3
 ```
 
 **Stops when** anything is listed that this run has not made: stop and ask whose it is.
@@ -111,7 +129,12 @@ oc get ns cmapi -o jsonpath='{.metadata.labels}{"\n"}'
 ### Step 4: realm `cmapi` does not exist
 
 ```bash
-$G issuer; [ $? = 10 ] && echo "absent: go on" || echo STOP
+( set -euo pipefail
+  $G gate "$STOP"
+  rc=0; $G issuer || rc=$?
+  [ "$rc" = 10 ]
+  echo "absent: go on"
+); stopped $? 4
 ```
 
 **Stops on** anything but Keycloak's own 404. A timeout, a certificate failure or a router's 503 is not "absent".
@@ -119,7 +142,12 @@ $G issuer; [ $? = 10 ] && echo "absent: go on" || echo STOP
 ### Step 5: the image, before anything touches Keycloak
 
 ```bash
-IMAGE=$(deploy/crc-image.sh | tail -1) && deploy/render.sh crc "$IMAGE" && echo "$IMAGE" | tee "$RUN/image.txt"
+( set -euo pipefail
+  $G gate "$STOP"
+  IMAGE=$(deploy/crc-image.sh | tail -1)
+  deploy/render.sh crc "$IMAGE"
+  echo "$IMAGE" | tee "$RUN/image.txt"
+); stopped $? 5
 ```
 
 **Stops on** a failure of any check in either script. It is finished before any Keycloak step, so its load is never beside an import. `podman push --cert-dir` is not honoured on this Mac (measured), so `crc-image.sh` pushes with `skopeo`, TLS verified against the ingress CA, with the session's token in a 0600 file and never on an argument.
@@ -129,7 +157,10 @@ IMAGE=$(deploy/crc-image.sh | tail -1) && deploy/render.sh crc "$IMAGE" && echo 
 Top-level files only. Never `-R` here: `reader/` and `realm/` are applied by name, in their own steps.
 
 ```bash
-oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/"
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/"
+); stopped $? 6
 ```
 
 Writes only to `cmapi` and `cmapi-imports`.
@@ -137,7 +168,11 @@ Writes only to `cmapi` and `cmapi-imports`.
 ### Step 7: the reader
 
 ```bash
-oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/reader/00-cmapi-reader.yaml" && deploy/crc-reader-import.sh
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/reader/00-cmapi-reader.yaml"
+  deploy/crc-reader-import.sh
+); stopped $? 7
 ```
 
 **Stops when** the token Secret is not filled in 30 tries.
@@ -147,11 +182,15 @@ oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/reader/00-
 Admission copies an account's `imagePullSecrets` into a pod when the pod is created, so a pod made before the controller has filled them would never get them (inferred). So wait.
 
 ```bash
-oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/00-serviceaccounts.yaml"
-for sa in cmapi-api cmapi-worker cmapi-jobs; do
-  for _ in $(seq 1 60); do [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] && break; sleep 1; done
-  [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] && echo "$sa: pull secret there" || echo "STOP: $sa has no pull secret"
-done
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/00-serviceaccounts.yaml"
+  for sa in cmapi-api cmapi-worker cmapi-jobs; do
+    for _ in $(seq 1 60); do [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] && break; sleep 1; done
+    [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] || { echo "STOP: $sa has no pull secret"; exit 1; }
+    echo "$sa: pull secret there"
+  done
+); stopped $? 8
 ```
 
 **Stops when** an account has no pull secret after 60 s.
@@ -159,7 +198,10 @@ done
 ### Step 9: the Secrets
 
 ```bash
-deploy/secrets.sh --issuer https://keycloak.apps-crc.testing/realms/cmapi --ca-file "$CMAPI_CRC_CA" --test-users
+( set -euo pipefail
+  $G gate "$STOP"
+  deploy/secrets.sh --issuer https://keycloak.apps-crc.testing/realms/cmapi --ca-file "$CMAPI_CRC_CA" --test-users
+); stopped $? 9
 ```
 
 This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
@@ -167,16 +209,24 @@ This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, 
 ### Step 10: the snapshot, and the watch from here to the end
 
 ```bash
-$G snapshot "$RUN/s0.json"
-nohup $G watch "$RUN/watch.log" "$STOP" "$RUN/s0.json" >"$RUN/watch.out" 2>&1 &
+( set -euo pipefail
+  $G gate "$STOP"
+  $G snapshot "$RUN/s0.json"
+  rm -f "$RUN/watch.log.done"
+  nohup $G watch "$RUN/watch.log" "$STOP" "$RUN/s0.json" >"$RUN/watch.out" 2>&1 &
+  $G watching "$STOP"
+); stopped $? 10
 ```
 
-**Stops when** a realm does not answer 200. From here the watch runs in the background, with `CMAPI_CRC_CA` exported, and a breach writes `$STOP`. Every later step checks it.
+**Stops when** a realm does not answer 200, or the watch did not begin. From here the watch runs in the background, with `CMAPI_CRC_CA` exported, and a breach writes `$STOP`. Every later step checks it, and also that the watch is still running and has looked within 120 s: a watch that is killed or hangs writes nothing, and nobody would be looking.
 
 ### Step 11: the backup, immediately before the import
 
 ```bash
-$G gate "$STOP" && deploy/crc-backup.sh
+( set -euo pipefail
+  $G gate "$STOP"
+  deploy/crc-backup.sh
+); stopped $? 11
 ```
 
 **A failed backup stops the run.** See [The backup](#the-backup).
@@ -184,7 +234,11 @@ $G gate "$STOP" && deploy/crc-backup.sh
 ### Step 12: the backup changed nothing
 
 ```bash
-$G gate "$STOP" && $G snapshot "$RUN/s1.json" && $G compare "$RUN/s0.json" "$RUN/s1.json"
+( set -euo pipefail
+  $G gate "$STOP"
+  $G snapshot "$RUN/s1.json"
+  $G compare "$RUN/s0.json" "$RUN/s1.json"
+); stopped $? 12
 ```
 
 **Stops on** any difference.
@@ -192,10 +246,16 @@ $G gate "$STOP" && $G snapshot "$RUN/s1.json" && $G compare "$RUN/s0.json" "$RUN
 ### Step 13: the import, alone on the quietest cluster
 
 ```bash
-I=$R/environment/realm/10-realm-import.yaml
-$G gate "$STOP" && $G headroom --needs 768 && $G check-import "$I" && { $G issuer; [ $? = 10 ]; } \
-  && oc apply --server-side --dry-run=server --field-manager=cmapi-wave1 -f "$I" \
-  && oc apply --server-side --field-manager=cmapi-wave1 -f "$I"
+( set -euo pipefail
+  $G gate "$STOP"
+  I=$R/environment/realm/10-realm-import.yaml
+  $G headroom --needs 768
+  $G check-import "$I"
+  rc=0; $G issuer || rc=$?
+  [ "$rc" = 10 ]
+  oc apply --server-side --dry-run=server --field-manager=cmapi-wave1 -f "$I"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$I"
+); stopped $? 13
 ```
 
 **Stops when** the run is stopped; headroom is under the line; the file names anything but `cmapi`; the realm is not absent; the API refuses `spec.resources`.
@@ -205,7 +265,9 @@ If RHBK's Job needs more than the 1 Gi limit, it is killed, the wait in step 14 
 ### Step 14: follow the import
 
 ```bash
-$G import-wait "$STOP" | tee "$RUN/import.txt"; echo "import-wait rc=${PIPESTATUS[0]}"
+( set -euo pipefail
+  $G import-wait "$STOP" | tee "$RUN/import.txt"
+); stopped $? 14
 ```
 
 | What it sees | Bound | What it does |
@@ -217,11 +279,19 @@ $G import-wait "$STOP" | tee "$RUN/import.txt"; echo "import-wait rc=${PIPESTATU
 | `Done`, realm present | | rc 0, unless the watch stopped the run meanwhile |
 | `Done`, realm absent | | Stops |
 
+This step alone starts with no gate, since a stop is what it must act on. It has no bound on a running import, so if it stops without saying `withdrawn` or `Done`, read `oc get keycloakrealmimport cmapi -n keycloak`: an import still there can still start.
+
 ### Step 15: nothing else changed, with time for a late restart
 
 ```bash
-$G gate "$STOP" && oc logs job/cmapi -n keycloak --tail=5 | tee "$RUN/import-log-tail.txt"
-sleep 120; $G gate "$STOP" && $G snapshot "$RUN/s2.json" && $G compare "$RUN/s0.json" "$RUN/s2.json"
+( set -euo pipefail
+  $G gate "$STOP"
+  oc logs job/cmapi -n keycloak --tail=5 | tee "$RUN/import-log-tail.txt"
+  sleep 120
+  $G gate "$STOP"
+  $G snapshot "$RUN/s2.json"
+  $G compare "$RUN/s0.json" "$RUN/s2.json"
+); stopped $? 15
 ```
 
 **Stops on** any difference. 120 s because a restart could lag.
@@ -231,9 +301,15 @@ sleep 120; $G gate "$STOP" && $G snapshot "$RUN/s2.json" && $G compare "$RUN/s0.
 The operator's guide says to delete it once the realm is imported. It removes the Job, the pod and the Secret holding the realm's JSON. The realm stays, because no code path in the controller calls Keycloak. Deleting also means it can never start again unattended.
 
 ```bash
-$G gate "$STOP" && oc delete keycloakrealmimport cmapi -n keycloak
-$G issuer; [ $? = 0 ] && echo "realm present" || echo STOP
-$G gate "$STOP" && $G snapshot "$RUN/s3.json" && $G compare "$RUN/s0.json" "$RUN/s3.json"
+( set -euo pipefail
+  $G gate "$STOP"
+  oc delete keycloakrealmimport cmapi -n keycloak
+  $G issuer
+  echo "realm present"
+  $G gate "$STOP"
+  $G snapshot "$RUN/s3.json"
+  $G compare "$RUN/s0.json" "$RUN/s3.json"
+); stopped $? 16
 ```
 
 **Stops when** the realm is not present afterwards, or on any difference.
@@ -241,8 +317,12 @@ $G gate "$STOP" && $G snapshot "$RUN/s3.json" && $G compare "$RUN/s0.json" "$RUN
 ### Step 17: the database
 
 ```bash
-$G gate "$STOP" && $G headroom --needs 672 && oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/database-cnpg/cluster.yaml" \
-  && oc wait cluster.postgresql.cnpg.io/cmapi-db -n cmapi --for=jsonpath='{.status.phase}'='Cluster in healthy state' --timeout=300s
+( set -euo pipefail
+  $G gate "$STOP"
+  $G headroom --needs 672
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/database-cnpg/cluster.yaml"
+  oc wait cluster.postgresql.cnpg.io/cmapi-db -n cmapi --for=jsonpath='{.status.phase}'='Cluster in healthy state' --timeout=300s
+); stopped $? 17
 ```
 
 **Stops when** the run is stopped, headroom is under the line, or the database is not healthy.
@@ -252,9 +332,12 @@ $G gate "$STOP" && $G headroom --needs 672 && oc apply --server-side --field-man
 The policy goes first by itself: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment.
 
 ```bash
-$G gate "$STOP" && oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml" \
-  && oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
-for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s || echo "STOP: $d"; done
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
+  oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
+  for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
+); stopped $? 18
 ```
 
 **Stops when** a rollout is not done.
@@ -264,10 +347,14 @@ for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -
 The user profile, group mappings, read-only LDAP federation and local test users. Without it `employee_id` never reaches a token. One try and no retries: `requireSync` fails the Job when federation read nobody (#96).
 
 ```bash
-$G gate "$STOP" && oc delete job cmapi-realm-sync -n cmapi --ignore-not-found \
-  && oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/realm/20-realm-sync.yaml" \
-  && oc wait job/cmapi-realm-sync -n cmapi --for=condition=Complete --timeout=600s
-oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"
+( set -euo pipefail
+  $G gate "$STOP"
+  oc delete job cmapi-realm-sync -n cmapi --ignore-not-found
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/realm/20-realm-sync.yaml"
+  rc=0; oc wait job/cmapi-realm-sync -n cmapi --for=condition=Complete --timeout=600s || rc=$?
+  oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"      # whichever way it ended: the log says why
+  [ "$rc" = 0 ]
+); stopped $? 19
 ```
 
 **Stops when** the Job fails, which now includes a federation that read nobody. A failed Job is not Complete, so the wait runs out its 600 s; read the log.
@@ -275,13 +362,20 @@ oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"
 ### Step 20: nothing else changed
 
 ```bash
-$G gate "$STOP" && $G snapshot "$RUN/s4.json" && $G compare "$RUN/s0.json" "$RUN/s4.json"
+( set -euo pipefail
+  $G gate "$STOP"
+  $G snapshot "$RUN/s4.json"
+  $G compare "$RUN/s0.json" "$RUN/s4.json"
+); stopped $? 20
 ```
 
 ### Step 21: the proofs
 
 ```bash
-$G gate "$STOP" && deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"; echo "proof rc=${PIPESTATUS[0]}"
+( set -euo pipefail
+  $G gate "$STOP"
+  deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"
+); stopped $? 21
 ```
 
 Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure.
@@ -289,9 +383,16 @@ Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at**
 ### Step 22: the end of the watch
 
 ```bash
-$G gate "$STOP" && $G snapshot "$RUN/s5.json" && $G compare "$RUN/s0.json" "$RUN/s5.json"
-touch "$RUN/watch.log.done"; sleep 10; tail -1 "$RUN/watch.log"
-oc adm top node | tee "$RUN/top-after.txt"
+( set -euo pipefail
+  $G gate "$STOP"
+  $G snapshot "$RUN/s5.json"
+  $G compare "$RUN/s0.json" "$RUN/s5.json"
+  touch "$RUN/watch.log.done"
+  for _ in $(seq 1 90); do case "$(tail -1 "$RUN/watch.log")" in *"watch ended"*) break;; esac; sleep 1; done
+  last=$(tail -1 "$RUN/watch.log"); echo "$last"
+  case "$last" in *"watch ended rc=0") ;; *) echo "STOP: the watch did not end clean"; exit 1;; esac
+  oc adm top node | tee "$RUN/top-after.txt"
+); stopped $? 22
 ```
 
 **Stops on** any difference, or a last line that is not `watch ended rc=0`.
@@ -301,7 +402,10 @@ oc adm top node | tee "$RUN/top-after.txt"
 Once the run is verified and the coordinator agrees. It is the owner's term.
 
 ```bash
-$G gate "$STOP" && deploy/crc-backup.sh --delete
+( set -euo pipefail
+  $G gate "$STOP"
+  deploy/crc-backup.sh --delete
+); stopped $? 23
 ```
 
 ## The issue's proofs
@@ -328,7 +432,7 @@ $G gate "$STOP" && deploy/crc-backup.sh --delete
 
 **What it cannot show.** A public key shows a realm was replaced, not that a client inside it changed. A realm no import names is invisible unless listed. Seeing those needs an admin credential, which stays forbidden.
 
-**Watching.** `crc-guard.py watch` polls every realm and `keycloak-0` every 5 s, one timestamped line to `watch.log`. A non-200, a changed key or a changed `keycloak-0` writes the stop file, prints `BREACH`, and goes on logging, so the outage's length is on record.
+**Watching.** `crc-guard.py watch` polls every realm and `keycloak-0` every 5 s, one timestamped line to `watch.log`. A non-200, a changed key, a changed `keycloak-0` or anything that stops it looking writes the stop file, prints `BREACH`, and goes on logging, so the outage's length is on record. It beats in `$STOP.alive`, and `gate` refuses when that beat's process is gone or the beat is over 120 s old.
 
 ## If Keycloak restarts
 
@@ -338,7 +442,7 @@ It can only be bounded, not ruled out: Keycloak has one instance, and the cause 
 2. **Take no action on Keycloak:** no delete, no restart, no CR edit, no scale.
 3. **Tell the owner immediately,** with `watch.log` and `oc describe pod keycloak-0 -n keycloak`, read-only.
 4. **The baseline is 2 min 42 s**, the one measured restart. **At 300 s still unready, the watch prints `REPORT TO THE OWNER NOW`.** That is 1.85 times the only measurement, so a normal restart does not raise it, and it comes well before the kubelet's own limit: the startup probe's `600 x 1 s` would kill and restart the container, doubling the outage.
-5. **The run does not resume by itself.** After the owner has heard: snapshot, and compare with `s0`. A new `keycloak-0` start is expected to differ. The realms must not.
+5. **The run does not resume by itself.** After the owner has heard: snapshot, and compare with `s0`. A new `keycloak-0` start is expected to differ. The realms must not. If the owner says go on: `touch "$RUN/watch.log.done"`, wait for `watch ended` in `watch.log`, `rm -f "$STOP" "$STOP.alive"`, and go on from step 10, which takes a new baseline and a new watch. The same goes for any other stop.
 
 While Keycloak is down, cmapi's own pods hold (read from `auth.py`, `health.py`, `keycloak_admin.py`): issued tokens keep verifying from the cached signing keys, an unknown `kid` is 503 `idp-unavailable`, `/readyz` tests only the database so no pod restarts, and there is no retry storm: one JWKS fetch per pod per 30 s. A new sign-in is impossible, since that is Keycloak's.
 
