@@ -78,7 +78,7 @@ Draft issues #6 to #29 are the product backlog and are not edited here.
 | Network policies break DNS on podman kind | Measured, cause unknown. The test deletes the policy on podman kind only; it ships unchanged | Hosted runner and CRC decide |
 | Memory on CRC | Requests 15,525 Mi of 19,543 Mi. The plan adds 832 Mi with Argo CD | Stop if headroom is under 2 GiB |
 | PR #89 can be merged by mistake | GitHub shows it as `CLEAN` with its defects still on the branch: protection requires CI, not a review | Hold it to the review record's steps |
-| Remote MacBook | The owner mentioned one. Which machine it is and its purpose are unconfirmed. Tailscale lists `olasumbos-macbook-pro` | Ask before connecting or planning around it |
+| Remote MacBook | The owner mentioned one. It is not the CRC target: CRC runs on this Mac, the owner confirmed. Which machine it is and its purpose are unconfirmed. Tailscale lists `olasumbos-macbook-pro` | Ask before connecting or planning around it |
 | CI floats on upstream schema URLs | kubeconform's schema URLs track `master` and `main` | To pin |
 
 ## Open bugs
