@@ -283,7 +283,89 @@ def test_crc_realm_sync_is_one_try_and_requires_the_federation():
     e = env(container)
     assert e["CMAPI_REALM_ADMIN_URL"]["value"].startswith("https://keycloak-service.keycloak.svc")
     ldap = __import__("json").loads(e["CMAPI_REALM_LDAP"]["value"])
-    assert ldap["requireSync"] is True and ldap["groupsFilter"] == "(cn=cmapi-*)" and ldap["connectionUrl"].startswith("ldaps://")
+    assert ldap["requireSync"] is True and ldap["groupsFilter"] == "(cn=app-cmapi-rbac-*)" and ldap["connectionUrl"].startswith("ldaps://")
+    # This realm reads the test users of the shared directory and nobody else, and the Job fails unless it read exactly them. Measured in deploy/tests/realm-test.py.
+    assert ldap["usersFilter"] == "(uid=cmapi.*)" and ldap["expectUsers"] == len(IDENTITIES)
+
+
+# ---- the groups: the one table the owner decided, and everything that has to agree with it (#110)
+IDENTITIES = [line.rstrip("\n").split("\t") for line in (ROOT / "examples/cmapi-sso/ldap/test-identities.tsv").read_text().splitlines()
+              if line and not line.startswith("#")]
+OWNERS_TABLE = {"app-cmapi-rbac-viewer": ["cmapi-viewer"], "app-cmapi-rbac-onboarding": ["cmapi-onboarding"], "app-cmapi-rbac-requester": ["cmapi-requester"],
+                "app-cmapi-rbac-approver-prod": ["cmapi-approver"], "app-cmapi-rbac-approver-qa": ["cmapi-approver"], "app-cmapi-rbac-approver-uat": ["cmapi-approver"],
+                "app-cmapi-rbac-approver-platform": ["cmapi-approver"], "app-cmapi-rbac-operator": ["cmapi-operator", "cmapi-approver"],
+                "app-cmapi-rbac-admin": ["cmapi-admin"], "app-cmapi-rbac-auditor": ["cmapi-auditor"]}
+OLD_GROUPS = ("cmapi-viewers", "cmapi-requesters", "cmapi-prod-approvers", "cmapi-qa-leads", "cmapi-uat-leads", "cmapi-platform-leads", "cmapi-platform-operators", "cmapi-platform-admins", "cmapi-auditors")
+
+
+def realm_groups():
+    realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
+    top = next(g for g in realm["groups"] if g["path"] == "/cmapi")
+    return top["subGroups"]
+
+
+def test_the_realm_import_holds_the_owners_table():
+    got = {g["name"]: g["clientRoles"]["cmapi-nonprod"] for g in realm_groups()}
+    assert got == OWNERS_TABLE
+    assert all(g["path"] == f"/cmapi/{g['name']}" for g in realm_groups())
+
+
+def test_the_realm_sync_chart_and_ldif_hold_the_same_groups():
+    e = env(crc("Job", "cmapi-realm-sync")["spec"]["template"]["spec"]["containers"][0])
+    assert __import__("json").loads(e["CMAPI_REALM_GROUPS"]["value"]) == OWNERS_TABLE
+    values = yaml.safe_load((ROOT / "deploy/helm/cmapi/values.yaml").read_text())
+    assert values["keycloak"]["realm"]["groups"] == OWNERS_TABLE
+    assert values["keycloak"]["sync"]["ldap"]["groupsFilter"] == "(cn=app-cmapi-rbac-*)"
+    ldif = (ROOT / "examples/cmapi-sso/ldap/cmapi-groups.ldif").read_text()
+    assert set(re.findall(r"^cn: (.+)$", ldif, re.M)) == set(OWNERS_TABLE)
+
+
+def test_every_table_row_holds_exactly_the_roles_of_its_groups():
+    """The table's roles are what a token must hold, so they are not read from the realm: this is where a realm that grants the wrong role is caught."""
+    assert len(IDENTITIES) == 13 and [i[0] for i in IDENTITIES if i[2] == "-"] == ["cmapi.noaccess"]
+    numbers = [int(i[1]) for i in IDENTITIES]
+    assert numbers == list(range(10100, 10113)), "unique, and above the 10007 measured in use"
+    for uid, _, groups, roles in IDENTITIES:
+        wanted = set() if groups == "-" else {r for g in groups.split(",") for r in OWNERS_TABLE[g]}
+        assert (set() if roles == "-" else set(roles.split(","))) == wanted, uid
+
+
+def test_a_group_every_approval_rule_names_is_in_the_realm():
+    """A rule whose group has no realm group can never be approved. Through the instance's own setting, for each environment's real file, so a setting and a rule that disagree fail."""
+    paths = {g["path"] for g in realm_groups()}
+    for name in ("crc", "kind"):
+        identity = yaml.safe_load(config_file(name, "instance.yaml"))["instance"]["identity"]
+        assert identity["groupPath"] == "/cmapi/app-cmapi-rbac-{name}"
+        rules = yaml.safe_load(config_file(name, "approval-rules.yaml"))
+        named = {rules["defaults"]["group"]} | {t["group"] for t in rules["thresholds"] if "group" in t} | {p["group"] for p in rules["namespacePatterns"] if "group" in p} \
+            | {e["group"] for e in rules["environments"].values() if "group" in e}
+        assert named == {"approver-platform"}, name
+        assert {identity["groupPath"].format(name=g) for g in named} <= paths
+    # Every instance's rules, with the code's default for the expiration plugin: approver-prod, -qa, -uat and -platform all exist.
+    for instance in ("nonprod", "staging", "prod"):
+        rules = yaml.safe_load((ROOT / f"examples/instances/{instance}/approval-rules.yaml").read_text())
+        for e in rules["environments"].values():
+            assert "group" not in e or f"/cmapi/app-cmapi-rbac-{e['group']}" in paths, (instance, e)
+
+
+def test_the_local_realm_users_are_in_groups_the_realm_has():
+    """test_users() skips a group it does not know, silently, so a missed rename would leave ola with no roles and no error."""
+    from cmapi.tools.realm_sync import TEST_USERS
+    assert {g for *_, memberships in TEST_USERS for g in memberships} <= set(OWNERS_TABLE)
+
+
+def test_none_of_the_old_names_is_in_what_ships():
+    """The mockup's sample data waits for Wave 6 and the local demo keeps its names through identity.groupPath: docs/11 says so. The script that removes the old groups has to name them."""
+    trees = ["cmapi/src", "deploy/manifests/environments", "deploy/helm", "deploy/environments", "deploy/crc-proof.sh", "examples/config", "examples/instances", "examples/cmapi-sso/realm", "examples/cmapi-sso/ldap/cmapi-groups.ldif", "examples/cmapi-sso/ldap/apply-groups.sh", "examples/cmapi-sso/ldap/apply-bind-user.sh", "examples/cmapi-sso/ldap/test-identities.tsv"]
+    shorts = ("platform-leads", "qa-leads", "uat-leads", "prod-approvers")
+    found = []
+    for tree in trees:
+        root = ROOT / tree
+        for f in ([root] if root.is_file() else root.rglob("*")):
+            if f.is_file() and f.suffix != ".pyc":
+                text = f.read_text(errors="replace")
+                found += [f"{f.relative_to(ROOT)}: {n}" for n in OLD_GROUPS + shorts + ("cn=cmapi-*",) if n in text]
+    assert not found
 
 
 def test_crc_reader_reads_only_what_the_code_reads():

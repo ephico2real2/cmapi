@@ -9,7 +9,7 @@ decide(facts) turns a plan's facts into a Requirement, evaluated in this order:
 4. Auto-approval: when the master switch is on, the kill switch is off, a policy matches and every
    fixed guard and the policy's own guards pass, the request is approved by auto:<policy>.
 
-A Requirement is a list of slots, one per approving group, so "2 prod-approvers + 1 platform-leads"
+A Requirement is a list of slots, one per approving group, so "2 approver-prod + 1 approver-platform"
 is expressible. The ledger fills slots one approver at a time and enforces eligibility.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from cmapi.core.authz import group_path, permissions as builtin_permissions
+from cmapi.core.authz import DEFAULT_GROUP_PATH, group_path, permissions as builtin_permissions
 from cmapi.core.errors import Problem
 from cmapi.core.expression import Expression
 from cmapi.core.identity.claims import Identity
@@ -47,10 +47,17 @@ class Requirement:
     reasons: tuple[str, ...]
     auto: str | None = None                    # auto:<policy>, or "none-required"
     auto_fallback: str | None = None           # the guard that stopped a matching policy
+    # The instance's identity.groupPath when this was decided. Stored with the slots it names, like every other part of
+    # a requirement, so a later config change does not move an open request's approvers under it.
+    group_path: str = DEFAULT_GROUP_PATH
 
     @property
     def total(self) -> int:
         return sum(s.count for s in self.slots)
+
+    def token_group(self, group: str) -> str:
+        """The Keycloak group path a token carries for this approving group."""
+        return group_path(group, self.group_path)
 
     @property
     def approved_at_plan(self) -> bool:
@@ -68,8 +75,10 @@ POLICY_GUARDS = {
 
 
 class ApprovalRules:
-    def __init__(self, raw: Mapping[str, Any], allowed_environments: set[str] | None = None):
-        self.defaults = {"required": 0, "group": "platform-leads", "timeoutHours": 24,
+    def __init__(self, raw: Mapping[str, Any], allowed_environments: set[str] | None = None,
+                 group_path: str = DEFAULT_GROUP_PATH):
+        self.group_path = group_path
+        self.defaults = {"required": 0, "group": "approver-platform", "timeoutHours": 24,
                          "selfApproval": False, **(raw.get("defaults") or {})}
         self.environments = {e: {**self.defaults, **(v or {})} for e, v in (raw.get("environments") or {}).items()}
         self.patterns = list(raw.get("namespacePatterns") or [])
@@ -143,16 +152,17 @@ class ApprovalRules:
                                    s.reason if not m else f"{m.reason}; {s.reason}")
         req = Requirement(rule=f"{env}-{kind}", slots=tuple(merged.values()),
                           self_approval=bool(rule.get("selfApproval")), timeout_hours=int(rule["timeoutHours"]),
-                          reasons=tuple(reasons))
+                          reasons=tuple(reasons), group_path=self.group_path)
         policy, fallback = self._auto(facts, kind, added, paused, team_auto_today)
         if policy:
             return Requirement(req.rule, (), req.self_approval, req.timeout_hours,
-                               req.reasons + (f"auto-approved by policy {policy}",), auto=f"auto:{policy}")
+                               req.reasons + (f"auto-approved by policy {policy}",), auto=f"auto:{policy}",
+                               group_path=self.group_path)
         if not req.slots:
             return Requirement(req.rule, (), req.self_approval, req.timeout_hours, req.reasons,
-                               auto="none-required", auto_fallback=fallback)
+                               auto="none-required", auto_fallback=fallback, group_path=self.group_path)
         return Requirement(req.rule, req.slots, req.self_approval, req.timeout_hours, req.reasons,
-                           auto_fallback=fallback)
+                           auto_fallback=fallback, group_path=self.group_path)
 
     def _auto(self, f: Mapping[str, Any], kind: str, added: bool, paused: bool,
               team_today: int) -> tuple[str | None, str | None]:
@@ -233,7 +243,7 @@ class ApprovalLedger:
         seats, match = self._seats(), {}
         def try_person(pi: int, seen: set[int]) -> bool:
             for si, group in enumerate(seats):
-                if si in seen or group_path(group) not in people[pi]["groups"]:
+                if si in seen or self.requirement.token_group(group) not in people[pi]["groups"]:
                     continue
                 seen.add(si)
                 if si not in match or try_person(match[si], seen):

@@ -16,7 +16,7 @@ DOMAINS = ["ephico2real.com"]
 def test_identity_from_claims():
     i = Identity.from_claims({"sub": "u1", "preferred_username": "Ola", "email": "ola@ephico2real.com",
                               "given_name": "Ola", "middle_name": "A", "family_name": "B", "employee_id": "123",
-                              "azp": "cmapi-portal", "groups": ["/cmapi/cmapi-requesters"],
+                              "azp": "cmapi-portal", "groups": ["/cmapi/app-cmapi-rbac-requester"],
                               "resource_access": {"cmapi-nonprod": {"roles": ["cmapi-requester"]}}}, "cmapi-nonprod")
     assert i.kind == "user" and i.label_value == "ola" and i.employee_id == "123"
     assert i.roles == {"cmapi-requester"} and i.record()["middleName"] == "A"
@@ -221,7 +221,7 @@ def test_patch_cannot_remove_a_required_key(keys):
 
 
 def test_first_set_of_a_sensitive_key_is_not_a_change(keys):
-    # found by the local end-to-end run: every create set cmapi.net/team and needed platform-leads
+    # found by the local end-to-end run: every create set cmapi.net/team and needed approver-platform
     assert keys.change_facts({}, {"cmapi.net/team": "payments"})["sensitiveKeyChanged"] is False
     assert keys.change_facts({"network.ephico2real.com/zone": "a"}, {})["sensitiveKeyChanged"] is True
 

@@ -94,14 +94,14 @@ def test_extend_limits(exp):
         exp.plan_extend(ns(), TODAY, days=31)
     assert e.value.code == "expiration-limit"
     old = ns(created=TODAY - timedelta(days=170))
-    assert exp.plan_extend(old, TODAY, days=20).extra_approvals == ("platform-leads",)
+    assert exp.plan_extend(old, TODAY, days=20).extra_approvals == ("approver-platform",)
 
 
 def test_set_and_make_permanent(exp):
     with pytest.raises(Problem):
         exp.plan_set(ns(), TODAY + timedelta(days=10), TODAY)          # already has a date
     assert exp.plan_set(ns(expires_at=None), TODAY + timedelta(days=30), TODAY).new_date
-    assert exp.plan_make_permanent(ns()).extra_approvals == ("platform-leads",)
+    assert exp.plan_make_permanent(ns()).extra_approvals == ("approver-platform",)
 
 
 @pytest.mark.parametrize("days,state", [(None, "permanent"), (40, "active"), (14, "expiring"), (1, "expiring"),

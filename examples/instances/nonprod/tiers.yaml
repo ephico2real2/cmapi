@@ -2,7 +2,7 @@
 # config/tiers.yaml for the nonprod instance (allowedEnvironments: rnd, dev).
 # Generated from examples/config/tiers.yaml: same catalog, only this instance's environments.
 # Read by cmapi.core.tiers at startup and on change (ConfigMap cmapi-tiers). Owned by
-# platform-leads in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
+# approver-platform in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
 # rendered cmapi.net/tier-hash differs show as tier-outdated until the tiers-rerender
 # operation opens a normal, approved request for each.
 #

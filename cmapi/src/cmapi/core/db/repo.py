@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, defer
 
 from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
+from cmapi.core.authz import DEFAULT_GROUP_PATH
 from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
                                   RequestEventRow, SwitchRow)
 from cmapi.core.errors import Problem
@@ -34,7 +35,7 @@ def requirement_to_json(r: Requirement | None) -> dict[str, Any] | None:
         return None
     return {"rule": r.rule, "slots": [asdict(s) for s in r.slots], "selfApproval": r.self_approval,
             "timeoutHours": r.timeout_hours, "reasons": list(r.reasons), "auto": r.auto,
-            "autoFallback": r.auto_fallback}
+            "autoFallback": r.auto_fallback, "groupPath": r.group_path}
 
 
 def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
@@ -42,7 +43,7 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
         return None
     return Requirement(rule=d["rule"], slots=tuple(Slot(**s) for s in d["slots"]), self_approval=d["selfApproval"],
                        timeout_hours=d["timeoutHours"], reasons=tuple(d["reasons"]), auto=d.get("auto"),
-                       auto_fallback=d.get("autoFallback"))
+                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", DEFAULT_GROUP_PATH))
 
 
 class LeaseLost(RuntimeError):

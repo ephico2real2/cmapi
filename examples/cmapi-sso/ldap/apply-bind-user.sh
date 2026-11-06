@@ -108,7 +108,9 @@ in_pod '
   check() { if [ "$2" = "$3" ]; then echo "ok   $1: $2"; else echo "FAIL $1: $2, wanted $3"; fail=1; fi; }
   people=$(as_user -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" dn | grep -c "^dn:")
   [ "$people" -gt 0 ] && check "reads ou=People" yes yes || check "reads ou=People" no yes
-  check "reads the ten cmapi groups" "$(as_user -b "ou=Groups,$LDAP_BASE_DN" "(cn=cmapi-*)" dn | grep -c "^dn:")" 10
+  # Any group here: apply-test-identities.sh makes the cmapi groups, needs this user first, and checks them as this user.
+  groups=$(as_user -b "ou=Groups,$LDAP_BASE_DN" "(objectClass=groupOfNames)" dn | grep -c "^dn:")
+  [ "$groups" -gt 0 ] && check "reads ou=Groups" yes yes || check "reads ou=Groups" no yes
   check "sees no password hash" "$(as_user -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" userPassword | grep -c "^userPassword")" 0
   check "cannot read ou=TrustedApplications" "$(as_user -b "ou=TrustedApplications,$LDAP_BASE_DN" "(objectClass=*)" dn | grep -c "^dn:")" 0
   printf "dn: cn=cmapi-write-probe,ou=Groups,%s\nobjectClass: groupOfNames\ncn: cmapi-write-probe\nmember: %s\n" "$LDAP_BASE_DN" "$dn" |

@@ -36,24 +36,24 @@ def test_instance_files_load(instance, envs):
 # ---- decide
 def test_prod_create_needs_one_prod_approver(rules):
     r = rules.decide(facts())
-    assert [(s.group, s.count) for s in r.slots] == [("prod-approvers", 1)]
+    assert [(s.group, s.count) for s in r.slots] == [("approver-prod", 1)]
     assert r.timeout_hours == 48 and not r.self_approval and r.auto is None
 
 
 def test_prod_delete_of_old_namespace_adds_platform_leads(rules):
     r = rules.decide(facts(action="delete", namespaceAgeDays=200, pods=3, pvcs=0))
-    assert {(s.group, s.count) for s in r.slots} == {("prod-approvers", 2), ("platform-leads", 1)}
+    assert {(s.group, s.count) for s in r.slots} == {("approver-prod", 2), ("approver-platform", 1)}
     assert r.total == 3
 
 
 def test_quota_increase_and_capacity_warn_add_up(rules):
     r = rules.decide(facts(action="update", quotaIncreasePct=300, capacity="warn"))
-    assert {(s.group, s.count) for s in r.slots} == {("prod-approvers", 1), ("platform-leads", 2)}
+    assert {(s.group, s.count) for s in r.slots} == {("approver-prod", 1), ("approver-platform", 2)}
 
 
 def test_patterns_raise_and_waive(rules):
     r = rules.decide(facts(namespace="critical-ledger"))
-    assert [(s.group, s.count) for s in r.slots] == [("platform-leads", 2)]
+    assert [(s.group, s.count) for s in r.slots] == [("approver-platform", 2)]
     r = rules.decide(facts(environment="qa", action="update", namespace="temp-load"))
     assert r.slots == () and r.auto == "none-required"
 
@@ -78,7 +78,7 @@ def test_team_allowance_and_kill_switch(rules):
     f = facts(environment="rnd", namespace="payments-rnd", tier="small")
     assert rules.decide(f, team_auto_today=20).auto_fallback == "team-allowance"
     r = rules.decide(f, paused=True)
-    assert r.auto is None and r.slots[0].group == "platform-leads" and r.auto_fallback == "paused"
+    assert r.auto is None and r.slots[0].group == "approver-platform" and r.auto_fallback == "paused"
 
 
 def test_expired_namespace_delete(rules):
@@ -88,7 +88,7 @@ def test_expired_namespace_delete(rules):
     assert r.auto == "auto:expired-namespace"
     r = rules.decide({**f, "noticesSent": 1})
     assert r.auto is None and r.auto_fallback == "noticesSentAtLeast2"
-    assert [(s.group, s.count) for s in r.slots] == [("qa-leads", 1)]
+    assert [(s.group, s.count) for s in r.slots] == [("approver-qa", 1)]
 
 
 def test_protected_delete_refused(rules):
@@ -110,44 +110,44 @@ APPROVER = dict(roles={"cmapi-approver"})
 def test_ledger_fills_slots_by_group(rules):
     req = rules.decide(facts(action="delete", namespaceAgeDays=200))
     led = ApprovalLedger(req, requester_sub="sub-ola")
-    a = person("amy", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
-    b = person("bob", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
-    c = person("cat", groups={"/cmapi/cmapi-platform-leads"}, **APPROVER)
+    a = person("amy", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER)
+    b = person("bob", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER)
+    c = person("cat", groups={"/cmapi/app-cmapi-rbac-approver-platform"}, **APPROVER)
     assert not led.approve(a)
     with pytest.raises(Problem) as e:
         led.approve(a)
     assert e.value.code == "already-approved"
     assert not led.approve(b)
-    assert led.remaining() == [{"group": "platform-leads", "needed": 1}]
+    assert led.remaining() == [{"group": "approver-platform", "needed": 1}]
     assert led.approve(c)
 
 
 def test_ledger_eligibility(rules):
     req = rules.decide(facts())
     led = ApprovalLedger(req, requester_sub="sub-ola", client_owner_subs=frozenset({"sub-own"}))
-    for who, code in [(person("ola", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), "self-approval"),
-                      (person("own", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), "self-approval"),
-                      (person("dan", groups={"/cmapi/cmapi-qa-leads"}, **APPROVER), "not-eligible"),
-                      (person("eve", groups={"/cmapi/cmapi-prod-approvers"}, roles={"cmapi-viewer"}), "forbidden")]:
+    for who, code in [(person("ola", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER), "self-approval"),
+                      (person("own", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER), "self-approval"),
+                      (person("dan", groups={"/cmapi/app-cmapi-rbac-approver-qa"}, **APPROVER), "not-eligible"),
+                      (person("eve", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, roles={"cmapi-viewer"}), "forbidden")]:
         with pytest.raises(Problem) as e:
             led.approve(who)
         assert e.value.code == code
     with pytest.raises(Problem) as e:
-        led.approve(person("fay", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER), permitted=False)
+        led.approve(person("fay", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER), permitted=False)
     assert e.value.code == "forbidden"            # the instance's roles do not grant approve in this environment
 
 
 def test_self_approval_where_the_environment_allows_it(rules):
     req = rules.decide(facts(environment="rnd", namespace="payments-rnd", tier="large"))
     led = ApprovalLedger(req, requester_sub="sub-ola")
-    assert led.approve(person("ola", groups={"/cmapi/cmapi-platform-leads"}, **APPROVER))
+    assert led.approve(person("ola", groups={"/cmapi/app-cmapi-rbac-approver-platform"}, **APPROVER))
 
 
 def test_relay_names_an_eligible_person(rules):
     req = rules.decide(facts())
     led = ApprovalLedger(req, requester_sub="sub-ola")
     relay = person("svc-servicenow", kind="service", client="svc-servicenow", roles={"cmapi-approval-relay"})
-    amy = person("amy", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
+    amy = person("amy", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER)
     assert led.approve(amy, relay=relay)
     assert led.entries[0]["relayedBy"] == "svc-servicenow"
 
@@ -156,18 +156,18 @@ def test_relay_names_an_eligible_person(rules):
 def test_sensitive_key_adds_platform_leads_and_blocks_auto(rules):
     f = facts(plugin="metadata", action="patch", keyClasses=["team"], sensitiveKeyChanged=True)
     r = rules.decide(f)
-    assert r.auto is None and ("platform-leads", 1) in {(s.group, s.count) for s in r.slots}
+    assert r.auto is None and ("approver-platform", 1) in {(s.group, s.count) for s in r.slots}
 
 
 def test_expiry_beyond_limits_adds_platform_leads(rules):
     r = rules.decide(facts(environment="rnd", namespace="ledger-rnd", action="update", plugin="expiration",
                            expirationBeyondLimits=True))
-    assert [(s.group, s.count) for s in r.slots] == [("platform-leads", 1)]
+    assert [(s.group, s.count) for s in r.slots] == [("approver-platform", 1)]
 
 
 def test_pattern_group_replaces_environment_group(rules):
     r = rules.decide(facts(action="delete", namespace="critical-pay"))
-    assert [(s.group, s.count) for s in r.slots] == [("platform-leads", 2)]
+    assert [(s.group, s.count) for s in r.slots] == [("approver-platform", 2)]
 
 
 def test_missing_capacity_facts_do_not_auto_approve(rules):
@@ -178,12 +178,12 @@ def test_missing_capacity_facts_do_not_auto_approve(rules):
 
 
 def test_multi_group_approver_counts_where_needed(rules):
-    req = rules.decide(facts(action="update", quotaIncreasePct=150))      # 1 prod-approvers + 1 platform-leads
+    req = rules.decide(facts(action="update", quotaIncreasePct=150))      # 1 approver-prod + 1 approver-platform
     led = ApprovalLedger(req, requester_sub="sub-ola")
-    both = person("amy", groups={"/cmapi/cmapi-prod-approvers", "/cmapi/cmapi-platform-leads"}, **APPROVER)
-    prod_only = person("bob", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER)
+    both = person("amy", groups={"/cmapi/app-cmapi-rbac-approver-prod", "/cmapi/app-cmapi-rbac-approver-platform"}, **APPROVER)
+    prod_only = person("bob", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER)
     assert not led.approve(both)
-    assert led.approve(prod_only)                          # amy moves to platform-leads
+    assert led.approve(prod_only)                          # amy moves to approver-platform
 
 
 def test_on_behalf_of_person_cannot_self_approve(rules):
@@ -194,10 +194,53 @@ def test_on_behalf_of_person_cannot_self_approve(rules):
     who = resolve_requester(person("svc-ci", kind="service", client="svc-ci"), "ola", d)
     led = ApprovalLedger(rules.decide(facts()), requester_sub=who.sub)
     with pytest.raises(Problem) as e:
-        led.approve(person("ola", groups={"/cmapi/cmapi-prod-approvers"}, **APPROVER))
+        led.approve(person("ola", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER))
     assert e.value.code == "self-approval"
 
 
 def test_not_with_a_missing_fact_stays_false():
     assert not Expression("not quotaIncreasePct > 100")({})
     assert Expression("not quotaIncreasePct > 100")({"quotaIncreasePct": 5})
+
+
+# ---- the group path is the instance's (identity.groupPath): a site with its own directory has its own names
+def test_the_default_group_path_is_the_rbac_prefix(rules):
+    req = rules.decide(facts())
+    assert req.token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
+
+
+def test_a_ledger_reads_the_instances_group_path():
+    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}}}
+    req = ApprovalRules(raw, {"prod"}, group_path="/corp/{name}-team").decide(facts())
+    led = ApprovalLedger(req, requester_sub="sub-ola")
+    with pytest.raises(Problem) as e:
+        led.approve(person("amy", groups={"/cmapi/app-cmapi-rbac-approver-prod"}, **APPROVER))
+    assert e.value.code == "not-eligible", "the default path must not approve on an instance that names its own"
+    assert led.approve(person("bob", groups={"/corp/approver-prod-team"}, **APPROVER))
+
+
+def test_a_stored_requirement_keeps_its_group_path():
+    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON."""
+    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
+    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}}}
+    req = ApprovalRules(raw, {"prod"}, group_path="/corp/{name}").decide(facts())
+    back = requirement_from_json(requirement_to_json(req))
+    assert back.token_group("approver-prod") == "/corp/approver-prod"
+    old = requirement_to_json(req); old.pop("groupPath")
+    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
+
+
+@pytest.mark.parametrize("kind,fact", [("auto", {}), ("waived", {"namespace": "temp-x"})])
+def test_every_requirement_carries_the_group_path(kind, fact):
+    """decide() builds a Requirement on four paths; one that drops the setting would approve under the default."""
+    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}},
+           "namespacePatterns": [{"match": "temp-*", "waive": ["create"]}],
+           "autoApproval": {"enabled": kind == "auto", "policies": [{"name": "p", "match": {"plugin": "namespaces", "actions": ["create"], "environments": ["*"]}}]}}
+    assert ApprovalRules(raw, {"prod"}, group_path="/corp/{name}").decide(facts(**fact)).group_path == "/corp/{name}"
+
+
+def test_a_requirement_with_a_fallback_keeps_slots_and_the_group_path():
+    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}},
+           "autoApproval": {"enabled": True, "policies": [{"name": "p", "match": {"plugin": "namespaces", "actions": ["create"], "environments": ["*"]}}]}}
+    req = ApprovalRules(raw, {"prod"}, group_path="/corp/{name}").decide(facts(), paused=True)
+    assert req.slots and req.auto_fallback == "paused" and req.token_group("approver-prod") == "/corp/approver-prod"

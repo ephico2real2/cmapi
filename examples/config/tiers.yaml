@@ -2,7 +2,7 @@
 # config/tiers.yaml: the tier catalog. Combined reference holding every environment; each
 # instance deploys only its own environments (examples/instances/<instance>/tiers.yaml).
 # Read by cmapi.core.tiers at startup and on change (ConfigMap cmapi-tiers). Owned by
-# platform-leads in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
+# approver-platform in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
 # rendered cmapi.net/tier-hash differs show as tier-outdated until the tiers-rerender
 # operation opens a normal, approved request for each.
 #
