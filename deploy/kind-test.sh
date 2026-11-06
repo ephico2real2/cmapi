@@ -53,7 +53,7 @@ kind load image-archive "$T/image.tar" --name cmapi-test
 rm -f "$T/image.tar"
 k apply -f "$HERE/manifests/environments/kind/00-namespaces.yaml" >/dev/null
 k apply -f "$HERE/manifests/environments/kind/" >/dev/null; say "environments/kind applied"
-"$HERE/secrets.sh" --namespace cmapi --realm-namespace cmapi-imports --kubectl "kubectl --kubeconfig=$KC" --no-ldap-bind
+"$HERE/secrets.sh" --namespace cmapi --realm-namespace cmapi-imports --kubectl "kubectl --kubeconfig=$KC" --no-ldap-bind --no-issuer-check
 "$HERE/render.sh" kind "$IMAGE" "$T/rendered" --allow-tag
 # Server-side: the mockup ConfigMap (300 KB) is over the 256 KiB a client-side apply writes into its last-applied
 # annotation (measured: "metadata.annotations: Too long"); Argo CD applies server-side too (ServerSideApply=true).

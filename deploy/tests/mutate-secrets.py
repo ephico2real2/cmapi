@@ -61,6 +61,15 @@ MUTANTS = {
     "S a Secret written before the cmapi-ldap-bind check": [(LDAP_CHECK, EARLY_WRITE + LDAP_CHECK)],
     "T a Secret written before the check of an existing app Secret": [(APP_CHECK, APP_CHECK.replace("then\n", "then\n" + EARLY_WRITE))],
     "U a Secret written before the key file's checks": [(KEY_FILE_CHECK, KEY_FILE_CHECK.replace("then\n", "then\n" + EARLY_WRITE))],
+    "W the issuer check is not made": [('    if [ "$ISSUER_CHECK" = true ]; then\n      state=$(issuer_state)', '    if false; then\n      state=$(issuer_state)')],
+    "X anything but a 200 reads as absent": [('        *) echo "ERROR: cannot tell whether the realm exists at $ISSUER: $state. Nothing is generated. Run this again when Keycloak answers." >&2; exit 1 ;;', '        *) ;;')],
+    "Y any 404 reads as absent": [("""elif c=="404" and d=={"error":"Realm does not exist"}: print("absent")""", """elif c=="404": print("absent")""")],
+    "Z a curl failure reads as absent": [('if [ "$rc" -ne 0 ]; then rm -f "$body"; echo "no answer (curl rc $rc)"; return; fi', 'if [ "$rc" -ne 0 ]; then rm -f "$body"; echo absent; return; fi')],
+    "AA forgetting the flag skips the check": [('if [ "$ISSUER_CHECK" = true ] && [ -z "$ISSUER" ]; then echo "ERROR: --issuer is required (or --no-issuer-check on a cluster with no Keycloak)" >&2; exit 2; fi', 'if [ -z "$ISSUER" ]; then ISSUER_CHECK=false; fi')],
+    "AB verification off": [('code=$(curl -sS -m 15 ${CA_FILE:+--cacert "$CA_FILE"} -o', 'code=$(curl -k -sS -m 15 ${CA_FILE:+--cacert "$CA_FILE"} -o')],
+    "AC the issuer is asked after the first write": [
+        ('    if [ "$ISSUER_CHECK" = true ]; then\n      state=$(issuer_state)', '    printf \'CMAPI_REALM_ADMIN_SECRET %s\\n\' "$(b64 "$(rnd)")" | apply_secret "$REALM_NS" cmapi-realm-secrets >/dev/null\n    if [ "$ISSUER_CHECK" = true ]; then\n      state=$(issuer_state)')],
+    "AD the test users rotated on every run": [('  if [ -z "$users_existing" ]; then', '  if true; then')],
     "V the app Secret read after the writes again": [
         ('gh_existing=$(get "$NS" cmapi-github-app)\n', "gh_existing=\n"),
         ("# The GitHub App credential: validated", 'gh_existing=$(get "$NS" cmapi-github-app)\n# The GitHub App credential: validated')],
