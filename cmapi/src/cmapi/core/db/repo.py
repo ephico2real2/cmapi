@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, defer
 
 from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
-from cmapi.core.authz import DEFAULT_GROUP_PATH
+from cmapi.core.authz import LEGACY_GROUP_PATH
 from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
                                   RequestEventRow, SwitchRow)
 from cmapi.core.errors import Problem
@@ -43,7 +43,7 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
         return None
     return Requirement(rule=d["rule"], slots=tuple(Slot(**s) for s in d["slots"]), self_approval=d["selfApproval"],
                        timeout_hours=d["timeoutHours"], reasons=tuple(d["reasons"]), auto=d.get("auto"),
-                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", DEFAULT_GROUP_PATH))
+                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", LEGACY_GROUP_PATH))
 
 
 class LeaseLost(RuntimeError):

@@ -153,7 +153,23 @@ def test_a_stored_requirement_keeps_its_group_path():
     back = requirement_from_json(requirement_to_json(req))
     assert back.token_group("approver-prod") == "/corp/approver-prod"
     old = requirement_to_json(req); old.pop("groupPath")
-    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
+    assert requirement_from_json(old).token_group("platform-leads") == "/cmapi/cmapi-platform-leads", "a row from before identity.groupPath was decided under the old constant"
+
+
+def test_an_open_request_keeps_the_path_it_was_decided_under(world):
+    """docs/11's claim, through the routes: the setting changes while a request is open, and the approvers do not."""
+    client, ctx, git, kube, validator, keys = world
+    big = {**NS, "namespace": "payments-batch", "tier": "large"}
+    rid = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "ola", **OLA)).json()["requestId"]
+    ctx.cfg.approvals.group_path = "/corp/{name}"
+    decided = dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
+    moved = dict(roles=["cmapi-approver"], groups=["/corp/approver-platform"])
+    assert client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "sam", **moved)).json()["items"] == []
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "sam", **moved))
+    assert r.status_code == 403 and r.json()["code"] == "not-eligible"
+    assert [i["requestId"] for i in client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "amy", **decided)).json()["items"]] == [rid]
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **decided))
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
 
 
 def test_a_token_with_no_role_gets_403(world):

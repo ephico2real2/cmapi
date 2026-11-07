@@ -47,7 +47,7 @@ Defined in [`examples/cmapi-sso/ldap/cmapi-groups.ldif`](../examples/cmapi-sso/l
 | `app-cmapi-rbac-auditor` | `cmapi-auditor` | | `cmapi.auditor` |
 
 - A token carries a group as its Keycloak path, `/cmapi/app-cmapi-rbac-<name>`. The realm's LDAP group mapper filters on `(cn=app-cmapi-rbac-*)` and places them under `/cmapi`.
-- An approval rule names a short name. `identity.groupPath` in `instance.yaml` joins the two, by default `/cmapi/app-cmapi-rbac-{name}`, and the service stops at startup if it cannot name a group. A site with its own directory sets its own: `examples/local` keeps `/cmapi/cmapi-{name}` this way. A request stores the path it was decided under with its slots, so changing the setting does not move the approvers of an open request.
+- An approval rule names a short name. `identity.groupPath` in `instance.yaml` joins the two, by default `/cmapi/app-cmapi-rbac-{name}`, and the service stops at startup if it cannot name a group. A site with its own directory sets its own: `examples/local` keeps `/cmapi/cmapi-{name}` this way. A request stores the path it was decided under with its slots, so changing the setting does not move the approvers of an open request; a row stored before this setting reads as the old `/cmapi/cmapi-{name}`, the constant it was decided under.
 - `groupOfNames` requires a member, and every group has at least one. Every member is a test user, so no real person is in a cmapi group.
 
 ### The test users

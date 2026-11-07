@@ -45,6 +45,9 @@ PERMISSIONS: frozenset[str] = frozenset().union(*ROLE_PERMISSIONS.values())
 # Keycloak group paths. instance.yaml's identity.groupPath joins them, since a site with its own
 # directory has its own names (docs/11). This is the path when an instance does not set one.
 DEFAULT_GROUP_PATH = "/cmapi/app-cmapi-rbac-{name}"
+# A requirement stored before this setting has no path of its own, and was decided under the constant of that time. Read under
+# the default, its slots would name groups nobody holds on a site that kept its names.
+LEGACY_GROUP_PATH = "/cmapi/cmapi-{name}"
 
 
 def check_group_path(template: Any) -> None:
