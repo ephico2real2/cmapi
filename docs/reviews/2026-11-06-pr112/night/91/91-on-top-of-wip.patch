@@ -1,0 +1,122 @@
+diff --git a/deploy/kind-test.sh b/deploy/kind-test.sh
+index 1b36c8b..edbb7d3 100755
+--- a/deploy/kind-test.sh
++++ b/deploy/kind-test.sh
+@@ -99,7 +99,7 @@ say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.s
+ say "what each database connection gets: the api, the worker and both migrate containers"
+ # Measured, not assumed: libpq's sslmode=prefer connects to anything and falls back to plaintext without a word. A pod made from each
+ # container of the two Deployments, its environment and mounts untouched, connects as that process connects and says what it got: ssl,
+-# the TLS version, and the sslmode libpq used, from PQconninfo. A second one reads, as the CNPG CA, the kind bundle's stand-in CA, which
++# the TLS version, and the sslmode libpq used, from PQconninfo. A second one reads, as its root CA, the kind bundle's stand-in CA, which
+ # signed nothing: it must refuse, and not fall back. Each pod's labels put it under the same NetworkPolicy and in no Service. Every
+ # measurement is printed before a failure stops the run, so a run on manifests without the fix shows the whole of what they do.
+ DB_CHECK='import os
+@@ -120,10 +120,12 @@ c=spec[where][0]
+ for key in ("readinessProbe","livenessProbe","startupProbe","ports"): c.pop(key,None)
+ c.update(name="check",command=["python3","-c",check])
+ if wrong_ca=="true":
+-    for v in spec["volumes"]:
+-        for s in v.get("projected",{}).get("sources",[]):
+-            if s.get("secret",{}).get("name")=="cmapi-db-ca":
+-                s["configMap"]={"name":"cmapi-trust","items":[{"key":"ca-bundle.crt","path":s.pop("secret")["items"][0]["path"]}]}
++    # Supply the wrong CA even with pre-fix manifests, which have no CNPG projection or PGSSLROOTCERT.
++    # Preserve PGSSLMODE: before the fix, prefer may retry in plaintext after certificate verification fails.
++    c["env"]=[e for e in c.get("env",[]) if e["name"]!="PGSSLROOTCERT"]
++    c["env"].append({"name":"PGSSLROOTCERT","value":"/etc/cmapi/probe-ca/ca.crt"})
++    c.setdefault("volumeMounts",[]).append({"name":"db-check-ca","mountPath":"/etc/cmapi/probe-ca","readOnly":True})
++    spec["volumes"].append({"name":"db-check-ca","projected":{"sources":[{"configMap":{"name":"cmapi-trust","items":[{"key":"ca-bundle.crt","path":"ca.crt"}]}}]}})
+ print(json.dumps({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod,"namespace":"cmapi","labels":{"app.kubernetes.io/component":deployment.removeprefix("cmapi-"),"cmapi.net/kind-test":"db-check"}},
+   "spec":{"restartPolicy":"Never","serviceAccountName":spec["serviceAccountName"],"securityContext":spec["securityContext"],"volumes":spec["volumes"],"containers":[c]}}))' "$1" "$2" "$3" "$4" "$DB_CHECK" | k apply -f - >/dev/null
+ }
+diff --git a/deploy/tests/db-probe-test.py b/deploy/tests/db-probe-test.py
+new file mode 100644
+index 0000000..22695cc
+--- /dev/null
++++ b/deploy/tests/db-probe-test.py
+@@ -0,0 +1,73 @@
++#!/usr/bin/env python3
++"""Execute kind-test's pod generator, including against manifests from before #91.
++No cluster: the fake k transports actual Deployment JSON in and generated Pod JSON out.
++This verifies the proof's CA injection, not libpq or Kubernetes TLS behavior.
++"""
++import json
++import os
++from pathlib import Path
++import subprocess
++import tempfile
++
++import yaml
++
++ROOT = Path(__file__).resolve().parents[2]
++script = (ROOT / 'deploy/kind-test.sh').read_text()
++function = script[script.index('db_pod() {'):script.index('\ndb_read() {')]
++
++
++def projected_file(pod, c, path):
++    """Resolve what source kubelet would project at the container's effective CA path."""
++    for mount in c.get('volumeMounts', []):
++        parent = mount['mountPath'].rstrip('/') + '/'
++        if not path.startswith(parent):
++            continue
++        volume = next(v for v in pod['volumes'] if v['name'] == mount['name'])
++        for source in volume.get('projected', {}).get('sources', []):
++            for kind, ref in source.items():
++                for item in ref.get('items', []):
++                    if item['path'] == path[len(parent):]:
++                        return kind, ref['name'], item['key']
++    return None
++
++
++with tempfile.TemporaryDirectory() as tmp:
++    t = Path(tmp)
++    for component, filename in [('api', '20-api.yaml'), ('worker', '30-worker.yaml')]:
++        deployment = next(d for d in yaml.safe_load_all((ROOT / 'deploy/manifests/components/cmapi' / filename).read_text()) if d['kind'] == 'Deployment')
++        for before in (False, True):
++            d = json.loads(json.dumps(deployment))
++            spec = d['spec']['template']['spec']
++            if before:
++                for c in spec['initContainers'] + spec['containers']:
++                    c['env'] = [e for e in c['env'] if e['name'] not in ('PGSSLMODE', 'PGSSLROOTCERT')]
++                for v in spec['volumes']:
++                    if 'projected' in v:
++                        v['projected']['sources'] = [s for s in v['projected']['sources'] if 'secret' not in s]
++            (t / 'deployment.json').write_text(json.dumps(d))
++            for where in ('initContainers', 'containers'):
++                for wrong in (False, True):
++                    body = '''set -euo pipefail
++k() {
++  case " $* " in
++    *" get deploy "*) cat "$PROBE_TMP/deployment.json";;
++    *" apply "*) cat >"$PROBE_TMP/pod.json";;
++    *) return 99;;
++  esac
++}
++DB_CHECK='print("probe")'
++''' + function + '\ndb_pod probe cmapi-' + component + ' ' + where + ' ' + str(wrong).lower() + '\n'
++                    subprocess.run(['bash', '-c', body], env={**os.environ, 'PROBE_TMP': tmp}, check=True, capture_output=True)
++                    pod = json.loads((t / 'pod.json').read_text())['spec']
++                    c = pod['containers'][0]
++                    env = {e['name']: e.get('value') for e in c['env']}
++                    original = spec[where][0]
++                    original_env = {e['name']: e.get('value') for e in original['env']}
++                    assert env.get('PGSSLMODE') == original_env.get('PGSSLMODE'), 'proof must preserve the deployed sslmode'
++                    if wrong:
++                        source = projected_file(pod, c, env.get('PGSSLROOTCERT', ''))
++                        assert source == ('configMap', 'cmapi-trust', 'ca-bundle.crt'), (component, where, before, 'wrong CA not supplied at effective libpq path', source)
++                    else:
++                        assert c['env'] == original['env'], 'positive probe must use the deployed environment'
++                        assert pod['volumes'] == spec['volumes'], 'positive probe must use deployed volumes'
++                    print('ok', component, where, 'pre-fix' if before else 'WIP', 'wrong-CA' if wrong else 'as-deployed')
+diff --git a/docs/08-code-status.md b/docs/08-code-status.md
+index 9ad4fac..75e8b16 100644
+--- a/docs/08-code-status.md
++++ b/docs/08-code-status.md
+@@ -57,7 +57,7 @@ This page summarises what the code tree holds today.
+ | Approval channels: portal, email (signed link) | `core/channels.py` | Built; email never sent in a test |
+ | Capacity | `core/capacity_backend.py` | **Simulated** from `clusters.yaml`; cmapi-capacity, placement and reservations are not built, and the `cmapi-capacity` entry point was removed until the component exists |
+ | Image | `cmapi/Containerfile` | Built locally; not pushed to a cluster |
+-| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the mockup, `environments/kind`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, every database connection on `verify-full` and refusing a CA that does not cover the server, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
++| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the mockup, `environments/kind`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
+ | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
+ | Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
+ 

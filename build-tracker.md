@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-06 by the coordinator, from `git`, `gh` and `oc`, during Wave 1's review.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **Proof** says where a result came from: **CI** is GitHub Actions on the named run, **kind** is a throwaway cluster on the
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
@@ -11,9 +11,9 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | | |
 |---|---|
 | Merged to `main` | PR #40, PR #89 (plain YAML), PR #95 (Wave 1 design), PR #98 (Wave 1's code and review fixes), PR #111 (`LOCAL-DEV-TRUST.md`), PR #114 (`fix-defect` skill); `main` at `5dfdea3` |
-| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112, draft, branch `ldap-rbac-names`, head `53bd801` before this record: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Both reviewers have answered. Reviewer 2's eleven patches are saved, unvalidated and not applied, in `docs/reviews/2026-11-06-pr112/`, with six proofs unfinished. CI red: `reference-code` (#117) and, at `44083ff`, `manifests` (#118) |
+| In progress | Wave 1 (#94). Code merged, not run on CRC. PR #112, draft, branch `ldap-rbac-names`: group names `app-cmapi-rbac-<role>` and `cmapi.<role>` test users. Reviewer 2's eleven patches are validated, accepted and on the branch, `47ddb4f` to `0bde88c`. CI green on all 5 jobs at `0bde88c`, including the full `crc-guard`. Records in `docs/reviews/2026-11-06-pr112/` |
 | On CRC | No cmapi workload, and realm `cmapi` does not exist (`/realms/cmapi` 404, read 2026-11-06). Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the old `cmapi-*` groups, which #110 replaces |
-| Next action | Finish the proofs listed in `docs/reviews/2026-11-06-pr112/README.md` and validate those patches per `fix-defect` step 4, get #118 diagnosed and fixed, apply, CI green on the exact head, merge (the owner authorized merging once clear). Then ask the owner's go-ahead for the first CRC run. One agent at a time |
+| Next action | Apply #118's saved patch. Ask the owner whether the second pass still runs (they stopped it before it began). CI green on the exact head, ready, merge. Then the first CRC run from `docs/13`, **the owner's go-ahead given**. Alongside, on Codex and Cursor: #87 and #91, from the states in `night/` |
 | Running | Nothing, read at this update: no agent, test or kind cluster. `cmapi-test-pg` stays up for the service tests. Check again on resuming |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
@@ -77,12 +77,12 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 | Risk | What is known | Guard |
 |---|---|---|
-| Token spend | The owner stopped a side agent as waste on 2026-11-06. Two implementers and reviewers each used about 1M fresh input tokens plus 350,000 to 470,000 output | One agent at a time, only on what blocks the next step. Narrow briefs; agents run only the suites their change touches; the coordinator runs the full suites once |
+| Token spend | The owner stopped a side agent as waste on 2026-11-06, and that night: "pls make sure we are NOT wasting claude token". Two implementers and reviewers each used about 1M fresh input tokens plus 350,000 to 470,000 output | Long work on Codex and Cursor. One Claude agent at a time, only on what blocks the next step. Narrow briefs; agents run only the suites their change touches; the coordinator runs the full suites once, wakes on a waiter, and does not poll |
 | `keycloak-0` on CRC restarted at 20:17:02 UTC on 2026-11-05 (exit 143, then failed probes) | cmapi changed nothing in `keycloak`. A kind cluster was running on the Mac at that time, so test load is not ruled out. Cause unknown. A later short kind run left the count at 1 | No kind cluster during a CRC step. Record the restart count around each one |
 | A realm import may restart the shared Keycloak, which has one instance | corp, inkcast-staging and inkcast-prod were imported on 10-28, 10-28 and 11-04 without restarting `keycloak-0`. Red Hat reports restarts on 22.x, 24.x and 26.0.x; CRC runs 26.6.7. The one measured restart took 2 min 42 s for every realm | The owner requires the other realms unaffected and not deleted, and no long outage. Exact names only; compare each realm's status and public key hash before and after; poll through the import; if it restarts, stop and take no action on Keycloak. A `pg_dump` first, approved by the owner, kept outside git and deleted once verified |
 | Keycloak's certificate has no Extended Key Usage | macOS's own check refuses it even with the right CA (measured); the ingress certificate passes. Chrome's result is unknown until the owner tries | If Chrome refuses it, reissuing `keycloak-tls` touches the shared Keycloak: the owner's decision |
 | An import can start long after its Job is created | `inkcast-prod`'s started about 6.5 days after, `inkcast-staging`'s 5h51m. Cause not known | Bound the wait, and be able to withdraw our own import |
-| One review family | Fable is paused. Codex is the only other family, and OpenAI's filter stopped Codex on auth and admission checks earlier | Each PR states who reviewed. Flag any PR touching auth or admission |
+| One review family | Fable is paused. Codex is the only other family that has reviewed so far, and OpenAI's filter stopped Codex on auth and admission checks earlier. Cursor's agent was added that night and has only answered a probe | Each PR states who reviewed. Flag any PR touching auth or admission |
 | A bad merge in the config repo puts every Application into deletion | Measured on kind: no namespace lost, but a person must remove each finalizer | `path-authority` check, approver guard, alert (Wave 2 and 3) |
 | Argo CD's cluster-wide read of ConfigMaps | 535 on CRC, mostly other projects' | Wave 2 tests narrowing |
 | Network policies break DNS on podman kind | Measured, cause unknown. `kind-test.sh` deletes the policy on podman kind only; it ships unchanged. CI's Docker-backed kind shows it blocks another namespace, on a running pod | CRC decides |
@@ -90,4 +90,4 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 
 ## Open bugs
 
-**Open under PR #112:** #115, #116, #117, #118, #119, #120, #121, #122, #123, #124, #125, #126, #110, #109. **Parked until Wave 1 is on CRC, to save tokens:** #87 (committed, unreviewed, branch `fix-pr-status-check-runs`), #91 (unfinished and unproven, branch `fix-cnpg-verify-full`). #97 a private-CA-only bundle fails GitHub TLS. #113 merge authority, closes with PR #112. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.
+**Fixed on PR #112's branch, closing when it merges:** #115, #116, #117, #119, #120, #121, #122, #123, #124, #125, #126, #110, #109. **Under PR #112, fix proved and not applied:** #118, a race in `doc13-test.py`'s harness and not a stop that fails to hold; the evidence is on the issue. **In review:** #87 (branch `fix-pr-status-check-runs`, reviewer 1 stopped midway with 2 findings, `night/87/`). **In progress:** #91 (branch `fix-cnpg-verify-full`, `night/91/`, kind proof not run). #97 a private-CA-only bundle fails GitHub TLS. #113 merge authority, closes with PR #112. #94 Wave 1. #59, #60, #61, #62, #64, #65, #84, #85 as in the waves. #33 Team DL. #35, #36 LDAP. Closed by PR #98: #96, #99 to #108.
