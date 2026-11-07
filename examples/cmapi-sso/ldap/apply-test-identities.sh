@@ -296,7 +296,13 @@ if [ -n "$(oc_ get secret "$secret" -n "$app_ns" --ignore-not-found -o name)" ];
   echo "ok   Secret $secret: there, $(user_count) keys"
 else
   if grep -q '^same .*ou=People' "$tmp/state"; then die "test users exist with no Secret $secret, so nobody has their passwords. Remove them first (--remove-test-identities): nothing written"; fi
-  users | while read -r uid _; do openssl rand -hex 24 | tr -d '\n' > "$pw/$uid"; done
+  # Not in a pipeline: its status would be tr's, and an openssl that failed would put empty passwords in the Secret.
+  users | while read -r uid _; do
+    openssl rand -hex 24 > "$tmp/generated"
+    tr -d '\n' < "$tmp/generated" > "$pw/$uid"
+    [ -s "$pw/$uid" ] || die "openssl gave no password for $uid: nothing written"
+  done
+  rm -f "$tmp/generated"
   oc_ create secret generic "$secret" -n "$app_ns" --from-file="$pw" >/dev/null
   echo "ok   Secret $secret: created, $(user_count) keys"
 fi

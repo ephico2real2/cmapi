@@ -368,6 +368,9 @@ member: cn=john.doe,ou=People,$BASE
 LDIF
   rc=$(run --remove-test-identities); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing a new group with a real person added" || bad "the removal reached a group holding a real person: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
   remove_ours
+  # openssl on the machine running the script.
+  mkdir -p "$W/no-openssl"; printf '#!/bin/sh\nexit 1\n' >"$W/no-openssl/openssl"; chmod +x "$W/no-openssl/openssl"
+  local path=$PATH; PATH="$W/no-openssl:$PATH"; refused_clean "openssl fails: a Secret of empty passwords"; PATH=$path; remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
