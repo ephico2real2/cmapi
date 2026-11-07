@@ -6,7 +6,6 @@ from typing import Any
 
 from fastapi import Depends, Query
 
-from cmapi.core.authz import group_path
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, utcnow
 from cmapi.core.docs import DocumentedRouter
@@ -59,7 +58,7 @@ def list_requests(
 
 def _can_still_approve(repo: RequestRepo, row: Any, who: Identity) -> bool:
     ledger = repo.ledger(row)
-    return bool(ledger) and any(group_path(r["group"]) in who.groups for r in ledger.remaining())
+    return bool(ledger) and any(ledger.requirement.token_group(r["group"]) in who.groups for r in ledger.remaining())
 
 
 @router.read("/requests/{request_id}", summary="One request", permission="requests:read", response_model=ChangeRequest,

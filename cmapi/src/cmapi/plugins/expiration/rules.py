@@ -2,7 +2,7 @@
 
 Optional, and never in prod: an environment with no entry in expiration.yaml refuses every expiry
 field with 422 expiration-not-allowed. Within limits an extension follows the environment's change
-rule; past maxLifetimeDays from creation, or :makePermanent, adds platform-leads. A single
+rule; past maxLifetimeDays from creation, or :makePermanent, adds approver-platform. A single
 extension longer than maxExtensionDays is refused (expiration-limit).
 
 States (GET /api/v1/expirations?state=):
@@ -108,7 +108,7 @@ class ExpirationRules:
     def _lifetime(self, r: EnvRules, created: date, new_date: date, reasons: list[str]) -> tuple[str, ...]:
         if new_date > created + timedelta(days=r.max_lifetime_days):
             reasons.append(f"past {r.max_lifetime_days} days from creation")
-            return ("platform-leads",)
+            return ("approver-platform",)
         return ()
 
     def plan_create(self, env: str, expires_at: date | None, today: date) -> ExpiryPlan | None:
@@ -158,7 +158,7 @@ class ExpirationRules:
         self.rules(ns.environment)
         if ns.expires_at is None:
             raise Problem.unprocessable("expiration-not-set", "The namespace is already permanent")
-        return ExpiryPlan("makePermanent", None, ("platform-leads",), ("make permanent",))
+        return ExpiryPlan("makePermanent", None, ("approver-platform",), ("make permanent",))
 
     # ---- reads and the daily check
     def state(self, ns: ExpiryInfo, today: date) -> str:

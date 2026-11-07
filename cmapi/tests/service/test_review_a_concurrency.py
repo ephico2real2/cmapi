@@ -12,11 +12,11 @@ from sqlalchemy import text
 from cmapi.core.db.repo import RequestRepo
 from test_flow import AMY, NS, OLA, auth, run_jobs
 
-LEAD = lambda: dict(roles=["cmapi-approver"], groups=["/cmapi/cmapi-platform-leads"])
+LEAD = lambda: dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
 
 
 def pending(client, keys, ns="critical-a", seats=2, ctx=None):
-    ctx.cfg.approvals.patterns[0]["required"] = seats       # critical-*: N from platform-leads
+    ctx.cfg.approvals.patterns[0]["required"] = seats       # critical-*: N from approver-platform
     r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "namespace": ns}, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
     return r.json()["requestId"]

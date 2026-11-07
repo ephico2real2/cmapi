@@ -55,7 +55,7 @@ spec:
     offlineSessionMaxLifespan: 7776000
     revokeRefreshToken: true
     refreshTokenMaxReuse: 0
-    # This realm reads every person in the shared directory, and without this anyone who reaches the Route could guess their passwords without limit (40 in 1.1 s, measured).
+    # Without this anyone who reaches the Route could guess a federated person's password without limit (40 in 1.1 s, measured). The sync reads only (uid=cmapi.*) here, and the limit holds for whoever it reads.
     # Temporary only: a lockout is in this realm, for 60 s and doubling, never in LDAP.
     bruteForceProtected: true
     permanentLockout: false
@@ -376,54 +376,54 @@ spec:
     - name: cmapi
       path: /cmapi
       subGroups:
-      - name: cmapi-auditors
-        path: /cmapi/cmapi-auditors
-        clientRoles:
-          cmapi-nonprod:
-          - cmapi-auditor
-      - name: cmapi-onboarding
-        path: /cmapi/cmapi-onboarding
-        clientRoles:
-          cmapi-nonprod:
-          - cmapi-onboarding
-      - name: cmapi-platform-admins
-        path: /cmapi/cmapi-platform-admins
+      - name: app-cmapi-rbac-admin
+        path: /cmapi/app-cmapi-rbac-admin
         clientRoles:
           cmapi-nonprod:
           - cmapi-admin
-      - name: cmapi-platform-leads
-        path: /cmapi/cmapi-platform-leads
+      - name: app-cmapi-rbac-approver-platform
+        path: /cmapi/app-cmapi-rbac-approver-platform
         clientRoles:
           cmapi-nonprod:
           - cmapi-approver
-      - name: cmapi-platform-operators
-        path: /cmapi/cmapi-platform-operators
+      - name: app-cmapi-rbac-approver-prod
+        path: /cmapi/app-cmapi-rbac-approver-prod
+        clientRoles:
+          cmapi-nonprod:
+          - cmapi-approver
+      - name: app-cmapi-rbac-approver-qa
+        path: /cmapi/app-cmapi-rbac-approver-qa
+        clientRoles:
+          cmapi-nonprod:
+          - cmapi-approver
+      - name: app-cmapi-rbac-approver-uat
+        path: /cmapi/app-cmapi-rbac-approver-uat
+        clientRoles:
+          cmapi-nonprod:
+          - cmapi-approver
+      - name: app-cmapi-rbac-auditor
+        path: /cmapi/app-cmapi-rbac-auditor
+        clientRoles:
+          cmapi-nonprod:
+          - cmapi-auditor
+      - name: app-cmapi-rbac-onboarding
+        path: /cmapi/app-cmapi-rbac-onboarding
+        clientRoles:
+          cmapi-nonprod:
+          - cmapi-onboarding
+      - name: app-cmapi-rbac-operator
+        path: /cmapi/app-cmapi-rbac-operator
         clientRoles:
           cmapi-nonprod:
           - cmapi-operator
           - cmapi-approver
-      - name: cmapi-prod-approvers
-        path: /cmapi/cmapi-prod-approvers
-        clientRoles:
-          cmapi-nonprod:
-          - cmapi-approver
-      - name: cmapi-qa-leads
-        path: /cmapi/cmapi-qa-leads
-        clientRoles:
-          cmapi-nonprod:
-          - cmapi-approver
-      - name: cmapi-requesters
-        path: /cmapi/cmapi-requesters
+      - name: app-cmapi-rbac-requester
+        path: /cmapi/app-cmapi-rbac-requester
         clientRoles:
           cmapi-nonprod:
           - cmapi-requester
-      - name: cmapi-uat-leads
-        path: /cmapi/cmapi-uat-leads
-        clientRoles:
-          cmapi-nonprod:
-          - cmapi-approver
-      - name: cmapi-viewers
-        path: /cmapi/cmapi-viewers
+      - name: app-cmapi-rbac-viewer
+        path: /cmapi/app-cmapi-rbac-viewer
         clientRoles:
           cmapi-nonprod:
           - cmapi-viewer

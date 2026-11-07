@@ -1,63 +1,65 @@
-# The cmapi groups on the existing LDAP server. Names follow docs/02-technical-design-v2.md and approval-rules.yaml.
-# Members are example people already in the directory: groupOfNames requires at least one.
+# The cmapi groups on the existing LDAP server, one per role: docs/11, "The groups". No consumer filter matches this prefix.
+# A member is a test user of test-identities.tsv and nobody else: no real person is in a cmapi group, and groupOfNames requires at least one member.
 
-dn: cn=cmapi-viewers,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-viewers
+cn: app-cmapi-rbac-viewer
 description: Role cmapi-viewer
-member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.viewer,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-requesters,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-onboarding,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-requesters
-description: Role cmapi-requester
-member: cn=john.doe,ou=People,dc=ephico2real,dc=com
-member: cn=jane.smith,ou=People,dc=ephico2real,dc=com
-
-dn: cn=cmapi-onboarding,ou=Groups,dc=ephico2real,dc=com
-objectClass: groupOfNames
-cn: cmapi-onboarding
+cn: app-cmapi-rbac-onboarding
 description: Role cmapi-onboarding: create namespaces only
-member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.onboarding,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-prod-approvers,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-requester,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-prod-approvers
+cn: app-cmapi-rbac-requester
+description: Role cmapi-requester
+member: cn=cmapi.requester,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.selfapprove,ou=People,dc=ephico2real,dc=com
+
+dn: cn=app-cmapi-rbac-approver-prod,ou=Groups,dc=ephico2real,dc=com
+objectClass: groupOfNames
+cn: app-cmapi-rbac-approver-prod
 description: Role cmapi-approver; approves prod
-member: cn=jane.smith,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.approver-prod,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.approver-prod2,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.selfapprove,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-qa-leads,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-approver-qa,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-qa-leads
+cn: app-cmapi-rbac-approver-qa
 description: Role cmapi-approver; approves qa
-member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.approver-qa,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-uat-leads,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-approver-uat,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-uat-leads
+cn: app-cmapi-rbac-approver-uat
 description: Role cmapi-approver; approves uat
-member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.approver-uat,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-platform-leads,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-approver-platform,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-platform-leads
+cn: app-cmapi-rbac-approver-platform
 description: Role cmapi-approver; thresholds and sensitive changes
-member: cn=bob.wilson,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.approver-platform,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-platform-operators,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-operator,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-platform-operators
+cn: app-cmapi-rbac-operator
 description: Roles cmapi-operator and cmapi-approver
-member: cn=alice.cooper,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.operator,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-platform-admins,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-admin,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-platform-admins
+cn: app-cmapi-rbac-admin
 description: Role cmapi-admin
-member: cn=alice.cooper,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.admin,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-auditors,ou=Groups,dc=ephico2real,dc=com
+dn: cn=app-cmapi-rbac-auditor,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
-cn: cmapi-auditors
+cn: app-cmapi-rbac-auditor
 description: Role cmapi-auditor
-member: cn=charlie.brown,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.auditor,ou=People,dc=ephico2real,dc=com

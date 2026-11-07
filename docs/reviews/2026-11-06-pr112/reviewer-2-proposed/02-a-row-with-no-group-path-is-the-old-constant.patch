@@ -1,0 +1,70 @@
+--- a/cmapi/src/cmapi/core/authz.py
++++ b/cmapi/src/cmapi/core/authz.py
+@@ -45,6 +45,9 @@
+ # Keycloak group paths. instance.yaml's identity.groupPath joins them, since a site with its own
+ # directory has its own names (docs/11). This is the path when an instance does not set one.
+ DEFAULT_GROUP_PATH = "/cmapi/app-cmapi-rbac-{name}"
++# A requirement stored before this setting has no path of its own, and was decided under the constant of that time. Read under
++# the default, its slots would name groups nobody holds on a site that kept its names.
++LEGACY_GROUP_PATH = "/cmapi/cmapi-{name}"
+ 
+ 
+ def check_group_path(template: Any) -> None:
+--- a/cmapi/src/cmapi/core/db/repo.py
++++ b/cmapi/src/cmapi/core/db/repo.py
+@@ -18,7 +18,7 @@
+ from sqlalchemy.orm import Session, defer
+ 
+ from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
+-from cmapi.core.authz import DEFAULT_GROUP_PATH
++from cmapi.core.authz import LEGACY_GROUP_PATH
+ from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
+                                   RequestEventRow, SwitchRow)
+ from cmapi.core.errors import Problem
+@@ -43,7 +43,7 @@
+         return None
+     return Requirement(rule=d["rule"], slots=tuple(Slot(**s) for s in d["slots"]), self_approval=d["selfApproval"],
+                        timeout_hours=d["timeoutHours"], reasons=tuple(d["reasons"]), auto=d.get("auto"),
+-                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", DEFAULT_GROUP_PATH))
++                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", LEGACY_GROUP_PATH))
+ 
+ 
+ class LeaseLost(RuntimeError):
+--- a/cmapi/tests/service/test_flow.py
++++ b/cmapi/tests/service/test_flow.py
+@@ -153,7 +153,23 @@
+     back = requirement_from_json(requirement_to_json(req))
+     assert back.token_group("approver-prod") == "/corp/approver-prod"
+     old = requirement_to_json(req); old.pop("groupPath")
+-    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
++    assert requirement_from_json(old).token_group("platform-leads") == "/cmapi/cmapi-platform-leads", "a row from before identity.groupPath was decided under the old constant"
++
++
++def test_an_open_request_keeps_the_path_it_was_decided_under(world):
++    """docs/11's claim, through the routes: the setting changes while a request is open, and the approvers do not."""
++    client, ctx, git, kube, validator, keys = world
++    big = {**NS, "namespace": "payments-batch", "tier": "large"}
++    rid = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "ola", **OLA)).json()["requestId"]
++    ctx.cfg.approvals.group_path = "/corp/{name}"
++    decided = dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
++    moved = dict(roles=["cmapi-approver"], groups=["/corp/approver-platform"])
++    assert client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "sam", **moved)).json()["items"] == []
++    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "sam", **moved))
++    assert r.status_code == 403 and r.json()["code"] == "not-eligible"
++    assert [i["requestId"] for i in client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "amy", **decided)).json()["items"]] == [rid]
++    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **decided))
++    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+ 
+ 
+ def test_a_token_with_no_role_gets_403(world):
+--- a/docs/11-existing-identity-services.md
++++ b/docs/11-existing-identity-services.md
+@@ -47,7 +47,7 @@
+ | `app-cmapi-rbac-auditor` | `cmapi-auditor` | | `cmapi.auditor` |
+ 
+ - A token carries a group as its Keycloak path, `/cmapi/app-cmapi-rbac-<name>`. The realm's LDAP group mapper filters on `(cn=app-cmapi-rbac-*)` and places them under `/cmapi`.
+-- An approval rule names a short name. `identity.groupPath` in `instance.yaml` joins the two, by default `/cmapi/app-cmapi-rbac-{name}`, and the service stops at startup if it cannot name a group. A site with its own directory sets its own: `examples/local` keeps `/cmapi/cmapi-{name}` this way. A request stores the path it was decided under with its slots, so changing the setting does not move the approvers of an open request.
++- An approval rule names a short name. `identity.groupPath` in `instance.yaml` joins the two, by default `/cmapi/app-cmapi-rbac-{name}`, and the service stops at startup if it cannot name a group. A site with its own directory sets its own: `examples/local` keeps `/cmapi/cmapi-{name}` this way. A request stores the path it was decided under with its slots, so changing the setting does not move the approvers of an open request; a row stored before this setting reads as the old `/cmapi/cmapi-{name}`, the constant it was decided under.
+ - `groupOfNames` requires a member, and every group has at least one. Every member is a test user, so no real person is in a cmapi group.
+ 
+ ### The test users

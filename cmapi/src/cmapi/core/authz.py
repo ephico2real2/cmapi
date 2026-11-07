@@ -12,6 +12,7 @@ and approving groups (Keycloak groups) decide who may approve.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from string import Formatter
 from typing import Any, Iterable, Mapping
 
 from cmapi.core.errors import Problem
@@ -40,13 +41,26 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 }
 PERMISSIONS: frozenset[str] = frozenset().union(*ROLE_PERMISSIONS.values())
 
-# Approving groups in approval-rules.yaml are short names (platform-leads); the token carries
-# Keycloak group paths. One convention joins them, set per instance.
-GROUP_PATH = "/cmapi/cmapi-{name}"
+# Approving groups in approval-rules.yaml are short names (approver-platform); the token carries
+# Keycloak group paths. instance.yaml's identity.groupPath joins them, since a site with its own
+# directory has its own names (docs/11). This is the path when an instance does not set one.
+DEFAULT_GROUP_PATH = "/cmapi/app-cmapi-rbac-{name}"
+# A requirement stored before this setting has no path of its own, and was decided under the constant of that time. Read under
+# the default, its slots would name groups nobody holds on a site that kept its names.
+LEGACY_GROUP_PATH = "/cmapi/cmapi-{name}"
 
 
-def group_path(name: str) -> str:
-    return GROUP_PATH.format(name=name)
+def check_group_path(template: Any) -> None:
+    """A Keycloak full path with one plain {name}. Checked at startup: at the first approval, str.format would raise inside a request."""
+    if not isinstance(template, str) or not template.startswith("/"):
+        raise ValueError(f"{template!r} is not a Keycloak group path: it starts with /")
+    fields = [(field, spec, conversion) for _, field, spec, conversion in Formatter().parse(template) if field is not None]
+    if fields != [("name", "", None)]:
+        raise ValueError(f"{template!r} must hold {{name}} once, and no other field")
+
+
+def group_path(name: str, template: str = DEFAULT_GROUP_PATH) -> str:
+    return template.format(name=name)
 
 
 @dataclass(frozen=True)

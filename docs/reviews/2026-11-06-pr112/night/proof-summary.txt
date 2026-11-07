@@ -1,0 +1,26 @@
+venvs rc=0
+examples rc=0 4s
+service rc=0 251s
+patch02-before rc=1 4s
+patch02-after rc=0 4s
+shellcheck rc=0 5s
+ci-guard rc=0 0s
+doc12 rc=0 10s
+kind-stubbed rc=0 62s
+mutate-secrets rc=0 652s
+crc-guard rc=143 622s
+crc-scripts rc=0 122s
+doc13-1 rc=0 131s
+doc13-2 rc=0 128s
+doc13-3 rc=0 133s
+doc13-4 rc=0 128s
+doc13-5 rc=0 136s
+crc-backup rc=0 40s
+mockup-cm rc=0 0s
+render rc=0 14s
+ldap-failures-before rc=1 186s
+ldap-failures-final rc=0 159s
+ldap-failures-dash rc=0 205s
+ldap-full rc=0 454s
+realm rc=0 349s
+DONE

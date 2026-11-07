@@ -7,7 +7,8 @@ Each file is validated by its own module; this module adds the checks no single 
 - every tier an auto-approval policy names exists in the tier catalog;
 - the tier catalog covers exactly the served environments (expiration.yaml may leave a non-prod
   environment out: expiry is then refused there, the same as prod);
-- metadata-keys.yaml has emailDomains when any governed key uses email-in-domains.
+- metadata-keys.yaml has emailDomains when any governed key uses email-in-domains;
+- instance.yaml's identity.groupPath can name a group.
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -21,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from cmapi.core.approvals import ApprovalRules
-from cmapi.core.authz import RolePolicy
+from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
@@ -68,7 +69,14 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
             problems.append(f"{name}: {exc}")
             return None
 
-    approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed))
+    template = (me.get("identity") or {}).get("groupPath", DEFAULT_GROUP_PATH)
+    try:
+        check_group_path(template)
+    except ValueError as exc:
+        problems.append(f"instance.yaml: identity.groupPath: {exc}")
+        template = DEFAULT_GROUP_PATH
+
+    approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed, group_path=template))
     tiers = build("tiers.yaml", lambda r: TierCatalog(r, allowed))
     expiration = build("expiration.yaml", lambda r: ExpirationRules(r, allowed))
     roles = build("authz-roles.yaml", lambda r: RolePolicy(r, allowed))

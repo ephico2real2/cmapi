@@ -19,6 +19,7 @@ instance:
     requireEmployeeId: true
     requireOnBehalfOf: false         # bots (service-account clients) may request in their own name
     automationRoles: [cmapi-onboarding]   # accounts with these roles need no employee ID (bot-user)
+    groupPath: /cmapi/cmapi-{name}   # keycloak_setup.py's groups: this local demo keeps the names its transcript shows
   git:
     repository: /opt/stack/git/cluster-configs-nonprod.git
   directory:

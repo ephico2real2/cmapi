@@ -1,0 +1,34 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -319,6 +319,10 @@
+   printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: posixGroup\ncn: app-ssb-autobahnusers\ngidNumber: 5\nmemberUid: john.doe\n\n' "$BASE" | adm ldapadd >/dev/null
+   local rc; rc=$(run --remove-test-identities); [ "$rc" != 0 ] && ok "refused: a gate with no member attribute, on the removal too" || bad "a gate with no member attribute passed as unchanged"
+   adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1; the_gate
++  # The proof after the write: a read that fails has not shown there is no hash to read.
++  tool_fails ldapsearch '*userPassword*'
++  rc=$(run); [ "$rc" != 0 ] && grep -q "could not check whether a password hash is readable" "$W/out" && ok "refused: the read for a password hash fails, which is not zero hashes" || bad "a failed read for a password hash passed: rc $rc"
++  tool_back ldapsearch; remove_ours
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -258,7 +258,7 @@
+ as_bind_prog='
+   set -u
+   umask 077
+-  f=$(mktemp); trap "rm -f \"$f\"" EXIT; cat > "$f"
++  f=$(mktemp); result="$f.result"; trap "rm -f \"$f\" \"$result\"" EXIT; cat > "$f"
+   bind="$1"
+   as_bind() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$bind" -y "$f" "$@"; }
+ '
+@@ -322,7 +322,8 @@
+   check "the bind user reads the new groups" "$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(&(objectClass=groupOfNames)(cn=app-cmapi-rbac-*))" dn | grep -c "^dn:")" "$2"
+   check "the bind user reads their members" "$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(cn=app-cmapi-rbac-*)" member | grep -c "^member:")" "$3"
+   check "the bind user reads the test users, one level under ou=People" "$(as_bind -b "ou=People,$LDAP_BASE_DN" -s one "(&(objectClass=inetOrgPerson)(uid=cmapi.*))" dn | grep -c "^dn:")" "$4"
+-  check "the bind user sees no password hash" "$(as_bind -b "ou=People,$LDAP_BASE_DN" "(uid=cmapi.*)" userPassword | grep -ci "^userPassword")" 0
++  as_bind -b "ou=People,$LDAP_BASE_DN" "(uid=cmapi.*)" userPassword > "$result" || { echo "FAIL: the bind user could not check whether a password hash is readable" >&2; exit 1; }
++  check "the bind user sees no password hash" "$(grep -ci "^userPassword" "$result" || true)" 0
+   exit "$fail"
+ ' _ "$bind_dn" "$(new_group_dns | wc -l | tr -d ' ')" "$(grep -c '^member:' "$groups_ldif")" "$(user_count)" < "$tmp/bind-password"
+ 
