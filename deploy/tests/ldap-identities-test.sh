@@ -334,6 +334,25 @@ the_failures() {
   # A precondition: measured before the write, not found after it.
   acls people; refused_clean "a bind user the rule for ou=People names and the rule for ou=Groups does not"; grep -q 'reads nothing under ou=Groups' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
   acls 1; remove_ours
+  # The old groups go only for a new set that is what the script writes.
+  [ "$(run)" = 0 ] || bad "the run before the unproven set: $(tail -3 "$W/out")"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+add: member
+member: cn=john.doe,ou=People,$BASE
+LDIF
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a new group holds someone else" || bad "the old groups went with a new group not as written: rc $rc"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+delete: member
+member: cn=john.doe,ou=People,$BASE
+LDIF
+  reseed_removal
+  adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a test user is missing" || bad "the old groups went with a test user missing: rc $rc"
+  reseed_removal; remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.

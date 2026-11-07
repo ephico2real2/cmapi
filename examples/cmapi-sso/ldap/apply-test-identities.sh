@@ -156,6 +156,34 @@ read_secret_key() { # read_secret_key <uid> <file>: a value in a 0600 file, neve
   [ -s "$2" ] || die "Secret $secret has no key $1"
 }
 
+# The state of each of our entries in $tmp/state, one line each: same, different or absent. And stranger for anything else holding one of our names, since the realm would read it. $tmp/ours is their names.
+read_state() {
+  { new_group_dns; new_user_dns; } > "$tmp/ours"
+  : > "$tmp/expected"
+  users | while read -r uid number; do user_ldif "$uid" "$number"; echo; done >> "$tmp/expected"
+  groups_for_this_server >> "$tmp/expected"
+  in_pod "$lib"'
+    cat > "$w/expected"
+    awk -v w="$w" '"'"'BEGIN { RS = "" } { f = w "/e" NR; print > f; close(f) }'"'"' "$w/expected"
+    : > "$w/ours"
+    for f in "$w"/e[0-9]*; do
+      dn=$(sed -n "s/^dn: //p" "$f"); echo "$dn" >> "$w/ours"
+      if present "$dn"; then
+        search -b "$dn" -s base "*" | grep -vi "^userPassword:" | grep -v "^$" | LC_ALL=C sort > "$w/have"
+        grep -v "^$" "$f" | LC_ALL=C sort > "$w/want"
+        if cmp -s "$w/have" "$w/want"; then echo "same $dn"; else echo "different $dn"; fi
+      else
+        echo "absent $dn"
+      fi
+    done
+    names -b "$LDAP_BASE_DN" -s sub "(uid=cmapi.*)" > "$w/named"
+    names -b "$LDAP_BASE_DN" -s sub "(cn=app-cmapi-rbac-*)" >> "$w/named"
+    while read -r dn; do grep -qxF "$dn" "$w/ours" || echo "stranger $dn"; done < "$w/named"
+  ' < "$tmp/expected" > "$tmp/state"
+  # One line for each of ours, or the program did not do what it was asked, and no line would read as nothing wrong.
+  [ "$(grep -cE '^(same|different|absent) ' "$tmp/state" || true)" = "$(wc -l < "$tmp/ours" | tr -d ' ')" ] || die "the state of cmapi's entries could not be read: nothing written"
+}
+
 # ---- deleting: from the fixed names above, by full dn, on stdin. No -r, no filter.
 delete_exact() { # stdin: one dn a line
   in_pod "$lib"'
@@ -173,9 +201,12 @@ remove_old() {
       grep -qix "objectClass: groupOfNames" "$w/e" || { echo "FAIL: $dn is not a groupOfNames: leaving every entry alone" >&2; exit 1; }
     done
   ' < "$dns"
-  new_group_dns | in_pod "$lib"'
-    while read -r dn; do present "$dn" || { echo "FAIL: $dn is not there yet: the old groups stay until the new ones are in place" >&2; exit 1; }; done
-  '
+  # The old groups stay until every new entry is what this script writes. A group at the right name with other members, or a test user missing, would leave someone with the wrong role or with none once these go.
+  read_state
+  if grep -qv '^same ' "$tmp/state"; then
+    grep -v '^same ' "$tmp/state" | sed 's/^/FAIL: /' >&2
+    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted"
+  fi
   measure "$dns" 1 > "$tmp/before"
   # Only those still there: ldapdelete stops on one that is gone, and a rerun has to pass.
   in_pod "$lib"'
@@ -210,31 +241,8 @@ case "$mode" in
 esac
 
 # ---- before any write: every read that can stop this.
-{ new_group_dns; new_user_dns; } > "$tmp/ours"
-: > "$tmp/expected"
-users | while read -r uid number; do user_ldif "$uid" "$number"; echo; done >> "$tmp/expected"
-groups_for_this_server >> "$tmp/expected"
-
-# The state of each of our entries, one line each. "different" stops the run: it is not ours to change. And nothing else may hold our names, or the realm would read it.
-in_pod "$lib"'
-  cat > "$w/expected"
-  awk -v w="$w" '"'"'BEGIN { RS = "" } { f = w "/e" NR; print > f; close(f) }'"'"' "$w/expected"
-  : > "$w/ours"
-  for f in "$w"/e[0-9]*; do
-    dn=$(sed -n "s/^dn: //p" "$f"); echo "$dn" >> "$w/ours"
-    if present "$dn"; then
-      search -b "$dn" -s base "*" | grep -vi "^userPassword:" | grep -v "^$" | LC_ALL=C sort > "$w/have"
-      grep -v "^$" "$f" | LC_ALL=C sort > "$w/want"
-      if cmp -s "$w/have" "$w/want"; then echo "same $dn"; else echo "different $dn"; fi
-    else
-      echo "absent $dn"
-    fi
-  done
-  names -b "$LDAP_BASE_DN" -s sub "(uid=cmapi.*)" > "$w/named"
-  names -b "$LDAP_BASE_DN" -s sub "(cn=app-cmapi-rbac-*)" >> "$w/named"
-  while read -r dn; do grep -qxF "$dn" "$w/ours" || echo "stranger $dn"; done < "$w/named"
-' < "$tmp/expected" > "$tmp/state"
-
+# "different" stops the run: it is not ours to change. And nothing else may hold our names, or the realm would read it.
+read_state
 if grep -qE '^(different|stranger) ' "$tmp/state"; then
   grep -E '^(different|stranger) ' "$tmp/state" | sed 's/^/FAIL: /' >&2
   die "an entry with one of cmapi's names is not what this script would write: nothing written"

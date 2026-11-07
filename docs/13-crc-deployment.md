@@ -238,7 +238,7 @@ Before any Keycloak step, because the realm's federation reads these. It writes 
 
 Each by its full `dn`, from a list in the script: no filter, no `-r`, and it takes no name from outside. A look-alike such as `cn=cmapi-other` stays.
 
-**Stops when** a new group is not there yet; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
+**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
 
 ### Step 11: the Secrets
 
