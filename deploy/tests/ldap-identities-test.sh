@@ -27,6 +27,9 @@ case "$*" in
   "get secret "*" -n "*" -o jsonpath={.data."*)
     d=$LT_SECRETS/$5/$3; k=${7#jsonpath=\{.data.}; k=${k%\}}; k=${k//\\/}; [ -f "$d/$k" ] && base64 <"$d/$k"; exit 0;;
   "get secret "*" -n "*" -o go-template="*) ls "$LT_SECRETS/$5/$3"; exit 0;;
+  "get secret "*" -n "*) [ -d "$LT_SECRETS/$5/$3" ]; exit $?;;
+  "get cm ldap-acls -n ldap-testing -o json") printf '{"metadata":{"name":"ldap-acls"},"data":{"configure-acls.ldif":""}}\n'; exit 0;;
+  "replace -f -") cat >/dev/null; exit 0;;
   "create secret generic "*)
     d=$LT_SECRETS/$6/$4; [ ! -e "$d" ] || { echo "already exists" >&2; exit 1; }; mkdir -p "$d"; cp "${7#--from-file=}"/* "$d/"; exit 0;;
   "delete secret "*) rm -rf "${LT_SECRETS:?}/$5/$3"; exit 0;;
@@ -371,6 +374,15 @@ LDIF
   # openssl on the machine running the script.
   mkdir -p "$W/no-openssl"; printf '#!/bin/sh\nexit 1\n' >"$W/no-openssl/openssl"; chmod +x "$W/no-openssl/openssl"
   local path=$PATH; PATH="$W/no-openssl:$PATH"; refused_clean "openssl fails: a Secret of empty passwords"; PATH=$path; remove_ours
+  # apply-bind-user.sh's proof, on the same server: the control, then each read that fails.
+  mkdir -p "$W/secrets/keycloak/cmapi-ldap-bind"
+  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" = 0 ] && ok "apply-bind-user.sh passes on this server: the control" || bad "apply-bind-user.sh, the control: rc $rc: $(tail -3 "$W/out")"
+  tool_fails ldapsearch '*userPassword*'
+  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" != 0 ] && ok "apply-bind-user.sh: a read for a password hash that fails is not zero hashes" || bad "apply-bind-user.sh passed a failed read for a password hash"
+  tool_back ldapsearch
+  tool_fails ldapsearch '*-b?ou=TrustedApplications*'
+  "$SRC/apply-bind-user.sh" >"$W/out" 2>&1; rc=$?; [ "$rc" != 0 ] && ok "apply-bind-user.sh: a read of ou=TrustedApplications that fails otherwise than 32 is not proof it is hidden" || bad "apply-bind-user.sh passed a failed read of ou=TrustedApplications"
+  tool_back ldapsearch
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
