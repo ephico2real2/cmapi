@@ -4,8 +4,8 @@
 #                              --extra-ca appends a public CA, an external database's (docs/12).
 #   --check                    the file still verifies Keycloak: a real TLS handshake against the Route, with the file as the only CA.
 #                              Reads no Secret. Fails on a rotated CA, so the fix goes through Git and the checksum restarts the pods.
-#   --mac-ca OUT               writes the bundle this Mac's checks use: that CA (Keycloak's Route is passthrough) and the ingress CA (edge Routes). Beside it, keycloak-ca.pem and ingress-ca.pem,
-#                              one CA each, for the keychain step in docs/13. Only CA:TRUE certificates: default-ingress-cert's bundle also holds the *.apps-crc.testing site certificate (#109).
+#   --mac-ca OUT               writes the bundle this Mac's checks use: every CA of the trust file (Keycloak's Route is passthrough) and the ingress CA (edge Routes). Beside it, keycloak-ca.pem and ingress-ca.pem,
+#                              one CA each, for the keychain step in docs/13: Keycloak's is the file's first, as --write puts it. Only CA:TRUE certificates: default-ingress-cert's bundle also holds the *.apps-crc.testing site certificate (#109).
 # Public certificates only. keycloak-tls also holds tls.key: only the one key is ever asked for, nothing else is written or printed. The API
 # has no field filter for a Secret, so the object reaches oc's memory; that is why --write is a one-time step and --check reads no Secret.
 set -euo pipefail
@@ -76,12 +76,14 @@ the_one_ca() {
   rm -rf "$d"
   [ "$found" = 1 ] || { echo "ERROR: $name holds $found CA certificates, not one" >&2; rm -f "$out"; exit 1; }
 }
+# first_cert: stdin's first PEM certificate. awk reads to the end, or under pipefail what feeds it could die of SIGPIPE (see require_certs).
+first_cert() { awk '/BEGIN CERTIFICATE/ { n++ } n == 1 { print }'; }
 mac_ca() {
   local out=$1 dir; dir=$(dirname "$out")
   ( umask 077
-    bundle_of "$OUT" | the_one_ca "$OUT" "$dir/keycloak-ca.pem"
+    bundle_of "$OUT" | first_cert | the_one_ca "$OUT" "$dir/keycloak-ca.pem"
     oc_ get cm default-ingress-cert -n openshift-config-managed -o 'jsonpath={.data.ca-bundle\.crt}' | the_one_ca "ConfigMap default-ingress-cert" "$dir/ingress-ca.pem"
-    cat "$dir/keycloak-ca.pem" "$dir/ingress-ca.pem" >"$out" )
+    { bundle_of "$OUT"; cat "$dir/ingress-ca.pem"; } >"$out" )
   echo "wrote $out, $dir/keycloak-ca.pem and $dir/ingress-ca.pem"
 }
 case "${1:-}" in

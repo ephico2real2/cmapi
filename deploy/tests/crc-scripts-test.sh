@@ -165,6 +165,13 @@ openssl verify -CAfile "$W/mac.pem" "$W/leaf.pem" >/dev/null 2>&1 && ok "and the
 mkdir "$W/mac3"; want "a CA whose openssl goes on writing is still a CA for --mac-ca" 0 "$(PATH="$W/noisy:$PATH" run "$D/crc-trust.sh" --mac-ca "$W/mac3/x.pem")"
 mkdir "$W/mac2"; want "trust --mac-ca: a bundle with no CA stops" 1 "$(STUB_INGRESS=$W/leaf.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"; [ ! -e "$W/mac2/ingress-ca.pem" ] && ok "and writes no ingress-ca.pem" || bad "a leaf was written as the ingress CA"
 cat "$W/ingress-ca.pem" "$W/ca.pem" >"$W/two-cas.pem"; want "trust --mac-ca: a bundle with two CAs stops: which to trust is not a guess" 1 "$(STUB_INGRESS=$W/two-cas.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"
+# A trust file that also holds an external database's CA (--write --extra-ca, docs/12): --mac-ca still works, the keychain's file is Keycloak's, and the Mac's bundle keeps every CA the pods trust.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/db-ca.pem" -subj "/CN=external-db-ca" -days 2 2>/dev/null
+cp "$TRUST" "$W/keep-trust"; want "trust --write --extra-ca" 0 "$(run "$D/crc-trust.sh" --write --extra-ca "$W/db-ca.pem")"
+mkdir "$W/mac4"; want "trust --mac-ca with an extra CA in the trust file" 0 "$(run "$D/crc-trust.sh" --mac-ca "$W/mac4/crc-ca.pem")"
+[ -e "$W/mac4/keycloak-ca.pem" ] && [ "$(fp "$W/mac4/keycloak-ca.pem")" = "$(fp "$W/ca.pem")" ] && ok "keycloak-ca.pem is Keycloak's CA, not the extra one" || bad "keycloak-ca.pem with an extra CA in the trust file"
+[ -e "$W/mac4/crc-ca.pem" ] && [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac4/crc-ca.pem")" = 3 ] && ok "the Mac's bundle holds Keycloak's, the extra one and the ingress CA" || bad "the Mac's bundle with an extra CA in the trust file"
+cp "$W/keep-trust" "$TRUST"
 if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; then bad "TLS verification off in a script"; else ok "no script turns TLS verification off"; fi
 
 # crc-image.sh
