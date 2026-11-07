@@ -145,6 +145,17 @@ def test_an_instance_with_its_own_group_path(world):
     assert r.status_code == 200 and r.json()["status"] == "approved", r.text
 
 
+def test_a_stored_requirement_keeps_its_group_path():
+    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON. Here and not in tests/core: cmapi.core.db needs sqlalchemy, and the reference-code job runs tests/core with examples/local/requirements.txt, which has none."""
+    from cmapi.core.approvals import Requirement, Slot
+    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
+    req = Requirement(rule="prod-create", slots=(Slot("approver-prod", 1, "r"),), self_approval=False, timeout_hours=48, reasons=("r",), group_path="/corp/{name}")
+    back = requirement_from_json(requirement_to_json(req))
+    assert back.token_group("approver-prod") == "/corp/approver-prod"
+    old = requirement_to_json(req); old.pop("groupPath")
+    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
+
+
 def test_a_token_with_no_role_gets_403(world):
     """cmapi.noaccess: signed in, known, and allowed nothing."""
     client, ctx, git, kube, validator, keys = world

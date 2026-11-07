@@ -219,17 +219,6 @@ def test_a_ledger_reads_the_instances_group_path():
     assert led.approve(person("bob", groups={"/corp/approver-prod-team"}, **APPROVER))
 
 
-def test_a_stored_requirement_keeps_its_group_path():
-    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON."""
-    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
-    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}}}
-    req = ApprovalRules(raw, {"prod"}, group_path="/corp/{name}").decide(facts())
-    back = requirement_from_json(requirement_to_json(req))
-    assert back.token_group("approver-prod") == "/corp/approver-prod"
-    old = requirement_to_json(req); old.pop("groupPath")
-    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
-
-
 @pytest.mark.parametrize("kind,fact", [("auto", {}), ("waived", {"namespace": "temp-x"})])
 def test_every_requirement_carries_the_group_path(kind, fact):
     """decide() builds a Requirement on four paths; one that drops the setting would approve under the default."""
