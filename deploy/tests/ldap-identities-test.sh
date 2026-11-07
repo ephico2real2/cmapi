@@ -2,7 +2,7 @@
 # shellcheck disable=SC2015,SC2016  # ok and bad never fail, so A && ok || bad is if-then-else; the programs in single quotes run in the container
 # deploy/tests/ldap-identities-test.sh: examples/cmapi-sso/ldap/apply-test-identities.sh, against a real OpenLDAP of the image the server runs (osixia/openldap 1.5.0), with a stub oc that forwards
 # exec to it and keeps Secrets as files. Rules shaped as the server's (ConfigMap ldap-acls, read on 2026-11-06), a gate group and an identity-provider filter as OpenShift's, and the ten old groups with their real members.
-# Then every way the script says it stops, and mutants of it: a mutant that passes is a promise this test cannot fail on. The server's memberOf overlay is not known from outside the pod, so the run is repeated on the image's default (groupOfUniqueNames)
+# Then every way the script says it stops, real failures inside the container, and mutants of it: a mutant that passes is a promise this test cannot fail on. "ldap-identities-test.sh failures" runs the failures alone, says so, and runs no mutant. The server's memberOf overlay is not known from outside the pod, so the run is repeated on the image's default (groupOfUniqueNames)
 # and on groupOfNames, where a group's change reaches its members' entries. One container cmapi-w1-lt-*, labelled, with no port published; only what this run labelled is removed. Test values only. CONTAINER=podman on a Mac, docker in CI. Exit 1 on any failure.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/../.." && pwd); SRC=$ROOT/examples/cmapi-sso/ldap
@@ -290,6 +290,37 @@ LDIF
   [ "$(count "ou=Groups,$BASE" "(cn=cmapi-*)")" = 12 ] && ok "  and none was deleted" || bad "some were deleted"
 }
 
+# Real failures inside the server's container: not text in the script, and no stub answering for LDAP. A tool is moved aside, or a shim in its place fails the calls a glob of its arguments matches, as a server that stopped answering does.
+tool_gone() { in_c sh -c 'p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"' _ "$1"; }
+tool_fails() { # tool_fails <tool> <glob of its arguments, with no space: it goes into a case pattern unquoted>
+  in_c sh -c '
+    p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"
+    printf "#!/bin/sh\ncase \"\$*\" in %s) echo \"%s: failed for this case\" >&2; exit 52;; esac\nexec %s \"\$@\"\n" "$2" "$1" "$p.real" > "$p"
+    chmod +x "$p"
+  ' _ "$1" "$2"
+}
+tool_back() { in_c sh -c 'p=$(cat "/tmp/lt-$1"); mv "$p.real" "$p"; rm -f "/tmp/lt-$1"' _ "$1"; }
+refused_clean() { # refused_clean <label>: as refuses, and no Secret made either
+  refuses "$1"
+  [ ! -d "$W/secrets/cmapi/cmapi-ldap-test-users" ] && ok "  and no Secret made" || bad "$1: a Secret was made before the refusal"
+}
+the_gate() { # the gate as start seeds it
+  printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: groupOfNames\ncn: app-ssb-autobahnusers\nmember: cn=john.doe,ou=People,%s\nmember: cn=jane.smith,ou=People,%s\n\n' "$BASE" "$BASE" "$BASE" | adm ldapadd >/dev/null
+}
+# A failure must stop the run, and not pass as a measurement or a proof. Each case starts on a directory holding none of ours, with the bind user in the rules.
+the_failures() {
+  echo "-- real failures"
+  tool_gone sha256sum; refused_clean "sha256sum gone: no digest to compare"; tool_back sha256sum; remove_ours
+  tool_fails sort '*canon*'; refused_clean "sort fails on what the digest covers: a digest of nothing matches itself"; tool_back sort; remove_ours
+  tool_fails cut '*-f1*'; refused_clean "the digest comes back empty"; tool_back cut; remove_ours
+  tool_fails grep '*uniqueMember*'; refused_clean "the gate's members cannot be taken from what was read: a digest of nothing matches itself"; tool_back grep; remove_ours
+  # A gate that answers with no member at all, in the form that does not also look for the login filter's people.
+  adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1
+  printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: posixGroup\ncn: app-ssb-autobahnusers\ngidNumber: 5\nmemberUid: john.doe\n\n' "$BASE" | adm ldapadd >/dev/null
+  local rc; rc=$(run --remove-test-identities); [ "$rc" != 0 ] && ok "refused: a gate with no member attribute, on the removal too" || bad "a gate with no member attribute passed as unchanged"
+  adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1; the_gate
+}
+
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
 mutant() { # mutant <label> <python: s = s.replace(...)> <what proves it, a shell test run after, with $rc set>
   local label=$1 edit=$2 proof=$3 rc
@@ -385,9 +416,10 @@ for block in open(f"{src}/cmapi-groups.ldif").read().split("\n\n"):
 sys.exit(0 if ldif == table and len(ldif) == 10 and all(ldif.values()) else 1)
 PY
 
-the_run groupOfNames
-the_run groupOfUniqueNames
-the_stops
-the_mutants
+case "${1:-all}" in
+  all) the_run groupOfNames; the_run groupOfUniqueNames; the_stops; the_failures; the_mutants ;;
+  failures) start groupOfNames; the_failures; echo "the failures alone: no mutant ran, and neither did the rest of this test" ;;
+  *) echo "usage: $0 [failures]" >&2; exit 2 ;;
+esac
 
 echo "ldap identity cases failed: $fails, mutants survived: $survived"; [ "$fails" = 0 ] && [ "$survived" = 0 ]

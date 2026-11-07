@@ -115,16 +115,28 @@ measure_prog=$lib'
     { print d, $0 }
   '"'"' "$w/skip" "$w/people" "$w/groups" > "$w/canon"
   [ -s "$w/canon" ] || { echo "FAIL: nothing to measure under ou=People and ou=Groups: a digest of nothing would match itself" >&2; exit 1; }
-  LC_ALL=C sort "$w/canon" | sha256sum | cut -d" " -f1 | sed "s/^/others=/"
+  # One step a line, through files: this shell has no pipefail, so in a pipeline a sort or a sha256sum that fails would leave a digest of nothing, which matches itself.
+  LC_ALL=C sort "$w/canon" > "$w/canon-sorted"
+  sha256sum < "$w/canon-sorted" > "$w/canon-sum"
+  echo "others=$(cut -d" " -f1 "$w/canon-sum")"
   rc=0; search -b "$2" -s base member uniqueMember > "$w/gate" || rc=$?
   [ "$rc" = 0 ] || { echo "FAIL: cannot read the gate group $2: rc $rc" >&2; exit 1; }
-  grep -iE "^(member|uniqueMember):" "$w/gate" | LC_ALL=C sort | sha256sum | cut -d" " -f1 | sed "s/^/gate=/"
+  grep -iE "^(member|uniqueMember):" "$w/gate" > "$w/gate-members" || true
+  [ -s "$w/gate-members" ] || { echo "FAIL: the gate group $2 has no readable members: a digest of nothing would prove nothing" >&2; exit 1; }
+  LC_ALL=C sort "$w/gate-members" > "$w/gate-sorted"
+  sha256sum < "$w/gate-sorted" > "$w/gate-sum"
+  echo "gate=$(cut -d" " -f1 "$w/gate-sum")"
   search -b "$LDAP_BASE_DN" -s sub "(&(uid=*)(memberOf=$2))" uid > "$w/idp"
   echo "idp=$(grep -c "^uid:" "$w/idp" || true)"
   echo "idp_cmapi=$(grep -c "^uid: cmapi\." "$w/idp" || true)"
 '
-measure() { # measure <skip file> <strip 0|1>
-  in_pod "$measure_prog" _ "$2" "$gate_dn" <"$1"
+measure() { # measure <skip file> <strip 0|1>. Each value there once and not empty, or same_rest would compare two nothings and pass.
+  in_pod "$measure_prog" _ "$2" "$gate_dn" <"$1" > "$tmp/measured"
+  for key in others gate idp idp_cmapi; do
+    [ "$(grep -c "^$key=" "$tmp/measured" || true)" = 1 ] || die "the measurement $key is missing or repeated"
+    [ -n "$(value_of "$key" "$tmp/measured")" ] || die "the measurement $key is empty"
+  done
+  cat "$tmp/measured"
 }
 value_of() { sed -n "s/^$1=//p" "$2"; }
 same_rest() { # same_rest <before> <after>. Fails unless the directory outside this script's entries did not move.
