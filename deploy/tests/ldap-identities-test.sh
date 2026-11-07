@@ -319,6 +319,10 @@ the_failures() {
   printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: posixGroup\ncn: app-ssb-autobahnusers\ngidNumber: 5\nmemberUid: john.doe\n\n' "$BASE" | adm ldapadd >/dev/null
   local rc; rc=$(run --remove-test-identities); [ "$rc" != 0 ] && ok "refused: a gate with no member attribute, on the removal too" || bad "a gate with no member attribute passed as unchanged"
   adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1; the_gate
+  # The proof after the write: a read that fails has not shown there is no hash to read.
+  tool_fails ldapsearch '*userPassword*'
+  rc=$(run); [ "$rc" != 0 ] && grep -q "could not check whether a password hash is readable" "$W/out" && ok "refused: the read for a password hash fails, which is not zero hashes" || bad "a failed read for a password hash passed: rc $rc"
+  tool_back ldapsearch; remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.

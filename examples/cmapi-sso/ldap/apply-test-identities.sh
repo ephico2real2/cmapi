@@ -258,7 +258,7 @@ if [ ! -s "$tmp/bind-password" ] || [ -z "$bind_dn" ]; then die "Secret $bind_se
 as_bind_prog='
   set -u
   umask 077
-  f=$(mktemp); trap "rm -f \"$f\"" EXIT; cat > "$f"
+  f=$(mktemp); result="$f.result"; trap "rm -f \"$f\" \"$result\"" EXIT; cat > "$f"
   bind="$1"
   as_bind() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$bind" -y "$f" "$@"; }
 '
@@ -322,7 +322,8 @@ in_pod "$as_bind_prog"'
   check "the bind user reads the new groups" "$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(&(objectClass=groupOfNames)(cn=app-cmapi-rbac-*))" dn | grep -c "^dn:")" "$2"
   check "the bind user reads their members" "$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(cn=app-cmapi-rbac-*)" member | grep -c "^member:")" "$3"
   check "the bind user reads the test users, one level under ou=People" "$(as_bind -b "ou=People,$LDAP_BASE_DN" -s one "(&(objectClass=inetOrgPerson)(uid=cmapi.*))" dn | grep -c "^dn:")" "$4"
-  check "the bind user sees no password hash" "$(as_bind -b "ou=People,$LDAP_BASE_DN" "(uid=cmapi.*)" userPassword | grep -ci "^userPassword")" 0
+  as_bind -b "ou=People,$LDAP_BASE_DN" "(uid=cmapi.*)" userPassword > "$result" || { echo "FAIL: the bind user could not check whether a password hash is readable" >&2; exit 1; }
+  check "the bind user sees no password hash" "$(grep -ci "^userPassword" "$result" || true)" 0
   exit "$fail"
 ' _ "$bind_dn" "$(new_group_dns | wc -l | tr -d ' ')" "$(grep -c '^member:' "$groups_ldif")" "$(user_count)" < "$tmp/bind-password"
 
