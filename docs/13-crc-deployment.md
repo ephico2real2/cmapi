@@ -525,7 +525,7 @@ deploy/crc-rollback.sh --yes
 
 It removes, each by name, what Wave 1 added, in dependency order. Every delete names one object.
 
-**In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
+**In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
 
 **Stays, because it was there before Wave 1:** namespace `cmapi` and the Secrets the cluster generated in it, `cmapi-ldap-bind` in both namespaces, every other LDAP entry. Only the label the apply added is removed.
 

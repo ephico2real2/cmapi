@@ -222,7 +222,12 @@ remove_old() {
 }
 
 remove_new() {
-  { new_group_dns; new_user_dns; } > "$tmp/ours"
+  # An entry at one of these names that is not what the first form writes is somebody's, as the first form says when it refuses to touch it. A cmapi.* stranger is not on the list, and stays.
+  read_state
+  if grep -q '^different ' "$tmp/state"; then
+    grep '^different ' "$tmp/state" | sed 's/^/FAIL: /' >&2
+    die "an entry with one of cmapi's names is not what this script writes, so it is not this script's to delete: nothing deleted"
+  fi
   measure "$tmp/ours" 0 > "$tmp/before"
   # Groups first: a person's entry should not go while a group still names it.
   in_pod "$lib"'

@@ -58,6 +58,7 @@ print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]})
   "exec -i -n ldap-testing"*'printf %s "$LDAP_BASE_DN"'*) printf 'dc=ephico2real,dc=com'; exit 0;;
   "exec -i -n ldap-testing"*"sha256sum"*) cat >/dev/null; o=a; [ ! -e "$ARGV_LOG.ldap-measured" ] || o=${STUB_LDAP_AFTER:-a}; : >"$ARGV_LOG.ldap-measured"; printf 'others=%s\ngate=g\nidp=2\nidp_cmapi=0\n' "$o"; exit 0;;
   "exec -i -n ldap-testing"*"ldapdelete"*) cat >>"$ARGV_LOG.ldap-deleted"; exit 0;;
+  "exec -i -n ldap-testing"*'echo "stranger $dn"'*) sed -n 's/^dn: /same /p'; exit 0;;
   "exec -i -n ldap-testing"*) cat; exit 0;;
   "delete secret cmapi-ldap-test-users"*) exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;

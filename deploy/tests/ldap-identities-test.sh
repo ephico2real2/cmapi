@@ -353,6 +353,21 @@ LDIF
   adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
   rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a test user is missing" || bad "the old groups went with a test user missing: rc $rc"
   reseed_removal; remove_ours
+  # The removal, on an entry at one of its names that it did not write: a real person there, or a real person added to a group.
+  [ "$(run)" = 0 ] || bad "the run before the removal: $(tail -3 "$W/out")"
+  adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
+  printf 'dn: cn=cmapi.admin,ou=People,%s\nobjectClass: inetOrgPerson\ncn: cmapi.admin\nsn: A Real Person\nuid: cmapi.admin\n\n' "$BASE" | adm ldapadd >/dev/null
+  rc=$(run --remove-test-identities); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && [ "$(count "ou=People,$BASE" "(sn=A Real Person)")" = 1 ] && ok "refused: removing an entry at a test user's name that is someone else" || bad "the removal reached a person it did not write: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1; remove_ours
+  [ "$(run)" = 0 ] || bad "the run before the removal: $(tail -3 "$W/out")"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-admin,ou=Groups,$BASE
+changetype: modify
+add: member
+member: cn=john.doe,ou=People,$BASE
+LDIF
+  rc=$(run --remove-test-identities); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing a new group with a real person added" || bad "the removal reached a group holding a real person: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.

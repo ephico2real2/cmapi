@@ -82,7 +82,7 @@ Before it writes, it also refuses a `uidNumber` another entry holds, and any ent
 ### Removing them
 
 - **The ten old groups.** `--remove-old-groups` deletes `cmapi-viewers`, `cmapi-requesters`, `cmapi-onboarding`, `cmapi-prod-approvers`, `cmapi-qa-leads`, `cmapi-uat-leads`, `cmapi-platform-leads`, `cmapi-platform-operators`, `cmapi-platform-admins` and `cmapi-auditors`, each by its full `dn`, from a list in the script. It takes no name from outside, refuses an old name that is not a `groupOfNames`, and refuses to start until every new group and test user is exactly what the first form writes. They were created on 2026-11-05 with real people as example members, and those people are otherwise untouched: if the server's `memberOf` overlay tracks `member`, they lose those values, which is the removal itself.
-- **The test identities.** `--remove-test-identities` deletes the 10 groups and 13 users each by its full `dn`, then the Secret by name. `deploy/crc-rollback.sh` calls it. It restores nothing.
+- **The test identities.** `--remove-test-identities` deletes the 10 groups and 13 users each by its full `dn`, then the Secret by name, and refuses, deleting none, if an entry at one of those names is not what the first form writes. `deploy/crc-rollback.sh` calls it. It restores nothing.
 
 ### Who else could see them
 
