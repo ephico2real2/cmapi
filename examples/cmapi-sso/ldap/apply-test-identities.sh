@@ -61,8 +61,8 @@ lib='
   printf %s "$LDAP_ADMIN_PASSWORD" > "$w/admin"
   admin="cn=admin,$LDAP_BASE_DN"
   search() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$admin" -y "$w/admin" "$@" </dev/null; }
-  # The names a search finds. Through a file, so a search that fails stops here and does not read as "found nobody".
-  names() { search "$@" dn > "$w/raw"; sed -n "s/^dn: //p" "$w/raw"; }
+  # The names a search finds. Through a file, so a search that fails stops here and does not read as "found nobody". LDIF gives a name that is not ASCII as "dn:: <base64>": it is shown as that, so it matches none of ours, and is refused.
+  names() { search "$@" dn > "$w/raw"; sed -n "s/^dn:: */base64 /p; s/^dn: //p" "$w/raw"; }
   # 0 there, 1 absent. Anything else stops: a server that did not answer has not said the entry is absent.
   present() {
     rc=0; search -b "$1" -s base dn >/dev/null 2>"$w/err" || rc=$?

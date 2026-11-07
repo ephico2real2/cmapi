@@ -323,6 +323,14 @@ the_failures() {
   tool_fails ldapsearch '*userPassword*'
   rc=$(run); [ "$rc" != 0 ] && grep -q "could not check whether a password hash is readable" "$W/out" && ok "refused: the read for a password hash fails, which is not zero hashes" || bad "a failed read for a password hash passed: rc $rc"
   tool_back ldapsearch; remove_ours
+  # Someone whose name LDIF can only give in base64 holds what a test user needs.
+  local jose; jose=$(printf 'cn=Jos\303\251 Real,ou=People,%s' "$BASE")
+  printf 'dn: %s\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\ncn: Jos\303\251 Real\nsn: x\nuid: jose.real\nuidNumber: 10105\ngidNumber: 1\nhomeDirectory: /x\n\n' "$jose" | adm ldapadd >/dev/null
+  refused_clean "a uidNumber held by a person whose name is not ASCII"; grep -q 'uidNumber 10105 is held by base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
+  adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
+  printf 'dn: %s\nobjectClass: inetOrgPerson\ncn: Jos\303\251 Real\nsn: x\nuid: cmapi.viewer\n\n' "$jose" | adm ldapadd >/dev/null
+  refused_clean "a test user's uid held by a person whose name is not ASCII"; grep -q 'stranger base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
+  adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
