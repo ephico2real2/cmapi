@@ -39,15 +39,15 @@ adm() { in_c "$1" -x -H ldap://localhost -D "cn=admin,$BASE" -w "$ADMIN" "${@:2}
 
 # Rules as the server's: every identity not named is refused. What differs between the server and the stand-in is only who the third-party accounts are.
 BIND_DN="cn=cmapi-ldap-bind,ou=TrustedApplications,$BASE"; BIND_PW=lt-bind-password
-acls() { # acls <1: the bind user is in the rules>
-  local by=""; [ "$1" = 1 ] && by="by dn=\"$BIND_DN\" read "
+acls() { # acls <1: the bind user is in the rules; people: in the rule for ou=People alone; 0: in neither>
+  local by="" by_groups=""; [ "$1" = 0 ] || by="by dn=\"$BIND_DN\" read "; [ "$1" != 1 ] || by_groups=$by
   in_c ldapmodify -Y EXTERNAL -H ldapi:/// >/dev/null 2>&1 <<LDIF
 dn: olcDatabase={1}mdb,cn=config
 changetype: modify
 replace: olcAccess
 olcAccess: {0}to attrs=userPassword by self write by dn="cn=admin,$BASE" write by anonymous auth by * none
 olcAccess: {1}to dn.subtree="ou=People,$BASE" by self read by dn="cn=admin,$BASE" write ${by}by * none
-olcAccess: {2}to dn.subtree="ou=Groups,$BASE" by dn="cn=admin,$BASE" write ${by}by * none
+olcAccess: {2}to dn.subtree="ou=Groups,$BASE" by dn="cn=admin,$BASE" write ${by_groups}by * none
 olcAccess: {3}to * by dn="cn=admin,$BASE" write by * none
 LDIF
 }
@@ -331,6 +331,9 @@ the_failures() {
   printf 'dn: %s\nobjectClass: inetOrgPerson\ncn: Jos\303\251 Real\nsn: x\nuid: cmapi.viewer\n\n' "$jose" | adm ldapadd >/dev/null
   refused_clean "a test user's uid held by a person whose name is not ASCII"; grep -q 'stranger base64 ' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
   adm ldapdelete "$jose" >/dev/null 2>&1; remove_ours
+  # A precondition: measured before the write, not found after it.
+  acls people; refused_clean "a bind user the rule for ou=People names and the rule for ou=Groups does not"; grep -q 'reads nothing under ou=Groups' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
+  acls 1; remove_ours
 }
 
 # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.

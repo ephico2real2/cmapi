@@ -262,10 +262,12 @@ as_bind_prog='
   bind="$1"
   as_bind() { ldapsearch -x -LLL -o ldif-wrap=no -H ldap://localhost -D "$bind" -y "$f" "$@"; }
 '
-# Before any write: the bind user reads ou=People at all, so its check after the write can only fail on what this adds.
+# Before any write: the bind user reads ou=People and ou=Groups at all, so its check after the write can only fail on what this adds. Rules that name it in one and not the other would otherwise stop the run with everything written.
 in_pod "$as_bind_prog"'
   n=$(as_bind -b "ou=People,$LDAP_BASE_DN" "(objectClass=inetOrgPerson)" dn | grep -c "^dn:" || true)
   [ "$n" -gt 0 ] || { echo "FAIL: the bind user reads no one under ou=People" >&2; exit 1; }
+  n=$(as_bind -b "ou=Groups,$LDAP_BASE_DN" "(objectClass=*)" dn | grep -c "^dn:" || true)
+  [ "$n" -gt 0 ] || { echo "FAIL: the bind user reads nothing under ou=Groups" >&2; exit 1; }
 ' _ "$bind_dn" < "$tmp/bind-password"
 
 measure "$tmp/ours" 0 > "$tmp/before"
