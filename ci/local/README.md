@@ -7,12 +7,17 @@ the gotchas. `/local-ci-web` shows the runs in a browser at `http://127.0.0.1:20
 
 ## Requirements
 
-| Tool | Version | Why | Install |
+| Tool | Version | What it does here | Install |
 |---|---|---|---|
-| Podman | 5.5 or later, with a running machine | The container engine that act uses | `brew install podman` |
-| act | 0.2.89 or later (the skill measured 0.2.97) | Runs the jobs of `ci.yml` | `brew install act` |
-| yq, gh, shellcheck | current | `act-ci.sh` reads the workflow with yq and gets the token with gh | `brew install yq gh shellcheck` |
-| oasdiff | 1.37.0, the version that CI pins | `cmapi/contract/gate.sh` and `changelog.py` call it. Another version can print a breaking change in other words, and then `accepted-breaking.txt` does not match CI | See below |
+| Podman | 5.5 or later, machine running | Runs the job containers | `brew install podman` |
+| act | 0.2.89 or later | Runs the jobs of `ci.yml` on this Mac | `brew install act` |
+| yq | current | Reads the jobs from `ci.yml` for `act-ci.sh` | `brew install yq` |
+| gh | current | Gives act a GitHub token, and downloads release files | `brew install gh` |
+| shellcheck | current | Lints the shell scripts | `brew install shellcheck` |
+| oasdiff | 1.37.0, the same as CI | Finds breaking changes in the API contract, and writes its changelog | From its release, below |
+
+Use oasdiff 1.37.0 only: another version can word a breaking change differently, and then `accepted-breaking.txt` no
+longer matches CI.
 
 Install oasdiff from its release, not from Homebrew (Homebrew has 1.35.0). The archive is checked against the
 release's `checksums.txt` before it is installed:
