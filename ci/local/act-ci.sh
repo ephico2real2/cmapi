@@ -13,6 +13,8 @@
 #     host ports, so the next job fails for a reason that is not its own (G11);
 #   - each run runs a copy of the workflow named <run id>-<name>: act names containers after the workflow and
 #     job names only, so two runs of workflows with the same name remove each other's containers (G13, #53);
+#   - each runs-on label of the workflow maps to the runner image, and exit 0 counts only with act's "Job succeeded":
+#     act skips a job whose label has no -P and still exits 0, which read as a pass (G14);
 #   - a job that installs gitleaks runs the same gitleaks release natively for the host CPU, because the
 #     x64 Go binary crashes under qemu-user emulation in the Podman VM (G7).
 set -uo pipefail
@@ -91,18 +93,35 @@ printf '{"pull_request":{"number":0,"base":{"sha":"%s"},"head":{"sha":"%s"}}}\n'
 
 record() { echo "$1 $2 $(date -u +%H:%M:%S)" >> "$status"; }
 
+# act runs a job only when a -P names its runs-on label. With no -P for the label it skips the job and exits 0 (G14). So each
+# plain label of the workflow maps to the runner image. A label that is an expression cannot be mapped here: act skips that job,
+# and run_act records the skip as a failure.
+platforms=(-P "ubuntu-latest=$image")
+while IFS= read -r label; do
+  [[ -z $label || $label == ubuntu-latest || $label == *\$\{\{* ]] || platforms+=(-P "$label=$image")
+done < <({ yq -r '.jobs[]."runs-on" | select(tag == "!!str")' "$repo/$workflow"
+           yq -r '.jobs[]."runs-on" | select(tag == "!!seq") | .[]' "$repo/$workflow"; } | sort -u)
+
 run_act() { # tag, job, extra act arguments
   local tag=$1 job=$2 code result
   shift 2
   clean
   record "$tag" start
   GITHUB_TOKEN=$(gh auth token) perl -e 'alarm shift; exec @ARGV' "$limit" \
-    act pull_request -W "$run_workflow" -j "$job" -e "$event" -P "ubuntu-latest=$image" --pull=false \
+    act pull_request -W "$run_workflow" -j "$job" -e "$event" "${platforms[@]}" --pull=false \
     --container-architecture "$arch" --container-daemon-socket - --rm -s GITHUB_TOKEN "$@" \
     > "$logs/$tag.log" 2>&1
   code=$?
   # perl's alarm ends act with SIGALRM, which the shell reports as 142.
   if [[ $code -eq 142 ]]; then result="timeout after ${limit}s"; else result="exit=$code"; fi
+  # Exit 0 is a pass only when act says that a job succeeded. A job that act skipped, or a call that ran no job, is not a pass (G14).
+  if [[ $code -eq 0 ]]; then
+    if grep -q 'Skipping unsupported platform' "$logs/$tag.log"; then
+      result="exit=3 act skipped the job: its runs-on label has no runner image"
+    elif ! grep -q 'Job succeeded' "$logs/$tag.log"; then
+      result="exit=3 act exited 0 but no job succeeded"
+    fi
+  fi
   record "$tag" "$result"
 }
 
