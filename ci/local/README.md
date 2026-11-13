@@ -51,6 +51,14 @@ ci/local/act-ci.sh -r <folder>/cmapi -b <base commit of the pull request> -o <fo
 The jobs are `reference-code`, `service`, `portal-mockup`, `portal-ui`, `api-contract` and `manifests`. Give `-j <job>`
 to run one. Never run `act` with no arguments.
 
+## Ports
+
+A port that a service job publishes is a placeholder in `ci.yml`: `"${{ vars.CMAPI_CI_PG_PORT || '55432' }}:5432"` (#170).
+GitHub has no such variable, so it uses 55432. Locally, `act-ci.sh` finds each `vars.<NAME>_PORT` in the workflow and gives
+it a port that is free on this Mac and in the Podman machine, from 12026 upward (`ACT_CI_PORT_BASE` changes the start). It
+writes the ports to `<log folder>/ports.txt`. So a local run does not clash with `cmapi-test-pg` on 55432, and nothing has
+to be stopped. A new service port in `ci.yml` follows the same form, with a name that ends in `_PORT`.
+
 ## The merge gate
 
 A pull request merges when every job exits 0 on its exact head commit. Its body says that the gate was local CI, and

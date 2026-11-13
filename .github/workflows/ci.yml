@@ -35,7 +35,10 @@ jobs:
           POSTGRES_USER: cmapi
           POSTGRES_PASSWORD: cmapi
           POSTGRES_DB: cmapi
-        ports: ['55432:5432']
+        # The host port is a variable (#170): GitHub has no CMAPI_CI_PG_PORT and uses 55432; local CI picks a free one, so a
+        # local run does not clash with the service suite's own database on 55432.
+        ports:
+          - "${{ vars.CMAPI_CI_PG_PORT || '55432' }}:5432"
         options: >-
           --health-cmd "pg_isready -U cmapi" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
@@ -52,7 +55,7 @@ jobs:
         working-directory: cmapi
         env:
           PYTHONPATH: src:tests/service
-          CMAPI_TEST_DATABASE_URL: postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi
+          CMAPI_TEST_DATABASE_URL: postgresql://cmapi:cmapi@127.0.0.1:${{ vars.CMAPI_CI_PG_PORT || '55432' }}/cmapi
         run: python -m pytest tests/service -q -W ignore::DeprecationWarning -W ignore::pydantic.warnings.UnsupportedFieldAttributeWarning
 
   portal-mockup:
