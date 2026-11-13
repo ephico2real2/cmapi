@@ -18,6 +18,12 @@ mkdir -p "$W/bin" "$W/secrets/cmapi"; export LT_C=$C LT_NAME=$NAME LT_ARGV=$W/ar
 cat >"$W/bin/oc" <<'OC'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$LT_ARGV"
+# For crc-rollback.sh: what it would delete on the cluster is logged and not made. The LDAP script's own Secret goes the usual way, below.
+if [ -n "${LT_CLUSTER:-}" ]; then case "$*" in
+  "delete secret cmapi-ldap-test-users "*) ;;
+  "delete "*) printf '%s\n' "$*" >>"$LT_CLUSTER"; exit 0;;
+  "get pvc "*|"label namespace "*) exit 0;;
+esac; fi
 case "$*" in
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
   "exec -i -n ldap-testing -c openldap "*)
@@ -108,6 +114,7 @@ remove_ours() { # what the script added, by the test's own hand, for the next ca
 S=$SRC/apply-test-identities.sh
 run() { : >"$LT_ARGV"; : >"$LT_DELETES"; "${SCRIPT:-$S}" "$@" >"$W/out" 2>&1; echo $?; }
 # Exactly these full names reached ldapdelete in the last run, and no other. A delete that also removes something else cannot pass this, whatever the tree shows afterwards.
+rollback() { : >"$W/cluster"; : >"$LT_DELETES"; LT_CLUSTER=$W/cluster "$ROOT/deploy/crc-rollback.sh" --yes >"$W/out" 2>&1; echo $?; }   # the real script, on the stub
 deleted_exactly() { [ "$(LC_ALL=C sort "$LT_DELETES")" = "$(LC_ALL=C sort)" ]; }
 old_dns() { for g in $OLD; do echo "cn=$g,ou=Groups,$BASE"; done; }
 new_dns() { grep '^dn: ' "$SRC/cmapi-groups.ldif" | cut -c5-; awk -F'\t' -v b="$BASE" '!/^#/ && NF {print "cn=" $1 ",ou=People," b}' "$SRC/test-identities.tsv"; }
@@ -302,6 +309,13 @@ tool_fails() { # tool_fails <tool> <glob of its arguments, with no space: it goe
     chmod +x "$p"
   ' _ "$1" "$2"
 }
+tool_lies() { # tool_lies <tool> <glob of its arguments> <line>: it prints the line and then fails, so the failure still leaves a value behind
+  in_c sh -c '
+    p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"
+    printf "#!/bin/sh\ncase \"\$*\" in %s) echo \"%s\"; echo \"%s: failed for this case\" >&2; exit 52;; esac\nexec %s \"\$@\"\n" "$2" "$3" "$1" "$p.real" > "$p"
+    chmod +x "$p"
+  ' _ "$1" "$2" "$3"
+}
 tool_back() { in_c sh -c 'p=$(cat "/tmp/lt-$1"); mv "$p.real" "$p"; rm -f "/tmp/lt-$1"' _ "$1"; }
 refused_clean() { # refused_clean <label>: as refuses, and no Secret made either
   refuses "$1"
@@ -316,6 +330,7 @@ the_failures() {
   tool_gone sha256sum; refused_clean "sha256sum gone: no digest to compare"; tool_back sha256sum; remove_ours
   tool_fails sort '*canon*'; refused_clean "sort fails on what the digest covers: a digest of nothing matches itself"; tool_back sort; remove_ours
   tool_fails cut '*-f1*'; refused_clean "the digest comes back empty"; tool_back cut; remove_ours
+  tool_lies cut '*-f1*' "$(printf '0%.0s' $(seq 1 64))"; refused_clean "cut gives a digest and then fails: a step that failed has measured nothing"; tool_back cut; remove_ours
   tool_fails grep '*uniqueMember*'; refused_clean "the gate's members cannot be taken from what was read: a digest of nothing matches itself"; tool_back grep; remove_ours
   # A gate that answers with no member at all, in the form that does not also look for the login filter's people.
   adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1
@@ -356,6 +371,11 @@ LDIF
   adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
   rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a test user is missing" || bad "the old groups went with a test user missing: rc $rc"
   reseed_removal; remove_ours
+  # An old group with an entry under it: ldapdelete stops at that one, after the groups before it have gone. So the check comes before the first delete.
+  [ "$(run)" = 0 ] || bad "the run before the old group with an entry under it: $(tail -3 "$W/out")"
+  printf 'dn: cn=child,cn=cmapi-auditors,ou=Groups,%s\nobjectClass: organizationalRole\ncn: child\n\n' "$BASE" | adm ldapadd >/dev/null
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && grep -q 'has child entries: none deleted' "$W/out" && ok "refused: removing the old groups while one holds an entry under it, with none deleted" || bad "an old group with an entry under it: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  adm ldapdelete "cn=child,cn=cmapi-auditors,ou=Groups,$BASE" >/dev/null 2>&1; remove_ours
   # The removal, on an entry at one of its names that it did not write: a real person there, or a real person added to a group.
   [ "$(run)" = 0 ] || bad "the run before the removal: $(tail -3 "$W/out")"
   adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
@@ -370,6 +390,24 @@ add: member
 member: cn=john.doe,ou=People,$BASE
 LDIF
   rc=$(run --remove-test-identities); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing a new group with a real person added" || bad "the removal reached a group holding a real person: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  remove_ours
+  # The rollback asks LDAP first: a refusal there comes before the first delete on the cluster, and says what to do. Then the control, on entries that are as written.
+  [ "$(run)" = 0 ] || bad "the run before the rollback: $(tail -3 "$W/out")"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+add: description
+description: set by directory policy
+LDIF
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out" && ok "refused: removing the old groups while a new group holds an attribute this run did not write, and it says to report it" || bad "the old groups with a new group holding another attribute: rc $rc, $(tail -1 "$W/out")"
+  rc=$(rollback); [ "$rc" != 0 ] && [ ! -s "$W/cluster" ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out" && ok "refused: the rollback, before any delete on the cluster, and it says to report it" || bad "the rollback with a new group holding another attribute: rc $rc, $(wc -l <"$W/cluster") deletes on the cluster, $(wc -l <"$LT_DELETES") in LDAP"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+delete: description
+description: set by directory policy
+LDIF
+  rc=$(rollback); [ "$rc" = 0 ] && [ -s "$W/cluster" ] && new_dns | deleted_exactly && ok "the rollback goes through on entries that are as written: the control, $(wc -l <"$W/cluster" | tr -d ' ') deletes on the cluster and the 23 in LDAP" || bad "the rollback, the control: rc $rc: $(tail -3 "$W/out")"
   remove_ours
   # openssl on the machine running the script.
   mkdir -p "$W/no-openssl"; printf '#!/bin/sh\nexit 1\n' >"$W/no-openssl/openssl"; chmod +x "$W/no-openssl/openssl"
@@ -438,6 +476,10 @@ LDIF
   mutant "the subtree instead of the names" 's = s.replace("for cn in $old_groups; do group_dn \"$cn\" >> \"$dns\"; echo >> \"$dns\"; done", "printf \"ou=Groups,%s\\n\" \"$base\" > \"$dns\"")' \
     'rc=$(run --remove-old-groups); ! old_dns | deleted_exactly'
   reseed_removal
+  printf 'dn: cn=child,cn=cmapi-auditors,ou=Groups,%s\nobjectClass: organizationalRole\ncn: child\n\n' "$BASE" | adm ldapadd >/dev/null
+  mutant "an old group's entries under it are not looked for: the groups before it go" 's = s.replace("if [ -s \"$w/children\" ]; then", "if false; then")' \
+    'rc=$(run --remove-old-groups); [ -s "$LT_DELETES" ]'
+  adm ldapdelete "cn=child,cn=cmapi-auditors,ou=Groups,$BASE" >/dev/null 2>&1; reseed_removal
   mutant "ldapdelete -r" 's = s.replace("ldapdelete -x -H", "ldapdelete -r -x -H")' '! static_deletes_ok "$SCRIPT"'
   mutant "the admin password on an argument in the pod" 's = s.replace("ldapdelete -x -H ldap://localhost -D \"$admin\" -y \"$w/admin\"", "ldapdelete -x -H ldap://localhost -D \"$admin\" -w \"$LDAP_ADMIN_PASSWORD\"")' '! static_deletes_ok "$SCRIPT"'
   remove_ours
@@ -447,6 +489,10 @@ LDIF
   mutant "the digest's awk failing: a digest of nothing would match itself" 's = s.replace("awk -v strip=", "no-such-awk -v strip=")' 'rc=$(run); [ "$rc" != 0 ]'
   mutant "a search for strangers that fails reads as finding none" 's = s.replace("names -b \"$LDAP_BASE_DN\" -s sub \"(uid=cmapi.*)\"", "names -b \"ou=NoSuch,$LDAP_BASE_DN\" -s sub \"(uid=cmapi.*)\"")' 'rc=$(run); [ "$rc" != 0 ]'
   remove_ours
+  tool_lies cut '*-f1*' "$(printf '0%.0s' $(seq 1 64))"
+  mutant "the digest printed straight from cut: echo's success hides cut's failure" 's = s.replace("others=$(cut -d\" \" -f1 \"$w/canon-sum\")\n  echo \"others=$others\"", "echo \"others=$(cut -d\" \" -f1 \"$w/canon-sum\")\"").replace("gate=$(cut -d\" \" -f1 \"$w/gate-sum\")\n  echo \"gate=$gate\"", "echo \"gate=$(cut -d\" \" -f1 \"$w/gate-sum\")\"")' \
+    'rc=$(run); [ "$rc" = 0 ]'
+  tool_back cut; remove_ours
   mutant "a password on an argument" 's = s.replace("--from-file=\"$pw\"", "--from-file=\"$pw\" --from-literal=x=$(cat \"$pw/cmapi.viewer\")")' \
     'rc=$(run); leaked'
 }

@@ -1,0 +1,40 @@
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -199,6 +199,11 @@
+       present "$dn" || { echo "gone already: $dn"; continue; }
+       search -b "$dn" -s base objectClass > "$w/e"
+       grep -qix "objectClass: groupOfNames" "$w/e" || { echo "FAIL: $dn is not a groupOfNames: leaving every entry alone" >&2; exit 1; }
++      search -b "$dn" -s one "(objectClass=*)" dn > "$w/children"
++      if [ -s "$w/children" ]; then
++        echo "FAIL: $dn has child entries: none deleted. Stop and report to the directory owner; move or remove the children only after ownership review, then rerun --remove-old-groups" >&2
++        exit 1
++      fi
+     done
+   ' < "$dns"
+   # The old groups stay until every new entry is what this script writes. A group at the right name with other members, or a test user missing, would leave someone with the wrong role or with none once these go.
+--- /dev/null
++++ b/deploy/tests/pr112-c2-regression.sh
+@@ -0,0 +1,23 @@
++#!/usr/bin/env bash
++set -uo pipefail
++ROOT=$(cd "$(dirname "$0")/../.." && pwd)
++SOURCE=$ROOT/deploy/tests/ldap-identities-test.sh
++# Reuse the real LDAP fixture without executing its all/failures dispatch.
++# The source is trusted repository code; no result is asserted from its text.
++eval "$(python3 - "$SOURCE" <<'PYCODE'
++import sys
++s = open(sys.argv[1]).read().split("# ---- no container needed")[0]
++s = s.replace('HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/../.." && pwd); SRC=$ROOT/examples/cmapi-sso/ldap', 'SRC=$ROOT/examples/cmapi-sso/ldap')
++s = s.replace('NAME=cmapi-w1-lt-ldap; LABEL=cmapi.test=ldap-identities;', 'NAME=cmapi-pr112-review-$$; LABEL=cmapi.review=pr112-$$;')
++print(s)
++PYCODE
++)"
++start groupOfNames
++
++rc=$(run); [ "$rc" = 0 ] || { tail -3 "$W/out"; exit 1; }
++printf 'dn: cn=child,cn=cmapi-auditors,ou=Groups,%s\nobjectClass: organizationalRole\ncn: child\n\n' "$BASE" | adm ldapadd >/dev/null || exit 1
++rc=$(run --remove-old-groups)
++left=$(count "ou=Groups,$BASE" '(cn=cmapi-*)')
++printf 'rc=%s old_groups_and_lookalikes=%s deletes_requested=%s\n' "$rc" "$left" "$(wc -l <"$LT_DELETES" | tr -d ' ')"
++tail -4 "$W/out"
++[ "$rc" != 0 ] && [ "$left" = 12 ] && [ ! -s "$LT_DELETES" ]
