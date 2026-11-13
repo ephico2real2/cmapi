@@ -125,7 +125,8 @@ test("a namespace's lock shows the same approval count as its request (#148)", (
   for (const [, id, approval] of locks) {
     assert.ok(need.has(id) || listed.has(id), `the lock names ${id}, which is on neither the Approvals tab nor the Requests tab`);
     if (need.has(id)) assert.match(approval, new RegExp(` of ${need.get(id)}$`), `the lock of ${id} against the ${need.get(id)} approvals that it needs`);
-    if (listed.has(id)) assert.equal(approval, listed.get(id), `the lock of ${id} against the Requests tab`);
+    // A lock can add where the request stands after its approval text, as in "auto: expired-namespace · awaiting prune confirmation".
+    if (listed.has(id)) assert.ok(approval.startsWith(listed.get(id)), `the lock of ${id} says "${approval}", and the Requests tab says "${listed.get(id)}"`);
   }
 });
 
