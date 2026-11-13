@@ -54,9 +54,11 @@ print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]})
   "get secret cmapi-test-users"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get secret cmapi-ldap-test-users"*) case "$s" in *"${STUB_NO_PASSWORD:-none}"*) exit 0;; esac; printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
+  # A measurement reads "a" until the script has deleted in LDAP, and STUB_LDAP_AFTER from then on: the directory moving while the removal runs. The rollback
+  # measures three times (its check before any delete, then before and after the removal), so "the first read" no longer tells the two sides apart.
   # The identities script's programs, told apart by what they run. Its real behaviour is deploy/tests/ldap-identities-test.sh, on a real server: here, only what the rollback gives it.
   "exec -i -n ldap-testing"*'printf %s "$LDAP_BASE_DN"'*) printf 'dc=ephico2real,dc=com'; exit 0;;
-  "exec -i -n ldap-testing"*"sha256sum"*) cat >/dev/null; o=a; [ ! -e "$ARGV_LOG.ldap-measured" ] || o=${STUB_LDAP_AFTER:-a}; : >"$ARGV_LOG.ldap-measured"; printf 'others=%s\ngate=g\nidp=2\nidp_cmapi=0\n' "$o"; exit 0;;
+  "exec -i -n ldap-testing"*"sha256sum"*) cat >/dev/null; o=a; [ ! -s "$ARGV_LOG.ldap-deleted" ] || o=${STUB_LDAP_AFTER:-a}; printf 'others=%s\ngate=g\nidp=2\nidp_cmapi=0\n' "$o"; exit 0;;
   "exec -i -n ldap-testing"*"ldapdelete"*) cat >>"$ARGV_LOG.ldap-deleted"; exit 0;;
   "exec -i -n ldap-testing"*'echo "stranger $dn"'*) sed -n 's/^dn: /same /p'; exit 0;;
   "exec -i -n ldap-testing"*) cat; exit 0;;
@@ -258,7 +260,7 @@ unset STUB_PROOF
 
 # crc-rollback.sh: every delete names one object, from a fixed list.
 want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" ] && ok "and does nothing without it" || bad "it ran without --yes"
-: >"$ARGV_LOG.ldap-deleted"; rm -f "$ARGV_LOG.ldap-measured"; want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
+: >"$ARGV_LOG.ldap-deleted"; want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
 ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
@@ -281,7 +283,7 @@ if grep -qF 'admin/realms' "$ARGV_LOG"; then bad "rollback touched the realm wit
 want "rollback: --delete-realm alone is refused" 2 "$(run "$D/crc-rollback.sh" --yes --delete-realm)"
 if grep -qE 'delete ' "$ARGV_LOG"; then bad "it deleted something first"; fi
 : >"$ARGV_LOG"; STUB_PV_WHO=inkcast/other/Bound "$D/crc-rollback.sh" --yes >"$W/out" 2>&1; if grep -q 'oc delete pv ' "$ARGV_LOG"; then bad "a PV another claim holds was deleted"; else ok "a PV that is not ours stays"; fi
-cp "$ARGV_LOG" "$W/rollback-argv"; rm -f "$ARGV_LOG.ldap-measured"; [ "$(STUB_LDAP_AFTER=b run "$D/crc-rollback.sh" --yes)" != 0 ] && ok "rollback fails when the rest of the directory moved" || bad "rollback passed with the rest of the directory moved"
+cp "$ARGV_LOG" "$W/rollback-argv"; : >"$ARGV_LOG.ldap-deleted"; [ "$(STUB_LDAP_AFTER=b run "$D/crc-rollback.sh" --yes)" != 0 ] && ok "rollback fails when the rest of the directory moved" || bad "rollback passed with the rest of the directory moved"
 # The static rule, on every script: no broad delete, no prune, ever. It must be able to fail: a copy with --all has to be caught.
 broad() { cat "$@" | grep -vE '^[[:space:]]*#' | grep -nE '(oc_|oc|kc) delete .*( --all| -l | --selector| -f | -R)|(^|[[:space:]])del .*( --all| -l | --selector| -f | -R)|--prune'; }
 if broad "$D"/crc-*.sh; then bad "a broad delete in a script"; else ok "no broad delete in any script"; fi

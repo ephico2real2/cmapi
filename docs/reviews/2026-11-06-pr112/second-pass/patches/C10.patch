@@ -1,0 +1,132 @@
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -30,6 +30,7 @@
+   "") ;;
+   --remove-old-groups) mode=remove-old ;;
+   --remove-test-identities) mode=remove-new ;;
++  --check-remove-test-identities) mode=check-remove-new ;;
+   *) echo "unknown argument: $1. Nothing done" >&2; exit 2 ;;
+ esac
+ [ $# -le 1 ] || { echo "too many arguments: this takes no name, since it can only touch the names it holds. Nothing done" >&2; exit 2; }
+@@ -205,7 +206,7 @@
+   read_state
+   if grep -qv '^same ' "$tmp/state"; then
+     grep -v '^same ' "$tmp/state" | sed 's/^/FAIL: /' >&2
+-    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted"
++    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted. Stop and report the listed DNs to the directory owner. Review any extra attributes and their ownership; do not strip attributes or delete entries to force migration"
+   fi
+   measure "$dns" 1 > "$tmp/before"
+   # Only those still there: ldapdelete stops on one that is gone, and a rerun has to pass.
+@@ -221,13 +222,17 @@
+   echo "ok   the ten old groups are gone: $(wc -l < "$tmp/still" | tr -d ' ') deleted by this run, each by its full dn"
+ }
+ 
+-remove_new() {
++check_remove_new() {
+   # An entry at one of these names that is not what the first form writes is somebody's, as the first form says when it refuses to touch it. A cmapi.* stranger is not on the list, and stays.
+   read_state
+   if grep -q '^different ' "$tmp/state"; then
+     grep '^different ' "$tmp/state" | sed 's/^/FAIL: /' >&2
+-    die "an entry with one of cmapi's names is not what this script writes, so it is not this script's to delete: nothing deleted"
++    die "an entry with one of cmapi's names differs: nothing deleted. Stop and report the listed DNs to the directory owner. Review the attributes and their ownership before retrying; do not strip attributes or delete entries to force rollback"
+   fi
++}
++
++remove_new() {
++  check_remove_new
+   measure "$tmp/ours" 0 > "$tmp/before"
+   # Groups first: a person's entry should not go while a group still names it.
+   in_pod "$lib"'
+@@ -243,6 +248,11 @@
+ case "$mode" in
+   remove-old) remove_old; exit 0 ;;
+   remove-new) remove_new; exit 0 ;;
++  check-remove-new)
++    check_remove_new
++    measure "$tmp/ours" 0 > "$tmp/removal-check"
++    echo "ok   LDAP removal preflight: no entries or Secrets written or deleted"
++    exit 0 ;;
+ esac
+ 
+ # ---- before any write: every read that can stop this.
+--- a/deploy/crc-rollback.sh
++++ b/deploy/crc-rollback.sh
+@@ -14,6 +14,10 @@
+ [ "$YES" = true ] || { sed -n '2,5p' "$0"; echo "nothing done: pass --yes"; exit 2; }
+ if [ "$REALM" = true ] && [ "$APPROVED" != true ]; then echo "ERROR: --delete-realm needs --owner-approved" >&2; exit 2; fi
+ del() { echo "delete $*"; oc_ delete "$@" --ignore-not-found; }
++
++# Check LDAP ownership and measurements before deleting workloads, storage, or a realm.
++# The actual removal below repeats the checks; this is a preflight, not a lock.
++"$HERE/../examples/cmapi-sso/ldap/apply-test-identities.sh" --check-remove-test-identities
+ 
+ if [ "$REALM" = true ]; then
+   # First, while its secret exists. Only this realm's name is ever in the URL.
+--- a/docs/13-crc-deployment.md
++++ b/docs/13-crc-deployment.md
+@@ -238,7 +238,7 @@
+ 
+ Each by its full `dn`, from a list in the script: no filter, no `-r`, and it takes no name from outside. A look-alike such as `cn=cmapi-other` stays.
+ 
+-**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
++**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not. If the listed new entries differ, stop and report their DNs to the directory owner. Have the owner review extra attributes and their ownership before any retry; do not strip attributes or delete entries to force migration.
+ 
+ ### Step 11: the Secrets
+ 
+@@ -523,7 +523,7 @@
+ deploy/crc-rollback.sh --yes
+ ```
+ 
+-It removes, each by name, what Wave 1 added, in dependency order. Every delete names one object.
++It first checks LDAP ownership and measurements without writing or deleting anything. If that preflight fails, stop and report the listed DNs to the directory owner; review any extra attributes and their ownership before retrying. Do not strip attributes or delete entries to force rollback. Once the preflight passes, it removes, each by name, what Wave 1 added, in dependency order. Every delete names one object. The LDAP removal repeats its checks because the preflight does not lock the directory.
+ 
+ **In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
+ 
+--- /dev/null
++++ b/deploy/tests/pr112-c10-regression.sh
+@@ -0,0 +1,45 @@
++#!/usr/bin/env bash
++set -uo pipefail
++ROOT=$(cd "$(dirname "$0")/../.." && pwd)
++SOURCE=$ROOT/deploy/tests/ldap-identities-test.sh
++# Reuse the real LDAP fixture without executing its all/failures dispatch.
++# The source is trusted repository code; no result is asserted from its text.
++eval "$(python3 - "$SOURCE" <<'PYCODE'
++import sys
++s = open(sys.argv[1]).read().split("# ---- no container needed")[0]
++s = s.replace('HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/../.." && pwd); SRC=$ROOT/examples/cmapi-sso/ldap', 'SRC=$ROOT/examples/cmapi-sso/ldap')
++s = s.replace('NAME=cmapi-w1-lt-ldap; LABEL=cmapi.test=ldap-identities;', 'NAME=cmapi-pr112-review-$$; LABEL=cmapi.review=pr112-$$;')
++print(s)
++PYCODE
++)"
++start groupOfNames
++
++rc=$(run); [ "$rc" = 0 ] || { tail -3 "$W/out"; exit 1; }
++adm ldapmodify >/dev/null <<LDIF
++dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
++changetype: modify
++add: description
++description: set by directory policy
++LDIF
++rc=$(run --remove-old-groups)
++step_ok=0
++[ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out" && step_ok=1
++printf 'step10 rc=%s no_deletes_and_guidance=%s\n' "$rc" "$step_ok"
++tail -3 "$W/out"
++export LT_CLUSTER_DELETES="$W/cluster-deletes" LT_LDAP_OC="$W/bin/ldap-oc"
++mv "$W/bin/oc" "$LT_LDAP_OC"
++cat >"$W/bin/oc" <<'OC'
++#!/bin/bash
++case "$*" in
++ 'delete '*) printf '%s\n' "$*" >>"$LT_CLUSTER_DELETES"; exit 0;;
++ 'get pvc '*) exit 0;;
++ 'label namespace '*) exit 0;;
++esac
++exec "$LT_LDAP_OC" "$@"
++OC
++chmod +x "$W/bin/oc"
++: >"$LT_CLUSTER_DELETES"; : >"$LT_DELETES"
++"$ROOT/deploy/crc-rollback.sh" --yes >"$W/out" 2>&1; rc=$?
++printf 'rollback rc=%s cluster_deletes=%s ldap_deletes=%s\n' "$rc" "$(wc -l <"$LT_CLUSTER_DELETES" | tr -d ' ')" "$(wc -l <"$LT_DELETES" | tr -d ' ')"
++tail -3 "$W/out"
++[ "$step_ok" = 1 ] && [ "$rc" != 0 ] && [ ! -s "$LT_CLUSTER_DELETES" ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out"
