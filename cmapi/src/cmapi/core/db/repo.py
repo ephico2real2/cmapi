@@ -84,8 +84,11 @@ class RequestRepo:
                                    .order_by(ApprovalRow.id)))
 
     def list(self, *, status: str | None = None, cluster_id: str | None = None, namespace: str | None = None,
-             requested_by: str | None = None, envs: Iterable[str] | None = None, limit: int = 5000) -> list[ChangeRequestRow]:
+             requested_by: str | None = None, envs: Iterable[str] | None = None, open_: bool | None = None,
+             limit: int = 5000) -> list[ChangeRequestRow]:
         q = select(ChangeRequestRow)
+        if open_ is not None:           # open: a state that still holds the namespace's lock (OPEN_STATES); closed: every other state
+            q = q.where(ChangeRequestRow.status.in_(OPEN_STATES) if open_ else ChangeRequestRow.status.not_in(OPEN_STATES))
         if status:
             q = q.where(ChangeRequestRow.status == status)
         if cluster_id:
