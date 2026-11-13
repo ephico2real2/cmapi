@@ -302,6 +302,13 @@ tool_fails() { # tool_fails <tool> <glob of its arguments, with no space: it goe
     chmod +x "$p"
   ' _ "$1" "$2"
 }
+tool_lies() { # tool_lies <tool> <glob of its arguments> <line>: it prints the line and then fails, so the failure still leaves a value behind
+  in_c sh -c '
+    p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"
+    printf "#!/bin/sh\ncase \"\$*\" in %s) echo \"%s\"; echo \"%s: failed for this case\" >&2; exit 52;; esac\nexec %s \"\$@\"\n" "$2" "$3" "$1" "$p.real" > "$p"
+    chmod +x "$p"
+  ' _ "$1" "$2" "$3"
+}
 tool_back() { in_c sh -c 'p=$(cat "/tmp/lt-$1"); mv "$p.real" "$p"; rm -f "/tmp/lt-$1"' _ "$1"; }
 refused_clean() { # refused_clean <label>: as refuses, and no Secret made either
   refuses "$1"
@@ -316,6 +323,7 @@ the_failures() {
   tool_gone sha256sum; refused_clean "sha256sum gone: no digest to compare"; tool_back sha256sum; remove_ours
   tool_fails sort '*canon*'; refused_clean "sort fails on what the digest covers: a digest of nothing matches itself"; tool_back sort; remove_ours
   tool_fails cut '*-f1*'; refused_clean "the digest comes back empty"; tool_back cut; remove_ours
+  tool_lies cut '*-f1*' "$(printf '0%.0s' $(seq 1 64))"; refused_clean "cut gives a digest and then fails: a step that failed has measured nothing"; tool_back cut; remove_ours
   tool_fails grep '*uniqueMember*'; refused_clean "the gate's members cannot be taken from what was read: a digest of nothing matches itself"; tool_back grep; remove_ours
   # A gate that answers with no member at all, in the form that does not also look for the login filter's people.
   adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1
@@ -456,6 +464,10 @@ LDIF
   mutant "the digest's awk failing: a digest of nothing would match itself" 's = s.replace("awk -v strip=", "no-such-awk -v strip=")' 'rc=$(run); [ "$rc" != 0 ]'
   mutant "a search for strangers that fails reads as finding none" 's = s.replace("names -b \"$LDAP_BASE_DN\" -s sub \"(uid=cmapi.*)\"", "names -b \"ou=NoSuch,$LDAP_BASE_DN\" -s sub \"(uid=cmapi.*)\"")' 'rc=$(run); [ "$rc" != 0 ]'
   remove_ours
+  tool_lies cut '*-f1*' "$(printf '0%.0s' $(seq 1 64))"
+  mutant "the digest printed straight from cut: echo's success hides cut's failure" 's = s.replace("others=$(cut -d\" \" -f1 \"$w/canon-sum\")\n  echo \"others=$others\"", "echo \"others=$(cut -d\" \" -f1 \"$w/canon-sum\")\"").replace("gate=$(cut -d\" \" -f1 \"$w/gate-sum\")\n  echo \"gate=$gate\"", "echo \"gate=$(cut -d\" \" -f1 \"$w/gate-sum\")\"")' \
+    'rc=$(run); [ "$rc" = 0 ]'
+  tool_back cut; remove_ours
   mutant "a password on an argument" 's = s.replace("--from-file=\"$pw\"", "--from-file=\"$pw\" --from-literal=x=$(cat \"$pw/cmapi.viewer\")")' \
     'rc=$(run); leaked'
 }
