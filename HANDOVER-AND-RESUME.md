@@ -55,8 +55,10 @@ The owner: "use local ci for all work and forget the githiub", and "tell ob1 to 
 | The architecture figures from the mockup | PR #160, merged as `0cd0d57`: five figures, light and dark, in `docs/diagrams/portal-architecture/`, and the system figure in `docs/08`. They say "realm cmapi: not on CRC yet" |
 | #87 (BUG-11) | PR #162, merged as `c66a249`: `pr_status` reads check runs, with Codex's two passes ruled in `docs/reviews/2026-11-13-issue-87/README.md`. Proven on a mock of GitHub only (#61) |
 | #151 (BUG-36) | PR #161, merged |
-| #145, #146, #164 (BUG-32, BUG-33, BUG-39) | PR #163, open: the list filters that the Quotas and Requests tabs need, and FastAPI's validation refusal as an RFC 9457 problem. The service suite passed on macOS (557). **Its `api-contract` job failed two times.** The first failure was right: it showed BUG-39. The second run's log was not read when this was written: the lines of `cmapi/contract/accepted-breaking.txt` were written without oasdiff on this Mac, so they can differ from what oasdiff prints. Read the job's log, copy each printed change into that file, and push |
-| Filed for later waves | #143, #144, #147 to #150 |
+| #145, #146, #164 (BUG-32, BUG-33, BUG-39) | PR #163, open, head `9101c47`: the list filters that the Quotas and Requests tabs need, and FastAPI's validation refusal as an RFC 9457 problem. The service suite passed on macOS (557). GitHub's `api-contract` job failed two times: the first showed BUG-39, the second named six media-type removals. At 15:26 UTC, with the owner's oasdiff 1.37.0 on this Mac, `gate.sh` against `main` exits 0, `gate-test.sh` exits 0 and `changelog.py --check` exits 0, so `accepted-breaking.txt` matches oasdiff. Local CI (five jobs, not `manifests`) is running: run `r261113152209p54750` |
+| #148 (UX-02) | PR #168, open, head `68b3be9`: the mockup's lock of payments-prod shows the count of its request (3, not 2). It changes the mockup ConfigMap in `deploy/`, so it also waits for the `manifests` proof |
+| #167 (UX-04) | Filed by OB1, Backlog, W6: a pending request is on the Approvals and Expiration tabs and not in the request list. Not fixed: the new row needs a scenario link |
+| Filed for later waves | #143, #144, #147, #149, #150 |
 
 ### What is not done
 
@@ -68,7 +70,7 @@ The owner: "use local ci for all work and forget the githiub", and "tell ob1 to 
 ### Order from here
 
 1. The owner reads #157 and decides.
-2. Finish PR #163: read its `api-contract` log (`gh run view <run> --log-failed`), correct `cmapi/contract/accepted-breaking.txt`, and merge when each job has passed on its head.
+2. Merge PR #163, then PR #168, when local CI (five jobs) and GitHub's required checks are green on each head. Then #149, #150, #144, #143.
 3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
