@@ -429,3 +429,31 @@ def test_the_stand_in_without_a_ci_runner_still_posts_all_three(world):
     assert status(client, keys, rid)["status"] == "merged"
     head = next(iter(fake.statuses))
     assert set(fake.statuses[head]) == {CONTEXT_KUBECONFORM, CONTEXT_KYVERNO, CONTEXT_CMAPI}
+
+
+def test_each_provider_says_whether_the_host_runs_ci_and_one_that_does_not_say_fails_the_job(world):
+    """The second reader proposed a default of False for a provider without the flag (night/87, C5). False means the worker posts
+    ci/* itself, which is the wrong side to fall on, so the port requires the flag and the job fails without it."""
+    from cmapi.core.git.base import HostGitProvider
+    from cmapi.core.git.gitea import GiteaProvider
+    from cmapi.core.ports import GitProvider
+    assert GitProvider.__annotations__["external_ci"] in (bool, "bool")
+    assert GitHubProvider.external_ci is True and GiteaProvider.external_ci is False and HostGitProvider.external_ci is False
+    client, ctx, fake, kube, validator, keys = world
+
+    class Silent:
+        def __getattr__(self, name):
+            if name == "external_ci":
+                raise AttributeError(name)
+            return getattr(fake, name)
+
+    from test_flow import NS, OLA, auth
+    from test_review_d_delivery import run_until
+    client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA))
+    assert run_until(ctx, "pr_checks") == "pr_checks"
+    ctx.git = Silent()
+    poll(ctx)                                    # the worker catches the error, records it on the job and will try again
+    with ctx.db.session() as s:
+        error, done = s.execute(text("SELECT last_error, done_at FROM jobs WHERE kind = 'pr_checks'")).one()
+    assert "external_ci" in (error or "") and done is None, (error, done)
+    assert all(CONTEXT_KUBECONFORM not in v for v in fake.statuses.values()), "ci/* was posted for a provider that did not say"
