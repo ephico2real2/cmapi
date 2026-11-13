@@ -133,6 +133,7 @@ spec:
         enabled: true
         publicClient: false
         bearerOnly: true
+        attributes: {access.token.header.type.rfc9068: "true"}
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: false

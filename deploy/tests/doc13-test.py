@@ -106,7 +106,7 @@ def run_blocks(doc, steps, only=None, watch_delay="", failing=""):
                     continue
                 r2, sc, after2, st = go(n, fail=key)
                 stopped_right(f"{key[:60]} failing", n, r2, sc, after2, st, fail=key)
-                if n == 21 and key.startswith("oc wait job/") and "oc logs job/cmapi-realm-sync -n cmapi" not in sc:
+                if n == 20 and key.startswith("oc wait job/") and "oc logs job/cmapi-realm-sync -n cmapi" not in sc:
                     out.append("a realm sync that failed lost its log")
             for bad in wrong.get(n, ()):
                 r2, sc, after2, st = go(n, issuer=bad)
@@ -234,8 +234,8 @@ def problems(doc, only=None):
     for label, pattern in (("--all", r"\s--all\b"), ("a selector on a delete", r"delete[^\n]*(\s-l\s|--selector)"), ("--prune", r"--prune"), ("delete -f", r"delete[^\n]*\s-f\s"),
                            ("TLS off", r"(\s-k\s|--insecure|--tls-verify=false|verify=False|CERT_NONE)"), ("a credential on an argument", r"(\s-p\s+\"?\$|--password[= ]\"?\$)")):
         need(not re.search(pattern, run), f"{label} in the run")
-    # Ruling 5 and the backup's term: image, then LDAP, then backup, then realm alone, then workloads. The import is one-shot, and it names the new groups: LDAP is settled first (#110).
-    order = [("crc-image.sh", 5), ("apply-test-identities.sh", 9), ("--remove-old-groups", 10), ("crc-backup.sh", 13), ("10-realm-import.yaml", 15), ("cluster.yaml", 19), ("40-networkpolicy.yaml", 20), ("20-realm-sync.yaml", 21), ("crc-proof.sh", 23)]
+    # Ruling 5 and the backup's term: image, then LDAP, then backup, then realm alone, then workloads. The import is one-shot, and it names the new groups: LDAP is settled first (#110). The realm sync ends before the workloads start (#184).
+    order = [("crc-image.sh", 5), ("apply-test-identities.sh", 9), ("--remove-old-groups", 10), ("crc-backup.sh", 13), ("10-realm-import.yaml", 15), ("cluster.yaml", 19), ("20-realm-sync.yaml", 20), ("40-networkpolicy.yaml", 21), ("crc-proof.sh", 23)]
     for name, n in order:
         need(name in steps.get(n, ""), f"{name} is not in step {n}")
     need("--remove-old-groups" not in steps.get(9, "") and "--remove-test-identities" not in run, "step 9 removes something, or the run deletes the test users")

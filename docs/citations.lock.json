@@ -499,7 +499,7 @@
  "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|39-39": [
   "def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, capsys):"
  ],
- "docs/14-authorization.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|389-443": [
+ "docs/14-authorization.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|391-445": [
   "    groups:",
   "    - name: cmapi",
   "      path: /cmapi",
@@ -599,7 +599,7 @@
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|200-271": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|202-273": [
   "def ldap(rm: Realm, cfg: dict[str, Any]) -> None:",
   "    bind_dn, bind_pw = os.environ.get(\"bindDN\") or os.environ.get(\"CMAPI_LDAP_BIND_DN\"), \\",
   "        os.environ.get(\"password\") or os.environ.get(\"CMAPI_LDAP_BIND_PASSWORD\")",
@@ -678,7 +678,7 @@
   "# the import runs --override=false, so an existing realm is left as it is, and this object neither updates nor deletes one. Client",
   "# secrets are ${...} placeholders the import Job reads from Secret cmapi-realm-secrets, written by deploy/secrets.sh; no secret in Git."
  ],
- "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|389-443": [
+ "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|391-445": [
   "    groups:",
   "    - name: cmapi",
   "      path: /cmapi",

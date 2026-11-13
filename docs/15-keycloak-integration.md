@@ -54,11 +54,11 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 
 The eight client roles of `cmapi-nonprod` are `cmapi-viewer`, `cmapi-onboarding`, `cmapi-requester`, `cmapi-approver`, `cmapi-operator`, `cmapi-admin`, `cmapi-auditor` and `cmapi-approval-relay`. The realm has no realm role of cmapi.
 
-The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:389-443`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
+The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:391-445`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
 
 ## The LDAP federation
 
-The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:200-271`).
+The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:202-273`).
 
 | Setting | Value on CRC | Effect |
 |---|---|---|
@@ -153,9 +153,17 @@ Keep each secret in a variable that comes from a secret store, and never on a co
 
 cmapi accepts a token only when its JOSE header says `typ: at+jwt` or `application/at+jwt`. RFC 9068, section 4: the resource server "MUST verify that the "typ" header value is "at+jwt" or "application/at+jwt"" and must "reject tokens carrying any other value". An ID token and a refresh token have another type, so neither can be a bearer credential.
 
-Keycloak 26 writes the header `typ: JWT` on each token, and `at+jwt` on the access token of a client that has the attribute `access.token.header.type.rfc9068` (`DefaultTokenManager.type`, Keycloak 26.6.4). cmapi's realm sets the attribute on each client that gets a token for cmapi: `cmapi-portal`, `cmapi-docs`, `cmapi-cli`, `cmapi-automation` and each pipeline client. `cmapi-directory` and `cmapi-realm-admin` do not have it, because their tokens go to Keycloak's own admin API. For a realm that was imported before this rule (#184), and for a client that was added by hand, the Job `cmapi-realm-sync` sets the attribute on each client that has the client scope `cmapi-audience`.
+Keycloak 26 writes the header `typ: JWT` on each access token, ID token and refresh token (a logout token has `logout+jwt`), and `at+jwt` on the access token of a client that has the attribute `access.token.header.type.rfc9068` (`DefaultTokenManager.type`, Keycloak 26.6.4). cmapi's realm sets the attribute on each client that gets a token for cmapi: `cmapi-portal`, `cmapi-docs`, `cmapi-cli`, `cmapi-automation` and each pipeline client. The API's own client (`cmapi-nonprod` on CRC) has it also. That client gets no token, but Keycloak's V1 token exchange writes the header type of the target client (`V1TokenExchangeProvider.setClientToContext`), and cmapi's realm turns no token exchange on. `cmapi-directory` and `cmapi-realm-admin` do not have it, because their tokens go to Keycloak's own admin API. For a realm that was imported before this rule (#184), and for a client that was added by hand, the Job `cmapi-realm-sync` sets the attribute on each client that has the client scope `cmapi-audience`, as a default or an optional scope. The sync does not find a client that gets the audience from a mapper of its own: set the attribute on that client by hand.
 
-A new pipeline client needs the attribute, or cmapi answers 401 "Token is not an access token". For a Keycloak that cannot set it, `auth.acceptLegacyTokenType: true` in `instance.yaml` makes cmapi accept Keycloak's older form also: the header `JWT` together with the claim `typ: Bearer`. A token with no `typ` claim never passes that way.
+A new pipeline client needs the attribute, or cmapi answers 401 "Token is not an access token". For a Keycloak that cannot set it, `auth.acceptLegacyTokenType: true` in `instance.yaml` makes cmapi accept Keycloak's older form also: the header `JWT` together with the claim `typ: Bearer`. A token with no `typ` claim never passes that way. In the Helm chart the setting is the value `auth.acceptLegacyTokenType`.
+
+**An upgrade of a deployment that is older than #184.** The old realm writes the header `JWT`, and the new API refuses it. Use this order:
+
+1. Run the Job `cmapi-realm-sync` of the new image while the old API still serves. The Job needs no API.
+2. Wait for the lifetime of an access token (`accessTokenLifespan`, 300 seconds in cmapi's realm), or make each client get a new token. The sync cannot change a token that Keycloak has signed. A refresh after the sync gives a token with the new header.
+3. Roll out the new API.
+
+If the API must roll out first, set `auth.acceptLegacyTokenType: true` for that time. Remove the setting when the old tokens have expired. The chart runs the sync as a `post-upgrade` hook, after the new pods start. So a chart upgrade across #184 needs the setting for the upgrade, or the sync run by hand first. The first deployment on CRC (`docs/13`) imports a new realm and runs the sync before the workloads.
 
 ### No password grant
 

@@ -58,7 +58,7 @@ class Keys:
     def token(self, username: str, *, roles=(), groups=(), employee_id="1001", sub=None, aud=AUDIENCE, iss=ISSUER,
               exp_in=300, client="cmapi-portal", extra: Mapping[str, Any] | None = None, kid=None, alg="RS256",
               typ: str | None = "at+jwt") -> str:
-        """`typ` is the JOSE header: an access token of cmapi's realm has at+jwt (RFC 9068). None leaves PyJWT's own, JWT."""
+        """`typ` is the JOSE header: an access token of cmapi's realm has at+jwt (RFC 9068). None removes the header type."""
         now = int(time.time())
         claims = {"iss": iss, "aud": [aud, "account"], "sub": sub or f"sub-{username}", "azp": client, "iat": now,
                   "exp": now + exp_in, "preferred_username": username, "email": f"{username}@ephico2real.com",
@@ -67,7 +67,7 @@ class Keys:
         if employee_id:
             claims["employee_id"] = employee_id
         claims.update(extra or {})
-        headers = {"kid": kid or self.kid, **({"typ": typ} if typ else {})}
+        headers = {"kid": kid or self.kid, "typ": typ}      # PyJWT deletes a header typ that is None, and writes JWT when the key is absent
         if alg == "none":
             return jwt.encode(claims, key=None, algorithm="none", headers=headers)
         return jwt.encode(claims, self.pem, algorithm=alg, headers=headers)
