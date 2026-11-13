@@ -1,6 +1,6 @@
 # Source: docs/02-technical-design-v2.md
 # config/plugins.yaml
-enabled: [namespaces, quotas, limitranges, metadata, expiration,
+enabled: [namespaces, quotas, metadata, expiration,
           serviceaccounts, sa-grants, scc-grants, sa-tokens,
           rbac-read, identity-read, capacity, adoption, sync, reports]
 overrides:                       # keyed by instance, then environment; checked against allowedEnvironments

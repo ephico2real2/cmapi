@@ -86,7 +86,7 @@ netpol = "cmapi_netpol:plugin"
 
 ```yaml
 # config/plugins.yaml
-enabled: [namespaces, quotas, limitranges, metadata, expiration,
+enabled: [namespaces, quotas, metadata, expiration,
           serviceaccounts, sa-grants, scc-grants, sa-tokens,
           rbac-read, identity-read, capacity, adoption, sync, reports]
 overrides:                       # keyed by instance, then environment; checked against allowedEnvironments
@@ -94,6 +94,8 @@ overrides:                       # keyed by instance, then environment; checked 
     prod:
       disabled: [sa-tokens]      # example: no self-service tokens in prod
 ```
+
+The file is optional: without it, each plugin of the build is enabled. The list `enabled` names the plugins whose routes the instance mounts. A plugin that is not in the list has no route, no tag and no line in the OpenAPI document. An override stops the writes of an enabled plugin in one environment of one instance: the write returns 422 plugin-disabled, and the reads stay. A name that is not a plugin of the build stops startup. An override for an environment that the instance does not serve also stops startup. GET /api/v1/admin/plugins shows each plugin, its version and its overrides.
 
 **Extension points beyond plugins.** Swappable pieces inside core, each an interface with a default adapter. The full set of eleven, the shared components and how a new offering plugs in are under Modularity and reuse in Design and Architecture; the original three:
 
@@ -155,6 +157,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | idp-unavailable | 503 | Keycloak signing keys unreachable and no cached key matches; Retry-After set |
 | operations-engine-unavailable | 503 | The configured operations engine (Argo Workflows or Tekton) is unreachable; the request path is unaffected |
 | cluster-not-writable | 422 | The cluster is imported but has no clusters.yaml policy entry yet; reads work |
+| plugin-disabled | 422 | plugins.yaml disables the plugin in the cluster's environment on this instance; the body carries plugin and environment, and reads work |
 | environment-not-served | 422 | The environment is not in this instance's allowedEnvironments; the body carries instanceUrl and portalUrl of the instance that serves it |
 | capacity-service-unavailable | 503 | cmapi-capacity cannot be reached or its circuit is open; Retry-After set. Placement and creates are unaffected |
 | cluster-not-found | 404 | clusterId not in the registry |
