@@ -79,7 +79,7 @@ keycloak:
   # profile attributes, and LDAP federation when the cmapi-ldap-bind Secret exists.
   sync:
     enabled: false
-    testUsers: true                # ola, amy, opal, bot-user with generated passwords in Secret cmapi-test-users
+    testUsers: true                # ola, amy, opal with generated passwords in Secret cmapi-test-users
     ldap:
       enabled: false               # needs Secret cmapi-ldap-bind (bindDN, password), created by the site
       connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443

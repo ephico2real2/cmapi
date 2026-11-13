@@ -7,8 +7,8 @@
   recorded. identity.requireOnBehalfOf: true makes onBehalfOf mandatory for services again.
 - A user token without the employee_id claim is refused (identity-incomplete) when the instance
   requires it (identity.requireEmployeeId), unless the account holds an automation role
-  (identity.automationRoles, default [cmapi-onboarding]): a local Keycloak account such as bot-user
-  that an AI agent or a script signs in with. An automation account may also send onBehalfOf.
+  (identity.automationRoles, default [cmapi-onboarding]). An AI agent or a script signs in as the service
+  client cmapi-automation, with client credentials. An automation caller may also send onBehalfOf.
 - Every request records whether it was automated (a service client or an automation account).
 - Email-valued governed keys (cmapi.net/team-dl) must be an address in one of emailDomains from
   metadata-keys.yaml. Format only: DLs are never looked up.

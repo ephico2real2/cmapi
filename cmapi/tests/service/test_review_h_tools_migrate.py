@@ -71,11 +71,12 @@ class FakeHost:
     """Enough of Gitea or the Keycloak admin API to run a tool; records every request."""
 
     def __init__(self, handler):
-        self.handler, self.calls = handler, []
+        self.handler, self.calls, self.asked = handler, [], []
 
     def transport(self):
         def h(req):
             self.calls.append((req.method, req.url.path, req.content.decode() if req.content else ""))
+            self.asked.append(req.url)
             return self.handler(req)
         return httpx.MockTransport(h)
 
@@ -131,7 +132,10 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
         if p.endswith("/service-account-user"):
             return httpx.Response(200, json={"id": "sa"})
         if p.endswith("/clients"):
-            return httpx.Response(200, json=[{"id": "c"}])
+            # An old realm (#181): the automation client still takes the password grant and has no service account.
+            if int(req.url.params.get("first", 0)) > 0:               # the list is read page by page, to its end
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[{"id": "c", "clientId": req.url.params.get("clientId", "cmapi-automation"), "directAccessGrantsEnabled": True}])
         if "/role-mappings/" in p and m == "GET":
             return httpx.Response(200, json=[])
         if p.endswith("/roles"):
@@ -158,6 +162,14 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
     assert SECRET not in out.out + out.err
     paths = {p for _, p, _ in host.calls if p.startswith("/admin/realms/")}
     assert paths and all(p.startswith("/admin/realms/cmapi") for p in paths), "another realm reached"
+    # #181: the sync turns the password grant off, gives the automation client its service account and its role, and removes bot-user.
+    client_put = next(json.loads(b) for m, p, b in host.calls if m == "PUT" and p.endswith("/clients/c"))
+    assert client_put["directAccessGrantsEnabled"] is False and client_put["serviceAccountsEnabled"] is True
+    granted = [json.loads(b) for m, p, b in host.calls if m == "POST" and p.endswith("/users/sa/role-mappings/clients/c")]
+    assert [{"name": "cmapi-onboarding"}] in granted
+    asked = [str(r) for r in host.asked if "username=bot-user" in str(r)]
+    assert asked and ("DELETE", "/admin/realms/cmapi/users/u", "") in host.calls, "bot-user is not removed"
+    assert "password grant: off on each client (changed: cmapi-automation)" in out.out
     assert all(p.startswith(("/admin/realms/cmapi", "/realms/cmapi")) for _, p, _ in host.calls)
 
 

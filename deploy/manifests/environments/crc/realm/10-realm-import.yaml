@@ -210,7 +210,7 @@ spec:
         - name: cmapi-viewer
           description: clusters:read, objects:read, capacity:read, requests:read
         - name: cmapi-onboarding
-          description: Create namespaces only. For people and local automation accounts
+          description: Create namespaces only. For people and automation clients
         - name: cmapi-requester
           description: Onboarding plus change and delete, quotas, service accounts and grants
         - name: cmapi-approver
@@ -224,7 +224,7 @@ spec:
         - name: cmapi-approval-relay
           description: approvals:relay for channel integrations
     clients:
-    # Every realm gets a public admin-cli that takes a password with no client secret, so cmapi-automation's secret would guard nothing (measured). Nothing here uses it.
+    # Every realm gets a public admin-cli that takes a password with no client secret (measured). No client of this realm takes the password grant (RFC 9700, 2.4; #181), so it is off here also. Nothing here uses it.
     - clientId: admin-cli
       name: Not used in this realm
       enabled: false
@@ -308,12 +308,13 @@ spec:
       optionalClientScopes:
       - offline_access
     - clientId: cmapi-automation
-      name: Local automation accounts (bot-user)
+      name: Automation (an AI agent or a script), by its service account
       enabled: true
       publicClient: false
       secret: ${CMAPI_AUTOMATION_SECRET}
       standardFlowEnabled: false
-      directAccessGrantsEnabled: true
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: true
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -372,6 +373,12 @@ spec:
         realm-management:
         - view-users
         - query-users
+    - username: service-account-cmapi-automation
+      enabled: true
+      serviceAccountClientId: cmapi-automation
+      clientRoles:
+        cmapi-nonprod:
+        - cmapi-onboarding
     groups:
     - name: cmapi
       path: /cmapi

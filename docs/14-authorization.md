@@ -28,7 +28,7 @@ One LDAP group exists for each role. Its name is `app-cmapi-rbac-<role>`. Keyclo
 | `app-cmapi-rbac-admin` | `/cmapi/app-cmapi-rbac-admin` | `cmapi-admin` | |
 | `app-cmapi-rbac-auditor` | `/cmapi/app-cmapi-rbac-auditor` | `cmapi-auditor` | |
 
-Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:375-429`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
+Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:382-436`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
 
 The path template is `identity.groupPath` in `instance.yaml`. Its default is `/cmapi/app-cmapi-rbac-{name}` (`cmapi/src/cmapi/core/authz.py:47`). The service stops at startup if the template cannot name a group (`authz.py:53-59`).
 

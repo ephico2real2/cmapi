@@ -4,15 +4,18 @@ client (realm-management roles), never as the shared instance's master admin.
 
 What it converges, each step idempotent:
   1. the user profile declares employeeId and middleName (Keycloak 24+ drops undeclared attributes);
-  2. the realm-management roles the service clients need: cmapi-realm-admin -> realm-admin,
-     cmapi-directory -> view-users and query-users;
+  2. the roles the service clients need: cmapi-realm-admin -> realm-admin and cmapi-directory -> view-users
+     and query-users on realm-management, and cmapi-automation -> cmapi-onboarding on the audience client;
   3. the groups under /cmapi and their client-role mappings (the import creates them; a later
      change to the mapping reaches an existing realm here);
   4. LDAP federation, read-only, with the group mapper filtered on groupsFilter under /cmapi, and on
      a shared directory only the people usersFilter names, when the bind credential Secret is present
      (CMAPI_LDAP_BIND_DN and CMAPI_LDAP_BIND_PASSWORD);
-  5. local test users (ola, amy, opal, bot-user) with the passwords from Secret cmapi-test-users,
+  5. local test users (ola, amy, opal) with the passwords from Secret cmapi-test-users,
      their attributes and group memberships; nothing is printed but names.
+
+No client of the realm takes the resource owner password grant (RFC 9700, section 2.4; #181): before step 2 the
+sync turns it off on each client of an existing realm, and retires the local account bot-user independently of test-user creation.
 """
 from __future__ import annotations
 
@@ -86,20 +89,49 @@ def user_profile(rm: Realm) -> None:
     print(f"user profile: employeeId, middleName {'declared' if changed else 'present'}")
 
 
-def service_roles(rm: Realm) -> None:
-    rm_client = rm.get("/clients", params={"clientId": "realm-management"})[0]
-    roles = {x["name"]: x for x in rm.get(f"/clients/{rm_client['id']}/roles")}
-    for client_id, wanted in (("cmapi-realm-admin", ["realm-admin"]), ("cmapi-directory", ["view-users", "query-users"])):
+def service_roles(rm: Realm, audience: str) -> None:
+    for client_id, role_client, wanted in (("cmapi-realm-admin", "realm-management", ["realm-admin"]),
+                                           ("cmapi-directory", "realm-management", ["view-users", "query-users"]),
+                                           ("cmapi-automation", audience, ["cmapi-onboarding"])):
+        holder = rm.get("/clients", params={"clientId": role_client})[0]
+        roles = {x["name"]: x for x in rm.get(f"/clients/{holder['id']}/roles")}
         c = rm.get("/clients", params={"clientId": client_id})
         if not c:
             print(f"client {client_id} absent: skipped")
             continue
         sa = rm.get(f"/clients/{c[0]['id']}/service-account-user")
-        have = {x["name"] for x in rm.get(f"/users/{sa['id']}/role-mappings/clients/{rm_client['id']}") or []}
+        have = {x["name"] for x in rm.get(f"/users/{sa['id']}/role-mappings/clients/{holder['id']}") or []}
         missing = [roles[n] for n in wanted if n not in have and n in roles]
         if missing:
-            rm.call("POST", f"/users/{sa['id']}/role-mappings/clients/{rm_client['id']}", json=missing)
-        print(f"{client_id}: realm-management {wanted} {'granted' if missing else 'present'}")
+            rm.call("POST", f"/users/{sa['id']}/role-mappings/clients/{holder['id']}", json=missing)
+        print(f"{client_id}: {role_client} {wanted} {'granted' if missing else 'present'}")
+
+
+def no_password_grant(rm: Realm) -> None:
+    """Turn off the password grant throughout the existing realm, including later pages."""
+    changed = []
+    first = 0
+    while True:
+        clients = rm.get("/clients", params={"first": first, "max": 500}) or []
+        if not clients:
+            break
+        for c in clients:
+            want_service = c["clientId"] == "cmapi-automation"
+            if c.get("directAccessGrantsEnabled") or (want_service and not c.get("serviceAccountsEnabled")):
+                c["directAccessGrantsEnabled"] = False
+                if want_service:
+                    c["serviceAccountsEnabled"] = True
+                rm.call("PUT", f"/clients/{c['id']}", json=c)
+                changed.append(c["clientId"])
+        first += len(clients)
+    print(f"password grant: off on each client{' (changed: ' + ', '.join(sorted(changed)) + ')' if changed else ''}")
+
+
+def retire_legacy_bot(rm: Realm) -> None:
+    """Disabling a client grant does not disable an enabled local user's browser login."""
+    for stale in rm.get("/users", params={"username": "bot-user", "exact": "true"}) or []:
+        rm.call("DELETE", f"/users/{stale['id']}")
+        print("test user bot-user: removed (the automation client signs in by its service account)")
 
 
 def groups(rm: Realm, audience: str, mapping: dict[str, list[str]]) -> dict[str, str]:
@@ -221,7 +253,7 @@ def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
     api_client = rm.get("/clients", params={"clientId": audience})[0]
     roles = {x["name"]: x for x in rm.get(f"/clients/{api_client['id']}/roles")}
 
-    def upsert(username: str, body: dict[str, Any], password: str | None, memberships: list[str], direct_roles: list[str]) -> None:
+    def upsert(username: str, body: dict[str, Any], password: str | None, memberships: list[str]) -> None:
         found = rm.get("/users", params={"username": username, "exact": "true"})
         if not found:
             rm.call("POST", "/users", json={**body, "username": username, "enabled": True, "emailVerified": True})
@@ -236,20 +268,13 @@ def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
         for g in memberships:
             if g in group_ids:
                 rm.call("PUT", f"/users/{uid}/groups/{group_ids[g]}")
-        if direct_roles:
-            have = {x["name"] for x in rm.get(f"/users/{uid}/role-mappings/clients/{api_client['id']}") or []}
-            missing = [roles[r] for r in direct_roles if r not in have]
-            if missing:
-                rm.call("POST", f"/users/{uid}/role-mappings/clients/{api_client['id']}", json=missing)
 
     for username, first, middle, last, emp, memberships in TEST_USERS:
         attrs: dict[str, list[str]] = {"employeeId": [emp]}
         if middle:
             attrs["middleName"] = [middle]
         upsert(username, {"email": f"{username}@ephico2real.com", "firstName": first, "lastName": last, "attributes": attrs},
-               os.environ.get(username), memberships, [])
-    upsert("bot-user", {"email": "bot-user@ephico2real.com", "firstName": "Onboarding", "lastName": "Bot"},
-           os.environ.get("bot-user"), [], ["cmapi-onboarding"])
+               os.environ.get(username), memberships)
 
 
 def main(argv: list[str]) -> None:
@@ -262,7 +287,9 @@ def main(argv: list[str]) -> None:
     wait_for_realm(admin_base, realm, verify)
     rm = Realm(admin_base, realm, "cmapi-realm-admin", secret, verify)
     user_profile(rm)
-    service_roles(rm)
+    no_password_grant(rm)
+    retire_legacy_bot(rm)
+    service_roles(rm, audience)
     ids = groups(rm, audience, json.loads(os.environ.get("CMAPI_REALM_GROUPS") or "{}"))
     ldap(rm, json.loads(os.environ.get("CMAPI_REALM_LDAP") or "{}"))
     if os.environ.get("CMAPI_REALM_TEST_USERS", "false") == "true":
