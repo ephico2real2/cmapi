@@ -22,7 +22,7 @@ from __future__ import annotations
 import base64
 from typing import Any, Mapping
 
-from cmapi.core.git.base import CheckState, GitUnavailable, HostGitProvider
+from cmapi.core.git.base import CheckState, GitUnavailable, HostGitProvider, IncompleteList
 from cmapi.core.ports import PrRef, PrStatus
 
 
@@ -44,6 +44,8 @@ def _run_state(run: Mapping[str, Any]) -> CheckState:
 
 class GitHubProvider(HostGitProvider):
     external_ci = True
+    # GitHub, "Compare two commits": the list of changed files "includes up to 300 changed files for the entire comparison".
+    COMPARE_FILES_LIMIT = 300
     MAX_PAGES = 100      # 10,000 entries on one commit: past this a host is not answering a list, and a partial list must not read as complete
 
     def _headers(self, token: str) -> dict[str, str]:
@@ -121,7 +123,10 @@ class GitHubProvider(HostGitProvider):
         r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
         if r.status_code != 200:
             raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {r.text[:200]}")
-        return {f["filename"] for f in r.json().get("files") or []}
+        files = r.json().get("files") or []
+        if len(files) >= self.COMPARE_FILES_LIMIT:      # at the limit the list can be cut, and a cut list hides a path (#199)
+            raise IncompleteList(f"{head[:8]} changes {self.COMPARE_FILES_LIMIT} files or more, and GitHub lists no more than that")
+        return {f["filename"] for f in files}
 
     def _pr_ref(self, p: Mapping[str, Any]) -> PrRef:
         return PrRef(number=p["number"], url=p["html_url"], branch=p["head"]["ref"], head_sha=p["head"]["sha"])

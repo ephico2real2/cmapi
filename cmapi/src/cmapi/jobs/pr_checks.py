@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
+from cmapi.core.git.base import IncompleteList
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
 from cmapi.core.render.manifests import folder, plan_hash
@@ -62,7 +63,10 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
             actual[p] = None
     # The folder comparison sees only the folder. The bot alone writes this branch, so any other head means
     # someone pushed, possibly outside the folder (another namespace's folder, CI files): the merge would carry it.
-    outside = sorted(ctx.git.changed_paths(head) - set(row.plan["files"]))
+    try:
+        outside = sorted(ctx.git.changed_paths(head) - set(row.plan["files"]))
+    except IncompleteList as exc:      # a list that the host cut cannot show that nothing is outside the plan: the check fails
+        outside = [f"a list that is not complete: {exc}"]
     cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env)
     kc = [f for f in findings if f.source in ("kubeconform", "cmapi")]

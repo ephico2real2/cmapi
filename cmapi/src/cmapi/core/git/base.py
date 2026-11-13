@@ -20,6 +20,11 @@ class GitUnavailable(RuntimeError):
     pass
 
 
+class IncompleteList(GitUnavailable):
+    """The host gave a list that it can have cut, so nothing may read it as complete. A caller that does not handle it
+    treats the host as unavailable, which is the safe reading."""
+
+
 class HostGitProvider:
     """The contract. Subclasses fill in the host's endpoints."""
 
@@ -89,7 +94,8 @@ class HostGitProvider:
         raise NotImplementedError
 
     def changed_paths(self, head: str) -> set[str]:
-        """Every path any commit on head touches since it left the default branch."""
+        """Every path any commit on head touches since it left the default branch. IncompleteList when the host cannot
+        give each one."""
         raise NotImplementedError
 
     def tree_files(self, ref: str, folder: str) -> dict[str, str]:
