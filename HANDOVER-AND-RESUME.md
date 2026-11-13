@@ -4,7 +4,7 @@ Read this first to continue the build from a new session, with nothing else in h
 [`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
 [`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated on 2026-11-13, before the owner cleared the session.
 
-**The next run.** The owner plans a run by OB1 (Fable 5.2) with the prompt in [`OB1-PROMPT.md`](OB1-PROMPT.md): build the whole application as designed, deploy and test it on CRC and kind, and fix bugs as they appear, documenting features as they land. That prompt replaces `CLAUDE.md`'s delivery loop for that run only.
+**The next run.** The owner plans a run by OB1 (Fable 5.2) with the prompt in [`OB1-PROMPT.md`](OB1-PROMPT.md): build the whole application as designed, deploy and test it on CRC and kind, and fix bugs as they appear, documenting features as they land. That prompt replaces `CLAUDE.md`'s delivery loop for that run only. The owner, 2026-11-13: "change ob1 to use fable 5.2". So the Fable pause is lifted for OB1's run, and OB1 writes the code itself. Start the session with `claude --model claude-fable-5-2` in the worktree, since the prompt cannot set the model. Everywhere else the pause and "Who does what" below still apply. The owner, 2026-11-13: "let ob1 knows that it has full autonomy". The prompt says so in its own section, "You have full autonomy".
 
 ## Where these files are
 
