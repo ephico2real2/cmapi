@@ -12,20 +12,26 @@ offlineSessionMaxLifespanEnabled: true
 offlineSessionMaxLifespan: 7776000           # 90 days
 revokeRefreshToken: true
 refreshTokenMaxReuse: 0
+# Each client that gets a token for cmapi (the portal and each pipeline client also) has access.token.header.type.rfc9068,
+# so the JOSE header of its access token says typ: at+jwt (RFC 9068, section 2.1). cmapi refuses another type (#184).
 clients:
   - clientId: cmapi-docs
     attributes:
       client.session.idle.timeout: "3600"    # 1 hour
       client.session.max.lifespan: "28800"   # 8 hours
+      access.token.header.type.rfc9068: "true"
   - clientId: cmapi-cli
     optionalClientScopes: [offline_access]
     attributes:
       oauth2.device.authorization.grant.enabled: "true"
+      access.token.header.type.rfc9068: "true"
   - clientId: cmapi-automation                 # an AI agent or a script: client credentials, by its service account
     publicClient: false                        # no client takes the password grant (RFC 9700, section 2.4; #181)
     standardFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: true
+    attributes:
+      access.token.header.type.rfc9068: "true"
 
 # Identity additions (docs/02-technical-design-v2.md, "Identity claims")
 components:

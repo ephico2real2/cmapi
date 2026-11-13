@@ -20,7 +20,7 @@ The change is about sign-in and tokens, so it has a second reader.
 | C7. The sync brings an old realm to the new state | REFUTED on two points: the sync read one page of 500 clients, and it removed `bot-user` only when test users are on, so a realm with test users off kept an account that could still sign in through a browser client | **Accepted.** Codex's fix reads each page and removes `bot-user` in each run. cmapi's own sync made that account, so cmapi can delete it. 2 tests failed before |
 | C8. The service account gets no more than `bot-user` had | CONFIRMED | Stands |
 | C9. The refusal check of `crc-proof.sh` cannot pass with the grant on and counts against no account | CONFIRMED | Stands |
-| C10. The new checks of the realm test can fail | PLAUSIBLE: it cannot run without a container | Stands as PLAUSIBLE until the `manifests` job runs it |
+| C10. The new checks of the realm test can fail | PLAUSIBLE: it cannot run without a container | Measured after the review: the realm test passed on a real Keycloak in GitHub's `manifests` job (run 43511671215 on `b3fb270`, `realm cases failed: 0`). Its old-state step got a token by the password grant before the sync (200) and `unauthorized_client` after it |
 | Extra. The chart's realm did not name `admin-cli`, so Keycloak made it with the password grant on, until the sync ran | REFUTED | **Accepted.** The chart names `admin-cli` disabled, as the plain import does. The defect is older than this change |
 | Extra. "The diff removes the plugin switch" | REFUTED | **Not a defect.** The export's diff was made against a `main` that had gained #180 after this branch started, so #180's files read as removed. The branch now has `main` merged, and `test_plugins_switch.py` passes on it (41 cases) |
 
@@ -30,4 +30,4 @@ One change to Codex's helm test: it finds `helm` on the PATH and not at `/usr/lo
 
 ## Not tested
 
-Nothing here ran against a real Keycloak on this Mac: containers are off (#157). The realm test runs in GitHub's `manifests` job. Nothing ran on CRC: realm `cmapi` is not there.
+Nothing here ran against a real Keycloak on this Mac: containers are off (#157). The realm test ran in GitHub's `manifests` job, on a real Keycloak and OpenLDAP. Nothing ran on CRC: realm `cmapi` is not there.

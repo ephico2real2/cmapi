@@ -40,7 +40,7 @@
   "        raise Problem(503, \"idp-unavailable\", \"Keycloak signing keys are unreachable and this key is not cached\",",
   "                      extra={\"retryAfter\": 30})"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|138-171": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|150-186": [
   "    def authenticate(self, bearer: str) -> Identity:",
   "        try:",
   "            header = jwt.get_unverified_header(bearer)",
@@ -70,66 +70,72 @@
   "        except jwt.PyJWTError as exc:",
   "            AUTH_FAILURES.labels(\"signature\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc",
-  "        # Keycloak marks every token it issues; an ID or refresh token is never a bearer credential here.",
-  "        if claims.get(\"typ\") not in (None, \"Bearer\"):",
+  "        # An ID token or a refresh token is never a bearer credential here. The header is under the signature that was just verified.",
+  "        header_type, claim_type = str(header.get(\"typ\") or \"\").lower(), claims.get(\"typ\")",
+  "        rfc9068 = header_type in ACCESS_TOKEN_TYPES and claim_type in (None, \"Bearer\")",
+  "        legacy = self.legacy_token_type and header_type == \"jwt\" and claim_type == \"Bearer\"",
+  "        if not (rfc9068 or legacy):",
   "            AUTH_FAILURES.labels(\"token-type\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Token is not an access token\")",
   "        return Identity.from_claims(claims, self.audience)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|139-143": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|151-155": [
   "        try:",
   "            header = jwt.get_unverified_header(bearer)",
   "        except jwt.PyJWTError as exc:",
   "            AUTH_FAILURES.labels(\"malformed\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|144-146": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|156-158": [
   "        if header.get(\"alg\") != \"RS256\" or not header.get(\"kid\"):",
   "            AUTH_FAILURES.labels(\"algorithm\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Invalid token: unsupported algorithm\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|147-151": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|159-163": [
   "        try:",
   "            key = self.jwks.key(header[\"kid\"])",
   "        except jwt.PyJWTError as exc:",
   "            AUTH_FAILURES.labels(\"signature\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Invalid token: unknown signing key\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|153-154": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|165-166": [
   "            claims = jwt.decode(bearer, key.key, algorithms=[\"RS256\"], audience=self.audience, issuer=self.issuer,",
   "                                leeway=self.leeway, options={\"require\": [\"exp\", \"iat\", \"iss\", \"aud\", \"sub\"]})"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|155-157": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|167-169": [
   "        except jwt.ExpiredSignatureError as exc:",
   "            AUTH_FAILURES.labels(\"expired\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Token expired\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|158-160": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|170-172": [
   "        except jwt.InvalidAudienceError as exc:",
   "            AUTH_FAILURES.labels(\"audience\").inc()",
   "            raise Problem(401, \"unauthenticated\", f\"Token is not for audience {self.audience}\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|161-163": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|173-175": [
   "        except jwt.InvalidIssuerError as exc:",
   "            AUTH_FAILURES.labels(\"issuer\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Token issuer is not trusted\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|164-166": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|176-178": [
   "        except jwt.PyJWTError as exc:",
   "            AUTH_FAILURES.labels(\"signature\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|168-170": [
-  "        if claims.get(\"typ\") not in (None, \"Bearer\"):",
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|180-185": [
+  "        header_type, claim_type = str(header.get(\"typ\") or \"\").lower(), claims.get(\"typ\")",
+  "        rfc9068 = header_type in ACCESS_TOKEN_TYPES and claim_type in (None, \"Bearer\")",
+  "        legacy = self.legacy_token_type and header_type == \"jwt\" and claim_type == \"Bearer\"",
+  "        if not (rfc9068 or legacy):",
   "            AUTH_FAILURES.labels(\"token-type\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Token is not an access token\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|186-188": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|201-203": [
   "        if not token:",
   "            AUTH_FAILURES.labels(\"missing\").inc()",
   "            raise Problem(401, \"unauthenticated\", \"Bearer token required\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|196-197": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|211-212": [
   "def unauthenticated_headers(problem: Problem) -> Mapping[str, str]:",
   "    return {\"WWW-Authenticate\": 'Bearer error=\"invalid_token\"'} if problem.status == 401 else {}"
  ],
@@ -493,7 +499,7 @@
  "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|39-39": [
   "def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, capsys):"
  ],
- "docs/14-authorization.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|382-436": [
+ "docs/14-authorization.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|391-445": [
   "    groups:",
   "    - name: cmapi",
   "      path: /cmapi",
@@ -560,19 +566,19 @@
   "fresh pod after a restart can still verify during an outage. A token whose kid matches no cached",
   "key while Keycloak is down is 503 idp-unavailable, never 401."
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|135-135": [
-  "    def __init__(self, issuer: str, audience: str, jwks: Jwks, leeway: int = 30):"
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|146-146": [
+  "    def __init__(self, issuer: str, audience: str, jwks: Jwks, leeway: int = 30, legacy_token_type: bool = False):"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|153-154": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|165-166": [
   "            claims = jwt.decode(bearer, key.key, algorithms=[\"RS256\"], audience=self.audience, issuer=self.issuer,",
   "                                leeway=self.leeway, options={\"require\": [\"exp\", \"iat\", \"iss\", \"aud\", \"sub\"]})"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|158-160": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|170-172": [
   "        except jwt.InvalidAudienceError as exc:",
   "            AUTH_FAILURES.labels(\"audience\").inc()",
   "            raise Problem(401, \"unauthenticated\", f\"Token is not for audience {self.audience}\") from exc"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|174-179": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|189-194": [
   "def oauth2_scheme(issuer: str) -> OAuth2AuthorizationCodeBearer:",
   "    \"\"\"Reads Authorization: Bearer and drives Swagger UI's Authorize button (PKCE through cmapi-docs).\"\"\"",
   "    return OAuth2AuthorizationCodeBearer(",
@@ -593,7 +599,7 @@
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|178-249": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|202-273": [
   "def ldap(rm: Realm, cfg: dict[str, Any]) -> None:",
   "    bind_dn, bind_pw = os.environ.get(\"bindDN\") or os.environ.get(\"CMAPI_LDAP_BIND_DN\"), \\",
   "        os.environ.get(\"password\") or os.environ.get(\"CMAPI_LDAP_BIND_PASSWORD\")",
@@ -672,7 +678,7 @@
   "# the import runs --override=false, so an existing realm is left as it is, and this object neither updates nor deletes one. Client",
   "# secrets are ${...} placeholders the import Job reads from Secret cmapi-realm-secrets, written by deploy/secrets.sh; no secret in Git."
  ],
- "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|382-436": [
+ "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|391-445": [
   "    groups:",
   "    - name: cmapi",
   "      path: /cmapi",

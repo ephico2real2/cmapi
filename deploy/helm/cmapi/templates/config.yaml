@@ -21,6 +21,7 @@ data:
       auth:
         issuer: {{ .Values.auth.issuer | quote }}
         audience: {{ .Values.auth.audience | quote }}
+        acceptLegacyTokenType: {{ .Values.auth.acceptLegacyTokenType | default false }}
       namespaces:
         reservedPatterns: {{ toJson $inst.reservedPatterns }}
       identity: {{ toJson $inst.identity }}
