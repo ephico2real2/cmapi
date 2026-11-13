@@ -26,6 +26,15 @@ Every environment connects to CNPG the same way, so it is in `components/cmapi/`
 both migrate containers set `PGSSLMODE=verify-full` and read `ca.crt` of `cmapi-db-ca` through the `trust` volume. A `ca.crt` that CNPG
 renews reaches running pods through that volume, with no restart; `checksum/config` does not read it.
 
+Measured on a `cmapi-test` kind cluster on Podman (CloudNativePG 1.30.1), 2026-11-13, by `deploy/kind-test.sh`:
+
+| Manifests | Each of the four containers, as deployed | The same container with a CA that does not cover the server |
+|---|---|---|
+| Before #91 | `connected True TLSv1.3 prefer`: TLS, and nothing verified | `connected False None prefer`: libpq fell back to plaintext without a word |
+| With #91 | `connected True TLSv1.3 verify-full` | `refused ... SSL error: certificate verify failed` |
+
+The four containers are the api, the worker and the migrate container of each. On the fixed manifests `pg_stat_ssl` showed 1 TLS and 0 plaintext connection for the api pod and for the worker pod. `deploy/tests/external-db-test.sh` then ran `docs/12`'s route on the same cluster: 0 of its 13 cases failed. The NetworkPolicy was deleted for these runs, as `kind-test.sh` does on Podman kind, so they say nothing about the policy. Not measured on CRC yet: `deploy/crc-proof.sh` reads each container's `sslmode` there.
+
 `environments/crc/`: `oc apply --server-side --field-manager=cmapi-wave1 -f environment/` applies its top-level files. Never
 `-R`: `reader/` and `realm/` are applied by name, in the steps of `docs/13-crc-deployment.md`. Their files are outside what
 `render.sh`'s checksum reads, and only `realm/20-realm-sync.yaml` carries an image placeholder of the environment's own.
