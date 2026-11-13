@@ -99,7 +99,7 @@ say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.s
 say "what each database connection gets: the api, the worker and both migrate containers"
 # Measured, not assumed: libpq's sslmode=prefer connects to anything and falls back to plaintext without a word. A pod made from each
 # container of the two Deployments, its environment and mounts untouched, connects as that process connects and says what it got: ssl,
-# the TLS version, and the sslmode libpq used, from PQconninfo. A second one reads, as the CNPG CA, the kind bundle's stand-in CA, which
+# the TLS version, and the sslmode libpq used, from PQconninfo. A second one reads, as its root CA, the kind bundle's stand-in CA, which
 # signed nothing: it must refuse, and not fall back. Each pod's labels put it under the same NetworkPolicy and in no Service. Every
 # measurement is printed before a failure stops the run, so a run on manifests without the fix shows the whole of what they do.
 DB_CHECK='import os
@@ -120,10 +120,12 @@ c=spec[where][0]
 for key in ("readinessProbe","livenessProbe","startupProbe","ports"): c.pop(key,None)
 c.update(name="check",command=["python3","-c",check])
 if wrong_ca=="true":
-    for v in spec["volumes"]:
-        for s in v.get("projected",{}).get("sources",[]):
-            if s.get("secret",{}).get("name")=="cmapi-db-ca":
-                s["configMap"]={"name":"cmapi-trust","items":[{"key":"ca-bundle.crt","path":s.pop("secret")["items"][0]["path"]}]}
+    # Supply the wrong CA even with pre-fix manifests, which have no CNPG projection or PGSSLROOTCERT.
+    # Preserve PGSSLMODE: before the fix, prefer may retry in plaintext after certificate verification fails.
+    c["env"]=[e for e in c.get("env",[]) if e["name"]!="PGSSLROOTCERT"]
+    c["env"].append({"name":"PGSSLROOTCERT","value":"/etc/cmapi/probe-ca/ca.crt"})
+    c.setdefault("volumeMounts",[]).append({"name":"db-check-ca","mountPath":"/etc/cmapi/probe-ca","readOnly":True})
+    spec["volumes"].append({"name":"db-check-ca","projected":{"sources":[{"configMap":{"name":"cmapi-trust","items":[{"key":"ca-bundle.crt","path":"ca.crt"}]}}]}})
 print(json.dumps({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod,"namespace":"cmapi","labels":{"app.kubernetes.io/component":deployment.removeprefix("cmapi-"),"cmapi.net/kind-test":"db-check"}},
   "spec":{"restartPolicy":"Never","serviceAccountName":spec["serviceAccountName"],"securityContext":spec["securityContext"],"volumes":spec["volumes"],"containers":[c]}}))' "$1" "$2" "$3" "$4" "$DB_CHECK" | k apply -f - >/dev/null
 }
