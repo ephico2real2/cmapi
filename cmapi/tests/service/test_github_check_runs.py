@@ -388,11 +388,16 @@ def test_ci_that_never_reports_fails_the_request_when_the_clock_runs_out(on_gith
     assert pr_checks_job(ctx)[0] is False
 
 
-def test_green_ci_does_not_excuse_a_head_that_moved(on_github):
-    """The cmapi check still decides: Actions passing on a pushed commit is not an approval of it."""
+@pytest.mark.parametrize("same_tree", [False, True], ids=["changed-files", "same-files-new-commit"])
+def test_green_ci_does_not_excuse_a_head_that_moved(on_github, same_tree):
+    """Actions passing on a pushed commit is not approval of it, even when its tree is unchanged."""
     client, ctx, fake, host, validator, keys, rid = on_github
     branch = fake.prs[1]["branch"]
-    fake.tamper(branch, "clusters/CRC/namespaces/payments-dev/extra.yaml", "kind: ConfigMap\n")
+    if same_tree:
+        # A metadata-only/empty commit: the host reports a new SHA with identical files.
+        fake.heads[branch] = "d" * 40
+    else:
+        fake.tamper(branch, "clusters/CRC/namespaces/payments-dev/extra.yaml", "kind: ConfigMap\n")
     host.report(CONTEXT_KUBECONFORM)
     host.report(CONTEXT_KYVERNO)
     poll(ctx)
