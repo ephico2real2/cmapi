@@ -21,3 +21,12 @@ POST /api/v1/requests/{request_id}:cancel the `detail` response's property `type
 POST /api/v1/requests/{request_id}:retry the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
 POST /api/v1/requests/{request_id}:revert the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
 GET /api/v1/tiers the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+
+# #164 (BUG-39), accepted on 2026-11-13, before the first release: these six operations documented their 422 problem under two
+# media types. The API never served a problem as `application/json`, only as `application/problem+json`, so the first one is removed.
+POST /api/v1/admin/prune:confirm removed the media type `application/json` for the response with the status `422`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `422`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `422`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `422`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `422`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `422`
