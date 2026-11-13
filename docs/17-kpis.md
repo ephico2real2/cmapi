@@ -29,7 +29,7 @@ Each KPI is measured for one instance. A ratio is a number from 0 to 1. A value 
 | `api-availability` | API availability (30 d) | Can callers use the API? The platform team acts on an error budget | 1 minus the requests with status 5xx, divided by all requests with a status other than 4xx | `cmapi_http_requests_total{method, route, status}` | 99.5% in a month | `CmapiHighErrorRate`, shipped | `built` |
 | `system-headroom` | System headroom (p95, 7 d) | Does each cmapi component have room? The platform team raises a limit | Memory used divided by its limit, and CPU used divided by its limit, for each component | `cmapi_process_memory_bytes`, `cmapi_process_memory_limit_bytes`, `cmapi_process_cpu_usage_seconds_total`, `cmapi_process_cpu_limit_cores`, label `component` | Under 80% for each component | `CmapiMemoryNearLimit`, shipped | `built` |
 | `cpu-saturation` | CPU saturation | Does a component hit its CPU limit while use looks low? The platform team raises the limit | Throttled periods divided by periods, for each component | `cmapi_process_cpu_throttled_periods_total`, `cmapi_process_cpu_periods_total`, label `component` | Under 1% of periods | `CmapiCpuThrottled`, shipped | `built` |
-| `self-service-rate` | Self-service rate | Do teams finish their requests without the platform team? The product owner acts | `synced` requests with no approval that counted for the platform group, divided by `synced` requests | Database. Not computable today: an approval row does not record the group that it counted for (#171) | Over 80% | None | `designed` |
+| `self-service-rate` | Self-service rate | Do teams finish their requests without the platform team? The product owner acts | `synced` requests with no approval that counted for the platform group, divided by `synced` requests | Database, `change_requests` and `approvals.counted_for`. The platform group is `defaults.group` of `approval-rules.yaml`. A request with an approval from before migration `0004` is in neither part | Over 80% | None | `live` |
 | `drift-events` | Drift events (7 d) | Does someone change a cluster outside Git? The platform team finds the cause | Count of OutOfSync states with no open request | `cmapi_sync_drift_total{cluster_id}`. The metric is declared, and no code feeds it (#172) | 0 in a week | `CmapiDriftDetected`, designed | `designed` |
 | `expired-namespaces-cleaned` | Expired namespaces cleaned | Do expired namespaces leave the clusters? The platform team confirms the prunes | Namespaces past the grace period with no delete request, plus deletes that wait for a prune for more than 24 h | The expiration report. The job `expire_check` is not built | 0 | `CmapiPruneStuck`, shipped, for the second part | `designed` |
 | `placement-accuracy` | Placement accuracy | Does placement keep each cluster inside its overcommit limit? The capacity owner acts | Overcommit breaches in the 30-day backtest | `cmapi_placement_backtest_breaches`. `cmapi-capacity` is not built | 0 | None | `designed` |
@@ -55,7 +55,7 @@ Each KPI is measured for one instance. A ratio is a number from 0 to 1. A value 
 | Validation reject rate (`docs/02` only) | `docs/02` said "Tracked, not targeted". It stays a panel of the Change flow dashboard (`cmapi_validation_failures_total{source}`), and nobody acts on it as a KPI |
 | "Lead time p90 (all)" in the API | The API mixed auto-approved and approved requests in one figure. Their targets differ by a factor of about 100, so the mix answered no question. The API now gives the two figures |
 
-Before the review, the API's "Self-service rate" was the `synced` requests with no approval at all, divided by `synced` requests. That is not "no platform-team touch": a request that a team lead approved is self-service. The figure also repeated the auto-approval rate. So the row left the API until #171 lets the code compute the designed formula.
+Before the review, the API's "Self-service rate" was the `synced` requests with no approval at all, divided by `synced` requests. That is not "no platform-team touch": a request that a team lead approved is self-service. The figure also repeated the auto-approval rate. So the row left the API. It is back from #171: each approval now stores the approving group that it counted for (`approvals.counted_for`), and the API computes the designed formula. A request that a policy approved has no approval, so it counts as self-service.
 
 ## How each KPI follows current practice
 
@@ -88,20 +88,20 @@ What cmapi does not measure, on purpose:
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/kpis/kpis.dark.png">
   <source srcset="diagrams/kpis/kpis.light.png">
-  <img alt="Six KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Twelve are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster." src="diagrams/kpis/kpis.light.png">
+  <img alt="Seven KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Eleven are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster." src="diagrams/kpis/kpis.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
 *Solid boxes are built. Dashed boxes are not built or not proven on a cluster.*
 
 ```text
-database (change_requests) -> GET /api/v1/admin/kpi -> the portal's KPIs tab (the tab is not built on the API)
+database (change_requests, approvals) -> GET /api/v1/admin/kpi -> the portal's KPIs tab (the tab is not built on the API)
     live: lead-time-auto-p90, lead-time-approved-p90, approval-turnaround-p50, approval-turnaround-p90,
-          auto-approval-rate, change-failure-rate
+          auto-approval-rate, self-service-rate, change-failure-rate
 the process's own cgroup, and pg_stat_activity -> the same response: components, database (figures, not KPIs)
 /metrics -> Prometheus (user workload monitoring) -> dashboards and alerts      (not proven on a cluster)
     built: api-availability, system-headroom, cpu-saturation
-    designed: the other twelve KPIs
+    designed: the other eleven KPIs
 ```
 
 ## The API contract
@@ -131,6 +131,7 @@ One defect was in that sample: `walBytes` was a text, not a number (#173). It is
 | What | Where it ran | Result |
 |---|---|---|
 | The six live KPIs, their formulas, null for an empty denominator, the cgroup figures, the permission | The service suite on macOS, PostgreSQL 16 on `127.0.0.1:55432`, 2026-11-13: `tests/service/test_kpis.py` | 5 passed. On the code before the review, 4 of the 5 failed |
+| The self-service rate: two synced requests, one approved by a team group and one by the platform group, give 0.5; a request with an approval that has no stored group is in neither part | The same suite, `tests/service/test_self_service_rate.py` | 2 passed. On the code before #171 the API had no such row |
 | Any KPI value on a cluster, Prometheus scraping, a dashboard, an alert that fires | CRC | Not run. The CRC work is stopped (#157) |
 
 ## Diagram sources

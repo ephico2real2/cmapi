@@ -11,10 +11,10 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 | `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:148`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:173`) | The request routes, the worker jobs, the KPI report |
 | `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:168-173`) | `GET /api/v1/requests/{request_id}/events` |
 | `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:216`) | The approval ledger (`repo.py:202`) |
-| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:226`) | The worker: `JobRepo.claim` (`repo.py:239`) |
-| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:298`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:302`) |
-| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:333`) | `DbKeyStore.load` (`repo.py:328`), when a pod starts while Keycloak does not answer |
-| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:314`) | `SwitchRepo.get` (`repo.py:310`) |
+| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:232`) | The worker: `JobRepo.claim` (`repo.py:245`) |
+| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:304`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:308`) |
+| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:339`) | `DbKeyStore.load` (`repo.py:334`), when a pod starts while Keycloak does not answer |
+| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:320`) | `SwitchRepo.get` (`repo.py:316`) |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 
@@ -51,8 +51,9 @@ These indexes and constraints carry correctness. The code relies on each of them
 | One open request for each namespace | The partial unique index `uq_cr_open_namespace` on `(cluster_id, namespace)`, for the six open states | Migration `0001`, line 57 |
 | One request for each idempotency key of a caller | The partial unique index `uq_cr_idempotency` on `(requester_sub, idempotency_key)` | Migration `0001`, line 60 |
 | One approval for each person on a request | The unique index `uq_approvals_person` on `(request_id, approver_sub)` | Migration `0002` |
+| An approval says which approving group it counted for | `approvals.counted_for`. Each new approval writes the column again for each approval of the request, because the ledger can move an earlier approval to another slot. It is null for an approval from before the column | Migration `0004` |
 | One pending job of a kind for a request | The partial unique index `uq_jobs_pending` | Migration `0001`, line 108 |
-| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:252`) |
+| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:258`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
 The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The six open states are `pending_approval`, `approved`, `pr_open`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:17`).
@@ -100,7 +101,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0003`. Tables: 9.
+Migration head: `0004`. Tables: 9.
 
 ### `admin_switches`
 
@@ -147,6 +148,7 @@ Migration head: `0003`. Tables: 9.
 | `comment` | text | no | `''::text` |
 | `relayed_by` | varchar(100) | yes |  |
 | `at` | timestamptz | no | `now()` |
+| `counted_for` | varchar(100) | yes |  |
 
 | Constraint or index | Kind | Definition |
 |---|---|---|
