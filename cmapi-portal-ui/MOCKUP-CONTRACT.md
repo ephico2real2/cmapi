@@ -6,11 +6,13 @@ The contract between `mockups/portal/Main.dc.html` and this app. The mockup does
 **The mockup file is the source.** Copy, labels and fields come from it. `npm run model` extracts its logic class,
 and `tests/parity.test.mjs` fails if a string it shows is missing here.
 
-## Data: no API yet
+## Data: the app does not call the API yet
 
-The API is not built, so the mockup's logic class is this app's stand-in for it (`src/model/logic.generated.js`).
-Components take view-model props from `renderVals()`. When the API exists, typed TanStack Query hooks replace
-`usePortal` without changing how components read their data; that is phase 2, with the libraries `docs/02` names.
+The API is built for a part of the mockup, and this app calls none of it. `cmapi/contract/openapi.json` is the API's
+document, and `docs/diagrams/portal-architecture/README.md` maps each action of the mockup to its endpoint: 13 of the 26
+endpoints that the actions need are built. Until this app calls them, the mockup's logic class is its stand-in
+(`src/model/logic.generated.js`). Components take view-model props from `renderVals()`. Typed TanStack Query hooks will
+replace `usePortal` without changing how components read their data; that is phase 2, with the libraries `docs/02` names.
 
 Consequences until then:
 
