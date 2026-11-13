@@ -35,7 +35,7 @@ cmapi-tools = "cmapi.tools:run"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cmapi = ["core/db/migrations/*.py", "core/db/migrations/versions/*.py", "core/db/alembic.ini"]
+cmapi = ["core/db/migrations/*.py", "core/db/migrations/versions/*.py", "core/db/alembic.ini", "contract/changelog.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

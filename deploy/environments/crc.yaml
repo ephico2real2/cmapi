@@ -40,7 +40,9 @@ keycloak:
       connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443
       usersDn: ou=People,dc=ephico2real,dc=com
       groupsDn: ou=Groups,dc=ephico2real,dc=com
-      groupsFilter: "(cn=cmapi-*)"
+      groupsFilter: "(cn=app-cmapi-rbac-*)"
+      usersFilter: "(uid=cmapi.*)"  # the 13 test users alone, not the real people of the shared directory (docs/11)
+      expectUsers: 13
       employeeIdAttribute: uidNumber
       bindSecret: cmapi-ldap-bind
 

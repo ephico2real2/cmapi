@@ -74,8 +74,18 @@ one "probe resolves now, old previous log says failed" 0       KT_API_SLOW=true 
 want_field "the policy stays: the container resolves the Service now" no "$LAST_DELETED"
 one "the probe could not run, the previous log says it"  0       KT_API_SLOW=true 'KT_PROBE=error: container not running' 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.cmapi'
 want_field "the policy goes on the previous log when the probe could not run" yes "$LAST_DELETED"
-one "the migrate env reaches the database in plaintext" nonzero 'KT_SSL=pg_stat_ssl False None'
-one "the pg_stat_ssl check never finishes"             nonzero KT_SSL_WAIT_RC=1
+one "a container reaches the database in plaintext"    nonzero 'KT_SSL=connected False None prefer'
+one "a container is on TLS and does not verify"        nonzero 'KT_SSL=connected True TLSv1.3 prefer'
+one "only the worker does not verify"                  nonzero 'KT_SSL_WORKER=connected True TLSv1.3 prefer'
+one "a container cannot connect as deployed"           nonzero 'KT_SSL=refused SSL error: certificate verify failed'
+one "a wrong CA still connects, on TLS"                nonzero 'KT_CA=connected True TLSv1.3 prefer'
+one "a wrong CA falls back to plaintext"               nonzero 'KT_CA=connected False None prefer'
+one "only migrate does not refuse a wrong CA"          nonzero 'KT_CA_MIGRATE=connected True TLSv1.3 prefer'
+one "a wrong CA is refused for another reason"         nonzero 'KT_CA=refused could not translate host name'
+case "$LAST_OUT" in *"worker, as deployed"*"pg_stat_ssl for the worker pod"*) ;; *) echo "WRONG: a failure stopped the run before the rest was measured"; fails=$((fails+1));; esac
+one "a pod holds a plaintext connection"               nonzero 'KT_PG_SSL=2|1'
+one "a pod holds no connection to read"                nonzero 'KT_PG_SSL=0|0'
+one "the database check never finishes"                nonzero KT_SSL_WAIT_RC=1
 one "a changed cmapi-env leaves the old pods"          nonzero KT_NOT_REPLACED_RC=1
 one "the new pods still read the old value"            nonzero KT_LEVEL=INFO
 "$KT_REAL_SLEEP" 0.5

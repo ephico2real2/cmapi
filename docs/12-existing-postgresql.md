@@ -14,7 +14,7 @@ come from the code and from what the kind runs measured.
 | Version | PostgreSQL 16 or 17 | `cmapi/tests/service` runs on 16; CNPG ships 17 (`ghcr.io/cloudnative-pg/postgresql:17`) |
 | Database | `cmapi`, owned by a role `cmapi` that is **not** a superuser | `bootstrap.initdb` in the CNPG `Cluster`; the migrations create every table |
 | Connections | each api or worker pod holds a pool of **5 plus 5 overflow**; the migrate initContainer one more while it runs | `core/db/__init__.py` (`pool_size=5, max_overflow=5`) |
-| TLS | `sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt` in the URI, against the server's CA in ConfigMap `cmapi-trust` | The URI is the one place: neither container sets `PGSSLROOTCERT`, so a URI without `sslrootcert` fails at the first migration with `root certificate file ... does not exist` (measured) |
+| TLS | `sslmode=verify-full&sslrootcert=/etc/cmapi/ca/ca-bundle.crt` in the URI, against the server's CA in ConfigMap `cmapi-trust` | The URI decides. Every container also sets `PGSSLMODE=verify-full` and `PGSSLROOTCERT=/etc/cmapi/ca/database-ca.crt`, libpq's defaults for CloudNativePG's URI, which names neither, and a URI's own values win. That file comes from Secret `cmapi-db-ca`, which does not exist here (the volume marks it optional, so the pods still start), so a URI without `sslrootcert` fails at the first migration with `root certificate file ... does not exist` and does not fall back to plaintext (measured) |
 | An advisory lock | `pg_advisory_lock(727364)` serialises migrators; `lock_timeout` 30 s (`CMAPI_MIGRATE_LOCK_TIMEOUT`) bounds each DDL wait | `core/db/migrations/env.py` |
 | Time to come up | the migrate initContainer waits up to 540 s (`CMAPI_MIGRATE_WAIT_SECONDS`) for a server that is not listening | `core/db/migrate.py` |
 
@@ -133,6 +133,8 @@ back on; confirm `/readyz` is 200.
 
 Run against a PostgreSQL 16 with TLS in a container (sections 2 and 3: the real migrator, `verify-full`, a wrong CA and a
 wrong name refused, `pg_stat_ssl` true) and against CNPG 1.30.1 on kind (section 5's dump and the Secret's ownership).
+`deploy/tests/external-db-test.sh` runs sections 3 and 4's route on kind from the Deployments that also serve CNPG: a TLS server
+in another namespace, its CA added to `cmapi-trust`, no `cmapi-db-ca`, both pods up, a URI with no `sslmode` or a wrong name refused.
 Section 5's restore ran from the CNPG image's pg_restore and psql 17.11, without TLS, on the real migrations' schema and on
 PostgreSQL 16.15 and 17.11 targets: a complete copy, and a failure on the last table leaving the target as it was. Not run:
 that restore of a dump from a real CNPG cluster, or Argo CD's automated sync being turned off around it. No

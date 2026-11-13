@@ -1,0 +1,49 @@
+--- a/cmapi/src/cmapi/jobs/pr_checks.py
++++ b/cmapi/src/cmapi/jobs/pr_checks.py
+@@ -46,7 +46,8 @@
+         jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
+         return
+     # A context nobody has reported yet is pending: the workflow may not have started.
+-    ci = {c: status.checks.get(c, "pending") for c in CI_CONTEXTS} if ctx.git.external_ci else {}
++    external_ci = getattr(ctx.git, "external_ci", False)
++    ci = {c: status.checks.get(c, "pending") for c in CI_CONTEXTS} if external_ci else {}
+     ci_failed = [c for c, state in ci.items() if state == "failure"]
+     ci_waiting = [c for c, state in ci.items() if state == "pending"]
+     if ci_waiting and not ci_failed:
+@@ -69,7 +70,7 @@
+     ky = [f for f in findings if f.source == "kyverno"]
+     link = f"{ctx.cfg.raw_instance['instance'].get('publicUrl', '')}/api/v1/requests/{row.request_id}"
+     jobs.fence()                       # the statuses are external writes: a worker whose lease was claimed posts none
+-    if not ctx.git.external_ci:
++    if not external_ci:
+         ctx.git.set_check(head, CONTEXT_KUBECONFORM, "failure" if kc else "success",
+                           "; ".join(f.message for f in kc)[:200] or "schema ok", link)
+         ctx.git.set_check(head, CONTEXT_KYVERNO, "failure" if ky else "success",
+--- /dev/null
++++ b/cmapi/tests/service/test_review_r87_c5.py
+@@ -0,0 +1,25 @@
++from test_flow import NS, OLA, auth
++from test_review_d_delivery import run_until, status
++from test_github_check_runs import poll, CONTEXT_CMAPI, CONTEXT_KUBECONFORM, CONTEXT_KYVERNO
++
++
++class LegacyProvider:
++    """A structural provider implementing the old operations without the newly added optional flag."""
++    def __init__(self, delegate):
++        self.delegate = delegate
++
++    def __getattr__(self, name):
++        if name == "external_ci":
++            raise AttributeError(name)
++        return getattr(self.delegate, name)
++
++
++def test_provider_without_new_capability_keeps_posting_legacy_contexts(world):
++    client, ctx, fake, kube, validator, keys = world
++    rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
++    assert run_until(ctx, "pr_checks") == "pr_checks"
++    ctx.git = LegacyProvider(fake)
++    poll(ctx)
++    assert status(client, keys, rid)["status"] == "merged"
++    head = next(iter(fake.statuses))
++    assert set(fake.statuses[head]) == {CONTEXT_CMAPI, CONTEXT_KUBECONFORM, CONTEXT_KYVERNO}

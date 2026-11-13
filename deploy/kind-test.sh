@@ -3,8 +3,8 @@
 # Creates the cluster (KIND_EXPERIMENTAL_PROVIDER=podman, kind v0.33.0, node image v1.35.8 by digest), installs the
 # CloudNativePG operator 1.30.1, loads the image (default localhost/cmapi:dev, built from this tree), applies
 # environments/kind, writes the Secrets, renders components with the image and applies them, then checks: api and worker
-# Ready, the migrate container's environment reaching the database over TLS, /readyz 200, /api/v1/version naming the built
-# commit, no restart after the rollout, a changed cmapi-env restarting the api and the worker, and the secrets cases. Every
+# Ready, every database connection (api, worker, both migrate containers) on verify-full TLS and refusing a CA that does not
+# cover the server, /readyz 200, /api/v1/version naming the built commit, no restart after the rollout, a changed cmapi-env restarting the api and the worker, and the secrets cases. Every
 # kubectl call carries an explicit --kubeconfig (KIND_TEST_KUBECONFIG, default ./.cmapi-test.kubeconfig, git-ignored). KIND_TEST_KEEP=true keeps
 # the cluster; otherwise it is deleted by name at the end. Prints what it measured; exits non-zero on the first failure.
 set -euo pipefail
@@ -96,24 +96,66 @@ k -n cmapi rollout status deploy/cmapi-worker --timeout=300s
 k -n cmapi rollout status deploy/cmapi-mockup --timeout=180s
 say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount --no-headers | tr '\n' ';')"
 
-say "what the migrate container's environment gets from the database"
-# libpq falls back to plaintext without a word when PGSSLROOTCERT names a bundle that does not cover the server, so this is
-# measured, not assumed: a pod made from the api Deployment's own migrate initContainer, its environment and mounts untouched,
-# connecting as cmapi-migrate connects. Its labels put it under the same NetworkPolicy and in no Service.
-SSL_CHECK='import os
+say "what each database connection gets: the api, the worker and both migrate containers"
+# Measured, not assumed: libpq's sslmode=prefer connects to anything and falls back to plaintext without a word. A pod made from each
+# container of the two Deployments, its environment and mounts untouched, connects as that process connects and says what it got: ssl,
+# the TLS version, and the sslmode libpq used, from PQconninfo. A second one reads, as its root CA, the kind bundle's stand-in CA, which
+# signed nothing: it must refuse, and not fall back. Each pod's labels put it under the same NetworkPolicy and in no Service. Every
+# measurement is printed before a failure stops the run, so a run on manifests without the fix shows the whole of what they do.
+DB_CHECK='import os
 from sqlalchemy import create_engine, pool
+from sqlalchemy.exc import OperationalError
 from cmapi.core.db import sqlalchemy_url
-with create_engine(sqlalchemy_url(os.environ["CMAPI_DATABASE_URL"]), poolclass=pool.NullPool).connect() as c:
-    print("pg_stat_ssl", *c.exec_driver_sql("select ssl, version from pg_stat_ssl where pid = pg_backend_pid()").one())'
-k -n cmapi get deploy cmapi-api -o json | python3 -c 'import json,sys
+try:
+    with create_engine(sqlalchemy_url(os.environ["CMAPI_DATABASE_URL"]), poolclass=pool.NullPool).connect() as c:
+        mode = next(o.val.decode() for o in c.connection.dbapi_connection.pgconn.info if o.keyword == b"sslmode")
+        print("connected", *c.exec_driver_sql("select ssl, version from pg_stat_ssl where pid = pg_backend_pid()").one(), mode)
+except OperationalError as exc:
+    print("refused", " ".join(str(exc.orig).split()))'
+db_pod() { # <pod> <deployment> <initContainers|containers> <replace the CNPG CA: true|false>
+  k -n cmapi get deploy "$2" -o json | python3 -c 'import json,sys
+pod,deployment,where,wrong_ca,check=sys.argv[1:]
 spec=json.load(sys.stdin)["spec"]["template"]["spec"]
-c=spec["initContainers"][0]; c.update(name="pg-ssl-check", command=["python3","-c",sys.argv[1]])
-print(json.dumps({"apiVersion":"v1","kind":"Pod","metadata":{"name":"pg-ssl-check","namespace":"cmapi","labels":{"app.kubernetes.io/component":"api"}},
-  "spec":{"restartPolicy":"Never","serviceAccountName":spec["serviceAccountName"],"securityContext":spec["securityContext"],"volumes":spec["volumes"],"containers":[c]}}))' "$SSL_CHECK" | k apply -f - >/dev/null
-k -n cmapi wait pod/pg-ssl-check --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s >/dev/null || { k -n cmapi logs pg-ssl-check --tail=3 >&2 || true; echo "ERROR: the pg_stat_ssl check did not finish" >&2; exit 1; }
-ssl_line=$(k -n cmapi logs pg-ssl-check); say "measured, with the migrate container's env: $ssl_line"
-k -n cmapi delete pod pg-ssl-check >/dev/null
-case "$ssl_line" in "pg_stat_ssl True "*) ;; *) echo "ERROR: the migrate container's environment does not reach the database over TLS: $ssl_line" >&2; exit 1;; esac
+c=spec[where][0]
+for key in ("readinessProbe","livenessProbe","startupProbe","ports"): c.pop(key,None)
+c.update(name="check",command=["python3","-c",check])
+if wrong_ca=="true":
+    # Supply the wrong CA even with pre-fix manifests, which have no CNPG projection or PGSSLROOTCERT.
+    # Preserve PGSSLMODE: before the fix, prefer may retry in plaintext after certificate verification fails.
+    c["env"]=[e for e in c.get("env",[]) if e["name"]!="PGSSLROOTCERT"]
+    c["env"].append({"name":"PGSSLROOTCERT","value":"/etc/cmapi/probe-ca/ca.crt"})
+    c.setdefault("volumeMounts",[]).append({"name":"db-check-ca","mountPath":"/etc/cmapi/probe-ca","readOnly":True})
+    spec["volumes"].append({"name":"db-check-ca","projected":{"sources":[{"configMap":{"name":"cmapi-trust","items":[{"key":"ca-bundle.crt","path":"ca.crt"}]}}]}})
+print(json.dumps({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod,"namespace":"cmapi","labels":{"app.kubernetes.io/component":deployment.removeprefix("cmapi-"),"cmapi.net/kind-test":"db-check"}},
+  "spec":{"restartPolicy":"Never","serviceAccountName":spec["serviceAccountName"],"securityContext":spec["securityContext"],"volumes":spec["volumes"],"containers":[c]}}))' "$1" "$2" "$3" "$4" "$DB_CHECK" | k apply -f - >/dev/null
+}
+db_read() { # <pod>: its one line, once it has finished. A check that cannot run proves nothing either way, so it stops the run here.
+  k -n cmapi wait "pod/$1" --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s >/dev/null || { k -n cmapi logs "$1" --tail=3 >&2 || true; echo "ERROR: the database check $1 did not finish" >&2; exit 1; }
+  k -n cmapi logs "$1"
+}
+DB_CONTAINERS="api-migrate:cmapi-api:initContainers api:cmapi-api:containers worker-migrate:cmapi-worker:initContainers worker:cmapi-worker:containers"
+for e in $DB_CONTAINERS; do
+  IFS=: read -r name deployment where <<<"$e"
+  db_pod "pg-ssl-$name" "$deployment" "$where" false
+  db_pod "pg-ca-$name" "$deployment" "$where" true
+done
+db_bad=0
+for e in $DB_CONTAINERS; do
+  name=${e%%:*}
+  line=$(db_read "pg-ssl-$name"); say "$name, as deployed: $line"
+  case "$line" in "connected True "*" verify-full") ;; *) echo "ERROR: $name does not reach the database over verified TLS: $line" >&2; db_bad=1;; esac
+  line=$(db_read "pg-ca-$name"); say "$name, with a CA that does not cover the server: $line"
+  case "$line" in "refused "*"certificate verify failed"*) ;; *) echo "ERROR: $name did not refuse a CA that does not cover the server: $line" >&2; db_bad=1;; esac
+done
+k -n cmapi delete pod -l cmapi.net/kind-test=db-check >/dev/null
+# And from the server's side, the processes themselves: what the running api and worker hold, by pod address.
+for c in api worker; do
+  ip=$(k -n cmapi get pod -l "app.kubernetes.io/component=$c" -o jsonpath='{.items[0].status.podIP}')
+  row=$(k -n cmapi exec cmapi-db-1 -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi' and a.client_addr='$ip'")
+  say "pg_stat_ssl for the $c pod's connections, on TLS|not: $row"
+  case "$row" in *"|0") [ "${row%%|*}" -gt 0 ] || { echo "ERROR: the $c pod holds no connection to read: $row" >&2; db_bad=1; };; *) echo "ERROR: the $c pod holds a plaintext connection: $row" >&2; db_bad=1;; esac
+done
+[ "$db_bad" = 0 ] || exit 1
 
 say "/readyz and /api/v1/version through a port-forward"
 # kubectl itself, not k: a function in the background is a subshell, so kill $! would leave kubectl holding the port, and

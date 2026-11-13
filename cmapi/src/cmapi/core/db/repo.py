@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, defer
 
 from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
+from cmapi.core.authz import LEGACY_GROUP_PATH
 from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
                                   RequestEventRow, SwitchRow)
 from cmapi.core.errors import Problem
@@ -34,7 +35,7 @@ def requirement_to_json(r: Requirement | None) -> dict[str, Any] | None:
         return None
     return {"rule": r.rule, "slots": [asdict(s) for s in r.slots], "selfApproval": r.self_approval,
             "timeoutHours": r.timeout_hours, "reasons": list(r.reasons), "auto": r.auto,
-            "autoFallback": r.auto_fallback}
+            "autoFallback": r.auto_fallback, "groupPath": r.group_path}
 
 
 def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
@@ -42,7 +43,10 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
         return None
     return Requirement(rule=d["rule"], slots=tuple(Slot(**s) for s in d["slots"]), self_approval=d["selfApproval"],
                        timeout_hours=d["timeoutHours"], reasons=tuple(d["reasons"]), auto=d.get("auto"),
-                       auto_fallback=d.get("autoFallback"))
+                       auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", LEGACY_GROUP_PATH))
+
+
+IDEMPOTENCY_HOURS = 24      # how long an Idempotency-Key returns its first response (docs/02, API contract)
 
 
 class LeaseLost(RuntimeError):
@@ -108,6 +112,13 @@ class RequestRepo:
         return {(c, n): r for c, n, r in self.s.execute(q)}
 
     def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:
+        """The caller's request for this key, if the key is still held. A key is held for IDEMPOTENCY_HOURS (docs/02) from
+        the request's creation, by the database's clock and not a pod's. Past that the key and its fingerprint are cleared
+        here, in the caller's transaction, so the unique index on (requester_sub, idempotency_key) lets the key be used again."""
+        self.s.execute(update(ChangeRequestRow)
+                       .where(ChangeRequestRow.requester_sub == requester_sub, ChangeRequestRow.idempotency_key == key,
+                              ChangeRequestRow.created_at < func.now() - text(f"interval '{IDEMPOTENCY_HOURS} hours'"))
+                       .values(idempotency_key=None, idempotency_fingerprint=None, updated_at=ChangeRequestRow.updated_at))
         return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.requester_sub == requester_sub,
                                                             ChangeRequestRow.idempotency_key == key)).first()
 

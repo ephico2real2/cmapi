@@ -12,9 +12,9 @@ from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
 
 NS = {"namespace": "payments-dev", "tier": "small", "labels": {"cmapi.net/team": "payments", "cmapi.net/cost-center": "cc-4410"},
       "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}, "justification": "Payments service dev namespace"}
-OLA = dict(roles=["cmapi-requester"], groups=["/cmapi/cmapi-requesters"])
-AMY = dict(roles=["cmapi-approver"], groups=["/cmapi/cmapi-platform-leads"])
-OPAL = dict(roles=["cmapi-operator", "cmapi-approver"], groups=["/cmapi/cmapi-platform-operators"])
+OLA = dict(roles=["cmapi-requester"], groups=["/cmapi/app-cmapi-rbac-requester"])
+AMY = dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
+OPAL = dict(roles=["cmapi-operator", "cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-operator"])
 
 
 def auth(keys, user, **kw):
@@ -102,12 +102,12 @@ def test_large_namespace_needs_a_platform_lead(world):
     r = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
     rid = r.json()["requestId"]
-    assert r.json()["approval"]["slots"] == [{"group": "platform-leads", "count": 1, "reason": "Environment dev create"}] or \
-        r.json()["approval"]["slots"][0]["group"] == "platform-leads"
+    assert r.json()["approval"]["slots"] == [{"group": "approver-platform", "count": 1, "reason": "Environment dev create"}] or \
+        r.json()["approval"]["slots"][0]["group"] == "approver-platform"
     # ola holds no approver role
     r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 403
-    # opal is an approver, but not in platform-leads
+    # opal is an approver, but not in approver-platform
     r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "opal", **OPAL))
     assert r.status_code == 403 and r.json()["code"] == "not-eligible"
     # amy's queue lists it; amy approves
@@ -122,11 +122,72 @@ def test_large_namespace_needs_a_platform_lead(world):
     assert client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "ola", **OLA)).json()["status"] == "synced"
 
 
+def test_an_instance_with_its_own_group_path(world):
+    """identity.groupPath decides whose token approves, everywhere the path is read: the approval, the approver's queue and the portal channel's recipients."""
+    from cmapi.core.db.models import ApprovalNotificationRow
+    client, ctx, git, kube, validator, keys = world
+    ctx.cfg.approvals.group_path = "/corp/{name}"
+    big = {**NS, "namespace": "payments-batch", "tier": "large"}
+    rid = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "ola", **OLA)).json()["requestId"]
+    stock = dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
+    theirs = dict(roles=["cmapi-approver"], groups=["/corp/approver-platform"])
+    assert client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "sam", **stock)).json()["items"] == []
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "sam", **stock))
+    assert r.status_code == 403 and r.json()["code"] == "not-eligible"
+    run_jobs(ctx)
+    with ctx.db.session() as s:
+        recipients = [n.recipients for n in s.query(ApprovalNotificationRow).filter_by(request_id=rid, channel="portal", kind="pending")]
+    assert recipients == [["/corp/approver-platform"]]
+    q = client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "amy", **theirs)).json()
+    assert [i["requestId"] for i in q["items"]] == [rid]
+    assert client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "ola", **OLA)).json()["approval"]["remaining"] == [{"group": "approver-platform", "needed": 1}]
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **theirs))
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+
+
+def test_a_stored_requirement_keeps_its_group_path():
+    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON. Here and not in tests/core: cmapi.core.db needs sqlalchemy, and the reference-code job runs tests/core with examples/local/requirements.txt, which has none."""
+    from cmapi.core.approvals import Requirement, Slot
+    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
+    req = Requirement(rule="prod-create", slots=(Slot("approver-prod", 1, "r"),), self_approval=False, timeout_hours=48, reasons=("r",), group_path="/corp/{name}")
+    back = requirement_from_json(requirement_to_json(req))
+    assert back.token_group("approver-prod") == "/corp/approver-prod"
+    old = requirement_to_json(req); old.pop("groupPath")
+    assert requirement_from_json(old).token_group("platform-leads") == "/cmapi/cmapi-platform-leads", "a row from before identity.groupPath was decided under the old constant"
+
+
+def test_an_open_request_keeps_the_path_it_was_decided_under(world):
+    """docs/11's claim, through the routes: the setting changes while a request is open, and the approvers do not."""
+    client, ctx, git, kube, validator, keys = world
+    big = {**NS, "namespace": "payments-batch", "tier": "large"}
+    rid = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "ola", **OLA)).json()["requestId"]
+    ctx.cfg.approvals.group_path = "/corp/{name}"
+    decided = dict(roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
+    moved = dict(roles=["cmapi-approver"], groups=["/corp/approver-platform"])
+    assert client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "sam", **moved)).json()["items"] == []
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "sam", **moved))
+    assert r.status_code == 403 and r.json()["code"] == "not-eligible"
+    assert [i["requestId"] for i in client.get("/api/v1/requests?status=pending_approval&approver=me", headers=auth(keys, "amy", **decided)).json()["items"]] == [rid]
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **decided))
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+
+
+def test_a_token_with_no_role_gets_403(world):
+    """cmapi.noaccess: signed in, known, and allowed nothing."""
+    client, ctx, git, kube, validator, keys = world
+    nobody = dict(roles=[], groups=[])
+    assert client.get("/api/v1/me", headers=auth(keys, "cmapi.noaccess", **nobody)).status_code == 200
+    r = client.get("/api/v1/clusters", headers=auth(keys, "cmapi.noaccess", **nobody))
+    assert r.status_code == 403 and r.json()["code"] == "forbidden"
+    assert client.get("/api/v1/clusters", headers=auth(keys, "cmapi.viewer", roles=["cmapi-viewer"], groups=[])).status_code == 200, "the control: the route itself answers"
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "cmapi.noaccess", **nobody)).status_code == 403
+
+
 def test_self_approval_refused_in_an_environment_that_forbids_it(world):
     client, ctx, git, kube, validator, keys = world
     # dev allows self-approval in approval-rules.yaml; a requester-approver still cannot approve twice,
     # and a person who is not in the needed group is not eligible
-    jane = dict(roles=["cmapi-requester", "cmapi-approver"], groups=["/cmapi/cmapi-requesters", "/cmapi/cmapi-prod-approvers"])
+    jane = dict(roles=["cmapi-requester", "cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-requester", "/cmapi/app-cmapi-rbac-approver-prod"])
     big = {**NS, "namespace": "jane-batch", "tier": "large"}
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=big, headers=auth(keys, "jane", **jane)).json()["requestId"]
     r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "jane", **jane))
@@ -292,7 +353,7 @@ def test_git_outage_retries_then_fails_after_five_attempts(world):
 
 def test_auto_approval_kill_switch(world):
     client, ctx, git, kube, validator, keys = world
-    admin = dict(roles=["cmapi-admin"], groups=["/cmapi/cmapi-platform-admins"])
+    admin = dict(roles=["cmapi-admin"], groups=["/cmapi/app-cmapi-rbac-admin"])
     r = client.post("/api/v1/admin/auto-approval:pause", json={"reason": "incident"}, headers=auth(keys, "root", **admin))
     assert r.status_code == 200 and r.json()["paused"] is True
     r = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA))
@@ -308,3 +369,29 @@ def test_validator_findings_refuse_the_plan(world):
     r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 422 and r.json()["code"] == "policy-violation" and r.json()["errors"][0]["source"] == "kyverno"
     validator.findings = []
+
+
+def test_an_idempotency_key_is_free_again_after_24_hours(world):
+    """#142: docs/02 gives a key 24 hours. Within them the first response comes back and another body is 409; after
+    them the key is free, by the database's clock, and the old request keeps everything but its key."""
+    from sqlalchemy import text
+    client, ctx, git, kube, validator, keys = world
+    h = {"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": "one-key"}
+    first = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h)
+    assert first.status_code == 202, first.text
+    rid, status = first.json()["requestId"], first.json()["status"]
+    other = {**NS, "namespace": "ledger-dev"}
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '23 hours 59 minutes' WHERE request_id = :r"), {"r": rid})
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h).json()["requestId"] == rid
+    late = client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h)
+    assert late.status_code == 409 and late.json()["code"] == "idempotency-replay", late.text
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '24 hours 1 minute' WHERE request_id = :r"), {"r": rid})
+    fresh = client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h)
+    assert fresh.status_code == 202 and fresh.json()["requestId"] != rid, fresh.text
+    with ctx.db.session() as s:
+        old = s.execute(text("SELECT idempotency_key, idempotency_fingerprint, status, namespace FROM change_requests WHERE request_id = :r"), {"r": rid}).one()
+        new = s.execute(text("SELECT idempotency_key FROM change_requests WHERE request_id = :r"), {"r": fresh.json()["requestId"]}).one()
+    assert tuple(old) == (None, None, status, "payments-dev") and new[0] == "one-key"
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h).json()["requestId"] == fresh.json()["requestId"]

@@ -123,7 +123,14 @@ check(rc != 0, "section 5: a workload that came back stops it")
 check("Then replace `cmapi-db-app`" not in doc, "section 5: does not say to replace the Secret while the Cluster exists (measured: immutable type)")
 tail = doc[doc.index("## 5."):]
 check("delete cluster cmapi-db" in tail and "create the Secret (section 3" in tail and tail.find("delete cluster cmapi-db") < tail.find("create the Secret (section 3"), "section 5: the Cluster is deleted before the Secret is created")
-check("on the initContainer and the main containers" not in doc, "section 1: does not claim PGSSLROOTCERT on the main containers (measured: initContainer only)")
+# #91: what section 1 says the Deployments set is what they set, in each container, so a URI without its own values reads as the guide says.
+for f, name in (("20-api.yaml", "cmapi-api"), ("30-worker.yaml", "cmapi-worker")):
+    pod = next(d for d in yaml.safe_load_all(open(os.path.join(ROOT, "deploy/manifests/components/cmapi", f))) if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+    for c in pod["initContainers"] + pod["containers"]:
+        env = {e["name"]: e.get("value") for e in c["env"]}
+        check(f"`PGSSLMODE={env.get('PGSSLMODE')}`" in doc and f"`PGSSLROOTCERT={env.get('PGSSLROOTCERT')}`" in doc, f"section 1: the defaults it names are {name}/{c['name']}'s: {env.get('PGSSLMODE')}, {env.get('PGSSLROOTCERT')}")
+row = next((l for l in doc.splitlines() if l.startswith("| TLS |")), "")
+check("a URI's own values win" in row and "does not exist" in row, "section 1: says the URI wins, and that one without sslrootcert refuses")
 limit = int(re.search(r"CONNECTION LIMIT (\d+);", doc).group(1))
 check(limit >= 2 * 2 * 10 + 2, f"section 2: CONNECTION LIMIT {limit} holds both pods' pools through a rolling update (4 x 10) plus two migrators")
 print("doc cases failed:", len(fails)); sys.exit(1 if fails else 0)

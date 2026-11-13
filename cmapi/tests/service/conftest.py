@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
@@ -308,18 +309,17 @@ def fresh_db(database: Database) -> Database:
     return database
 
 
-@pytest.fixture
-def world(test_config: Path, fresh_db: Database, keys: Keys, monkeypatch):
-    """The app with fakes wired in: returns (client, ctx, git, kube, validator, keys)."""
+@contextmanager
+def build_world(config_dir: Path, keys: Keys, monkeypatch):
+    """The app on one configuration folder, with fakes wired in: yields (client, ctx, git, kube, validator, keys)."""
     git, kube, validator = FakeGit(), FakeKube(), FakeValidator()
     monkeypatch.setenv("CMAPI_DATABASE_URL", DB_URL)
-    s = Settings(config_dir=test_config, database_url=DB_URL, git_provider="gitea", git_url="https://git.test/api/v1",
+    s = Settings(config_dir=config_dir, database_url=DB_URL, git_provider="gitea", git_url="https://git.test/api/v1",
                  git_token="t", cursor_key="k", link_key="l", metrics_port=0, imports_dir=None,
                  kube_token_file=Path("/nonexistent"), kube_ca_file=Path("/nonexistent"))
     import cmapi.core.context as context_mod
     monkeypatch.setattr(context_mod, "make_provider", lambda *a, **k: git)
     monkeypatch.setattr(context_mod, "CliValidator", lambda *a, **k: validator)
-    import cmapi.core.registry as registry_mod
     ctx = build_context(s, start_registry=False, import_source=OneSecret())
     ctx.registry.client_factory = lambda *a, **k: kube
     ctx.registry.start_caches = True
@@ -329,6 +329,15 @@ def world(test_config: Path, fresh_db: Database, keys: Keys, monkeypatch):
     ctx.deliverer_factory = lambda cid: kube
     ctx.auth = Authenticator(ISSUER, AUDIENCE, Jwks(ISSUER, "https://keycloak.test/certs", fetch=lambda url: [keys.jwk]))
     app = create_app(s, ctx)
-    with TestClient(app) as client:
-        yield client, ctx, git, kube, validator, keys
-    ctx.registry.stop()
+    try:
+        with TestClient(app) as client:
+            yield client, ctx, git, kube, validator, keys
+    finally:
+        ctx.registry.stop()
+
+
+@pytest.fixture
+def world(test_config: Path, fresh_db: Database, keys: Keys, monkeypatch):
+    """The app with fakes wired in: returns (client, ctx, git, kube, validator, keys)."""
+    with build_world(test_config, keys, monkeypatch) as w:
+        yield w

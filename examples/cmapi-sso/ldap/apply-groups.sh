@@ -1,6 +1,6 @@
 #!/bin/sh
-# Adds the cmapi-* groups to the existing LDAP server in namespace ldap-testing, and changes nothing else.
-# Safe to run again: a group that already exists is left as it is. Uses the admin password already in the
+# Adds the ten app-cmapi-rbac-* groups alone to the existing LDAP server in namespace ldap-testing, for a site that brings its own users. On CRC, apply-test-identities.sh does this with the users.
+# Changes nothing else. Safe to run again: a group that already exists is left as it is. Uses the admin password already in the
 # server's own environment, so it never leaves the pod or reaches this shell.
 set -eu
 
@@ -16,4 +16,4 @@ oc exec -i -n "$ns" -c openldap "$pod" -- sh -c '
 
 oc exec -n "$ns" -c openldap "$pod" -- sh -c '
   ldapsearch -x -LLL -H ldap://localhost -D "cn=admin,$LDAP_BASE_DN" -w "$LDAP_ADMIN_PASSWORD" \
-    -b "ou=Groups,$LDAP_BASE_DN" "(cn=cmapi-*)" cn member'
+    -b "ou=Groups,$LDAP_BASE_DN" "(cn=app-cmapi-rbac-*)" cn member'

@@ -160,6 +160,37 @@ def test_cross_file_check_catches_unknown_tier(tmp_path):
         load_instance(tmp_path, EX / "cluster-configs/policies/metadata-keys.yaml")
 
 
+def _instance_with(tmp_path, group_path):
+    for f in (EX / "instances" / "nonprod").iterdir():
+        (tmp_path / f.name).write_text(f.read_text())
+    doc = yaml.safe_load((tmp_path / "instance.yaml").read_text())
+    doc["instance"]["identity"].pop("groupPath", None)
+    if group_path is not None:
+        doc["instance"]["identity"]["groupPath"] = group_path
+    (tmp_path / "instance.yaml").write_text(yaml.safe_dump(doc))
+    return load_instance(tmp_path, EX / "cluster-configs/policies/metadata-keys.yaml")
+
+
+def test_group_path_comes_from_the_instance(tmp_path):
+    assert _instance_with(tmp_path, None).approvals.group_path == "/cmapi/app-cmapi-rbac-{name}"
+    assert _instance_with(tmp_path, "/corp/{name}").approvals.group_path == "/corp/{name}"
+
+
+@pytest.mark.parametrize("bad", ["/cmapi/app-cmapi-rbac", "cmapi/{name}", "/cmapi/{other}", "/cmapi/{name}/{other}", "/cmapi/{name", "/cmapi/{name!r}", "/cmapi/{name:>9}", 7])
+def test_a_group_path_that_cannot_name_a_group_stops_the_instance(tmp_path, bad):
+    """Read at startup, not at the first approval, when str.format would raise inside a request."""
+    with pytest.raises(ConfigError, match="identity.groupPath"):
+        _instance_with(tmp_path, bad)
+
+
+def test_the_local_demo_keeps_its_own_names_through_the_setting():
+    """examples/local's Keycloak and transcript name /cmapi/cmapi-<group>. It works because the setting says so, which is the point of the setting."""
+    cfg = load_instance(EX / "local/config", EX / "local/config/metadata-keys.yaml")
+    assert cfg.approvals.group_path == "/cmapi/cmapi-{name}"
+    setup = (EX / "local/keycloak_setup.py").read_text()
+    assert f'cmapi-{cfg.approvals.defaults["group"]}' in setup
+
+
 def test_renderer_satisfies_its_port(renderer):
     assert isinstance(renderer, Renderer)
     for proto in (GitProvider, Validator, CapacityBackend, SyncSignal, OperationsEngine, Notifier, ApprovalChannel):

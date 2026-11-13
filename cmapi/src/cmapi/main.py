@@ -2,6 +2,8 @@
 documented routers, refuses to start with an undocumented route, serves /docs, /redoc and the spec."""
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,14 +11,15 @@ from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI, Request
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import JSONResponse, Response
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
 from cmapi.core.context import AppContext, build_context
-from cmapi.core.docs import check_documented
+from cmapi.core.changelog import changelog_html
+from cmapi.core.docs import build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem
 from cmapi.core.kpi import register_collectors
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
@@ -50,8 +53,10 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         ctx.shutdown()
 
     docs_cfg = (ctx.cfg.raw_instance["instance"].get("docs") or {})
+    docs_enabled = docs_cfg.get("enabled", True)
+    # FastAPI's own /openapi.json is off: the route below serves the document with an ETag, and behind sign-in when docs.public is false.
     app = FastAPI(title=f"cmapi ({ctx.cfg.name})", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None,
-                  openapi_url="/openapi.json" if docs_cfg.get("enabled", True) else None,
+                  openapi_url=None,
                   description=f"The {ctx.cfg.name} instance serves {sorted(ctx.cfg.allowed_environments)}. "
                               "Every write is approved in cmapi, then becomes a bot pull request to cluster-configs.",
                   swagger_ui_init_oauth={"clientId": "cmapi-docs", "usePkceWithAuthorizationCodeGrant": True,
@@ -77,48 +82,102 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     app.include_router(health.router)
     app.include_router(health.version_router)
-    for r in (me.router, requests.router, admin.router, namespaces_router, tiers_router, directory_router, quotas_router):
+    authed_routers = (me.router, requests.router, admin.router, namespaces_router, tiers_router, directory_router, quotas_router)
+    for r in authed_routers:
         app.include_router(r, dependencies=[Depends(authed)])
     check_documented(app)
-
-    if docs_cfg.get("enabled", True):
-        swagger_dir = STATIC / "swagger-ui"
-        redoc_dir = STATIC / "redoc"
-        if swagger_dir.exists():
-            app.mount("/static/swagger", StaticFiles(directory=str(swagger_dir)), name="swagger")
-        if redoc_dir.exists():
-            app.mount("/static/redoc", StaticFiles(directory=str(redoc_dir)), name="redoc")
-
-        @app.get("/docs", include_in_schema=False)
-        def docs() -> Response:
-            # Bundled Swagger UI: a network-limited zone may not reach a CDN (docs/01).
-            local = swagger_dir.exists()
-            return get_swagger_ui_html(
-                openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - API docs",
-                oauth2_redirect_url="/docs/oauth2-redirect",
-                swagger_js_url="/static/swagger/swagger-ui-bundle.js" if local else "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
-                swagger_css_url="/static/swagger/swagger-ui.css" if local else "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
-                swagger_favicon_url="/static/swagger/favicon-32x32.png" if local else "https://fastapi.tiangolo.com/img/favicon.png",
-                init_oauth=app.swagger_ui_init_oauth, swagger_ui_parameters={"persistAuthorization": True})
-
-        @app.get("/docs/oauth2-redirect", include_in_schema=False)
-        def docs_redirect() -> Response:
-            from fastapi.openapi.docs import get_swagger_ui_oauth2_redirect_html
-            return get_swagger_ui_oauth2_redirect_html()
-
-        @app.get("/redoc", include_in_schema=False)
-        def redoc() -> Response:
-            local = redoc_dir.exists()
-            return get_redoc_html(openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - reference",
-                                  redoc_js_url="/static/redoc/redoc.standalone.js" if local
-                                  else "https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js")
-
-        @app.get("/openapi.yaml", include_in_schema=False)
-        def openapi_yaml() -> Response:
-            return Response(yaml.safe_dump(app.openapi(), sort_keys=False), media_type="application/yaml")
-
     _add_servers(app, ctx)
+    plugins = plugin_routers((health.version_router, *authed_routers))
+    public_url = ctx.cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is None:
+            app.openapi_schema = build_openapi(app, plugins, public_url)
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
+    if docs_enabled:
+        _add_docs(app, ctx, docs_cfg, authed)
     return app
+
+
+def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any) -> None:
+    """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation").
+
+    Public unless instance.yaml says docs.public: false; then each of the five needs a valid bearer token and answers
+    401 with WWW-Authenticate without one. Swagger UI and ReDoc come from the image's bundles only, never a CDN: without
+    the bundles the two pages answer 503 and name the command that fetches them (cmapi-tools docs-assets).
+    """
+    guard = [] if docs_cfg.get("public", True) else [Depends(authed)]
+    swagger_dir, redoc_dir = STATIC / "swagger-ui", STATIC / "redoc"
+    if swagger_dir.exists():
+        app.mount("/static/swagger", StaticFiles(directory=str(swagger_dir)), name="swagger")
+    if redoc_dir.exists():
+        app.mount("/static/redoc", StaticFiles(directory=str(redoc_dir)), name="redoc")
+    documents: dict[str, tuple[bytes, str]] = {}
+
+    def document(kind: str) -> tuple[bytes, str]:
+        """The document's bytes and its strong ETag (RFC 9110, 8.8.3): a hash of exactly the bytes served."""
+        if kind not in documents:
+            spec = app.openapi()
+            body = (json.dumps(spec, separators=(",", ":")) if kind == "json" else yaml.safe_dump(spec, sort_keys=False)).encode()
+            documents[kind] = (body, '"' + hashlib.sha256(body).hexdigest()[:32] + '"')
+        return documents[kind]
+
+    def serve(kind: str, media_type: str, request: Request) -> Response:
+        body, etag = document(kind)
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        if _etag_matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=304, headers=headers)
+        return Response(body, media_type=media_type, headers=headers)
+
+    @app.get("/openapi.json", include_in_schema=False, dependencies=guard)
+    def openapi_json(request: Request) -> Response:
+        return serve("json", "application/json", request)
+
+    @app.get("/openapi.yaml", include_in_schema=False, dependencies=guard)
+    def openapi_yaml(request: Request) -> Response:
+        return serve("yaml", "application/yaml", request)
+
+    def missing(what: str) -> Response:
+        p = Problem(503, "docs-assets-missing", f"The {what} bundle is not in {STATIC}. The image holds it; in a source checkout, "
+                                                 "run `cmapi-tools docs-assets` once, which fetches the versions the Containerfile pins.")
+        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+
+    @app.get("/docs", include_in_schema=False, dependencies=guard)
+    def docs() -> Response:
+        if not swagger_dir.exists():
+            return missing("Swagger UI")
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - API docs", oauth2_redirect_url="/docs/oauth2-redirect",
+            swagger_js_url="/static/swagger/swagger-ui-bundle.js", swagger_css_url="/static/swagger/swagger-ui.css",
+            swagger_favicon_url="/static/swagger/favicon-32x32.png",
+            init_oauth=app.swagger_ui_init_oauth, swagger_ui_parameters={"persistAuthorization": True})
+
+    @app.get("/docs/oauth2-redirect", include_in_schema=False)
+    def docs_redirect() -> Response:
+        return get_swagger_ui_oauth2_redirect_html()
+
+    @app.get("/redoc", include_in_schema=False, dependencies=guard)
+    def redoc() -> Response:
+        if not redoc_dir.exists():
+            return missing("ReDoc")
+        # FastAPI's page with its two outside requests removed: the Google Fonts stylesheet and FastAPI's own favicon.
+        return get_redoc_html(openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - reference",
+                              redoc_js_url="/static/redoc/redoc.standalone.js", with_google_fonts=False,
+                              redoc_favicon_url="/static/swagger/favicon-32x32.png")
+
+    @app.get("/docs/changelog", include_in_schema=False, dependencies=guard)
+    def changelog() -> Response:
+        return HTMLResponse(changelog_html(f"cmapi ({ctx.cfg.name})", __version__))
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """If-None-Match against the document's tag, by the weak comparison RFC 9110 13.1.2 asks for."""
+    if not if_none_match:
+        return False
+    candidates = [c.strip() for c in if_none_match.split(",")]
+    return "*" in candidates or etag in [c.removeprefix("W/") for c in candidates]
 
 
 def _add_servers(app: FastAPI, ctx: AppContext) -> None:

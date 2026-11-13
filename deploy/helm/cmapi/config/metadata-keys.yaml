@@ -17,7 +17,7 @@ team:
   maxAnnotations: 50
   maxAnnotationValueBytes: 4096
   maxAnnotationBytesTotal: 65536
-sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
 # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
 # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
 emailDomains: [ephico2real.com]

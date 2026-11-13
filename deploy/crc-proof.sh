@@ -6,6 +6,7 @@ set -euo pipefail
 RENDERED=${1:?rendered dir}
 CA=${CMAPI_CRC_CA:?the bundle from deploy/crc-trust.sh --mac-ca}
 OC=${CMAPI_OC:-oc}
+HERE=$(cd "$(dirname "$0")" && pwd)
 API=${CMAPI_API_URL:-https://cmapi-api.apps-crc.testing}
 MOCKUP=${CMAPI_MOCKUP_URL:-https://cmapi-mockup.apps-crc.testing}
 KC=${CMAPI_KEYCLOAK_URL:-https://keycloak.apps-crc.testing}
@@ -73,6 +74,38 @@ botpw=$(oc_ get secret cmapi-test-users -n cmapi -o 'jsonpath={.data.bot-user}' 
 token=$(printf 'grant_type=password&client_id=cmapi-automation&username=bot-user&scope=openid&client_secret=%s&password=%s' "$secret" "$botpw" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') || fail "no token for bot-user"
 me=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | c --config - "$API/api/v1/me")
 printf '%s' "$me" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("proof: /api/v1/me:",d["username"],d["roles"]); sys.exit(0 if d["username"]=="bot-user" else 1)' || fail "/api/v1/me"
+
+# Each LDAP test user, signed in through the federation by the same client, password on stdin: the token holds exactly what the owner's table says, and nothing the table does not.
+# The table, not the realm's own groups, is what "expected" comes from: a realm that grants the wrong role must not pass by agreeing with itself.
+checked=0; tok_noaccess=; tok_viewer=
+while IFS=$'\t' read -r uid number groups roles <&3; do
+  case "$uid" in \#*|"") continue;; esac
+  pw=$(oc_ get secret cmapi-ldap-test-users -n cmapi -o "jsonpath={.data.${uid//./\\.}}" | base64 -d)
+  [ -n "$pw" ] || fail "Secret cmapi-ldap-test-users holds no password for $uid"
+  t=$(printf 'grant_type=password&client_id=cmapi-automation&username=%s&scope=openid&client_secret=%s&password=%s' "$uid" "$secret" "$pw" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') || fail "no token for $uid through LDAP federation"
+  printf '%s' "$t" | python3 -c '
+import base64,json,sys
+uid,number,groups,roles=sys.argv[1:5]
+p=sys.stdin.read().split(".")[1]; c=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4)))
+want_groups=sorted("/cmapi/"+g for g in groups.split(",")) if groups!="-" else []
+want_roles=sorted(roles.split(",")) if roles!="-" else []
+have_groups=sorted(c.get("groups") or [])
+have_roles=sorted(((c.get("resource_access") or {}).get("cmapi-nonprod") or {}).get("roles") or [])
+bad=[]
+if c.get("preferred_username")!=uid: bad.append("username "+str(c.get("preferred_username")))
+if have_groups!=want_groups: bad.append("groups "+str(have_groups)+", wanted "+str(want_groups))
+if have_roles!=want_roles: bad.append("roles "+str(have_roles)+", wanted "+str(want_roles))
+if c.get("employee_id")!=number: bad.append("employee_id "+str(c.get("employee_id"))+", wanted "+number)
+sys.exit(uid+": "+"; ".join(bad) if bad else 0)' "$uid" "$number" "$groups" "$roles" || fail "the token of $uid does not match the table"
+  case "$uid" in cmapi.noaccess) tok_noaccess=$t;; cmapi.viewer) tok_viewer=$t;; esac
+  checked=$((checked+1))
+done 3<"$HERE/../examples/cmapi-sso/ldap/test-identities.tsv"
+[ "$checked" = 13 ] || fail "$checked test users checked, not 13"
+say "13 LDAP test users signed in through the federation; each token holds the table's groups, roles and employee_id"
+# 403 means a role is missing only if the same route answers one who holds it.
+[ "$(printf 'header = "Authorization: Bearer %s"\n' "$tok_viewer" | c --config - -o /dev/null -w '%{http_code}' "$API/api/v1/clusters")" = 200 ] || fail "cmapi.viewer is not 200 on /api/v1/clusters: the 403 below would prove nothing"
+[ "$(printf 'header = "Authorization: Bearer %s"\n' "$tok_noaccess" | c --config - -o /dev/null -w '%{http_code}' "$API/api/v1/clusters")" = 403 ] || fail "cmapi.noaccess is not 403 on /api/v1/clusters"
+say "cmapi.noaccess gets 403 on /api/v1/clusters, where cmapi.viewer gets 200"
 # The worker must not write: no write right, and a request stops before Git.
 for pair in "create namespaces" "patch namespaces" "create rolebindings"; do
   for sa in cmapi-api cmapi-worker; do
@@ -91,6 +124,12 @@ say "a namespace plan stops at 422 cluster-not-writable; dryRun, so nothing coul
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
 db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
 case "$db" in *"|0") [ "${db%%|*}" -gt 0 ] || fail "no application connections"; say "pg_stat_ssl: application connections on TLS|not: $db";; *) fail "pg_stat_ssl: $db";; esac
+# The server cannot see whether a client verified it. Each container's own libpq says which sslmode its URI and environment come to.
+for c in api worker; do
+  mode=$(oc_ exec "deploy/cmapi-$c" -n cmapi -c "$c" -- python3 -c 'import os, psycopg; print(next(o.val.decode() for o in psycopg.connect(os.environ["CMAPI_DATABASE_URL"]).pgconn.info if o.keyword == b"sslmode"))') || fail "the $c could not connect to the database to say how it connects"
+  [ "$mode" = verify-full ] || fail "the $c connects to the database with sslmode=$mode"
+done
+say "the api and the worker connect to the database with sslmode=verify-full"
 
 # Prometheus, with no secret on any command line and none in the targets: Thanos Querier's Route, the session's token on stdin.
 thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}')

@@ -3,30 +3,30 @@
 # gets only its own environments (a key for another instance fails validation); see
 # examples/instances/<instance>/approval-rules.yaml. Approvals are recorded in cmapi
 # (POST /requests/{id}:approve); nothing reaches Git until the count is met.
-defaults: {required: 0, group: platform-leads, timeoutHours: 24, selfApproval: false}
+defaults: {required: 0, group: approver-platform, timeoutHours: 24, selfApproval: false}
 
 environments:
   rnd:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
   dev:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
   # each instance's file holds only its allowedEnvironments: nonprod rnd, dev; staging qa, uat; prod prod
-  qa:   {create: 1, change: 1, delete: 1, group: qa-leads,     timeoutHours: 24}
-  uat:  {create: 1, change: 1, delete: 1, group: uat-leads,    timeoutHours: 24}
-  prod: {create: 1, change: 1, delete: 2, group: prod-approvers, timeoutHours: 48}
+  qa:   {create: 1, change: 1, delete: 1, group: approver-qa,     timeoutHours: 24}
+  uat:  {create: 1, change: 1, delete: 1, group: approver-uat,    timeoutHours: 24}
+  prod: {create: 1, change: 1, delete: 2, group: approver-prod, timeoutHours: 48}
 
 namespacePatterns:              # first match wins; can raise or waive
   - match: "critical-*"
     required: 2
-    group: platform-leads
+    group: approver-platform
     reason: Critical namespace pattern
   - match: "temp-*"
     waive: [create, change]
     reason: Temporary namespace
 
 thresholds:                     # facts come from the planner and cmapi-capacity; an added approver
-                                # with no group comes from defaults.group (platform-leads)
+                                # with no group comes from defaults.group (approver-platform)
   - when: quotaIncreasePct > 100
     add: 1
-    group: platform-leads
+    group: approver-platform
   - when: requestToPeakRatio > 3   # namespace peak over 14 days, read live when the change is planned
     add: 1
     reason: Possible over-provisioning
@@ -36,11 +36,11 @@ thresholds:                     # facts come from the planner and cmapi-capacity
     add: 1
   - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
     add: 1
-    group: platform-leads
+    group: approver-platform
     reason: Sensitive key changed
   - when: expirationBeyondLimits    # past 180 days from creation, or make permanent
     add: 1
-    group: platform-leads
+    group: approver-platform
     reason: Expiry beyond limits
   - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
     add: 1

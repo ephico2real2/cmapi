@@ -13,7 +13,7 @@ from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
 
 PUBLIC = {("GET", "/api/v1/version"), ("GET", "/healthz"), ("GET", "/readyz"), ("GET", "/docs"), ("GET", "/docs/oauth2-redirect"),
-          ("GET", "/openapi.yaml"), ("GET", "/redoc")}
+          ("GET", "/openapi.json"), ("GET", "/openapi.yaml"), ("GET", "/redoc"), ("GET", "/docs/changelog")}
 
 
 def closure_permission(route):
@@ -118,9 +118,24 @@ def test_environment_role_cannot_read_status_in_another_environment(rnd_only):
 def test_environment_role_cannot_approve_or_reject_in_another_environment(rnd_only):
     client, ctx, git, kube, validator, keys = rnd_only
     rid = dev_request(rnd_only)
-    h = auth(keys, "a", roles=["appr-rnd"], groups=["/cmapi/cmapi-platform-leads"])
+    h = auth(keys, "a", roles=["appr-rnd"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
     assert client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=h).status_code == 403
     assert client.post(f"/api/v1/requests/{rid}:reject", json={"comment": "x"}, headers=h).status_code == 403
+
+
+def test_an_approval_in_another_environment_says_so_like_a_rejection(rnd_only):
+    """#141: both answers name the environments the role covers. A caller with no approving role gets the plain forbidden."""
+    client, ctx, git, kube, validator, keys = rnd_only
+    rid = dev_request(rnd_only)
+    h = auth(keys, "a", roles=["appr-rnd"], groups=["/cmapi/app-cmapi-rbac-approver-platform"])
+    approve = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=h)
+    reject = client.post(f"/api/v1/requests/{rid}:reject", json={"comment": "x"}, headers=h)
+    assert (approve.status_code, approve.json()["code"]) == (403, "environment-forbidden"), approve.text
+    assert (reject.status_code, reject.json()["code"]) == (403, "environment-forbidden"), reject.text
+    assert "['rnd'], not dev" in approve.json()["detail"]
+    none = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "v", roles=["view-rnd"]))
+    assert (none.status_code, none.json()["code"]) == (403, "forbidden"), none.text
+    assert client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "ola", **OLA)).json()["status"] == "pending_approval"
 
 
 def test_environment_role_cannot_cancel_in_another_environment(rnd_only):
@@ -171,7 +186,7 @@ def strict(ctx):
 def test_self_approval_refused_when_the_environment_forbids_it(world):
     client, ctx, git, kube, validator, keys = world
     strict(ctx)
-    jane = dict(roles=["cmapi-requester", "cmapi-approver"], groups=["/cmapi/cmapi-platform-leads"], sub="sub-jane")
+    jane = dict(roles=["cmapi-requester", "cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"], sub="sub-jane")
     r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "tier": "large"}, headers=auth(keys, "jane", **jane))
     rid = r.json()["requestId"]
     r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "jane", **jane))
@@ -183,14 +198,14 @@ def test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone(world):
     client, ctx, git, kube, validator, keys = world
     strict(ctx)
     ctx.pipeline.directory = CachedDirectory(InMemoryDirectory([Person(username="jane", email="jane@ephico2real.com", sub="sub-jane")]))
-    bot = dict(roles=["cmapi-onboarding", "cmapi-approver"], groups=["/cmapi/cmapi-platform-leads"], sub="sub-bot")
+    bot = dict(roles=["cmapi-onboarding", "cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"], sub="sub-bot")
     r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "tier": "large", "onBehalfOf": "jane"}, headers=auth(keys, "bot-user", **bot))
     assert r.status_code == 202 and r.json()["requester"]["requester"]["username"] == "jane", r.text
     rid = r.json()["requestId"]
     r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "bot-user", **bot))
     assert r.status_code == 409 and r.json()["code"] == "self-approval", f"{r.status_code}: status {r.json().get('status')}"
     # and the person named cannot approve either
-    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "jane", roles=["cmapi-approver"], groups=["/cmapi/cmapi-platform-leads"], sub="sub-jane"))
+    r = client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "jane", roles=["cmapi-approver"], groups=["/cmapi/app-cmapi-rbac-approver-platform"], sub="sub-jane"))
     assert r.status_code == 409 and r.json()["code"] == "self-approval"
 
 

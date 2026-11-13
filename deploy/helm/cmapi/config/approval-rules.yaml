@@ -2,7 +2,7 @@
 # allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
 defaults:
   required: 0
-  group: platform-leads
+  group: approver-platform
   timeoutHours: 24
   selfApproval: false
 environments:
@@ -21,7 +21,7 @@ environments:
 namespacePatterns:
 - match: critical-*
   required: 2
-  group: platform-leads
+  group: approver-platform
   reason: Critical namespace pattern
 - match: temp-*
   waive:
@@ -31,7 +31,7 @@ namespacePatterns:
 thresholds:
 - when: quotaIncreasePct > 100
   add: 1
-  group: platform-leads
+  group: approver-platform
 - when: requestToPeakRatio > 3
   add: 1
   reason: Possible over-provisioning
@@ -41,11 +41,11 @@ thresholds:
   add: 1
 - when: sensitiveKeyChanged
   add: 1
-  group: platform-leads
+  group: approver-platform
   reason: Sensitive key changed
 - when: expirationBeyondLimits
   add: 1
-  group: platform-leads
+  group: approver-platform
   reason: Expiry beyond limits
 - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
   add: 1

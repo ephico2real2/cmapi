@@ -1,0 +1,46 @@
+--- a/deploy/crc-trust.sh
++++ b/deploy/crc-trust.sh
+@@ -4,8 +4,8 @@
+ #                              --extra-ca appends a public CA, an external database's (docs/12).
+ #   --check                    the file still verifies Keycloak: a real TLS handshake against the Route, with the file as the only CA.
+ #                              Reads no Secret. Fails on a rotated CA, so the fix goes through Git and the checksum restarts the pods.
+-#   --mac-ca OUT               writes the bundle this Mac's checks use: that CA (Keycloak's Route is passthrough) and the ingress CA (edge Routes). Beside it, keycloak-ca.pem and ingress-ca.pem,
+-#                              one CA each, for the keychain step in docs/13. Only CA:TRUE certificates: default-ingress-cert's bundle also holds the *.apps-crc.testing site certificate (#109).
++#   --mac-ca OUT               writes the bundle this Mac's checks use: every CA of the trust file (Keycloak's Route is passthrough) and the ingress CA (edge Routes). Beside it, keycloak-ca.pem and ingress-ca.pem,
++#                              one CA each, for the keychain step in docs/13: Keycloak's is the file's first, as --write puts it. Only CA:TRUE certificates: default-ingress-cert's bundle also holds the *.apps-crc.testing site certificate (#109).
+ # Public certificates only. keycloak-tls also holds tls.key: only the one key is ever asked for, nothing else is written or printed. The API
+ # has no field filter for a Secret, so the object reaches oc's memory; that is why --write is a one-time step and --check reads no Secret.
+ set -euo pipefail
+@@ -76,12 +76,14 @@
+   rm -rf "$d"
+   [ "$found" = 1 ] || { echo "ERROR: $name holds $found CA certificates, not one" >&2; rm -f "$out"; exit 1; }
+ }
++# first_cert: stdin's first PEM certificate. awk reads to the end, or under pipefail what feeds it could die of SIGPIPE (see require_certs).
++first_cert() { awk '/BEGIN CERTIFICATE/ { n++ } n == 1 { print }'; }
+ mac_ca() {
+   local out=$1 dir; dir=$(dirname "$out")
+   ( umask 077
+-    bundle_of "$OUT" | the_one_ca "$OUT" "$dir/keycloak-ca.pem"
++    bundle_of "$OUT" | first_cert | the_one_ca "$OUT" "$dir/keycloak-ca.pem"
+     oc_ get cm default-ingress-cert -n openshift-config-managed -o 'jsonpath={.data.ca-bundle\.crt}' | the_one_ca "ConfigMap default-ingress-cert" "$dir/ingress-ca.pem"
+-    cat "$dir/keycloak-ca.pem" "$dir/ingress-ca.pem" >"$out" )
++    { bundle_of "$OUT"; cat "$dir/ingress-ca.pem"; } >"$out" )
+   echo "wrote $out, $dir/keycloak-ca.pem and $dir/ingress-ca.pem"
+ }
+ case "${1:-}" in
+--- a/deploy/tests/crc-scripts-test.sh
++++ b/deploy/tests/crc-scripts-test.sh
+@@ -165,6 +165,13 @@
+ mkdir "$W/mac3"; want "a CA whose openssl goes on writing is still a CA for --mac-ca" 0 "$(PATH="$W/noisy:$PATH" run "$D/crc-trust.sh" --mac-ca "$W/mac3/x.pem")"
+ mkdir "$W/mac2"; want "trust --mac-ca: a bundle with no CA stops" 1 "$(STUB_INGRESS=$W/leaf.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"; [ ! -e "$W/mac2/ingress-ca.pem" ] && ok "and writes no ingress-ca.pem" || bad "a leaf was written as the ingress CA"
+ cat "$W/ingress-ca.pem" "$W/ca.pem" >"$W/two-cas.pem"; want "trust --mac-ca: a bundle with two CAs stops: which to trust is not a guess" 1 "$(STUB_INGRESS=$W/two-cas.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"
++# A trust file that also holds an external database's CA (--write --extra-ca, docs/12): --mac-ca still works, the keychain's file is Keycloak's, and the Mac's bundle keeps every CA the pods trust.
++openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/db-ca.pem" -subj "/CN=external-db-ca" -days 2 2>/dev/null
++cp "$TRUST" "$W/keep-trust"; want "trust --write --extra-ca" 0 "$(run "$D/crc-trust.sh" --write --extra-ca "$W/db-ca.pem")"
++mkdir "$W/mac4"; want "trust --mac-ca with an extra CA in the trust file" 0 "$(run "$D/crc-trust.sh" --mac-ca "$W/mac4/crc-ca.pem")"
++[ -e "$W/mac4/keycloak-ca.pem" ] && [ "$(fp "$W/mac4/keycloak-ca.pem")" = "$(fp "$W/ca.pem")" ] && ok "keycloak-ca.pem is Keycloak's CA, not the extra one" || bad "keycloak-ca.pem with an extra CA in the trust file"
++[ -e "$W/mac4/crc-ca.pem" ] && [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac4/crc-ca.pem")" = 3 ] && ok "the Mac's bundle holds Keycloak's, the extra one and the ingress CA" || bad "the Mac's bundle with an extra CA in the trust file"
++cp "$W/keep-trust" "$TRUST"
+ if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; then bad "TLS verification off in a script"; else ok "no script turns TLS verification off"; fi
+ 
+ # crc-image.sh

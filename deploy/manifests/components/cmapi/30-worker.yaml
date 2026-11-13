@@ -38,9 +38,9 @@ spec:
       initContainers:
         # Migrates to head before the process starts: expand-then-contract, serialised by the advisory lock in
         # migrations/env.py, so two replicas starting together are safe and a first install needs no hook Job. It waits
-        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet. An external TLS database verifies
-        # through sslrootcert in its URI, as the main container does. No PGSSLROOTCERT here: with CNPG's URI (no sslmode) and
-        # a bundle without CNPG's CA, libpq's verification fails and sslmode=prefer retries in plaintext (measured).
+        # up to CMAPI_MIGRATE_WAIT_SECONDS (540) for a database that is not listening yet. PGSSLMODE and PGSSLROOTCERT are libpq's
+        # defaults, here and in the main container: CNPG's URI names neither, and libpq's own default, prefer, verifies nothing and
+        # falls back to plaintext (measured, #91). An external server's URI names its own, and what a URI names wins (docs/12).
         - name: migrate
           image: ghcr.io/ephico2real2/cmapi@sha256:DIGEST
           imagePullPolicy: IfNotPresent
@@ -48,6 +48,8 @@ spec:
           env:
             - name: CMAPI_DATABASE_URL
               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+            - {name: PGSSLMODE, value: verify-full}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/database-ca.crt}
             - {name: SSL_CERT_FILE, value: /etc/cmapi/ca/ca-bundle.crt}
           securityContext:
             allowPrivilegeEscalation: false
@@ -83,6 +85,8 @@ spec:
               valueFrom: {secretKeyRef: {name: cmapi-git, key: password, optional: true}}
             - name: CMAPI_DATABASE_URL
               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
+            - {name: PGSSLMODE, value: verify-full}
+            - {name: PGSSLROOTCERT, value: /etc/cmapi/ca/database-ca.crt}
             - name: CMAPI_CURSOR_KEY
               valueFrom: {secretKeyRef: {name: cmapi-keys, key: cursorKey}}
             - name: CMAPI_LINK_KEY
@@ -125,3 +129,10 @@ spec:
               - configMap:
                   name: cmapi-trust
                   items: [{key: ca-bundle.crt, path: ca-bundle.crt}]
+              # CNPG's CA, ca.crt alone: the Secret also holds ca.key, which signs server certificates. Optional, because an external
+              # server (docs/12) has no such Secret; verify-full then refuses on the missing file. CNPG renews ca.crt in place: this
+              # volume follows the Secret and libpq reads the file at each connection, so no restart and no checksum is involved.
+              - secret:
+                  name: cmapi-db-ca
+                  optional: true
+                  items: [{key: ca.crt, path: database-ca.crt}]

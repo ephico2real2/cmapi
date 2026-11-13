@@ -458,10 +458,12 @@ def test_migrate_waits_for_a_database_that_is_not_up_yet():
     from urllib.parse import urlparse
     u = urlparse(BASE)
     probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
-    stop = threading.Event()
+    stop, waited = threading.Event(), threading.Event()
 
     def forward():
-        time.sleep(3)
+        # The listener comes up only after cmapi-migrate has said that it waits. A fixed sleep raced the subprocess's start on a loaded machine (#139).
+        if not waited.wait(timeout=30):
+            return
         srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); srv.bind(("127.0.0.1", port)); srv.listen(8); srv.settimeout(0.3)
         def pipe(a, b):
             try:
@@ -488,13 +490,24 @@ def test_migrate_waits_for_a_database_that_is_not_up_yet():
     threading.Thread(target=forward, daemon=True).start()
     c = psycopg.connect(BASE, autocommit=True); c.execute("DROP SCHEMA IF EXISTS spw CASCADE"); c.execute("CREATE SCHEMA spw")
     url = f"postgresql://{u.username}:{u.password}@127.0.0.1:{port}{u.path}?options=-csearch_path%3Dspw"
-    r = subprocess.run([sys.executable, "-c", "from cmapi.core.db.migrate import run; run(['head'])"],
-                       env={**os.environ, "CMAPI_DATABASE_URL": url, "PYTHONPATH": str(ROOT/"cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1", "CMAPI_MIGRATE_WAIT_SECONDS": "15"},
-                       capture_output=True, text=True, timeout=60)
-    stop.set()
+    p = subprocess.Popen([sys.executable, "-c", "from cmapi.core.db.migrate import run; run(['head'])"],
+                         env={**os.environ, "CMAPI_DATABASE_URL": url, "PYTHONPATH": str(ROOT/"cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1", "CMAPI_MIGRATE_WAIT_SECONDS": "30"},
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out = []
+    for line in p.stdout:                       # ends when the process closes its stdout
+        out.append(line)
+        if "waiting for the database" in line:
+            waited.set()
+    try:
+        rc, err = p.wait(timeout=60), p.stderr.read()
+    finally:
+        stop.set(); waited.set()
+        if p.poll() is None:
+            p.kill()
+    stdout = "".join(out)
     c.execute("DROP SCHEMA spw CASCADE"); c.close()
-    assert r.returncode == 0, r.stderr.strip().splitlines()[-1][:160]
-    assert "waiting for the database" in r.stdout and "s3" not in r.stdout
+    assert rc == 0, (err.strip().splitlines() or ["no stderr"])[-1][:160]
+    assert "waiting for the database" in stdout and "s3" not in stdout
 
 
 # ------------------------------------------------------------------ C11: what the chart tests could not see

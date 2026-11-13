@@ -15,8 +15,8 @@ def make(keys: Keys, fetch=None, store=None, clock=None):
 
 
 def test_valid_token_becomes_identity(keys):
-    who = make(keys).authenticate(keys.token("ola", roles=["cmapi-requester"], groups=["/cmapi/cmapi-requesters"]))
-    assert who.username == "ola" and who.roles == {"cmapi-requester"} and who.groups == {"/cmapi/cmapi-requesters"}
+    who = make(keys).authenticate(keys.token("ola", roles=["cmapi-requester"], groups=["/cmapi/app-cmapi-rbac-requester"]))
+    assert who.username == "ola" and who.roles == {"cmapi-requester"} and who.groups == {"/cmapi/app-cmapi-rbac-requester"}
     assert who.employee_id == "1001" and who.kind == "user" and who.client_id == "cmapi-portal"
 
 

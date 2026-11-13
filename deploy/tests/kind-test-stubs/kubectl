@@ -8,9 +8,13 @@ case "$a" in
   *" get cluster cmapi-db "*) echo "Cluster in healthy state";;
   *" rollout status deploy/cmapi-api --timeout=60s "*) if [ "${KT_API_SLOW:-false}" = true ]; then exit 1; fi;;
   *" rollout status deploy/cmapi-api --timeout=600s "*) if [ "${KT_API_NEVER:-false}" = true ]; then exit 1; fi;;
-  *" get deploy cmapi-api -o json "*) echo '{"spec":{"template":{"spec":{"serviceAccountName":"cmapi-api","securityContext":{},"volumes":[],"initContainers":[{"name":"migrate"}]}}}}';;
-  *" wait pod/pg-ssl-check "*) exit "${KT_SSL_WAIT_RC:-0}";;
-  *" logs pg-ssl-check "*) echo "${KT_SSL-pg_stat_ssl True TLSv1.3}";;
+  *" get deploy cmapi-api -o json "*|*" get deploy cmapi-worker -o json "*) echo '{"spec":{"template":{"spec":{"serviceAccountName":"sa","securityContext":{},"volumes":[{"name":"trust","projected":{"sources":[{"secret":{"name":"cmapi-db-ca","items":[{"key":"ca.crt","path":"database-ca.crt"}]}}]}}],"initContainers":[{"name":"migrate"}],"containers":[{"name":"main"}]}}}}';;
+  *" wait pod/pg-ssl-"*|*" wait pod/pg-ca-"*) exit "${KT_SSL_WAIT_RC:-0}";;
+  *" logs pg-ssl-worker "*) echo "${KT_SSL_WORKER-connected True TLSv1.3 verify-full}";;
+  *" logs pg-ssl-"*) echo "${KT_SSL-connected True TLSv1.3 verify-full}";;
+  *" logs pg-ca-api-migrate "*) echo "${KT_CA_MIGRATE-refused connection to server at \"10.0.0.1\", port 5432 failed: SSL error: certificate verify failed}";;
+  *" logs pg-ca-"*) echo "${KT_CA-refused connection to server at \"10.0.0.1\", port 5432 failed: SSL error: certificate verify failed}";;
+  *" exec cmapi-db-1 "*) echo "${KT_PG_SSL-2|0}";;
   *" get pods -l "*) echo pod/cmapi-api-1; echo pod/cmapi-worker-1;;
   *" wait --for=delete "*) exit "${KT_NOT_REPLACED_RC:-0}";;
   *" get pod -l app.kubernetes.io/component=api "*) printf cmapi-api-1;;

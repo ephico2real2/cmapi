@@ -87,6 +87,48 @@ jobs:
         working-directory: cmapi-portal-ui
         run: npm test
 
+  api-contract:
+    # The API contract gate (#131, docs/01 "API documentation"): a pull request that breaks the contract of its base branch
+    # fails here. oasdiff compares cmapi/contract/openapi.json, which the service job keeps equal to what the code serves.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: |
+          curl -fsSL -o oasdiff.tar.gz https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
+          echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  oasdiff.tar.gz" | sha256sum -c -
+          tar xzf oasdiff.tar.gz oasdiff && sudo mv oasdiff /usr/local/bin/
+          oasdiff --version
+      - name: The gate refuses a breaking change and passes an additive one
+        run: cmapi/contract/gate-test.sh
+      - name: The changelog that /docs/changelog serves is current
+        run: python cmapi/contract/changelog.py --check
+      - name: The contract does not break the newest released version
+        run: |
+          latest=$(find cmapi/contract/released -name '*.json' | sort -V | tail -1)
+          if [ -n "$latest" ]; then
+            cmapi/contract/gate.sh "$latest" cmapi/contract/openapi.json
+          else
+            echo "No version is released yet: cmapi/contract/released holds no document."
+          fi
+      - name: The contract does not break the base branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git cat-file -e "origin/$BASE_REF:cmapi/contract/openapi.json" 2>/dev/null; then
+            git show "origin/$BASE_REF:cmapi/contract/openapi.json" > "$RUNNER_TEMP/base-openapi.json"
+            cmapi/contract/gate.sh "$RUNNER_TEMP/base-openapi.json" cmapi/contract/openapi.json
+          else
+            echo "The base branch has no cmapi/contract/openapi.json: this change adds the first contract, so there is nothing to break."
+          fi
+
   manifests:
     # The plain manifests (deploy/manifests), the render, the scripts and the secrets cases: what deploys cmapi
     # (docs/reviews/2026-11-05-deployment-design.md). kubeconform checks every object against the Kubernetes 1.35 schemas
@@ -119,13 +161,15 @@ jobs:
           # The stubs and the guards read YAML.
           python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
         run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
       - name: kind-test.sh's failures, on stubs
         run: deploy/tests/kind-test-stubbed.sh
+      - name: kind-test.sh's database probes are the pods it says they are (#91)
+        run: python deploy/tests/db-probe-test.py
       - name: The secrets cases against mutants of secrets.sh, on a stub
         run: python deploy/tests/mutate-secrets.py
       - name: The CRC guards, on a stub oc and a local TLS server
@@ -136,6 +180,8 @@ jobs:
         run: python deploy/tests/doc13-test.py docs/13-crc-deployment.md
       - name: The backup on a real PostgreSQL of postgres-0's image family
         run: deploy/tests/crc-backup-test.sh
+      - name: The test identities on a real OpenLDAP of the server's image, and mutants of the script
+        run: deploy/tests/ldap-identities-test.sh
       - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
         run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
       - name: The mockup ConfigMap is current

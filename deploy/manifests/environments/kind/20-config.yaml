@@ -20,7 +20,7 @@ data:
         audience: "cmapi-nonprod"
       namespaces:
         reservedPatterns: ["ocp-*","kubernetes-*"]
-      identity: {"adminClient":"cmapi-directory","automationRoles":["cmapi-onboarding"],"cacheSeconds":900,"directory":"keycloak","requireEmployeeId":true,"requireOnBehalfOf":false}
+      identity: {"adminClient":"cmapi-directory","automationRoles":["cmapi-onboarding"],"cacheSeconds":900,"directory":"keycloak","groupPath":"/cmapi/app-cmapi-rbac-{name}","requireEmployeeId":true,"requireOnBehalfOf":false}
       git:
         repository: "ephico2real2/cluster-configs-nonprod"
         webUrl: "https://github.com"
@@ -52,7 +52,7 @@ data:
     # allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
     defaults:
       required: 0
-      group: platform-leads
+      group: approver-platform
       timeoutHours: 24
       selfApproval: false
     environments:
@@ -71,7 +71,7 @@ data:
     namespacePatterns:
     - match: critical-*
       required: 2
-      group: platform-leads
+      group: approver-platform
       reason: Critical namespace pattern
     - match: temp-*
       waive:
@@ -81,7 +81,7 @@ data:
     thresholds:
     - when: quotaIncreasePct > 100
       add: 1
-      group: platform-leads
+      group: approver-platform
     - when: requestToPeakRatio > 3
       add: 1
       reason: Possible over-provisioning
@@ -91,11 +91,11 @@ data:
       add: 1
     - when: sensitiveKeyChanged
       add: 1
-      group: platform-leads
+      group: approver-platform
       reason: Sensitive key changed
     - when: expirationBeyondLimits
       add: 1
-      group: platform-leads
+      group: approver-platform
       reason: Expiry beyond limits
     - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
       add: 1
@@ -197,7 +197,7 @@ data:
     # config/tiers.yaml for the nonprod instance (allowedEnvironments: rnd, dev).
     # Generated from examples/config/tiers.yaml: same catalog, only this instance's environments.
     # Read by cmapi.core.tiers at startup and on change (ConfigMap cmapi-tiers). Owned by
-    # platform-leads in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
+    # approver-platform in CODEOWNERS. A change here changes no namespace by itself: namespaces whose
     # rendered cmapi.net/tier-hash differs show as tier-outdated until the tiers-rerender
     # operation opens a normal, approved request for each.
     #
@@ -273,7 +273,7 @@ data:
     defaults:
       allowedAtCreate: true          # optional; leaving expiresAt out creates a permanent namespace
       maxExtensionDays: 30           # each :extend adds at most this many days
-      maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds platform-leads
+      maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds approver-platform
       notifyDaysBefore: [14, 7, 1]   # Notifier to the team DL (cmapi.net/team-dl)
       graceDays: 7                   # still running and extendable after the date
       deleteAfterGrace: true         # expire_check opens a delete request (expired-namespace policy)
@@ -301,7 +301,7 @@ data:
       maxAnnotations: 50
       maxAnnotationValueBytes: 4096
       maxAnnotationBytesTotal: 65536
-    sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+    sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
     # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
     # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
     emailDomains: [ephico2real.com]

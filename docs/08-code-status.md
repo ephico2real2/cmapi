@@ -42,7 +42,7 @@ This page summarises what the code tree holds today.
 
 | Piece | Where | Status |
 | --- | --- | --- |
-| App factory, documented routers, `/docs`, `/redoc`, `/openapi.json` and `.yaml`; an undocumented route stops startup | `main.py`, `core/docs.py` | Built; contract test in `tests/service/test_api_contract.py` |
+| App factory, documented routers, `/docs`, `/redoc`, `/openapi.json` and `.yaml` with an ETag, `/docs/changelog`; an undocumented route, model field or parameter stops startup | `main.py`, `core/docs.py`, `core/changelog.py`, `tools/docs_assets.py`, `cmapi/contract/` | Built. Tests in `tests/service/test_api_contract.py` and `tests/service/test_api_docs.py`, and the CI job `api-contract`. See "The API documentation" below |
 | Token verification: RS256, iss and aud pinned, JWKS cached with single-flight refresh, stale-on-error with a persisted key set, `typ` other than `Bearer` refused | `core/auth.py` | Built and tested |
 | PostgreSQL store: change requests (one open request per namespace by a partial unique index), events, approvals (one per person per request), a `SKIP LOCKED` jobs queue with leases and a fencing generation, audit, JWKS cache, admin switches | `core/db/`, migrations `0001` to `0003` | Built; migrations run as an initContainer on every pod, serialised by an advisory lock |
 | The write pipeline: authorize, idempotency (key plus body fingerprint), lock, plan, decide; If-Match on changes | `core/pipeline.py`, `plugins/namespaces/router.py` | Built and tested |
@@ -60,6 +60,44 @@ This page summarises what the code tree holds today.
 | Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the mockup, `environments/kind`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
 | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
 | Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
+
+### The architecture, as the portal mockup sees it
+
+[`docs/diagrams/portal-architecture/README.md`](diagrams/portal-architecture/README.md) maps each tab and each action of the mockup to the API call that it needs, and says which calls are built. Its five figures show the whole system and each group of tabs, with solid boxes for built parts and dashed boxes for parts that are not built. They were drawn on 2026-11-13, before any deployment on CRC, and say so.
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/portal-architecture/1-system-overview.dark.png">
+  <source srcset="diagrams/portal-architecture/1-system-overview.light.png">
+  <img alt="cmapi today is built code that runs on no cluster. The API, the worker and the PostgreSQL database are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. Argo CD, a registered cluster and a connected Git host are not there yet." src="diagrams/portal-architecture/1-system-overview.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The whole system on 2026-11-13. The other four figures and the table of the 64 actions are in the README of the folder.*
+
+### The API documentation
+
+The design is `docs/01`, section "API documentation: Swagger UI and ReDoc". This is what the code does. Each result below is from the service suite on macOS, with PostgreSQL 16 on `127.0.0.1:55432` and no cluster, on 2026-11-13.
+
+| Part | What the code does | Proof |
+|---|---|---|
+| The pages | `/docs` is Swagger UI and `/redoc` is ReDoc. Both load only the bundles in the image, from `/static`. No page loads a file from another server | `test_the_pages_load_only_from_this_server` |
+| A source checkout | The bundles are not in a checkout. Then the two pages answer 503 `docs-assets-missing` and name the command. `cmapi-tools docs-assets --static-dir <dir>` fetches the two npm packages at the versions and SHA-256 values of the `ARG` lines in `cmapi/Containerfile`. A wrong hash writes no file | `test_without_the_bundles_the_pages_say_so_and_name_the_command`, `test_docs_assets_fetches_what_the_containerfile_pins_and_refuses_another_hash` |
+| Tags and groups | Each plugin has one tag with a description and `x-plugin-version`. `x-tagGroups` has the six groups of `docs/01`. A router that the app does not include is not in the document | `test_each_tag_has_a_description_and_is_in_exactly_one_of_the_six_groups`, `test_a_plugin_that_is_not_included_is_not_in_the_spec` |
+| curl samples | Each of the 31 operations has one `x-codeSamples` entry. It uses the instance's `publicUrl`, the documented example of each parameter, `Authorization: Bearer $TOKEN`, and `Idempotency-Key` and `If-Match` where the operation takes them. The test sends each sample to the app | `test_each_operation_has_one_curl_sample_that_the_app_accepts` |
+| ETag | `/openapi.json` and `/openapi.yaml` each have a strong ETag: the first 32 hexadecimal characters of the SHA-256 of the bytes served. `If-None-Match` with that value returns 304 | `test_each_document_has_a_strong_etag_and_answers_304_to_the_same_one` |
+| Parameters | Each path, query and header parameter has a description and an example. `check_documented` stops startup without one | `test_each_parameter_in_the_spec_has_a_description_and_an_example`, `test_a_parameter_without_a_description_or_an_example_stops_startup` |
+| `docs.public` | With `docs.public: false` in `instance.yaml`, the five paths need a valid bearer token. Without one they answer 401 with `WWW-Authenticate`. `docs.enabled: false` removes all five | `test_docs_public_false_puts_the_five_paths_behind_a_token`, `test_docs_enabled_false_serves_none_of_them` |
+| `/docs/changelog` | The page lists the contract changes of each released version, from `cmapi/src/cmapi/contract/changelog.json`. No version is released yet, and the page says so | `test_the_changelog_page_is_served_and_says_what_is_released` |
+| The contract gate | `cmapi/contract/openapi.json` is the document that the code serves. The CI job `api-contract` compares it with the file on the base branch and with the newest released document. oasdiff 1.37.0 fails the job on a breaking change | `test_the_committed_contract_is_the_document_this_code_serves`; `cmapi/contract/gate-test.sh` in CI |
+
+Three decisions differ from the text of `docs/01`, or add to it:
+
+1. **The pages have no sign-in redirect.** With `docs.public: false`, a browser gets 401, because a browser sends no bearer token when it loads a page. cmapi is a resource server and holds no browser session. To show the pages to signed-in people only, put a proxy that signs in with Keycloak before the Route. A client with a token reads all five paths. Source: RFC 6750, section 3, which gives the `WWW-Authenticate: Bearer` answer for a request without a valid token.
+2. **The gate compares with the base branch.** `docs/01` names the last release tag. No release exists yet, so the gate compares each pull request with its base branch, and also with the newest file in `cmapi/contract/released/` when one exists. `cmapi/contract/README.md` gives the steps to change the API, to accept a breaking change and to release a version.
+3. **No CDN fallback.** The earlier code loaded Swagger UI 5.x and ReDoc 2 from a CDN when the bundles were absent. `docs/01` says that a network-limited zone cannot reach a CDN, so the fallback is removed and the Containerfile is the one source of both versions.
+
+Not built: the Spectral lint of the document, the `plugins.yaml` switch that disables a plugin, the `Sunset` header for a deprecated field, and the CLI and SDK that a release generates from the document.
 
 ## 3. Built for the local run only (`examples/local`, about 1,300 lines)
 

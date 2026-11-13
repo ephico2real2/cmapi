@@ -5,7 +5,7 @@
 defaults:
   allowedAtCreate: true          # optional; leaving expiresAt out creates a permanent namespace
   maxExtensionDays: 30           # each :extend adds at most this many days
-  maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds platform-leads
+  maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds approver-platform
   notifyDaysBefore: [14, 7, 1]   # Notifier to the team DL (cmapi.net/team-dl)
   graceDays: 7                   # still running and extendable after the date
   deleteAfterGrace: true         # expire_check opens a delete request (expired-namespace policy)

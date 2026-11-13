@@ -139,7 +139,7 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
         if p.endswith("/groups") and m == "GET":
             return httpx.Response(200, json=[{"name": "cmapi", "id": "g"}])
         if p.endswith("/children") and m == "GET":
-            return httpx.Response(200, json=[{"name": "cmapi-viewers", "id": "v"}])
+            return httpx.Response(200, json=[{"name": "app-cmapi-rbac-viewer", "id": "v"}])
         if p.endswith("/components") and m == "GET":
             return httpx.Response(200, json=[{"name": "ldap", "id": "l"}])
         if p.endswith("/users") and m == "GET":
@@ -149,7 +149,7 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
         return httpx.Response(204 if m in ("PUT", "DELETE") else 201 if m == "POST" else 200, json={} if m == "GET" else None)
     host = FakeHost(handler)
     patch_httpx(monkeypatch, host)
-    for k, v in {"CMAPI_REALM_ISSUER": "https://kc.test/realms/cmapi", "CMAPI_REALM_ADMIN_CLIENT_SECRET": SECRET, "CMAPI_REALM_GROUPS": json.dumps({"cmapi-viewers": ["cmapi-viewer"]}),
+    for k, v in {"CMAPI_REALM_ISSUER": "https://kc.test/realms/cmapi", "CMAPI_REALM_ADMIN_CLIENT_SECRET": SECRET, "CMAPI_REALM_GROUPS": json.dumps({"app-cmapi-rbac-viewer": ["cmapi-viewer"]}),
                  "CMAPI_REALM_LDAP": json.dumps({"enabled": True, "connectionUrl": "ldaps://x", "usersDn": "ou=p", "groupsDn": "ou=g"}), "bindDN": "cn=b", "password": SECRET,
                  "CMAPI_REALM_TEST_USERS": "true", "ola": SECRET}.items():
         monkeypatch.setenv(k, v)
@@ -236,6 +236,63 @@ def test_realm_sync_require_sync_fails_on_a_federation_that_read_nobody(sync, ex
     else:
         rs.ldap(RM(), cfg)
     rs.ldap(RM(), {**cfg, "requireSync": False})           # without the flag the old behaviour stands
+
+
+@pytest.mark.parametrize("counts,expect,exits", [
+    ({"added": 13, "updated": 0, "failed": 0}, 13, False),
+    ({"added": 0, "updated": 13, "failed": 0}, 13, False),
+    ({"added": 24, "updated": 0, "failed": 0}, 13, True),    # a filter that was not applied reads the whole directory: read someone, and wrong
+    ({"added": 12, "updated": 0, "failed": 0}, 13, True),
+    ({"added": 0, "updated": 0, "failed": 0}, 13, True),
+    ({"added": 13, "updated": 0, "failed": 1}, 13, True),
+])
+def test_realm_sync_with_expect_users_reads_exactly_that_many(counts, expect, exits):
+    import importlib
+    rs = importlib.import_module("cmapi.tools.realm_sync")
+    assert rs._sync_read_someone(httpx.Response(200, json=counts), expect) is not exits
+
+
+def _ldap_bodies(monkeypatch, cfg):
+    """What realm_sync sends for the federation component, on a realm with one already there, and on one without."""
+    import importlib
+    rs = importlib.import_module("cmapi.tools.realm_sync")
+    monkeypatch.setenv("bindDN", "cn=x"); monkeypatch.setenv("password", "p")
+    sent = []
+
+    class RM:
+        def __init__(self, there):
+            self.there = there
+
+        def get(self, path, **kw):
+            if path == "":
+                return {"id": "r"}
+            if kw.get("params", {}).get("type", "").endswith("UserStorageProvider"):
+                return [{"name": "ldap", "id": "c"}] if self.there or sent else []
+            return []
+
+        def call(self, method, path, **kw):
+            if "/sync" in path:
+                return httpx.Response(200, json={"added": 1})
+            if kw.get("json", {}).get("providerId") == "ldap":
+                sent.append((method, kw["json"]["config"]))
+            return httpx.Response(204)
+
+    rs.ldap(RM(False), cfg); rs.ldap(RM(True), cfg)
+    assert [m for m, _ in sent] == ["POST", "PUT"]
+    return [c for _, c in sent]
+
+
+def test_a_users_filter_reaches_keycloak_on_create_and_on_update(monkeypatch):
+    cfg = {"enabled": True, "connectionUrl": "ldaps://x", "usersDn": "u", "groupsDn": "g", "usersFilter": "(uid=cmapi.*)"}
+    for config in _ldap_bodies(monkeypatch, cfg):
+        assert config["customUserSearchFilter"] == ["(uid=cmapi.*)"]
+
+
+def test_no_users_filter_clears_an_earlier_one(monkeypatch):
+    """Keycloak keeps a key a PUT leaves out, and removes one sent empty: leaving it out kept the old filter, and the sync read nobody. Measured on a real one in deploy/tests/realm-test.py."""
+    created, updated = _ldap_bodies(monkeypatch, {"enabled": True, "connectionUrl": "ldaps://x", "usersDn": "u", "groupsDn": "g"})
+    assert "customUserSearchFilter" not in created
+    assert updated["customUserSearchFilter"] == []
 
 
 def test_realm_sync_require_sync_fails_with_no_bind_credential(monkeypatch):
