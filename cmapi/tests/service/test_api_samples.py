@@ -5,14 +5,17 @@ needs an approval, a rejection, a cancellation, a failed request and its retry, 
 to its prune, and each read. A recorder keeps one sample for each operationId and one for each problem code it meets.
 
 cmapi/src/cmapi/contract/samples.json holds them. Values such as request IDs, times, etags and cursors differ at each
-run, so this test compares the shape of each sample (keys and types) with the committed file, and fails when an
+run, so this test compares those by shape (keys and types) with the committed file. It compares exactly what must not
+change from run to run: the method, the path, the status, the media type and the fields of a problem. It fails when an
 operation has no sample. To write the file again after a change to the API: CMAPI_WRITE_SAMPLES=1 with this test,
 then CMAPI_WRITE_CONTRACT=1 with test_api_docs.py (the examples are in the OpenAPI document), then scripts/api-examples-doc.py.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -85,6 +88,62 @@ def differences(a: Any, b: Any, path: str = "") -> list[str]:
     if isinstance(a, list) and isinstance(b, list) and a and b:
         return differences(a[0], b[0], f"{path}[0]")
     return [] if a == b else [f"{path}: committed {a!r}, this run {b!r}"]
+
+
+REQUEST_ID = re.compile(r"req-\d{8}-\d{4}")
+
+
+def fixed(sample: dict[str, Any]) -> dict[str, Any]:
+    """What a sample must keep exactly from one run to the next (#183): the method, the path, the status, the media type and,
+    for a problem, its type, title, status and code. A request ID in the path has the date and a counter, so it is made neutral.
+    The other values differ at each run (IDs, times, etags, cursors) and are held by their shape only."""
+    request, response = sample["request"], sample["response"]
+    out = {"method": request["method"], "path": REQUEST_ID.sub("req-<id>", request["path"]),
+           "status": response["status"], "contentType": response["contentType"]}
+    if response["contentType"] == "application/problem+json":
+        out["problem"] = {k: response["body"].get(k) for k in ("type", "title", "status", "code")}
+    return out
+
+
+def compare(committed: dict[str, Any], run: dict[str, Any]) -> list[str]:
+    """Where the samples of a run differ from the committed ones: exactly for the fixed part, by shape for the rest."""
+    def exact(data: dict[str, Any]) -> dict[str, Any]:
+        return {kind: {name: fixed(sample) for name, sample in data[kind].items()} for kind in ("operations", "problems")}
+
+    return differences(exact(committed), exact(run), "exact") + differences(shapes(committed), shapes(run), "shape")
+
+
+def test_a_changed_status_media_type_method_or_code_fails_the_comparison():
+    """The comparison of shapes alone turned 202 into "int" and a problem code into "str", so each of these changes passed (#183)."""
+    committed = json.loads(SAMPLES.read_text())
+    assert compare(committed, copy.deepcopy(committed)) == []
+
+    def changed(kind: str, name: str, change) -> list[str]:
+        run = copy.deepcopy(committed)
+        change(run[kind][name])
+        return compare(committed, run)
+
+    def set_(target: dict, key: str, value: Any) -> None:
+        target[key] = value
+
+    cases = {
+        "the status of a write": changed("operations", "namespaces_create_namespace", lambda s: set_(s["response"], "status", 200)),
+        "the media type of a response": changed("operations", "quotas_export", lambda s: set_(s["response"], "contentType", "application/json")),
+        "the method of a request": changed("operations", "namespaces_update_namespace", lambda s: set_(s["request"], "method", "PUT")),
+        "the path of a request": changed("operations", "requests_approve", lambda s: set_(s["request"], "path", s["request"]["path"].replace(":approve", ":accept"))),
+        "the code of a problem": changed("problems", "namespace-exists", lambda s: set_(s["response"]["body"], "code", "change-pending")),
+        "the status in the body of a problem": changed("problems", "precondition-required", lambda s: set_(s["response"]["body"], "status", 412)),
+        "the status of a problem": changed("problems", "idempotency-key-required", lambda s: set_(s["response"], "status", 422)),
+        "the type of a problem": changed("problems", "forbidden", lambda s: set_(s["response"]["body"], "type", "about:blank")),
+    }
+    passed = [name for name, found in cases.items() if not found]
+    assert passed == [], f"the comparison does not see a change of: {passed}"
+    # A value that differs at each run does not fail it: another request ID, in a path and in a body.
+    again = copy.deepcopy(committed)
+    sample = again["operations"]["requests_get_request"]
+    sample["request"]["path"] = "/api/v1/requests/req-20270101-0042"
+    sample["response"]["body"]["requestId"] = "req-20270101-0042"
+    assert compare(committed, again) == []
 
 
 def test_each_operation_has_a_sample_from_a_run(world):
@@ -244,7 +303,8 @@ def test_each_operation_has_a_sample_from_a_run(world):
     if os.environ.get("CMAPI_WRITE_SAMPLES") == "1":
         SAMPLES.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     committed = json.loads(SAMPLES.read_text())
-    changed = differences(shapes(committed), shapes(json.loads(json.dumps(data))))
-    assert changed == [], ("the samples changed shape: run this test with CMAPI_WRITE_SAMPLES=1, then the two steps in this file's "
-                           "docstring. Where: " + "; ".join(changed[:12]))
+    changed = compare(committed, json.loads(json.dumps(data)))
+    assert changed == [], ("the samples changed: an `exact` line is a method, a path, a status, a media type or a problem code that is not "
+                           "the committed one, and a `shape` line is a key or a type. If the change is meant, run this test with "
+                           "CMAPI_WRITE_SAMPLES=1, then the two steps in this file's docstring. Where: " + "; ".join(changed[:12]))
     assert "Bearer ey" not in SAMPLES.read_text(), "a token is in the samples"
