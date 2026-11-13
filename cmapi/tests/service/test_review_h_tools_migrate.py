@@ -133,6 +133,8 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
             return httpx.Response(200, json={"id": "sa"})
         if p.endswith("/clients"):
             # An old realm (#181): the automation client still takes the password grant and has no service account.
+            if int(req.url.params.get("first", 0)) > 0:               # the list is read page by page, to its end
+                return httpx.Response(200, json=[])
             return httpx.Response(200, json=[{"id": "c", "clientId": req.url.params.get("clientId", "cmapi-automation"), "directAccessGrantsEnabled": True}])
         if "/role-mappings/" in p and m == "GET":
             return httpx.Response(200, json=[])

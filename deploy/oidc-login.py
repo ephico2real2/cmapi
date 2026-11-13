@@ -15,7 +15,8 @@ password from standard input, so that it is in no argument and no environment va
 the token. It follows no redirect: the redirect URI is read from the Location header and never requested. It stops with
 a reason, and with no secret in it, when Keycloak shows another page than the login form (a required action, a consent
 page, a second factor): those need a person. It sends the password only to an address under the issuer, and only over
-HTTPS or to the loopback address.
+HTTPS or to the loopback address, and it uses no proxy of the environment. An error names the step that failed in
+the script's own words: it repeats no text of a page and no value of an answer, because either can hold a secret.
 
 --base gives another origin to send the requests to when the issuer's own host does not resolve from here (the realm
 test runs Keycloak on 127.0.0.1 with the public hostname configured). TLS is verified always; --cacert adds a CA bundle.
@@ -63,13 +64,45 @@ def pkce_pair() -> tuple[str, str]:
 
 
 def _page_message(page: str) -> str:
+    # Return local constants only. Themes and providers can put credentials in page text.
+    safe = {
+        "Invalid username or password.": "Invalid username or password.",
+        "Cookie not found. Please make sure cookies are enabled in your browser.":
+            "Cookie not found. Please make sure cookies are enabled in your browser.",
+    }
     for pattern in MESSAGES:
         found = pattern.search(page)
         if found:
-            text = re.sub(r"<[^>]+>", " ", html.unescape(found.group(1)))
-            return " ".join(text.split())[:200]
+            text = " ".join(re.sub(r"<[^>]+>", " ", html.unescape(found.group(1))).split())
+            return safe.get(text, "no safe message on the page")
     title = re.search(r"<title>(.*?)</title>", page, re.I | re.S)
-    return ("page titled " + " ".join(html.unescape(title.group(1)).split())[:120]) if title else "no message on the page"
+    if title and " ".join(html.unescape(title.group(1)).split()) == "Update Account Information":
+        return "page titled Update Account Information"
+    return "no safe message on the page"
+
+
+def _checked_url(value: str):
+    # Reject characters that parsers/proxies can remove or normalize differently.
+    if any(ord(c) <= 32 or ord(c) == 127 for c in value) or "\\" in value:
+        raise LoginError("invalid URL")
+    try:
+        url = urllib.parse.urlsplit(value)
+        port = url.port
+    except ValueError:
+        raise LoginError("invalid URL") from None
+    if url.scheme not in ("https", "http") or not url.hostname or url.username is not None or url.password is not None:
+        raise LoginError("invalid URL")
+    if url.fragment or "%" in url.path or ";" in url.path or "//" in url.path:
+        raise LoginError("invalid URL path")
+    if any(p in (".", "..") for p in url.path.split("/")):
+        raise LoginError("invalid URL path")
+    return url
+
+
+def _same_origin(left, right) -> bool:
+    def origin(url):
+        return url.scheme, url.hostname, (url.port if url.port is not None else (443 if url.scheme == "https" else 80))
+    return origin(left) == origin(right)
 
 
 class Session:
@@ -77,20 +110,27 @@ class Session:
 
     def __init__(self, issuer: str, base: str | None, cacert: str | None, timeout: float = 15.0):
         self.issuer = issuer.rstrip("/")
-        public = urllib.parse.urlsplit(self.issuer)
+        public = _checked_url(self.issuer)
+        if public.query or not public.path.startswith("/realms/"):
+            raise LoginError("invalid realm issuer")
         self.public_origin = f"{public.scheme}://{public.netloc}"
         self.origin = (base or self.public_origin).rstrip("/")
-        target = urllib.parse.urlsplit(self.origin)
+        target = _checked_url(self.origin)
+        if target.path or target.query:
+            raise LoginError("base must be an origin")
         if target.scheme != "https" and target.hostname not in ("127.0.0.1", "::1", "localhost"):
-            raise LoginError(f"{self.origin} is not HTTPS and not the loopback address: the password would cross the network in clear")
+            raise LoginError("the target is not HTTPS and not the loopback address: the password would cross the network in clear")
         self.timeout = timeout
         self.cookies: dict[str, str] = {}
         context = ssl.create_default_context(cafile=cacert) if cacert else ssl.create_default_context()
-        self.opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=context))
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect, urllib.request.HTTPSHandler(context=context))
 
     def _url(self, url: str) -> str:
         """The address to send to: Keycloak writes its public origin into the form, and --base can replace it."""
-        return self.origin + url[len(self.public_origin):] if url.startswith(self.public_origin) else url
+        target, issuer = _checked_url(url), _checked_url(self.issuer)
+        if not _same_origin(target, issuer) or not target.path.startswith(issuer.path + "/"):
+            raise LoginError("the request is not under the issuer")
+        return self.origin + urllib.parse.urlunsplit(("", "", target.path, target.query, ""))
 
     def request(self, method: str, url: str, form: Mapping[str, str] | None = None) -> tuple[int, Mapping[str, str], str]:
         data = urllib.parse.urlencode(form).encode() if form is not None else None
@@ -103,7 +143,10 @@ class Session:
         except urllib.error.HTTPError as answer:            # 302, 400 and 401 are answers of the flow
             response = answer
         except (urllib.error.URLError, OSError) as exc:
-            raise LoginError(f"{method} {urllib.parse.urlsplit(self._url(url)).netloc}: {exc}") from None
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                raise LoginError("TLS verification failed (CERTIFICATE_VERIFY_FAILED)") from None
+            raise LoginError("the request failed") from None
         with response:
             for header in response.headers.get_all("Set-Cookie") or []:
                 name, _, value = header.split(";", 1)[0].partition("=")
@@ -131,19 +174,20 @@ def login(issuer: str, client_id: str, redirect_uri: str, username: str, passwor
         raise LoginError("the login form has no action")
     target = html.unescape(action.group(1))
     # The password goes to the realm that was asked, and to no other address that a page names.
-    if not target.startswith(session.issuer + "/"):
-        raise LoginError(f"the login form posts to {urllib.parse.urlsplit(target).netloc or 'a relative address'}, which is not under the issuer: the password is not sent")
+    parsed, public = _checked_url(target), _checked_url(session.issuer)
+    if not _same_origin(parsed, public) or not parsed.path.startswith(public.path + "/"):
+        raise LoginError("the login form is not under the issuer: the password is not sent")
     status, headers, page = session.request("POST", target, {"username": username, "password": password, "credentialId": ""})
     location = headers.get("Location", "")
     if status != 302 or not location.startswith(redirect_uri):
         if status == 302:
-            raise LoginError(f"Keycloak asks for another step before the redirect, which needs a person: {urllib.parse.urlsplit(location).path}")
-        raise LoginError(f"the sign-in of {username} was refused (HTTP {status}): {_page_message(page)}")
+            raise LoginError("Keycloak asks for a required-action or another step before the redirect, which needs a person")
+        raise LoginError(f"the sign-in was refused (HTTP {status}): {_page_message(page)}")
     answer = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(location).query))
     if answer.get("state") != state:
         raise LoginError("the redirect has another state than the request")
     if "code" not in answer:
-        raise LoginError(f"the redirect has no code: {answer.get('error', 'no error')} {answer.get('error_description', '')}".strip())
+        raise LoginError("the redirect has no code")
     status, _, body = session.request("POST", f"{session.issuer}/protocol/openid-connect/token",
                                       {"grant_type": "authorization_code", "code": answer["code"], "redirect_uri": redirect_uri,
                                        "client_id": client_id, "code_verifier": verifier})
@@ -152,7 +196,7 @@ def login(issuer: str, client_id: str, redirect_uri: str, username: str, passwor
     except ValueError:
         raise LoginError(f"the token endpoint did not answer JSON (HTTP {status})") from None
     if status != 200 or "access_token" not in tokens:
-        raise LoginError(f"the token endpoint refused the code (HTTP {status}): {tokens.get('error')} {tokens.get('error_description', '')}".strip())
+        raise LoginError(f"the token endpoint refused the code (HTTP {status})")
     return tokens
 
 

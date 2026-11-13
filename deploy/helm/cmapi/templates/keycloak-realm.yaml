@@ -120,6 +120,12 @@ spec:
           - {name: cmapi-auditor, description: "Viewer plus events and audit export"}
           - {name: cmapi-approval-relay, description: "approvals:relay for channel integrations"}
     clients:
+      - clientId: admin-cli
+        name: "Not used in this realm"
+        enabled: false
+        publicClient: true
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
       - clientId: {{ $aud }}
         name: "cmapi {{ .Values.instance.name }} API"
         enabled: true

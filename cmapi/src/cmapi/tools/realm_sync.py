@@ -15,7 +15,7 @@ What it converges, each step idempotent:
      their attributes and group memberships; nothing is printed but names.
 
 No client of the realm takes the resource owner password grant (RFC 9700, section 2.4; #181): before step 2 the
-sync turns it off on each client of an existing realm, and step 5 removes the local test account bot-user that signed in with it.
+sync turns it off on each client of an existing realm, and retires the local account bot-user independently of test-user creation.
 """
 from __future__ import annotations
 
@@ -108,18 +108,30 @@ def service_roles(rm: Realm, audience: str) -> None:
 
 
 def no_password_grant(rm: Realm) -> None:
-    """An existing realm, imported before #181: the import runs one time, so the change reaches the realm here.
-    cmapi-automation gets its service account in place of the password grant, and each other client loses the grant."""
+    """Turn off the password grant throughout the existing realm, including later pages."""
     changed = []
-    for c in rm.get("/clients", params={"max": 500}) or []:
-        want_service = c["clientId"] == "cmapi-automation"
-        if c.get("directAccessGrantsEnabled") or (want_service and not c.get("serviceAccountsEnabled")):
-            c["directAccessGrantsEnabled"] = False
-            if want_service:
-                c["serviceAccountsEnabled"] = True
-            rm.call("PUT", f"/clients/{c['id']}", json=c)
-            changed.append(c["clientId"])
+    first = 0
+    while True:
+        clients = rm.get("/clients", params={"first": first, "max": 500}) or []
+        if not clients:
+            break
+        for c in clients:
+            want_service = c["clientId"] == "cmapi-automation"
+            if c.get("directAccessGrantsEnabled") or (want_service and not c.get("serviceAccountsEnabled")):
+                c["directAccessGrantsEnabled"] = False
+                if want_service:
+                    c["serviceAccountsEnabled"] = True
+                rm.call("PUT", f"/clients/{c['id']}", json=c)
+                changed.append(c["clientId"])
+        first += len(clients)
     print(f"password grant: off on each client{' (changed: ' + ', '.join(sorted(changed)) + ')' if changed else ''}")
+
+
+def retire_legacy_bot(rm: Realm) -> None:
+    """Disabling a client grant does not disable an enabled local user's browser login."""
+    for stale in rm.get("/users", params={"username": "bot-user", "exact": "true"}) or []:
+        rm.call("DELETE", f"/users/{stale['id']}")
+        print("test user bot-user: removed (the automation client signs in by its service account)")
 
 
 def groups(rm: Realm, audience: str, mapping: dict[str, list[str]]) -> dict[str, str]:
@@ -257,10 +269,6 @@ def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
             if g in group_ids:
                 rm.call("PUT", f"/users/{uid}/groups/{group_ids[g]}")
 
-    # bot-user was a test user of this list until #181. It could sign in only with the password grant, so it goes.
-    for stale in rm.get("/users", params={"username": "bot-user", "exact": "true"}) or []:
-        rm.call("DELETE", f"/users/{stale['id']}")
-        print("test user bot-user: removed (the automation client signs in by its service account)")
     for username, first, middle, last, emp, memberships in TEST_USERS:
         attrs: dict[str, list[str]] = {"employeeId": [emp]}
         if middle:
@@ -280,6 +288,7 @@ def main(argv: list[str]) -> None:
     rm = Realm(admin_base, realm, "cmapi-realm-admin", secret, verify)
     user_profile(rm)
     no_password_grant(rm)
+    retire_legacy_bot(rm)
     service_roles(rm, audience)
     ids = groups(rm, audience, json.loads(os.environ.get("CMAPI_REALM_GROUPS") or "{}"))
     ldap(rm, json.loads(os.environ.get("CMAPI_REALM_LDAP") or "{}"))
