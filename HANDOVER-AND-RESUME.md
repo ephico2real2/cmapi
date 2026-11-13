@@ -57,6 +57,7 @@ The owner: "use local ci for all work and forget the githiub", and "tell ob1 to 
 | #151 (BUG-36) | PR #161, merged |
 | #145, #146, #164 (BUG-32, BUG-33, BUG-39) | PR #163, merged as `48920d5`, GitHub's six jobs green on head `9101c47`. Local CI exit 0 for reference-code, portal-mockup, portal-ui and api-contract (with the #169 fix: "Job succeeded"); service ran natively at `2c628f2` (557 passed); manifests not run locally |
 | #148 (UX-02) | PR #168, merged as `290ac5f`, GitHub's six jobs green on `efd2d2d`, `manifests` among them. No local CI (paused). #149 stays open for the owner's choice of the mockup's sample names |
+| The KPI review (story #16) | PR #177, open, head `556e3a8`: `docs/17-kpis.md` with 21 KPIs (6 live, 3 built, 12 designed), each with its question, formula, source, proposed target, alert and status; Rebuild recovery removed with the owner's words, and Docs coverage, Stability, Event-loop health, Validation reject rate and the mixed lead time removed with reasons. `GET /admin/kpi` typed in OpenAPI; `test_kpis.py` ties the response to docs/17 (4 of 5 failed before). Service suite 562 passed natively. Live Claude Docs edited: Design and Architecture rev 165, Technical Design v2 rev 294. Filed under #16: #171 (self-service rate not computable), #172 (drift and namespaces metrics never fed), #173 to #176 (close with #177). The null CPU and memory of the macOS sample is not a bug: macOS has no cgroup v2 files |
 | #167 (UX-04) | Filed by OB1, Backlog, W6: a pending request is on the Approvals and Expiration tabs and not in the request list. Not fixed: the new row needs a scenario link |
 | Filed for later waves | #143, #144, #147, #149, #150 |
 
@@ -70,7 +71,7 @@ The owner: "use local ci for all work and forget the githiub", and "tell ob1 to 
 ### Order from here
 
 1. The owner reads #157 and decides.
-2. Local CI and kind stay paused: keycloak-0 restarted a third time at 15:38:00Z under container load (#157, title widened to container load). The owner decides #157. OB1 works on the KPI brief (`workbench/cmapi/ob1-run/kpi-brief.md`; the owner removed the rebuild-recovery KPI), then #150, #144, #143. diagram-kit PR 62 (#169) and PR 63 (#170) wait for the owner's merge.
+2. Local CI and kind stay paused: keycloak-0 restarted a third time at 15:38:00Z under container load (#157, title widened to container load). The owner decides #157. OB1 merges PR #177 when GitHub is green. Then a fresh OB1 (the run's context is long) takes #144 (plugins.yaml), #143 (Spectral), #171 and #172. The owner decides each KPI target (all proposed), #149, #150 and #167. diagram-kit PR 62 (#169) and PR 63 (#170) wait for the owner's merge.
 3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
