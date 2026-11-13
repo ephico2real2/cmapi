@@ -18,6 +18,12 @@ mkdir -p "$W/bin" "$W/secrets/cmapi"; export LT_C=$C LT_NAME=$NAME LT_ARGV=$W/ar
 cat >"$W/bin/oc" <<'OC'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$LT_ARGV"
+# For crc-rollback.sh: what it would delete on the cluster is logged and not made. The LDAP script's own Secret goes the usual way, below.
+if [ -n "${LT_CLUSTER:-}" ]; then case "$*" in
+  "delete secret cmapi-ldap-test-users "*) ;;
+  "delete "*) printf '%s\n' "$*" >>"$LT_CLUSTER"; exit 0;;
+  "get pvc "*|"label namespace "*) exit 0;;
+esac; fi
 case "$*" in
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
   "exec -i -n ldap-testing -c openldap "*)
@@ -108,6 +114,7 @@ remove_ours() { # what the script added, by the test's own hand, for the next ca
 S=$SRC/apply-test-identities.sh
 run() { : >"$LT_ARGV"; : >"$LT_DELETES"; "${SCRIPT:-$S}" "$@" >"$W/out" 2>&1; echo $?; }
 # Exactly these full names reached ldapdelete in the last run, and no other. A delete that also removes something else cannot pass this, whatever the tree shows afterwards.
+rollback() { : >"$W/cluster"; : >"$LT_DELETES"; LT_CLUSTER=$W/cluster "$ROOT/deploy/crc-rollback.sh" --yes >"$W/out" 2>&1; echo $?; }   # the real script, on the stub
 deleted_exactly() { [ "$(LC_ALL=C sort "$LT_DELETES")" = "$(LC_ALL=C sort)" ]; }
 old_dns() { for g in $OLD; do echo "cn=$g,ou=Groups,$BASE"; done; }
 new_dns() { grep '^dn: ' "$SRC/cmapi-groups.ldif" | cut -c5-; awk -F'\t' -v b="$BASE" '!/^#/ && NF {print "cn=" $1 ",ou=People," b}' "$SRC/test-identities.tsv"; }
@@ -383,6 +390,24 @@ add: member
 member: cn=john.doe,ou=People,$BASE
 LDIF
   rc=$(run --remove-test-identities); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing a new group with a real person added" || bad "the removal reached a group holding a real person: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  remove_ours
+  # The rollback asks LDAP first: a refusal there comes before the first delete on the cluster, and says what to do. Then the control, on entries that are as written.
+  [ "$(run)" = 0 ] || bad "the run before the rollback: $(tail -3 "$W/out")"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+add: description
+description: set by directory policy
+LDIF
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out" && ok "refused: removing the old groups while a new group holds an attribute this run did not write, and it says to report it" || bad "the old groups with a new group holding another attribute: rc $rc, $(tail -1 "$W/out")"
+  rc=$(rollback); [ "$rc" != 0 ] && [ ! -s "$W/cluster" ] && [ ! -s "$LT_DELETES" ] && grep -q 'Stop and report' "$W/out" && ok "refused: the rollback, before any delete on the cluster, and it says to report it" || bad "the rollback with a new group holding another attribute: rc $rc, $(wc -l <"$W/cluster") deletes on the cluster, $(wc -l <"$LT_DELETES") in LDAP"
+  adm ldapmodify >/dev/null 2>&1 <<LDIF
+dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
+changetype: modify
+delete: description
+description: set by directory policy
+LDIF
+  rc=$(rollback); [ "$rc" = 0 ] && [ -s "$W/cluster" ] && new_dns | deleted_exactly && ok "the rollback goes through on entries that are as written: the control, $(wc -l <"$W/cluster" | tr -d ' ') deletes on the cluster and the 23 in LDAP" || bad "the rollback, the control: rc $rc: $(tail -3 "$W/out")"
   remove_ours
   # openssl on the machine running the script.
   mkdir -p "$W/no-openssl"; printf '#!/bin/sh\nexit 1\n' >"$W/no-openssl/openssl"; chmod +x "$W/no-openssl/openssl"

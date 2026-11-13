@@ -30,6 +30,7 @@ case "${1:-}" in
   "") ;;
   --remove-old-groups) mode=remove-old ;;
   --remove-test-identities) mode=remove-new ;;
+  --check-remove-test-identities) mode=check-remove-new ;;
   *) echo "unknown argument: $1. Nothing done" >&2; exit 2 ;;
 esac
 [ $# -le 1 ] || { echo "too many arguments: this takes no name, since it can only touch the names it holds. Nothing done" >&2; exit 2; }
@@ -212,7 +213,7 @@ remove_old() {
   read_state
   if grep -qv '^same ' "$tmp/state"; then
     grep -v '^same ' "$tmp/state" | sed 's/^/FAIL: /' >&2
-    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted"
+    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted. Stop and report the listed DNs to the directory owner. Review any extra attributes and their ownership; do not strip attributes or delete entries to force migration"
   fi
   measure "$dns" 1 > "$tmp/before"
   # Only those still there: ldapdelete stops on one that is gone, and a rerun has to pass.
@@ -228,13 +229,17 @@ remove_old() {
   echo "ok   the ten old groups are gone: $(wc -l < "$tmp/still" | tr -d ' ') deleted by this run, each by its full dn"
 }
 
-remove_new() {
+check_remove_new() {
   # An entry at one of these names that is not what the first form writes is somebody's, as the first form says when it refuses to touch it. A cmapi.* stranger is not on the list, and stays.
   read_state
   if grep -q '^different ' "$tmp/state"; then
     grep '^different ' "$tmp/state" | sed 's/^/FAIL: /' >&2
-    die "an entry with one of cmapi's names is not what this script writes, so it is not this script's to delete: nothing deleted"
+    die "an entry with one of cmapi's names differs: nothing deleted. Stop and report the listed DNs to the directory owner. Review the attributes and their ownership before retrying; do not strip attributes or delete entries to force rollback"
   fi
+}
+
+remove_new() {
+  check_remove_new
   measure "$tmp/ours" 0 > "$tmp/before"
   # Groups first: a person's entry should not go while a group still names it.
   in_pod "$lib"'
@@ -250,6 +255,11 @@ remove_new() {
 case "$mode" in
   remove-old) remove_old; exit 0 ;;
   remove-new) remove_new; exit 0 ;;
+  check-remove-new)
+    check_remove_new
+    measure "$tmp/ours" 0 > "$tmp/removal-check"
+    echo "ok   LDAP removal preflight: no entries or Secrets written or deleted"
+    exit 0 ;;
 esac
 
 # ---- before any write: every read that can stop this.
