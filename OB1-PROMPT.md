@@ -112,5 +112,15 @@ The database is CloudNativePG, as decided and measured on kind, and docs/12's pa
 - kvpg is the owner's other project: read it, never change it, and file nothing there. Write a defect in kvpg's contract in `recommendations.md` for the owner.
 - Add nothing if cmapi needs no shared cache. Record that decision too.
 
+**Build the store, or use a public library.** The owner, 2026-11-13: "ob1 is free the python equiavlanet to add a similar or use an existing public one as well". So, if cmapi needs a shared cache, OB1 can build the small Python store above, or use an existing public Python library that caches in PostgreSQL. Choose by research, and record the choice and its sources here and in `HANDOVER-AND-RESUME.md`. A library must meet all of these, each verified from its source code and documents, not its README alone:
+- It is maintained, with a release in the last 12 months and an OSI licence compatible with Apache-2.0.
+- It works with cmapi's stack (Python 3.12, the database driver and the SQLAlchemy version that cmapi uses) and with PostgreSQL 16 under CloudNativePG.
+- The database clock decides expiry, or a documented reason says why client time is safe here.
+- It uses a logged table, created through cmapi's own migrations and not at import time.
+- Its connection uses TLS with server verification (#91), and it has no option of its own that turns that off.
+- It has a version pin with a hash, as cmapi pins its other dependencies.
+
+Measure the library against kvpg's contract v1 rules (S1 to S14) and its conformance edges with pytest, as for a store of cmapi's own. A rule that it breaks is a defect against that choice, not a reason to weaken the test. If no library passes, build the store. If cmapi needs no shared cache, add neither, and record that.
+
 ## When you finish, or must stop
 Report in ten lines or fewer: what works and on which cluster (CRC or kind), what failed and is still open, with issue numbers, and exactly what I need to do next.
