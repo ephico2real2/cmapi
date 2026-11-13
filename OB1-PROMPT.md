@@ -54,6 +54,23 @@ The owner, 2026-11-13: "cmapi must define the groups contract but keycloak has t
 - **`docs/15-keycloak-integration.md`, the Keycloak integration.** Keycloak holds the users and their group membership, from LDAP federation, and maps each group to a cmapi role. cmapi changes only realm `cmapi`. Say what cmapi creates in the realm: the clients (`cmapi`, `cmapi-docs`, the portal's), the mappers, the audience, the roles and the groups. Give the import, the claims of a real token with no secret in it, the PKCE flow of the portal and of Swagger UI, and token lifetimes. Add one sequence diagram from sign-in to a permitted call.
 - **The data model and the API contract.** Document each table of the service and each API resource. For each endpoint, give a sample request and response payload, taken from a real run and not written by hand, and each error with its RFC 9457 body. Put the payloads in the OpenAPI examples too, so that Swagger UI, ReDoc and the docs show the same ones. `docs/04-api-examples.md` holds the current examples: make it match the code. Fix #127 to #134, the API-docs defects filed on 2026-11-13, as part of this.
 
+## The build tracker of all issues and milestones
+The owner, 2026-11-13: "keep a build tracker for all issues and milestones created in this repo". `scripts/issue-register.sh` writes `issue-register.md`, a table of every issue and milestone with its type, state, work tag, status, severity, class, parent and milestone. Run it again after each change to an issue or a milestone, and commit the result with that work. `build-tracker.md` links to it and gives its counts. The count "Open without exactly one work tag" must reach 0.
+- Create one milestone per wave, `W1` to `W9`, with the wave's work from `build-tracker.md` as its description (`templates/milestone.md` of `/agile`). Give each a due date only when I give one: the skill says never to invent a date. Put each open issue in the one milestone that ships it.
+
+## Definition of done, for each issue and each pull request
+An item is done only when all of these hold. Check each one, and cite the evidence in the pull request and in the issue's `Done` comment.
+1. **Defined.** The issue is in the `/agile` form: its labels, its parent, and acceptance criteria that each say which test proves them.
+2. **Tested.** A defect has a test that fails before the fix and passes after it, both runs shown. A feature has a test for each criterion. Every suite in `CLAUDE.md`'s "Tests" table that the change touches passes on your machine.
+3. **Real.** No stub, placeholder, mock data or skipped test stands in for the work. A gap is filed as an issue, not hidden.
+4. **Documented.** The docs change in the same pull request, written in Simplified Technical English, with real sample payloads where an API changes. Each route passes `check_documented`, and Swagger UI and ReDoc show it.
+5. **Reviewed where the rule asks.** A change to auth, tokens, admission, secrets or deletion has its second reader, with each finding ruled on by a test.
+6. **Proven where it runs.** Kubernetes behaviour on a `cmapi-*` kind cluster, and OpenShift behaviour on CRC, each result naming its cluster. A visible change has a screenshot through its Route.
+7. **Safe.** No secret in git, logs or commands, TLS verification on, and the shared-services rules kept.
+8. **Green.** CI passes on the exact head commit, read after the run finished.
+9. **Recorded.** The pull request starts with `Closes #N` or `Part of #N`, names its milestone, and says that Fable 5.2 wrote it. The issue has `Done` with its evidence comment, `issue-register.md` is regenerated, and `build-tracker.md` and `HANDOVER-AND-RESUME.md` say the new state.
+10. **Merged** to `main` only when items 1 to 9 hold.
+
 ## What "done" means
 1. Every feature in docs/01 and docs/02 is implemented: the service API, the worker jobs, the cmapi CLI and cmapi-sdk, and the admin portal.
 2. The admin portal shows everything the mockup shows, with the same tabs, data, states and actions, on the real API (not mock data). I like our mockup: keep it faithful, and change its look only where PatternFly replaces it. It uses React, TypeScript, Vite and PatternFly, per the mockup-to-page-react skill. Sign-in goes through Keycloak with OIDC and PKCE, in realm cmapi, and each role sees only what docs/02 allows.
