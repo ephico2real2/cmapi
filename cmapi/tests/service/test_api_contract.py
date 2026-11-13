@@ -23,7 +23,7 @@ def test_openapi_lists_every_route_with_summary_permission_and_problems(world):
             if op.get("x-cmapi-permission"):
                 assert "401" in op["responses"] and "403" in op["responses"], f"{method} {path} lacks 401/403"
     assert client.get("/openapi.yaml").status_code == 200
-    assert client.get("/docs").status_code == 200 and client.get("/redoc").status_code == 200
+    # /docs and /redoc need the image's bundles, and no longer fall back to a CDN (#127): test_api_docs.py covers both cases.
 
 
 def test_every_declared_problem_has_a_status_and_example():

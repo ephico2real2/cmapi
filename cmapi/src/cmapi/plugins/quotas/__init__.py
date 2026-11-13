@@ -2,11 +2,12 @@
 list contract (docs/01, Lists). Writes are a tier or quota PATCH on the namespace."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import Depends, Query
 from fastapi.responses import StreamingResponse
 
+from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, RequestRepo
 from cmapi.core.docs import DocumentedRouter
@@ -14,9 +15,22 @@ from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import ListQuery
 from cmapi.core.models import QuotaPage, Suggestions
 from cmapi.core.tiers import qty
-from cmapi.routers import ctx, require
+from cmapi.routers import Cursor, Limit, ctx, require
 
-router = DocumentedRouter("quotas", prefix="/api/v1")
+router = DocumentedRouter("quotas", prefix="/api/v1", version=__version__, group="Capacity and placement",
+                          description="The quota of each managed namespace on every cluster of the instance: a paged list, "
+                                      "type-ahead matches and a CSV export.")
+# The filters that the list and its export share, so that an export returns the rows that the list shows.
+Text = Annotated[str, Query(examples=["payments"],
+                            description="Text that the name, the team label or the app label contains. Case does not matter.")]
+Env = Annotated[str | None, Query(examples=["dev"], description="Only the namespaces of this environment (`cmapi.net/env`).")]
+ClusterFilter = Annotated[str | None, Query(alias="clusterId", examples=["CRC"], description="Only the namespaces on this cluster.")]
+Team = Annotated[str | None, Query(examples=["payments"], description="Only the namespaces of this team (`cmapi.net/team`).")]
+Tier = Annotated[str | None, Query(examples=["small"], description="Only the namespaces of this tier (`cmapi.net/tier`).")]
+Sort = Annotated[str, Query(examples=["used"],
+                            description="`name` sorts by name, A to Z. `used` puts the highest use first: the largest of "
+                                        "CPU, memory and pods, each as used divided by hard.")]
+
 COLUMNS = ["name", "clusterId", "env", "team", "tier", "cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard",
            "used", "expiresAt", "tierOutdated"]
 
@@ -69,15 +83,11 @@ def _query(q: str, env: str | None, cluster_id: str | None, team: str | None, ti
 
 @router.read("/quotas", summary="Every namespace's quota, paged", permission="objects:read", response_model=QuotaPage,
              problems=["invalid-cursor", "invalid-sort", "invalid-limit"])
-def quotas(q: str = Query(default="", description="Match on name, team or app"),
-           env: str | None = Query(default=None, description="Environment"),
-           cluster_id: str | None = Query(default=None, alias="clusterId", description="Cluster"),
-           team: str | None = Query(default=None, description="cmapi.net/team"),
-           tier: str | None = Query(default=None, description="Tier"),
-           sort: str = Query(default="name", description="name or used"),
-           limit: int = Query(default=50, description="25, 50 or 100; at most 200"),
-           cursor: str | None = Query(default=None, description="Keyset cursor"),
-           starts_with: str | None = Query(default=None, alias="startsWith", description="Letter jump with sort=name"),
+def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
+           sort: Sort = "name", limit: Limit = 50, cursor: Cursor = None,
+           starts_with: str | None = Query(default=None, alias="startsWith", examples=["p"],
+                                           description="With `sort=name`, the page starts at the first name at or after this "
+                                                       "text. Use it to jump to a letter."),
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """One page of managed namespaces in the caller's environments with hard and used requests.cpu,
     requests.memory and pods from the watch cache, their tier, whether the catalog moved on (tier-outdated),
@@ -87,19 +97,16 @@ def quotas(q: str = Query(default="", description="Match on name, team or app"),
 
 
 @router.read("/quotas:suggest", summary="Type-ahead matches", permission="objects:read", response_model=Suggestions)
-def suggest(q: str = Query(default="", description="Two or more characters"), who: Identity = Depends(require("objects:read")),
+def suggest(q: str = Query(default="", examples=["pay"],
+                           description="The text to match. Fewer than two characters return no match."), who: Identity = Depends(require("objects:read")),
             c: AppContext = Depends(ctx)) -> dict:
     """Up to ten namespaces whose name starts with the text, then contains it, then whose team or app label matches."""
     return {"items": c.lister.suggest(quota_rows(c, who), q)}
 
 
 @router.read("/quotas:export", summary="Export the quota list as CSV", permission="objects:read", media_type="text/csv")
-def export(q: str = Query(default="", description="Match on name, team or app"),
-           env: str | None = Query(default=None, description="Environment"),
-           cluster_id: str | None = Query(default=None, alias="clusterId", description="Cluster"),
-           team: str | None = Query(default=None, description="cmapi.net/team"),
-           tier: str | None = Query(default=None, description="Tier"),
-           sort: str = Query(default="name", description="name or used"),
+def export(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
+           sort: Sort = "name",
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)):
     """Every row matching the same filters in the same order, capped at 10,000 rows, written to the audit log."""
     rows = [{**r, "cpuUsed": r["cpu"][0], "cpuHard": r["cpu"][1], "memoryUsed": r["memory"][0], "memoryHard": r["memory"][1],
