@@ -170,6 +170,8 @@ jobs:
         run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
       - name: kind-test.sh's failures, on stubs
         run: deploy/tests/kind-test-stubbed.sh
+      - name: kind-test.sh's database probes are the pods it says they are (#91)
+        run: python deploy/tests/db-probe-test.py
       - name: The secrets cases against mutants of secrets.sh, on a stub
         run: python deploy/tests/mutate-secrets.py
       - name: The CRC guards, on a stub oc and a local TLS server
