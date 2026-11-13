@@ -55,7 +55,20 @@ These indexes and constraints carry correctness. The code relies on each of them
 | A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:252`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
-The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The six open states are `pending_approval`, `approved`, `pr_open`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:16`).
+The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The six open states are `pending_approval`, `approved`, `pr_open`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:17`).
+
+## The models and the migrations agree
+
+The migrations make the schema. The models in `cmapi/src/cmapi/core/db/models.py` describe the same schema for the code. A test of the service suite holds the two together (`cmapi/tests/service/test_models_match_migrations.py`):
+
+| Check | What it finds |
+|---|---|
+| `alembic check` on the migrated test database | A column, a table or an index that only the models have, or only the database has. A model change with no migration fails here |
+| The definition of each index, as PostgreSQL writes it, in a schema that is made from the models alone | A different WHERE of a partial index. `alembic check` does not see that (measured with Alembic 1.20.1 on PostgreSQL 16), and three unique indexes of cmapi are partial |
+
+Before this check, the models did not declare eight indexes of the migrations. `alembic revision --autogenerate` would then have written a migration that drops them, the lock index `uq_cr_open_namespace` among them. The models now declare each index.
+
+A changed server default is not compared. To add a column: change the model, write the migration, and run the suite.
 
 ## What the database does not hold
 
