@@ -26,7 +26,7 @@ CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screensh
 
 ## State on 2026-11-13, at the end of OB1's run: read this first
 
-OB1 (Fable 5.2) ran as a background agent of the coordinator from about 08:45 to 11:30 UTC, with a stop from 09:45 to 10:24 UTC (`403 authentication_failed`, nothing lost). Its resume file is `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run/resume.md`, and its reports are in that folder, outside git.
+OB1 (Fable 5.2) ran as a background agent of the coordinator from about 08:45 UTC on 2026-11-13. It had two stops, and lost nothing at either: from 09:45 to 10:24 UTC (`403 authentication_failed`), and from about 11:45 to 13:53 UTC (Fable's 5-hour usage limit). At each resume OB1 read `git status`, `podman ps`, `pgrep` and the pull requests' checks before it went on. Its resume file is `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run/resume.md`, and its reports are in that folder, outside git.
 
 ### The shared Keycloak restarted: #157 (PERF-01). The owner decides what comes next
 
@@ -46,9 +46,9 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 | The API documentation of `docs/01` (#127 to #134) | PR #135, merged: tags and groups, curl samples, ETag, `/docs/changelog`, the CI job `api-contract` with oasdiff, `docs.public`, no CDN |
 | `docs/14`, `docs/15`, `docs/16`, #141 (BUG-30) | PR #153, merged. Codex read the fix of #141 and found no defect. The figures of `docs/14` and `docs/16` are drawn |
 | #139 (BUG-29), #142 (BUG-31) | PR #140 and PR #152, merged |
-| `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, open. Its first CI run failed on Linux in the samples test. A fix is pushed (`1ec2f20`), and its CI result is not read yet |
-| #91 (SEC-04) | PR #158, open, proven on kind. Its CI result is not read yet |
-| The architecture figures from the mockup | Five figures, light and dark, on branch `diagrams` (`3cad6ed`, pushed, no pull request). They say "realm cmapi: not on CRC yet" |
+| `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, open. Two CI runs failed in the `service` job, each for a cause in the pull request itself: the samples test compared value types that differ between macOS and Linux, and the new `docs/04` had dropped the token recipe that `test_docs_sign_in_for_the_bot_carries_the_client_secret` holds. Both are fixed (`c2495fc`): the recipes are now in `docs/15`. Read its checks before the merge |
+| #91 (SEC-04) | PR #158, merged as `513ea67`, CI green on its head. Proven on kind; not on CRC |
+| The architecture figures from the mockup | PR #160, merged as `0cd0d57`: five figures, light and dark, in `docs/diagrams/portal-architecture/`, and the system figure in `docs/08`. They say "realm cmapi: not on CRC yet" |
 | Filed for later waves | #143, #144, #145 to #151 |
 
 ### What is not done
@@ -61,9 +61,8 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 ### Order from here
 
 1. The owner reads #157 and decides.
-2. Read CI on PR #156 and PR #158 (`gh pr checks`). Merge each when each job has passed on its head. If #156's samples test fails again, its message now names the path that differs.
-3. Open a pull request for branch `diagrams`, after the figures say the true state of CRC.
-4. The CRC run from `docs/13`, from a clean checkout of `main`.
+2. Read CI on PR #156 (`gh pr checks 156`). Merge it when each job has passed on its head.
+3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
 

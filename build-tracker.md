@@ -42,16 +42,16 @@ All 134 issues, open and closed, by the class questions of `/agile`, section 2.
 
 ## OB1's run, 2026-11-13
 
-The state of each item of the run is in [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), "State on 2026-11-13, during OB1's run". The session stopped with `403 authentication_failed` at about 09:45 UTC and resumed at 10:24 UTC with nothing lost. The table "Where it stands" below is the state before the run, except where the handover says otherwise.
+The state of each item of the run is in [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), "State on 2026-11-13, during OB1's run". The session stopped two times and lost nothing: from 09:45 to 10:24 UTC (`403 authentication_failed`) and from about 11:45 to 13:53 UTC (Fable's 5-hour usage limit). The table "Where it stands" below is the state before the run, except where the handover says otherwise.
 
 ## Where it stands
 
 | | |
 |---|---|
-| Merged to `main` | PR #40, #89, #95, #98, #111, #114, and on 2026-11-13 by OB1: PR #112 (LDAP group names, test users, second pass; `99093d8`), PR #140 (BUG-29), PR #135 (the API documentation of `docs/01`), PR #152 (BUG-31), PR #153 (`docs/14`, `docs/15`, `docs/16`, BUG-30; `f62d448`) |
-| In progress | Wave 1 (#94): the code is merged, and the CRC run from `docs/13` is next. #91 (SEC-04) lands before it: PR #158, proven on kind (before the fix `prefer` with a plaintext fallback, after it `verify-full` and a refusal), waiting for CI. **The CRC run is stopped: `keycloak-0` restarted on 2026-11-13 (#157), and the owner decides** |
+| Merged to `main` | PR #40, #89, #95, #98, #111, #114, and on 2026-11-13 by OB1: PR #112 (LDAP group names, test users, second pass; `99093d8`), PR #140 (BUG-29), PR #135 (the API documentation of `docs/01`), PR #152 (BUG-31), PR #153 (`docs/14`, `docs/15`, `docs/16`, BUG-30; `f62d448`), PR #158 (#91, SEC-04; `513ea67`), PR #160 (the figures from the mockup; `0cd0d57`) |
+| In progress | Wave 1 (#94): the code is merged, and the CRC run from `docs/13` is next. #91 (SEC-04) is merged (PR #158), proven on kind: before the fix `prefer` with a plaintext fallback, after it `verify-full` and a refusal. **The CRC run is stopped: `keycloak-0` restarted on 2026-11-13 (#157), and the owner decides** |
 | On CRC | No cmapi workload, and realm `cmapi` does not exist (read 2026-11-06). OB1 has not touched CRC yet. Namespace `cmapi` holds Secret `cmapi-ldap-bind` and OpenShift's own generated Secrets. LDAP holds the bind user and the old `cmapi-*` groups, which step 10 of `docs/13` removes |
-| Next action | **The owner reads #157 (PERF-01) first.** After the owner's go-ahead: merge PR #156 and PR #158 when CI is green, then the CRC run of Wave 1 from `docs/13`, from a clean checkout of `main`, with no kind cluster on this Mac. Then the proofs of #94 and of the API docs on CRC, the real token for `docs/15`, and Wave 2 |
+| Next action | **The owner reads #157 (PERF-01) first.** After the owner's go-ahead: merge PR #156 when CI is green, then the CRC run of Wave 1 from `docs/13`, from a clean checkout of `main`, with no kind cluster on this Mac. Then the proofs of #94 and of the API docs on CRC, the real token for `docs/15`, and Wave 2 |
 | Running | See `HANDOVER-AND-RESUME.md`, "State on 2026-11-13" |
 | Whole app | Not done. The thin slice ends at Wave 5, and the product scope at Wave 9 |
 
@@ -132,7 +132,7 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 `issue-register.md` is the full list, with the severity, the class, the parent and the milestone of each. In short, on 2026-11-13:
 
 - **Closed by OB1's merges:** #109, #110, #113, #115 to #126, #136 to #138 (PR #112); #139 (PR #140); #127 to #134 (PR #135); #142 (PR #152).
-- **Fixed in an open pull request:** #154 and #155 (PR #156, with `docs/04` and the OpenAPI examples from a run); #91 (PR #158). Closed by PR #153: #141.
-- **Open, for Wave 1:** #94 (the CRC run), #91 (SEC-04).
+- **Fixed in an open pull request:** #154 and #155 (PR #156, with `docs/04` and the OpenAPI examples from a run). Closed by PR #153: #141. Closed by PR #158: #91.
+- **Open, for Wave 1:** #94 (the CRC run).
 - **Open, for later waves:** #59 to #62, #64, #65, #84, #85, #87, #97 (Waves 2 to 5); #33, #145, #146, #148 to #151 (Wave 6, the portal on the API); #147 (Wave 8); #143 (Spectral lint), #144 (`plugins.yaml`); #92 (the load test).
 - **Blocked on the owner:** #157 (PERF-01, the Keycloak restart), #35, #36, #93.
