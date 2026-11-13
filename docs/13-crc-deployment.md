@@ -238,7 +238,7 @@ Before any Keycloak step, because the realm's federation reads these. It writes 
 
 Each by its full `dn`, from a list in the script: no filter, no `-r`, and it takes no name from outside. A look-alike such as `cn=cmapi-other` stays.
 
-**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
+**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not. If the listed new entries differ, stop and report their DNs to the directory owner. Have the owner review extra attributes and their ownership before any retry; do not strip attributes or delete entries to force migration.
 
 ### Step 11: the Secrets
 
@@ -523,7 +523,7 @@ Step 4 is measured on that image. Steps 2 and 3 have not been run anywhere.
 deploy/crc-rollback.sh --yes
 ```
 
-It removes, each by name, what Wave 1 added, in dependency order. Every delete names one object.
+It first checks LDAP ownership and measurements without writing or deleting anything. If that preflight fails, stop and report the listed DNs to the directory owner; review any extra attributes and their ownership before retrying. Do not strip attributes or delete entries to force rollback. Once the preflight passes, it removes, each by name, what Wave 1 added, in dependency order. Every delete names one object. The LDAP removal repeats its checks because the preflight does not lock the directory.
 
 **In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
 

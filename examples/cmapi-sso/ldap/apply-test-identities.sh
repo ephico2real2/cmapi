@@ -30,6 +30,7 @@ case "${1:-}" in
   "") ;;
   --remove-old-groups) mode=remove-old ;;
   --remove-test-identities) mode=remove-new ;;
+  --check-remove-test-identities) mode=check-remove-new ;;
   *) echo "unknown argument: $1. Nothing done" >&2; exit 2 ;;
 esac
 [ $# -le 1 ] || { echo "too many arguments: this takes no name, since it can only touch the names it holds. Nothing done" >&2; exit 2; }
@@ -118,14 +119,16 @@ measure_prog=$lib'
   # One step a line, through files: this shell has no pipefail, so in a pipeline a sort or a sha256sum that fails would leave a digest of nothing, which matches itself.
   LC_ALL=C sort "$w/canon" > "$w/canon-sorted"
   sha256sum < "$w/canon-sorted" > "$w/canon-sum"
-  echo "others=$(cut -d" " -f1 "$w/canon-sum")"
+  others=$(cut -d" " -f1 "$w/canon-sum")
+  echo "others=$others"
   rc=0; search -b "$2" -s base member uniqueMember > "$w/gate" || rc=$?
   [ "$rc" = 0 ] || { echo "FAIL: cannot read the gate group $2: rc $rc" >&2; exit 1; }
   grep -iE "^(member|uniqueMember):" "$w/gate" > "$w/gate-members" || true
   [ -s "$w/gate-members" ] || { echo "FAIL: the gate group $2 has no readable members: a digest of nothing would prove nothing" >&2; exit 1; }
   LC_ALL=C sort "$w/gate-members" > "$w/gate-sorted"
   sha256sum < "$w/gate-sorted" > "$w/gate-sum"
-  echo "gate=$(cut -d" " -f1 "$w/gate-sum")"
+  gate=$(cut -d" " -f1 "$w/gate-sum")
+  echo "gate=$gate"
   search -b "$LDAP_BASE_DN" -s sub "(&(uid=*)(memberOf=$2))" uid > "$w/idp"
   echo "idp=$(grep -c "^uid:" "$w/idp" || true)"
   echo "idp_cmapi=$(grep -c "^uid: cmapi\." "$w/idp" || true)"
@@ -199,13 +202,18 @@ remove_old() {
       present "$dn" || { echo "gone already: $dn"; continue; }
       search -b "$dn" -s base objectClass > "$w/e"
       grep -qix "objectClass: groupOfNames" "$w/e" || { echo "FAIL: $dn is not a groupOfNames: leaving every entry alone" >&2; exit 1; }
+      search -b "$dn" -s one "(objectClass=*)" dn > "$w/children"
+      if [ -s "$w/children" ]; then
+        echo "FAIL: $dn has child entries: none deleted. Stop and report to the directory owner; move or remove the children only after ownership review, then rerun --remove-old-groups" >&2
+        exit 1
+      fi
     done
   ' < "$dns"
   # The old groups stay until every new entry is what this script writes. A group at the right name with other members, or a test user missing, would leave someone with the wrong role or with none once these go.
   read_state
   if grep -qv '^same ' "$tmp/state"; then
     grep -v '^same ' "$tmp/state" | sed 's/^/FAIL: /' >&2
-    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted"
+    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted. Stop and report the listed DNs to the directory owner. Review any extra attributes and their ownership; do not strip attributes or delete entries to force migration"
   fi
   measure "$dns" 1 > "$tmp/before"
   # Only those still there: ldapdelete stops on one that is gone, and a rerun has to pass.
@@ -221,13 +229,17 @@ remove_old() {
   echo "ok   the ten old groups are gone: $(wc -l < "$tmp/still" | tr -d ' ') deleted by this run, each by its full dn"
 }
 
-remove_new() {
+check_remove_new() {
   # An entry at one of these names that is not what the first form writes is somebody's, as the first form says when it refuses to touch it. A cmapi.* stranger is not on the list, and stays.
   read_state
   if grep -q '^different ' "$tmp/state"; then
     grep '^different ' "$tmp/state" | sed 's/^/FAIL: /' >&2
-    die "an entry with one of cmapi's names is not what this script writes, so it is not this script's to delete: nothing deleted"
+    die "an entry with one of cmapi's names differs: nothing deleted. Stop and report the listed DNs to the directory owner. Review the attributes and their ownership before retrying; do not strip attributes or delete entries to force rollback"
   fi
+}
+
+remove_new() {
+  check_remove_new
   measure "$tmp/ours" 0 > "$tmp/before"
   # Groups first: a person's entry should not go while a group still names it.
   in_pod "$lib"'
@@ -243,6 +255,11 @@ remove_new() {
 case "$mode" in
   remove-old) remove_old; exit 0 ;;
   remove-new) remove_new; exit 0 ;;
+  check-remove-new)
+    check_remove_new
+    measure "$tmp/ours" 0 > "$tmp/removal-check"
+    echo "ok   LDAP removal preflight: no entries or Secrets written or deleted"
+    exit 0 ;;
 esac
 
 # ---- before any write: every read that can stop this.

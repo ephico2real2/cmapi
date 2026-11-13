@@ -1,0 +1,2 @@
+# Breaking changes that the contract gate lets through (oasdiff --err-ignore).
+# One change for each line, in the words that oasdiff prints, with the reason and the issue number on the line above it.

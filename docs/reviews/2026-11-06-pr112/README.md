@@ -1,6 +1,6 @@
 # PR #112 (#110, #109): review
 
-The first pass stopped when the owner cleared the session on 2026-11-06. A new session arbitrated it the same night, per `.claude/skills/fix-defect/SKILL.md`, step 4, until the owner stopped all work to resume later.
+The first pass stopped when the owner cleared the session on 2026-11-06. A new session arbitrated it the same night, per `.claude/skills/fix-defect/SKILL.md`, step 4, until the owner stopped all work to resume later. OB1 applied #118 and ran the second pass on 2026-11-13: see "The second pass" below.
 
 - `reviewer-1-codex.md`: Codex at `be66382`, 109,091 tokens. Two findings: #115, #116.
 - `reviewer-2-opus.md`: reviewer 2's answer. Finding 1 amended, finding 2's fix accepted with a real test, and new defects #119, #120, #121, #122, #123, #124, #125, #126.
@@ -53,7 +53,7 @@ On an Intel Mac, 2026-11-06, Python 3.12, Podman, `KUBECONFIG` an empty file. No
 
 CI, run 42333085083 at `0bde88c`, finished: `reference-code`, `service`, `portal-mockup`, `portal-ui` and `manifests` all success, the last on Docker and Ubuntu, and including the full `crc-guard`.
 
-## #118: proved, not yet applied
+## #118: proved, and applied as `ecc5cb3`
 
 `night/118/118.patch`, against `0bde88c` with `patch -p1 --fuzz=0` (dry run measured). Written by Opus 5.5 at `high`, stopped by the owner, and handed to Codex `gpt-6.1-sol`, which left the fix unchanged. Reports: `night/118/`.
 
@@ -71,12 +71,38 @@ The fix waits for everything a step left in the background, through an inherited
 
 **Not finished:** H5, the added runtime: stopped by the owner, with one valid pair at 129.3 s and 138.5 s on a loaded machine. **Not tested:** Linux, until CI runs it. Codex's sandbox reached no container runtime.
 
-## The second pass: not run
+## The second pass: run on 2026-11-13
 
-The owner stopped it before it began. The brief is `second-pass-brief.md`, with `@@HEAD@@`, `@@COMMITS@@` and `@@GRAPH_ROOT@@` to fill. So after the first pass, no reviewer has looked at these patches together on the fixed head: the coordinator's proofs and CI have. Patches 03 and 04 were derived from reviewer 1's, and reviewer 1 has not seen reviewer 2's others.
+The owner's decision for OB1's run (`OB1-PROMPT.md`, "Decided for you", 1): the pass runs on Codex `gpt-6.1-sol` alone, without C8. OB1 (Fable 5.2) ran it on an export of `ecc5cb3`, after #118. The brief as sent, Codex's reports and its three patches are in `second-pass/`. Codex used 149,695 tokens.
+
+| Claim | Codex | OB1's ruling |
+|---|---|---|
+| C1 | CONFIRMED | Stands. An interrupted first run can be removed, and a differing entry stops every delete |
+| C2 | REFUTED | **Accepted, #136 (BUG-26).** An old group with an entry under it made `ldapdelete` stop with exit 66 after 9 groups were gone. Codex's test: exit 1 before the fix, exit 0 after it, run by OB1 |
+| C3 | REFUTED | **Accepted, #137 (BUG-27).** `echo "others=$(cut ...)"` hid a failed `cut`. Codex's test: exit 1 before, exit 0 after, run by OB1 |
+| C4 | CONFIRMED | Stands, on `/bin/dash` and `/bin/bash` |
+| C5 | PLAUSIBLE | Stands as PLAUSIBLE. The stand-in answers 32. The real server is not reached until the CRC run, and `apply-bind-user.sh` is not part of `docs/13`'s run |
+| C6 | PLAUSIBLE | Stands as PLAUSIBLE. Each write through `requirement_to_json` stores `groupPath`. Codex found no caller that writes a requirement without one, and named none. No defect is filed |
+| C7 | CONFIRMED | Stands |
+| C9 | CONFIRMED | Stands. Each of the 16 refusal cases fails on the cause that it names |
+| C10 | REFUTED | **Accepted, #138 (BUG-28).** The rollback made 32 deletes on the stub cluster before LDAP refused. Codex's test: exit 1 before, exit 0 after, run by OB1 |
+
+**How the fixes were applied.** The production code of each patch is applied unchanged, one commit for each issue. Codex's three test files are not in the repository. Each of them reads the fixture of `ldap-identities-test.sh` by cutting its text at a marker line, so a change to that file can break them without a failure. OB1 wrote the same cases inside `ldap-identities-test.sh`, which CI runs, with a control for the rollback and a mutant for each of C2 and C3. `crc-scripts-test.sh`'s stub changed with C10: it gave the changed digest from the second read on, and the rollback now reads three times, so the stub gives it after the first LDAP delete.
+
+**What ran, on macOS with Podman, 2026-11-13.** The logs are in OB1's report folder and are not kept in git.
+
+| Proof | Result |
+|---|---|
+| Codex's `pr112-c2`, `-c3` and `-c10` tests on the export, before and after each patch | Before: exit 1, 1, 1. After: exit 0, 0, 0 |
+| `ldap-identities-test.sh failures`, with the new cases, on the scripts of `ecc5cb3` | 6 cases failed, each a new case: the `cut` case (3 lines), the old group with an entry under it (exit 66, 10 delete requests), and the two cases of the added attribute (32 deletes on the stub cluster before the refusal) |
+| `ldap-identities-test.sh` in full on the fixed scripts | 0 failed in 143 checks, 13 mutants killed, 0 survived |
+| `crc-scripts-test.sh` | 0 failed |
+| `doc13-test.py` | 0 failed, 0 survived |
+
+**Not tested:** Docker and Linux, until CI runs on the head. The real directory.
 
 ## Also stopped that night, in `night/`
 
 `87/` and `91/`: reports, briefs and patches for those issues, each stopped midway by the owner. Nothing in them is validated by the coordinator. The verdicts are in each `verdicts.md`. `proof-summary.txt` and `proofs.sh` are the proofs above, with this night's scratchpad paths. Long logs were not kept. The tests' `logs/` links in those reports therefore lead nowhere, and only the commands can reproduce them.
 
-**Who wrote what.** Eleven patches: reviewer 2, Opus 5.5 at `high`. #118: Opus 5.5 at `high`, proved by Codex `gpt-6.1-sol`. #87's findings and #91's continuation: Codex `gpt-6.1-sol`. The record and the rulings: the coordinator, Opus 5.5.
+**Who wrote what.** The second pass and its three fixes: Codex `gpt-6.1-sol`. Their cases in `ldap-identities-test.sh`, the stub change and these rulings: OB1, Fable 5.2. Eleven patches: reviewer 2, Opus 5.5 at `high`. #118: Opus 5.5 at `high`, proved by Codex `gpt-6.1-sol`. #87's findings and #91's continuation: Codex `gpt-6.1-sol`. The record and the rulings: the coordinator, Opus 5.5.

@@ -4,19 +4,27 @@ does not start.
 Routes register through DocumentedRouter.read() and .write(), which take the summary, the
 permission, the problems the route can raise and the response model, and fill in the OpenAPI
 pieces the code already knows: operationId from plugin and function, the "Requires" line, the
-problem responses with one example each, the 202 shape for writes. check_documented(app) runs at
-startup and refuses any /api route without a summary, a description, a response model, or a model
-field without a description and an example.
+problem responses with one example each, the 202 shape for writes, the plugin's tag and version.
+check_documented(app) runs at startup and refuses any /api route without a summary, a description
+or a response model, any path, query or header parameter without a description and an example, any
+model field without a description, and any required scalar model field without an example.
+
+build_openapi(app, ...) adds what only the whole document can say: the tag descriptions, ReDoc's
+x-tagGroups, and one curl sample per operation (x-codeSamples).
 """
 from __future__ import annotations
 
 import inspect
+import json
+import shlex
 from typing import Any, Callable, Sequence
 
 from fastapi import APIRouter, FastAPI
+from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
+from cmapi import __version__
 from cmapi.core.errors import BASE, Problem
 from cmapi.core.models import ProblemDetail
 
@@ -83,12 +91,32 @@ def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
     return out
 
 
+# ReDoc's navigation groups, in docs/01's order. A tag outside every group is not displayed by ReDoc at all
+# (https://redocly.com/docs/api-reference-docs/specification-extensions/x-tag-groups), so a router must name one.
+TAG_GROUPS: tuple[str, ...] = ("Namespaces and metadata", "Access", "Capacity and placement", "Requests and approvals",
+                               "Operations", "Admin")
+
+
+# The "core" plugin has two routers (routers/me.py and routers/health.py), so its metadata is here, once.
+CORE: dict[str, str] = {"version": __version__, "group": "Operations",
+                        "description": "The instance itself: who the caller is and what the caller can do, the clusters "
+                                       "that the instance knows, and the version of the running build."}
+
+
 class DocumentedRouter(APIRouter):
     """An APIRouter whose routes must say what they need and what they can refuse."""
 
-    def __init__(self, plugin: str, *, prefix: str = "", tags: list[str] | None = None, **kw: Any):
+    def __init__(self, plugin: str, *, version: str, description: str, group: str, prefix: str = "",
+                 tags: list[str] | None = None, **kw: Any):
+        if group not in TAG_GROUPS:
+            raise RuntimeError(f"plugin {plugin}: group {group!r} is not one of {TAG_GROUPS}")
+        if not description.strip():
+            raise RuntimeError(f"plugin {plugin}: no description")
         super().__init__(prefix=prefix, tags=tags or [plugin], **kw)
         self.plugin = plugin
+        self.version = version
+        self.plugin_description = description
+        self.group = group
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
                   response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None) -> Callable:
@@ -107,7 +135,8 @@ class DocumentedRouter(APIRouter):
                 desc += f"\n\n**Requires** `{permission}`."
             op_id = f"{self.plugin}_{fn.__name__}"
             responses = problem_responses(codes)
-            x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin, **extra}
+            x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
+                                 "x-plugin-version": self.version, **extra}
             if media_type:
                 # a streamed body (CSV): declared by media type, since it has no JSON model
                 responses[status_code] = {"description": f"The body as {media_type}",
@@ -141,8 +170,6 @@ def _undocumented_fields(model: type[BaseModel], seen: set[type]) -> list[str]:
     for name, f in model.model_fields.items():
         if not f.description:
             out.append(f"{model.__name__}.{name}: no description")
-        if f.examples is None and f.default is None and not f.is_required() and f.default_factory is None:
-            pass
         if f.examples is None and f.is_required():
             # nested models carry their own examples per field; a plain required scalar needs one
             if not (inspect.isclass(f.annotation) and issubclass(f.annotation, BaseModel)) and \
@@ -185,9 +212,124 @@ def check_documented(app: FastAPI) -> None:
         if route.body_field is not None:
             for m in _models_in(route.body_field.type_):
                 problems.extend(_undocumented_fields(m, seen))
+        problems.extend(_undocumented_parameters(route))
     if problems:
         raise RuntimeError("undocumented API:\n  " + "\n  ".join(sorted(set(problems))))
 
 
+def _undocumented_parameters(route: APIRoute) -> list[str]:
+    """Each path, query and header parameter of the route, its sub-dependencies included, without a description or an example."""
+    out: list[str] = []
+    stack, seen = [route.dependant], set()
+    while stack:
+        dep = stack.pop()
+        if id(dep) in seen:
+            continue
+        seen.add(id(dep))
+        stack.extend(dep.dependencies)
+        for place, params in (("path", dep.path_params), ("query", dep.query_params), ("header", dep.header_params)):
+            for p in params:
+                info = p.field_info
+                if not info.description:
+                    out.append(f"{route.path}: {place} parameter {p.alias}: no description")
+                if not info.examples:
+                    out.append(f"{route.path}: {place} parameter {p.alias}: no example")
+    return out
+
+
 def problem_type(code: str) -> str:
     return BASE + code
+
+
+def plugin_routers(routers: Sequence[APIRouter]) -> dict[str, DocumentedRouter]:
+    """One entry per plugin among the routers the app includes: a plugin that is not included is not in the spec."""
+    out: dict[str, DocumentedRouter] = {}
+    for r in routers:
+        if not isinstance(r, DocumentedRouter):
+            continue
+        first = out.setdefault(r.plugin, r)
+        if (first.version, first.plugin_description, first.group) != (r.version, r.plugin_description, r.group):
+            raise RuntimeError(f"plugin {r.plugin}: two routers disagree on its version, description or group")
+    return out
+
+
+def _example_of(schema: dict[str, Any], components: dict[str, Any], depth: int = 0) -> Any:
+    """A sample value for a schema, from the examples the models carry. None when the schema gives nothing to go on."""
+    if "$ref" in schema:
+        schema = components[schema["$ref"].rsplit("/", 1)[1]]
+    if schema.get("examples"):
+        return schema["examples"][0]
+    for key in ("anyOf", "oneOf", "allOf"):
+        for sub in schema.get(key) or ():
+            if sub.get("type") != "null":
+                value = _example_of(sub, components, depth)
+                if value is not None:
+                    return value
+    if schema.get("type") == "object" or "properties" in schema:
+        if depth > 4:
+            return None
+        out = {}
+        for name, sub in (schema.get("properties") or {}).items():
+            value = _example_of(sub, components, depth + 1)
+            if value is not None:
+                out[name] = value
+        return out or None
+    if schema.get("type") == "array" and "items" in schema:
+        value = _example_of(schema["items"], components, depth + 1)
+        return [value] if value is not None else None
+    if "default" in schema and schema["default"] is not None:
+        return schema["default"]
+    return None
+
+
+def sample_request(method: str, path: str, op: dict[str, Any], components: dict[str, Any], base_url: str) -> dict[str, Any]:
+    """The request a curl sample makes: method, url, headers and body, with each parameter at its documented example."""
+    url, query, headers = path, [], []
+    if op.get("security"):
+        headers.append(("Authorization", "Bearer $TOKEN"))
+    for p in op.get("parameters") or ():
+        example = p["example"] if "example" in p else _example_of(p.get("schema") or {}, components)
+        if p["in"] == "path":
+            url = url.replace("{" + p["name"] + "}", str(example))
+        elif p["in"] == "header" and (p.get("required") or p["name"] in ("Idempotency-Key", "If-Match")):
+            headers.append((p["name"], str(example)))
+        elif p["in"] == "query" and p.get("required"):
+            query.append(f"{p['name']}={example}")
+    body = None
+    content = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
+    if content:
+        body = _example_of(content.get("schema") or {}, components)
+        if body is None:
+            body = {}
+        headers.append(("Content-Type", "application/json"))
+    return {"method": method.upper(), "url": base_url.rstrip("/") + url + ("?" + "&".join(query) if query else ""),
+            "headers": headers, "body": body}
+
+
+def curl_sample(request: dict[str, Any]) -> str:
+    """The sample as one curl command. $TOKEN stays for the shell to fill, so it is the one part in double quotes."""
+    parts = ["curl", "-X", request["method"], shlex.quote(request["url"])]
+    for name, value in request["headers"]:
+        header = f"{name}: {value}"
+        parts += ["-H", f'"{header}"' if "$TOKEN" in value else shlex.quote(header)]
+    if request["body"] is not None:
+        parts += ["-d", shlex.quote(json.dumps(request["body"]))]
+    return " ".join(parts)
+
+
+def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str) -> dict[str, Any]:
+    """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation."""
+    tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
+            for name, r in sorted(plugins.items())]
+    spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
+                       routes=app.routes, tags=tags, servers=app.servers)
+    spec["x-tagGroups"] = [{"name": g, "tags": names} for g in TAG_GROUPS
+                           if (names := [n for n, r in sorted(plugins.items()) if r.group == g])]
+    components = (spec.get("components") or {}).get("schemas") or {}
+    for path, ops in spec["paths"].items():
+        for method, op in ops.items():
+            if not isinstance(op, dict) or "operationId" not in op:
+                continue
+            op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
+                                    "source": curl_sample(sample_request(method, path, op, components, base_url))}]
+    return spec

@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import Depends, Query
 
+from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, utcnow
 from cmapi.core.docs import DocumentedRouter
@@ -16,9 +17,11 @@ from cmapi.core.listquery import ListQuery
 from cmapi.core.models import ApprovalStatus, ChangeRequest, DecisionBody, RequestEvents, RequestPage
 from cmapi.core.observability import APPROVAL_WAIT
 from cmapi.core.views import request_view
-from cmapi.routers import caller, ctx, require
+from cmapi.routers import Cursor, Limit, RequestId, caller, ctx, require
 
-router = DocumentedRouter("requests", prefix="/api/v1")
+router = DocumentedRouter("requests", prefix="/api/v1", version=__version__, group="Requests and approvals",
+                          description="The change requests: each write to a namespace is one request, with its approvals, "
+                                      "its pull request and its events. Approve, reject, cancel, retry or revert a request here.")
 
 
 def _visible_envs(c: AppContext, who: Identity) -> set[str]:
@@ -29,13 +32,19 @@ def _visible_envs(c: AppContext, who: Identity) -> set[str]:
 @router.read("/requests", summary="List requests", permission="requests:read", response_model=RequestPage,
              problems=["invalid-cursor", "invalid-limit"])
 def list_requests(
-        status: str | None = Query(default=None, description="Lifecycle state, e.g. pending_approval"),
-        approver: str | None = Query(default=None, description="me: only requests the caller can still approve"),
-        cluster_id: str | None = Query(default=None, alias="clusterId", description="One cluster"),
-        requested_by: str | None = Query(default=None, alias="requestedBy", description="Requester username"),
-        q: str = Query(default="", description="Text match on request ID, namespace or cluster"),
-        limit: int = Query(default=50, description="25, 50 or 100; at most 200"),
-        cursor: str | None = Query(default=None, description="Keyset cursor from a previous page"),
+        status: str | None = Query(default=None, examples=["pending_approval"],
+                                   description="Only the requests in this lifecycle state."),
+        approver: str | None = Query(default=None, examples=["me"],
+                                     description="With `me`, only the pending requests that still need an approval from one of "
+                                                 "the caller's groups. Any other value has no effect."),
+        cluster_id: str | None = Query(default=None, alias="clusterId", examples=["CRC"],
+                                       description="Only the requests for this cluster."),
+        requested_by: str | None = Query(default=None, alias="requestedBy", examples=["cmapi.requester"],
+                                         description="Only the requests that this username opened."),
+        q: str = Query(default="", examples=["payments"],
+                       description="Text that the request ID, the namespace or the cluster ID contains. Case does not matter."),
+        limit: Limit = 50,
+        cursor: Cursor = None,
         who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """One page of requests in the environments where the caller may read requests, newest first.
     `approver=me` keeps only requests still waiting for an approval from one of the caller's groups."""
@@ -63,7 +72,7 @@ def _can_still_approve(repo: RequestRepo, row: Any, who: Identity) -> bool:
 
 @router.read("/requests/{request_id}", summary="One request", permission="requests:read", response_model=ChangeRequest,
              problems=["object-not-found"])
-def get_request(request_id: str, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
+def get_request(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """The request with its approval ledger, its PR and every event so far."""
     with c.db.session() as s:
         repo = RequestRepo(s)
@@ -74,7 +83,7 @@ def get_request(request_id: str, who: Identity = Depends(require("requests:read"
 
 @router.read("/requests/{request_id}/events", summary="A request's events", permission="requests:read",
              response_model=RequestEvents, problems=["object-not-found"])
-def get_events(request_id: str, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
+def get_events(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every state change of the request, oldest first: what the portal's WorkflowViewer draws."""
     with c.db.session() as s:
         repo = RequestRepo(s)
@@ -87,7 +96,7 @@ def get_events(request_id: str, who: Identity = Depends(require("requests:read")
 
 @router.read("/requests/{request_id}/approval-status", summary="Is this request approved, and for which plan",
              permission="requests:read", response_model=ApprovalStatus, problems=["object-not-found"])
-def approval_status(request_id: str, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
+def approval_status(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """What the cmapi check in CI asks: the request is approved (or further along) and the plan hash the PR must carry."""
     with c.db.session() as s:
         row = RequestRepo(s).get(request_id)
@@ -99,7 +108,7 @@ def approval_status(request_id: str, who: Identity = Depends(require("requests:r
 @router.write("/requests/{request_id}:approve", summary="Approve a request", permission="requests:approve",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "not-pending", "already-approved", "self-approval", "not-eligible", "environment-forbidden"])
-def approve(request_id: str, body: DecisionBody | None = None, who: Identity = Depends(require("requests:approve")),
+def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identity = Depends(require("requests:approve")),
             c: AppContext = Depends(ctx)) -> dict:
     """Records one approval from an eligible person. When every slot is filled the request becomes approved
     and the worker opens the bot PR. The approver's own token decides: no relay, no Git review."""
@@ -108,6 +117,8 @@ def approve(request_id: str, body: DecisionBody | None = None, who: Identity = D
         repo, jobs = RequestRepo(s), JobRepo(s)
         # Locked for the whole decision: two approvers count each other, and a person counts once.
         row = repo.get_for_update(request_id)
+        # As in reject: a role that does not cover this environment gets environment-forbidden, with where it does apply (#141).
+        c.cfg.roles.require(who, "requests:approve", row.env)
         if row.status != S.PENDING_APPROVAL.value:
             raise Problem.conflict("not-pending", f"{request_id} is {row.status}")
         ledger = repo.ledger(row)
@@ -128,7 +139,7 @@ def approve(request_id: str, body: DecisionBody | None = None, who: Identity = D
 @router.write("/requests/{request_id}:reject", summary="Reject a request", permission="requests:reject",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "not-pending", "validation-failed", "environment-forbidden"])
-def reject(request_id: str, body: DecisionBody, who: Identity = Depends(require("requests:reject")),
+def reject(request_id: RequestId, body: DecisionBody, who: Identity = Depends(require("requests:reject")),
            c: AppContext = Depends(ctx)) -> dict:
     """Rejects a pending request with a comment, which the requester sees. Releases the namespace lock."""
     if not body.comment.strip():
@@ -145,7 +156,7 @@ def reject(request_id: str, body: DecisionBody, who: Identity = Depends(require(
 
 @router.write("/requests/{request_id}:cancel", summary="Cancel a request", permission="requests:cancel",
               response_model=ChangeRequest, status_code=200, problems=["object-not-found", "invalid-transition"])
-def cancel(request_id: str, who: Identity = Depends(require("requests:cancel")), c: AppContext = Depends(ctx)) -> dict:
+def cancel(request_id: RequestId, who: Identity = Depends(require("requests:cancel")), c: AppContext = Depends(ctx)) -> dict:
     """The requester, or an operator, withdraws a request before its PR is open."""
     with c.db.session() as s:
         repo = RequestRepo(s)
@@ -160,7 +171,7 @@ def cancel(request_id: str, who: Identity = Depends(require("requests:cancel")),
 @router.write("/requests/{request_id}:retry", summary="Retry a failed request", permission="requests:retry",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "invalid-transition", "change-pending"])
-def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
+def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
     """From failed: re-takes the namespace lock (409 if another request holds it) and opens the PR again.
     From sync_failed: watches the sync again, or for a delete, looks for the pruned namespace again."""
     with c.db.session() as s:
@@ -183,7 +194,7 @@ def retry(request_id: str, who: Identity = Depends(require("requests:retry")), c
 @router.write("/requests/{request_id}:revert", summary="Revert a sync-failed request", permission="requests:retry",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "invalid-transition", "change-pending"])
-def revert(request_id: str, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
+def revert(request_id: RequestId, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
     """Queues the revert of a sync_failed request: the worker marks it reverted and opens a new request that
     restores the folder as it was before the plan, through the same approval rules, in one transaction. The new
     request's ID is in the events."""

@@ -15,6 +15,10 @@ for a in "$@"; do case "$a" in --yes) YES=true;; --delete-realm) REALM=true;; --
 if [ "$REALM" = true ] && [ "$APPROVED" != true ]; then echo "ERROR: --delete-realm needs --owner-approved" >&2; exit 2; fi
 del() { echo "delete $*"; oc_ delete "$@" --ignore-not-found; }
 
+# Check LDAP ownership and measurements before deleting workloads, storage, or a realm.
+# The actual removal below repeats the checks; this is a preflight, not a lock.
+"$HERE/../examples/cmapi-sso/ldap/apply-test-identities.sh" --check-remove-test-identities
+
 if [ "$REALM" = true ]; then
   # First, while its secret exists. Only this realm's name is ever in the URL.
   CA=${CMAPI_CRC_CA:?the bundle from deploy/crc-trust.sh --mac-ca}

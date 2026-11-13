@@ -24,6 +24,29 @@ To start the next session, paste this:
 Build all of cmapi and deploy it on CRC (OpenShift Local) on this Mac: the service, the portal on the real API, the `cmapi`
 CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screenshots of the running app.
 
+## State on 2026-11-13, during OB1's run
+
+OB1 (Fable 5.2) runs as a background agent of the coordinator. Its resume file is `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run/resume.md`, and its reports are in that folder, outside git. Read this section before "Where it stopped", which is the state before the run.
+
+| Item | State |
+|---|---|
+| #118 | Applied as `ecc5cb3` |
+| PR #112's second pass | Run on Codex `gpt-6.1-sol`. Three findings accepted and fixed on the branch: #136 (BUG-26), #137 (BUG-27), #138 (BUG-28). The rulings are in `docs/reviews/2026-11-06-pr112/README.md` |
+| The `/agile` sweep | Done for all open issues. Milestones `W1` to `W9` exist. See `build-tracker.md`, "All issues and milestones" |
+| API docs, #127 to #134 | PR #135 (draft, branch `api-docs`, on top of PR #112). The new CI job `api-contract` passed on `3ea7aa1` |
+| #139 (BUG-29) | PR #140 (draft, branch `fix-migrate-wait-test`, on top of PR #112) |
+| docs/14, docs/16, #141 (BUG-30) | Branch `docs-authz`, on top of `api-docs`, pushed, with no pull request yet. BUG-30's fix needs its second reader first. docs/15 needs a real token from CRC |
+| Filed and not fixed | #142 (BUG-31, the idempotency key has no time limit), #143 and #144 (Spectral lint, `plugins.yaml`), #145 to #151 (seven findings of the mockup review, for Wave 6 and Wave 8) |
+| #91 | Branch `fix-cnpg-verify-full` has the WIP and Codex's continuation, with PR #112's branch merged in. The kind proof K1 has no result yet: on the first try the database was not ready in time on a loaded Mac |
+| The architecture figures from the mockup | Drawn: five figures, light and dark, commit `3cad6ed` on branch `diagrams`, not pushed. They say "realm cmapi: not on CRC yet", so they change after the CRC run |
+| CRC | Not touched by OB1 yet. `oc whoami` answered `kubeadmin` on `https://api.crc.testing:6443` at 09:14 UTC |
+
+**An interruption on 2026-11-13.** OB1's session stopped with `403 authentication_failed` at about 09:45 UTC and resumed at 10:24 UTC, after the owner signed in again. Nothing was lost: the two test runs in flight had finished, no process and no kind cluster was left, and each worktree was as OB1 left it (`git status`, `podman ps`, `pgrep`, read at 10:24 UTC).
+
+Order from here: finish PR #112 (CI on its head, ready, merge), move PR #135 and PR #140 to `main`, K1 and the pull request for #91, then the CRC run from `docs/13`.
+
+**A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
+
 ## Where it stopped
 
 - `main` is at `5dfdea3`: PR #40, #89, #95, #98, #111 and #114. Nothing from them is on CRC yet.
@@ -108,10 +131,31 @@ The full reasoning is in `docs/reviews/2026-11-05-deployment-design.md`, with th
 
 | When | What |
 |---|---|
+| Any time | Apply the automatic handover: the four hooks and the three skill links. See "The automatic handover: checked, and waiting for the owner" |
 | Wave 1 | For the Chrome proofs: trust the two CAs in the login keychain ([`LOCAL-DEV-TRUST.md`](LOCAL-DEV-TRUST.md)), and sign in once as an LDAP person |
 | Wave 3 | Create the GitHub App from the manifest flow, and install it on `cluster-configs-nonprod` only |
 | Wave 4 | Make each GHCR package public, after its first push |
 | Wave 8 | Decide #35 and #36 (LDAP) |
+
+### The automatic handover: checked, and waiting for the owner
+
+OB1 checked diagram-kit's four hooks against the hooks reference (<https://code.claude.com/docs/en/hooks>, read on 2026-11-13). Each one matches it:
+
+| Hook | The skill's block | The reference |
+|---|---|---|
+| Stop | `handover.py stop`, timeout 10 | "`decision: "block"`, `reason`"; the inputs `stop_hook_active` and `background_tasks`; "Claude Code applies an 8-consecutive-continuation cap" |
+| PreCompact | matcher `manual\|auto`, `handover.py precompact`, timeout 10 | Matcher values "`manual`, `auto`"; "Claude Code uses its stdout as instructions for the compaction summary. Keep that stdout under 10,000 characters per hook" |
+| SessionStart | matcher `startup\|resume\|clear\|compact`, `handover.py session-start`, timeout 10 | Values "`startup`, `resume`, `clear`, `compact`, `fork`"; "The `additionalContext` field passes a string from your hook into Claude's context window" |
+| PostToolUse | matcher `Bash`, `handover.py post-tool`, timeout 5 | The matcher filters on the tool name; `timeout` is "Seconds before canceling." |
+
+OB1 did not apply them. The change is to Claude Code's configuration: a new `.claude/settings.json` with hooks in this repository, and three links in `~/.claude/skills`. OB1 runs as a background agent, and its rules do not let an agent's message authorize a configuration change. The decision to apply without showing the diff reached OB1 through the coordinator, not from the owner directly. So this is an owner step:
+
+1. Make the links: `for s in handover build-tracker resume-work; do ln -s /Users/olasumbo/gitRepos/diagram-kit/skill/$s ~/.claude/skills/$s; done`. On 2026-11-13, `~/.claude/skills` has none of the three.
+2. Create `.claude/settings.json` in this repository with the `hooks` block of `/Users/olasumbo/gitRepos/diagram-kit/skill/handover/SKILL.md`, section 5, unchanged. The repository has no `.claude/settings.json` today, so the diff is that whole block.
+3. Add `claude-resumes/` to `.gitignore`.
+4. Start a new session, and check `/hooks`.
+
+Until then, keep this file and `build-tracker.md` current by hand.
 
 ## Environment facts
 
