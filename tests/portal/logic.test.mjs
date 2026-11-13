@@ -116,6 +116,20 @@ test("a letter jump opens at the first namespace with that letter", () => {
   assert.equal(first[0].toLowerCase(), letter.t.toLowerCase());
 });
 
+test("a namespace's lock shows the same approval count as its request (#148)", () => {
+  // The Approvals tab holds how many approvals a request needs. The Requests tab repeats it as text for the requests that it lists.
+  const need = new Map([...source.matchAll(/\{ id: "(req-[^"]+)", title:[^\n]*? need: (\d+),/g)].map((m) => [m[1], m[2]]));
+  const listed = new Map([...source.matchAll(/\{ id: "(req-[^"]+)", cluster:[^\n]*? approval: "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+  const locks = [...source.matchAll(/lock: \{ id: "(req-[^"]+)",[^}]*? approval: "([^"]+)" \}/g)];
+  assert.ok(locks.length > 0 && need.size > 0 && listed.size > 0, "no lock or no request found: the patterns no longer match the data");
+  for (const [, id, approval] of locks) {
+    assert.ok(need.has(id) || listed.has(id), `the lock names ${id}, which is on neither the Approvals tab nor the Requests tab`);
+    if (need.has(id)) assert.match(approval, new RegExp(` of ${need.get(id)}$`), `the lock of ${id} against the ${need.get(id)} approvals that it needs`);
+    // A lock can add where the request stands after its approval text, as in "auto: expired-namespace · awaiting prune confirmation".
+    if (listed.has(id)) assert.ok(approval.startsWith(listed.get(id)), `the lock of ${id} says "${approval}", and the Requests tab says "${listed.get(id)}"`);
+  }
+});
+
 test("the standalone runtime parses as ES2019", () => {
   parse(readFileSync(join(portal, "runtime", "dc-lite.js"), "utf8"), { ecmaVersion: 2019 });
 });

@@ -799,7 +799,7 @@ var HAND_QUOTAS = {
     { ns: "ledger-uat", team: "ledger", app: "core", cluster: "OCP_GF13", env: "uat", tier: "small", cpu: [6.4, 8], mem: [15.1, 16], pods: [27, 50], etag: "4d8c2b6e0a19", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 94% of the quota. The next rollout surge will be refused at admission.", rec: { id: "rec-ledger-uat-0117", cpu: 8, mem: 24, text: "Custom: keep 8 cores, raise memory to 24 Gi." }, usage: { cpu: [3.0, 2.7, 4.1, 4.4], mem: [13.2, 12.9, 14.6, 14.9] }, rid: "req-20261103-f0c2" }
   ],
   prod: [
-    { ns: "payments-prod", team: "payments", app: "api", cluster: "OCP_GF1", env: "prod", tier: "medium", cpu: [14.0, 16], mem: [28.0, 32], pods: [61, 100], etag: "9b2e4f1c8a7d", verdict: "requests-oversized", vTone: "warn", vNote: "Pods request 14 cores but used at most 9.6 over 14 days. Lowering pod requests would free quota without a bigger tier.", rec: null, usage: { cpu: [6.1, 5.4, 8.2, 9.6], mem: [11.8, 10.9, 15.9, 17.2] }, rid: "req-20261103-9c02", lock: { id: "req-20261103-9c02", what: "tier medium → large", approval: "prod-change · 0 of 2" } },
+    { ns: "payments-prod", team: "payments", app: "api", cluster: "OCP_GF1", env: "prod", tier: "medium", cpu: [14.0, 16], mem: [28.0, 32], pods: [61, 100], etag: "9b2e4f1c8a7d", verdict: "requests-oversized", vTone: "warn", vNote: "Pods request 14 cores but used at most 9.6 over 14 days. Lowering pod requests would free quota without a bigger tier.", rec: null, usage: { cpu: [6.1, 5.4, 8.2, 9.6], mem: [11.8, 10.9, 15.9, 17.2] }, rid: "req-20261103-9c02", lock: { id: "req-20261103-9c02", what: "tier medium → large", approval: "prod-change · 0 of 3" } },
     { ns: "ledger-prod", team: "ledger", app: "core", cluster: "OCP_GF2", env: "prod", tier: "large", cpu: [18.0, 32], mem: [51.0, 64], pods: [120, 200], etag: "2f6a0c9e7d13", verdict: "right-sized", vTone: "ok", vNote: "Quota, requests and real usage agree within the prod thresholds.", rec: null, usage: { cpu: [11.2, 10.4, 14.8, 16.1], mem: [38.0, 37.1, 44.2, 46.0] }, rid: "req-20261103-1a4d" },
     { ns: "payments-batch-prod", team: "payments", app: "batch", cluster: "OCP_GF5", env: "prod", tier: "medium", cpu: [6.0, 16], mem: [30.5, 32], pods: [22, 100], etag: "c4e8b1a07f29", verdict: "quota-tight · memory", vTone: "bad", vNote: "Memory requests are at 95% of the quota and the 14-day peak is 30.1 Gi. CPU is not the problem: 6 of 16 cores requested.", rec: { id: "rec-payments-batch-prod-0093", cpu: 16, mem: 48, text: "Custom: keep 16 cores, raise memory to 48 Gi. OCP_GF5 is itself memory-bound, so this needs the zone-failure check." }, usage: { cpu: [2.2, 2.0, 3.9, 4.5], mem: [26.8, 25.9, 29.4, 30.1] }, rid: "req-20261103-6b3e" }
   ]
@@ -861,7 +861,7 @@ Object.keys(GEN_PLAN).forEach(function (inst) {
 });
 
 /* Shared list engine (cmapi-core paginate + SearchIndex; cmapi-portal-ui PagedTable): the same rules serve
-   GET /api/v1/quotas, /requests and /approvals. Keyset cursor on the sort key; the cursor carries a hash of
+   GET /api/v1/quotas and /requests (the Approvals tab reads /requests?status=pending_approval&approver=me). Keyset cursor on the sort key; the cursor carries a hash of
    the filters and sort, so a stale cursor is refused instead of returning a wrong page. */
 function cmpKey(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; }
 function strHash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
