@@ -736,7 +736,7 @@
  "docs/16-data-model.md|cmapi/src/cmapi/core/auth.py|37-37": [
   "    def __init__(self, issuer: str, url: str, *, verify: str | bool = True, lifespan: float = 600.0,"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|16-16": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|17-17": [
   "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|117-117": [
