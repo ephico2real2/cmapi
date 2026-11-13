@@ -14,7 +14,8 @@ The script is for the test identities of the proofs (deploy/crc-proof.sh, deploy
 password from standard input, so that it is in no argument and no environment variable, and it prints nothing else but
 the token. It follows no redirect: the redirect URI is read from the Location header and never requested. It stops with
 a reason, and with no secret in it, when Keycloak shows another page than the login form (a required action, a consent
-page, a second factor): those need a person.
+page, a second factor): those need a person. It sends the password only to an address under the issuer, and only over
+HTTPS or to the loopback address.
 
 --base gives another origin to send the requests to when the issuer's own host does not resolve from here (the realm
 test runs Keycloak on 127.0.0.1 with the public hostname configured). TLS is verified always; --cacert adds a CA bundle.
@@ -79,6 +80,9 @@ class Session:
         public = urllib.parse.urlsplit(self.issuer)
         self.public_origin = f"{public.scheme}://{public.netloc}"
         self.origin = (base or self.public_origin).rstrip("/")
+        target = urllib.parse.urlsplit(self.origin)
+        if target.scheme != "https" and target.hostname not in ("127.0.0.1", "::1", "localhost"):
+            raise LoginError(f"{self.origin} is not HTTPS and not the loopback address: the password would cross the network in clear")
         self.timeout = timeout
         self.cookies: dict[str, str] = {}
         context = ssl.create_default_context(cafile=cacert) if cacert else ssl.create_default_context()
@@ -125,8 +129,11 @@ def login(issuer: str, client_id: str, redirect_uri: str, username: str, passwor
     action = ACTION.search(form.group(0))
     if not action:
         raise LoginError("the login form has no action")
-    status, headers, page = session.request("POST", html.unescape(action.group(1)),
-                                            {"username": username, "password": password, "credentialId": ""})
+    target = html.unescape(action.group(1))
+    # The password goes to the realm that was asked, and to no other address that a page names.
+    if not target.startswith(session.issuer + "/"):
+        raise LoginError(f"the login form posts to {urllib.parse.urlsplit(target).netloc or 'a relative address'}, which is not under the issuer: the password is not sent")
+    status, headers, page = session.request("POST", target, {"username": username, "password": password, "credentialId": ""})
     location = headers.get("Location", "")
     if status != 302 or not location.startswith(redirect_uri):
         if status == 302:

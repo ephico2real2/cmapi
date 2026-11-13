@@ -87,7 +87,9 @@ class Idp(http.server.BaseHTTPRequestHandler):
         if Idp.mode == "no-form":
             return self._send(200, "<title>Update Account Information</title><form id=\"kc-update-profile-form\"></form>")
         # As Keycloak writes it: its public origin, and each & of the query as &amp;.
-        action = html.escape(f"{PUBLIC}/realms/t/login-actions/authenticate?session_code=abc&execution=def&client_id=public-app&tab_id=xyz")
+        origin = "https://elsewhere.invalid" if Idp.mode == "foreign-action" else PUBLIC
+        realm = "other" if Idp.mode == "other-realm" else "t"
+        action = html.escape(f"{origin}/realms/{realm}/login-actions/authenticate?session_code=abc&execution=def&client_id=public-app&tab_id=xyz")
         self._send(200, f'<title>Sign in</title><form id="kc-form-login" onsubmit="return true" action="{action}" method="post"></form>',
                    {"Set-Cookie": f"AUTH_SESSION_ID={sid}; Version=1; Path=/realms/t/; SameSite=None; Secure; HttpOnly"})
 
@@ -172,6 +174,11 @@ def main() -> int:
     r = run("cmapi.viewer", PASSWORD, "--cacert", ca)
     check(r.returncode == 1 and r.stdout == "" and "another state" in r.stderr, f"a redirect with another state is refused: {r.stderr.strip()[:120]}")
     check(not any(p.endswith("/token") for _, p, _ in Idp.seen), "and its code is not sent to the token endpoint")
+    for mode, where in (("foreign-action", "elsewhere.invalid"), ("other-realm", f"localhost:{port}")):
+        Idp.mode = mode
+        r = run("cmapi.viewer", PASSWORD, "--cacert", ca)
+        check(r.returncode == 1 and r.stdout == "" and "not under the issuer" in r.stderr and where in r.stderr and [m for m, _, _ in Idp.seen] == ["GET"],
+              f"a login form that posts outside the issuer ({mode}) gets no password: {r.stderr.strip()[:150]}")
     Idp.mode = "normal"
 
     r = run("cmapi.viewer", None, "--cacert", ca)
@@ -192,6 +199,8 @@ def main() -> int:
     check(r.returncode == 0 and r.stdout == "header.payload.signature\n", f"--base sends each request to another origin, the form's action also: {r.returncode} {r.stderr.strip()[:200]}")
     r = run("cmapi.viewer", PASSWORD, "--cacert", ca)
     check(r.returncode == 1 and r.stdout == "", "and without --base a host that does not resolve is an error, not a token")
+    r = run("cmapi.viewer", PASSWORD, "--base", "http://keycloak.invalid:8080")
+    check(r.returncode == 1 and r.stdout == "" and "not HTTPS and not the loopback address" in r.stderr, f"--base in clear to a host that is not the loopback address is refused: {r.stderr.strip()[:120]}")
     server.shutdown()
     print(f"oidc-login cases failed: {len(fails)}")
     return 1 if fails else 0
