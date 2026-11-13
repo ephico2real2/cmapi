@@ -21,7 +21,7 @@ import shlex
 from importlib import resources
 from typing import Any, Callable, Sequence
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Response
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
@@ -88,15 +88,23 @@ def problem_example(code: str) -> dict[str, Any]:
     return Problem(status, code, detail).body()
 
 
+PROBLEM_SCHEMA: dict[str, str] = {"$ref": "#/components/schemas/ProblemDetail"}
+
+
 def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
+    """One response for each status, with the one media type that cmapi answers a problem with (RFC 9457, section 3).
+
+    The schema is written here as a reference and not passed as FastAPI's `model`: FastAPI puts a model under the media type
+    of the route's response class, application/json, which no problem of cmapi has (#179).
+    """
     by_status: dict[int, list[str]] = {}
     for c in codes:
         by_status.setdefault(PROBLEMS[c][0], []).append(c)
     out: dict[int | str, dict[str, Any]] = {}
     for status, names in sorted(by_status.items()):
-        out[status] = {"model": ProblemDetail, "description": ", ".join(names),
+        out[status] = {"description": ", ".join(names),
                        "content": {"application/problem+json": {
-                           "examples": {n: {"value": problem_example(n)} for n in names}}}}
+                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n)} for n in names}}}}
     return out
 
 
@@ -128,7 +136,8 @@ class DocumentedRouter(APIRouter):
         self.group = group
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
-                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None) -> Callable:
+                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None,
+                  dry_run_model: Any = None) -> Callable:
         unknown = [p for p in problems if p not in PROBLEMS]
         if unknown:
             raise RuntimeError(f"{self.plugin} {method} {path}: unregistered problems {unknown}")
@@ -146,14 +155,19 @@ class DocumentedRouter(APIRouter):
             responses = problem_responses(codes)
             x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
                                  "x-plugin-version": self.version, **extra}
-            if media_type:
-                # a streamed body (CSV): declared by media type, since it has no JSON model
-                responses[status_code] = {"description": f"The body as {media_type}",
-                                          "content": {media_type: {"schema": {"type": "string"}}}}
-                x["x-cmapi-media-type"] = media_type
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
                                           status_code=status_code, operation_id=op_id, responses=responses,
                                           openapi_extra=x)
+            if media_type:
+                # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
+                # type of its own stops FastAPI from adding application/json beside it (#179).
+                responses[status_code] = {"description": f"The body as {media_type}",
+                                          "content": {media_type: {"schema": {"type": "string"}}}}
+                x["x-cmapi-media-type"] = media_type
+                kwargs["response_class"] = Response
+            if dry_run_model is not None:
+                responses[200] = {"model": dry_run_model,
+                                  "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."}
             return self.api_route(path, methods=[method], **kwargs)(fn)
 
         return deco
@@ -166,9 +180,12 @@ class DocumentedRouter(APIRouter):
                               response_model=response_model, status_code=200, extra=extra, media_type=media_type)
 
     def write(self, path: str, *, summary: str, permission: str, problems: Sequence[str] = (),
-              response_model: Any, method: str = "POST", status_code: int = 202, **extra: Any) -> Callable:
+              response_model: Any, method: str = "POST", status_code: int = 202, dry_run_model: Any = None,
+              **extra: Any) -> Callable:
+        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs")."""
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=status_code, extra=extra)
+                              response_model=response_model, status_code=status_code, extra=extra,
+                              dry_run_model=dry_run_model)
 
 
 def _undocumented_fields(model: type[BaseModel], seen: set[type]) -> list[str]:
@@ -220,6 +237,9 @@ def check_documented(app: FastAPI) -> None:
                 problems.extend(_undocumented_fields(m, seen))
         if route.body_field is not None:
             for m in _models_in(route.body_field.type_):
+                problems.extend(_undocumented_fields(m, seen))
+        for response in route.responses.values():            # the 200 of a dry run
+            for m in _models_in(response.get("model")):
                 problems.extend(_undocumented_fields(m, seen))
         problems.extend(_undocumented_parameters(route))
     if problems:
@@ -349,7 +369,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
 def _document_validation_problem(spec: dict[str, Any]) -> None:
     """Each operation with a parameter or a body can answer 422 validation-failed (main.py turns FastAPI's own refusal into the
     problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
-    problem = {"$ref": "#/components/schemas/ProblemDetail"}
+    problem = PROBLEM_SCHEMA
     for ops in spec["paths"].values():
         for op in ops.values():
             if not isinstance(op, dict) or not (op.get("parameters") or op.get("requestBody")):
@@ -363,9 +383,19 @@ def _document_validation_problem(spec: dict[str, Any]) -> None:
             op["responses"]["422"] = {"description": ", ".join(names),
                                       "content": {"application/problem+json": {"schema": problem, "examples": examples}}}
     schemas = spec.get("components", {}).get("schemas", {})
-    schemas.setdefault("ProblemDetail", ProblemDetail.model_json_schema())
+    schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))
     for name in ("HTTPValidationError", "ValidationError"):
         schemas.pop(name, None)
+
+
+def _without_none(value: Any) -> Any:
+    """A schema as FastAPI writes each model of the document: it leaves out a key whose value is None (`default: null`).
+    No route passes ProblemDetail to FastAPI as a model (problem_responses), so this function gives it the same form."""
+    if isinstance(value, dict):
+        return {k: _without_none(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_without_none(v) for v in value]
+    return value
 
 
 def load_samples() -> dict[str, Any]:
@@ -387,7 +417,7 @@ def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any]) -> None
             continue
         request, response = sample["request"], sample["response"]
         body_content = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
-        if body_content is not None and "body" in request:
+        if body_content is not None and "body" in request and ":" not in key:    # the body of the write, not of its dry run
             body_content["example"] = request["body"]
         declared = op["responses"].setdefault(str(response["status"]), {"description": "Successful Response"})
         media = declared.setdefault("content", {}).setdefault(response["contentType"] or "application/json", {})
