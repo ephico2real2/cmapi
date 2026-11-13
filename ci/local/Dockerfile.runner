@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MPL-2.0
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not
+# distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# catthehacker/ubuntu:act-latest, pinned to its multi-arch index (amd64 and arm64), read on 2026-11-08.
+# A tag can move under a rebuild; a digest cannot.
+FROM docker.io/catthehacker/ubuntu@sha256:c58e2b364da03b0c804c7d660f2ecbedf2f221a382b9baa0b344b0144780ff43
+# act copies each action to /var/run/act. The Podman copy API refuses the absolute link /var/run -> /run
+# ("statat var/run/act: path escapes from parent"). A relative link points at the same folder and passes.
+RUN rm /var/run && ln -s ../run /var/run
+# The GitHub ubuntu-24.04 runner (image 20261101.360.1) has Yarn 1.22.22. The act image has none, and
+# workflows call yarn without an install step.
+RUN npm install -g --silent yarn@1.22.22 && yarn --version
