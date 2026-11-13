@@ -147,8 +147,18 @@ class GitHubProvider(HostGitProvider):
         """The check runs of a commit, one per check. filter=latest asks for the latest attempts; within one check suite of one App
         a later id replaces an earlier one of the same name, in case a re-run's attempts still come back together. Two suites or two
         Apps reporting one name are two checks, and both count."""
+        # The commit check-runs endpoint only covers the 1,000 newest suites.
+        # Count every suite first: empty suites also consume that window.
+        suites = self._pages("pr_check_suites", f"{self._repo()}/commits/{head}/check-suites", "check_suites")
+        if len(suites) > 1000:
+            runs = []
+            for suite in suites:
+                runs.extend(self._pages("pr_check_runs", f"{self._repo()}/check-suites/{suite['id']}/check-runs",
+                                        "check_runs", filter="latest"))
+        else:
+            runs = self._pages("pr_check_runs", f"{self._repo()}/commits/{head}/check-runs", "check_runs", filter="latest")
         latest: dict[tuple[Any, Any, Any], Mapping[str, Any]] = {}
-        for run in self._pages("pr_check_runs", f"{self._repo()}/commits/{head}/check-runs", "check_runs", filter="latest"):
+        for run in runs:
             key = (run["name"], (run.get("app") or {}).get("id"), (run.get("check_suite") or {}).get("id"))
             if key not in latest or run["id"] > latest[key]["id"]:
                 latest[key] = run

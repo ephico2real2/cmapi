@@ -55,6 +55,9 @@ def provider(statuses=(), runs=(), *, seen=None, pr=None, on_runs=None, on_statu
             return httpx.Response(200, json=pr or {"state": "open", "merged": False, "head": {"sha": SHA, "ref": PR.branch}})
         if path == f"/repos/o/r/commits/{SHA}/status":
             return on_statuses(request) if on_statuses else paged(request, "statuses", list(statuses))
+        if path == f"/repos/o/r/commits/{SHA}/check-suites":
+            suites = sorted({r["check_suite"]["id"] for r in runs})
+            return paged(request, "check_suites", [{"id": i} for i in suites])
         if path == f"/repos/o/r/commits/{SHA}/check-runs":
             return on_runs(request) if on_runs else paged(request, "check_runs", list(runs))
         return httpx.Response(404, json={"message": f"not routed: {path}"})
@@ -252,6 +255,8 @@ class GitHubOverFake:
         if re.fullmatch(r"/commits/\w+/status", path):
             sha = path.split("/")[2]
             return paged(request, "statuses", [st(c, s) for c, s in fake.statuses.get(sha, {}).items()])
+        if re.fullmatch(r"/commits/\w+/check-suites", path):
+            return paged(request, "check_suites", [{"id": i} for i in sorted({r["check_suite"]["id"] for r in self.runs.values()})])
         if re.fullmatch(r"/commits/\w+/check-runs", path):
             if self.refuse_check_runs:
                 return httpx.Response(self.refuse_check_runs, json={"message": "Resource not accessible by integration"})
