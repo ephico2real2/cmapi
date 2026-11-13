@@ -2,16 +2,20 @@
 
 Files are written through the Git Data API as one commit (blobs, tree, commit, ref), because
 the contents API commits one file at a time. The cmapi check is a commit status with context
-cmapi/check, which branch protection requires. Endpoints as documented by GitHub (2026-11):
+cmapi/check, which branch protection requires. ci/kubeconform and ci/kyverno are check runs from the
+config repository's own Actions, which the combined status does not include, so pr_status reads both.
+The App's permissions: Contents, Pull requests and Commit statuses read/write, Checks read, Metadata
+read. Endpoints as documented by GitHub (2026-11):
 
     GET  /repos/{o}/{r}/branches/{b}            GET  /repos/{o}/{r}/contents/{path}?ref=
     POST /repos/{o}/{r}/git/refs                POST /repos/{o}/{r}/git/blobs, /git/trees, /git/commits
     PATCH /repos/{o}/{r}/git/refs/heads/{b}     POST /repos/{o}/{r}/pulls   GET /repos/{o}/{r}/pulls?head=
-    GET  /repos/{o}/{r}/pulls/{n}               GET  /repos/{o}/{r}/commits/{sha}/status
+    GET  /repos/{o}/{r}/pulls/{n}               GET  /repos/{o}/{r}/commits/{sha}/status, /check-runs
     POST /repos/{o}/{r}/statuses/{sha}          PUT  /repos/{o}/{r}/pulls/{n}/merge {sha}
     PATCH /repos/{o}/{r}/pulls/{n}              POST /repos/{o}/{r}/issues/{n}/comments
 
-Never exercised, by any test or against any host: this Mac's cluster has no GitHub.
+pr_status and the calls pr_checks makes are tested on a MockTransport (tests/service/test_github_check_runs.py).
+Nothing here has run against GitHub itself: this Mac's cluster has no GitHub.
 """
 from __future__ import annotations
 
@@ -22,7 +26,26 @@ from cmapi.core.git.base import CheckState, GitUnavailable, HostGitProvider
 from cmapi.core.ports import PrRef, PrStatus
 
 
+def _worse(a: CheckState | None, b: CheckState) -> CheckState:
+    """One context reported twice reads as the worse report: a pass from one source never hides the other's failure."""
+    return max(a or b, b, key=("success", "pending", "failure").index)
+
+
+def _run_state(run: Mapping[str, Any]) -> CheckState:
+    """What one check run says about a required check. Unfinished is pending, whatever else the run carries. Finished is a pass
+    only on the conclusion success. GitHub also treats neutral and skipped as passing for a required check; here ci/* is the
+    evidence that the validation ran and passed, and a skipped run validated nothing, so they fail, as does a value not known yet.
+    A null conclusion has not reported an outcome, even if status already says completed, so keep waiting for that outcome."""
+    conclusion = run.get("conclusion")
+    if run.get("status") != "completed" or conclusion is None:
+        return "pending"
+    return "success" if conclusion == "success" else "failure"
+
+
 class GitHubProvider(HostGitProvider):
+    external_ci = True
+    MAX_PAGES = 100      # 10,000 entries on one commit: past this a host is not answering a list, and a partial list must not read as complete
+
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28"}
@@ -109,15 +132,56 @@ class GitHubProvider(HostGitProvider):
         prs = r.json()
         return self._pr_ref(prs[0]) if prs else None
 
+    def _pages(self, operation: str, path: str, key: str, **params: Any) -> list[Mapping[str, Any]]:
+        """Every entry of a paginated list, or GitUnavailable: an unread page could hold the failure. The Link header says only
+        whether there is a next page. Its URL is not called, because this client sends the token with every request."""
+        entries: list[Mapping[str, Any]] = []
+        for page in range(1, self.MAX_PAGES + 1):
+            r = self._call(operation, "GET", path, params={**params, "per_page": 100, "page": page}, ok=(200,))
+            if r.status_code != 200:
+                raise GitUnavailable(f"{operation}: GET {path} page {page}: {r.status_code} {r.text[:200]}")
+            entries.extend(r.json().get(key) or [])
+            if "next" not in r.links:
+                return entries
+        raise GitUnavailable(f"{operation}: GET {path} has more than {self.MAX_PAGES} pages")
+
+    def _check_runs(self, head: str) -> list[Mapping[str, Any]]:
+        """The check runs of a commit, one per check. filter=latest asks for the latest attempts; within one check suite of one App
+        a later id replaces an earlier one of the same name, in case a re-run's attempts still come back together. Two suites or two
+        Apps reporting one name are two checks, and both count."""
+        # The commit check-runs endpoint only covers the 1,000 newest suites.
+        # Count every suite first: empty suites also consume that window.
+        suites = self._pages("pr_check_suites", f"{self._repo()}/commits/{head}/check-suites", "check_suites")
+        if len(suites) > 1000:
+            runs = []
+            for suite in suites:
+                runs.extend(self._pages("pr_check_runs", f"{self._repo()}/check-suites/{suite['id']}/check-runs",
+                                        "check_runs", filter="latest"))
+        else:
+            runs = self._pages("pr_check_runs", f"{self._repo()}/commits/{head}/check-runs", "check_runs", filter="latest")
+        latest: dict[tuple[Any, Any, Any], Mapping[str, Any]] = {}
+        for run in runs:
+            key = (run["name"], (run.get("app") or {}).get("id"), (run.get("check_suite") or {}).get("id"))
+            if key not in latest or run["id"] > latest[key]["id"]:
+                latest[key] = run
+        return list(latest.values())
+
     def pr_status(self, pr: PrRef) -> PrStatus:
-        p = self._call("pr_status", "GET", f"{self._repo()}/pulls/{pr.number}").json()
+        r = self._call("pr_status", "GET", f"{self._repo()}/pulls/{pr.number}", ok=(200,))
+        if r.status_code != 200:
+            raise GitUnavailable(f"PR {pr.number}: {r.status_code} {r.text[:200]}")
+        p = r.json()
+        if p["state"] != "open":      # nothing reads a finished PR's checks, and a refused read must not hold back recording its end
+            merged = bool(p.get("merged"))
+            return PrStatus(state="merged" if merged else "closed", checks={}, merge_sha=p.get("merge_commit_sha") if merged else None)
         head = p["head"]["sha"]
         checks: dict[str, CheckState] = {}
-        s = self._call("pr_checks", "GET", f"{self._repo()}/commits/{head}/status").json()
-        for st in s.get("statuses") or []:
-            checks[st["context"]] = {"success": "success", "pending": "pending"}.get(st["state"], "failure")
-        state = "merged" if p.get("merged") else ("open" if p["state"] == "open" else "closed")
-        return PrStatus(state=state, checks=checks, merge_sha=p.get("merge_commit_sha") if p.get("merged") else None)
+        for st in self._pages("pr_checks", f"{self._repo()}/commits/{head}/status", "statuses"):
+            reported: CheckState = {"success": "success", "pending": "pending"}.get(st["state"], "failure")
+            checks[st["context"]] = _worse(checks.get(st["context"]), reported)
+        for run in self._check_runs(head):
+            checks[run["name"]] = _worse(checks.get(run["name"]), _run_state(run))
+        return PrStatus(state="open", checks=checks)
 
     def set_check(self, sha: str, context: str, state: CheckState, description: str, target_url: str | None = None) -> None:
         body: dict[str, Any] = {"context": context, "state": state, "description": description[:140]}

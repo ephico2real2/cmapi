@@ -101,6 +101,10 @@ class Renderer(Protocol):
 @runtime_checkable
 class GitProvider(Protocol):
     """core/git/provider.py: GitHub REST by default; GitLab REST and a GitPython clone mode."""
+    # Whether the host's own CI reports ci/kubeconform and ci/kyverno (#87). The worker reads this to decide who posts those two
+    # checks, so a provider must say it: a provider with no answer fails the job, and is never taken for one whose checks the
+    # worker may post itself (#60).
+    external_ci: bool
     def read_folder(self, path: str, ref: str = "main") -> tuple[dict[str, str], str]: ...  # files, tree sha
     def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str,
                 base_sha: str) -> PrRef: ...
