@@ -28,7 +28,7 @@ One LDAP group exists for each role. Its name is `app-cmapi-rbac-<role>`. Keyclo
 | `app-cmapi-rbac-admin` | `/cmapi/app-cmapi-rbac-admin` | `cmapi-admin` | |
 | `app-cmapi-rbac-auditor` | `/cmapi/app-cmapi-rbac-auditor` | `cmapi-auditor` | |
 
-Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:382-436`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
+Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:389-443`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
 
 The path template is `identity.groupPath` in `instance.yaml`. Its default is `/cmapi/app-cmapi-rbac-{name}` (`cmapi/src/cmapi/core/authz.py:47`). The service stops at startup if the template cannot name a group (`authz.py:53-59`).
 
@@ -125,22 +125,22 @@ request with a bearer token
 
 ### Step 1: the token
 
-Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token check as a dependency (`cmapi/src/cmapi/main.py:96`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:138-171`). It verifies the token offline against the signing keys of the realm.
+Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token check as a dependency (`cmapi/src/cmapi/main.py:96`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:150-186`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
-| The `Authorization: Bearer` header is present | `auth.py:186-188` | 401 `unauthenticated`, "Bearer token required" |
-| The token is a JWT | `auth.py:139-143` | 401 `unauthenticated`, "Invalid token" |
-| The algorithm is RS256 and the header has a `kid` | `auth.py:144-146` | 401 `unauthenticated`, "Invalid token: unsupported algorithm" |
-| The `kid` is a signing key of the realm | `auth.py:147-151` | 401 `unauthenticated`, "Invalid token: unknown signing key" |
+| The `Authorization: Bearer` header is present | `auth.py:201-203` | 401 `unauthenticated`, "Bearer token required" |
+| The token is a JWT | `auth.py:151-155` | 401 `unauthenticated`, "Invalid token" |
+| The algorithm is RS256 and the header has a `kid` | `auth.py:156-158` | 401 `unauthenticated`, "Invalid token: unsupported algorithm" |
+| The `kid` is a signing key of the realm | `auth.py:159-163` | 401 `unauthenticated`, "Invalid token: unknown signing key" |
 | The signing keys cannot be read and this key is not cached | `auth.py:127-129` | 503 `idp-unavailable`, with `retryAfter` 30. Never 401 |
-| The signature is valid, and `exp`, `iat`, `iss`, `aud` and `sub` are present | `auth.py:153-154`, `:164-166` | 401 `unauthenticated`, "Invalid token" |
-| The token is not expired, with a leeway of 30 seconds | `auth.py:155-157` | 401 `unauthenticated`, "Token expired" |
-| `aud` contains the audience of the instance | `auth.py:158-160` | 401 `unauthenticated`, "Token is not for audience cmapi-nonprod" |
-| `iss` is the issuer of the instance | `auth.py:161-163` | 401 `unauthenticated`, "Token issuer is not trusted" |
+| The signature is valid, and `exp`, `iat`, `iss`, `aud` and `sub` are present | `auth.py:165-166`, `:176-178` | 401 `unauthenticated`, "Invalid token" |
+| The token is not expired, with a leeway of 30 seconds | `auth.py:167-169` | 401 `unauthenticated`, "Token expired" |
+| `aud` contains the audience of the instance | `auth.py:170-172` | 401 `unauthenticated`, "Token is not for audience cmapi-nonprod" |
+| `iss` is the issuer of the instance | `auth.py:173-175` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:180-185` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:196-197`, `main.py:66-69`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:211-212`, `main.py:66-69`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 

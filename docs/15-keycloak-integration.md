@@ -39,7 +39,7 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 
 | Scope | Mapper | Claim in the access token | cmapi reads it as |
 |---|---|---|---|
-| `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:158-160`) |
+| `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:170-172`) |
 | `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:54`) |
 | `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:66`) |
 | `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:64`) |
@@ -54,11 +54,11 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 
 The eight client roles of `cmapi-nonprod` are `cmapi-viewer`, `cmapi-onboarding`, `cmapi-requester`, `cmapi-approver`, `cmapi-operator`, `cmapi-admin`, `cmapi-auditor` and `cmapi-approval-relay`. The realm has no realm role of cmapi.
 
-The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:382-436`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
+The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:389-443`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
 
 ## The LDAP federation
 
-The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:178-249`).
+The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:200-271`).
 
 | Setting | Value on CRC | Effect |
 |---|---|---|
@@ -86,7 +86,7 @@ From the realm settings in the import (`10-realm-import.yaml`, under `realm:`).
 | Swagger UI's client session | 1 hour idle, 8 hours at most |
 | Wrong passwords | Temporary lockout after 10 failures, in this realm only, never in LDAP |
 
-cmapi accepts a token until its `exp`, with a leeway of 30 seconds (`auth.py:135`, `:153-154`). It keeps the signing keys for 10 minutes, and keeps verifying with the last good keys when Keycloak does not answer (`auth.py:1-8`).
+cmapi accepts a token until its `exp`, with a leeway of 30 seconds (`auth.py:146`, `:165-166`). It keeps the signing keys for 10 minutes, and keeps verifying with the last good keys when Keycloak does not answer (`auth.py:1-8`).
 
 ## How cmapi reaches Keycloak
 
@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:60-61`, `core/auth.py:174-179`). The portal will use the same flow through `cmapi-portal`: that part is not built.
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:60-61`, `core/auth.py:189-194`). The portal will use the same flow through `cmapi-portal`: that part is not built.
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
