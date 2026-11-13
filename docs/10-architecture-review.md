@@ -82,7 +82,7 @@ What exists, by name (every one defined in `core/observability.py` or `worker.py
 | Inbound HTTP (RED, route template as the label, never the path) | `cmapi_http_requests_total`, `cmapi_http_request_duration_seconds` | `tests/service/test_review_f_obs.py` |
 | Authorization and environments | `cmapi_authz_denied_total`, `cmapi_environment_not_served_total` | same |
 | Change requests | `cmapi_change_requests_total`, `cmapi_change_lead_time_seconds`, `cmapi_approval_wait_seconds`, `cmapi_open_change_requests_oldest_age_seconds`, `cmapi_auto_approvals_total`, `cmapi_auto_approval_fallbacks_total`, `cmapi_auto_approval_paused` | same |
-| Git host and clusters | `cmapi_git_operations_total`, `cmapi_git_operation_duration_seconds`, `cmapi_cluster_api_calls_total`, `cmapi_cluster_status`, `cmapi_namespaces`, `cmapi_sync_drift_total`, `cmapi_validation_failures_total` | same |
+| Git host and clusters | `cmapi_git_operations_total`, `cmapi_git_operation_duration_seconds`, `cmapi_cluster_api_calls_total`, `cmapi_cluster_status`, `cmapi_namespaces`, `cmapi_validation_failures_total` | same |
 | Worker | `cmapi_jobs_pending`, `cmapi_job_failures_total`, `cmapi_worker_last_loop_timestamp_seconds` (the "healthy but dead loop" lesson from group-sync-dashboard's `GroupSyncDashboardNotPolling`; alert `CmapiWorkerNotLooping` uses `absent()` so a gone worker fires too) | `test_review_g_chart.py`, `test_review_i_crosscheck.py` |
 | Build | `cmapi_build_info`, `cmapi_config_info` | — |
 

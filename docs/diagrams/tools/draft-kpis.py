@@ -27,8 +27,8 @@ b.append('<g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="
          '<rect x="380" y="14" width="340" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/><text x="550" y="34" text-anchor="middle" fill="var(--remote)">KPI  ·  docs/17</text>'
          '<rect x="790" y="14" width="290" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/><text x="935" y="34" text-anchor="middle" fill="var(--host)">WHERE IT IS SHOWN</text></g>')
 live = ["lead-time-auto-p90", "lead-time-approved-p90", "approval-turnaround-p50", "approval-turnaround-p90", "auto-approval-rate", "self-service-rate", "change-failure-rate"]
-built = ["api-availability", "system-headroom", "cpu-saturation"]
-designed = ["drift-events", "expired-namespaces-cleaned", "managed-coverage", "import-health", "placement-accuracy",
+built = ["api-availability", "system-headroom", "cpu-saturation", "managed-coverage"]
+designed = ["drift-events", "expired-namespaces-cleaned", "import-health", "placement-accuracy",
             "capacity-freshness", "cluster-headroom", "quota-efficiency", "capacity-recovered", "database-headroom", "backup-freshness"]
 y1 = 70
 s, h1 = listbox(380, y1, 340, "Live: the API computes it", live, note="formulas tested in the service suite"); b.append(s)
@@ -39,7 +39,7 @@ s, h3 = listbox(380, y3, 340, "Designed: no code feeds the source", designed, da
 # sources
 b.append(box(20, y1 + 20, 290, 76, "PostgreSQL", ["change_requests and approvals", "read at each call of the API"]))
 b.append(arrow([(310, y1 + 58), (376, y1 + 58)], mid))
-b.append(box(20, y2 + 6, 290, 76, "cmapi_ metrics on /metrics", ["HTTP requests, the pod's cgroup figures", "fed by the api and the worker"]))
+b.append(box(20, y2 + 6, 290, 76, "cmapi_ metrics on /metrics", ["HTTP requests, cgroup figures, namespaces", "fed by the api and the worker"]))
 b.append(arrow([(310, y2 + 44), (376, y2 + 44)], mid))
 b.append(box(20, y3 + 40, 290, 76, "Not built", ["cmapi-capacity, the usage analysis,", "expire_check, backup and volume figures"], dashed=True))
 b.append(arrow([(310, y3 + 78), (376, y3 + 78)], mid, "proposed", 318, y3 + 71, stroke="var(--muted)", dashed=True))
@@ -55,9 +55,9 @@ b.append(arrow([(935, y2 + 76), (935, y2 + 100)], mid, "proposed", 943, y2 + 93,
 fy = y3 + h3 + 36
 b.append(f'<text x="20" y="{fy}">Solid box = built code with tests. Dashed box = not built, or not proven on a cluster. Dashed arrow = proposed.</text>')
 b.append(f'<text x="20" y="{fy+19}">The API also serves the figures of its own process (cgroup) and of the database. They are figures, not KPIs.</text>')
-b.append(f'<text x="20" y="{fy+38}" fill="var(--host)" font-weight="600">21 KPIs on 2026-11-13: 7 live, 3 built, 11 designed. No KPI value is measured on a cluster yet.</text>')
-aria = ("Seven KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. "
-        "Eleven are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster.")
+b.append(f'<text x="20" y="{fy+38}" fill="var(--host)" font-weight="600">21 KPIs on 2026-11-13: 7 live, 4 built, 10 designed. No KPI value is measured on a cluster yet.</text>')
+aria = ("Seven KPIs are live: the API computes them from the database. Four are built: the code feeds their metrics, and a dashboard query is not proven. "
+        "Ten are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster.")
 cap = ("Each KPI has one row in docs/17 with its formula and target. The live KPIs come from the request table, so the API can answer without Prometheus. "
        "The built KPIs need a Prometheus query, which waits for the first deployment.")
 out = TARGET

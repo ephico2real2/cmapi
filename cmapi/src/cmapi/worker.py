@@ -173,7 +173,7 @@ def run(s: Settings | None = None) -> None:
     configure_logging(s.log_level)
     os.environ.setdefault("CMAPI_COMPONENT", "worker")
     ctx = build_context(s)
-    register_collectors()
+    register_collectors(ctx.registry, ctx.pipeline.reserved)
     if s.metrics_port:
         start_metrics(s.metrics_port, ctx.cfg.name, "worker")
     worker = Worker(ctx, s.worker_id or socket.gethostname(), s.worker_poll_seconds)
