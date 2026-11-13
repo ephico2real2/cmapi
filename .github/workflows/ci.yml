@@ -109,6 +109,8 @@ jobs:
         run: cmapi/contract/gate-test.sh
       - name: The changelog that /docs/changelog serves is current
         run: python cmapi/contract/changelog.py --check
+      - name: docs/04 shows the recorded samples
+        run: python scripts/api-examples-doc.py --check
       - name: The contract does not break the newest released version
         run: |
           latest=$(find cmapi/contract/released -name '*.json' | sort -V | tail -1)

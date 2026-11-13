@@ -10,13 +10,15 @@ or a response model, any path, query or header parameter without a description a
 model field without a description, and any required scalar model field without an example.
 
 build_openapi(app, ...) adds what only the whole document can say: the tag descriptions, ReDoc's
-x-tagGroups, and one curl sample per operation (x-codeSamples).
+x-tagGroups, one curl sample per operation (x-codeSamples), and the request and response examples
+that a run of the service suite recorded (contract/samples.json).
 """
 from __future__ import annotations
 
 import inspect
 import json
 import shlex
+from importlib import resources
 from typing import Any, Callable, Sequence
 
 from fastapi import APIRouter, FastAPI
@@ -58,6 +60,11 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-team-dl": (422, "x@other.com is not an address in ['ephico2real.com']"),
     "expiration-not-allowed": (422, "Production namespaces never expire"),
     "expiration-limit": (422, "An extension is at most 30 days"),
+    "expiration-in-past": (422, "The new date must be later than the current one"),
+    "expiration-not-set": (422, "The namespace is permanent; use :set"),
+    "expiration-already-set": (422, "Use :extend to move an existing date"),
+    "namespace-protected": (422, "Protected namespaces cannot be deleted"),
+    "unknown-serviceaccount": (422, "ci-deployer is not a ServiceAccount of payments-dev"),
     "on-behalf-of-not-allowed": (422, "A person calls as themselves"),
     "on-behalf-of-required": (422, "A service client must name the person"),
     "not-eligible": (403, "Not in an approving group still needed"),
@@ -71,6 +78,8 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "cluster-unreachable": (503, "CRC did not answer"),
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
+    "validator-unavailable": (503, "kubeconform did not start"),
+    "docs-assets-missing": (503, "The Swagger UI bundle is not in /opt/app-root/static"),
 }
 
 
@@ -332,4 +341,37 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                 continue
             op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
+    add_recorded_examples(spec, load_samples())
     return spec
+
+
+def load_samples() -> dict[str, Any]:
+    """The request and the response of each operation from a run of the service suite (tests/service/test_api_samples.py)."""
+    return json.loads(resources.files("cmapi.contract").joinpath("samples.json").read_text())
+
+
+def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any]) -> None:
+    """Put the recorded samples into the document as examples, so Swagger UI, ReDoc and docs/04 show the same payloads.
+
+    A success goes in as the media type's `example`. A recorded problem replaces the synthesized example of its code.
+    The dry run of a write is keyed `<operationId>:dryRun` and fills that operation's 200.
+    """
+    by_id = {op["operationId"]: op for ops in spec["paths"].values() for op in ops.values()
+             if isinstance(op, dict) and "operationId" in op}
+    for key, sample in samples.get("operations", {}).items():
+        op = by_id.get(key.split(":")[0])
+        if op is None:
+            continue
+        request, response = sample["request"], sample["response"]
+        body_content = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
+        if body_content is not None and "body" in request:
+            body_content["example"] = request["body"]
+        declared = op["responses"].setdefault(str(response["status"]), {"description": "Successful Response"})
+        media = declared.setdefault("content", {}).setdefault(response["contentType"] or "application/json", {})
+        media["example"] = response["body"]
+    for code, sample in samples.get("problems", {}).items():
+        op = by_id.get(sample["operationId"])
+        examples = (((op or {}).get("responses", {}).get(str(sample["response"]["status"])) or {})
+                    .get("content", {}).get("application/problem+json", {}).get("examples"))
+        if examples is not None and code in examples:
+            examples[code] = {"value": sample["response"]["body"]}

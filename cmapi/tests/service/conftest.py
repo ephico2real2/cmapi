@@ -113,7 +113,9 @@ class FakeGit(HostGitProvider):
     def read_folder(self, path, ref=None):
         self._check()
         ref = ref or "main"
-        branch = ref if ref in self.branches else next((b for b, h in self.heads.items() if h == ref), None)
+        # Only a branch that still exists: a merged branch is deleted and its head stays in self.heads, and a later head with
+        # the same content has the same hash here (#154).
+        branch = ref if ref in self.branches else next((b for b, h in self.heads.items() if h == ref and b in self.branches), None)
         if branch is None:
             from cmapi.core.git.base import GitUnavailable
             raise GitUnavailable(f"no branch {ref}")
@@ -127,7 +129,7 @@ class FakeGit(HostGitProvider):
 
     def changed_paths(self, head):
         self._check()
-        branch = next(b for b, h in self.heads.items() if h == head)
+        branch = next(b for b, h in self.heads.items() if h == head and b in self.branches)      # as in read_folder (#154)
         before, after = self.based_on.get(branch, self.branches[branch]), self.branches[branch]
         return {p for p in set(before) | set(after) if before.get(p) != after.get(p)}
 

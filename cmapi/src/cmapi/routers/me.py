@@ -12,7 +12,7 @@ from cmapi.routers import caller, ctx, require
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
-@router.read("/me", summary="Who am I", permission=None, response_model=Me)
+@router.read("/me", summary="Who am I", permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
 def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
     """The caller's identity as cmapi records it, the roles and groups in the token, and the permissions
     each role grants with the environments it covers. The first thing to check when a call returns 403."""
