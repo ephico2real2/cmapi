@@ -13,7 +13,9 @@ from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
 
 PUBLIC = {("GET", "/api/v1/version"), ("GET", "/healthz"), ("GET", "/readyz"), ("GET", "/docs"), ("GET", "/docs/oauth2-redirect"),
-          ("GET", "/openapi.json"), ("GET", "/openapi.yaml"), ("GET", "/redoc"), ("GET", "/docs/changelog")}
+          ("GET", "/openapi.json"), ("GET", "/openapi.yaml"), ("GET", "/redoc"), ("GET", "/docs/changelog"),
+          # The page of a problem type: a caller with no token gets `unauthenticated`, and its type must resolve for that caller (#182).
+          ("GET", "/problems"), ("GET", "/problems/{code}")}
 
 
 def closure_permission(route):

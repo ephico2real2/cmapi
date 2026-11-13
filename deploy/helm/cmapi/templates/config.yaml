@@ -29,6 +29,7 @@ data:
         webUrl: {{ .Values.git.webUrl | quote }}
       directory: {{ toJson $inst.directory }}
       docs: {{ toJson $inst.docs }}
+      problems: {{ toJson ($inst.problems | default dict) }}
   clusters.yaml: |
     clusters: {{ toJson .Values.clusters }}
   integrations.yaml: |

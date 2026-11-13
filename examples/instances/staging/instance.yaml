@@ -6,6 +6,7 @@ instance:
   allowedEnvironments: [qa, uat]
   publicUrl: https://cmapi-staging.ephico2real.com
   portalUrl: https://portal-staging.ephico2real.com
+  # problems: {typeBase: https://cmapi.ephico2real.com/problems/}   # the base of each problem type URI (RFC 9457): one for all instances, on a host that points at an instance
   auth:
     issuer: https://sso.ephico2real.com/realms/ephico2real
     audience: cmapi-staging          # a token minted for another instance is refused
