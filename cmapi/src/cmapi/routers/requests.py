@@ -117,6 +117,8 @@ def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identi
         repo, jobs = RequestRepo(s), JobRepo(s)
         # Locked for the whole decision: two approvers count each other, and a person counts once.
         row = repo.get_for_update(request_id)
+        # As in reject: a role that does not cover this environment gets environment-forbidden, with where it does apply (#141).
+        c.cfg.roles.require(who, "requests:approve", row.env)
         if row.status != S.PENDING_APPROVAL.value:
             raise Problem.conflict("not-pending", f"{request_id} is {row.status}")
         ledger = repo.ledger(row)
