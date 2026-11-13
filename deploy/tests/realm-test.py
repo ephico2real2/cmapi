@@ -123,17 +123,30 @@ userPassword: {TEST_PW[uid]}
     env = {e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
     ldap = json.loads(env["CMAPI_REALM_LDAP"]); check(ldap.get("requireSync") is True, "the Job requires the sync"); ldap["connectionUrl"] = "ldap://127.0.0.1:389"
     check(ldap.get("usersFilter") == "(uid=cmapi.*)" and ldap.get("expectUsers") == len(IDENTITIES), f"the Job reads only the test users, and exactly {len(IDENTITIES)}")
-    env.update(CMAPI_REALM_ADMIN_URL=B, CMAPI_REALM_ADMIN_CLIENT_SECRET=vals["CMAPI_REALM_ADMIN_SECRET"], CMAPI_REALM_LDAP=json.dumps(ldap), bindDN="cn=admin,dc=ephico2real,dc=com", password="rt-ldap", ola="rt-ola", amy="rt-amy", opal="rt-opal", **{"bot-user": "rt-bot"})
+    env.update(CMAPI_REALM_ADMIN_URL=B, CMAPI_REALM_ADMIN_CLIENT_SECRET=vals["CMAPI_REALM_ADMIN_SECRET"], CMAPI_REALM_LDAP=json.dumps(ldap), bindDN="cn=admin,dc=ephico2real,dc=com", password="rt-ldap", ola="rt-ola", amy="rt-amy", opal="rt-opal")
     env.pop("CMAPI_CA_BUNDLE"); os.environ.update({k: v for k, v in env.items() if v is not None})
     try:
         rs.main([]); rs.main([]); check(True, "realm_sync.py twice, exit 0")
     except SystemExit as e:
         check(False, f"realm_sync.py twice, exit 0: {str(e.code)[:200]}")
-    def login(u, p): return httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "password", "client_id": "cmapi-automation", "client_secret": vals["CMAPI_AUTOMATION_SECRET"], "username": u, "password": p, "scope": "openid"})
+    # A person signs in as a browser does: the authorization code grant with PKCE through the public client cmapi-docs, the password only to
+    # Keycloak's login form (deploy/oidc-login.py). No client takes the password grant (RFC 9700, section 2.4; #181).
+    spec = importlib.util.spec_from_file_location("oidc_login", os.path.join(ROOT, "deploy/oidc-login.py")); ol = importlib.util.module_from_spec(spec); spec.loader.exec_module(ol)
+    PUBLIC = "https://keycloak.apps-crc.testing/realms/cmapi"
+    def login(u, p):
+        """The access token, or None with the reason in login.why."""
+        try:
+            login.why = ""; return ol.login(PUBLIC, "cmapi-docs", "https://cmapi-api.apps-crc.testing/docs/oauth2-redirect", u, p, base=B)["access_token"]
+        except ol.LoginError as e:
+            login.why = str(e); return None
     claims = lambda t: json.loads(base64.urlsafe_b64decode(t.split(".")[1] + "=" * (-len(t.split(".")[1]) % 4)))
     def token_of(u, p):
-        r = login(u, p)
-        return claims(r.json()["access_token"]) if r.status_code == 200 else None
+        t = login(u, p)
+        return claims(t) if t else None
+    def grant(**form): return httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data=form)
+    def error_of(r):
+        try: return r.json().get("error")
+        except ValueError: return f"not JSON: {r.text[:60]}"
     def holds(c, groups, roles):
         return sorted(c.get("groups") or []) == sorted(groups) and sorted(((c.get("resource_access") or {}).get("cmapi-nonprod") or {}).get("roles") or []) == sorted(roles)
     # Each test user through the federation: exactly the table's groups and roles, and nothing the table does not give.
@@ -141,31 +154,63 @@ userPassword: {TEST_PW[uid]}
         want_groups = [] if groups == "-" else ["/cmapi/" + g for g in groups.split(",")]
         want_roles = [] if roles == "-" else roles.split(",")
         c = token_of(uid, TEST_PW[uid])
-        check(c is not None, f"{uid} signs in through LDAP federation")
+        check(c is not None, f"{uid} signs in through LDAP federation, by the login form: {login.why}")
         if c:
             check(holds(c, want_groups, want_roles), f"{uid}: groups {sorted(c.get('groups') or [])}, roles {sorted(((c.get('resource_access') or {}).get('cmapi-nonprod') or {}).get('roles') or [])}")
             check(c.get("employee_id") == number and c.get("preferred_username") == uid and c.get("email") == f"{uid}@ephico2real.com", f"{uid}: employee_id from uidNumber, name and mail")
     c = token_of("cmapi.requester", TEST_PW["cmapi.requester"])
     check(c and c["iss"] == "https://keycloak.apps-crc.testing/realms/cmapi", "the token carries the public issuer, though it was asked for elsewhere")
     check(c and c["aud"] == "cmapi-nonprod", "audience")
-    check(login("cmapi.requester", "wrong").status_code in (400, 401), "a wrong LDAP password is refused")
+    check(login("cmapi.requester", "wrong") is None and "Invalid username or password" in login.why, f"a wrong LDAP password is refused: {login.why}")
     # A person outside the filter: the right password, as LDAP itself says, and no way in.
     r = sh(C, "exec", "cmapi-w1-rt-ldap", "ldapwhoami", "-x", "-H", "ldap://127.0.0.1:389", "-D", "cn=john.doe,ou=People,dc=ephico2real,dc=com", "-w", "rt-john"); check(r.returncode == 0, "john.doe's password is right, as LDAP says")
-    check(login("john.doe", "rt-john").status_code != 200, "and a person outside usersFilter cannot sign in to this realm")
+    check(login("john.doe", "rt-john") is None, "and a person outside usersFilter cannot sign in to this realm")
     # The local users keep working with the new groups.
     for user, pw, want_groups, want_roles in (("ola", "rt-ola", ["/cmapi/app-cmapi-rbac-requester"], ["cmapi-requester"]), ("amy", "rt-amy", ["/cmapi/app-cmapi-rbac-approver-platform"], ["cmapi-approver"]),
                                               ("opal", "rt-opal", ["/cmapi/app-cmapi-rbac-operator"], ["cmapi-operator", "cmapi-approver"])):
         c = token_of(user, pw); check(c and holds(c, want_groups, want_roles), f"the local user {user} has {want_groups} and {want_roles}")
-    check(login("bot-user", "rt-bot").status_code == 200, "the local bot user signs in")
-    # A person's password goes through one client, with its secret, and cannot be guessed without limit.
-    for client in ("admin-cli", "cmapi-portal", "cmapi-docs", "cmapi-cli", "account", "account-console", "security-admin-console"):
-        r = httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "password", "client_id": client, "username": "bot-user", "password": "rt-bot"}); check(r.status_code != 200, f"{client} takes no password with no client secret: {r.status_code}")
+    # The automation client signs in by its service account, and holds cmapi-onboarding and nothing else. It has no group and no employee ID.
+    r = grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], scope="openid")
+    c = claims(r.json()["access_token"]) if r.status_code == 200 else None
+    check(c is not None, f"cmapi-automation signs in with client credentials: {r.status_code}")
+    check(c and c.get("preferred_username") == "service-account-cmapi-automation" and holds(c, [], ["cmapi-onboarding"]) and c["aud"] == "cmapi-nonprod" and "employee_id" not in c,
+          f"its token is a service account's with cmapi-onboarding only: {c and (c.get('preferred_username'), c.get('groups'), c.get('resource_access'), c.get('aud'))}")
+    check(grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret="wrong", scope="openid").status_code == 401, "and not with a wrong client secret")
+    # No client takes a password on the token endpoint: not with the right password of a real account, with the client's secret or without one.
+    listed = [x["clientId"] for x in realm["clients"]]
+    for client in sorted(set(listed) | {"admin-cli", "account", "account-console", "security-admin-console", "broker", "realm-management"}):
+        secret = next((vals[k] for x in realm["clients"] if x["clientId"] == client and "secret" in x for k in vals if k in x["secret"]), None)
+        r = grant(grant_type="password", client_id=client, username="ola", password="rt-ola", scope="openid", **({"client_secret": secret} if secret else {}))
+        check(r.status_code in (400, 401) and error_of(r) in ("unauthorized_client", "invalid_client") and "access_token" not in r.text,
+              f"{client} takes no password{' with its secret' if secret else ''}: {r.status_code} {error_of(r)}")
+    check(not httpx.get(f"{B}/admin/realms/cmapi/users", params={"username": "bot-user", "exact": "true"}, headers={"Authorization": "Bearer " + grant(grant_type="client_credentials", client_id="cmapi-realm-admin", client_secret=vals["CMAPI_REALM_ADMIN_SECRET"]).json()["access_token"]}).json(),
+          "the realm has no local account bot-user")
     for _ in range(realm["failureFactor"]):
         login("amy", "wrong")
     time.sleep(1)                      # the protector counts on its own thread
-    check(login("amy", "rt-amy").status_code != 200, "after that many wrong guesses even the right password is refused for now")
-    check(login("ola", "rt-ola").status_code == 200, "and no one else is")
-    adm = httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "client_credentials", "client_id": "cmapi-realm-admin", "client_secret": vals["CMAPI_REALM_ADMIN_SECRET"]}).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
+    check(login("amy", "rt-amy") is None, f"after that many wrong guesses even the right password is refused for now: {login.why}")
+    check(login("ola", "rt-ola") is not None, f"and no one else is: {login.why}")
+    adm = grant(grant_type="client_credentials", client_id="cmapi-realm-admin", client_secret=vals["CMAPI_REALM_ADMIN_SECRET"]).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
+    # A realm that was imported before #181: the import runs one time, so the sync must bring the change. Put the old state back, as the old
+    # import and the old sync made it, then run the sync.
+    R = f"{B}/admin/realms/cmapi"
+    auto = httpx.get(f"{R}/clients", params={"clientId": "cmapi-automation"}, headers=A).json()[0]
+    check(httpx.put(f"{R}/clients/{auto['id']}", headers=A, json={**auto, "directAccessGrantsEnabled": True, "serviceAccountsEnabled": False}).status_code == 204
+          and httpx.post(f"{R}/users", headers=A, json={"username": "bot-user", "enabled": True, "emailVerified": True, "email": "bot-user@ephico2real.com", "firstName": "Onboarding", "lastName": "Bot", "credentials": [{"type": "password", "value": "rt-bot", "temporary": False}]}).status_code == 201,
+          "the old state is back: cmapi-automation takes the password grant, and bot-user exists")
+    old = grant(grant_type="password", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], username="bot-user", password="rt-bot", scope="openid")
+    check(old.status_code == 200, f"and in that state the password grant gives a token, so the next check can fail: {old.status_code}")
+    try:
+        rs.main([]); check(True, "realm_sync.py on the old state, exit 0")
+    except SystemExit as e:
+        check(False, f"realm_sync.py on the old state, exit 0: {str(e.code)[:200]}")
+    adm = grant(grant_type="client_credentials", client_id="cmapi-realm-admin", client_secret=vals["CMAPI_REALM_ADMIN_SECRET"]).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
+    old = grant(grant_type="password", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], username="ola", password="rt-ola", scope="openid")
+    check(old.status_code == 400 and error_of(old) == "unauthorized_client", f"after the sync the password grant is refused: {old.status_code} {error_of(old)}")
+    check(not httpx.get(f"{R}/users", params={"username": "bot-user", "exact": "true"}, headers=A).json(), "and bot-user is gone")
+    r = grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], scope="openid")
+    c = claims(r.json()["access_token"]) if r.status_code == 200 else None
+    check(c and holds(c, [], ["cmapi-onboarding"]), f"and the service account is back with cmapi-onboarding: {r.status_code} {c and c.get('resource_access')}")
     check(httpx.delete(f"{B}/admin/realms/corp-rt", headers=A).status_code == 403, "cmapi-realm-admin cannot delete another realm")
     # What requireSync does with the filter, on the real answer: a filter that reads the wrong number of people fails the Job, and no filter at all reads everyone.
     def sync_fails(label):
@@ -179,7 +224,7 @@ userPassword: {TEST_PW[uid]}
     ldap["usersFilter"] = "(uid=nobody.*)"; sync_fails("a filter reading nobody fails the Job")
     ldap.clear(); ldap.update(keep); del ldap["usersFilter"], ldap["expectUsers"]; os.environ["CMAPI_REALM_LDAP"] = json.dumps(ldap)
     try:
-        rs.main([]); check(login("john.doe", "rt-john").status_code == 200, "with no usersFilter the realm reads everyone: john.doe signs in, so the filter is what kept him out")
+        rs.main([]); check(login("john.doe", "rt-john") is not None, f"with no usersFilter the realm reads everyone: john.doe signs in, so the filter is what kept him out: {login.why}")
     except SystemExit as e:
         check(False, f"a sync with no usersFilter: {str(e.code)[:120]}")
     # A sync that cannot reach LDAP must fail the Job.

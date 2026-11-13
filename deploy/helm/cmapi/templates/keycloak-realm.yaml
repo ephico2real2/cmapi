@@ -11,8 +11,8 @@ Content mirrors examples/cmapi-sso/realm/ephico2real.yaml and the clients in doc
   cmapi-portal      public, Authorization Code + PKCE S256
   cmapi-docs        public, PKCE, for Swagger UI's Authorize button
   cmapi-cli         public, Device Authorization Grant, offline_access optional
-  cmapi-automation  confidential, password grant: for bot-user, though Keycloak cannot limit it to one account, so
-                    anyone holding this client's secret and a user's password gets a token (measured on 26.6.4)
+  cmapi-automation  confidential, service account with cmapi-onboarding: an AI agent or a script signs in with the
+                    client credentials grant. No client takes the password grant (RFC 9700, section 2.4; #181)
   svc-payments-ci   confidential, service account, the example pipeline client
   cmapi-directory   confidential, realm-management view-users and query-users only
   cmapi-realm-admin confidential, realm-management realm-admin: the sync Job's identity
@@ -112,7 +112,7 @@ spec:
       client:
         {{ $aud }}:
           - {name: cmapi-viewer, description: "clusters:read, objects:read, capacity:read, requests:read"}
-          - {name: cmapi-onboarding, description: "Create namespaces only. For people and local automation accounts"}
+          - {name: cmapi-onboarding, description: "Create namespaces only. For people and automation clients"}
           - {name: cmapi-requester, description: "Onboarding plus change and delete, quotas, service accounts and grants"}
           - {name: cmapi-approver, description: "requests:approve and requests:reject"}
           - {name: cmapi-operator, description: "Requester plus retry, adoption, reports and operations"}
@@ -159,14 +159,15 @@ spec:
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
         optionalClientScopes: [offline_access]
       - clientId: cmapi-automation
-        name: "Local automation accounts (bot-user)"
+        name: "Automation (an AI agent or a script), by its service account"
         enabled: true
-        # Confidential: the password grant needs this client's secret as well as the account's password, so the
-        # grant is open to the automation that holds the secret, not to every user of the realm.
+        # Client credentials (RFC 6749, section 4.4): the automation holds the secret of this client and no password
+        # of any account. Its service account has cmapi-onboarding, which is an automation role of instance.yaml.
         publicClient: false
         secret: "${CMAPI_AUTOMATION_SECRET}"
         standardFlowEnabled: false
-        directAccessGrantsEnabled: true
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: svc-payments-ci
         name: "Example pipeline client"
@@ -206,6 +207,10 @@ spec:
         enabled: true
         serviceAccountClientId: cmapi-directory
         clientRoles: {realm-management: [view-users, query-users]}
+      - username: service-account-cmapi-automation
+        enabled: true
+        serviceAccountClientId: cmapi-automation
+        clientRoles: { {{ $aud | quote }}: [cmapi-onboarding] }
     groups:
       - name: cmapi
         path: /cmapi

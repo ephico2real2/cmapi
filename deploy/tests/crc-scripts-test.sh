@@ -92,7 +92,7 @@ if [ -n "${STUB_PROOF:-}" ]; then
     */readyz) code=${STUB_READYZ:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_READYZ_AFTER:-$code}; case "$url" in http://*) code=302;; esac;;
     */api/v1/version) printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0;;
     */metrics) code=${STUB_METRICS:-404};;
-    */api/v1/me) case "$*" in *--config*) printf '{"username":"bot-user","roles":["cmapi-onboarding"]}'; exit 0;; *) code=401;; esac;;
+    */api/v1/me) case "$*" in *--config*) printf '{"username":"%s","roles":["cmapi-onboarding"]}' "${STUB_ME:-cmapi-automation}"; exit 0;; *) code=401;; esac;;
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
     */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
@@ -109,7 +109,12 @@ printf '#!/bin/sh\nexit 0\n' >"$W/bin/tmutil"
 # The token for whoever signed in: claims from the table, and $TOKEN in the signature, so a token on an argument is found. STUB_CLAIMS changes one claim of one user: uid:claim:json.
 cat >"$W/token.py" <<'TOK'
 import base64, json, os, urllib.parse
-form = urllib.parse.parse_qs(os.environ.get("STDIN_SEEN", "")); user = form.get("username", ["bot-user"])[0]
+form = urllib.parse.parse_qs(os.environ.get("STDIN_SEEN", "")); user = form.get("username", ["service-account-cmapi-automation"])[0]
+# The token endpoint takes client credentials. It refuses the password grant, unless STUB_PASSWORD_GRANT says that the realm still has it.
+if form.get("grant_type") == ["password"] and not os.environ.get("STUB_PASSWORD_GRANT"):
+    print('{"error":"unauthorized_client","error_description":"Client not allowed for direct access grants"}'); raise SystemExit
+if form.get("grant_type") == ["password"]:
+    print('{"error":"invalid_grant","error_description":"Invalid user credentials"}'); raise SystemExit
 if user == os.environ.get("STUB_NO_SIGN_IN"):
     print('{"error":"invalid_grant"}'); raise SystemExit
 claims = {"preferred_username": user}
@@ -127,6 +132,15 @@ enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip
 print(json.dumps({"access_token": ".".join([enc({"alg": "none"}), enc(claims), os.environ["TOKEN"] + "-" + user])}))
 TOK
 export STUB_TOKEN_PY=$W/token.py
+# The stand-in for deploy/oidc-login.py: the token of --username, from the same table. The password comes on stdin and is swallowed here.
+cat >"$W/bin/oidc-login-stub" <<'P'
+#!/usr/bin/env bash
+printf 'oidc-login %s\n' "$*" >>"$ARGV_LOG"
+cat >/dev/null
+user=; while [ $# -gt 0 ]; do [ "$1" = --username ] && user=$2; shift; done
+STDIN_SEEN="grant_type=authorization_code&username=$user" python3 "$STUB_TOKEN_PY" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1) if "access_token" not in d else print(d["access_token"])'
+P
+export CMAPI_OIDC_LOGIN=$W/bin/oidc-login-stub
 chmod +x "$W/bin/"*; export PATH="$W/bin:$PATH"
 cd "$W/repo" || exit 1; git init -q .; git -c user.email=t@t -c user.name=t commit -q --allow-empty -m t; export REPO=$W/repo; mkdir -p cmapi; printf 'version = "0.2.0"\n' >cmapi/pyproject.toml
 D=$W/repo/deploy; TRUST=$D/manifests/environments/crc/30-trust.yaml
@@ -249,6 +263,8 @@ pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
 pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
 pstop "a test user who cannot sign in" STUB_NO_SIGN_IN=cmapi.auditor
+pstop "a realm where cmapi-automation still takes the password grant" STUB_PASSWORD_GRANT=1
+pstop "the automation token is of another caller" STUB_ME=bot-user
 pstop "a test user with no password in the Secret" 'STUB_NO_PASSWORD=cmapi\.auditor'
 pstop "a token with a group the table does not give" 'STUB_CLAIMS=cmapi.viewer:groups:["/cmapi/app-cmapi-rbac-viewer","/cmapi/app-cmapi-rbac-admin"]'
 pstop "a token missing its group" 'STUB_CLAIMS=cmapi.requester:groups:[]'

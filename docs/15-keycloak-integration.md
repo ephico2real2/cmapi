@@ -25,7 +25,7 @@ Nine clients are in the import. The table is read from the file.
 | `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/*` and `http://localhost:5173/*`. The portal's sign-in is not built |
 | `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi-api.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
 | `cmapi-cli` | Public | Device authorization | The `cmapi` CLI | `offline_access` is optional. The CLI is not built |
-| `cmapi-automation` | Confidential | Password grant | Local Keycloak accounts such as `bot-user`, and the proofs of `deploy/crc-proof.sh` | The only client that takes a password |
+| `cmapi-automation` | Confidential | Client credentials | An AI agent or a script, by the client's service account | The service account holds `cmapi-onboarding` only |
 | `svc-payments-ci` | Confidential | Client credentials | A sample pipeline | One client for each pipeline |
 | `cmapi-directory` | Confidential | Client credentials | The API's people search | Realm-management roles `view-users` and `query-users` only |
 | `cmapi-realm-admin` | Confidential | Client credentials | The Job `cmapi-realm-sync`, and the rollback's realm delete | Realm-management role `realm-admin`, in realm `cmapi` only |
@@ -138,20 +138,31 @@ TOKEN=$(curl -s "$KC/token" \
   -d client_secret="$CMAPI_CLIENT_SECRET" | jq -r .access_token)
 ```
 
-A local Keycloak account such as `bot-user` signs in through `cmapi-automation` with the password grant. The client secret is necessary: without it Keycloak answers 401 `unauthorized_client` (measured on Keycloak 26.6.4).
+An AI agent or a script signs in as the client `cmapi-automation`, also with the client credentials grant. Its service account holds the role `cmapi-onboarding`, so it can create a namespace and follow its requests. cmapi sees the caller `cmapi-automation` of the kind `service`.
 
 ```bash
 TOKEN=$(curl -s "$KC/token" \
-  -d grant_type=password -d client_id=cmapi-automation -d client_secret="$AUTOMATION_CLIENT_SECRET" \
-  -d username=bot-user -d password="$BOT_PASSWORD" | jq -r .access_token)
+  -d grant_type=client_credentials -d client_id=cmapi-automation -d client_secret="$AUTOMATION_CLIENT_SECRET" \
+  | jq -r .access_token)
 curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/me" | jq .access
 ```
 
-Keep each secret in a variable that comes from a secret store, and never on a command line that a log records. A person from LDAP has no such recipe: the password goes only into Keycloak's sign-in page.
+Keep each secret in a variable that comes from a secret store, and never on a command line that a log records.
+
+### No password grant
+
+No client of realm `cmapi` takes the resource owner password grant. RFC 9700, section 2.4: "The resource owner password credentials grant [RFC6749] MUST NOT be used." The grant gives a person's password to the client, and it cannot ask for a second factor. Each client of the import says `directAccessGrantsEnabled: false`, the disabled `admin-cli` also. For a realm that was imported before this rule (#181), the Job `cmapi-realm-sync` turns the grant off on each client, gives `cmapi-automation` its service account, and removes the local test account `bot-user`.
+
+A person's password goes only into Keycloak's sign-in page. The proofs must still sign in the 13 LDAP test users with no browser. `deploy/oidc-login.py` does it as a browser does: the authorization code grant with PKCE (RFC 7636, S256) through the public client `cmapi-docs`. It sends the password to Keycloak's login form, reads the code from the redirect, and gets the token from the token endpoint. It is for test identities only, and it stops when Keycloak shows another page than the login form. The password comes on standard input:
+
+```bash
+printf '%s\n' "$PASSWORD" | deploy/oidc-login.py --issuer "$KC_ISSUER" --client-id cmapi-docs \
+  --redirect-uri https://cmapi-api.apps-crc.testing/docs/oauth2-redirect --username cmapi.viewer --cacert "$CMAPI_CRC_CA"
+```
 
 ## A real token
 
-Not captured yet. The claims of a real access token, with no secret and no signature, come from the Wave 1 run on CRC: one test user from LDAP through `cmapi-automation`, as `deploy/crc-proof.sh` does for each of the 13.
+Not captured yet. The claims of a real access token, with no secret and no signature, come from the Wave 1 run on CRC: one test user from LDAP through `cmapi-docs`, as `deploy/crc-proof.sh` does for each of the 13 with `deploy/oidc-login.py`.
 
 ## Proof
 

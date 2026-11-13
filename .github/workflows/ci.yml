@@ -184,6 +184,8 @@ jobs:
         run: deploy/tests/crc-backup-test.sh
       - name: The test identities on a real OpenLDAP of the server's image, and mutants of the script
         run: deploy/tests/ldap-identities-test.sh
+      - name: The sign-in script, on a stand-in for Keycloak's authorization code flow
+        run: python deploy/tests/oidc-login-test.py
       - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
         run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
       - name: The mockup ConfigMap is current

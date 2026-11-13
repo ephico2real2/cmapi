@@ -28,8 +28,8 @@ _OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read", "oper
 # permissions a config file may use.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "cmapi-viewer": frozenset(_VIEW),
-    # Create namespaces and follow their requests, nothing else: for onboarding by people or by a
-    # local automation account (bot-user, an AI agent). Cannot change or delete a namespace.
+    # Create namespaces and follow their requests, nothing else: for onboarding by people or by an
+    # automation client (cmapi-automation, an AI agent). Cannot change or delete a namespace.
     "cmapi-onboarding": frozenset(_ONBOARD),
     "cmapi-requester": frozenset(_REQUEST),
     "cmapi-approver": frozenset(_VIEW | {"requests:approve", "requests:reject"}),

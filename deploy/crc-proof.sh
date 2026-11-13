@@ -10,6 +10,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 API=${CMAPI_API_URL:-https://cmapi-api.apps-crc.testing}
 MOCKUP=${CMAPI_MOCKUP_URL:-https://cmapi-mockup.apps-crc.testing}
 KC=${CMAPI_KEYCLOAK_URL:-https://keycloak.apps-crc.testing}
+# The sign-in of a person with no browser; the scripts test puts a stand-in here, as it does for oc.
+LOGIN=${CMAPI_OIDC_LOGIN:-python3 $HERE/oidc-login.py}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 c() { curl -sS -m 15 --cacert "$CA" "$@"; }
@@ -68,21 +70,26 @@ case "$blocked" in *"wget: download timed out"*) ;; *) fail "the probe of the ap
 say "another namespace's pod reaches the mockup and is blocked from the api (the policy is enforced on OVN-Kubernetes)"
 cleanup_probe; trap - EXIT
 
-# A sign-in with no browser: the automation client and its bot user, password and secret on stdin.
+# The automation client signs in by its service account: the client credentials grant, the secret on stdin. No password of any account.
 secret=$(oc_ get secret cmapi-keycloak -n cmapi -o 'jsonpath={.data.automationClientSecret}' | base64 -d)
-botpw=$(oc_ get secret cmapi-test-users -n cmapi -o 'jsonpath={.data.bot-user}' | base64 -d)
-token=$(printf 'grant_type=password&client_id=cmapi-automation&username=bot-user&scope=openid&client_secret=%s&password=%s' "$secret" "$botpw" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') || fail "no token for bot-user"
+token=$(printf 'grant_type=client_credentials&client_id=cmapi-automation&scope=openid&client_secret=%s' "$secret" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') || fail "no token for cmapi-automation"
 me=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | c --config - "$API/api/v1/me")
-printf '%s' "$me" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("proof: /api/v1/me:",d["username"],d["roles"]); sys.exit(0 if d["username"]=="bot-user" else 1)' || fail "/api/v1/me"
+printf '%s' "$me" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("proof: /api/v1/me:",d["username"],d["roles"]); sys.exit(0 if d["username"]=="cmapi-automation" and d["roles"]==["cmapi-onboarding"] else 1)' || fail "/api/v1/me"
+# No client takes the resource owner password grant (RFC 9700, section 2.4; #181). The one confidential client that had it must answer
+# unauthorized_client, which Keycloak decides before it reads the account: so the name is of no account, and the password is not a password.
+refused=$(printf 'grant_type=password&client_id=cmapi-automation&username=no-such-account&password=not-a-password&scope=openid&client_secret=%s' "$secret" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("error"))') || fail "the token endpoint did not answer the password grant"
+[ "$refused" = unauthorized_client ] || fail "cmapi-automation answers the password grant with $refused, not unauthorized_client: the grant is on"
+say "cmapi-automation signs in with client credentials, and the password grant is refused (unauthorized_client)"
 
-# Each LDAP test user, signed in through the federation by the same client, password on stdin: the token holds exactly what the owner's table says, and nothing the table does not.
+# Each LDAP test user, signed in through the federation as a browser does: the authorization code grant with PKCE through cmapi-docs, the password
+# on stdin and only to Keycloak's login form (deploy/oidc-login.py). The token holds exactly what the owner's table says, and nothing the table does not.
 # The table, not the realm's own groups, is what "expected" comes from: a realm that grants the wrong role must not pass by agreeing with itself.
 checked=0; tok_noaccess=; tok_viewer=
 while IFS=$'\t' read -r uid number groups roles <&3; do
   case "$uid" in \#*|"") continue;; esac
   pw=$(oc_ get secret cmapi-ldap-test-users -n cmapi -o "jsonpath={.data.${uid//./\\.}}" | base64 -d)
   [ -n "$pw" ] || fail "Secret cmapi-ldap-test-users holds no password for $uid"
-  t=$(printf 'grant_type=password&client_id=cmapi-automation&username=%s&scope=openid&client_secret=%s&password=%s' "$uid" "$secret" "$pw" | c -X POST --data @- "$KC/realms/cmapi/protocol/openid-connect/token" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') || fail "no token for $uid through LDAP federation"
+  t=$(printf '%s\n' "$pw" | $LOGIN --issuer "$KC/realms/cmapi" --client-id cmapi-docs --redirect-uri "$API/docs/oauth2-redirect" --username "$uid" --cacert "$CA") || fail "no token for $uid through LDAP federation"
   printf '%s' "$t" | python3 -c '
 import base64,json,sys
 uid,number,groups,roles=sys.argv[1:5]

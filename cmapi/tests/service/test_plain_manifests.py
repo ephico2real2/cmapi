@@ -266,11 +266,17 @@ def test_crc_realm_import_names_cmapi_and_holds_no_secret():
     assert len(list(yaml.safe_load_all((CRC / "realm/10-realm-import.yaml").read_text()))) == 1
 
 
-def test_crc_realm_takes_a_password_only_through_the_automation_client_and_limits_guesses():
-    """A public client with direct grants takes a person's password with no secret. Keycloak gives every realm one, admin-cli, unless the import names it. Measured in deploy/tests/realm-test.py."""
+def test_crc_realm_takes_a_password_through_no_client_and_limits_guesses():
+    """No client takes the resource owner password grant (RFC 9700, section 2.4: "MUST NOT be used"; #181). Each client says so itself, because
+    Keycloak's default for a client that does not say is on. Keycloak gives every realm a public admin-cli unless the import names it. The
+    automation client signs in by its service account. Measured in deploy/tests/realm-test.py."""
     realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
-    direct = [c["clientId"] for c in realm["clients"] if c.get("directAccessGrantsEnabled") and c.get("enabled")]
-    assert direct == ["cmapi-automation"]
+    assert [c["clientId"] for c in realm["clients"] if c.get("directAccessGrantsEnabled") is not False] == []
+    auto = next(c for c in realm["clients"] if c["clientId"] == "cmapi-automation")
+    assert auto["serviceAccountsEnabled"] is True and auto["publicClient"] is False and auto["standardFlowEnabled"] is False
+    account = next(u for u in realm["users"] if u.get("serviceAccountClientId") == "cmapi-automation")
+    assert account["clientRoles"] == {"cmapi-nonprod": ["cmapi-onboarding"]}
+    assert [u["username"] for u in realm["users"] if "serviceAccountClientId" not in u] == [], "a local account in the import"
     admin_cli = next(c for c in realm["clients"] if c["clientId"] == "admin-cli")
     assert admin_cli["enabled"] is False and admin_cli["directAccessGrantsEnabled"] is False
     assert realm["bruteForceProtected"] is True and realm["permanentLockout"] is False
