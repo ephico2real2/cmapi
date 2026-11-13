@@ -18,7 +18,7 @@ The change is in the check that lets a pull request merge, so it has a second re
 
 Codex found no defect, so no fix came from this review. Its extra test repeats `test_the_cmapi_check_fails_when_the_host_cannot_list_each_changed_file` with mocks in place of the database, so it is not added to the suite.
 
-One fact from the report is now in the code's reason: a comparison of exactly 300 files that is complete is refused also. That is the cost of a limit with no "cut" flag in GitHub's answer, and a plan of cmapi has a few files.
+One fact from the report: a comparison of exactly 300 files that is complete is refused also. That is the cost of a limit with no "cut" flag in GitHub's answer, and a plan of cmapi has a few files.
 
 ## Not tested
 
