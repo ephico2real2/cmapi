@@ -55,13 +55,36 @@ class Recorder:
         return r
 
 
-def shape(value: Any) -> Any:
+# GET /admin/kpi reports each figure as a number, or as the text "unavailable" where the machine cannot measure it (a Mac has no
+# cgroup files, a Linux runner does). So for that one sample only the keys are compared, not the type of each value.
+MEASURED_OR_UNAVAILABLE = {"admin_kpi"}
+
+
+def shape(value: Any, keys_only: bool = False) -> Any:
     """Keys and types, without the values: what a sample must keep from one run to the next."""
     if isinstance(value, dict):
-        return {k: shape(v) for k, v in sorted(value.items())}
+        return {k: shape(v, keys_only) for k, v in sorted(value.items())}
     if isinstance(value, list):
-        return [shape(value[0])] if value else []
-    return type(value).__name__
+        return [shape(value[0], keys_only)] if value else []
+    return "value" if keys_only else type(value).__name__
+
+
+def shapes(data: dict[str, Any]) -> dict[str, Any]:
+    return {kind: {name: shape(sample, keys_only=name in MEASURED_OR_UNAVAILABLE) for name, sample in data[kind].items()}
+            for kind in ("operations", "problems")}
+
+
+def differences(a: Any, b: Any, path: str = "") -> list[str]:
+    """Where two shapes differ, as paths: the assertion's own diff of two large dicts does not show it."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = [f"{path}.{k}: only in the committed file" for k in a.keys() - b.keys()]
+        out += [f"{path}.{k}: only in this run" for k in b.keys() - a.keys()]
+        for k in a.keys() & b.keys():
+            out += differences(a[k], b[k], f"{path}.{k}")
+        return sorted(out)
+    if isinstance(a, list) and isinstance(b, list) and a and b:
+        return differences(a[0], b[0], f"{path}[0]")
+    return [] if a == b else [f"{path}: committed {a!r}, this run {b!r}"]
 
 
 def test_each_operation_has_a_sample_from_a_run(world):
@@ -198,6 +221,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     if os.environ.get("CMAPI_WRITE_SAMPLES") == "1":
         SAMPLES.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     committed = json.loads(SAMPLES.read_text())
-    assert shape(committed) == shape(json.loads(json.dumps(data))), \
-        "the samples changed shape: run this test with CMAPI_WRITE_SAMPLES=1, then the two steps in this file's docstring"
+    changed = differences(shapes(committed), shapes(json.loads(json.dumps(data))))
+    assert changed == [], ("the samples changed shape: run this test with CMAPI_WRITE_SAMPLES=1, then the two steps in this file's "
+                           "docstring. Where: " + "; ".join(changed[:12]))
     assert "Bearer ey" not in SAMPLES.read_text(), "a token is in the samples"
