@@ -1,2 +1,23 @@
 # Breaking changes that the contract gate lets through (oasdiff --err-ignore).
 # One change for each line, in the words that oasdiff prints, with the reason and the issue number on the line above it.
+
+# #164 (BUG-39), accepted on 2026-11-13, before the first release: a request that FastAPI refused had FastAPI's own 422 body,
+# with `detail` as a list. Each refusal is now the RFC 9457 problem that the design specifies, with `detail` as a text.
+POST /api/v1/admin/auto-approval:pause the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/admin/auto-approval:resume the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/clusters/{cluster_id}/namespaces the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/directory/users the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/directory/users/{username} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas:export the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas:suggest the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id}/approval-status the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id}/events the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:approve the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:cancel the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:retry the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:revert the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/tiers the `detail` response's property `type` changed from `array<object>` to `string` for status `422`

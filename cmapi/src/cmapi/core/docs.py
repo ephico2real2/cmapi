@@ -341,8 +341,31 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                 continue
             op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
+    _document_validation_problem(spec)
     add_recorded_examples(spec, load_samples())
     return spec
+
+
+def _document_validation_problem(spec: dict[str, Any]) -> None:
+    """Each operation with a parameter or a body can answer 422 validation-failed (main.py turns FastAPI's own refusal into the
+    problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
+    problem = {"$ref": "#/components/schemas/ProblemDetail"}
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if not isinstance(op, dict) or not (op.get("parameters") or op.get("requestBody")):
+                continue
+            declared = op["responses"].get("422") or {}
+            examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
+            examples.setdefault("validation-failed", {"value": problem_example("validation-failed")})
+            names = [n for n in (declared.get("description") or "").split(", ") if n in PROBLEMS]
+            if "validation-failed" not in names:
+                names.append("validation-failed")
+            op["responses"]["422"] = {"description": ", ".join(names),
+                                      "content": {"application/problem+json": {"schema": problem, "examples": examples}}}
+    schemas = spec.get("components", {}).get("schemas", {})
+    schemas.setdefault("ProblemDetail", ProblemDetail.model_json_schema())
+    for name in ("HTTPValidationError", "ValidationError"):
+        schemas.pop(name, None)
 
 
 def load_samples() -> dict[str, Any]:
