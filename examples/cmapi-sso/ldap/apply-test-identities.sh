@@ -199,6 +199,11 @@ remove_old() {
       present "$dn" || { echo "gone already: $dn"; continue; }
       search -b "$dn" -s base objectClass > "$w/e"
       grep -qix "objectClass: groupOfNames" "$w/e" || { echo "FAIL: $dn is not a groupOfNames: leaving every entry alone" >&2; exit 1; }
+      search -b "$dn" -s one "(objectClass=*)" dn > "$w/children"
+      if [ -s "$w/children" ]; then
+        echo "FAIL: $dn has child entries: none deleted. Stop and report to the directory owner; move or remove the children only after ownership review, then rerun --remove-old-groups" >&2
+        exit 1
+      fi
     done
   ' < "$dns"
   # The old groups stay until every new entry is what this script writes. A group at the right name with other members, or a test user missing, would leave someone with the wrong role or with none once these go.

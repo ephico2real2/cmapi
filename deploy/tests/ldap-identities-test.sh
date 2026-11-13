@@ -356,6 +356,11 @@ LDIF
   adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
   rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a test user is missing" || bad "the old groups went with a test user missing: rc $rc"
   reseed_removal; remove_ours
+  # An old group with an entry under it: ldapdelete stops at that one, after the groups before it have gone. So the check comes before the first delete.
+  [ "$(run)" = 0 ] || bad "the run before the old group with an entry under it: $(tail -3 "$W/out")"
+  printf 'dn: cn=child,cn=cmapi-auditors,ou=Groups,%s\nobjectClass: organizationalRole\ncn: child\n\n' "$BASE" | adm ldapadd >/dev/null
+  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && grep -q 'has child entries: none deleted' "$W/out" && ok "refused: removing the old groups while one holds an entry under it, with none deleted" || bad "an old group with an entry under it: rc $rc, it asked for $(wc -l <"$LT_DELETES") deletes"
+  adm ldapdelete "cn=child,cn=cmapi-auditors,ou=Groups,$BASE" >/dev/null 2>&1; remove_ours
   # The removal, on an entry at one of its names that it did not write: a real person there, or a real person added to a group.
   [ "$(run)" = 0 ] || bad "the run before the removal: $(tail -3 "$W/out")"
   adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
@@ -438,6 +443,10 @@ LDIF
   mutant "the subtree instead of the names" 's = s.replace("for cn in $old_groups; do group_dn \"$cn\" >> \"$dns\"; echo >> \"$dns\"; done", "printf \"ou=Groups,%s\\n\" \"$base\" > \"$dns\"")' \
     'rc=$(run --remove-old-groups); ! old_dns | deleted_exactly'
   reseed_removal
+  printf 'dn: cn=child,cn=cmapi-auditors,ou=Groups,%s\nobjectClass: organizationalRole\ncn: child\n\n' "$BASE" | adm ldapadd >/dev/null
+  mutant "an old group's entries under it are not looked for: the groups before it go" 's = s.replace("if [ -s \"$w/children\" ]; then", "if false; then")' \
+    'rc=$(run --remove-old-groups); [ -s "$LT_DELETES" ]'
+  adm ldapdelete "cn=child,cn=cmapi-auditors,ou=Groups,$BASE" >/dev/null 2>&1; reseed_removal
   mutant "ldapdelete -r" 's = s.replace("ldapdelete -x -H", "ldapdelete -r -x -H")' '! static_deletes_ok "$SCRIPT"'
   mutant "the admin password on an argument in the pod" 's = s.replace("ldapdelete -x -H ldap://localhost -D \"$admin\" -y \"$w/admin\"", "ldapdelete -x -H ldap://localhost -D \"$admin\" -w \"$LDAP_ADMIN_PASSWORD\"")' '! static_deletes_ok "$SCRIPT"'
   remove_ours
