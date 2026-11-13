@@ -61,6 +61,20 @@ This page summarises what the code tree holds today.
 | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
 | Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
 
+### The architecture, as the portal mockup sees it
+
+[`docs/diagrams/portal-architecture/README.md`](diagrams/portal-architecture/README.md) maps each tab and each action of the mockup to the API call that it needs, and says which calls are built. Its five figures show the whole system and each group of tabs, with solid boxes for built parts and dashed boxes for parts that are not built. They were drawn on 2026-11-13, before any deployment on CRC, and say so.
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/portal-architecture/1-system-overview.dark.png">
+  <source srcset="diagrams/portal-architecture/1-system-overview.light.png">
+  <img alt="cmapi today is built code that runs on no cluster. The API, the worker and the PostgreSQL database are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. Argo CD, a registered cluster and a connected Git host are not there yet." src="diagrams/portal-architecture/1-system-overview.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The whole system on 2026-11-13. The other four figures and the table of the 64 actions are in the README of the folder.*
+
 ### The API documentation
 
 The design is `docs/01`, section "API documentation: Swagger UI and ReDoc". This is what the code does. Each result below is from the service suite on macOS, with PostgreSQL 16 on `127.0.0.1:55432` and no cluster, on 2026-11-13.
