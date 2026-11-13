@@ -25,10 +25,6 @@ from cmapi.core.errors import Problem
 from cmapi.core.kpi import register_collectors
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
-from cmapi.plugins.directory import router as directory_router
-from cmapi.plugins.namespaces.router import router as namespaces_router
-from cmapi.plugins.quotas import router as quotas_router
-from cmapi.plugins.tiers import router as tiers_router
 from cmapi.routers import admin, health, me, requests
 from cmapi.settings import Settings, settings
 
@@ -49,7 +45,8 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         if s.metrics_port:
             start_metrics(s.metrics_port, ctx.cfg.name, s.component)
         log.info("startup", instance=ctx.cfg.name, issuer=issuer, audience=ctx.audience, version=__version__,
-                 commit=os.environ.get("CMAPI_GIT_COMMIT", "unknown"), clusters=ctx.registry.status_map())
+                 commit=os.environ.get("CMAPI_GIT_COMMIT", "unknown"), clusters=ctx.registry.status_map(),
+                 plugins=list(ctx.cfg.plugins.enabled), plugins_file=ctx.cfg.plugins.configured)
         yield
         ctx.shutdown()
 
@@ -93,12 +90,14 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     app.include_router(health.router)
     app.include_router(health.version_router)
-    authed_routers = (me.router, requests.router, admin.router, namespaces_router, tiers_router, directory_router, quotas_router)
+    # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py).
+    authed_routers = (me.router, requests.router, admin.router, *ctx.cfg.plugins.routers())
     for r in authed_routers:
         app.include_router(r, dependencies=[Depends(authed)])
     check_documented(app)
     _add_servers(app, ctx)
     plugins = plugin_routers((health.version_router, *authed_routers))
+    app.state.plugins = plugins
     public_url = ctx.cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
 
     def openapi() -> dict[str, Any]:

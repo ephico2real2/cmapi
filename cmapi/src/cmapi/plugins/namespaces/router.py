@@ -25,7 +25,7 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
                           description="The managed namespaces of a cluster: read them, and create, change, delete or extend "
                                       "one. Each write returns a change request and becomes a pull request after approval.")
 
-WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden",
+WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden", "plugin-disabled",
                   "validation-failed", "policy-violation", "capacity-exceeded", "change-pending", "no-change",
                   "identity-incomplete", "unknown-user", "invalid-team-dl", "idempotency-key-required",
                   "idempotency-replay", "git-unavailable", "cluster-unreachable", "validator-unavailable",

@@ -144,6 +144,8 @@ POST /api/v1/requests/{request_id}:revert removed the media type `application/js
 POST /api/v1/requests/{request_id}:revert removed the media type `application/json` for the response with the status `409`
 GET /api/v1/tiers removed the media type `application/json` for the response with the status `401`
 GET /api/v1/tiers removed the media type `application/json` for the response with the status `403`
+GET /api/v1/admin/plugins removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/plugins removed the media type `application/json` for the response with the status `403`
 
 # #179 (BUG-48), accepted on 2026-11-13, before the first release: the export documented `application/json` beside `text/csv`.
 # The route answers CSV only.

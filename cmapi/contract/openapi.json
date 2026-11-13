@@ -2242,6 +2242,108 @@
         "title": "PlanView",
         "type": "object"
       },
+      "PluginList": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "description": "False when the instance has no `plugins.yaml`: each built-in plugin is then enabled",
+            "examples": [
+              true
+            ],
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "instance": {
+            "description": "The instance that answered",
+            "examples": [
+              "nonprod"
+            ],
+            "title": "Instance",
+            "type": "string"
+          },
+          "items": {
+            "description": "The core parts, then each built-in plugin, enabled or not",
+            "items": {
+              "$ref": "#/components/schemas/PluginRow"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "instance",
+          "configured",
+          "items"
+        ],
+        "title": "PluginList",
+        "type": "object"
+      },
+      "PluginRow": {
+        "additionalProperties": false,
+        "properties": {
+          "core": {
+            "description": "True for a part of the service itself, which `plugins.yaml` cannot switch",
+            "examples": [
+              false
+            ],
+            "title": "Core",
+            "type": "boolean"
+          },
+          "disabledEnvironments": {
+            "description": "The served environments where an override of `plugins.yaml` stops the plugin's writes. The reads stay",
+            "examples": [
+              [
+                "dev"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabledenvironments",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether this instance mounts the plugin's routes",
+            "examples": [
+              true
+            ],
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The plugin's name: its tag in this document, and its name in `plugins.yaml`",
+            "examples": [
+              "namespaces"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version of the plugin. Null for a plugin that is not enabled: its code is not loaded",
+            "examples": [
+              "0.1.0"
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "name",
+          "core",
+          "enabled",
+          "version",
+          "disabledEnvironments"
+        ],
+        "title": "PluginRow",
+        "type": "object"
+      },
       "PrView": {
         "additionalProperties": false,
         "properties": {
@@ -3866,6 +3968,140 @@
         "x-plugin-version": "0.2.0"
       }
     },
+    "/api/v1/admin/plugins": {
+      "get": {
+        "description": "Each part of the API with its version, and what `plugins.yaml` says for this instance: whether a plugin is\nenabled, and the environments where an override stops its writes. A plugin that is not enabled has no route and\nis not in this document.\n\n**Requires** `clusters:read`.",
+        "operationId": "admin_plugins",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "configured": false,
+                  "instance": "nonprod",
+                  "items": [
+                    {
+                      "core": true,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "admin",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": true,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "core",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": true,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "requests",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": false,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "directory",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": false,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "namespaces",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": false,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "quotas",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": false,
+                      "disabledEnvironments": [],
+                      "enabled": true,
+                      "name": "tiers",
+                      "version": "0.2.0"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PluginList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission namespaces:create",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "forbidden"
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "The plugins of this instance",
+        "tags": [
+          "admin"
+        ],
+        "x-cmapi-permission": "clusters:read",
+        "x-cmapi-plugin": "admin",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/admin/plugins -H \"Authorization: Bearer $TOKEN\""
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
     "/api/v1/admin/prune:confirm": {
       "post": {
         "description": "An operator confirms that a merged delete may remove the namespace. In `argocd` delivery the\nconfirmation happens in Argo CD and the worker observes it; in `apply` delivery this call is the\nconfirmation and the worker's delivery job removes the namespace.\n\n**Requires** `operations:run`.",
@@ -4894,6 +5130,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/on-behalf-of-required"
                     }
                   },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "policy-violation": {
                     "value": {
                       "code": "policy-violation",
@@ -4946,7 +5191,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, reserved-namespace, invalid-namespace-name, expiration-not-allowed, expiration-in-past, on-behalf-of-not-allowed, on-behalf-of-required"
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, reserved-namespace, invalid-namespace-name, expiration-not-allowed, expiration-in-past, on-behalf-of-not-allowed, on-behalf-of-required"
           },
           "502": {
             "content": {
@@ -5405,6 +5650,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/no-change"
                     }
                   },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "policy-violation": {
                     "value": {
                       "code": "policy-violation",
@@ -5447,7 +5701,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, namespace-protected"
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, namespace-protected"
           },
           "428": {
             "content": {
@@ -6216,6 +6470,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/no-change"
                     }
                   },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "policy-violation": {
                     "value": {
                       "code": "policy-violation",
@@ -6258,7 +6521,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount"
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount"
           },
           "428": {
             "content": {
@@ -6768,6 +7031,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/no-change"
                     }
                   },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "policy-violation": {
                     "value": {
                       "code": "policy-violation",
@@ -6810,7 +7082,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past"
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past"
           },
           "428": {
             "content": {
@@ -10758,7 +11030,7 @@
   ],
   "tags": [
     {
-      "description": "What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the Git log and the system KPIs.",
+      "description": "What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the plugins, the Git log and the system KPIs.",
       "name": "admin",
       "x-plugin-version": "0.2.0"
     },

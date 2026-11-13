@@ -181,6 +181,75 @@
         "status": 200
       }
     },
+    "admin_plugins": {
+      "request": {
+        "headers": {
+          "Authorization": "Bearer $TOKEN"
+        },
+        "method": "GET",
+        "path": "/api/v1/admin/plugins"
+      },
+      "response": {
+        "body": {
+          "configured": false,
+          "instance": "nonprod",
+          "items": [
+            {
+              "core": true,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "admin",
+              "version": "0.2.0"
+            },
+            {
+              "core": true,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "core",
+              "version": "0.2.0"
+            },
+            {
+              "core": true,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "requests",
+              "version": "0.2.0"
+            },
+            {
+              "core": false,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "directory",
+              "version": "0.2.0"
+            },
+            {
+              "core": false,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "namespaces",
+              "version": "0.2.0"
+            },
+            {
+              "core": false,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "quotas",
+              "version": "0.2.0"
+            },
+            {
+              "core": false,
+              "disabledEnvironments": [],
+              "enabled": true,
+              "name": "tiers",
+              "version": "0.2.0"
+            }
+          ]
+        },
+        "contentType": "application/json",
+        "headers": {},
+        "status": 200
+      }
+    },
     "admin_prune_confirm": {
       "request": {
         "body": {

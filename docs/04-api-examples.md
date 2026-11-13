@@ -1787,7 +1787,7 @@ The answer was 200 (`application/json`):
 
 ## Admin
 
-What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the Git log and the system KPIs.
+What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the plugins, the Git log and the system KPIs.
 
 ### Auto-approval switch state
 
@@ -1994,6 +1994,38 @@ The answer was 200 (`application/json`):
 ```
 
 `body.kpis` has 6 items in the run. The first is shown.
+
+### The plugins of this instance
+
+`GET /api/v1/admin/plugins`
+
+Permission: `clusters:read`.
+
+```bash
+curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/admin/plugins -H "Authorization: Bearer $TOKEN"
+```
+
+The run sent `GET /api/v1/admin/plugins`.
+
+The answer was 200 (`application/json`):
+
+```json
+{
+  "configured": false,
+  "instance": "nonprod",
+  "items": [
+    {
+      "core": true,
+      "disabledEnvironments": [],
+      "enabled": true,
+      "name": "admin",
+      "version": "0.2.0"
+    }
+  ]
+}
+```
+
+`body.items` has 7 items in the run. The first is shown.
 
 ### Confirm the prune of a deleted namespace
 

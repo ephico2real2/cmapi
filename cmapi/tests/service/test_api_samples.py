@@ -104,6 +104,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("directory_search", "GET", "/api/v1/directory/users?q=ola", ola)
     rec.call("directory_get_user", "GET", "/api/v1/directory/users/ola", ola)
     rec.call("admin_integrations", "GET", "/api/v1/admin/integrations", ola)
+    rec.call("admin_plugins", "GET", "/api/v1/admin/plugins", ola)
     rec.call("admin_switch_state", "GET", "/api/v1/admin/auto-approval", ola)
 
     # ---- a namespace: the dry run, the create, then the worker to synced
