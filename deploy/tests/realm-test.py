@@ -139,7 +139,9 @@ userPassword: {TEST_PW[uid]}
             login.why = ""; return ol.login(PUBLIC, "cmapi-docs", "https://cmapi-api.apps-crc.testing/docs/oauth2-redirect", u, p, base=B)["access_token"]
         except ol.LoginError as e:
             login.why = str(e); return None
-    claims = lambda t: json.loads(base64.urlsafe_b64decode(t.split(".")[1] + "=" * (-len(t.split(".")[1]) % 4)))
+    part = lambda t, n: json.loads(base64.urlsafe_b64decode(t.split(".")[n] + "=" * (-len(t.split(".")[n]) % 4)))
+    claims = lambda t: part(t, 1)
+    header = lambda t: part(t, 0)
     def token_of(u, p):
         t = login(u, p)
         return claims(t) if t else None
@@ -158,6 +160,9 @@ userPassword: {TEST_PW[uid]}
         if c:
             check(holds(c, want_groups, want_roles), f"{uid}: groups {sorted(c.get('groups') or [])}, roles {sorted(((c.get('resource_access') or {}).get('cmapi-nonprod') or {}).get('roles') or [])}")
             check(c.get("employee_id") == number and c.get("preferred_username") == uid and c.get("email") == f"{uid}@ephico2real.com", f"{uid}: employee_id from uidNumber, name and mail")
+    # RFC 9068: the access token of each client that calls cmapi says typ at+jwt in its JOSE header, which core/auth.py requires (#184).
+    t = login("cmapi.requester", TEST_PW["cmapi.requester"])
+    check(t and header(t).get("typ") == "at+jwt" and claims(t).get("typ") == "Bearer", f"a person's access token through cmapi-docs: header typ {t and header(t).get('typ')}, claim typ {t and claims(t).get('typ')}")
     c = token_of("cmapi.requester", TEST_PW["cmapi.requester"])
     check(c and c["iss"] == "https://keycloak.apps-crc.testing/realms/cmapi", "the token carries the public issuer, though it was asked for elsewhere")
     check(c and c["aud"] == "cmapi-nonprod", "audience")
@@ -173,6 +178,11 @@ userPassword: {TEST_PW[uid]}
     r = grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], scope="openid")
     c = claims(r.json()["access_token"]) if r.status_code == 200 else None
     check(c is not None, f"cmapi-automation signs in with client credentials: {r.status_code}")
+    check(c is not None and header(r.json()["access_token"]).get("typ") == "at+jwt", "and its access token has the header typ at+jwt")
+    for client, key in (("svc-payments-ci", "CMAPI_SVC_PAYMENTS_CI_SECRET"), ("cmapi-directory", "CMAPI_DIRECTORY_SECRET")):
+        x = grant(grant_type="client_credentials", client_id=client, client_secret=vals[key])
+        want = "at+jwt" if client == "svc-payments-ci" else "JWT"
+        check(x.status_code == 200 and header(x.json()["access_token"]).get("typ") == want, f"{client}: header typ {x.status_code == 200 and header(x.json()['access_token']).get('typ')}, wanted {want}: only a client of cmapi has the attribute")
     check(c and c.get("preferred_username") == "service-account-cmapi-automation" and holds(c, [], ["cmapi-onboarding"]) and c["aud"] == "cmapi-nonprod" and "employee_id" not in c,
           f"its token is a service account's with cmapi-onboarding only: {c and (c.get('preferred_username'), c.get('groups'), c.get('resource_access'), c.get('aud'))}")
     check(grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret="wrong", scope="openid").status_code == 401, "and not with a wrong client secret")
@@ -193,13 +203,16 @@ userPassword: {TEST_PW[uid]}
     adm = grant(grant_type="client_credentials", client_id="cmapi-realm-admin", client_secret=vals["CMAPI_REALM_ADMIN_SECRET"]).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
     # A realm that was imported before #181: the import runs one time, so the sync must bring the change. Put the old state back, as the old
     # import and the old sync made it, then run the sync.
+    # The attribute for at+jwt is set to false, not left out: an update of a client removes no attribute (RepresentationToModel.updateClientProperties,
+    # Keycloak 26.6.4), and Keycloak reads false as it reads an absent one (#196).
     R = f"{B}/admin/realms/cmapi"
     auto = httpx.get(f"{R}/clients", params={"clientId": "cmapi-automation"}, headers=A).json()[0]
-    check(httpx.put(f"{R}/clients/{auto['id']}", headers=A, json={**auto, "directAccessGrantsEnabled": True, "serviceAccountsEnabled": False}).status_code == 204
+    check(httpx.put(f"{R}/clients/{auto['id']}", headers=A, json={**auto, "directAccessGrantsEnabled": True, "serviceAccountsEnabled": False, "attributes": {**(auto.get("attributes") or {}), "access.token.header.type.rfc9068": "false"}}).status_code == 204
           and httpx.post(f"{R}/users", headers=A, json={"username": "bot-user", "enabled": True, "emailVerified": True, "email": "bot-user@ephico2real.com", "firstName": "Onboarding", "lastName": "Bot", "credentials": [{"type": "password", "value": "rt-bot", "temporary": False}]}).status_code == 201,
-          "the old state is back: cmapi-automation takes the password grant, and bot-user exists")
+          "the old state is back: cmapi-automation takes the password grant and has the at+jwt attribute off, and bot-user exists")
     old = grant(grant_type="password", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], username="bot-user", password="rt-bot", scope="openid")
     check(old.status_code == 200, f"and in that state the password grant gives a token, so the next check can fail: {old.status_code}")
+    check(old.status_code == 200 and header(old.json()["access_token"]).get("typ") == "JWT", f"and without the attribute Keycloak writes the header typ JWT, so the check after the sync can fail: {old.status_code == 200 and header(old.json()['access_token']).get('typ')}")
     try:
         rs.main([]); check(True, "realm_sync.py on the old state, exit 0")
     except SystemExit as e:
@@ -211,6 +224,7 @@ userPassword: {TEST_PW[uid]}
     r = grant(grant_type="client_credentials", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], scope="openid")
     c = claims(r.json()["access_token"]) if r.status_code == 200 else None
     check(c and holds(c, [], ["cmapi-onboarding"]), f"and the service account is back with cmapi-onboarding: {r.status_code} {c and c.get('resource_access')}")
+    check(r.status_code == 200 and header(r.json()["access_token"]).get("typ") == "at+jwt", "and the sync put the header typ at+jwt back")
     check(httpx.delete(f"{B}/admin/realms/corp-rt", headers=A).status_code == 403, "cmapi-realm-admin cannot delete another realm")
     # What requireSync does with the filter, on the real answer: a filter that reads the wrong number of people fails the Job, and no filter at all reads everyone.
     def sync_fails(label):
