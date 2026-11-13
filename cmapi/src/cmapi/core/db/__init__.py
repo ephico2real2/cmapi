@@ -84,7 +84,7 @@ class Database:
             return str(exc)
 
 
-REQUIRED_REVISION = "0003"
+REQUIRED_REVISION = "0004"
 
 
 FUTURE_REVISION = re.compile(r"([0-9]{4})(?:_[a-z0-9_]+)?")   # the repository's convention: four digits, counting up

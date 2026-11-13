@@ -56,8 +56,8 @@ def test_alembic_check_finds_no_difference_between_the_models_and_the_migrations
 
 def test_a_column_that_only_the_models_have_is_found(database):
     metadata = copy_of_the_models()
-    metadata.tables["approvals"].append_column(Column("counted_for", String(200)))
-    assert differences(database, metadata) == ["add_column counted_for"]
+    metadata.tables["approvals"].append_column(Column("only_in_the_models", String(200)))
+    assert differences(database, metadata) == ["add_column only_in_the_models"]
 
 
 def test_an_index_that_only_the_models_have_is_found(database):

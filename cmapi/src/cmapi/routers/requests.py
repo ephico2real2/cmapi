@@ -132,7 +132,7 @@ def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identi
         if ledger is None:
             raise Problem.conflict("not-pending", f"{request_id} needs no approval")
         met = ledger.approve(who, permitted=c.cfg.roles.allowed(who, "requests:approve", row.env), comment=comment)
-        repo.record_approval(row, who, comment, None)
+        repo.record_approval(row, who, comment, None, ledger.counted_for())
         AuditRepo(s).record(who, "request.approve", request_id, {"comment": comment})
         if met:
             repo.move(row, E.APPROVED, who.username, "approval count met")

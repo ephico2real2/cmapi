@@ -213,9 +213,15 @@ class RequestRepo:
                                    "comment": a.comment, "relayedBy": a.relayed_by, "at": a.at})
         return ledger
 
-    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None) -> None:
+    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None,
+                        counted_for: Mapping[str, str]) -> None:
+        """`counted_for` is ApprovalLedger.counted_for() after this approval: each approval of the request gets its slot's
+        group, because a new approval can move an earlier one to another slot."""
         self.s.add(ApprovalRow(request_id=row.request_id, approver_sub=who.sub, username=who.username,
                                groups=sorted(who.groups), comment=comment, relayed_by=relayed_by))
+        self.s.flush()
+        for a in self.approvals(row.request_id):
+            a.counted_for = counted_for.get(a.approver_sub)
         self.event(row, "approval", who.username, comment)
 
 

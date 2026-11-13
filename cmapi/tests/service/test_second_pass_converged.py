@@ -172,7 +172,9 @@ def test_revision_validation_by_the_history_and_the_convention(tmp_path, monkeyp
     import cmapi.core.db as db
     script = _history(tmp_path, ("0001", None), ("0002", "0001"), ("0003", "0002"), ("0004", "0003"), ("0009_divergent", "0001"))
     monkeypatch.setattr(db, "script_directory", lambda: script)
-    assert REQUIRED_REVISION == "0003"
+    # The cases below are written for a required revision of 0003 in this made-up history. The real value follows the newest
+    # migration (test_pr40_convergence.py::test_required_revision_is_the_newest_migration).
+    monkeypatch.setattr(db, "REQUIRED_REVISION", "0003")
     assert older_than_required("0001") is True and older_than_required("0002") is True
     assert older_than_required("0003") is False
     assert older_than_required("0004") is False, "a known descendant"
@@ -198,7 +200,8 @@ def test_migrate_refuses_a_revision_it_cannot_place(schema):
     """A rolled-back image on a later release's database starts (the convention); on garbage it must not."""
     assert migrate(schema, "head").returncode == 0
     c = psycopg.connect(BASE, autocommit=True)
-    c.execute("update sp.alembic_version set version_num='0004'")
+    later = f"{int(REQUIRED_REVISION) + 1:04d}"                 # the number of the next release's migration, by the convention
+    c.execute("update sp.alembic_version set version_num=%s", (later,))
     r = migrate(schema, "head")
     assert r.returncode == 0 and "later release" in r.stdout, (r.returncode, r.stdout, r.stderr[-200:])
     c.execute("update sp.alembic_version set version_num='deadbeef'")

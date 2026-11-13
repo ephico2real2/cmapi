@@ -75,6 +75,9 @@ class ApprovalRow(Base):
     approver_sub: Mapped[str] = mapped_column(String(100), nullable=False)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     groups: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    # The approving group of approval-rules.yaml whose slot this approval fills, from the ledger's assignment. `groups` is
+    # each group of the approver, so it cannot say that. NULL: recorded before migration 0004, and not known (#171).
+    counted_for: Mapped[str | None] = mapped_column(String(100))
     comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
     relayed_by: Mapped[str | None] = mapped_column(String(100))
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

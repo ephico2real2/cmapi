@@ -135,10 +135,13 @@ def _row(kpi_id: str, name: str, value: float | None, unit: str, target: str, so
     return {"id": kpi_id, "name": name, "value": value, "unit": unit, "target": target, "targetStatus": "proposed", "source": source}
 
 
-def database_kpis(session: Any) -> list[dict[str, Any]]:
-    """Each live KPI, from change_requests. A value is None when no request is in its denominator: not measured, never 0."""
-    def one(sql: str) -> Any:
-        return session.execute(text(sql)).scalar()
+def database_kpis(session: Any, platform_group: str) -> list[dict[str, Any]]:
+    """Each live KPI, from change_requests. A value is None when no request is in its denominator: not measured, never 0.
+
+    `platform_group` is the approving group of the platform team: approval-rules.yaml `defaults.group`, the group that each
+    threshold adds. The self-service rate counts the requests that needed no approval from it."""
+    def one(sql: str, **params: Any) -> Any:
+        return session.execute(text(sql), params).scalar()
 
     def ratio(numerator: str, denominator: str) -> float | None:
         bottom = one(f"SELECT count(*) FROM change_requests WHERE {denominator}") or 0
@@ -149,6 +152,13 @@ def database_kpis(session: Any) -> list[dict[str, Any]]:
         return float(value) if value is not None else None
 
     synced = "status = 'synced' AND finished_at IS NOT NULL"
+    # A request with an approval from before migration 0004 has no stored slot, so it is in neither part of the rate.
+    slot_known = ("NOT EXISTS (SELECT 1 FROM approvals a WHERE a.request_id = change_requests.request_id "
+                  "AND a.counted_for IS NULL)")
+    synced_known = one(f"SELECT count(*) FROM change_requests WHERE {synced} AND {slot_known}") or 0
+    without_platform = one(
+        f"SELECT count(*) FROM change_requests WHERE {synced} AND {slot_known} AND NOT EXISTS (SELECT 1 FROM approvals a "
+        "WHERE a.request_id = change_requests.request_id AND a.counted_for = :platform)", platform=platform_group) or 0
     approved_by_people = f"approved_at IS NOT NULL AND NOT coalesce({AUTO}, false)"
     return [
         _row("lead-time-auto-p90", "Lead time, auto-approved (p90)", percentile(0.9, OPEN_TO_SYNCED, f"{synced} AND {AUTO}"),
@@ -163,6 +173,8 @@ def database_kpis(session: Any) -> list[dict[str, Any]]:
         _row("auto-approval-rate", "Auto-approval rate",
              ratio(AUTO, f"({AUTO}) OR requirement->>'autoFallback' IS NOT NULL"),
              "ratio", "tracked", "database: requests that a policy approved over requests that matched a policy"),
+        _row("self-service-rate", "Self-service rate", (without_platform / synced_known) if synced_known else None,
+             "ratio", "over 80%", f"database: synced requests with no approval that counted for {platform_group}, over synced requests"),
         _row("change-failure-rate", "Change failure rate",
              ratio("status IN ('failed', 'sync_failed', 'reverted')", "merged_at IS NOT NULL"),
              "ratio", "under 5%", "database: failed, sync_failed or reverted requests over merged requests"),
@@ -178,7 +190,7 @@ def kpi_report(ctx: Any) -> dict[str, Any]:
     db = database_figures(ctx.db)
     try:
         with ctx.db.session() as s:
-            kpis = database_kpis(s)
+            kpis = database_kpis(s, ctx.cfg.approvals.defaults["group"])
     except Exception:                                                 # noqa: BLE001 - a database that does not answer: no row, not a zero
         kpis = []
     return {"instance": ctx.cfg.name, "thresholds": thresholds, "components": [comp], "database": db, "kpis": kpis,

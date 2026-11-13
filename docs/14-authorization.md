@@ -185,7 +185,7 @@ The tests `test_environment_role_cannot_*` cover each route group (`test_review_
 
 ### Step 5: who can approve
 
-An approval has more checks than the permission (`approvals.py:269-296`). They are in this order:
+An approval has more checks than the permission (`approvals.py:277-304`). They are in this order:
 
 | Check | Refusal |
 |---|---|
@@ -243,7 +243,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 | Part of the design | State |
 |---|---|
 | Routes for quotas, service accounts, grants, adoption, capacity, configuration, cluster onboarding, reload, events and audit export | Not built. Their permissions exist in `authz.py`, and no route uses them |
-| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:276-279`. No route accepts a relayed approval |
+| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:284-287`. No route accepts a relayed approval |
 | A scope by team or by namespace name | Not designed. A role with `namespaces:create` can ask for each name that is not reserved (`authz.py:8-10`) |
 
 ## Proof

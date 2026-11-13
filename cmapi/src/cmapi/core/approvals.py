@@ -258,6 +258,14 @@ class ApprovalLedger:
     def met(self) -> bool:
         return len(self._assign(self.entries)) == len(self._seats())
 
+    def counted_for(self) -> dict[str, str]:
+        """approver sub -> the approving group whose slot the approval fills now.
+
+        Each approve solves the assignment again, so an earlier approval can move to another slot when a later one arrives.
+        The caller stores the whole answer after each approval; the answer at the last approval is the final one."""
+        seats = self._seats()
+        return {self.entries[pi]["sub"]: seats[si] for si, pi in self._assign(self.entries).items()}
+
     def remaining(self) -> list[dict[str, Any]]:
         seats, taken = self._seats(), self._assign(self.entries)
         need: dict[str, int] = {}

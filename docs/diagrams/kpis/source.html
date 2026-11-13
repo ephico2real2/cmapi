@@ -69,28 +69,28 @@ a { color: var(--remote); }
     <h2>The KPIs by status</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1100 711" role="img" aria-label="Six KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Twelve are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster.">
+        <svg viewBox="0 0 1100 711" role="img" aria-label="Seven KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Eleven are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster.">
           <defs><marker id="ahk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
 <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600"><rect x="20" y="14" width="290" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/><text x="165" y="34" text-anchor="middle" fill="var(--none)">SOURCE</text><rect x="380" y="14" width="340" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/><text x="550" y="34" text-anchor="middle" fill="var(--remote)">KPI  ·  docs/17</text><rect x="790" y="14" width="290" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/><text x="935" y="34" text-anchor="middle" fill="var(--host)">WHERE IT IS SHOWN</text></g>
-<rect x="380" y="70" width="340" height="154" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<rect x="380" y="70" width="340" height="171" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
 <text x="394" y="91" font-weight="600">Live: the API computes it</text>
 <text x="394" y="111" font-family="IBM Plex Mono, monospace" font-size="11.5">lead-time-auto-p90</text>
 <text x="394" y="128" font-family="IBM Plex Mono, monospace" font-size="11.5">lead-time-approved-p90</text>
 <text x="394" y="145" font-family="IBM Plex Mono, monospace" font-size="11.5">approval-turnaround-p50</text>
 <text x="394" y="162" font-family="IBM Plex Mono, monospace" font-size="11.5">approval-turnaround-p90</text>
 <text x="394" y="179" font-family="IBM Plex Mono, monospace" font-size="11.5">auto-approval-rate</text>
-<text x="394" y="196" font-family="IBM Plex Mono, monospace" font-size="11.5">change-failure-rate</text>
-<text x="394" y="214" font-size="11.5" fill="var(--muted)">formulas tested in the service suite</text>
-<rect x="380" y="250" width="340" height="103" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="394" y="271" font-weight="600">Built: the code feeds the metric</text>
-<text x="394" y="291" font-family="IBM Plex Mono, monospace" font-size="11.5">api-availability</text>
-<text x="394" y="308" font-family="IBM Plex Mono, monospace" font-size="11.5">system-headroom</text>
-<text x="394" y="325" font-family="IBM Plex Mono, monospace" font-size="11.5">cpu-saturation</text>
-<text x="394" y="343" font-size="11.5" fill="var(--muted)">the KPI query is not proven on a cluster</text>
-<rect x="380" y="379" width="340" height="242" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="394" y="400" font-weight="600">Designed: no code feeds the source</text>
-<text x="394" y="420" font-family="IBM Plex Mono, monospace" font-size="11.5">self-service-rate</text>
+<text x="394" y="196" font-family="IBM Plex Mono, monospace" font-size="11.5">self-service-rate</text>
+<text x="394" y="213" font-family="IBM Plex Mono, monospace" font-size="11.5">change-failure-rate</text>
+<text x="394" y="231" font-size="11.5" fill="var(--muted)">formulas tested in the service suite</text>
+<rect x="380" y="267" width="340" height="103" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="394" y="288" font-weight="600">Built: the code feeds the metric</text>
+<text x="394" y="308" font-family="IBM Plex Mono, monospace" font-size="11.5">api-availability</text>
+<text x="394" y="325" font-family="IBM Plex Mono, monospace" font-size="11.5">system-headroom</text>
+<text x="394" y="342" font-family="IBM Plex Mono, monospace" font-size="11.5">cpu-saturation</text>
+<text x="394" y="360" font-size="11.5" fill="var(--muted)">the KPI query is not proven on a cluster</text>
+<rect x="380" y="396" width="340" height="225" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="394" y="417" font-weight="600">Designed: no code feeds the source</text>
 <text x="394" y="437" font-family="IBM Plex Mono, monospace" font-size="11.5">drift-events</text>
 <text x="394" y="454" font-family="IBM Plex Mono, monospace" font-size="11.5">expired-namespaces-cleaned</text>
 <text x="394" y="471" font-family="IBM Plex Mono, monospace" font-size="11.5">managed-coverage</text>
@@ -104,20 +104,20 @@ a { color: var(--remote); }
 <text x="394" y="607" font-family="IBM Plex Mono, monospace" font-size="11.5">backup-freshness</text>
 <rect x="20" y="90" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
 <text x="34" y="111" font-weight="600">PostgreSQL</text>
-<text x="34" y="129">change_requests: times, status, requirement</text>
+<text x="34" y="129">change_requests and approvals</text>
 <text x="34" y="146" fill="var(--muted)">read at each call of the API</text>
 <polyline points="310,128 376,128" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
-<rect x="20" y="256" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
-<text x="34" y="277" font-weight="600">cmapi_ metrics on /metrics</text>
-<text x="34" y="295">HTTP requests, the pod&#x27;s cgroup figures</text>
-<text x="34" y="312" fill="var(--muted)">fed by the api and the worker</text>
-<polyline points="310,294 376,294" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
-<rect x="20" y="419" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="34" y="440" font-weight="600">Not built</text>
-<text x="34" y="458">cmapi-capacity, the usage analysis,</text>
-<text x="34" y="475" fill="var(--muted)">expire_check, backup and volume figures</text>
-<polyline points="310,457 376,457" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
-<text x="318" y="450" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="20" y="273" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="294" font-weight="600">cmapi_ metrics on /metrics</text>
+<text x="34" y="312">HTTP requests, the pod&#x27;s cgroup figures</text>
+<text x="34" y="329" fill="var(--muted)">fed by the api and the worker</text>
+<polyline points="310,311 376,311" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
+<rect x="20" y="436" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="34" y="457" font-weight="600">Not built</text>
+<text x="34" y="475">cmapi-capacity, the usage analysis,</text>
+<text x="34" y="492" fill="var(--muted)">expire_check, backup and volume figures</text>
+<polyline points="310,474 376,474" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="318" y="467" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
 <rect x="790" y="70" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
 <text x="804" y="91" font-weight="600">GET /api/v1/admin/kpi</text>
 <text x="804" y="109">kpis, components, database, thresholds</text>
@@ -128,21 +128,21 @@ a { color: var(--remote); }
 <text x="804" y="213">on sample data: it does not call the API yet</text>
 <polyline points="935,146 935,170" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
 <text x="943" y="163" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
-<rect x="790" y="250" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="804" y="271" font-weight="600">Prometheus, user workload monitoring</text>
-<text x="804" y="289">ServiceMonitors are in the manifests</text>
-<text x="804" y="306" fill="var(--muted)">no scrape proven: nothing is deployed</text>
-<polyline points="720,288 786,288" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
-<text x="728" y="281" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
-<rect x="790" y="354" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="804" y="375" font-weight="600">Alerts and dashboards</text>
-<text x="804" y="393">12 alert rules are in the manifests</text>
-<text x="804" y="410" fill="var(--muted)">none has fired; dashboards are not built</text>
-<polyline points="935,326 935,350" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
-<text x="943" y="343" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="790" y="267" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="804" y="288" font-weight="600">Prometheus, user workload monitoring</text>
+<text x="804" y="306">ServiceMonitors are in the manifests</text>
+<text x="804" y="323" fill="var(--muted)">no scrape proven: nothing is deployed</text>
+<polyline points="720,305 786,305" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="728" y="298" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="790" y="371" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="804" y="392" font-weight="600">Alerts and dashboards</text>
+<text x="804" y="410">12 alert rules are in the manifests</text>
+<text x="804" y="427" fill="var(--muted)">none has fired; dashboards are not built</text>
+<polyline points="935,343 935,367" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="943" y="360" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
 <text x="20" y="657">Solid box = built code with tests. Dashed box = not built, or not proven on a cluster. Dashed arrow = proposed.</text>
 <text x="20" y="676">The API also serves the figures of its own process (cgroup) and of the database. They are figures, not KPIs.</text>
-<text x="20" y="695" fill="var(--host)" font-weight="600">21 KPIs on 2026-11-13: 6 live, 3 built, 12 designed. No KPI value is measured on a cluster yet.</text>
+<text x="20" y="695" fill="var(--host)" font-weight="600">21 KPIs on 2026-11-13: 7 live, 3 built, 11 designed. No KPI value is measured on a cluster yet.</text>
           </g>
         </svg>
       </div>
