@@ -138,7 +138,7 @@ Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token chec
 | The token is not expired, with a leeway of 30 seconds | `auth.py:155-157` | 401 `unauthenticated`, "Token expired" |
 | `aud` contains the audience of the instance | `auth.py:158-160` | 401 `unauthenticated`, "Token is not for audience cmapi-nonprod" |
 | `iss` is the issuer of the instance | `auth.py:161-163` | 401 `unauthenticated`, "Token issuer is not trusted" |
-| `typ` is `Bearer` or absent | `auth.py:168-170` | 401 `unauthenticated`, "Token is not an access token" |
+| The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:180-185` | 401 `unauthenticated`, "Token is not an access token" |
 
 Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:196-197`, `main.py:68-71`). The tests are in `cmapi/tests/service/test_auth.py`.
 

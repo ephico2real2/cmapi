@@ -149,6 +149,14 @@ curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/me" | jq .access
 
 Keep each secret in a variable that comes from a secret store, and never on a command line that a log records.
 
+### The type of an access token
+
+cmapi accepts a token only when its JOSE header says `typ: at+jwt` or `application/at+jwt`. RFC 9068, section 4: the resource server "MUST verify that the "typ" header value is "at+jwt" or "application/at+jwt"" and must "reject tokens carrying any other value". An ID token and a refresh token have another type, so neither can be a bearer credential.
+
+Keycloak 26 writes the header `typ: JWT` on each token, and `at+jwt` on the access token of a client that has the attribute `access.token.header.type.rfc9068` (`DefaultTokenManager.type`, Keycloak 26.6.4). cmapi's realm sets the attribute on each client that gets a token for cmapi: `cmapi-portal`, `cmapi-docs`, `cmapi-cli`, `cmapi-automation` and each pipeline client. `cmapi-directory` and `cmapi-realm-admin` do not have it, because their tokens go to Keycloak's own admin API. For a realm that was imported before this rule (#184), and for a client that was added by hand, the Job `cmapi-realm-sync` sets the attribute on each client that has the client scope `cmapi-audience`.
+
+A new pipeline client needs the attribute, or cmapi answers 401 "Token is not an access token". For a Keycloak that cannot set it, `auth.acceptLegacyTokenType: true` in `instance.yaml` makes cmapi accept Keycloak's older form also: the header `JWT` together with the claim `typ: Bearer`. A token with no `typ` claim never passes that way.
+
 ### No password grant
 
 No client of realm `cmapi` takes the resource owner password grant. RFC 9700, section 2.4: "The resource owner password credentials grant [RFC6749] MUST NOT be used." The grant gives a person's password to the client, and it cannot ask for a second factor. Each client of the import says `directAccessGrantsEnabled: false`, the disabled `admin-cli` also. For a realm that was imported before this rule (#181), the Job `cmapi-realm-sync` turns the grant off on each client, gives `cmapi-automation` its service account, and removes the local test account `bot-user`.

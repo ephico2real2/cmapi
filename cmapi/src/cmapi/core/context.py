@@ -74,7 +74,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     jwks_url = settings.oidc_jwks_url or f"{issuer}/protocol/openid-connect/certs"
     db = Database(settings.database_url, settings.database_pool_size)
     auth = Authenticator(issuer, audience, Jwks(issuer, jwks_url, verify=settings.verify, store=DbKeyStore(db)),
-                         leeway=settings.oidc_leeway_seconds)
+                         leeway=settings.oidc_leeway_seconds,
+                         legacy_token_type=bool(inst["auth"].get("acceptLegacyTokenType", False)))
     CONFIG_INFO.labels("|".join(f"{k}={v}" for k, v in sorted(cfg.hashes.items()))[:200]).set(1)
 
     policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)

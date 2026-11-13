@@ -16,6 +16,8 @@ Content mirrors examples/cmapi-sso/realm/ephico2real.yaml and the clients in doc
   svc-payments-ci   confidential, service account, the example pipeline client
   cmapi-directory   confidential, realm-management view-users and query-users only
   cmapi-realm-admin confidential, realm-management realm-admin: the sync Job's identity
+Each client that gets a token for cmapi has access.token.header.type.rfc9068, so the token's JOSE header says
+typ: at+jwt (RFC 9068), which core/auth.py requires (#184).
 The cmapi-identity scope adds employee_id, middle_name and the group paths; cmapi-audience adds
 the audience claim to every caller's token.
 */}}
@@ -141,7 +143,7 @@ spec:
         publicClient: true
         standardFlowEnabled: true
         directAccessGrantsEnabled: false
-        attributes: {pkce.code.challenge.method: S256, post.logout.redirect.uris: "+"}
+        attributes: {pkce.code.challenge.method: S256, post.logout.redirect.uris: "+", access.token.header.type.rfc9068: "true"}
         redirectUris: {{ toJson .Values.keycloak.realm.portalRedirects }}
         webOrigins: ["+"]
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
@@ -151,7 +153,7 @@ spec:
         publicClient: true
         standardFlowEnabled: true
         directAccessGrantsEnabled: false
-        attributes: {pkce.code.challenge.method: S256, client.session.idle.timeout: "3600", client.session.max.lifespan: "28800"}
+        attributes: {pkce.code.challenge.method: S256, client.session.idle.timeout: "3600", client.session.max.lifespan: "28800", access.token.header.type.rfc9068: "true"}
         redirectUris: {{ toJson .Values.keycloak.realm.docsRedirects }}
         webOrigins: ["+"]
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email, web-origins]
@@ -161,7 +163,7 @@ spec:
         publicClient: true
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
-        attributes: {oauth2.device.authorization.grant.enabled: "true"}
+        attributes: {oauth2.device.authorization.grant.enabled: "true", access.token.header.type.rfc9068: "true"}
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
         optionalClientScopes: [offline_access]
       - clientId: cmapi-automation
@@ -174,6 +176,7 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: true
+        attributes: {access.token.header.type.rfc9068: "true"}
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: svc-payments-ci
         name: "Example pipeline client"
@@ -183,6 +186,7 @@ spec:
         standardFlowEnabled: false
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: true
+        attributes: {access.token.header.type.rfc9068: "true"}
         defaultClientScopes: [basic, cmapi-identity, cmapi-audience, roles, profile, email]
       - clientId: cmapi-directory
         name: "cmapi directory (read-only admin API)"

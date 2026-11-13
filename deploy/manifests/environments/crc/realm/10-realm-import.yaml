@@ -255,6 +255,7 @@ spec:
       attributes:
         pkce.code.challenge.method: S256
         post.logout.redirect.uris: +
+        access.token.header.type.rfc9068: 'true'
       redirectUris:
       - https://cmapi-portal.apps-crc.testing/*
       - http://localhost:5173/*
@@ -277,6 +278,7 @@ spec:
       attributes:
         pkce.code.challenge.method: S256
         client.session.idle.timeout: '3600'
+        access.token.header.type.rfc9068: 'true'
         client.session.max.lifespan: '28800'
       redirectUris:
       - https://cmapi-api.apps-crc.testing/docs/oauth2-redirect
@@ -298,6 +300,7 @@ spec:
       directAccessGrantsEnabled: false
       attributes:
         oauth2.device.authorization.grant.enabled: 'true'
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -315,6 +318,8 @@ spec:
       standardFlowEnabled: false
       directAccessGrantsEnabled: false
       serviceAccountsEnabled: true
+      attributes:
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -330,6 +335,8 @@ spec:
       standardFlowEnabled: false
       directAccessGrantsEnabled: false
       serviceAccountsEnabled: true
+      attributes:
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity

@@ -9,6 +9,7 @@ instance:
   auth:
     issuer: https://sso.ephico2real.com/realms/ephico2real
     audience: cmapi-nonprod          # a token minted for another instance is refused
+    # acceptLegacyTokenType: true   # only for a Keycloak that cannot write the header typ at+jwt (RFC 9068, docs/15)
   namespaces:
     # Names nobody may ask for, beyond the built-in default, openshift, openshift-*, kube-*,
     # cmapi-system and cmapi-imports. Any other DNS-1123 name is allowed to anyone with namespaces:create.

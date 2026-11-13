@@ -92,3 +92,40 @@ def test_persisted_keys_serve_a_fresh_process(keys):
     def fetch(url):
         raise OSError("down")
     assert make(keys, fetch=fetch, store=Store()).authenticate(keys.token("ola")).username == "ola"
+
+
+# ---------------------------------------------------------------- #184 SEC-07: the type of the token
+
+@pytest.mark.parametrize("typ", ["at+jwt", "application/at+jwt", "AT+JWT"])
+def test_an_access_token_has_the_rfc9068_header_type(keys, typ):
+    assert make(keys).authenticate(keys.token("ola", typ=typ, extra={"typ": "Bearer"})).username == "ola"
+    assert make(keys).authenticate(keys.token("ola", typ=typ)).username == "ola"
+
+
+@pytest.mark.parametrize("what, token", [
+    ("the header JWT with the claim Bearer: Keycloak without the client attribute", lambda k: k.token("ola", typ="JWT", extra={"typ": "Bearer"})),
+    ("the header JWT and no claim: nothing says that it is an access token", lambda k: k.token("ola", typ="JWT")),
+    ("no header type and no claim", lambda k: k.token("ola", typ=None)),
+    ("an ID token: the header JWT and the claim ID", lambda k: k.token("ola", typ="JWT", extra={"typ": "ID"})),
+    ("the header at+jwt with the claim ID", lambda k: k.token("ola", extra={"typ": "ID"})),
+    ("the header at+jwt with the claim Refresh", lambda k: k.token("ola", extra={"typ": "Refresh"})),
+    ("a logout token", lambda k: k.token("ola", typ="logout+jwt")),
+    ("a header type that only starts like one", lambda k: k.token("ola", typ="at+jwt2")),
+])
+def test_a_token_that_is_not_an_access_token_is_401(keys, what, token):
+    with pytest.raises(Problem) as e:
+        make(keys).authenticate(token(keys))
+    assert e.value.status == 401 and e.value.detail == "Token is not an access token", what
+
+
+def test_the_legacy_setting_accepts_keycloaks_older_form_and_nothing_weaker(keys):
+    """instance.yaml auth.acceptLegacyTokenType, for a realm that cannot set the client attribute: the header JWT with the claim Bearer."""
+    jwks = Jwks(ISSUER, "https://keycloak.test/certs", fetch=lambda url: [keys.jwk], clock=lambda: 0.0)
+    legacy = Authenticator(ISSUER, AUDIENCE, jwks, legacy_token_type=True)
+    assert legacy.authenticate(keys.token("ola", typ="JWT", extra={"typ": "Bearer"})).username == "ola"
+    assert legacy.authenticate(keys.token("ola")).username == "ola", "the RFC 9068 form stays accepted"
+    for token in (keys.token("ola", typ="JWT"), keys.token("ola", typ=None), keys.token("ola", typ="JWT", extra={"typ": "ID"}),
+                  keys.token("ola", typ="JWT", extra={"typ": "Refresh"})):
+        with pytest.raises(Problem) as e:
+            legacy.authenticate(token)
+        assert e.value.status == 401
