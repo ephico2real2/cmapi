@@ -45,8 +45,8 @@ Document each feature as it lands, in the same commit or pull request: what it d
 - If Claude Code refuses an action, the refusal stands: do not route around it or edit permission settings. Do everything else, and tell me the exact command at the end.
 - Things only I can do: trust the two CAs in the keychain (LOCAL-DEV-TRUST.md), create the GitHub App, and make each GHCR package public. Build everything up to each one, then tell me exactly what to do and keep working on what does not depend on it.
 
-## The database: CloudNativePG, and Supabase's Postgres as an option
-Keep CloudNativePG as the default database: it is decided and measured on kind. You may also try Supabase's self-hosted Postgres (https://supabase.com/docs/guides/self-hosting, https://github.com/supabase/supabase), but only as an existing PostgreSQL server under docs/12's path, with TLS and verify-full. cmapi needs Postgres alone. Do not deploy Supabase's own auth, API gateway, storage or Studio: Keycloak is the identity provider, and a second one would split who signs in. Supabase documents self-hosting with Docker Compose, so check what running it on CRC would need, its SCCs and images, before you rely on it. If it does not fit within an hour of trying, stay on CloudNativePG and say why in one line.
+## The database: CloudNativePG
+The database is CloudNativePG, as decided and measured on kind, and docs/12's path for an existing PostgreSQL server stays as it is. Connect with TLS and verify the server (#91 is that work). Add no other database.
 
 ## When you finish, or must stop
 Report in ten lines or fewer: what works and on which cluster (CRC or kind), what failed and is still open, with issue numbers, and exactly what I need to do next.
