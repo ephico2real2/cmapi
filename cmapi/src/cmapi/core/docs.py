@@ -52,6 +52,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "capacity-exceeded": (422, "memory would exceed the cluster"),
     "environment-not-served": (422, "qa is served by the staging instance"),
     "cluster-not-writable": (422, "CRC is imported but has no clusters.yaml entry"),
+    "plugin-disabled": (422, "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there"),
     "reserved-namespace": (422, "kube-tools is reserved"),
     "invalid-namespace-name": (422, "Not a DNS-1123 label"),
     "no-change": (422, "The request changes nothing"),

@@ -26,6 +26,8 @@ CHANGE_REQUESTS = Counter("cmapi_change_requests_total", "Change requests by out
 VALIDATION_FAILURES = Counter("cmapi_validation_failures_total", "Plans refused by validation", ["source"])
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
+PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
+                          ["plugin", "environment"])
 GIT_OPS = Counter("cmapi_git_operations_total", "Git host calls", ["operation", "result"])
 GIT_DURATION = Histogram("cmapi_git_operation_duration_seconds", "Git host call duration", ["operation"])
 JOBS_PENDING = Gauge("cmapi_jobs_pending", "Jobs waiting to run", ["kind"])

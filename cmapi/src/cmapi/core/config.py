@@ -8,7 +8,9 @@ Each file is validated by its own module; this module adds the checks no single 
 - the tier catalog covers exactly the served environments (expiration.yaml may leave a non-prod
   environment out: expiry is then refused there, the same as prod);
 - metadata-keys.yaml has emailDomains when any governed key uses email-in-domains;
-- instance.yaml's identity.groupPath can name a group.
+- instance.yaml's identity.groupPath can name a group;
+- plugins.yaml, when the instance has one, names only plugins of this build, and its overrides for this instance name
+  only served environments (core/plugins.py).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -24,6 +26,7 @@ import yaml
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.metadata import MetadataKeys
+from cmapi.core.plugins import PluginSwitch
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
 
@@ -44,6 +47,7 @@ class InstanceConfig:
     tiers: TierCatalog
     expiration: ExpirationRules
     metadata: MetadataKeys
+    plugins: PluginSwitch
     hashes: dict[str, str]
 
 
@@ -88,6 +92,12 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
         problems.append(f"metadata-keys.yaml: {exc}")
         metadata = None
 
+    # Optional: without the file each built-in plugin is enabled, as before the file was read.
+    if (d / "plugins.yaml").exists():
+        plugins = build("plugins.yaml", lambda r: PluginSwitch(r, me["name"], allowed))
+    else:
+        plugins = PluginSwitch(None, me["name"], allowed)
+
     if approvals and tiers:
         known = {r.name for e in tiers.environments() for r in tiers.offered(e)}
         for t in sorted(approvals.tier_names() - known):
@@ -99,4 +109,4 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
         problems.append("expiration.yaml: prod can never expire")
     if problems:
         raise ConfigError(problems)
-    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, hashes)
+    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes)

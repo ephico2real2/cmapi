@@ -1,9 +1,9 @@
-"""Admin routes: prune confirmation, the auto-approval kill switch, integrations, the Git log, KPIs."""
+"""Admin routes: prune confirmation, the auto-approval kill switch, integrations, the plugins, the Git log, KPIs."""
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from pydantic import Field
 
 from cmapi import __version__
@@ -17,12 +17,13 @@ from cmapi.core.kpi import kpi_report
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.models import Api, ChangeRequest, PruneConfirm
 from cmapi.core.observability import AUTO_PAUSED
+from cmapi.core.plugins import BUILT_IN
 from cmapi.core.views import request_view
 from cmapi.routers import ctx, require
 
 router = DocumentedRouter("admin", prefix="/api/v1/admin", version=__version__, group="Admin",
                           description="What an operator of the instance uses: the auto-approval switch, the prune confirmation, "
-                                      "the integration modes, the Git log and the system KPIs.")
+                                      "the integration modes, the plugins, the Git log and the system KPIs.")
 
 
 class SwitchBody(Api):
@@ -46,6 +47,23 @@ class Integrations(Api):
     operations: dict[str, Any] = Field(description="Operations engine", examples=[{"engine": "builtin"}])
     events: dict[str, Any] = Field(description="Event publisher", examples=[{"publisher": "none"}])
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
+
+
+class PluginRow(Api):
+    name: str = Field(description="The plugin's name: its tag in this document, and its name in `plugins.yaml`", examples=["namespaces"])
+    core: bool = Field(description="True for a part of the service itself, which `plugins.yaml` cannot switch", examples=[False])
+    enabled: bool = Field(description="Whether this instance mounts the plugin's routes", examples=[True])
+    version: str | None = Field(description="The version of the plugin. Null for a plugin that is not enabled: its code is not loaded",
+                                examples=["0.1.0"])
+    disabled_environments: list[str] = Field(description="The served environments where an override of `plugins.yaml` stops the "
+                                                         "plugin's writes. The reads stay", examples=[["dev"]])
+
+
+class PluginList(Api):
+    instance: str = Field(description="The instance that answered", examples=["nonprod"])
+    configured: bool = Field(description="False when the instance has no `plugins.yaml`: each built-in plugin is then enabled",
+                             examples=[True])
+    items: list[PluginRow] = Field(description="The core parts, then each built-in plugin, enabled or not")
 
 
 class KpiRow(Api):
@@ -158,6 +176,20 @@ def integrations(who: Identity = Depends(require("clusters:read")), c: AppContex
                          "syncTimeoutSeconds": c.delivery.sync_timeout_seconds},
             "syncSignal": i.get("syncSignal") or {"default": "poll"}, "operations": i.get("operations") or {"engine": "builtin"},
             "events": i.get("events") or {"publisher": "none"}, "clusters": c.registry.status_map()}
+
+
+@router.read("/plugins", summary="The plugins of this instance", permission="clusters:read", response_model=PluginList)
+def plugins(request: Request, who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
+    """Each part of the API with its version, and what `plugins.yaml` says for this instance: whether a plugin is
+    enabled, and the environments where an override stops its writes. A plugin that is not enabled has no route and
+    is not in this document."""
+    mounted, switch = request.app.state.plugins, c.cfg.plugins
+    core = [{"name": name, "core": True, "enabled": True, "version": r.version, "disabledEnvironments": []}
+            for name, r in sorted(mounted.items()) if name not in BUILT_IN]
+    built_in = [{"name": name, "core": False, "enabled": switch.is_enabled(name),
+                 "version": mounted[name].version if name in mounted else None,
+                 "disabledEnvironments": switch.disabled_environments(name)} for name in sorted(BUILT_IN)]
+    return {"instance": c.cfg.name, "configured": switch.configured, "items": core + built_in}
 
 
 @router.read("/git-log", summary="Recent commits in cluster-configs", permission="reports:read", response_model=GitLog,

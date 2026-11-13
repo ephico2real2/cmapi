@@ -78,13 +78,13 @@ A permission that is not in the table above stops startup (`authz.py:115-117`). 
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:135-138`).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:144-149`).
 
 | Permission | Routes |
 |---|---|
 | None, and no token | `GET /api/v1/version` |
 | None, with a valid token | `GET /api/v1/me` |
-| `clusters:read` | `GET /api/v1/clusters`<br>`GET /api/v1/admin/integrations` |
+| `clusters:read` | `GET /api/v1/clusters`<br>`GET /api/v1/admin/integrations`<br>`GET /api/v1/admin/plugins` |
 | `objects:read` | `GET /api/v1/clusters/{cluster_id}/namespaces`<br>`GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`GET /api/v1/directory/users`<br>`GET /api/v1/directory/users/{username}`<br>`GET /api/v1/quotas`<br>`GET /api/v1/quotas:export`<br>`GET /api/v1/quotas:suggest`<br>`GET /api/v1/tiers` |
 | `requests:read` | `GET /api/v1/requests`<br>`GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events`<br>`GET /api/v1/requests/{request_id}/approval-status`<br>`GET /api/v1/admin/auto-approval` |
 | `namespaces:create` | `POST /api/v1/clusters/{cluster_id}/namespaces` |
@@ -125,7 +125,7 @@ request with a bearer token
 
 ### Step 1: the token
 
-Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token check as a dependency (`cmapi/src/cmapi/main.py:87`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:138-171`). It verifies the token offline against the signing keys of the realm.
+Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token check as a dependency (`cmapi/src/cmapi/main.py:96`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:138-171`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
@@ -171,11 +171,11 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:166`, `:279` |
+| Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:175`, `:289` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:97`, `:113` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:80`, `:91`, `:103` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:121`, `:150`, `:164`, `:180`, `:204` |
-| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:78` |
+| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:130` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:44` |
 
