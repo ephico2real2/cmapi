@@ -369,3 +369,29 @@ def test_validator_findings_refuse_the_plan(world):
     r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 422 and r.json()["code"] == "policy-violation" and r.json()["errors"][0]["source"] == "kyverno"
     validator.findings = []
+
+
+def test_an_idempotency_key_is_free_again_after_24_hours(world):
+    """#142: docs/02 gives a key 24 hours. Within them the first response comes back and another body is 409; after
+    them the key is free, by the database's clock, and the old request keeps everything but its key."""
+    from sqlalchemy import text
+    client, ctx, git, kube, validator, keys = world
+    h = {"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": "one-key"}
+    first = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h)
+    assert first.status_code == 202, first.text
+    rid, status = first.json()["requestId"], first.json()["status"]
+    other = {**NS, "namespace": "ledger-dev"}
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '23 hours 59 minutes' WHERE request_id = :r"), {"r": rid})
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h).json()["requestId"] == rid
+    late = client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h)
+    assert late.status_code == 409 and late.json()["code"] == "idempotency-replay", late.text
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '24 hours 1 minute' WHERE request_id = :r"), {"r": rid})
+    fresh = client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h)
+    assert fresh.status_code == 202 and fresh.json()["requestId"] != rid, fresh.text
+    with ctx.db.session() as s:
+        old = s.execute(text("SELECT idempotency_key, idempotency_fingerprint, status, namespace FROM change_requests WHERE request_id = :r"), {"r": rid}).one()
+        new = s.execute(text("SELECT idempotency_key FROM change_requests WHERE request_id = :r"), {"r": fresh.json()["requestId"]}).one()
+    assert tuple(old) == (None, None, status, "payments-dev") and new[0] == "one-key"
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=other, headers=h).json()["requestId"] == fresh.json()["requestId"]

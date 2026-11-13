@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import Depends
 from pydantic import Field
 
+from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, SwitchRepo
 from cmapi.core.docs import DocumentedRouter
@@ -19,7 +20,9 @@ from cmapi.core.observability import AUTO_PAUSED
 from cmapi.core.views import request_view
 from cmapi.routers import ctx, require
 
-router = DocumentedRouter("admin", prefix="/api/v1/admin")
+router = DocumentedRouter("admin", prefix="/api/v1/admin", version=__version__, group="Admin",
+                          description="What an operator of the instance uses: the auto-approval switch, the prune confirmation, "
+                                      "the integration modes, the Git log and the system KPIs.")
 
 
 class SwitchBody(Api):

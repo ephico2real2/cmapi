@@ -4,12 +4,12 @@ from __future__ import annotations
 from fastapi import Depends
 
 from cmapi.core.context import AppContext
-from cmapi.core.docs import DocumentedRouter
+from cmapi.core.docs import CORE, DocumentedRouter
 from cmapi.core.identity.claims import Identity
 from cmapi.core.models import ClusterList, Me
 from cmapi.routers import caller, ctx, require
 
-router = DocumentedRouter("core", prefix="/api/v1")
+router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
 @router.read("/me", summary="Who am I", permission=None, response_model=Me)

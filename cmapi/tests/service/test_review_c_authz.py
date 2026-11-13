@@ -13,7 +13,7 @@ from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
 
 PUBLIC = {("GET", "/api/v1/version"), ("GET", "/healthz"), ("GET", "/readyz"), ("GET", "/docs"), ("GET", "/docs/oauth2-redirect"),
-          ("GET", "/openapi.yaml"), ("GET", "/redoc")}
+          ("GET", "/openapi.json"), ("GET", "/openapi.yaml"), ("GET", "/redoc"), ("GET", "/docs/changelog")}
 
 
 def closure_permission(route):

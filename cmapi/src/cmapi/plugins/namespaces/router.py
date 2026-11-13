@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, Query, Response
+from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 
+from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, fingerprint
 from cmapi.core.docs import DocumentedRouter
@@ -16,10 +17,13 @@ from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceLis
 from cmapi.core.pipeline import folder_etag
 from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
-from cmapi.routers import caller, ctx, idempotency_key, if_match, require
+from cmapi.routers import ClusterId, DryRun, NamespaceName, caller, ctx, idempotency_key, if_match, require
 from pydantic import Field
 
-router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}")
+router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", version=__version__,
+                          group="Namespaces and metadata",
+                          description="The managed namespaces of a cluster: read them, and create, change, delete or extend "
+                                      "one. Each write returns a change request and becomes a pull request after approval.")
 
 WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden",
                   "validation-failed", "policy-violation", "capacity-exceeded", "change-pending", "no-change",
@@ -85,7 +89,7 @@ def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], open_ma
 
 @router.read("/namespaces", summary="Managed namespaces on a cluster", permission="objects:read", response_model=NamespaceList,
              problems=["cluster-not-found", "cluster-unreachable"])
-def list_namespaces(cluster_id: str, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
+def list_namespaces(cluster_id: ClusterId, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every namespace labelled cmapi.net/managed=true on the cluster, from the watch cache, with the request
     holding each one's lock. The etag is only on the single-namespace read, because it comes from Git."""
     st = c.registry.get(cluster_id)
@@ -101,7 +105,7 @@ def list_namespaces(cluster_id: str, who: Identity = Depends(require("objects:re
 
 @router.read("/namespaces/{ns}", summary="One namespace, with its etag", permission="objects:read", response_model=NamespaceView,
              problems=["cluster-not-found", "object-not-found", "git-unavailable"])
-def get_namespace(cluster_id: str, ns: str, response: Response, who: Identity = Depends(require("objects:read")),
+def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:
     """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE."""
     st = c.registry.get(cluster_id)
@@ -128,8 +132,8 @@ def get_namespace(cluster_id: str, ns: str, response: Response, who: Identity = 
               problems=WRITE_PROBLEMS + ["reserved-namespace", "invalid-namespace-name", "namespace-exists",
                                          "namespace-exists-unmanaged", "expiration-not-allowed", "on-behalf-of-not-allowed",
                                          "on-behalf-of-required"])
-def create_namespace(cluster_id: str, body: NamespaceCreate,
-                     dry_run: bool = Query(default=False, alias="dryRun", description="Return the plan only; write nothing"),
+def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
+                     dry_run: DryRun = False,
                      key: str | None = Depends(idempotency_key), who: Identity = Depends(require("namespaces:create")),
                      c: AppContext = Depends(ctx)):
     """Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it
@@ -151,8 +155,8 @@ def create_namespace(cluster_id: str, body: NamespaceCreate,
 @router.write("/namespaces/{ns}", summary="Change a namespace", permission="namespaces:write", method="PATCH",
               response_model=ChangeRequest,
               problems=WRITE_PROBLEMS + ["object-not-found", "precondition-required", "precondition-failed"])
-def update_namespace(cluster_id: str, ns: str, body: NamespacePatch,
-                     dry_run: bool = Query(default=False, alias="dryRun", description="Return the plan only; write nothing"),
+def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePatch,
+                     dry_run: DryRun = False,
                      key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """A merge patch on the namespace: tier, custom quota, labels and annotations (null removes a key). Needs
@@ -175,7 +179,7 @@ def update_namespace(cluster_id: str, ns: str, body: NamespacePatch,
 @router.write("/namespaces/{ns}", summary="Delete a namespace", permission="namespaces:write", method="DELETE",
               response_model=ChangeRequest,
               problems=WRITE_PROBLEMS + ["object-not-found", "precondition-required", "precondition-failed"])
-def delete_namespace(cluster_id: str, ns: str, key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
+def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
     until an operator confirms the prune. Needs If-Match."""
@@ -192,7 +196,7 @@ def delete_namespace(cluster_id: str, ns: str, key: str | None = Depends(idempot
               response_model=ChangeRequest,
               problems=WRITE_PROBLEMS + ["object-not-found", "expiration-not-allowed", "expiration-limit",
                                          "precondition-required", "precondition-failed"])
-def extend(cluster_id: str, ns: str, body: ExtendBody, key: str | None = Depends(idempotency_key),
+def extend(cluster_id: ClusterId, ns: NamespaceName, body: ExtendBody, key: str | None = Depends(idempotency_key),
            etag: str | None = Depends(if_match), who: Identity = Depends(require("namespaces:write")),
            c: AppContext = Depends(ctx)):
     """Extends the expiry by `days` (up to the environment's limit) or to `until`. A normal request: plan,

@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, Response
 from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import JobRepo
-from cmapi.core.docs import DocumentedRouter
+from cmapi.core.docs import CORE, DocumentedRouter
 from cmapi.core.models import Api, Health
 from cmapi.routers import ctx
 from pydantic import Field
 
 router = APIRouter(tags=["health"])
-version_router = DocumentedRouter("core", prefix="/api/v1")
+version_router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
 class Version(Api):
