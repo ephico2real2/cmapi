@@ -28,7 +28,8 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
 WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden",
                   "validation-failed", "policy-violation", "capacity-exceeded", "change-pending", "no-change",
                   "identity-incomplete", "unknown-user", "invalid-team-dl", "idempotency-key-required",
-                  "idempotency-replay", "git-unavailable", "cluster-unreachable"]
+                  "idempotency-replay", "git-unavailable", "cluster-unreachable", "validator-unavailable",
+                  "unknown-serviceaccount"]
 
 
 class ExtendBody(Api):
@@ -130,7 +131,7 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
 
 @router.write("/namespaces", summary="Create a namespace", permission="namespaces:create", response_model=ChangeRequest,
               problems=WRITE_PROBLEMS + ["reserved-namespace", "invalid-namespace-name", "namespace-exists",
-                                         "namespace-exists-unmanaged", "expiration-not-allowed", "on-behalf-of-not-allowed",
+                                         "namespace-exists-unmanaged", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",
                                          "on-behalf-of-required"])
 def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
                      dry_run: DryRun = False,
@@ -178,7 +179,7 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
 
 @router.write("/namespaces/{ns}", summary="Delete a namespace", permission="namespaces:write", method="DELETE",
               response_model=ChangeRequest,
-              problems=WRITE_PROBLEMS + ["object-not-found", "precondition-required", "precondition-failed"])
+              problems=WRITE_PROBLEMS + ["object-not-found", "precondition-required", "precondition-failed", "namespace-protected"])
 def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
@@ -194,7 +195,7 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None =
 
 @router.write("/namespaces/{ns}/expiration:extend", summary="Extend a namespace's expiry", permission="namespaces:write",
               response_model=ChangeRequest,
-              problems=WRITE_PROBLEMS + ["object-not-found", "expiration-not-allowed", "expiration-limit",
+              problems=WRITE_PROBLEMS + ["object-not-found", "expiration-not-allowed", "expiration-limit", "expiration-not-set", "expiration-in-past",
                                          "precondition-required", "precondition-failed"])
 def extend(cluster_id: ClusterId, ns: NamespaceName, body: ExtendBody, key: str | None = Depends(idempotency_key),
            etag: str | None = Depends(if_match), who: Identity = Depends(require("namespaces:write")),

@@ -62,3 +62,19 @@ def test_missing_token_is_401_with_www_authenticate(world):
     r = client.get("/api/v1/me")
     assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Bearer")
     assert r.headers["content-type"].startswith("application/problem+json")
+
+
+def test_every_problem_code_the_code_raises_is_registered():
+    """A code raised with no entry in PROBLEMS cannot be declared by a route, so no client can know it (#155)."""
+    import re
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "src" / "cmapi"
+    raised: dict[str, str] = {}
+    for f in src.rglob("*.py"):
+        text = f.read_text()
+        for m in re.finditer(r'Problem(?:\.[a-z_]+)?\(\s*(?:\d{3},\s*)?"([a-z][a-z0-9-]+)"', text):
+            raised.setdefault(m.group(1), f.name)
+        for m in re.finditer(r'code="([a-z][a-z0-9-]+)"', text):
+            raised.setdefault(m.group(1), f.name)
+    assert len(raised) > 30, "the scan found too few codes to mean anything"
+    assert {c: f for c, f in raised.items() if c not in PROBLEMS} == {}

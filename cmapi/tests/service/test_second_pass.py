@@ -380,7 +380,8 @@ def test_the_policy_can_contain_argo_cds_controller():
 
 
 def test_docs_sign_in_for_the_bot_carries_the_client_secret():
-    text_ = (ROOT/"docs/04-api-examples.md").read_text()
+    # The recipe moved from docs/04 to docs/15 when docs/04 became the samples of a run: the same check, on the same recipe.
+    text_ = (ROOT/"docs/15-keycloak-integration.md").read_text()
     block = text_[text_.index("client_id=cmapi-automation"):][:200]
     assert "client_secret" in block, "401 unauthorized_client on real Keycloak 26.6.4"
 

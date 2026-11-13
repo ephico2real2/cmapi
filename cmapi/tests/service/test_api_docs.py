@@ -231,6 +231,25 @@ def test_each_operation_has_one_curl_sample_that_the_app_accepts(world):
     assert count == len(list(operations(spec))) and count >= 31
 
 
+def test_each_operation_shows_the_recorded_request_and_response(world):
+    """The examples in the document are the samples of a run (contract/samples.json), not text written by hand."""
+    from cmapi.core.docs import load_samples
+    client, *_ = world
+    spec = client.get("/openapi.json").json()
+    samples = load_samples()
+    by_id = {op["operationId"]: op for _, _, op in operations(spec)}
+    assert len(samples["operations"]) >= 30
+    for key, sample in samples["operations"].items():
+        op, response = by_id[key.split(":")[0]], sample["response"]
+        shown = op["responses"][str(response["status"])]["content"][response["contentType"]]["example"]
+        assert shown == response["body"], key
+        if "body" in sample["request"] and ":" not in key:
+            assert op["requestBody"]["content"]["application/json"]["example"] == sample["request"]["body"], key
+    for code, sample in samples["problems"].items():
+        shown = by_id[sample["operationId"]]["responses"][str(sample["response"]["status"])]["content"]["application/problem+json"]["examples"][code]
+        assert shown["value"] == sample["response"]["body"], code
+
+
 # ---------------------------------------------------------------- #130 BUG-03: /docs/changelog
 
 def test_the_changelog_page_is_served_and_says_what_is_released(world):
