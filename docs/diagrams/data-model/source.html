@@ -1,0 +1,157 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>Data Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · data model · 2026-11-13</div>
+    <h1>The nine tables of the cmapi database</h1>
+    <p class="lede">The request is the centre of the schema. Four tables refer to it, and four stand alone. <code>docs/16-data-model.md</code> lists each column, index and constraint from a live database.</p>
+    <p class="muted">Read from the migrated test database (PostgreSQL 16) and from <code>cmapi/src/cmapi/core/db/</code>.</p>
+  </header>
+  <section>
+    <h2>The tables and their relations</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1100 545" role="img" aria-label="The cmapi database has nine tables. change_requests is the centre: request_events, approvals, jobs and approval_notifications each refer to it by request_id. audit_events, jwks_keys, admin_switches and expiration_notices have no foreign key, and no built code writes expiration_notices yet.">
+          <defs><marker id="ahe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<rect x="400" y="20" width="300" height="203" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="414" y="41" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">change_requests</text>
+<text x="414" y="61" font-family="IBM Plex Mono, monospace" font-size="11.5">PK request_id</text>
+<text x="414" y="78" font-family="IBM Plex Mono, monospace" font-size="11.5">cluster_id, namespace, env</text>
+<text x="414" y="95" font-family="IBM Plex Mono, monospace" font-size="11.5">plugin, action, status</text>
+<text x="414" y="112" font-family="IBM Plex Mono, monospace" font-size="11.5">plan (jsonb), plan_hash</text>
+<text x="414" y="129" font-family="IBM Plex Mono, monospace" font-size="11.5">requirement (jsonb)</text>
+<text x="414" y="146" font-family="IBM Plex Mono, monospace" font-size="11.5">requester (jsonb), requester_sub</text>
+<text x="414" y="163" font-family="IBM Plex Mono, monospace" font-size="11.5">idempotency_key, _fingerprint</text>
+<text x="414" y="180" font-family="IBM Plex Mono, monospace" font-size="11.5">pr (jsonb), merge_sha</text>
+<text x="414" y="197" font-family="IBM Plex Mono, monospace" font-size="11.5">created_at … finished_at</text>
+<text x="414" y="214" font-size="11.5" fill="var(--muted)">one row for each write to a namespace</text>
+<rect x="20" y="20" width="300" height="118" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="41" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">request_events</text>
+<text x="34" y="61" font-family="IBM Plex Mono, monospace" font-size="11.5">PK id</text>
+<text x="34" y="78" font-family="IBM Plex Mono, monospace" font-size="11.5">FK request_id</text>
+<text x="34" y="95" font-family="IBM Plex Mono, monospace" font-size="11.5">event, status, by, note</text>
+<text x="34" y="112" font-family="IBM Plex Mono, monospace" font-size="11.5">at</text>
+<text x="34" y="129" font-size="11.5" fill="var(--muted)">each state change, in order</text>
+<polyline points="320,79 360,79 360,80 396,80" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahe)"/>
+<text x="326" y="72" font-size="11" fill="var(--muted)" text-anchor="start">many to one</text>
+<rect x="20" y="166" width="300" height="118" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="187" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">approvals</text>
+<text x="34" y="207" font-family="IBM Plex Mono, monospace" font-size="11.5">PK id</text>
+<text x="34" y="224" font-family="IBM Plex Mono, monospace" font-size="11.5">FK request_id</text>
+<text x="34" y="241" font-family="IBM Plex Mono, monospace" font-size="11.5">approver_sub, username, groups</text>
+<text x="34" y="258" font-family="IBM Plex Mono, monospace" font-size="11.5">UQ (request_id, approver_sub)</text>
+<text x="34" y="275" font-size="11.5" fill="var(--muted)">one for each person</text>
+<polyline points="320,225 360,225 360,140 396,140" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahe)"/>
+<text x="326" y="241" font-size="11" fill="var(--muted)" text-anchor="start">many to one</text>
+<rect x="780" y="20" width="300" height="118" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="794" y="41" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">jobs</text>
+<text x="794" y="61" font-family="IBM Plex Mono, monospace" font-size="11.5">PK job_id</text>
+<text x="794" y="78" font-family="IBM Plex Mono, monospace" font-size="11.5">FK request_id (optional)</text>
+<text x="794" y="95" font-family="IBM Plex Mono, monospace" font-size="11.5">kind, run_after, attempts</text>
+<text x="794" y="112" font-family="IBM Plex Mono, monospace" font-size="11.5">locked_until, lease_generation</text>
+<text x="794" y="129" font-size="11.5" fill="var(--muted)">the worker&#x27;s queue, claimed by lease</text>
+<polyline points="780,79 740,79 740,80 704,80" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahe)"/>
+<text x="774" y="72" font-size="11" fill="var(--muted)" text-anchor="end">many to one</text>
+<rect x="780" y="166" width="300" height="118" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="794" y="187" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">approval_notifications</text>
+<text x="794" y="207" font-family="IBM Plex Mono, monospace" font-size="11.5">PK id</text>
+<text x="794" y="224" font-family="IBM Plex Mono, monospace" font-size="11.5">FK request_id</text>
+<text x="794" y="241" font-family="IBM Plex Mono, monospace" font-size="11.5">channel, kind, recipients</text>
+<text x="794" y="258" font-family="IBM Plex Mono, monospace" font-size="11.5">sent_at, used_at</text>
+<text x="794" y="275" font-size="11.5" fill="var(--muted)">what channel_notify recorded</text>
+<polyline points="780,225 740,225 740,140 704,140" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahe)"/>
+<text x="774" y="241" font-size="11" fill="var(--muted)" text-anchor="end">many to one</text>
+<text x="20" y="342" font-weight="600">No foreign key</text>
+<rect x="20" y="356" width="250" height="101" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="377" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">audit_events</text>
+<text x="34" y="397" font-family="IBM Plex Mono, monospace" font-size="11.5">PK id</text>
+<text x="34" y="414" font-family="IBM Plex Mono, monospace" font-size="11.5">actor_sub, action, target</text>
+<text x="34" y="431" font-family="IBM Plex Mono, monospace" font-size="11.5">at</text>
+<text x="34" y="448" font-size="11.5" fill="var(--muted)">who did what</text>
+<rect x="290" y="356" width="250" height="101" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="304" y="377" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">jwks_keys</text>
+<text x="304" y="397" font-family="IBM Plex Mono, monospace" font-size="11.5">PK issuer</text>
+<text x="304" y="414" font-family="IBM Plex Mono, monospace" font-size="11.5">keys (jsonb)</text>
+<text x="304" y="431" font-family="IBM Plex Mono, monospace" font-size="11.5">fetched_at</text>
+<text x="304" y="448" font-size="11.5" fill="var(--muted)">last good signing keys</text>
+<rect x="560" y="356" width="250" height="101" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="574" y="377" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">admin_switches</text>
+<text x="574" y="397" font-family="IBM Plex Mono, monospace" font-size="11.5">PK name</text>
+<text x="574" y="414" font-family="IBM Plex Mono, monospace" font-size="11.5">value (jsonb)</text>
+<text x="574" y="431" font-family="IBM Plex Mono, monospace" font-size="11.5">set_by, set_at</text>
+<text x="574" y="448" font-size="11.5" fill="var(--muted)">auto-approval pause</text>
+<rect x="830" y="356" width="250" height="101" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="844" y="377" font-weight="600" font-family="IBM Plex Mono, monospace" font-size="12.5">expiration_notices</text>
+<text x="844" y="397" font-family="IBM Plex Mono, monospace" font-size="11.5">PK id</text>
+<text x="844" y="414" font-family="IBM Plex Mono, monospace" font-size="11.5">cluster_id, namespace</text>
+<text x="844" y="431" font-family="IBM Plex Mono, monospace" font-size="11.5">expires_at, threshold_days</text>
+<text x="844" y="448" font-size="11.5" fill="var(--muted)">no code writes it yet</text>
+<text x="20" y="491">Solid box = a table that built code writes. Dashed box = a table of migration 0001 that no built code writes yet.</text>
+<text x="20" y="510">Arrow = a foreign key on request_id. PK = primary key, FK = foreign key, UQ = unique index.</text>
+<text x="20" y="529" fill="var(--host)" font-weight="600">Read from the migrated test database at migration head 0003, on 2026-11-13.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>One request has many events, many approvals (one for each person), many jobs and many notices. A job can exist with no request. The four tables in the bottom row stand alone. The column lists are short: docs/16 has each column, index and constraint.</figcaption>
+    </figure>
+  </section>
+</div>
