@@ -15,7 +15,8 @@ came from. Where two documents show the same file, the copy in
 | `local/` | The reference modules behind a FastAPI app, run end to end against a real Keycloak, a local Git repository and k3s, kind or an existing cluster: `run.sh`, `demo.py` (14 scenarios), `transcript.txt`, screenshots. Setup guide: [local/INSTALL.md](local/INSTALL.md) | Runnable |
 | `instances/<instance>/instance.yaml`, `expiration.yaml` | Each instance's identity file and expiry limits (prod: none) | Derived |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
-| `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |
+| `config/plugins.yaml` | Which plugins load, keyed by instance. It lists the plugins of the full design, so the service of today refuses it | From the design |
+| `instances/<instance>/plugins.yaml` | Each instance's file: the plugins that the service has today (`docs/08`, "The plugin switch") | Derived |
 | `config/authz-roles.yaml` | Keycloak roles to permissions, optional per-role environments; no team or namespace-name scoping (shape reference) | Verbatim |
 | `config/capacity.yaml` | Snapshot interval, targets, overcommit per environment | Verbatim |
 | `config/approval-rules.yaml` | Combined reference: environment rules, patterns, thresholds and auto-approval policies (baseline-rnd-namespace for rnd and dev, expired-namespace) | Updated to the approval-first design |

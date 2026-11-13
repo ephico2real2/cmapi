@@ -104,6 +104,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("directory_search", "GET", "/api/v1/directory/users?q=ola", ola)
     rec.call("directory_get_user", "GET", "/api/v1/directory/users/ola", ola)
     rec.call("admin_integrations", "GET", "/api/v1/admin/integrations", ola)
+    rec.call("admin_plugins", "GET", "/api/v1/admin/plugins", ola)
     rec.call("admin_switch_state", "GET", "/api/v1/admin/auto-approval", ola)
 
     # ---- a namespace: the dry run, the create, then the worker to synced
@@ -195,6 +196,28 @@ def test_each_operation_has_a_sample_from_a_run(world):
     pruned = rec.call("admin_prune_confirm", "POST", "/api/v1/admin/prune:confirm", opal, json_body={"namespace": "search-dev", "clusterId": "CRC"})
     assert pruned.status_code == 200, pruned.text
     run_jobs(ctx)
+
+    # ---- a request whose sync fails, and its revert: another party makes the namespace on the cluster after the plan, so the
+    # delivery refuses to take it over (jobs/watch_sync.py), and an operator reverts the request
+    lost = client.post(base, json={**NS, "namespace": "orders-dev"},
+                       headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": str(uuid.uuid4())})
+    assert lost.status_code == 202, lost.text
+    lrid = lost.json()["requestId"]
+    if lost.json()["status"] == "pending_approval":
+        client.post(f"/api/v1/requests/{lrid}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})
+    kube.add_unmanaged_namespace("orders-dev")
+    run_jobs(ctx)
+    state = client.get(f"/api/v1/requests/{lrid}", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()
+    assert state["status"] == "sync_failed", state["status"]
+    reverted = rec.call("requests_revert", "POST", f"/api/v1/requests/{lrid}:revert", opal)
+    assert reverted.status_code == 200, reverted.text
+    run_jobs(ctx)
+
+    # ---- the dry run of a change: the plan of a PATCH, with nothing written
+    etag = client.get(f"{base}/payments-dev", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
+    planned = rec.call("namespaces_update_namespace:dryRun", "PATCH", f"{base}/payments-dev?dryRun=true", ola,
+                       json_body={"tier": "medium", "justification": "A smaller size after the load test"}, headers={"If-Match": f'"{etag}"'})
+    assert planned.status_code == 200, planned.text
 
     # ---- the refusals a client meets most
     rec.call("core_me", "GET", "/api/v1/me", None)                                                            # 401

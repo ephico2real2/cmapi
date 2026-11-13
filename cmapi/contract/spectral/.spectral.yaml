@@ -1,0 +1,144 @@
+# cmapi's ruleset for the OpenAPI document: CI gate 1 of docs/01, "API documentation" (#143).
+#
+#   cmapi/contract/lint.sh [document]        default: cmapi/contract/openapi.json
+#
+# The six rule groups of docs/01: operationId, tags, examples, problem responses, no inline schemas, and cmapi.net/ keys only
+# in label examples. Each rule is an error, and lint.sh also fails on a warning of Spectral's own OpenAPI rules.
+# cmapi/contract/lint-test.py breaks the committed document one rule at a time and holds each rule to its failure.
+#
+# Spectral resolves each $ref before it runs a rule. The rules that must see a $ref itself say `resolved: false`.
+extends: ["spectral:oas"]
+functionsDir: ./functions
+functions: [cmapiTagGroups, cmapiHasExample, cmapiProblemExample, cmapiSchemaByReference, cmapiLabelKeys]
+
+rules:
+  # The Info object has no contact: cmapi names no person or address in a document that every instance serves in public.
+  info-contact: off
+  # Spectral's own rules that docs/01 asks for, raised from a warning to an error.
+  operation-operationId: error
+  operation-tags: error
+  operation-tag-defined: error
+  tag-description: error
+
+  # ---- 1. operationId
+  cmapi-operation-id-of-plugin:
+    description: An operationId is `<plugin>_<function>`, in lower case with underscores, and starts with the operation's plugin.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch]"
+    then:
+      function: cmapiTagGroups
+      functionOptions: {check: operationId}
+
+  # ---- 2. tags
+  cmapi-operation-one-tag:
+    description: An operation has exactly one tag, the name of its plugin (x-cmapi-plugin).
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch]"
+    then:
+      function: cmapiTagGroups
+      functionOptions: {check: operationTag}
+  cmapi-tag-in-one-group:
+    description: Each tag is in exactly one group of x-tagGroups. ReDoc does not show a tag that is in no group.
+    message: "{{error}}"
+    severity: error
+    given: "$"
+    then:
+      function: cmapiTagGroups
+      functionOptions: {check: groups}
+
+  # ---- 3. examples
+  cmapi-parameter-example:
+    description: Each parameter has an example.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].parameters[*]"
+    then:
+      function: cmapiHasExample
+      functionOptions: {of: parameter}
+  cmapi-body-example:
+    description: Each request body and each response body has an example.
+    message: "{{error}}"
+    severity: error
+    given:
+      - "$.paths[*][get,put,post,delete,patch].requestBody.content[*]"
+      - "$.paths[*][get,put,post,delete,patch].responses[*].content[*]"
+    then:
+      function: cmapiHasExample
+      functionOptions: {of: media}
+
+  # ---- 4. problem responses
+  cmapi-problem-media-type:
+    description: A 4xx or 5xx response has one media type, application/problem+json (RFC 9457).
+    message: "A problem response has the one media type application/problem+json: {{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^[45]/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [content]
+          properties:
+            content:
+              type: object
+              required: [application/problem+json]
+              additionalProperties: false
+              properties:
+                application/problem+json: {type: object, required: [schema]}
+  cmapi-problem-schema:
+    description: The schema of a problem response is ProblemDetail, by reference.
+    message: "The schema of a problem response is #/components/schemas/ProblemDetail: {{error}}"
+    severity: error
+    resolved: false
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^[45]/))].content[application/problem+json].schema"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: ["$ref"]
+          additionalProperties: false
+          properties:
+            "$ref": {const: "#/components/schemas/ProblemDetail"}
+  cmapi-problem-example:
+    description: Each example of a problem response has type, title, status, detail and code, with the status of its response.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^[45]/))]"
+    then:
+      function: cmapiProblemExample
+  cmapi-secured-operation-problems:
+    description: An operation that needs a token declares 401, and an operation that needs a permission declares 403.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch]"
+    then:
+      function: cmapiTagGroups
+      functionOptions: {check: securedProblems}
+
+  # ---- 5. no inline schemas
+  cmapi-no-inline-schema:
+    description: >-
+      The schema of a request body or a response body is a named schema of components, by reference. A scalar, a list of
+      references and "a reference or null" are also permitted. An empty schema and an inline object are not.
+    message: "{{error}}"
+    severity: error
+    resolved: false
+    given:
+      - "$.paths[*][get,put,post,delete,patch].requestBody.content[*]"
+      - "$.paths[*][get,put,post,delete,patch].responses[*].content[*]"
+    then:
+      function: cmapiSchemaByReference
+
+  # ---- 6. cmapi.net/ keys only in label examples
+  cmapi-net-keys-only-in-labels:
+    description: >-
+      In an example, a key with the prefix cmapi.net/ is a metadata key. It is only in a labels map or an annotations map,
+      and it is never the name of a field of the API.
+    message: "{{error}}"
+    severity: error
+    given: "$"
+    then:
+      function: cmapiLabelKeys

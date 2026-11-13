@@ -29,7 +29,7 @@ from cmapi.core.identity.claims import Identity, label_value_of
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.lifecycle import Event as E
 from cmapi.core.naming import check_name, check_not_unmanaged, is_label
-from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQUESTS, ENV_NOT_SERVED, VALIDATION_FAILURES
+from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQUESTS, ENV_NOT_SERVED, PLUGIN_DISABLED, VALIDATION_FAILURES
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
@@ -138,6 +138,15 @@ class Pipeline:
         raise Problem.unprocessable("environment-not-served", f"{env} is not served by the {self.cfg.name} instance",
                                     instanceUrl=(other or {}).get("url"), portalUrl=(other or {}).get("portalUrl"))
 
+    def check_plugin_offered(self, plugin: str, env: str) -> None:
+        """Refuse a write of a plugin that plugins.yaml disables in this environment of this instance."""
+        if self.cfg.plugins.offers(plugin, env):
+            return
+        PLUGIN_DISABLED.labels(plugin, env).inc()
+        raise Problem.unprocessable("plugin-disabled", f"The {plugin} plugin takes no writes in {env} on the {self.cfg.name} "
+                                                       "instance: plugins.yaml disables it there",
+                                    plugin=plugin, environment=env)
+
     def _read_folder(self, cluster_id: str, ns: str) -> tuple[dict[str, str], str]:
         if not is_label(ns):              # a path parameter such as "..": never a folder, never sent to the Git host
             raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")
@@ -164,6 +173,7 @@ class Pipeline:
         self.check_env_served(env)
         ns = body["namespace"]
         self.cfg.roles.require(who, "namespaces:create" if action == "create" else "namespaces:write", env)
+        self.check_plugin_offered("namespaces", env)
         cache = self.registry.cache(cluster_id)
         if action == "create":
             check_name(ns, self.reserved)
@@ -277,6 +287,7 @@ class Pipeline:
         env = st.policy.environment
         self.check_env_served(env)
         self.cfg.roles.require(who, "namespaces:write", env)
+        self.check_plugin_offered("namespaces", env)
         requester = self.requester_for(who, None)
         prev, base_sha = self._read_folder(cluster_id, ns)
         if not prev:

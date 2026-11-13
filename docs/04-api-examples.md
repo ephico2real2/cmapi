@@ -507,6 +507,73 @@ The answer was 202 (`application/json`):
 
 `body.approval.reasons` has 2 items in the run. The first is shown.
 
+The run sent `PATCH /api/v1/clusters/CRC/namespaces/payments-dev?dryRun=true` with this body:
+
+```json
+{
+  "justification": "A smaller size after the load test",
+  "tier": "medium"
+}
+```
+
+The answer was 200 (`application/json`):
+
+```json
+{
+  "approval": {
+    "approvals": [],
+    "auto": "none-required",
+    "autoFallback": null,
+    "reasons": [
+      "dev change: 0 from approver-platform"
+    ],
+    "remaining": [],
+    "rule": "dev-change",
+    "selfApproval": true,
+    "slots": [],
+    "timeoutHours": 8
+  },
+  "capacity": {
+    "bindingResource": "cpu",
+    "clusterId": "CRC",
+    "cpu": 0.062,
+    "fresh": true,
+    "memory": 0.05,
+    "source": "simulated",
+    "status": "fits"
+  },
+  "changes": {
+    "clusters/CRC/namespaces/payments-dev/limitrange.yaml": "changed",
+    "clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed",
+    "clusters/CRC/namespaces/payments-dev/resourcequota.yaml": "changed"
+  },
+  "etag": "aa3f025f59ebf759",
+  "files": {
+    "clusters/CRC/namespaces/payments-dev/limitrange.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: dec3e603bf8d\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n      memory: 256Mi\n    default:\n      cpu: 500m\n      memory: 512Mi\n    max:\n      cpu: '4'\n      memory: 8Gi\n  - type: PersistentVolumeClaim\n    max:\n      storage: 50Gi\n",
+    "clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: medium\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n",
+    "clusters/CRC/namespaces/payments-dev/resourcequota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: payments-dev-quota\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: dec3e603bf8d\nspec:\n  hard:\n    requests.cpu: '16'\n    requests.memory: 32Gi\n    pods: '100'\n    persistentvolumeclaims: '30'\n    requests.storage: 500Gi\n    services.loadbalancers: '0'\n    services.nodeports: '0'\n"
+  },
+  "findings": [],
+  "planHash": "7ccbcb224b530f87df3b6e84df6f67f9e6f0784666ce56251a37e03a18698548",
+  "requester": {
+    "automated": false,
+    "requester": {
+      "clientId": "cmapi-portal",
+      "email": "ola@ephico2real.com",
+      "employeeId": "1001",
+      "familyName": "Doe",
+      "givenName": "Ola",
+      "kind": "user",
+      "middleName": null,
+      "sub": "sub-ola",
+      "username": "ola"
+    },
+    "submittedBy": null,
+    "submittedByClient": null
+  }
+}
+```
+
 ### Extend a namespace's expiry
 
 `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend`
@@ -1519,7 +1586,87 @@ Permission: `requests:retry`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:revert -H "Authorization: Bearer $TOKEN"
 ```
 
-The run has no successful call of this operation. Its recorded answer is the problem `invalid-transition`, under "Problems".
+The run sent `POST /api/v1/requests/req-20261113-0009:revert`.
+
+The answer was 200 (`application/json`):
+
+```json
+{
+  "action": "create",
+  "approval": {
+    "approvals": [],
+    "auto": "auto:baseline-rnd-namespace",
+    "autoFallback": null,
+    "reasons": [
+      "dev create: 1 from approver-platform"
+    ],
+    "remaining": [],
+    "rule": "dev-create",
+    "selfApproval": true,
+    "slots": [],
+    "timeoutHours": 8
+  },
+  "baseSha": "62b2d7a4252b2dd214a0ec23c6c8d1037be0aec1",
+  "clusterId": "CRC",
+  "createdAt": "2026-11-13T18:05:35.327746Z",
+  "env": "dev",
+  "events": [
+    {
+      "at": "2026-11-13T18:05:35.327746Z",
+      "by": "ola",
+      "event": "plan_auto_approved",
+      "note": "auto:baseline-rnd-namespace",
+      "status": "approved"
+    }
+  ],
+  "files": {
+    "clusters/CRC/namespaces/orders-dev/limitrange.yaml": "added",
+    "clusters/CRC/namespaces/orders-dev/namespace.yaml": "added",
+    "clusters/CRC/namespaces/orders-dev/resourcequota.yaml": "added",
+    "clusters/CRC/namespaces/orders-dev/token-issuer-rolebinding.yaml": "added"
+  },
+  "instance": "nonprod",
+  "justification": "Payments service dev namespace",
+  "links": {
+    "events": "/api/v1/requests/req-20261113-0009/events",
+    "pr": "https://git.test/pulls/8",
+    "self": "/api/v1/requests/req-20261113-0009"
+  },
+  "mergeSha": "cded00df",
+  "namespace": "orders-dev",
+  "planHash": "f5cd7c1836f7f52c35bbd71980dbc31409e2fa7ec844711ba8c77f64f81570cf",
+  "plugin": "namespaces",
+  "pr": {
+    "branch": "cmapi/CRC/orders-dev/req-20261113-0009",
+    "head": "cded00df",
+    "number": 8,
+    "url": "https://git.test/pulls/8"
+  },
+  "reason": null,
+  "requestId": "req-20261113-0009",
+  "requester": {
+    "automated": false,
+    "requester": {
+      "clientId": "cmapi-portal",
+      "email": "ola@ephico2real.com",
+      "employeeId": "1001",
+      "familyName": "Doe",
+      "givenName": "Ola",
+      "kind": "user",
+      "middleName": null,
+      "sub": "sub-ola",
+      "username": "ola"
+    },
+    "submittedBy": null,
+    "submittedByClient": null
+  },
+  "status": "sync_failed",
+  "updatedAt": "2026-11-13T18:05:36.271380Z"
+}
+```
+
+`body.approval.reasons` has 2 items in the run. The first is shown.
+`body.events` has 6 items in the run. The first is shown.
 
 ## Operations
 
@@ -1640,7 +1787,7 @@ The answer was 200 (`application/json`):
 
 ## Admin
 
-What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the Git log and the system KPIs.
+What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the plugins, the Git log and the system KPIs.
 
 ### Auto-approval switch state
 
@@ -1847,6 +1994,38 @@ The answer was 200 (`application/json`):
 ```
 
 `body.kpis` has 6 items in the run. The first is shown.
+
+### The plugins of this instance
+
+`GET /api/v1/admin/plugins`
+
+Permission: `clusters:read`.
+
+```bash
+curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/admin/plugins -H "Authorization: Bearer $TOKEN"
+```
+
+The run sent `GET /api/v1/admin/plugins`.
+
+The answer was 200 (`application/json`):
+
+```json
+{
+  "configured": false,
+  "instance": "nonprod",
+  "items": [
+    {
+      "core": true,
+      "disabledEnvironments": [],
+      "enabled": true,
+      "name": "admin",
+      "version": "0.2.0"
+    }
+  ]
+}
+```
+
+`body.items` has 7 items in the run. The first is shown.
 
 ### Confirm the prune of a deleted namespace
 

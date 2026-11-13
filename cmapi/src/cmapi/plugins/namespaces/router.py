@@ -25,7 +25,7 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
                           description="The managed namespaces of a cluster: read them, and create, change, delete or extend "
                                       "one. Each write returns a change request and becomes a pull request after approval.")
 
-WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden",
+WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden", "plugin-disabled",
                   "validation-failed", "policy-violation", "capacity-exceeded", "change-pending", "no-change",
                   "identity-incomplete", "unknown-user", "invalid-team-dl", "idempotency-key-required",
                   "idempotency-replay", "git-unavailable", "cluster-unreachable", "validator-unavailable",
@@ -130,6 +130,7 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
 
 
 @router.write("/namespaces", summary="Create a namespace", permission="namespaces:create", response_model=ChangeRequest,
+              dry_run_model=PlanView,
               problems=WRITE_PROBLEMS + ["reserved-namespace", "invalid-namespace-name", "namespace-exists",
                                          "namespace-exists-unmanaged", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",
                                          "on-behalf-of-required"])
@@ -154,7 +155,7 @@ def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
 
 
 @router.write("/namespaces/{ns}", summary="Change a namespace", permission="namespaces:write", method="PATCH",
-              response_model=ChangeRequest,
+              response_model=ChangeRequest, dry_run_model=PlanView,
               problems=WRITE_PROBLEMS + ["object-not-found", "precondition-required", "precondition-failed"])
 def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePatch,
                      dry_run: DryRun = False,
