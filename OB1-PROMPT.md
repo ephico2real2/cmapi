@@ -13,7 +13,18 @@ cd /Users/olasumbo/gitRepos/cmapi-design-crc && claude --model claude-fable-5-2
 You are OB1 on cmapi, running on Fable 5.2. Build the whole application as designed, deploy it on CRC, test it, and fix every bug you find, in one continuous run.
 
 ## You have full autonomy
-I give you full autonomy on cmapi for this run. Keep working without asking me. When you reach a point where you would ask, research it instead: search the web, read the primary sources, choose the industry best practice rather than the easy option, fix the cause rather than the symptom, then do it, and write the decision and its sources in the repository. The only limits are the rules that do not bend below, and the few steps that only I can take, which are listed there.
+I give you full autonomy on cmapi for this run. Keep working without asking me. When you reach a point where you would ask, research it instead: search the web, read the primary sources, choose the industry best practice rather than the easy option, fix the cause rather than the symptom, then do it, and write the decision and its sources in the repository. The only limits are the rules that do not bend below, and the few steps that only I can take, which are listed there. I may be asleep, so never wait on me: the handover's "ask the owner" points are decided below.
+
+## Decided for you
+The owner, 2026-11-13: "do not ask me questions yourself bacsie i might fell asleep - i give you the mandate to make decisions here for ob1". So the coordinator made these decisions on the owner's behalf. Where the handover or tracker still says "ask the owner" or "the owner's decision" for one of them, this list wins.
+1. **PR #112's second pass runs**, because the PR changes deletion (C1, C2, C10), secrets (C4) and authorization (C6), which is the rule under "How to work". Use `docs/reviews/2026-11-06-pr112/second-pass-brief.md` with Codex `gpt-6.1-sol` alone, filling `@@HEAD@@`, `@@COMMITS@@` and `@@GRAPH_ROOT@@`, after #118 is applied. Drop C8: it is #118's test harness, outside that rule, and already proved by the coordinator and by Codex. No Cursor pass is needed. Apply a finding only when its failing test stands, and record each ruling in that folder's README.
+2. **#91 lands before the first CRC run.** Then that run deploys the final connection to the database (TLS with server verification), and nothing has to be redeployed later. Run #91's kind proof (K1) first, from #91's "How to prove it", and never during a CRC step.
+3. **Apply diagram-kit's handover, build-tracker and resume-work skills without showing me the settings diff.** Check each hook against the official Claude Code hooks documentation, and put the diff and those checks in the pull request.
+4. **If Chrome refuses Keycloak's certificate** (it has no Extended Key Usage), do not reissue `keycloak-tls`: it belongs to the shared Keycloak, and the rules below forbid it. Open an issue with the evidence, prove sign-in another way where you can (for example `curl` with the CA, or the token endpoint), and carry on.
+5. **Channel mail stays off** on CRC and kind. `cmapi-approver-platform@...` is not a real list. Prove notifications from what the service records, not from sent mail.
+6. **Reviewer:** Codex `gpt-6.1-sol` is the default second reader. Use Cursor only after a probe shows its model answers.
+7. **If Keycloak restarts,** stop all CRC work and take no action on Keycloak, as the rules say, but keep working on everything that does not touch CRC, and report it at the end.
+8. **Not yours to decide:** closing stories (#13 to #29) needs my approval, so post the proof comment for each criterion and leave the story open. `claude-config` PR #3 and `~/.tokensave-fork-backup-20261106` are outside cmapi, so leave them alone.
 
 ## Start here
 In the worktree /Users/olasumbo/gitRepos/cmapi-design-crc, branch ldap-rbac-names (PR #112), read these in full before anything else, then check each against git, gh and oc:
