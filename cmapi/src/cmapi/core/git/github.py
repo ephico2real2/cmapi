@@ -34,10 +34,12 @@ def _worse(a: CheckState | None, b: CheckState) -> CheckState:
 def _run_state(run: Mapping[str, Any]) -> CheckState:
     """What one check run says about a required check. Unfinished is pending, whatever else the run carries. Finished is a pass
     only on the conclusion success. GitHub also treats neutral and skipped as passing for a required check; here ci/* is the
-    evidence that the validation ran and passed, and a skipped run validated nothing, so they fail, as does a value not known yet."""
-    if run.get("status") != "completed":
+    evidence that the validation ran and passed, and a skipped run validated nothing, so they fail, as does a value not known yet.
+    A null conclusion has not reported an outcome, even if status already says completed, so keep waiting for that outcome."""
+    conclusion = run.get("conclusion")
+    if run.get("status") != "completed" or conclusion is None:
         return "pending"
-    return "success" if run.get("conclusion") == "success" else "failure"
+    return "success" if conclusion == "success" else "failure"
 
 
 class GitHubProvider(HostGitProvider):

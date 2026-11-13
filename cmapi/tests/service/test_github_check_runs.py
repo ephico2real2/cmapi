@@ -77,12 +77,17 @@ def test_no_statuses_and_two_successful_check_runs_read_as_green():
 
 
 # ------------------------------------------------------------------ every conclusion and status, decided
-@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out", "action_required", "stale", "startup_failure",
-                                        "neutral", "skipped", None, "a-conclusion-github-adds-later"])
-def test_a_completed_run_that_is_not_success_is_not_green(conclusion):
+@pytest.mark.parametrize("conclusion,expected", [
+    ("failure", "failure"), ("cancelled", "failure"), ("timed_out", "failure"),
+    ("action_required", "failure"), ("stale", "failure"), ("startup_failure", "failure"),
+    ("neutral", "failure"), ("skipped", "failure"), (None, "pending"),
+    ("a-conclusion-github-adds-later", "failure"),
+])
+def test_a_completed_run_that_is_not_success_is_not_green(conclusion, expected):
     """GitHub treats neutral and skipped as passing for a required check. cmapi does not: ci/* is the evidence that the validation
-    ran and passed, and a run that was skipped validated nothing. A value GitHub adds later fails closed too."""
-    assert checks(runs=[run(CONTEXT_KUBECONFORM, conclusion=conclusion)]) == {CONTEXT_KUBECONFORM: "failure"}
+    ran and passed, and a run that was skipped validated nothing. A value GitHub adds later fails closed too.
+    A null conclusion is still pending because no outcome has been reported."""
+    assert checks(runs=[run(CONTEXT_KUBECONFORM, conclusion=conclusion)]) == {CONTEXT_KUBECONFORM: expected}
 
 
 @pytest.mark.parametrize("state", ["queued", "in_progress", "waiting", "requested", "pending", "a-status-github-adds-later"])
