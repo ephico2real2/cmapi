@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # deploy/crc-rollback.sh --yes [--delete-realm --owner-approved]: returns CRC to the state before Wave 1, as far as cmapi can. Every delete names one object: no --all, no selector, no --prune, no -f on a directory.
-# Stays: namespace cmapi, its generated Secrets and cmapi-ldap-bind (before Wave 1), the same Secret in keycloak, every LDAP entry, every other project's object.
+# Stays: namespace cmapi, its generated Secrets and cmapi-ldap-bind (before Wave 1), the same Secret in keycloak, every LDAP entry this run did not add, every other project's object. The old cmapi-* groups are not restored.
 # Stays by design: realm cmapi and Secret keycloak/cmapi-realm-secrets, the authority for the realm's client secrets (deploy/secrets.sh) while the realm exists. Deleting the import does not delete a realm.
 # --delete-realm --owner-approved removes the realm too, with the realm's own cmapi-realm-admin service client, no master credential (measured on Keycloak 26.6.4: 204, the other realms' keys unchanged, and 403 on another realm).
 set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
 OC=${CMAPI_OC:-oc}
 KC=${CMAPI_KEYCLOAK_URL:-https://keycloak.apps-crc.testing}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
@@ -52,5 +53,7 @@ del namespace cmapi-imports
 del namespace cmapi-system
 del clusterrolebinding cmapi-reader
 del clusterrole cmapi-reader
+# The test users, the new groups and Secret cmapi-ldap-test-users, each by exact name. It fails if the rest of the directory moved.
+"$HERE/../examples/cmapi-sso/ldap/apply-test-identities.sh" --remove-test-identities
 oc_ label namespace cmapi app.kubernetes.io/part-of- >/dev/null 2>&1 || true
 echo "rollback done. Left behind, each on purpose: see docs/13, Rollback"

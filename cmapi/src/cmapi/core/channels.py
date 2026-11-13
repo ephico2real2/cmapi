@@ -14,14 +14,18 @@ import time
 from email.message import EmailMessage
 from typing import Any, Mapping
 
+from cmapi.core.authz import DEFAULT_GROUP_PATH, group_path
 from cmapi.core.observability import log
 
 
 class PortalChannel:
     name = "portal"
 
+    def __init__(self, group_path_template: str = DEFAULT_GROUP_PATH):
+        self.group_path_template = group_path_template
+
     def notify_pending(self, request: Mapping[str, Any], groups: list[str]) -> dict[str, Any]:
-        return {"recipients": [f"/cmapi/cmapi-{g}" for g in groups], "where": "the Approvals tab"}
+        return {"recipients": [group_path(g, self.group_path_template) for g in groups], "where": "the Approvals tab"}
 
     def notify_decision(self, request: Mapping[str, Any], decision: str) -> dict[str, Any]:
         return {"recipients": [request["requester"]["requester"]["username"]], "where": "the Requests tab", "decision": decision}
@@ -75,7 +79,7 @@ class EmailChannel:
 
 
 def channels_for(ctx: Any) -> list[Any]:
-    out: list[Any] = [PortalChannel()]
+    out: list[Any] = [PortalChannel(ctx.cfg.approvals.group_path)]
     notifier = (ctx.integrations.get("notifier") or {})
     smtp = notifier.get("smtp")
     if smtp and smtp.get("host"):

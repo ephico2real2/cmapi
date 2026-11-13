@@ -119,7 +119,7 @@ jobs:
           # The stubs and the guards read YAML.
           python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
@@ -136,6 +136,8 @@ jobs:
         run: python deploy/tests/doc13-test.py docs/13-crc-deployment.md
       - name: The backup on a real PostgreSQL of postgres-0's image family
         run: deploy/tests/crc-backup-test.sh
+      - name: The test identities on a real OpenLDAP of the server's image, and mutants of the script
+        run: deploy/tests/ldap-identities-test.sh
       - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
         run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
       - name: The mockup ConfigMap is current

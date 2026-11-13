@@ -10,14 +10,15 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 
 | Where | What |
 |---|---|
-| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the database, Routes `cmapi-api` and `cmapi-mockup`, the monitoring objects, image stream `cmapi` |
+| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the database, Routes `cmapi-api` and `cmapi-mockup`, the monitoring objects, image stream `cmapi`, Secret `cmapi-ldap-test-users` (one password per test user) |
 | Namespace `cmapi-imports` (new) | The imports reader Role, Secret `cmapi-cluster-crc` |
 | Namespace `cmapi-system` (new) | ServiceAccount `cmapi-reader` and its token Secret |
 | Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `list` on pods and persistentvolumeclaims |
 | Namespace `keycloak` | Secret `cmapi-realm-secrets`, and `KeycloakRealmImport cmapi`, deleted once Done |
 | Keycloak | Realm `cmapi`, with guesses limited (a temporary lockout, in this realm alone) and its default `admin-cli` client off, so no client takes a person's password without a secret. Creating any realm also adds a client `cmapi-realm` to `master` (measured). That is the one known change outside realm `cmapi` |
+| LDAP (namespace `ldap-testing`) | The ten `app-cmapi-rbac-*` groups and 13 `cmapi.<role>` test users. It removes the ten old `cmapi-*` groups, each by its full `dn`. No other entry changes: steps 9 and 10 fail if one does |
 
-In LDAP nothing is written: the realm reads it through the read-only `cmapi-ldap-bind`. See [`docs/11`](11-existing-identity-services.md).
+The realm reads LDAP through the read-only `cmapi-ldap-bind`, and only the test users. See [`docs/11`](11-existing-identity-services.md).
 
 ## Before the run
 
@@ -31,7 +32,7 @@ In LDAP nothing is written: the realm reads it through the read-only `cmapi-ldap
 | No kind cluster, and none during the run | `KIND_EXPERIMENTAL_PROVIDER=podman kind get clusters` |
 | CloudNativePG 1.30.1 | `oc get crd clusters.postgresql.cnpg.io -o name` |
 | Namespace `cmapi`, with Secret `cmapi-ldap-bind` in `cmapi` and `keycloak` | `oc get secret cmapi-ldap-bind -n cmapi -o name; oc get secret cmapi-ldap-bind -n keycloak -o name` |
-| The ten `cmapi-*` LDAP groups | `docs/11`, "The groups" |
+| The bind user can read `ou=People` and `ou=Groups`, and the gate group `app-ssb-autobahnusers` exists | Step 9 reads both before it writes |
 
 ### Read-only facts, as read on 2026-11-06
 
@@ -39,36 +40,54 @@ The coordinator read these from CRC. Read them again if much time has passed.
 
 | Question | Answer | Command |
 |---|---|---|
-| Does RHBK serve `spec.resources` on an import? | Yes. The field's text says "inherited from the Keycloak CR", while the Job measured there requests the operator's 1,700 Mi, so step 13's server dry run is the real check | `oc explain keycloakrealmimport.spec.resources --api-version=k8s.keycloak.org/v2beta1` |
+| Does RHBK serve `spec.resources` on an import? | Yes. The field's text says "inherited from the Keycloak CR", while the Job measured there requests the operator's 1,700 Mi, so step 15's server dry run is the real check | `oc explain keycloakrealmimport.spec.resources --api-version=k8s.keycloak.org/v2beta1` |
 | Can cmapi's pods reach Keycloak? | Yes. `keycloak-network-policy` allows 8443 and 9000 from anywhere | `oc get networkpolicy -n keycloak -o name` |
 | Will federation work over this path? | Likely: `corp` uses the same `ldaps://ldaps-ldap-testing.apps-crc.testing:443`, `useTruststoreSpi: always`, `uid`, `inetOrgPerson`, and the truststore `ldap-root-ca` is on the Keycloak CR | `oc get keycloak keycloak -n keycloak -o jsonpath='{.spec.truststores}{"\n"}'` |
 | How does the backup sign in? | `postgres-0` runs `registry.redhat.io/rhel9/postgresql-16:latest`, container `postgres`, with `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`, `POSTGRESQL_DATABASE` from Secret `keycloak-db`, read inside the pod. `pg_dump` and `pg_restore` 16.15. Limit 512 Mi, using 52 Mi | `deploy/crc-backup.sh --inspect`: names and sources, never a value |
-| Is an LDAP person's password available? | No. `ldap-structure` holds five hashes and one value that was not printed (#35). So the owner signs in | Below |
+| Can a test sign in through LDAP? | Only as a `cmapi.<role>` test user, made in step 9. No real person's password is available (`ldap-structure` holds five hashes and one value that was not printed, #35), and the realm cannot read a real person | Below |
 
 ### Steps only the owner can take
 
-Both are for the Chrome proofs of step 21, and neither blocks the steps before it.
+Both are for the Chrome proofs of step 23, and neither blocks the steps before it.
 
-**1. Trust the two CAs in the login keychain.** Chrome refuses these sites otherwise, and clicking through a warning would be TLS verification off. Neither `LDAP Enterprise Root CA` nor `ingress-operator` is on this Mac (measured with `security find-certificate -c`), and macOS asks for a password to add one, which is why this is the owner's step. After step 1 of the run:
+**1. Trust the two CAs in the login keychain.** Chrome refuses these sites otherwise, and clicking through a warning would be TLS verification off. Neither `LDAP Enterprise Root CA` nor `ingress-operator` is on this Mac (measured with `security find-certificate -c`), and macOS asks for a password to add one, which is why this is the owner's step.
+
+Only `CA:TRUE` certificates are trusted, never a site's own. `default-ingress-cert`'s bundle holds the `*.apps-crc.testing` site certificate first and its CA second (measured, #109), so step 1 of the run writes each CA to its own file and leaves the site certificate out. Trusting that as a root would pin one site, and it would not be what signs the next one.
+
+| File, from step 1 | Certificate | SHA-1, measured on 2026-11-06 |
+|---|---|---|
+| `keycloak-ca.pem` | `CN=LDAP Enterprise Root CA`, `CA:TRUE` | `58E4A0F4B51C06119EA25526330BEA85885B0FD8` |
+| `ingress-ca.pem` | `CN=ingress-operator@1789448506`, `CA:TRUE, pathlen:0` | `C016211CBBB5CD072C3FFAC433221C38D1374E05` |
+
+After step 1 of the run, in a bash with `$RUN` set. A fingerprint that differs means the CA changed: stop and report. It adds nothing.
 
 ```bash
-# One file per certificate, from the bundle step 1 wrote; a second CA trusted by mistake is one more thing that can mint for any site.
-cd "$RUN" && awk '/BEGIN CERTIFICATE/{n++} {print > ("crc-ca-" n ".pem")}' crc-ca.pem && cd -
-for pem in "$RUN"/crc-ca-*.pem; do
-  openssl x509 -in "$pem" -noout -subject -fingerprint -sha1
+# Each file: exactly one certificate, a CA, with the fingerprint above. A second CA trusted by mistake is one more thing that can mint for any site.
+trust_ca() {
+  local pem=$1 want=$2 text got
+  [ "$(grep -c 'BEGIN CERTIFICATE' "$pem")" = 1 ] || { echo "STOP: $pem does not hold exactly one certificate"; return 1; }
+  text=$(openssl x509 -in "$pem" -noout -text | awk '/X509v3 Basic Constraints/ { getline; print }')
+  case "$text" in *CA:TRUE*) ;; *) echo "STOP: $pem is not a CA"; return 1;; esac
+  got=$(openssl x509 -in "$pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')
+  [ "$got" = "$want" ] || { echo "STOP: $pem is $got, not $want"; return 1; }
   security add-trusted-cert -r trustRoot -p ssl -k ~/Library/Keychains/login.keychain-db "$pem"
-done
+}
+trust_ca "$RUN/keycloak-ca.pem" 58E4A0F4B51C06119EA25526330BEA85885B0FD8
+trust_ca "$RUN/ingress-ca.pem" C016211CBBB5CD072C3FFAC433221C38D1374E05
 ```
 
-Take them out when Wave 1's screenshots are done, by the fingerprints printed above. Each CA can mint a certificate for any site, and both keys live on a test cluster:
+Take them out when Wave 1's screenshots are done. Each CA can mint a certificate for any site, and both keys live on a test cluster. The trust setting comes off first: deleting only the certificate would leave the setting behind.
 
 ```bash
-security delete-certificate -Z <sha1 without colons> ~/Library/Keychains/login.keychain-db
+security remove-trusted-cert "$RUN/keycloak-ca.pem"
+security delete-certificate -Z 58E4A0F4B51C06119EA25526330BEA85885B0FD8 ~/Library/Keychains/login.keychain-db
+security remove-trusted-cert "$RUN/ingress-ca.pem"
+security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Library/Keychains/login.keychain-db
 ```
 
-Not measured: this Mac's trust has not been changed.
+**What the trust may not fix.** Measured on 2026-11-06: Keycloak's site certificate has no Extended Key Usage, so macOS's own `security verify-cert -p ssl` refuses it (`Invalid Extended Key Usage for policy`), while the ingress site certificate has `TLS Web Server Authentication` and passes. Chrome's result is not yet measured, so whether Chrome accepts Keycloak's sign-in page is the first thing this step shows. If it refuses, report it: the Chrome proofs that sign in are then not done, and clicking through is still not an answer. Not measured: this Mac's trust has not been changed.
 
-**2. Sign in once as an LDAP person,** typing the password into Chrome, so that it reaches nobody else. If that is not wanted, the LDAP login proof is reported as not done.
+**2. Sign in once as `cmapi.requester`,** in Chrome, with the password from the clipboard, so that it reaches nobody else and no screen. See [The issue's proofs](#the-issues-proofs).
 
 ## The run
 
@@ -195,18 +214,44 @@ Admission copies an account's `imagePullSecrets` into a pod when the pod is crea
 
 **Stops when** an account has no pull secret after 60 s.
 
-### Step 9: the Secrets
+### Step 9: the test users and the new groups in LDAP
+
+```bash
+( set -euo pipefail
+  $G gate "$STOP"
+  examples/cmapi-sso/ldap/apply-test-identities.sh | tee "$RUN/ldap-identities.txt"
+); stopped $? 9
+```
+
+Before any Keycloak step, because the realm's federation reads these. It writes the ten groups of `cmapi-groups.ldif`, the 13 users of `test-identities.tsv`, and Secret `cmapi-ldap-test-users` in `cmapi`, with passwords only as hashes in LDAP. A second run changes nothing. `docs/11`, "The test users".
+
+**Stops when,** before anything is written: the bind user cannot read `ou=People` or `ou=Groups`; the gate group `app-ssb-autobahnusers` cannot be read; OpenShift's login filter finds nobody, or finds a `cmapi.*` user; a `uidNumber` is held by another entry; an entry with one of these names is not what the script would write, or is a `cmapi.*` user or `app-cmapi-rbac-*` group it does not hold. **Stops when,** after: a digest of every other entry's name and non-password attributes under `ou=People` and `ou=Groups` moved; the gate's members moved; the bind user cannot read the 10 groups and 13 users, or can see a hash; a user cannot sign in to LDAP with the Secret's password. A stop after the write leaves what it wrote, and `apply-test-identities.sh --remove-test-identities` takes exactly that away.
+
+### Step 10: the ten old groups out of LDAP
+
+```bash
+( set -euo pipefail
+  $G gate "$STOP"
+  examples/cmapi-sso/ldap/apply-test-identities.sh --remove-old-groups | tee -a "$RUN/ldap-identities.txt"
+); stopped $? 10
+```
+
+Each by its full `dn`, from a list in the script: no filter, no `-r`, and it takes no name from outside. A look-alike such as `cn=cmapi-other` stays.
+
+**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
+
+### Step 11: the Secrets
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/secrets.sh --issuer https://keycloak.apps-crc.testing/realms/cmapi --ca-file "$CMAPI_CRC_CA" --test-users
-); stopped $? 9
+); stopped $? 11
 ```
 
 This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
 
-### Step 10: the snapshot, and the watch from here to the end
+### Step 12: the snapshot, and the watch from here to the end
 
 ```bash
 ( set -euo pipefail
@@ -215,35 +260,35 @@ This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, 
   rm -f "$RUN/watch.log.done"
   nohup $G watch "$RUN/watch.log" "$STOP" "$RUN/s0.json" >"$RUN/watch.out" 2>&1 &
   $G watching "$STOP"
-); stopped $? 10
+); stopped $? 12
 ```
 
 **Stops when** a realm does not answer 200, or the watch did not begin. From here the watch runs in the background, with `CMAPI_CRC_CA` exported, and a breach writes `$STOP`. Every later step checks it, and also that the watch is still running and has looked within 120 s: a watch that is killed or hangs writes nothing, and nobody would be looking.
 
-### Step 11: the backup, immediately before the import
+### Step 13: the backup, immediately before the import
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/crc-backup.sh
-); stopped $? 11
+); stopped $? 13
 ```
 
 **A failed backup stops the run.** See [The backup](#the-backup).
 
-### Step 12: the backup changed nothing
+### Step 14: the backup changed nothing
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   $G snapshot "$RUN/s1.json"
   $G compare "$RUN/s0.json" "$RUN/s1.json"
-); stopped $? 12
+); stopped $? 14
 ```
 
 **Stops on** any difference.
 
-### Step 13: the import, alone on the quietest cluster
+### Step 15: the import, alone on the quietest cluster
 
 ```bash
 ( set -euo pipefail
@@ -255,19 +300,19 @@ This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, 
   [ "$rc" = 10 ]
   oc apply --server-side --dry-run=server --field-manager=cmapi-wave1 -f "$I"
   oc apply --server-side --field-manager=cmapi-wave1 -f "$I"
-); stopped $? 13
+); stopped $? 15
 ```
 
 **Stops when** the run is stopped; headroom is under the line; the file names anything but `cmapi`; the realm is not absent; the API refuses `spec.resources`.
 
-If RHBK's Job needs more than the 1 Gi limit, it is killed, the wait in step 14 withdraws it, and the fallback is a pull request deleting the `resources` block: the operator's 1,700 Mi default fits alone at 2,318 Mi left (see [Memory](#memory)).
+If RHBK's Job needs more than the 1 Gi limit, it is killed, the wait in step 16 withdraws it, and the fallback is a pull request deleting the `resources` block: the operator's 1,700 Mi default fits alone at 2,318 Mi left (see [Memory](#memory)).
 
-### Step 14: follow the import
+### Step 16: follow the import
 
 ```bash
 ( set -euo pipefail
   $G import-wait "$STOP" | tee "$RUN/import.txt"
-); stopped $? 14
+); stopped $? 16
 ```
 
 | What it sees | Bound | What it does |
@@ -282,7 +327,7 @@ If RHBK's Job needs more than the 1 Gi limit, it is killed, the wait in step 14 
 
 This step alone starts with no gate, since a stop is what it must act on. It has no bound on a running import, so if it stops without saying `withdrawn` or `Done`, read `oc get keycloakrealmimport cmapi -n keycloak`: an import still there can still start.
 
-### Step 15: nothing else changed, with time for a late restart
+### Step 17: nothing else changed, with time for a late restart
 
 ```bash
 ( set -euo pipefail
@@ -292,12 +337,12 @@ This step alone starts with no gate, since a stop is what it must act on. It has
   $G gate "$STOP"
   $G snapshot "$RUN/s2.json"
   $G compare "$RUN/s0.json" "$RUN/s2.json"
-); stopped $? 15
+); stopped $? 17
 ```
 
 **Stops on** any difference. 120 s because a restart could lag.
 
-### Step 16: delete the import, keep the realm
+### Step 18: delete the import, keep the realm
 
 The operator's guide says to delete it once the realm is imported. It removes the Job, the pod and the Secret holding the realm's JSON. The realm stays, because no code path in the controller calls Keycloak. Deleting also means it can never start again unattended.
 
@@ -310,12 +355,12 @@ The operator's guide says to delete it once the realm is imported. It removes th
   $G gate "$STOP"
   $G snapshot "$RUN/s3.json"
   $G compare "$RUN/s0.json" "$RUN/s3.json"
-); stopped $? 16
+); stopped $? 18
 ```
 
 **Stops when** the realm is not present afterwards, or on any difference.
 
-### Step 17: the database
+### Step 19: the database
 
 ```bash
 ( set -euo pipefail
@@ -323,12 +368,12 @@ The operator's guide says to delete it once the realm is imported. It removes th
   $G headroom --needs 672
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/database-cnpg/cluster.yaml"
   oc wait cluster.postgresql.cnpg.io/cmapi-db -n cmapi --for=jsonpath='{.status.phase}'='Cluster in healthy state' --timeout=300s
-); stopped $? 17
+); stopped $? 19
 ```
 
 **Stops when** the run is stopped, headroom is under the line, or the database is not healthy.
 
-### Step 18: the workloads, the policy first
+### Step 20: the workloads, the policy first
 
 The policy goes first by itself: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment.
 
@@ -338,14 +383,14 @@ The policy goes first by itself: `-R` applies files in name order, `20-api` ahea
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
   oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
   for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
-); stopped $? 18
+); stopped $? 20
 ```
 
 **Stops when** a rollout is not done.
 
-### Step 19: the realm's mutable parts
+### Step 21: the realm's mutable parts
 
-The user profile, group mappings, read-only LDAP federation and local test users. Without it `employee_id` never reaches a token. One try and no retries: `requireSync` fails the Job when federation read nobody (#96).
+The user profile, group mappings, read-only LDAP federation and local test users. Without it `employee_id` never reaches a token. One try and no retries: `requireSync` fails the Job when federation read nobody (#96), and `expectUsers` when it read anything but the 13 test users, which is what `usersFilter` lets it read (#110).
 
 ```bash
 ( set -euo pipefail
@@ -355,33 +400,33 @@ The user profile, group mappings, read-only LDAP federation and local test users
   rc=0; oc wait job/cmapi-realm-sync -n cmapi --for=condition=Complete --timeout=600s || rc=$?
   oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"      # whichever way it ended: the log says why
   [ "$rc" = 0 ]
-); stopped $? 19
+); stopped $? 21
 ```
 
-**Stops when** the Job fails, which now includes a federation that read nobody. A failed Job is not Complete, so the wait runs out its 600 s; read the log.
+**Stops when** the Job fails, which includes a federation that read nobody, or read anyone but the 13. A failed Job is not Complete, so the wait runs out its 600 s; read the log.
 
-### Step 20: nothing else changed
+### Step 22: nothing else changed
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   $G snapshot "$RUN/s4.json"
   $G compare "$RUN/s0.json" "$RUN/s4.json"
-); stopped $? 20
+); stopped $? 22
 ```
 
-### Step 21: the proofs
+### Step 23: the proofs
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"
-); stopped $? 21
+); stopped $? 23
 ```
 
 Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure.
 
-### Step 22: the end of the watch
+### Step 24: the end of the watch
 
 ```bash
 ( set -euo pipefail
@@ -393,12 +438,12 @@ Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at**
   last=$(tail -1 "$RUN/watch.log"); echo "$last"
   case "$last" in *"watch ended rc=0") ;; *) echo "STOP: the watch did not end clean"; exit 1;; esac
   oc adm top node | tee "$RUN/top-after.txt"
-); stopped $? 22
+); stopped $? 24
 ```
 
 **Stops on** any difference, or a last line that is not `watch ended rc=0`.
 
-### Step 23: delete the backup
+### Step 25: delete the backup
 
 Once the run is verified and the coordinator agrees. It is the owner's term.
 
@@ -406,7 +451,7 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/crc-backup.sh --delete
-); stopped $? 23
+); stopped $? 25
 ```
 
 ## The issue's proofs
@@ -418,11 +463,12 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 | `/api/v1/version` names the built commit | Equals `git rev-parse --short=10 HEAD`; the api's and worker's `imageID` hold the digest | `crc-proof.sh` |
 | The Route through the policy | A Route that answers proves nothing unless something was blocked. A throwaway namespace's pod must reach the mockup (the control), and must be blocked from the api: wget's own `download timed out`, what a dropped connection gives on the probe's image (measured), with the api answering the router straight after. A bad address, a refused connection or a failed `oc exec` fails the proof, since none of them says anything about the policy. OVN-Kubernetes's documentation describes a drop, not a reset; the first run measures it, and a reset would stop here to be read. `/metrics` is 404 through the Route. Plain HTTP is redirected | `crc-proof.sh` |
 | `/docs` signed in, `GET /api/v1/me` | Open `https://cmapi-api.apps-crc.testing/docs`, Authorize, sign in as local user `ola`, Try it out on `/api/v1/me`, screenshot. Her password goes to the clipboard, never the screen: `oc get secret cmapi-test-users -n cmapi -o 'jsonpath={.data.ola}' \| base64 -d \| pbcopy`. `crc-proof.sh` signs in `bot-user` by password grant | Chrome and `crc-proof.sh` |
-| A login through LDAP federation | The owner, as an LDAP person; `/me` shows `/cmapi/cmapi-*` groups and `employeeId` equal to `uidNumber`, screenshot. Before it, `LDAP full sync: 200` with `added` above 0 in the Job's log | Chrome |
+| Each test user's token through LDAP federation | Signs in each of the 13 by the password grant, its password from the Secret on stdin, and holds its token against `test-identities.tsv`: exactly those groups and roles, and `employee_id` equal to `uidNumber`. `cmapi.noaccess` gets 403 on `/api/v1/clusters`, where `cmapi.viewer` gets 200. Before it, `LDAP full sync: 200` with `added` 13 in the Job's log | `crc-proof.sh` |
+| A login through LDAP federation in a browser | The owner signs in to `/docs` as `cmapi.requester`, Try it out on `/api/v1/me`, screenshot: `/cmapi/app-cmapi-rbac-requester` and `employeeId` 10102. The password goes to the clipboard, never the screen: `oc get secret cmapi-ldap-test-users -n cmapi -o 'jsonpath={.data.cmapi\.requester}' \| base64 -d \| pbcopy` | Chrome |
 | The mockup, captioned as static | `https://cmapi-mockup.apps-crc.testing/portal.html`, screenshot captioned "static mockup, no API behind it" | Chrome |
 | `pg_stat_ssl` | From the server's side: every `cmapi` connection on TLS. For the migrate container's environment, `kind-test.sh`'s pod by the same steps, if wanted | `crc-proof.sh` |
 | Prometheus scraping | Thanos Querier's Route, the session's token on stdin: `up` for both targets, and `cmapi_cluster_status` connected. No exec into someone else's pod | `crc-proof.sh` |
-| `oc adm top node` before and after | Steps 2 and 22 | Files |
+| `oc adm top node` before and after | Steps 2 and 24 | Files |
 | Nothing can write | `oc auth can-i` both ways, and a namespace plan with `?dryRun=true` stops at 422 `cluster-not-writable` | `crc-proof.sh` |
 
 ## Other realms unaffected
@@ -443,7 +489,7 @@ It can only be bounded, not ruled out: Keycloak has one instance, and the cause 
 2. **Take no action on Keycloak:** no delete, no restart, no CR edit, no scale.
 3. **Tell the owner immediately,** with `watch.log` and `oc describe pod keycloak-0 -n keycloak`, read-only.
 4. **The baseline is 2 min 42 s**, the one measured restart. **At 300 s still unready, the watch prints `REPORT TO THE OWNER NOW`.** That is 1.85 times the only measurement, so a normal restart does not raise it, and it comes well before the kubelet's own limit: the startup probe's `600 x 1 s` would kill and restart the container, doubling the outage.
-5. **The run does not resume by itself.** After the owner has heard: snapshot, and compare with `s0`. A new `keycloak-0` start is expected to differ. The realms must not. If the owner says go on: `touch "$RUN/watch.log.done"`, wait for `watch ended` in `watch.log`, `rm -f "$STOP" "$STOP.alive"`, and go on from step 10, which takes a new baseline and a new watch. The same goes for any other stop.
+5. **The run does not resume by itself.** After the owner has heard: snapshot, and compare with `s0`. A new `keycloak-0` start is expected to differ. The realms must not. If the owner says go on: `touch "$RUN/watch.log.done"`, wait for `watch ended` in `watch.log`, `rm -f "$STOP" "$STOP.alive"`, and go on from step 12, which takes a new baseline and a new watch. The same goes for any other stop.
 
 While Keycloak is down, cmapi's own pods hold (read from `auth.py`, `health.py`, `keycloak_admin.py`): issued tokens keep verifying from the cached signing keys, an unknown `kid` is 503 `idp-unavailable`, `/readyz` tests only the database so no pod restarts, and there is no retry storm: one JWKS fetch per pod per 30 s. A new sign-in is impossible, since that is Keycloak's.
 
@@ -479,13 +525,15 @@ deploy/crc-rollback.sh --yes
 
 It removes, each by name, what Wave 1 added, in dependency order. Every delete names one object.
 
-**Stays, because it was there before Wave 1:** namespace `cmapi` and the Secrets the cluster generated in it, `cmapi-ldap-bind` in both namespaces, every LDAP entry. Only the label the apply added is removed.
+**In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
+
+**Stays, because it was there before Wave 1:** namespace `cmapi` and the Secrets the cluster generated in it, `cmapi-ldap-bind` in both namespaces, every other LDAP entry. Only the label the apply added is removed.
 
 **Stays by design:**
 
 | Left behind | Why | Effect |
 |---|---|---|
-| Realm `cmapi`, with its federation | Deleting a realm is the owner's call | `GET /realms/cmapi` is 200, not 404. Keycloak polls LDAP for it every 15 min with the read-only bind user, until removed |
+| Realm `cmapi`, with its federation | Deleting a realm is the owner's call | `GET /realms/cmapi` is 200, not 404. Keycloak polls LDAP for it every 15 min with the read-only bind user, until removed, and now finds nobody |
 | `master`'s client `cmapi-realm` | Creating any realm adds it; it goes with the realm | One more client in `master`. No key or other realm changes |
 | `cmapi-realm-secrets` in `keycloak` | The authority for the realm's secrets. A rerun copies from it and never mints | One Secret |
 | The PV's data | The class is Retain. The script deletes the PV object only if its claim was `cmapi/cmapi-db-1` and it is `Released`; the directory stays on the node (inferred), and cmapi does not write to the node | Disk on the node, a 2 Gi claim |
@@ -538,4 +586,4 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 
 ## Not proven before the run
 
-RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; what `oc whoami` prints for kubeadmin on this CRC (either form passes). `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.
+RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; `apply-test-identities.sh` against the real server's rules, memberOf overlay and gate group (`deploy/tests/ldap-identities-test.sh` runs it on the same image, `osixia/openldap:1.5.0`, with rules shaped as the server's and the overlay both ways); what `oc whoami` prints for kubeadmin on this CRC (either form passes). `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.

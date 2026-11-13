@@ -1,0 +1,137 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -334,6 +334,25 @@
+   # A precondition: measured before the write, not found after it.
+   acls people; refused_clean "a bind user the rule for ou=People names and the rule for ou=Groups does not"; grep -q 'reads nothing under ou=Groups' "$W/out" || bad "no reason given: $(tail -2 "$W/out")"
+   acls 1; remove_ours
++  # The old groups go only for a new set that is what the script writes.
++  [ "$(run)" = 0 ] || bad "the run before the unproven set: $(tail -3 "$W/out")"
++  adm ldapmodify >/dev/null 2>&1 <<LDIF
++dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
++changetype: modify
++add: member
++member: cn=john.doe,ou=People,$BASE
++LDIF
++  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a new group holds someone else" || bad "the old groups went with a new group not as written: rc $rc"
++  adm ldapmodify >/dev/null 2>&1 <<LDIF
++dn: cn=app-cmapi-rbac-viewer,ou=Groups,$BASE
++changetype: modify
++delete: member
++member: cn=john.doe,ou=People,$BASE
++LDIF
++  reseed_removal
++  adm ldapdelete "cn=cmapi.admin,ou=People,$BASE" >/dev/null 2>&1
++  rc=$(run --remove-old-groups); [ "$rc" != 0 ] && [ ! -s "$LT_DELETES" ] && ok "refused: removing the old groups while a test user is missing" || bad "the old groups went with a test user missing: rc $rc"
++  reseed_removal; remove_ours
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+--- a/docs/11-existing-identity-services.md
++++ b/docs/11-existing-identity-services.md
+@@ -81,7 +81,7 @@
+ 
+ ### Removing them
+ 
+-- **The ten old groups.** `--remove-old-groups` deletes `cmapi-viewers`, `cmapi-requesters`, `cmapi-onboarding`, `cmapi-prod-approvers`, `cmapi-qa-leads`, `cmapi-uat-leads`, `cmapi-platform-leads`, `cmapi-platform-operators`, `cmapi-platform-admins` and `cmapi-auditors`, each by its full `dn`, from a list in the script. It takes no name from outside, refuses an old name that is not a `groupOfNames`, and refuses to start until the new groups are there. They were created on 2026-11-05 with real people as example members, and those people are otherwise untouched: if the server's `memberOf` overlay tracks `member`, they lose those values, which is the removal itself.
++- **The ten old groups.** `--remove-old-groups` deletes `cmapi-viewers`, `cmapi-requesters`, `cmapi-onboarding`, `cmapi-prod-approvers`, `cmapi-qa-leads`, `cmapi-uat-leads`, `cmapi-platform-leads`, `cmapi-platform-operators`, `cmapi-platform-admins` and `cmapi-auditors`, each by its full `dn`, from a list in the script. It takes no name from outside, refuses an old name that is not a `groupOfNames`, and refuses to start until every new group and test user is exactly what the first form writes. They were created on 2026-11-05 with real people as example members, and those people are otherwise untouched: if the server's `memberOf` overlay tracks `member`, they lose those values, which is the removal itself.
+ - **The test identities.** `--remove-test-identities` deletes the 10 groups and 13 users each by its full `dn`, then the Secret by name. `deploy/crc-rollback.sh` calls it. It restores nothing.
+ 
+ ### Who else could see them
+--- a/docs/13-crc-deployment.md
++++ b/docs/13-crc-deployment.md
+@@ -238,7 +238,7 @@
+ 
+ Each by its full `dn`, from a list in the script: no filter, no `-r`, and it takes no name from outside. A look-alike such as `cn=cmapi-other` stays.
+ 
+-**Stops when** a new group is not there yet; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
++**Stops when** a new group or test user is not there, or is not what step 9 writes; an old name holds anything but a `groupOfNames`, before it deletes any; the digest of everything else moved. A real person who was a member loses `memberOf` for those groups if the server's overlay tracks `member`, which is the removal itself and is left out of the digest. Nothing puts these groups back: the rollback does not.
+ 
+ ### Step 11: the Secrets
+ 
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -156,6 +156,34 @@
+   [ -s "$2" ] || die "Secret $secret has no key $1"
+ }
+ 
++# The state of each of our entries in $tmp/state, one line each: same, different or absent. And stranger for anything else holding one of our names, since the realm would read it. $tmp/ours is their names.
++read_state() {
++  { new_group_dns; new_user_dns; } > "$tmp/ours"
++  : > "$tmp/expected"
++  users | while read -r uid number; do user_ldif "$uid" "$number"; echo; done >> "$tmp/expected"
++  groups_for_this_server >> "$tmp/expected"
++  in_pod "$lib"'
++    cat > "$w/expected"
++    awk -v w="$w" '"'"'BEGIN { RS = "" } { f = w "/e" NR; print > f; close(f) }'"'"' "$w/expected"
++    : > "$w/ours"
++    for f in "$w"/e[0-9]*; do
++      dn=$(sed -n "s/^dn: //p" "$f"); echo "$dn" >> "$w/ours"
++      if present "$dn"; then
++        search -b "$dn" -s base "*" | grep -vi "^userPassword:" | grep -v "^$" | LC_ALL=C sort > "$w/have"
++        grep -v "^$" "$f" | LC_ALL=C sort > "$w/want"
++        if cmp -s "$w/have" "$w/want"; then echo "same $dn"; else echo "different $dn"; fi
++      else
++        echo "absent $dn"
++      fi
++    done
++    names -b "$LDAP_BASE_DN" -s sub "(uid=cmapi.*)" > "$w/named"
++    names -b "$LDAP_BASE_DN" -s sub "(cn=app-cmapi-rbac-*)" >> "$w/named"
++    while read -r dn; do grep -qxF "$dn" "$w/ours" || echo "stranger $dn"; done < "$w/named"
++  ' < "$tmp/expected" > "$tmp/state"
++  # One line for each of ours, or the program did not do what it was asked, and no line would read as nothing wrong.
++  [ "$(grep -cE '^(same|different|absent) ' "$tmp/state" || true)" = "$(wc -l < "$tmp/ours" | tr -d ' ')" ] || die "the state of cmapi's entries could not be read: nothing written"
++}
++
+ # ---- deleting: from the fixed names above, by full dn, on stdin. No -r, no filter.
+ delete_exact() { # stdin: one dn a line
+   in_pod "$lib"'
+@@ -173,9 +201,12 @@
+       grep -qix "objectClass: groupOfNames" "$w/e" || { echo "FAIL: $dn is not a groupOfNames: leaving every entry alone" >&2; exit 1; }
+     done
+   ' < "$dns"
+-  new_group_dns | in_pod "$lib"'
+-    while read -r dn; do present "$dn" || { echo "FAIL: $dn is not there yet: the old groups stay until the new ones are in place" >&2; exit 1; }; done
+-  '
++  # The old groups stay until every new entry is what this script writes. A group at the right name with other members, or a test user missing, would leave someone with the wrong role or with none once these go.
++  read_state
++  if grep -qv '^same ' "$tmp/state"; then
++    grep -v '^same ' "$tmp/state" | sed 's/^/FAIL: /' >&2
++    die "the new groups and test users are not all in place as this script writes them: the old groups stay, none deleted"
++  fi
+   measure "$dns" 1 > "$tmp/before"
+   # Only those still there: ldapdelete stops on one that is gone, and a rerun has to pass.
+   in_pod "$lib"'
+@@ -210,31 +241,8 @@
+ esac
+ 
+ # ---- before any write: every read that can stop this.
+-{ new_group_dns; new_user_dns; } > "$tmp/ours"
+-: > "$tmp/expected"
+-users | while read -r uid number; do user_ldif "$uid" "$number"; echo; done >> "$tmp/expected"
+-groups_for_this_server >> "$tmp/expected"
+-
+-# The state of each of our entries, one line each. "different" stops the run: it is not ours to change. And nothing else may hold our names, or the realm would read it.
+-in_pod "$lib"'
+-  cat > "$w/expected"
+-  awk -v w="$w" '"'"'BEGIN { RS = "" } { f = w "/e" NR; print > f; close(f) }'"'"' "$w/expected"
+-  : > "$w/ours"
+-  for f in "$w"/e[0-9]*; do
+-    dn=$(sed -n "s/^dn: //p" "$f"); echo "$dn" >> "$w/ours"
+-    if present "$dn"; then
+-      search -b "$dn" -s base "*" | grep -vi "^userPassword:" | grep -v "^$" | LC_ALL=C sort > "$w/have"
+-      grep -v "^$" "$f" | LC_ALL=C sort > "$w/want"
+-      if cmp -s "$w/have" "$w/want"; then echo "same $dn"; else echo "different $dn"; fi
+-    else
+-      echo "absent $dn"
+-    fi
+-  done
+-  names -b "$LDAP_BASE_DN" -s sub "(uid=cmapi.*)" > "$w/named"
+-  names -b "$LDAP_BASE_DN" -s sub "(cn=app-cmapi-rbac-*)" >> "$w/named"
+-  while read -r dn; do grep -qxF "$dn" "$w/ours" || echo "stranger $dn"; done < "$w/named"
+-' < "$tmp/expected" > "$tmp/state"
+-
++# "different" stops the run: it is not ours to change. And nothing else may hold our names, or the realm would read it.
++read_state
+ if grep -qE '^(different|stranger) ' "$tmp/state"; then
+   grep -E '^(different|stranger) ' "$tmp/state" | sed 's/^/FAIL: /' >&2
+   die "an entry with one of cmapi's names is not what this script would write: nothing written"

@@ -1,0 +1,99 @@
+--- a/deploy/tests/ldap-identities-test.sh
++++ b/deploy/tests/ldap-identities-test.sh
+@@ -2,7 +2,7 @@
+ # shellcheck disable=SC2015,SC2016  # ok and bad never fail, so A && ok || bad is if-then-else; the programs in single quotes run in the container
+ # deploy/tests/ldap-identities-test.sh: examples/cmapi-sso/ldap/apply-test-identities.sh, against a real OpenLDAP of the image the server runs (osixia/openldap 1.5.0), with a stub oc that forwards
+ # exec to it and keeps Secrets as files. Rules shaped as the server's (ConfigMap ldap-acls, read on 2026-11-06), a gate group and an identity-provider filter as OpenShift's, and the ten old groups with their real members.
+-# Then every way the script says it stops, and mutants of it: a mutant that passes is a promise this test cannot fail on. The server's memberOf overlay is not known from outside the pod, so the run is repeated on the image's default (groupOfUniqueNames)
++# Then every way the script says it stops, real failures inside the container, and mutants of it: a mutant that passes is a promise this test cannot fail on. "ldap-identities-test.sh failures" runs the failures alone, says so, and runs no mutant. The server's memberOf overlay is not known from outside the pod, so the run is repeated on the image's default (groupOfUniqueNames)
+ # and on groupOfNames, where a group's change reaches its members' entries. One container cmapi-w1-lt-*, labelled, with no port published; only what this run labelled is removed. Test values only. CONTAINER=podman on a Mac, docker in CI. Exit 1 on any failure.
+ set -uo pipefail
+ HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/../.." && pwd); SRC=$ROOT/examples/cmapi-sso/ldap
+@@ -288,6 +288,37 @@
+   # The old groups go only once the new are there.
+   rc=$(run --remove-old-groups); [ "$rc" != 0 ] && ok "refused: removing the old groups before the new are there" || bad "the old groups went with no new ones there"
+   [ "$(count "ou=Groups,$BASE" "(cn=cmapi-*)")" = 12 ] && ok "  and none was deleted" || bad "some were deleted"
++}
++
++# Real failures inside the server's container: not text in the script, and no stub answering for LDAP. A tool is moved aside, or a shim in its place fails the calls a glob of its arguments matches, as a server that stopped answering does.
++tool_gone() { in_c sh -c 'p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"' _ "$1"; }
++tool_fails() { # tool_fails <tool> <glob of its arguments, with no space: it goes into a case pattern unquoted>
++  in_c sh -c '
++    p=$(command -v "$1"); mv "$p" "$p.real"; echo "$p" > "/tmp/lt-$1"
++    printf "#!/bin/sh\ncase \"\$*\" in %s) echo \"%s: failed for this case\" >&2; exit 52;; esac\nexec %s \"\$@\"\n" "$2" "$1" "$p.real" > "$p"
++    chmod +x "$p"
++  ' _ "$1" "$2"
++}
++tool_back() { in_c sh -c 'p=$(cat "/tmp/lt-$1"); mv "$p.real" "$p"; rm -f "/tmp/lt-$1"' _ "$1"; }
++refused_clean() { # refused_clean <label>: as refuses, and no Secret made either
++  refuses "$1"
++  [ ! -d "$W/secrets/cmapi/cmapi-ldap-test-users" ] && ok "  and no Secret made" || bad "$1: a Secret was made before the refusal"
++}
++the_gate() { # the gate as start seeds it
++  printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: groupOfNames\ncn: app-ssb-autobahnusers\nmember: cn=john.doe,ou=People,%s\nmember: cn=jane.smith,ou=People,%s\n\n' "$BASE" "$BASE" "$BASE" | adm ldapadd >/dev/null
++}
++# A failure must stop the run, and not pass as a measurement or a proof. Each case starts on a directory holding none of ours, with the bind user in the rules.
++the_failures() {
++  echo "-- real failures"
++  tool_gone sha256sum; refused_clean "sha256sum gone: no digest to compare"; tool_back sha256sum; remove_ours
++  tool_fails sort '*canon*'; refused_clean "sort fails on what the digest covers: a digest of nothing matches itself"; tool_back sort; remove_ours
++  tool_fails cut '*-f1*'; refused_clean "the digest comes back empty"; tool_back cut; remove_ours
++  tool_fails grep '*uniqueMember*'; refused_clean "the gate's members cannot be taken from what was read: a digest of nothing matches itself"; tool_back grep; remove_ours
++  # A gate that answers with no member at all, in the form that does not also look for the login filter's people.
++  adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1
++  printf 'dn: cn=app-ssb-autobahnusers,ou=Groups,%s\nobjectClass: posixGroup\ncn: app-ssb-autobahnusers\ngidNumber: 5\nmemberUid: john.doe\n\n' "$BASE" | adm ldapadd >/dev/null
++  local rc; rc=$(run --remove-test-identities); [ "$rc" != 0 ] && ok "refused: a gate with no member attribute, on the removal too" || bad "a gate with no member attribute passed as unchanged"
++  adm ldapdelete "cn=app-ssb-autobahnusers,ou=Groups,$BASE" >/dev/null 2>&1; the_gate
+ }
+ 
+ # Mutants of the script, each on a fresh directory state. A mutant that passes is a promise above that means nothing.
+@@ -385,9 +416,10 @@
+ sys.exit(0 if ldif == table and len(ldif) == 10 and all(ldif.values()) else 1)
+ PY
+ 
+-the_run groupOfNames
+-the_run groupOfUniqueNames
+-the_stops
+-the_mutants
++case "${1:-all}" in
++  all) the_run groupOfNames; the_run groupOfUniqueNames; the_stops; the_failures; the_mutants ;;
++  failures) start groupOfNames; the_failures; echo "the failures alone: no mutant ran, and neither did the rest of this test" ;;
++  *) echo "usage: $0 [failures]" >&2; exit 2 ;;
++esac
+ 
+ echo "ldap identity cases failed: $fails, mutants survived: $survived"; [ "$fails" = 0 ] && [ "$survived" = 0 ]
+--- a/examples/cmapi-sso/ldap/apply-test-identities.sh
++++ b/examples/cmapi-sso/ldap/apply-test-identities.sh
+@@ -115,16 +115,28 @@
+     { print d, $0 }
+   '"'"' "$w/skip" "$w/people" "$w/groups" > "$w/canon"
+   [ -s "$w/canon" ] || { echo "FAIL: nothing to measure under ou=People and ou=Groups: a digest of nothing would match itself" >&2; exit 1; }
+-  LC_ALL=C sort "$w/canon" | sha256sum | cut -d" " -f1 | sed "s/^/others=/"
++  # One step a line, through files: this shell has no pipefail, so in a pipeline a sort or a sha256sum that fails would leave a digest of nothing, which matches itself.
++  LC_ALL=C sort "$w/canon" > "$w/canon-sorted"
++  sha256sum < "$w/canon-sorted" > "$w/canon-sum"
++  echo "others=$(cut -d" " -f1 "$w/canon-sum")"
+   rc=0; search -b "$2" -s base member uniqueMember > "$w/gate" || rc=$?
+   [ "$rc" = 0 ] || { echo "FAIL: cannot read the gate group $2: rc $rc" >&2; exit 1; }
+-  grep -iE "^(member|uniqueMember):" "$w/gate" | LC_ALL=C sort | sha256sum | cut -d" " -f1 | sed "s/^/gate=/"
++  grep -iE "^(member|uniqueMember):" "$w/gate" > "$w/gate-members" || true
++  [ -s "$w/gate-members" ] || { echo "FAIL: the gate group $2 has no readable members: a digest of nothing would prove nothing" >&2; exit 1; }
++  LC_ALL=C sort "$w/gate-members" > "$w/gate-sorted"
++  sha256sum < "$w/gate-sorted" > "$w/gate-sum"
++  echo "gate=$(cut -d" " -f1 "$w/gate-sum")"
+   search -b "$LDAP_BASE_DN" -s sub "(&(uid=*)(memberOf=$2))" uid > "$w/idp"
+   echo "idp=$(grep -c "^uid:" "$w/idp" || true)"
+   echo "idp_cmapi=$(grep -c "^uid: cmapi\." "$w/idp" || true)"
+ '
+-measure() { # measure <skip file> <strip 0|1>
+-  in_pod "$measure_prog" _ "$2" "$gate_dn" <"$1"
++measure() { # measure <skip file> <strip 0|1>. Each value there once and not empty, or same_rest would compare two nothings and pass.
++  in_pod "$measure_prog" _ "$2" "$gate_dn" <"$1" > "$tmp/measured"
++  for key in others gate idp idp_cmapi; do
++    [ "$(grep -c "^$key=" "$tmp/measured" || true)" = 1 ] || die "the measurement $key is missing or repeated"
++    [ -n "$(value_of "$key" "$tmp/measured")" ] || die "the measurement $key is empty"
++  done
++  cat "$tmp/measured"
+ }
+ value_of() { sed -n "s/^$1=//p" "$2"; }
+ same_rest() { # same_rest <before> <after>. Fails unless the directory outside this script's entries did not move.

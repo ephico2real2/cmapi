@@ -4,7 +4,8 @@
 #                              --extra-ca appends a public CA, an external database's (docs/12).
 #   --check                    the file still verifies Keycloak: a real TLS handshake against the Route, with the file as the only CA.
 #                              Reads no Secret. Fails on a rotated CA, so the fix goes through Git and the checksum restarts the pods.
-#   --mac-ca OUT               writes the bundle this Mac's checks use: that CA (Keycloak's Route is passthrough) and the ingress CA (edge Routes).
+#   --mac-ca OUT               writes the bundle this Mac's checks use: every CA of the trust file (Keycloak's Route is passthrough) and the ingress CA (edge Routes). Beside it, keycloak-ca.pem and ingress-ca.pem,
+#                              one CA each, for the keychain step in docs/13: Keycloak's is the file's first, as --write puts it. Only CA:TRUE certificates: default-ingress-cert's bundle also holds the *.apps-crc.testing site certificate (#109).
 # Public certificates only. keycloak-tls also holds tls.key: only the one key is ever asked for, nothing else is written or printed. The API
 # has no field filter for a Secret, so the object reaches oc's memory; that is why --write is a one-time step and --check reads no Secret.
 set -euo pipefail
@@ -59,11 +60,31 @@ check() {
   [ "$rc" = 0 ] && [ "$code" = 200 ] || { echo "ERROR: $OUT does not verify $KEYCLOAK (curl rc $rc, HTTP ${code:-none}). If the CA rotated: deploy/crc-trust.sh --write, commit, render, apply" >&2; return 1; }
   echo "30-trust.yaml verifies $KEYCLOAK"
 }
+# is_ca FILE: Basic Constraints says CA:TRUE. By that field: the text of a subject could say anything. awk reads to the end, or under pipefail a real CA would read as none (see require_certs).
+is_ca() {
+  local text; text=$(openssl x509 -in "$1" -noout -text 2>/dev/null | awk '/X509v3 Basic Constraints/ { getline; print }') || return 1
+  case "$text" in *CA:TRUE*) return 0;; *) return 1;; esac
+}
+# the_one_ca <name> <output>: stdin is a PEM bundle, and the output is its one CA certificate, whatever else it held. None, or two, is a stop: which one to trust is not this script's guess.
+the_one_ca() {
+  local name=$1 out=$2 d pem found=0; d=$(mktemp -d)
+  awk -v d="$d" '/BEGIN CERTIFICATE/ { n++ } n { print > (d "/" n ".pem") }'
+  for pem in "$d"/*.pem; do
+    [ -e "$pem" ] || continue
+    if is_ca "$pem"; then cat "$pem" >"$out"; found=$((found+1)); fi
+  done
+  rm -rf "$d"
+  [ "$found" = 1 ] || { echo "ERROR: $name holds $found CA certificates, not one" >&2; rm -f "$out"; exit 1; }
+}
+# first_cert: stdin's first PEM certificate. awk reads to the end, or under pipefail what feeds it could die of SIGPIPE (see require_certs).
+first_cert() { awk '/BEGIN CERTIFICATE/ { n++ } n == 1 { print }'; }
 mac_ca() {
-  local out=$1
-  ( umask 077; { bundle_of "$OUT"; oc_ get cm default-ingress-cert -n openshift-config-managed -o 'jsonpath={.data.ca-bundle\.crt}'; } >"$out" )
-  [ "$(grep -c 'BEGIN CERTIFICATE' "$out")" -ge 2 ] || { echo "ERROR: $out does not hold both CAs" >&2; exit 1; }
-  echo "wrote $out"
+  local out=$1 dir; dir=$(dirname "$out")
+  ( umask 077
+    bundle_of "$OUT" | first_cert | the_one_ca "$OUT" "$dir/keycloak-ca.pem"
+    oc_ get cm default-ingress-cert -n openshift-config-managed -o 'jsonpath={.data.ca-bundle\.crt}' | the_one_ca "ConfigMap default-ingress-cert" "$dir/ingress-ca.pem"
+    { bundle_of "$OUT"; cat "$dir/ingress-ca.pem"; } >"$out" )
+  echo "wrote $out, $dir/keycloak-ca.pem and $dir/ingress-ca.pem"
 }
 case "${1:-}" in
   --write) if [ "${2:-}" = --extra-ca ]; then write "${3:?file}"; else write ""; fi ;;

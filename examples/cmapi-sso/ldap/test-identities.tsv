@@ -1,0 +1,17 @@
+# The test users of docs/11 and what each one's token must hold on client cmapi-nonprod. The one source for apply-test-identities.sh,
+# deploy/crc-proof.sh, deploy/tests/realm-test.py and the checks of cmapi-groups.ldif and the realm import, so none derives "expected" from what it tests.
+# Fields, tab-separated: uid, uidNumber, LDAP groups, client roles. A list is comma-separated, sorted; - is none.
+# Two prod approvers because a prod delete needs two. cmapi.selfapprove requests and approves, for the self-approval rule. cmapi.noaccess holds nothing and must get 403.
+cmapi.viewer	10100	app-cmapi-rbac-viewer	cmapi-viewer
+cmapi.onboarding	10101	app-cmapi-rbac-onboarding	cmapi-onboarding
+cmapi.requester	10102	app-cmapi-rbac-requester	cmapi-requester
+cmapi.operator	10103	app-cmapi-rbac-operator	cmapi-approver,cmapi-operator
+cmapi.admin	10104	app-cmapi-rbac-admin	cmapi-admin
+cmapi.auditor	10105	app-cmapi-rbac-auditor	cmapi-auditor
+cmapi.approver-prod	10106	app-cmapi-rbac-approver-prod	cmapi-approver
+cmapi.approver-prod2	10107	app-cmapi-rbac-approver-prod	cmapi-approver
+cmapi.approver-qa	10108	app-cmapi-rbac-approver-qa	cmapi-approver
+cmapi.approver-uat	10109	app-cmapi-rbac-approver-uat	cmapi-approver
+cmapi.approver-platform	10110	app-cmapi-rbac-approver-platform	cmapi-approver
+cmapi.selfapprove	10111	app-cmapi-rbac-approver-prod,app-cmapi-rbac-requester	cmapi-approver,cmapi-requester
+cmapi.noaccess	10112	-	-

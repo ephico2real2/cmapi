@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """deploy/tests/realm-test.py <realm import YAML>: realm cmapi from the file that ships, on a real Keycloak, the way the RHBK operator's Job runs it (KeycloakRealmImportJobDependentResource.java:96-158):
 a second process on the live server's database, --cache=local, --override=false, the placeholders in its environment. Beside it two other realms, whose public keys must not change. Then realm_sync.py, an LDAP
-stand-in, a federated login and its token claims, a rerun, the issuer's own answers, and the realm deleted by its own cmapi-realm-admin. Containers cmapi-w1-rt-*, labelled, one port on 127.0.0.1 and checked to be there;
+stand-in holding the shipped groups and test users, each test user's token against the owner's table, a person outside the users filter refused, a rerun, the issuer's own answers, and the realm deleted by its own cmapi-realm-admin. Containers cmapi-w1-rt-*, labelled, one port on 127.0.0.1 and checked to be there;
 only what this run labelled is removed. Every image by digest. CONTAINER=podman on a Mac, docker in CI. Keycloak's community image: RHBK, its operator and the real directory are what the CRC run proves. Exit 1 on the first wrong answer. Needs pyyaml and httpx. Test values only."""
 import base64, hashlib, importlib.util, json, os, secrets, subprocess, sys, tempfile, time
 import httpx, yaml
@@ -17,6 +17,10 @@ kri = yaml.safe_load(open(sys.argv[1])); realm = kri["spec"]["realm"]
 assert kri["kind"] == "KeycloakRealmImport" and realm["realm"] == "cmapi" and kri["metadata"]["namespace"] == "keycloak"
 limit = kri["spec"]["resources"]["limits"]["memory"].replace("Gi", "g").replace("Mi", "m"); cpus = str(kri["spec"]["resources"]["limits"]["cpu"])
 vals = {k: secrets.token_urlsafe(24) for k in kri["spec"]["placeholders"]}
+LDAP_DIR = os.path.join(ROOT, "examples/cmapi-sso/ldap")
+# What each token must hold comes from this table, not from the realm under test.
+IDENTITIES = [l.rstrip("\n").split("\t") for l in open(os.path.join(LDAP_DIR, "test-identities.tsv")) if l.strip() and not l.startswith("#")]
+TEST_PW = {uid: secrets.token_hex(24) for uid, *_ in IDENTITIES}
 fails = []
 def check(ok, label):
     print(("  ok   " if ok else "  FAIL ") + label, flush=True)
@@ -74,12 +78,26 @@ dn: cn=app-other,ou=Groups,dc=ephico2real,dc=com
 objectClass: groupOfNames
 cn: app-other
 member: cn=john.doe,ou=People,dc=ephico2real,dc=com
+member: cn=cmapi.viewer,ou=People,dc=ephico2real,dc=com
 
-dn: cn=cmapi-requesters,ou=Groups,dc=ephico2real,dc=com
-objectClass: groupOfNames
-cn: cmapi-requesters
-member: cn=john.doe,ou=People,dc=ephico2real,dc=com
 """
+    for uid, number, _, _ in IDENTITIES:
+        ldif += f"""
+dn: cn={uid},ou=People,dc=ephico2real,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: {uid}
+sn: {uid.split(".", 1)[1]}
+givenName: cmapi
+uid: {uid}
+mail: {uid}@ephico2real.com
+uidNumber: {number}
+gidNumber: 1000
+homeDirectory: /home/{uid}
+userPassword: {TEST_PW[uid]}
+"""
+    ldif += "\n" + open(os.path.join(LDAP_DIR, "cmapi-groups.ldif")).read()      # the file that ships, members and all
     r = sh(C, "exec", "-i", "cmapi-w1-rt-ldap", "ldapadd", "-x", "-H", "ldap://127.0.0.1:389", "-D", "cn=admin,dc=ephico2real,dc=com", "-w", "rt-ldap", input=ldif); check(r.returncode == 0, "the LDAP stand-in is seeded")
     for n in ("corp-rt", "inkcast-rt"):
         httpx.post(f"{B}/admin/realms", headers={"Authorization": f"Bearer {admin()}"}, json={"realm": n, "enabled": True}).raise_for_status()
@@ -104,6 +122,7 @@ member: cn=john.doe,ou=People,dc=ephico2real,dc=com
     job = yaml.safe_load(open(os.path.join(os.path.dirname(sys.argv[1]), "20-realm-sync.yaml")))
     env = {e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
     ldap = json.loads(env["CMAPI_REALM_LDAP"]); check(ldap.get("requireSync") is True, "the Job requires the sync"); ldap["connectionUrl"] = "ldap://127.0.0.1:389"
+    check(ldap.get("usersFilter") == "(uid=cmapi.*)" and ldap.get("expectUsers") == len(IDENTITIES), f"the Job reads only the test users, and exactly {len(IDENTITIES)}")
     env.update(CMAPI_REALM_ADMIN_URL=B, CMAPI_REALM_ADMIN_CLIENT_SECRET=vals["CMAPI_REALM_ADMIN_SECRET"], CMAPI_REALM_LDAP=json.dumps(ldap), bindDN="cn=admin,dc=ephico2real,dc=com", password="rt-ldap", ola="rt-ola", amy="rt-amy", opal="rt-opal", **{"bot-user": "rt-bot"})
     env.pop("CMAPI_CA_BUNDLE"); os.environ.update({k: v for k, v in env.items() if v is not None})
     try:
@@ -112,13 +131,31 @@ member: cn=john.doe,ou=People,dc=ephico2real,dc=com
         check(False, f"realm_sync.py twice, exit 0: {str(e.code)[:200]}")
     def login(u, p): return httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "password", "client_id": "cmapi-automation", "client_secret": vals["CMAPI_AUTOMATION_SECRET"], "username": u, "password": p, "scope": "openid"})
     claims = lambda t: json.loads(base64.urlsafe_b64decode(t.split(".")[1] + "=" * (-len(t.split(".")[1]) % 4)))
-    r = login("john.doe", "rt-john"); check(r.status_code == 200, "a login through LDAP federation")
-    if r.status_code == 200:
-        c = claims(r.json()["access_token"])
-        check(c["iss"] == "https://keycloak.apps-crc.testing/realms/cmapi", "the token carries the public issuer, though it was asked for elsewhere")
-        check(c["aud"] == "cmapi-nonprod", "audience"); check(c.get("employee_id") == "10001", "employee_id from uidNumber")
-        check(c.get("groups") == ["/cmapi/cmapi-requesters"], f"groups, filtered on cmapi-*: {c.get('groups')}"); check("cmapi-requester" in c["resource_access"]["cmapi-nonprod"]["roles"], "the group's role")
-    check(login("john.doe", "wrong").status_code == 401 or login("john.doe", "wrong").status_code == 400, "a wrong LDAP password is refused")
+    def token_of(u, p):
+        r = login(u, p)
+        return claims(r.json()["access_token"]) if r.status_code == 200 else None
+    def holds(c, groups, roles):
+        return sorted(c.get("groups") or []) == sorted(groups) and sorted(((c.get("resource_access") or {}).get("cmapi-nonprod") or {}).get("roles") or []) == sorted(roles)
+    # Each test user through the federation: exactly the table's groups and roles, and nothing the table does not give.
+    for uid, number, groups, roles in IDENTITIES:
+        want_groups = [] if groups == "-" else ["/cmapi/" + g for g in groups.split(",")]
+        want_roles = [] if roles == "-" else roles.split(",")
+        c = token_of(uid, TEST_PW[uid])
+        check(c is not None, f"{uid} signs in through LDAP federation")
+        if c:
+            check(holds(c, want_groups, want_roles), f"{uid}: groups {sorted(c.get('groups') or [])}, roles {sorted(((c.get('resource_access') or {}).get('cmapi-nonprod') or {}).get('roles') or [])}")
+            check(c.get("employee_id") == number and c.get("preferred_username") == uid and c.get("email") == f"{uid}@ephico2real.com", f"{uid}: employee_id from uidNumber, name and mail")
+    c = token_of("cmapi.requester", TEST_PW["cmapi.requester"])
+    check(c and c["iss"] == "https://keycloak.apps-crc.testing/realms/cmapi", "the token carries the public issuer, though it was asked for elsewhere")
+    check(c and c["aud"] == "cmapi-nonprod", "audience")
+    check(login("cmapi.requester", "wrong").status_code in (400, 401), "a wrong LDAP password is refused")
+    # A person outside the filter: the right password, as LDAP itself says, and no way in.
+    r = sh(C, "exec", "cmapi-w1-rt-ldap", "ldapwhoami", "-x", "-H", "ldap://127.0.0.1:389", "-D", "cn=john.doe,ou=People,dc=ephico2real,dc=com", "-w", "rt-john"); check(r.returncode == 0, "john.doe's password is right, as LDAP says")
+    check(login("john.doe", "rt-john").status_code != 200, "and a person outside usersFilter cannot sign in to this realm")
+    # The local users keep working with the new groups.
+    for user, pw, want_groups, want_roles in (("ola", "rt-ola", ["/cmapi/app-cmapi-rbac-requester"], ["cmapi-requester"]), ("amy", "rt-amy", ["/cmapi/app-cmapi-rbac-approver-platform"], ["cmapi-approver"]),
+                                              ("opal", "rt-opal", ["/cmapi/app-cmapi-rbac-operator"], ["cmapi-operator", "cmapi-approver"])):
+        c = token_of(user, pw); check(c and holds(c, want_groups, want_roles), f"the local user {user} has {want_groups} and {want_roles}")
     check(login("bot-user", "rt-bot").status_code == 200, "the local bot user signs in")
     # A person's password goes through one client, with its secret, and cannot be guessed without limit.
     for client in ("admin-cli", "cmapi-portal", "cmapi-docs", "cmapi-cli", "account", "account-console", "security-admin-console"):
@@ -130,6 +167,21 @@ member: cn=john.doe,ou=People,dc=ephico2real,dc=com
     check(login("ola", "rt-ola").status_code == 200, "and no one else is")
     adm = httpx.post(f"{B}/realms/cmapi/protocol/openid-connect/token", data={"grant_type": "client_credentials", "client_id": "cmapi-realm-admin", "client_secret": vals["CMAPI_REALM_ADMIN_SECRET"]}).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
     check(httpx.delete(f"{B}/admin/realms/corp-rt", headers=A).status_code == 403, "cmapi-realm-admin cannot delete another realm")
+    # What requireSync does with the filter, on the real answer: a filter that reads the wrong number of people fails the Job, and no filter at all reads everyone.
+    def sync_fails(label):
+        os.environ["CMAPI_REALM_LDAP"] = json.dumps(ldap)
+        try:
+            rs.main([]); check(False, label)
+        except SystemExit as e:
+            check(bool(e.code), f"{label}: {str(e.code)[:90]}")
+    keep = dict(ldap)
+    ldap["usersFilter"] = "(uid=*)"; sync_fails("a filter reading more people than the 13 fails the Job")
+    ldap["usersFilter"] = "(uid=nobody.*)"; sync_fails("a filter reading nobody fails the Job")
+    ldap.clear(); ldap.update(keep); del ldap["usersFilter"], ldap["expectUsers"]; os.environ["CMAPI_REALM_LDAP"] = json.dumps(ldap)
+    try:
+        rs.main([]); check(login("john.doe", "rt-john").status_code == 200, "with no usersFilter the realm reads everyone: john.doe signs in, so the filter is what kept him out")
+    except SystemExit as e:
+        check(False, f"a sync with no usersFilter: {str(e.code)[:120]}")
     # A sync that cannot reach LDAP must fail the Job.
     ldap["connectionUrl"] = "ldap://127.0.0.1:1"; os.environ["CMAPI_REALM_LDAP"] = json.dumps(ldap)
     try:
