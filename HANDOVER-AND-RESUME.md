@@ -49,7 +49,9 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 | `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, open. Two CI runs failed in the `service` job, each for a cause in the pull request itself: the samples test compared value types that differ between macOS and Linux, and the new `docs/04` had dropped the token recipe that `test_docs_sign_in_for_the_bot_carries_the_client_secret` holds. Both are fixed (`c2495fc`): the recipes are now in `docs/15`. Read its checks before the merge |
 | #91 (SEC-04) | PR #158, merged as `513ea67`, CI green on its head. Proven on kind; not on CRC |
 | The architecture figures from the mockup | PR #160, merged as `0cd0d57`: five figures, light and dark, in `docs/diagrams/portal-architecture/`, and the system figure in `docs/08`. They say "realm cmapi: not on CRC yet" |
-| Filed for later waves | #143, #144, #145 to #151 |
+| #87 (BUG-11) | PR #162, open: `pr_status` reads check runs, with Codex's second pass ruled (`docs/reviews/2026-11-13-issue-87/README.md` on the branch). Proven on a mock of GitHub only. Read its checks before the merge |
+| #151 (BUG-36) | PR #161, open: one document |
+| Filed for later waves | #143, #144, #145 to #150 |
 
 ### What is not done
 
@@ -61,7 +63,7 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 ### Order from here
 
 1. The owner reads #157 and decides.
-2. Read CI on PR #156 (`gh pr checks 156`). Merge it when each job has passed on its head.
+2. Read CI on each open pull request of OB1 (`gh pr list`, then `gh pr checks N`): #156, #159 (these records), #161 and #162. Merge each when each job has passed on its head.
 3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.

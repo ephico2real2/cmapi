@@ -132,7 +132,7 @@ Paperclip, the source these drafts were published from, is off for now. Reading 
 `issue-register.md` is the full list, with the severity, the class, the parent and the milestone of each. In short, on 2026-11-13:
 
 - **Closed by OB1's merges:** #109, #110, #113, #115 to #126, #136 to #138 (PR #112); #139 (PR #140); #127 to #134 (PR #135); #142 (PR #152).
-- **Fixed in an open pull request:** #154 and #155 (PR #156, with `docs/04` and the OpenAPI examples from a run). Closed by PR #153: #141. Closed by PR #158: #91.
+- **Fixed in an open pull request:** #154 and #155 (PR #156, with `docs/04` and the OpenAPI examples from a run). #87 (PR #162). #151 (PR #161). Closed by PR #153: #141. Closed by PR #158: #91.
 - **Open, for Wave 1:** #94 (the CRC run).
 - **Open, for later waves:** #59 to #62, #64, #65, #84, #85, #87, #97 (Waves 2 to 5); #33, #145, #146, #148 to #151 (Wave 6, the portal on the API); #147 (Wave 8); #143 (Spectral lint), #144 (`plugins.yaml`); #92 (the load test).
 - **Blocked on the owner:** #157 (PERF-01, the Keycloak restart), #35, #36, #93.
