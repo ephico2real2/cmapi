@@ -24,28 +24,51 @@ To start the next session, paste this:
 Build all of cmapi and deploy it on CRC (OpenShift Local) on this Mac: the service, the portal on the real API, the `cmapi`
 CLI and `cmapi-sdk`, with a full end-to-end walk from a clean start and screenshots of the running app.
 
-## State on 2026-11-13, during OB1's run
+## State on 2026-11-13, at the end of OB1's run: read this first
 
-OB1 (Fable 5.2) runs as a background agent of the coordinator. Its resume file is `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run/resume.md`, and its reports are in that folder, outside git. Read this section before "Where it stopped", which is the state before the run.
+OB1 (Fable 5.2) ran as a background agent of the coordinator from about 08:45 UTC on 2026-11-13. It had two stops, and lost nothing at either: from 09:45 to 10:24 UTC (`403 authentication_failed`), and from about 11:45 to 13:53 UTC (Fable's 5-hour usage limit). At each resume OB1 read `git status`, `podman ps`, `pgrep` and the pull requests' checks before it went on. Its resume file is `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run/resume.md`, and its reports are in that folder, outside git.
+
+### The shared Keycloak restarted: #157 (PERF-01). The owner decides what comes next
+
+`keycloak-0` was killed at 08:58:42 UTC (exit 137) and ran again from 08:59:37 UTC. OB1's first kind run for #91 was running on this Mac at that time, with other test jobs, at a load average of 13 to 16. OB1 found the restart at 11:10 UTC, in the read-only checks before the CRC run. Later kind runs gave failed probes and no restart. Each realm answered 200 at 11:10 UTC. cmapi wrote nothing to namespace `keycloak`.
+
+As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no action on Keycloak and reports it. So **the Wave 1 run on CRC did not start.** OB1 also runs no kind cluster on this Mac again. The owner decides two things:
+
+1. Whether the CRC run starts after this restart.
+2. How kind proofs run while CRC is up on the same Mac. The options are in #157.
+
+### What is done
 
 | Item | State |
 |---|---|
-| #118 | Applied as `ecc5cb3` |
-| PR #112's second pass | Run on Codex `gpt-6.1-sol`. Three findings accepted and fixed on the branch: #136 (BUG-26), #137 (BUG-27), #138 (BUG-28). The rulings are in `docs/reviews/2026-11-06-pr112/README.md` |
-| The `/agile` sweep | Done for all open issues. Milestones `W1` to `W9` exist. See `build-tracker.md`, "All issues and milestones" |
-| API docs, #127 to #134 | PR #135 (draft, branch `api-docs`, on top of PR #112). The new CI job `api-contract` passed on `3ea7aa1` |
-| #139 (BUG-29) | PR #140 (draft, branch `fix-migrate-wait-test`, on top of PR #112) |
-| docs/14, docs/16, #141 (BUG-30) | Branch `docs-authz`, on top of `api-docs`, pushed, with no pull request yet. BUG-30's fix needs its second reader first. docs/15 needs a real token from CRC |
-| Filed and not fixed | #142 (BUG-31, the idempotency key has no time limit), #143 and #144 (Spectral lint, `plugins.yaml`), #145 to #151 (seven findings of the mockup review, for Wave 6 and Wave 8) |
-| #91 | Branch `fix-cnpg-verify-full` has the WIP and Codex's continuation, with PR #112's branch merged in. The kind proof K1 has no result yet: on the first try the database was not ready in time on a loaded Mac |
-| The architecture figures from the mockup | Drawn: five figures, light and dark, commit `3cad6ed` on branch `diagrams`, not pushed. They say "realm cmapi: not on CRC yet", so they change after the CRC run |
-| CRC | Not touched by OB1 yet. `oc whoami` answered `kubeadmin` on `https://api.crc.testing:6443` at 09:14 UTC |
+| PR #112 | Merged as `99093d8`: #118, the second pass by Codex `gpt-6.1-sol` with three fixes (#136, #137, #138), CI green on the exact head |
+| The `/agile` sweep | Done for each open issue. Milestones `W1` to `W9`. `issue-register.md` has 0 open issues without a work tag |
+| The API documentation of `docs/01` (#127 to #134) | PR #135, merged: tags and groups, curl samples, ETag, `/docs/changelog`, the CI job `api-contract` with oasdiff, `docs.public`, no CDN |
+| `docs/14`, `docs/15`, `docs/16`, #141 (BUG-30) | PR #153, merged. Codex read the fix of #141 and found no defect. The figures of `docs/14` and `docs/16` are drawn |
+| #139 (BUG-29), #142 (BUG-31) | PR #140 and PR #152, merged |
+| `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, open. Two CI runs failed in the `service` job, each for a cause in the pull request itself: the samples test compared value types that differ between macOS and Linux, and the new `docs/04` had dropped the token recipe that `test_docs_sign_in_for_the_bot_carries_the_client_secret` holds. Both are fixed (`c2495fc`): the recipes are now in `docs/15`. Read its checks before the merge |
+| #91 (SEC-04) | PR #158, merged as `513ea67`, CI green on its head. Proven on kind; not on CRC |
+| The architecture figures from the mockup | PR #160, merged as `0cd0d57`: five figures, light and dark, in `docs/diagrams/portal-architecture/`, and the system figure in `docs/08`. They say "realm cmapi: not on CRC yet" |
+| #87 (BUG-11) | PR #162, open: `pr_status` reads check runs, with Codex's second pass ruled (`docs/reviews/2026-11-13-issue-87/README.md` on the branch). Proven on a mock of GitHub only. Read its checks before the merge |
+| #151 (BUG-36) | PR #161, open: one document |
+| Filed for later waves | #143, #144, #145 to #150 |
 
-**An interruption on 2026-11-13.** OB1's session stopped with `403 authentication_failed` at about 09:45 UTC and resumed at 10:24 UTC, after the owner signed in again. Nothing was lost: the two test runs in flight had finished, no process and no kind cluster was left, and each worktree was as OB1 left it (`git status`, `podman ps`, `pgrep`, read at 10:24 UTC).
+### What is not done
 
-Order from here: finish PR #112 (CI on its head, ready, merge), move PR #135 and PR #140 to `main`, K1 and the pull request for #91, then the CRC run from `docs/13`.
+- **Wave 1 on CRC, and each wave after it.** No cmapi workload is on CRC. The read-only checks of 11:10 UTC: `oc whoami` is `kubeadmin`, namespace `cmapi` has no workload, both `cmapi-ldap-bind` Secrets are there, the CloudNativePG CRD is there, and node memory requests are 15,525 Mi (79%).
+- `docs/15` has no real token, no sign-in sequence figure and no CRC result. Each is marked in the document.
+- The CRC screenshots of `/docs` and `/redoc`, which also need the owner's keychain step.
+- The stories #13 to #29 have no new proof comment.
+
+### Order from here
+
+1. The owner reads #157 and decides.
+2. Read CI on each open pull request of OB1 (`gh pr list`, then `gh pr checks N`): #156, #159 (these records), #161 and #162. Merge each when each job has passed on its head.
+3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
+
+**A lesson for the documents.** `docs/14`, `docs/15` and `docs/16` cite code as `file:line`. PR #152 moved lines in `core/db/repo.py`, and the citations of `docs/16` were wrong until this update. Check them after each change to a cited file.
 
 ## Where it stopped
 
