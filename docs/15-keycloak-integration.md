@@ -120,6 +120,35 @@ Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 c
 
 The sequence figure is not drawn yet. It follows the first sign-in on CRC, so that it shows what was measured.
 
+## Get a token from a script
+
+Two clients give a token to a script. Each needs its client secret. The URLs are those of CRC.
+
+```bash
+export KC=https://keycloak.apps-crc.testing/realms/cmapi/protocol/openid-connect
+export CMAPI=https://cmapi-api.apps-crc.testing/api/v1
+```
+
+A pipeline uses its own service client with the client credentials grant. It gets no refresh token, so it asks again for each job:
+
+```bash
+TOKEN=$(curl -s "$KC/token" \
+  -d grant_type=client_credentials \
+  -d client_id=svc-payments-ci \
+  -d client_secret="$CMAPI_CLIENT_SECRET" | jq -r .access_token)
+```
+
+A local Keycloak account such as `bot-user` signs in through `cmapi-automation` with the password grant. The client secret is necessary: without it Keycloak answers 401 `unauthorized_client` (measured on Keycloak 26.6.4).
+
+```bash
+TOKEN=$(curl -s "$KC/token" \
+  -d grant_type=password -d client_id=cmapi-automation -d client_secret="$AUTOMATION_CLIENT_SECRET" \
+  -d username=bot-user -d password="$BOT_PASSWORD" | jq -r .access_token)
+curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/me" | jq .access
+```
+
+Keep each secret in a variable that comes from a secret store, and never on a command line that a log records. A person from LDAP has no such recipe: the password goes only into Keycloak's sign-in page.
+
 ## A real token
 
 Not captured yet. The claims of a real access token, with no secret and no signature, come from the Wave 1 run on CRC: one test user from LDAP through `cmapi-automation`, as `deploy/crc-proof.sh` does for each of the 13.
