@@ -163,14 +163,32 @@ MISTAKES = [
      "overrides.nonprod.dev.disabled: namespaces is not in `enabled`, so the override changes nothing"),
     ({"enabled": ALL, "overrides": {"nonprod": {"dev": {"disabled": ["quotas"]}}}},
      "overrides.nonprod.dev.disabled: quotas has no write, so the override changes nothing"),
+    # The second reader's cases (Codex, C4): a value of another YAML type must not pass as "no override", and must not raise
+    # an error that the loader does not collect.
+    ("enabled: [namespaces]\noverrides: []", "overrides: must be a mapping of instance, then environment"),
+    ("enabled: [namespaces]\noverrides: false", "overrides: must be a mapping of instance, then environment"),
+    ("enabled: [namespaces]\noverrides: {nonprod: []}", "overrides.nonprod: must be a mapping of environment to `disabled`"),
+    ("enabled: [namespaces]\noverrides: {nonprod: 0}", "overrides.nonprod: must be a mapping of environment to `disabled`"),
+    ("enabled: [namespaces]\noverrides: {nonprod: {dev: null}}", "overrides.nonprod.dev: must have the one key `disabled`"),
+    ("enabled: [namespaces]\noverrides: {nonprod: {dev: {disabled: [[namespaces]]}}}", "overrides.nonprod.dev.disabled: must be a list of plugin names"),
+    ("enabled: [namespaces]\noverrides: {7: {dev: {disabled: [namespaces]}}}", "overrides.7: the name of an instance must be a text"),
+    ("enabled: [namespaces]\noverrides: {nonprod: {on: {disabled: [namespaces]}}}", "overrides.nonprod.True: the name of an environment must be a text"),
+    ("enabled: [1, true]", "enabled: must be a list of plugin names"),
+    ("enabled: [namespaces]\n1: ignored\nextra: ignored", "unknown key 1"),
 ]
 
 
-@pytest.mark.parametrize("plugins, message", MISTAKES, ids=[m for _, m in MISTAKES])
+@pytest.mark.parametrize("plugins, message", MISTAKES, ids=[f"{n}: {m}" for n, (_, m) in enumerate(MISTAKES)])
 def test_a_mistake_in_the_file_stops_startup_and_names_the_file(test_config, tmp_path, plugins, message):
     with pytest.raises(ConfigError) as caught:
         load(config_with(test_config, tmp_path, plugins))
     assert any(p.startswith("plugins.yaml: ") and message in p for p in caught.value.problems), caught.value.problems
+
+
+@pytest.mark.parametrize("overrides", ["", "overrides:", "overrides: {}", "overrides: {nonprod: }", "overrides: {nonprod: {}}"])
+def test_an_empty_overrides_block_is_no_override(test_config, tmp_path, overrides):
+    cfg = load(config_with(test_config, tmp_path, "enabled: [namespaces]\n" + overrides))
+    assert cfg.plugins.offers("namespaces", "dev") and cfg.plugins.disabled_environments("namespaces") == []
 
 
 def test_each_mistake_of_the_file_is_reported_in_one_start(test_config, tmp_path):

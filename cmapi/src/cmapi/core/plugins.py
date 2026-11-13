@@ -4,7 +4,7 @@
     overrides:                 # keyed by instance, then environment
       nonprod:
         dev:
-          disabled: [quotas]
+          disabled: [namespaces]
 
 `enabled` names the plugins whose routes the app mounts: a plugin that is not in the list has no route, no tag
 and no line in the OpenAPI document. An override stops the writes of an enabled plugin in one environment of one
@@ -46,22 +46,32 @@ class PluginSwitch:
         raw = raw if raw is not None else {"enabled": list(BUILT_IN)}
         if not isinstance(raw, Mapping):
             raise ValueError("the file must be a mapping with the key `enabled`")
-        for key in sorted(set(raw) - {"enabled", "overrides"}):
+        for key in sorted(set(raw) - {"enabled", "overrides"}, key=repr):
             problems.append(f"unknown key {key!r}: the file has `enabled` and `overrides`")
         known_before = len(problems)
         self.enabled: tuple[str, ...] = tuple(self._names(raw.get("enabled"), "enabled", problems))
         enabled_is_valid = len(problems) == known_before
         self._disabled: dict[str, frozenset[str]] = {}
-        overrides = raw.get("overrides") or {}
+        overrides = raw.get("overrides")
+        if overrides is None:
+            overrides = {}
         if not isinstance(overrides, Mapping):
             problems.append("overrides: must be a mapping of instance, then environment")
             overrides = {}
-        mine = overrides.get(instance) or {}
+        for key in overrides:
+            if not isinstance(key, str):
+                problems.append(f"overrides.{key}: the name of an instance must be a text")
+        mine = overrides.get(instance)
+        if mine is None:
+            mine = {}
         if not isinstance(mine, Mapping):
             problems.append(f"overrides.{instance}: must be a mapping of environment to `disabled`")
             mine = {}
         for env, block in mine.items():
             where = f"overrides.{instance}.{env}"
+            if not isinstance(env, str):
+                problems.append(f"{where}: the name of an environment must be a text")
+                continue
             if env not in allowed_environments:
                 problems.append(f"{where}: {env} is not in allowedEnvironments {sorted(allowed_environments)}")
                 continue
