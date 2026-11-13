@@ -203,14 +203,16 @@ userPassword: {TEST_PW[uid]}
     adm = grant(grant_type="client_credentials", client_id="cmapi-realm-admin", client_secret=vals["CMAPI_REALM_ADMIN_SECRET"]).json()["access_token"]; A = {"Authorization": f"Bearer {adm}"}
     # A realm that was imported before #181: the import runs one time, so the sync must bring the change. Put the old state back, as the old
     # import and the old sync made it, then run the sync.
+    # The attribute for at+jwt is set to false, not left out: an update of a client removes no attribute (RepresentationToModel.updateClientProperties,
+    # Keycloak 26.6.4), and Keycloak reads false as it reads an absent one (#196).
     R = f"{B}/admin/realms/cmapi"
     auto = httpx.get(f"{R}/clients", params={"clientId": "cmapi-automation"}, headers=A).json()[0]
-    check(httpx.put(f"{R}/clients/{auto['id']}", headers=A, json={**auto, "directAccessGrantsEnabled": True, "serviceAccountsEnabled": False, "attributes": {k: v for k, v in (auto.get("attributes") or {}).items() if "rfc9068" not in k}}).status_code == 204
+    check(httpx.put(f"{R}/clients/{auto['id']}", headers=A, json={**auto, "directAccessGrantsEnabled": True, "serviceAccountsEnabled": False, "attributes": {**(auto.get("attributes") or {}), "access.token.header.type.rfc9068": "false"}}).status_code == 204
           and httpx.post(f"{R}/users", headers=A, json={"username": "bot-user", "enabled": True, "emailVerified": True, "email": "bot-user@ephico2real.com", "firstName": "Onboarding", "lastName": "Bot", "credentials": [{"type": "password", "value": "rt-bot", "temporary": False}]}).status_code == 201,
-          "the old state is back: cmapi-automation takes the password grant and has no at+jwt attribute, and bot-user exists")
+          "the old state is back: cmapi-automation takes the password grant and has the at+jwt attribute off, and bot-user exists")
     old = grant(grant_type="password", client_id="cmapi-automation", client_secret=vals["CMAPI_AUTOMATION_SECRET"], username="bot-user", password="rt-bot", scope="openid")
     check(old.status_code == 200, f"and in that state the password grant gives a token, so the next check can fail: {old.status_code}")
-    check(old.status_code == 200 and header(old.json()["access_token"]).get("typ") == "JWT", "and without the attribute Keycloak writes the header typ JWT, so the check after the sync can fail")
+    check(old.status_code == 200 and header(old.json()["access_token"]).get("typ") == "JWT", f"and without the attribute Keycloak writes the header typ JWT, so the check after the sync can fail: {old.status_code == 200 and header(old.json()['access_token']).get('typ')}")
     try:
         rs.main([]); check(True, "realm_sync.py on the old state, exit 0")
     except SystemExit as e:
