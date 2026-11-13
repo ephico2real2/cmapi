@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -69,6 +70,16 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def problem_handler(_: Request, exc: Problem) -> Response:
         return JSONResponse(exc.body(), status_code=exc.status, media_type="application/problem+json",
                             headers=dict(unauthenticated_headers(exc)))
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(_: Request, exc: RequestValidationError) -> Response:
+        # FastAPI's own refusal of a parameter or a body, as the same RFC 9457 problem as every other refusal. The input value is
+        # left out: it can hold what the caller did not mean to send back, and the field names it.
+        errors = [{"field": ".".join(str(part) for part in e.get("loc", ())), "message": e.get("msg", ""), "code": e.get("type", "")}
+                  for e in exc.errors()]
+        p = Problem(422, "validation-failed", "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400],
+                    errors)
+        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:

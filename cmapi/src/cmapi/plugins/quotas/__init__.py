@@ -11,6 +11,7 @@ from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.db.repo import AuditRepo, RequestRepo
 from cmapi.core.docs import DocumentedRouter
+from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import ListQuery
 from cmapi.core.models import QuotaPage, Suggestions
@@ -29,7 +30,11 @@ Team = Annotated[str | None, Query(examples=["payments"], description="Only the 
 Tier = Annotated[str | None, Query(examples=["small"], description="Only the namespaces of this tier (`cmapi.net/tier`).")]
 Sort = Annotated[str, Query(examples=["used"],
                             description="`name` sorts by name, A to Z. `used` puts the highest use first: the largest of "
-                                        "CPU, memory and pods, each as used divided by hard.")]
+                                        "CPU, memory and pods, each as used divided by hard. `severity` puts the most urgent "
+                                        "first: 95% or more, then 80% or more, then the others.")]
+State = Annotated[str | None, Query(examples=["near-limit"],
+                                    description="Only the namespaces that one attention count of `facets` counts: `near-limit`, "
+                                                "`tier-outdated` or `open-request`. Another value returns 422 `validation-failed`.")]
 
 COLUMNS = ["name", "clusterId", "env", "team", "tier", "cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard",
            "used", "expiresAt", "tierOutdated"]
@@ -76,15 +81,24 @@ FACETS = {"near-limit": lambda r: r["used"] >= 0.8, "tier-outdated": lambda r: r
 
 
 def _query(q: str, env: str | None, cluster_id: str | None, team: str | None, tier: str | None, sort: str, limit: int,
-           cursor: str | None, starts_with: str | None) -> ListQuery:
+           cursor: str | None, starts_with: str | None, state: str | None = None) -> ListQuery:
     return ListQuery(q=q, filters={"env": env or "", "clusterId": cluster_id or "", "team": team or "", "tier": tier or ""},
-                     sort=sort, limit=limit, cursor=cursor, starts_with=starts_with)
+                     sort=sort, limit=limit, cursor=cursor, starts_with=starts_with, context={"state": state or ""})
+
+
+def _in_state(rows: list[dict[str, Any]], state: str | None) -> list[dict[str, Any]]:
+    """The rows that one attention count covers. The counts in `facets` stay those of the other filters, so the chips keep their numbers."""
+    if not state:
+        return rows
+    if state not in FACETS:
+        raise Problem.unprocessable("validation-failed", f"state is one of {sorted(FACETS)}, not {state}")
+    return [r for r in rows if FACETS[state](r)]
 
 
 @router.read("/quotas", summary="Every namespace's quota, paged", permission="objects:read", response_model=QuotaPage,
-             problems=["invalid-cursor", "invalid-sort", "invalid-limit"])
+             problems=["invalid-cursor", "invalid-sort", "invalid-limit", "validation-failed"])
 def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
-           sort: Sort = "name", limit: Limit = 50, cursor: Cursor = None,
+           state: State = None, sort: Sort = "name", limit: Limit = 50, cursor: Cursor = None,
            starts_with: str | None = Query(default=None, alias="startsWith", examples=["p"],
                                            description="With `sort=name`, the page starts at the first name at or after this "
                                                        "text. Use it to jump to a letter."),
@@ -92,8 +106,13 @@ def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team
     """One page of managed namespaces in the caller's environments with hard and used requests.cpu,
     requests.memory and pods from the watch cache, their tier, whether the catalog moved on (tier-outdated),
     and the attention counts over the current filters."""
-    return c.lister.page(quota_rows(c, who), _query(q, env, cluster_id, team, tier, sort, limit, cursor, starts_with),
-                         facets=FACETS)
+    rows = quota_rows(c, who)
+    query = _query(q, env, cluster_id, team, tier, sort, limit, cursor, starts_with, state)
+    page = c.lister.page(_in_state(rows, state), query, facets=FACETS)
+    if state:
+        # The attention counts are over the other filters, not over the chosen state: each chip keeps its number.
+        page["facets"] = {name: sum(1 for r in c.lister.filtered(rows, query) if test(r)) for name, test in FACETS.items()}
+    return page
 
 
 @router.read("/quotas:suggest", summary="Type-ahead matches", permission="objects:read", response_model=Suggestions)
@@ -106,13 +125,13 @@ def suggest(q: str = Query(default="", examples=["pay"],
 
 @router.read("/quotas:export", summary="Export the quota list as CSV", permission="objects:read", media_type="text/csv")
 def export(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
-           sort: Sort = "name",
+           state: State = None, sort: Sort = "name",
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)):
     """Every row matching the same filters in the same order, capped at 10,000 rows, written to the audit log."""
     rows = [{**r, "cpuUsed": r["cpu"][0], "cpuHard": r["cpu"][1], "memoryUsed": r["memory"][0], "memoryHard": r["memory"][1],
              "podsUsed": r["pods"][0], "podsHard": r["pods"][1]} for r in quota_rows(c, who)]
     with c.db.session() as s:
         AuditRepo(s).record(who, "quotas.export", "csv", {"rows": len(rows), "q": q, "env": env, "clusterId": cluster_id})
-    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None)
-    return StreamingResponse(c.lister.export_csv(rows, query, COLUMNS), media_type="text/csv",
+    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
+    return StreamingResponse(c.lister.export_csv(_in_state(rows, state), query, COLUMNS), media_type="text/csv",
                              headers={"Content-Disposition": 'attachment; filename="quotas.csv"'})

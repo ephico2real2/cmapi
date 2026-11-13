@@ -18,7 +18,7 @@ from cmapi.core.db.repo import DbKeyStore, SwitchRepo
 from cmapi.core.git import HostGitProvider, make_provider
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
-from cmapi.core.listquery import Lister, Sorts
+from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO
 from cmapi.core.pipeline import Pipeline
 from cmapi.core.registry import ClusterRegistry, DirImportSource, HubImportSource, ImportSource, load_policies
@@ -111,7 +111,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     ctx = AppContext(settings=settings, cfg=cfg, db=db, auth=auth, registry=registry, git=git,
                      pipeline=None, directory=directory,  # type: ignore[arg-type]
                      lister=Lister(settings.cursor_key.encode() or b"unset-cursor-key",
-                                   Sorts({"used": lambda r: r["used"], "newest": lambda r: r.get("_created", 0.0)})),
+                                   Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
+                                          "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
                      capacity_cfg=capacity_cfg, issuer=issuer, audience=audience)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []

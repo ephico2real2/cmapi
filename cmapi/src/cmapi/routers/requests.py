@@ -30,10 +30,14 @@ def _visible_envs(c: AppContext, who: Identity) -> set[str]:
 
 
 @router.read("/requests", summary="List requests", permission="requests:read", response_model=RequestPage,
-             problems=["invalid-cursor", "invalid-limit"])
+             problems=["invalid-cursor", "invalid-limit", "validation-failed"])
 def list_requests(
         status: str | None = Query(default=None, examples=["pending_approval"],
                                    description="Only the requests in this lifecycle state."),
+        state: str | None = Query(default=None, examples=["open"],
+                                  description="`open` gives the requests that are not finished: pending_approval, approved, "
+                                              "pr_open, merged, awaiting_prune and sync_failed. `closed` gives all the others. "
+                                              "Another value returns 422 `validation-failed`."),
         approver: str | None = Query(default=None, examples=["me"],
                                      description="With `me`, only the pending requests that still need an approval from one of "
                                                  "the caller's groups. Any other value has no effect."),
@@ -48,9 +52,12 @@ def list_requests(
         who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """One page of requests in the environments where the caller may read requests, newest first.
     `approver=me` keeps only requests still waiting for an approval from one of the caller's groups."""
+    if state not in (None, "open", "closed"):
+        raise Problem.unprocessable("validation-failed", f"state is open or closed, not {state}")
     with c.db.session() as s:
         repo = RequestRepo(s)
-        rows = repo.list(status=status, cluster_id=cluster_id, requested_by=requested_by, envs=_visible_envs(c, who))
+        rows = repo.list(status=status, cluster_id=cluster_id, requested_by=requested_by, envs=_visible_envs(c, who),
+                         open_=None if state is None else state == "open")
         if approver == "me":
             rows = [r for r in rows if r.status == S.PENDING_APPROVAL.value and _can_still_approve(repo, r, who)]
         if q:
@@ -59,7 +66,7 @@ def list_requests(
         # Views cost two queries each: page over the bare rows, then build a view for the page only.
         paging = [{"name": r.request_id, "clusterId": r.cluster_id, "_created": r.created_at.timestamp(), "_row": r} for r in rows]
         page = c.lister.page(paging, ListQuery(q="", sort="newest", limit=limit, cursor=cursor,
-                                               context={"status": status or "", "approver": approver or "", "q": q,
+                                               context={"status": status or "", "state": state or "", "approver": approver or "", "q": q,
                                                         "clusterId": cluster_id or "", "requestedBy": requested_by or ""}))
         page["items"] = [request_view(repo, it["_row"], with_events=True) for it in page["items"]]
     return page
