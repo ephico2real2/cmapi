@@ -338,6 +338,54 @@
         "title": "ApprovalView",
         "type": "object"
       },
+      "CapacityView": {
+        "additionalProperties": true,
+        "properties": {
+          "bindingResource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "cpu or memory, whichever binds",
+            "examples": [
+              "memory"
+            ],
+            "title": "Bindingresource"
+          },
+          "fresh": {
+            "default": true,
+            "description": "Whether the data was fresh",
+            "examples": [
+              true
+            ],
+            "title": "Fresh",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "The capacity check",
+            "enum": [
+              "fits",
+              "warn",
+              "exceeded",
+              "unknown"
+            ],
+            "examples": [
+              "fits"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CapacityView",
+        "type": "object"
+      },
       "ChangeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2105,6 +2153,95 @@
         "title": "PageInfo",
         "type": "object"
       },
+      "PlanView": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/ApprovalView",
+            "description": "The approval that would apply"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/CapacityView",
+            "description": "The capacity check"
+          },
+          "changes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per changed file: added, changed or removed",
+            "examples": [
+              {
+                "clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"
+              }
+            ],
+            "title": "Changes",
+            "type": "object"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Git commit the plan was made against; send it as If-Match",
+            "examples": [
+              "0a1b2c3d"
+            ],
+            "title": "Etag"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Rendered content of each changed file",
+            "examples": [
+              {
+                "clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\n..."
+              }
+            ],
+            "title": "Files",
+            "type": "object"
+          },
+          "findings": {
+            "description": "Validator warnings",
+            "examples": [
+              []
+            ],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "planHash": {
+            "description": "SHA-256 of the planned files",
+            "examples": [
+              "9f2c..."
+            ],
+            "title": "Planhash",
+            "type": "string"
+          },
+          "requester": {
+            "$ref": "#/components/schemas/RequesterView",
+            "description": "Who the request would be for"
+          }
+        },
+        "required": [
+          "changes",
+          "planHash",
+          "etag",
+          "requester",
+          "capacity",
+          "approval",
+          "files"
+        ],
+        "title": "PlanView",
+        "type": "object"
+      },
       "PluginList": {
         "additionalProperties": false,
         "properties": {
@@ -3157,11 +3294,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3173,6 +3305,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3180,11 +3315,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3196,6 +3326,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3259,11 +3392,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3275,6 +3403,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3282,11 +3413,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3298,6 +3424,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3382,11 +3511,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3398,6 +3522,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3405,11 +3532,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3421,6 +3543,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3492,11 +3617,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3508,6 +3628,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3515,11 +3638,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3531,6 +3649,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3538,11 +3659,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -3554,6 +3670,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3618,11 +3737,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3634,6 +3748,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3641,11 +3758,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3657,6 +3769,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3791,11 +3906,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3807,6 +3917,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3814,11 +3927,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3830,6 +3938,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3929,11 +4040,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -3945,6 +4051,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -3952,11 +4061,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -3968,6 +4072,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4161,11 +4268,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -4177,6 +4279,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4184,11 +4289,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -4209,6 +4309,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4216,11 +4319,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "nothing-to-prune": {
@@ -4232,6 +4330,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/nothing-to-prune"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4314,11 +4415,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -4330,6 +4426,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4337,11 +4436,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -4353,6 +4447,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4444,11 +4541,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -4460,6 +4552,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4467,11 +4562,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -4483,6 +4573,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4490,11 +4583,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -4506,6 +4594,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4534,11 +4625,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-unreachable": {
@@ -4550,6 +4636,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4712,10 +4801,13 @@
                     "submittedBy": null,
                     "submittedByClient": null
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -4796,11 +4888,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idempotency-key-required": {
@@ -4812,6 +4899,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4819,11 +4909,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -4835,6 +4920,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4842,11 +4930,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -4867,6 +4950,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4874,11 +4960,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -4890,6 +4971,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -4897,11 +4981,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -4940,6 +5019,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/namespace-exists-unmanaged"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5113,11 +5195,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -5129,6 +5206,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5136,11 +5216,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-unreachable": {
@@ -5161,6 +5236,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5354,11 +5432,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idempotency-key-required": {
@@ -5370,6 +5443,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5377,11 +5453,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -5393,6 +5464,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5400,11 +5474,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -5425,6 +5494,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5432,11 +5504,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -5457,6 +5524,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5464,11 +5534,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -5489,6 +5554,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5496,11 +5564,6 @@
           },
           "412": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-failed": {
@@ -5512,6 +5575,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5639,11 +5705,6 @@
           },
           "428": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-required": {
@@ -5655,6 +5716,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5662,11 +5726,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -5678,6 +5737,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5685,11 +5747,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-unreachable": {
@@ -5710,6 +5767,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5809,11 +5869,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -5825,6 +5880,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5832,11 +5890,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -5848,6 +5901,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5855,11 +5911,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -5880,6 +5931,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -5908,11 +5962,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -5924,6 +5973,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6055,6 +6107,69 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "approval": {
+                    "approvals": [],
+                    "auto": "none-required",
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform"
+                    ],
+                    "remaining": [],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [],
+                    "timeoutHours": 8
+                  },
+                  "capacity": {
+                    "bindingResource": "cpu",
+                    "clusterId": "CRC",
+                    "cpu": 0.062,
+                    "fresh": true,
+                    "memory": 0.05,
+                    "source": "simulated",
+                    "status": "fits"
+                  },
+                  "changes": {
+                    "clusters/CRC/namespaces/payments-dev/limitrange.yaml": "changed",
+                    "clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed",
+                    "clusters/CRC/namespaces/payments-dev/resourcequota.yaml": "changed"
+                  },
+                  "etag": "aa3f025f59ebf759",
+                  "files": {
+                    "clusters/CRC/namespaces/payments-dev/limitrange.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: dec3e603bf8d\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n      memory: 256Mi\n    default:\n      cpu: 500m\n      memory: 512Mi\n    max:\n      cpu: '4'\n      memory: 8Gi\n  - type: PersistentVolumeClaim\n    max:\n      storage: 50Gi\n",
+                    "clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: medium\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n",
+                    "clusters/CRC/namespaces/payments-dev/resourcequota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: payments-dev-quota\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: dec3e603bf8d\nspec:\n  hard:\n    requests.cpu: '16'\n    requests.memory: 32Gi\n    pods: '100'\n    persistentvolumeclaims: '30'\n    requests.storage: 500Gi\n    services.loadbalancers: '0'\n    services.nodeports: '0'\n"
+                  },
+                  "findings": [],
+                  "planHash": "7ccbcb224b530f87df3b6e84df6f67f9e6f0784666ce56251a37e03a18698548",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+          },
           "202": {
             "content": {
               "application/json": {
@@ -6145,11 +6260,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idempotency-key-required": {
@@ -6161,6 +6271,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6168,11 +6281,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -6184,6 +6292,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6191,11 +6302,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -6216,6 +6322,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6223,11 +6332,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -6248,6 +6352,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6255,11 +6362,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -6280,6 +6382,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6287,11 +6392,6 @@
           },
           "412": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-failed": {
@@ -6304,6 +6404,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6422,11 +6525,6 @@
           },
           "428": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-required": {
@@ -6438,6 +6536,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6445,11 +6546,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -6461,6 +6557,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6468,11 +6567,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-unreachable": {
@@ -6493,6 +6587,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6689,11 +6786,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idempotency-key-required": {
@@ -6705,6 +6797,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6712,11 +6807,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -6728,6 +6818,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6735,11 +6828,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -6760,6 +6848,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6767,11 +6858,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-not-found": {
@@ -6792,6 +6878,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6799,11 +6888,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -6824,6 +6908,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -6831,11 +6918,6 @@
           },
           "412": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-failed": {
@@ -6847,6 +6929,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7001,11 +7086,6 @@
           },
           "428": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "precondition-required": {
@@ -7017,6 +7097,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/precondition-required"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7024,11 +7107,6 @@
           },
           "502": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "git-unavailable": {
@@ -7040,6 +7118,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7047,11 +7128,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "cluster-unreachable": {
@@ -7072,6 +7148,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7143,11 +7222,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -7159,6 +7233,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7166,11 +7243,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -7182,6 +7254,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7210,11 +7285,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idp-unavailable": {
@@ -7226,6 +7296,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7292,11 +7365,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -7308,6 +7376,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7315,11 +7386,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -7331,6 +7397,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7338,11 +7407,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -7354,6 +7418,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7382,11 +7449,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idp-unavailable": {
@@ -7398,6 +7460,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7497,11 +7562,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -7513,6 +7573,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7520,11 +7583,6 @@
           },
           "503": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "idp-unavailable": {
@@ -7536,6 +7594,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7818,11 +7879,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "invalid-cursor": {
@@ -7852,6 +7908,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/invalid-sort"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7859,11 +7918,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -7875,6 +7929,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -7882,11 +7939,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -7898,6 +7950,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8090,9 +8145,6 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "text/csv": {
                 "example": "name,clusterId,env,team,tier,cpuUsed,cpuHard,memoryUsed,memoryHard,podsUsed,podsHard,used,expiresAt,tierOutdated\r\npayments-dev,CRC,dev,payments,small,0,8,0,16Gi,0,50,0.0,,False\r\n",
                 "schema": {
@@ -8104,11 +8156,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -8120,6 +8167,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8127,11 +8177,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -8143,6 +8188,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8235,11 +8283,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -8251,6 +8294,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8258,11 +8304,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -8274,6 +8315,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8590,11 +8634,6 @@
           },
           "400": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "invalid-cursor": {
@@ -8615,6 +8654,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/invalid-limit"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8622,11 +8664,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -8638,6 +8675,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8645,11 +8685,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -8661,6 +8696,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8850,11 +8888,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -8866,6 +8899,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8873,11 +8909,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -8889,6 +8920,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8896,11 +8930,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -8912,6 +8941,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -8999,11 +9031,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -9015,6 +9042,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9022,11 +9052,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -9038,6 +9063,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9045,11 +9073,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -9061,6 +9084,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9190,11 +9216,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -9206,6 +9227,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9213,11 +9237,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -9229,6 +9248,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9236,11 +9258,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -9252,6 +9269,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9448,11 +9468,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -9464,6 +9479,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9471,11 +9489,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -9505,6 +9518,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/not-eligible"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9512,11 +9528,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -9528,6 +9539,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9535,11 +9549,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "already-approved": {
@@ -9569,6 +9578,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/self-approval"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9734,11 +9746,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -9750,6 +9757,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9757,11 +9767,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -9773,6 +9778,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9780,11 +9788,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -9796,6 +9799,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9803,11 +9809,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "invalid-transition": {
@@ -9819,6 +9820,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/invalid-transition"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -9997,11 +10001,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -10013,6 +10012,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10020,11 +10022,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "environment-forbidden": {
@@ -10045,6 +10042,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10052,11 +10052,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -10068,6 +10063,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10075,11 +10073,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "not-pending": {
@@ -10091,6 +10084,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/not-pending"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10280,11 +10276,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -10296,6 +10287,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10303,11 +10297,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -10319,6 +10308,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10326,11 +10318,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -10342,6 +10329,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10349,11 +10339,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -10374,6 +10359,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/invalid-transition"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10446,6 +10434,114 @@
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "action": "create",
+                  "approval": {
+                    "approvals": [],
+                    "auto": "auto:baseline-rnd-namespace",
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev create: 1 from approver-platform",
+                      "auto-approved by policy baseline-rnd-namespace"
+                    ],
+                    "remaining": [],
+                    "rule": "dev-create",
+                    "selfApproval": true,
+                    "slots": [],
+                    "timeoutHours": 8
+                  },
+                  "baseSha": "62b2d7a4252b2dd214a0ec23c6c8d1037be0aec1",
+                  "clusterId": "CRC",
+                  "createdAt": "2026-11-13T18:05:35.327746Z",
+                  "env": "dev",
+                  "events": [
+                    {
+                      "at": "2026-11-13T18:05:35.327746Z",
+                      "by": "ola",
+                      "event": "plan_auto_approved",
+                      "note": "auto:baseline-rnd-namespace",
+                      "status": "approved"
+                    },
+                    {
+                      "at": "2026-11-13T18:05:35.431008Z",
+                      "by": "cmapi-bot",
+                      "event": "pr_opened",
+                      "note": "cmapi/CRC/orders-dev/req-20261113-0009 #8",
+                      "status": "pr_open"
+                    },
+                    {
+                      "at": "2026-11-13T18:05:35.520745Z",
+                      "by": "ci",
+                      "event": "ci",
+                      "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
+                      "status": "pr_open"
+                    },
+                    {
+                      "at": "2026-11-13T18:05:35.520745Z",
+                      "by": "cmapi-bot",
+                      "event": "merged",
+                      "note": "merged cded00df",
+                      "status": "merged"
+                    },
+                    {
+                      "at": "2026-11-13T18:05:35.609424Z",
+                      "by": "worker",
+                      "event": "sync_timeout",
+                      "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
+                      "status": "sync_failed"
+                    },
+                    {
+                      "at": "2026-11-13T18:05:36.406903Z",
+                      "by": "opal",
+                      "event": "revert_requested",
+                      "note": "",
+                      "status": "sync_failed"
+                    }
+                  ],
+                  "files": {
+                    "clusters/CRC/namespaces/orders-dev/limitrange.yaml": "added",
+                    "clusters/CRC/namespaces/orders-dev/namespace.yaml": "added",
+                    "clusters/CRC/namespaces/orders-dev/resourcequota.yaml": "added",
+                    "clusters/CRC/namespaces/orders-dev/token-issuer-rolebinding.yaml": "added"
+                  },
+                  "instance": "nonprod",
+                  "justification": "Payments service dev namespace",
+                  "links": {
+                    "events": "/api/v1/requests/req-20261113-0009/events",
+                    "pr": "https://git.test/pulls/8",
+                    "self": "/api/v1/requests/req-20261113-0009"
+                  },
+                  "mergeSha": "cded00df",
+                  "namespace": "orders-dev",
+                  "planHash": "f5cd7c1836f7f52c35bbd71980dbc31409e2fa7ec844711ba8c77f64f81570cf",
+                  "plugin": "namespaces",
+                  "pr": {
+                    "branch": "cmapi/CRC/orders-dev/req-20261113-0009",
+                    "head": "cded00df",
+                    "number": 8,
+                    "url": "https://git.test/pulls/8"
+                  },
+                  "reason": null,
+                  "requestId": "req-20261113-0009",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  },
+                  "status": "sync_failed",
+                  "updatedAt": "2026-11-13T18:05:36.271380Z"
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
                 }
@@ -10455,11 +10551,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -10471,6 +10562,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10478,11 +10572,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -10494,6 +10583,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10501,11 +10593,6 @@
           },
           "404": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "object-not-found": {
@@ -10517,6 +10604,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/object-not-found"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10524,11 +10614,6 @@
           },
           "409": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "change-pending": {
@@ -10550,6 +10635,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/invalid-transition"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10814,11 +10902,6 @@
           },
           "401": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "unauthenticated": {
@@ -10830,6 +10913,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
@@ -10837,11 +10923,6 @@
           },
           "403": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
               "application/problem+json": {
                 "examples": {
                   "forbidden": {
@@ -10853,6 +10934,9 @@
                       "type": "https://cmapi.ephico2real.com/problems/forbidden"
                     }
                   }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },

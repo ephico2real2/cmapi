@@ -88,8 +88,9 @@ jobs:
         run: npm test
 
   api-contract:
-    # The API contract gate (#131, docs/01 "API documentation"): a pull request that breaks the contract of its base branch
-    # fails here. oasdiff compares cmapi/contract/openapi.json, which the service job keeps equal to what the code serves.
+    # The API contract gates (docs/01 "API documentation"). Gate 1 (#143): Spectral lints cmapi/contract/openapi.json with cmapi's
+    # ruleset. Gate 3 (#131): a pull request that breaks the contract of its base branch fails here, by oasdiff. The service job
+    # keeps that file equal to what the code serves.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,6 +106,18 @@ jobs:
           echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  oasdiff.tar.gz" | sha256sum -c -
           tar xzf oasdiff.tar.gz oasdiff && sudo mv oasdiff /usr/local/bin/
           oasdiff --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Spectral, from the lockfile
+        working-directory: cmapi/contract/spectral
+        run: |
+          npm ci --ignore-scripts
+          node_modules/.bin/spectral --version
+      - name: The lint refuses a document that breaks a rule, one case for each rule
+        run: python cmapi/contract/lint-test.py
+      - name: The contract passes the lint
+        run: cmapi/contract/lint.sh
       - name: The gate refuses a breaking change and passes an additive one
         run: cmapi/contract/gate-test.sh
       - name: The changelog that /docs/changelog serves is current
@@ -163,7 +176,7 @@ jobs:
           # The stubs and the guards read YAML.
           python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
