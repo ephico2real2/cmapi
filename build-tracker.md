@@ -42,6 +42,8 @@ All 135 issues, open and closed, by the class questions of `/agile`, section 2.
 
 ## OB1's run, 2026-11-13
 
+**The merge gate is local CI, from 14:57 UTC on 2026-11-13** (the owner: "use local ci for all work and forget the githiub"). In this tracker, **CI** as a proof then means `act-ci.sh` of `/setup-local-ci` on this Mac, unless a row names a GitHub run. `OB1-PROMPT.md`, "Local CI is the merge gate", has the rule.
+
 The state of each item of the run is in [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), "State on 2026-11-13, during OB1's run". The session stopped two times and lost nothing: from 09:45 to 10:24 UTC (`403 authentication_failed`) and from about 11:45 to 13:53 UTC (Fable's 5-hour usage limit). The table "Where it stands" below is the state before the run, except where the handover says otherwise.
 
 ## Where it stands

@@ -37,6 +37,10 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 1. Whether the CRC run starts after this restart.
 2. How kind proofs run while CRC is up on the same Mac. The options are in #157.
 
+### Local CI is the merge gate, from 14:57 UTC on 2026-11-13
+
+The owner: "use local ci for all work and forget the githiub", and "tell ob1 to use this going forward". The rule is in `OB1-PROMPT.md`, "Local CI is the merge gate". Each pull request that OB1 merged before that time had GitHub Actions green on its exact head. From then on the gate is `act-ci.sh` of `/setup-local-ci`, with each job at exit 0 on the exact head, and the pull request says so.
+
 ### What is done
 
 | Item | State |
