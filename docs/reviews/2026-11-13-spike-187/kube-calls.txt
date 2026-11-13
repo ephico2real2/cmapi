@@ -1,0 +1,3 @@
+description: swagger 2.0, 537 paths
+calls checked: 48; distinct operations: 40
+differences: 0
