@@ -109,6 +109,14 @@ jobs:
         run: cmapi/contract/gate-test.sh
       - name: The changelog that /docs/changelog serves is current
         run: python cmapi/contract/changelog.py --check
+      - name: The contract does not break the newest released version
+        run: |
+          latest=$(find cmapi/contract/released -name '*.json' | sort -V | tail -1)
+          if [ -n "$latest" ]; then
+            cmapi/contract/gate.sh "$latest" cmapi/contract/openapi.json
+          else
+            echo "No version is released yet: cmapi/contract/released holds no document."
+          fi
       - name: The contract does not break the base branch
         if: github.event_name == 'pull_request'
         env:
