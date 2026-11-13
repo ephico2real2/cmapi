@@ -1,8 +1,11 @@
 """The directory plugin: GET /directory/users through the DirectoryProvider (Keycloak admin API, read-only)."""
 from __future__ import annotations
 
-from fastapi import Depends, Query
+from typing import Annotated
 
+from fastapi import Depends, Path, Query
+
+from cmapi import __version__
 from cmapi.core.context import AppContext
 from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
@@ -11,7 +14,11 @@ from cmapi.core.identity.directory import DirectoryUnavailable
 from cmapi.core.models import DirectoryUser, DirectoryUsers
 from cmapi.routers import ctx, require
 
-router = DocumentedRouter("directory", prefix="/api/v1")
+Username = Annotated[str, Path(description="The person's username in Keycloak (`preferred_username`).",
+                               examples=["cmapi.requester"])]
+
+router = DocumentedRouter("directory", prefix="/api/v1", version=__version__, group="Access",
+                          description="The people that Keycloak knows: a search for the people picker, and one person by username.")
 
 
 def _operator(who: Identity) -> bool:
@@ -20,7 +27,8 @@ def _operator(who: Identity) -> bool:
 
 @router.read("/directory/users", summary="Search people", permission="objects:read", response_model=DirectoryUsers,
              problems=["idp-unavailable"])
-def search(q: str = Query(min_length=2, description="Two or more characters of a username, name or email"),
+def search(q: str = Query(min_length=2, examples=["ada"],
+                          description="Two or more characters of a username, a name or an email address."),
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """Up to ten people matching the text, for the portal's people picker. The employee ID is returned to
     cmapi-operator and above only."""
@@ -34,7 +42,7 @@ def search(q: str = Query(min_length=2, description="Two or more characters of a
 
 @router.read("/directory/users/{username}", summary="One person", permission="objects:read", response_model=DirectoryUser,
              problems=["object-not-found", "idp-unavailable"])
-def get_user(username: str, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
+def get_user(username: Username, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """A person by username (cached 15 minutes, served from the cache when Keycloak is unreachable)."""
     if c.directory is None:
         raise Problem(503, "idp-unavailable", "No directory is configured", extra={"retryAfter": 60})
