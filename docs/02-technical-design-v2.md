@@ -202,7 +202,7 @@ Every caller gets its token from Keycloak and sends it on each call; cmapi verif
 
 **How it works at runtime.** A person signs in once per session; after that every call carries a short-lived token that cmapi checks without contacting Keycloak.
 
-1. **Sign-in.** The portal redirects to Keycloak (Authorization Code + PKCE). Keycloak checks the password by binding to LDAP as that user, imports the user on first login, and reads their cmapi-\* group memberships from LDAP.
+1. **Sign-in.** The portal redirects to Keycloak (Authorization Code + PKCE). Keycloak checks the password by binding to LDAP as that user, imports the user on first login, and reads their app-cmapi-rbac-\* group memberships from LDAP.
 2. **Token.** Keycloak returns a 5-minute access token and a refresh token. The access token carries the user's ID, username, email, cmapi groups and effective cmapi roles, composite roles already expanded.
 3. **Call.** The portal sends the token as Authorization: Bearer. cmapi verifies the signature with its cached copy of the realm keys, builds the Principal, checks the route's permission, and checks the role's environments in pipeline step 2.
 4. **Refresh.** About every 5 minutes the portal swaps the refresh token for a new access token. Keycloak rebuilds it from current memberships, so a person removed from an LDAP group loses the role at the next refresh, and a disabled account cannot refresh at all.
@@ -220,14 +220,14 @@ A decoded access token for a person who requests for payments and approves prod:
   "sub": "6f1c2a9e-4b7d-4e21-9c3a-0d8e5b7f2a14",
   "preferred_username": "ola",
   "email": "ola@ephico2real.com",
-  "groups": ["/cmapi/cmapi-requesters", "/cmapi/cmapi-prod-approvers"],
+  "groups": ["/cmapi/app-cmapi-rbac-requester", "/cmapi/app-cmapi-rbac-approver-prod"],
   "resource_access": {"cmapi-prod": {"roles": ["cmapi-requester", "cmapi-approver", "cmapi-viewer"]}},
   "iat": 1793725500,
   "exp": 1793725800
 }
 ```
 
-With these roles, Ola can ask for any namespace name on any cluster the prod instance serves (cmapi-requester) and approve prod requests where cmapi-prod-approvers is an approving group (cmapi-approver). Nothing ties her to a team or a name prefix; the approval rules decide what needs approval.
+With these roles, Ola can ask for any namespace name on any cluster the prod instance serves (cmapi-requester) and approve prod requests where app-cmapi-rbac-approver-prod is an approving group (cmapi-approver). Nothing ties her to a team or a name prefix; the approval rules decide what needs approval.
 
 ![Keycloak at runtime · sign-in, call, refresh](diagrams/v2-keycloak-runtime.png)
 
@@ -295,7 +295,7 @@ To lengthen sessions later, change these numbers; nothing in cmapi changes. Do n
 | Sync periods | changed users 900 s, full 86400 s | changed users 900 s, full 86400 s | With cache policy MAX\_LIFESPAN at 15 minutes, a removed membership reaches tokens within 15 minutes plus one refresh |
 | Connection pooling | On | On |  |
 
-**Group import.** A group-ldap-mapper imports only groups whose name starts with cmapi- (LDAP filter (cn=cmapi-\*)), read-only, membership attribute member (DN), under the Keycloak group path /cmapi. Importing only these keeps tokens small and keeps unrelated directory groups out of authorization. Each Keycloak group carries a client-role mapping, so adding a person to an LDAP group is the whole onboarding step.
+**Group import.** A group-ldap-mapper imports only groups whose name starts with app-cmapi-rbac- (LDAP filter (cn=app-cmapi-rbac-\*)), read-only, membership attribute member (DN), under the Keycloak group path /cmapi. Importing only these keeps tokens small and keeps unrelated directory groups out of authorization. Each Keycloak group carries a client-role mapping, so adding a person to an LDAP group is the whole onboarding step.
 
 **Clients.** One client per kind of caller, so each has only the flow it needs and its own redirect URIs.
 
@@ -313,12 +313,12 @@ A client scope cmapi-audience holds an Audience mapper (aud: cmapi-\<instance>; 
 
 | Role | Adds these permissions | Includes | Typical LDAP group |
 | --- | --- | --- | --- |
-| cmapi-viewer | clusters:read, objects:read, capacity:read, requests:read | — | cmapi-{team}-viewers |
-| cmapi-requester | namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel (own requests) | viewer | cmapi-{team}-requesters |
-| cmapi-approver | requests:approve | viewer | cmapi-prod-approvers, cmapi-platform-leads |
-| cmapi-operator | requests:retry, requests:cancel (any request), adoption:write, reports:read | requester | cmapi-platform-operators |
-| cmapi-admin | config:write, clusters:onboard, admin:reload | operator | cmapi-platform-admins |
-| cmapi-auditor | events:read, audit:export | viewer | cmapi-auditors |
+| cmapi-viewer | clusters:read, objects:read, capacity:read, requests:read | — | app-cmapi-rbac-viewer |
+| cmapi-requester | namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel (own requests) | viewer | app-cmapi-rbac-requester |
+| cmapi-approver | requests:approve | viewer | app-cmapi-rbac-approver-prod, app-cmapi-rbac-approver-platform |
+| cmapi-operator | requests:retry, requests:cancel (any request), adoption:write, reports:read | requester | app-cmapi-rbac-operator |
+| cmapi-admin | config:write, clusters:onboard, admin:reload | operator | app-cmapi-rbac-admin |
+| cmapi-auditor | events:read, audit:export | viewer | app-cmapi-rbac-auditor |
 
 Approver deliberately does not include requester. One person can hold both through two groups, and the self-approval rule still excludes them on their own requests.
 
@@ -490,11 +490,11 @@ CREATE UNIQUE INDEX uq_cr_idempotency ON change_requests (requester_sub, idempot
 
 The cmapi.net/requested-by annotation keeps the email (the client ID for a service account), and the cmapi.net/requested-by-user label keeps preferred\_username or the client ID. Tokens are never logged; structlog records sub, username, client and kind.
 
-**Approvals and Git identity.** The approving groups in approval-rules.yaml become Keycloak group paths (/cmapi/cmapi-prod-approvers, /cmapi/cmapi-platform-leads). Superseded: approvers act through POST /requests/{id}:approve with their own Keycloak token, so no Git username is mapped. The CI cmapi check calls GET /api/v1/requests/{id}/approval-status as svc-cmapi-ci only to confirm the request is approved and the PR head matches the plan hash. The text that follows described the earlier model: cmapi maps each PR reviewer's Git username to a Keycloak user, then checks group, approver role, binding scope and self-approval by sub. That mapping only works if the Git host signs in through the same realm (or the same LDAP), so Git usernames equal preferred\_username. A reviewer with no Keycloak match does not count.
+**Approvals and Git identity.** The approving groups in approval-rules.yaml become Keycloak group paths (/cmapi/app-cmapi-rbac-approver-prod, /cmapi/app-cmapi-rbac-approver-platform). Superseded: approvers act through POST /requests/{id}:approve with their own Keycloak token, so no Git username is mapped. The CI cmapi check calls GET /api/v1/requests/{id}/approval-status as svc-cmapi-ci only to confirm the request is approved and the PR head matches the plan hash. The text that follows described the earlier model: cmapi maps each PR reviewer's Git username to a Keycloak user, then checks group, approver role, binding scope and self-approval by sub. That mapping only works if the Git host signs in through the same realm (or the same LDAP), so Git usernames equal preferred\_username. A reviewer with no Keycloak match does not count.
 
 **Automation clients.** Each pipeline gets its own confidential client svc-{team}-{purpose} with the service account on and every browser flow off. Its role is assigned to the service account directly; a role limited by environments in authz-roles.yaml (such as cmapi-bot-rnd) narrows where it may act. It may request in its own name, or name a person with onBehalfOf. Client authentication is a signed JWT where the CI system can sign one, otherwise a client secret rotated every 90 days from the CI secret store. New clients are added through the realm repository below, not self-service.
 
-**Onboarding and automation accounts.** cmapi-onboarding is viewer plus namespaces:create and requests:cancel: it creates namespaces and follows its requests, and cannot change or delete a namespace. cmapi-requester is onboarding plus namespaces:write, quotas:write, serviceaccounts:write and grants:write. Onboarding goes to people (directly or through the group /cmapi/cmapi-onboarding) or to a local Keycloak account such as bot-user, which an AI agent or a script signs in as. instance.yaml sets two identity rules: automationRoles (default \[cmapi-onboarding\]), whose holders need no employee ID and may send onBehalfOf, and requireOnBehalfOf (default false), which, when true, makes service clients and automation accounts name a person again. Every request records automated, and approval rules get the facts automated and requesterClient, so agent requests can be routed differently; otherwise they follow the same rules, auto-approval included. Anyone holding namespaces:write may change or delete any managed namespace; approval rules still apply, and a delete still needs its approvals and an operator's prune confirmation.
+**Onboarding and automation accounts.** cmapi-onboarding is viewer plus namespaces:create and requests:cancel: it creates namespaces and follows its requests, and cannot change or delete a namespace. cmapi-requester is onboarding plus namespaces:write, quotas:write, serviceaccounts:write and grants:write. Onboarding goes to people (directly or through the group /cmapi/app-cmapi-rbac-onboarding) or to a local Keycloak account such as bot-user, which an AI agent or a script signs in as. instance.yaml sets two identity rules: automationRoles (default \[cmapi-onboarding\]), whose holders need no employee ID and may send onBehalfOf, and requireOnBehalfOf (default false), which, when true, makes service clients and automation accounts name a person again. Every request records automated, and approval rules get the facts automated and requesterClient, so agent requests can be routed differently; otherwise they follow the same rules, auto-approval included. Anyone holding namespaces:write may change or delete any managed namespace; approval rules still apply, and a delete still needs its approvals and an operator's prune confirmation.
 
 **Namespace names.** With no name prefixes per team, the name itself is checked by core/naming.py: a DNS-1123 label of 2 to 63 characters (422 invalid-namespace-name); not reserved, either built in (default, openshift, openshift-\*, kube-\*, cmapi-system, cmapi-imports) or listed in instance.yaml namespaces.reservedPatterns, such as ocp-\* and kubernetes-\* (422 reserved-namespace); and at create, not a namespace already on the cluster without cmapi.net/managed (409 namespace-exists-unmanaged; adoption is the way in).
 
@@ -826,13 +826,13 @@ ChangeStatus = Literal["pending_approval", "approved", "pr_open", "merged", "awa
                        "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted"]
 
 class ApprovalSlot(Api):
-    group: str                    # approving group, e.g. "prod-approvers" (token path /cmapi/cmapi-prod-approvers)
+    group: str                    # approving group, e.g. "approver-prod" (token path /cmapi/app-cmapi-rbac-approver-prod)
     count: int
     reason: str
 
 class ApprovalRequirement(Api):
     rule: str                     # e.g. "prod-delete"
-    slots: list[ApprovalSlot]     # one per group: 2 prod-approvers + 1 platform-leads is two slots
+    slots: list[ApprovalSlot]     # one per group: 2 approver-prod + 1 approver-platform is two slots
     self_approval: bool
     timeout_hours: int
     reasons: list[str]
@@ -1013,7 +1013,7 @@ team:
   maxAnnotations: 50
   maxAnnotationValueBytes: 4096
   maxAnnotationBytesTotal: 65536
-sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
 emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
 ```
 
@@ -1110,7 +1110,7 @@ curl -s -X PATCH "$CMAPI/clusters/OCP_GF1/namespaces/payments-dev/metadata" \
       }'
 ```
 
-**Plan and PR.** The Plan lists added, changed and removed keys per class. The PR body shows that table, and the approval engine receives it as facts. A change to a sensitive key adds one platform-leads approval on top of the environment rule.
+**Plan and PR.** The Plan lists added, changed and removed keys per class. The PR body shows that table, and the approval engine receives it as facts. A change to a sensitive key adds one approver-platform approval on top of the environment rule.
 
 **Rendering.** The renderer writes labels and annotations as sorted maps on each manifest, system keys first, so diffs stay stable and reviewers see only the keys that changed.
 
@@ -1257,7 +1257,7 @@ Writes keep their shape: POST .../namespaces takes tier and, for custom only, qu
               "step": {"requests.cpu": "1", "requests.memory": "1Gi", "pods": "10"}}}}}
 ```
 
-**Changing a tier.** A PR to tiers.yaml (platform-leads in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values; only their catalog part re-renders.
+**Changing a tier.** A PR to tiers.yaml (approver-platform in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values; only their catalog part re-renders.
 
 **Reference implementation.** examples/src/cmapi/core/tiers.py, with 28 tests in examples/tests/test\_tiers.py that load every instance's file, cover each refusal and each catalog check, and render the example namespace's resourcequota.yaml and limitrange.yaml byte for byte.
 
@@ -1651,7 +1651,7 @@ Server-set fields (uid, resourceVersion, creationTimestamp, managedFields, statu
 
 1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller must be admin of each namespace, checked with a SubjectAccessReview on that cluster, or be a platform admin.
 2. **Plan.** The plugin reads live objects, applies the skip rules and policies, and renders the files. The diff between rendered and live must be empty apart from the managed labels; anything else is a finding.
-3. **Approve, then PR. One request per namespace with the findings in its plan. Approval in cmapi: one namespace admin in rnd and qa, plus platform-leads in prod; once approved, the bot opens the PR**.
+3. **Approve, then PR. One request per namespace with the findings in its plan. Approval in cmapi: one namespace admin in rnd and qa, plus approver-platform in prod; once approved, the bot opens the PR**.
 4. **Sync.** On merge, the cluster's ArgoCD takes ownership. The first sync is a no-op except for the managed labels and the removal of cmapi.net/adopt, which marks adoption done.
 5. **Verify.** The worker confirms Synced and Healthy with no other changes; any unexpected diff fails the request and leaves the namespace as it was.
 
@@ -1673,20 +1673,20 @@ The n8n approval logic becomes one YAML file evaluated at plan time; the stricte
 
 ```yaml
 # config/approval-rules.yaml
-defaults: {required: 0, group: platform-leads, timeoutHours: 24, selfApproval: false}
+defaults: {required: 0, group: approver-platform, timeoutHours: 24, selfApproval: false}
 
 environments:
   rnd:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # create waived by baseline-rnd-namespace
   dev:  {create: 1, change: 0, delete: 1, selfApproval: true,  timeoutHours: 8}   # rnd's settings until dev's are agreed
   # each instance's file holds only its allowedEnvironments: nonprod rnd, dev; staging qa, uat; prod prod
-  qa:   {create: 1, change: 1, delete: 1, group: qa-leads,     timeoutHours: 24}
-  uat:  {create: 1, change: 1, delete: 1, group: uat-leads,    timeoutHours: 24}
-  prod: {create: 1, change: 1, delete: 2, group: prod-approvers, timeoutHours: 48}
+  qa:   {create: 1, change: 1, delete: 1, group: approver-qa,     timeoutHours: 24}
+  uat:  {create: 1, change: 1, delete: 1, group: approver-uat,    timeoutHours: 24}
+  prod: {create: 1, change: 1, delete: 2, group: approver-prod, timeoutHours: 48}
 
 namespacePatterns:              # first match wins; can raise or waive
   - match: "critical-*"
     required: 2
-    group: platform-leads
+    group: approver-platform
     reason: Critical namespace pattern
   - match: "temp-*"
     waive: [create, change]
@@ -1695,7 +1695,7 @@ namespacePatterns:              # first match wins; can raise or waive
 thresholds:                     # facts come from the planner and the capacity plugin
   - when: quotaIncreasePct > 100
     add: 1
-    group: platform-leads
+    group: approver-platform
   - when: requestToPeakRatio > 3   # namespace peak over 14 days, read live when the change is planned
     add: 1
     reason: Possible over-provisioning
@@ -1705,10 +1705,10 @@ thresholds:                     # facts come from the planner and the capacity p
     add: 1
   - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
     add: 1
-    group: platform-leads
+    group: approver-platform
   - when: expirationBeyondLimits    # past 180 days from creation, or make permanent
     add: 1
-    group: platform-leads
+    group: approver-platform
   - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
     add: 1
 
@@ -1785,7 +1785,7 @@ CI must still pass: auto-approval replaces the human review, not the checks.
 
 Branch protection requires CI and the cmapi check rather than a human review, and only the cmapi bot can merge under clusters/; Git reviews carry no authority. A dry run shows whether the request would be auto-approved and, if not, which guard stopped it.
 
-**Changing the policies.** approval-rules.yaml is owned by platform-leads in CODEOWNERS. A PR that adds or widens a policy reaching prod needs two of them. cmapi\_auto\_approvals\_total{policy, environment} and cmapi\_auto\_approval\_fallbacks\_total{guard} show how often each baseline is used, and which guard sends requests back to humans.
+**Changing the policies.** approval-rules.yaml is owned by approver-platform in CODEOWNERS. A PR that adds or widens a policy reaching prod needs two of them. cmapi\_auto\_approvals\_total{policy, environment} and cmapi\_auto\_approval\_fallbacks\_total{guard} show how often each baseline is used, and which guard sends requests back to humans.
 
 ## Policy in one place
 
@@ -1892,7 +1892,7 @@ The current KPI table, extended with auto-approval rate, placement accuracy, cap
 | Lead time, no approval | Submit to synced, rnd requests | cmapi\_change\_lead\_time\_seconds p90 | Under 10 min |
 | Lead time, with approval | Submit to synced, approved requests | Same, rule label set | Under 1 business day p90 |
 | Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
-| Self-service rate | Requests completed with no platform-team touch | change\_requests without a platform-leads approval or manual edit | Over 80% |
+| Self-service rate | Requests completed with no platform-team touch | change\_requests without a approver-platform approval or manual edit | Over 80% |
 | Change failure rate | Failed, sync-failed or reverted requests / merged requests | change\_requests, request\_events | Under 5% |
 | Validation reject rate | Rejected at plan / submitted | cmapi\_validation\_failures\_total | Tracked, not targeted; rising means unclear rules or forms |
 | Drift events | OutOfSync without an open request | cmapi\_sync\_drift\_total | 0 per week |
@@ -2122,9 +2122,9 @@ Each candidate was updated on npm in 2026 (checked 2026-11-04). uniforms-pattern
 
 ### Review findings, fixed in this pass
 
-- **One approving group per request was not enough.** Thresholds add platform-leads on top of the environment's group, so ApprovalRequirement is now a list of slots, one per group, and the ledger fills them one person at a time.
+- **One approving group per request was not enough.** Thresholds add approver-platform on top of the environment's group, so ApprovalRequirement is now a list of slots, one per group, and the ledger fills them one person at a time.
 - **Missing facts in when: lines.** If every comparison with a missing fact were false, reason != "expired" would be false for an ordinary delete and the delete threshold would never fire. == and != now compare a missing fact as None; ordering and in stay false.
-- **Approving groups and token groups.** Rules name prod-approvers; tokens carry /cmapi/cmapi-prod-approvers. authz.GROUP\_PATH is the one convention joining them.
+- **Approving groups and token groups.** Rules name approver-prod; tokens carry /cmapi/app-cmapi-rbac-approver-prod. identity.groupPath in instance.yaml is the one convention joining them, per instance, by default /cmapi/app-cmapi-rbac-{name}.
 - **List envelope.** Two shapes were written down; the contract is {items, page: {limit, total, from, to, nextCursor, prevCursor}, letters}.
 - **Request IDs on objects.** cmapi.net/request-id is the last request that changed an object, so the renderer keeps the old ID on objects whose content did not change, and a tier change touches only the three files it changes.
 - **Per-instance files.** instance.yaml and expiration.yaml now exist for each instance beside approval-rules, authz-roles and tiers, and config.py checks them together.
@@ -2133,13 +2133,13 @@ Each candidate was updated on npm in 2026 (checked 2026-11-04). uniforms-pattern
 
 An independent review of the reference code against this design then found sixteen more, all fixed, each with a regression test:
 
-- **Sensitive keys** never added platform-leads and could be auto-approved: approval-rules.yaml now has a sensitiveKeyChanged threshold (+1 platform-leads), which also stops team-metadata auto-approval.
+- **Sensitive keys** never added approver-platform and could be auto-approved: approval-rules.yaml now has a sensitiveKeyChanged threshold (+1 approver-platform), which also stops team-metadata auto-approval.
 - **Expiry beyond limits** (past 180 days, or make permanent) never reached the engine: the plan's expirationBeyondLimits fact now has its threshold.
 - **Slots were filled first come, first served,** so a person in two approving groups could block a second approver; the ledger now re-solves the assignment on every approve.
 - **Removing the last ServiceAccount or grant left its file in Git** (an access-revocation failure): the renderer now removes files that are no longer rendered.
 - **Lifecycle:** :retry from failed now says it must re-take the lock and the reservation; :retry from sync\_failed re-watches the sync without claiming a reservation it no longer has; :revert moves the request to a new terminal state, reverted, which releases its lock for the revert request; operators may cancel.
 - **Grace starts on the expiry date,** and lasts graceDays including that date.
-- **A namespace pattern's group** now replaces the environment's group (critical-\* needs 2 from platform-leads, not 2 prod-approvers).
+- **A namespace pattern's group** now replaces the environment's group (critical-\* needs 2 from approver-platform, not 2 approver-prod).
 - **Requests made on someone's behalf:** the directory's user ID becomes the requester, so that person cannot approve their own request.
 - **The previous-page cursor** returned rows overlapping the current page after a letter jump or deletes.
 - **Missing capacity facts** no longer count as fits: namespaces and quotas creates and changes need capacity fits on fresh data to auto-approve.
@@ -2312,7 +2312,7 @@ Each roadmap item is a plugin or a core extension point, so none of them changes
 
 **Showback.** Rates per environment in config (cost per core-hour and per GiB-hour of requests). GET /api/v1/reports/showback?month=2026-11 groups by cluster, cost-center and team. It needs the cmapi.net/cost-center label, which the policy bundle then requires on new namespaces.
 
-**Ownership attestation.** The policy bundle requires the cmapi.net/team label and the cmapi.net/team-dl annotation. Every 90 days the notifier asks the team DL to confirm the namespace is still needed; confirming records cmapi.net/attested-at. No answer within 14 days opens an expiration:set request 30 days out, for non-prod namespaces only (prod never expires; there it alerts platform-leads instead). A daily check flags namespaces whose requester no longer appears in the directory, so the team DL can confirm who owns it now.
+**Ownership attestation.** The policy bundle requires the cmapi.net/team label and the cmapi.net/team-dl annotation. Every 90 days the notifier asks the team DL to confirm the namespace is still needed; confirming records cmapi.net/attested-at. No answer within 14 days opens an expiration:set request 30 days out, for non-prod namespaces only (prod never expires; there it alerts approver-platform instead). A daily check flags namespaces whose requester no longer appears in the directory, so the team DL can confirm who owns it now.
 
 **Outbound events.** An EventPublisher extension point emits CloudEvents 1.0 over HTTPS webhooks: net.cmapi.changerequest.created, .approved, .merged, .synced, .failed and .timeout, each with clusterId and requestId. Subscriptions live in an event\_subscriptions table with a signing secret per subscriber. A ServiceNow subscriber can open a change ticket for prod requests.
 

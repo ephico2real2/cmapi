@@ -73,7 +73,7 @@ class Me(Api):
     kind: Literal["user", "service"] = Field(description="A person or a service-account client", examples=["user"])
     client: str = Field(description="The client the token was issued to", examples=["cmapi-portal"])
     roles: list[str] = Field(description="Client roles in the token", examples=[["cmapi-requester"]])
-    groups: list[str] = Field(description="Keycloak group paths in the token", examples=[["/cmapi/cmapi-requesters"]])
+    groups: list[str] = Field(description="Keycloak group paths in the token", examples=[["/cmapi/app-cmapi-rbac-requester"]])
     identity: IdentityRecord = Field(description="The identity cmapi records for this caller")
     access: Access = Field(description="What the roles allow, and where")
     instance: str = Field(description="The instance answering", examples=["nonprod"])
@@ -94,7 +94,7 @@ class DirectoryUsers(Api):
 
 
 class ApprovalSlot(Api):
-    group: str = Field(description="Approving group (token path /cmapi/cmapi-<group>)", examples=["platform-leads"])
+    group: str = Field(description="Approving group (token path identity.groupPath, by default /cmapi/app-cmapi-rbac-<group>)", examples=["approver-platform"])
     count: int = Field(description="Approvals needed from the group", examples=[1])
     reason: str = Field(description="Why this slot exists", examples=["Critical namespace pattern"])
 
@@ -108,7 +108,7 @@ class ApprovalEntry(Api):
 
 
 class ApprovalRemaining(Api):
-    group: str = Field(description="Group still needed", examples=["platform-leads"])
+    group: str = Field(description="Group still needed", examples=["approver-platform"])
     needed: int = Field(description="Approvals still needed from it", examples=[1])
 
 

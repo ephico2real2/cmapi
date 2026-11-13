@@ -1,0 +1,161 @@
+diff --git a/deploy/tests/doc13-test.py b/deploy/tests/doc13-test.py
+index 6547401..dc6b179 100755
+--- a/deploy/tests/doc13-test.py
++++ b/deploy/tests/doc13-test.py
+@@ -1,8 +1,8 @@
+ #!/usr/bin/env python3
+ """docs/13's run, read: what it says is what the wave's rulings and the owner's requirements say, and every path and subcommand it names exists. A runbook is run by hand, so nothing else holds it.
+ Then its blocks, run: each step in a plain bash, as pasted, on stubs of oc, git, sleep and every script, with each command it runs failing in turn. Each failure must end the step, leave the shell alive, write the stop
+-file and make the next step refuse. Then the same checks on mutants of the document: a mutant that passes is a rule this test cannot fail on. No cluster. usage: doc13-test.py [<docs/13 file>]. DOC13_BASH names another bash. Exit 1 on any failure."""
+-import os, re, shutil, stat, subprocess, sys, tempfile
++file and make the next step refuse. Then the same checks on mutants of the document: a mutant that passes is a rule this test cannot fail on. Then step 12 again with its background watch logging late (#118). No cluster. usage: doc13-test.py [<docs/13 file>]. DOC13_BASH names another bash. Exit 1 on any failure."""
++import os, re, select, shutil, stat, subprocess, sys, tempfile
+ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs/13-crc-deployment.md")
+ DOC = open(PATH).read()
+@@ -11,8 +11,10 @@ MANIFESTS = os.path.join(ROOT, "deploy/manifests")
+ 
+ 
+ # Stands in for every command the run calls: logs its call, fails when that call is FAIL, and answers what the blocks read.
++# STUB_WATCH_DELAY holds back the log of a watch, which runs in the background, as a busy machine does (#118). /bin/sleep, since sleep here is this stub.
+ STUB = r'''#!/usr/bin/env bash
+ key="$(basename "$0") $*"
++case "$key" in "crc-guard.py watch "*) [ -z "${STUB_WATCH_DELAY:-}" ] || /bin/sleep "$STUB_WATCH_DELAY";; esac
+ printf '%s\n' "$key" >>"$CALLS"
+ [ "$key" != "$FAIL" ] || exit 7
+ case "$key" in
+@@ -26,8 +28,25 @@ exit 0
+ '''
+ 
+ 
+-def run_blocks(doc, steps, only=None):
+-    """Each step, or those in only, run with each of its commands failing. One string per rule a failure broke."""
++def run_to_the_end(cmd, timeout=120, **kwargs):
++    """subprocess.run that also outlasts everything cmd left in the background, so that none of it can log once this has returned (#118).
++    Every descendant inherits the pipe's write end, and the read end sees end-of-file only when the last of them has gone. `wait` in the script cannot do this: a step's job is a child of the step's subshell."""
++    read_end, write_end = os.pipe()
++    try:
++        try:
++            done = subprocess.run(cmd, pass_fds=(write_end,), timeout=timeout, **kwargs)
++        finally:
++            os.close(write_end)
++        if not select.select([read_end], [], [], timeout)[0]:
++            raise TimeoutError(f"something {cmd} began is still running {timeout} s after it ended")
++        return done
++    finally:
++        os.close(read_end)
++
++
++def run_blocks(doc, steps, only=None, watch_delay="", failing=""):
++    """Each step, or those in only, run with each of its commands failing. One string per rule a failure broke. watch_delay is STUB_WATCH_DELAY.
++    failing narrows the failures to the commands starting so, and leaves out the dirty checkout: the late-watch checks run on every push and need no more."""
+     out = []
+     prelude = re.search(r"^## The run\n.*?```bash\n(.*?)```", doc, re.S | re.M)[1]
+     work = tempfile.mkdtemp(prefix="doc13-run.")
+@@ -41,25 +60,26 @@ def run_blocks(doc, steps, only=None):
+                 f.write(STUB)
+             os.chmod(n, os.stat(n).st_mode | stat.S_IXUSR)
+         run_dir = os.path.join(work, "deploy", "rendered", "wave1-run"); os.makedirs(run_dir)
+-        stop = os.path.join(run_dir, "stop"); calls = os.path.join(work, "calls"); script = os.path.join(work, "script")
++        stop = os.path.join(run_dir, "stop"); calls = os.path.join(work, "calls"); calls_next = calls + ".next"; script = os.path.join(work, "script")
+         # What the issuer must answer for each step to pass, and what it must stop on.
+         passes = {4: 10, 15: 10, 18: 0}
+         wrong = {4: (0, 20), 15: (0, 20), 18: (10, 20)}
+ 
+         def go(n, fail="", last="watch ended rc=0", then_next=True, **env):
+-            for f in (stop, calls):
++            for f in (stop, calls, calls_next):
+                 if os.path.exists(f): os.unlink(f)
+             with open(os.path.join(run_dir, "watch.log"), "w") as f:
+                 f.write(last + "\n")
+-            # The prelude with nothing failing: it defines what the steps use. Then the step, a mark, and the next step, pasted later.
++            # The prelude with nothing failing: it defines what the steps use. Then the step, and the next step, pasted later, logging elsewhere.
++            # A process keeps the CALLS it was forked with, so what the step began logs as the step's however late: a mark in one file would date a call by when it logged, not by who began it (#118).
+             with open(script, "w") as f:
+-                f.write(prelude + "\n" + 'echo prelude >>"$CALLS"\n' + steps[n] + 'echo SURVIVED; echo next >>"$CALLS"\n' + (steps.get(n + 1, "") if then_next else "") + "echo SURVIVED_NEXT\n")
+-            r = subprocess.run([os.environ.get("DOC13_BASH", "bash"), script], cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120,
+-                               env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "CALLS": calls, "FAIL": fail, "STUB_ISSUER": str(env.pop("issuer", passes.get(n, 10))), **env})
++                f.write(prelude + "\n" + 'echo prelude >>"$CALLS"\n' + steps[n] + 'echo SURVIVED; export CALLS="$CALLS.next"\n' + (steps.get(n + 1, "") if then_next else "") + "echo SURVIVED_NEXT\n")
++            r = run_to_the_end([os.environ.get("DOC13_BASH", "bash"), script], cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True,
++                               env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "CALLS": calls, "FAIL": fail, "STUB_WATCH_DELAY": watch_delay, "STUB_ISSUER": str(env.pop("issuer", passes.get(n, 10))), **env})
+             log = open(calls).read().splitlines() if os.path.exists(calls) else []
+             at = log.index("prelude") if "prelude" in log else 0
+-            nx = log.index("next") if "next" in log else len(log)
+-            return r, log[at + 1:nx], log[nx + 1:], os.path.exists(stop)
++            after = open(calls_next).read().splitlines() if os.path.exists(calls_next) else []
++            return r, log[at + 1:], after, os.path.exists(stop)
+ 
+         def stopped_right(label, n, r, step_calls, after, was_stopped, fail=""):
+             alive = "SURVIVED_NEXT" in r.stdout
+@@ -69,9 +89,12 @@ def run_blocks(doc, steps, only=None):
+             ran = [c for c in after if not c.startswith(allowed)]
+             if ran: out.append(f"{label}: the step after {n} ran {ran[0][:80]}")
+             if fail in step_calls:
+-                # What may still follow a failure: the same read retried, the realm sync's log, and a watch begun in the background just before.
++                # What may still follow a failure: the same read retried, the realm sync's log, and a watch begun in the background just before, judged next.
+                 late = [c for c in step_calls[step_calls.index(fail) + 1:] if c != fail and c != "oc logs job/cmapi-realm-sync -n cmapi" and not c.startswith(("sleep ", "crc-guard.py watch "))]
+                 if late: out.append(f"{label}: step {n} ran on after it failed: {late[0][:80]}")
++                # Where a watch's line falls says nothing, since it logs when it gets there. That it logged at all says it began, and only `watching`, the check on it, may fail with one begun.
++                begun = [c for c in step_calls if c.startswith("crc-guard.py watch ")]
++                if begun and not fail.startswith("crc-guard.py watching "): out.append(f"{label}: step {n} began the watch all the same")
+ 
+         for n in sorted(only or steps):
+             r, step_calls, after, was_stopped = go(n, then_next=False)
+@@ -79,7 +102,7 @@ def run_blocks(doc, steps, only=None):
+                 out.append(f"step {n} does not pass when nothing fails: {r.stdout[-200:]} {r.stderr[-200:]}")
+                 continue
+             for key in sorted(set(step_calls)):
+-                if key.startswith("crc-guard.py watch "):      # in the background: `watching` is what sees it, in crc-guard-test.py
++                if key.startswith("crc-guard.py watch ") or not key.startswith(failing):      # a watch is in the background: `watching` is what sees it, in crc-guard-test.py
+                     continue
+                 r2, sc, after2, st = go(n, fail=key)
+                 stopped_right(f"{key[:60]} failing", n, r2, sc, after2, st, fail=key)
+@@ -95,8 +118,9 @@ def run_blocks(doc, steps, only=None):
+             if n == 24:
+                 r2, sc, after2, st = go(n, last="watch ended rc=3")
+                 stopped_right("a watch that ended rc=3", n, r2, sc, after2, st)
+-        r2, sc, after2, st = go(1, STUB_DIRTY=" M x")
+-        if not st or "deploy/crc-trust.sh" in " ".join(sc): out.append("a dirty checkout does not stop the run")
++        if not failing:
++            r2, sc, after2, st = go(1, STUB_DIRTY=" M x")
++            if not st or "deploy/crc-trust.sh" in " ".join(sc): out.append("a dirty checkout does not stop the run")
+     finally:
+         shutil.rmtree(work)
+     return out
+@@ -297,6 +321,17 @@ MUTANTS = {
+     "a dirty checkout is only printed": ('  [ -z "$(git status --porcelain)" ]\n', '  git status --porcelain\n'),
+ }
+ 
++# Each must fail by the run itself, with the watch logging late: (what to replace, with what, what the failure says). run_blocks is called directly, so the document's shape cannot be what catches them.
++WATCH = 'nohup $G watch "$RUN/watch.log" "$STOP" "$RUN/s0.json" >"$RUN/watch.out" 2>&1 &\n'
++SNAPSHOT = '  $G snapshot "$RUN/s0.json"\n  rm -f "$RUN/watch.log.done"\n  ' + WATCH
++LATE_MUTANTS = {
++    "a failed snapshot still begins the watch": (SNAPSHOT, '  $G snapshot "$RUN/s0.json" || rc=$?\n  rm -f "$RUN/watch.log.done"\n  ' + WATCH + '  [ "${rc:-0}" = 0 ]\n', "step 12 began the watch all the same"),
++    "the watch begun before the snapshot": (SNAPSHOT, '  rm -f "$RUN/watch.log.done"\n  ' + WATCH + '  $G snapshot "$RUN/s0.json"\n', "step 12 began the watch all the same"),
++    "the step after a stop begins a watch": ('  $G gate "$STOP"\n  deploy/crc-backup.sh\n', '  $G gate "$STOP" || rc=$?\n  ' + WATCH + '  [ "${rc:-0}" = 0 ]\n  deploy/crc-backup.sh\n', "the step after 12 ran crc-guard.py watch"),
++}
++# 0.02 s lands after the step's end in the same case, and 0.1 and 0.3 s in later cases, measured on the shipped harness (#118).
++LATE_DELAYS = ("0.02", "0.1", "0.3")
++
+ fails = problems(DOC)
+ for f in fails:
+     print("  FAIL " + f)
+@@ -311,5 +346,18 @@ if not fails:
+         found = problems(mutant, [n for n in now if now[n] != was.get(n)] or [1, 9])
+         print(f"  {'killed  ' if found else 'SURVIVED'} {name}" + (f" ({found[0][:90]})" if found else ""))
+         survived += 0 if found else 1
++    twelve = steps_of(DOC)
++    for delay in LATE_DELAYS:
++        late = run_blocks(DOC, twelve, [12], watch_delay=delay, failing="crc-guard.py ")
++        for f in late:
++            print(f"  FAIL the watch logging {delay} s late: " + f)
++        print(f"  {'ok  ' if not late else 'FAIL'} step 12 holds with the watch logging {delay} s late")
++        fails += late
++    for name, (old, new, says) in LATE_MUTANTS.items():
++        assert DOC.count(old) == 1, (name, old)
++        mutant = DOC.replace(old, new)
++        found = [f for f in run_blocks(mutant, steps_of(mutant), [12], watch_delay=LATE_DELAYS[-1], failing="crc-guard.py snapshot ") if says in f]
++        print(f"  {'killed  ' if found else 'SURVIVED'} {name}, logging {LATE_DELAYS[-1]} s late" + (f" ({found[0][:90]})" if found else ""))
++        survived += 0 if found else 1
+ print(f"doc13 cases failed: {len(fails)}, mutants survived: {survived}")
+ sys.exit(1 if fails or survived else 0)

@@ -20,6 +20,7 @@ instance:
     requireEmployeeId: true          # 422 identity-incomplete without the employee_id claim
     requireOnBehalfOf: false         # bots (service-account clients) may request in their own name
     automationRoles: [cmapi-onboarding]   # accounts with these roles need no employee ID (bot-user)
+    groupPath: /cmapi/app-cmapi-rbac-{name}   # the token's group for an approving group in approval-rules.yaml; a site with its own directory sets its own (docs/11)
     # email domains for the team DL: emailDomains in cluster-configs/policies/metadata-keys.yaml
   git:
     repository: caas/cluster-configs-staging

@@ -59,7 +59,7 @@ A new pipeline gets its client through a PR to the realm repository (`cmapi-sso/
 
 ### An AI agent or bot: the onboarding role
 
-`cmapi-onboarding` lets an account create namespaces and follow its requests, and nothing else: it cannot change or delete a namespace. Give it to people (directly or through the group `/cmapi/cmapi-onboarding`) or to a local Keycloak account such as `bot-user` that an agent signs in as:
+`cmapi-onboarding` lets an account create namespaces and follow its requests, and nothing else: it cannot change or delete a namespace. Give it to people (directly or through the group `/cmapi/app-cmapi-rbac-onboarding`) or to a local Keycloak account such as `bot-user` that an agent signs in as:
 
 ```bash
 TOKEN=$(curl -s "$KC/token" \
@@ -439,7 +439,7 @@ curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/payments-rnd/expiration:exte
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" \
   -d '{"days": 30, "justification": "Integration tests run through January"}'
 
-# Make permanent, or give a permanent non-prod namespace a date (beyond the limits: platform-leads approve)
+# Make permanent, or give a permanent non-prod namespace a date (beyond the limits: approver-platform approve)
 curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/payments-rnd/expiration:makePermanent" -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" -d '{"justification": "Now the shared payments sandbox"}'
 curl -s -X POST "$CMAPI/clusters/OCP_GF6/namespaces/ledger-rnd/expiration:set" -H "Authorization: Bearer $TOKEN" \
@@ -498,13 +498,13 @@ curl -s -H "Authorization: Bearer $TOKEN" "$CMAPI/policies/rejections?since=7d" 
 | Status | Problem type | Meaning | What to do |
 | --- | --- | --- | --- |
 | 401 | `unauthenticated` | Missing, expired or invalid token, or a token issued for another app | Get a new token from your cmapi client |
-| 403 | `forbidden` | None of your Keycloak roles grants this action (for example `cmapi-onboarding` changing a namespace) | Ask to join the right `cmapi-*` LDAP group, or for the role on your account |
+| 403 | `forbidden` | None of your Keycloak roles grants this action (for example `cmapi-onboarding` changing a namespace) | Ask to join the right `app-cmapi-rbac-*` LDAP group, or for the role on your account |
 | 403 | `environment-forbidden` | Your role grants this action, but only in other environments | Use a role that covers the environment (`authz-roles.yaml`) |
 | 404 | `cluster-not-found` / `object-not-found` | Unknown cluster or missing live object | |
 | 409 | `change-pending` | An open request already targets this namespace | Wait for it, or cancel it with `POST /requests/{id}:cancel` |
 | 409 | `namespace-exists-unmanaged` | At create: the namespace already exists on the cluster and cmapi does not manage it | Ask for adoption instead |
 | 409 | `not-pending` / `self-approval` | `:approve` on a request not waiting for approval, or by someone who may not approve it | Check `GET /requests/{id}`; ask another eligible approver |
-| 422 | `expiration-not-allowed` / `expiration-limit` | Expiry asked for in prod, or a single extension over 30 days (past 180 days in total is not refused: it is routed to platform-leads) | Leave it out in prod; extend in steps of 30 days or less |
+| 422 | `expiration-not-allowed` / `expiration-limit` | Expiry asked for in prod, or a single extension over 30 days (past 180 days in total is not refused: it is routed to approver-platform) | Leave it out in prod; extend in steps of 30 days or less |
 | 412 / 428 | `precondition-failed` / `precondition-required` | Stale or missing `If-Match` | GET again for the current ETag |
 | 422 | `validation-failed` / `policy-violation` / `capacity-exceeded` | Request rejected at plan time | Read `errors[].code`, e.g. `reserved_key`, `invalid-team-dl` |
 | 422 | `invalid-namespace-name` / `reserved-namespace` | The name is not a DNS-1123 label of 2 to 63 characters, or is reserved | Pick another name |

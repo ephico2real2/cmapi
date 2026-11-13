@@ -1,0 +1,79 @@
+--- a/cmapi/src/cmapi/core/git/github.py
++++ b/cmapi/src/cmapi/core/git/github.py
+@@ -147,8 +147,18 @@
+         """The check runs of a commit, one per check. filter=latest asks for the latest attempts; within one check suite of one App
+         a later id replaces an earlier one of the same name, in case a re-run's attempts still come back together. Two suites or two
+         Apps reporting one name are two checks, and both count."""
++        # The commit check-runs endpoint only covers the 1,000 newest suites.
++        # Count every suite first: empty suites also consume that window.
++        suites = self._pages("pr_check_suites", f"{self._repo()}/commits/{head}/check-suites", "check_suites")
++        if len(suites) > 1000:
++            runs = []
++            for suite in suites:
++                runs.extend(self._pages("pr_check_runs", f"{self._repo()}/check-suites/{suite['id']}/check-runs",
++                                        "check_runs", filter="latest"))
++        else:
++            runs = self._pages("pr_check_runs", f"{self._repo()}/commits/{head}/check-runs", "check_runs", filter="latest")
+         latest: dict[tuple[Any, Any, Any], Mapping[str, Any]] = {}
+-        for run in self._pages("pr_check_runs", f"{self._repo()}/commits/{head}/check-runs", "check_runs", filter="latest"):
++        for run in runs:
+             key = (run["name"], (run.get("app") or {}).get("id"), (run.get("check_suite") or {}).get("id"))
+             if key not in latest or run["id"] > latest[key]["id"]:
+                 latest[key] = run
+--- a/cmapi/tests/service/test_github_check_runs.py
++++ b/cmapi/tests/service/test_github_check_runs.py
+@@ -55,6 +55,9 @@
+             return httpx.Response(200, json=pr or {"state": "open", "merged": False, "head": {"sha": SHA, "ref": PR.branch}})
+         if path == f"/repos/o/r/commits/{SHA}/status":
+             return on_statuses(request) if on_statuses else paged(request, "statuses", list(statuses))
++        if path == f"/repos/o/r/commits/{SHA}/check-suites":
++            suites = sorted({r["check_suite"]["id"] for r in runs})
++            return paged(request, "check_suites", [{"id": i} for i in suites])
+         if path == f"/repos/o/r/commits/{SHA}/check-runs":
+             return on_runs(request) if on_runs else paged(request, "check_runs", list(runs))
+         return httpx.Response(404, json={"message": f"not routed: {path}"})
+@@ -252,6 +255,8 @@
+         if re.fullmatch(r"/commits/\w+/status", path):
+             sha = path.split("/")[2]
+             return paged(request, "statuses", [st(c, s) for c, s in fake.statuses.get(sha, {}).items()])
++        if re.fullmatch(r"/commits/\w+/check-suites", path):
++            return paged(request, "check_suites", [{"id": i} for i in sorted({r["check_suite"]["id"] for r in self.runs.values()})])
+         if re.fullmatch(r"/commits/\w+/check-runs", path):
+             if self.refuse_check_runs:
+                 return httpx.Response(self.refuse_check_runs, json={"message": "Resource not accessible by integration"})
+--- /dev/null
++++ b/cmapi/tests/service/test_review_r87_c3.py
+@@ -0,0 +1,33 @@
++import httpx
++from cmapi.core.git.github import GitHubProvider
++from test_github_check_runs import API, PR, SHA, run, paged, CONTEXT_KYVERNO
++
++
++def test_failure_outside_the_commit_endpoints_1000_suite_window():
++    """The documented cap is on suites, independent of HTTP pagination."""
++    suites = [{"id": i} for i in range(1, 1002)]
++    runs = [run(CONTEXT_KYVERNO, id=i, suite=i, conclusion="failure" if i == 1 else "success") for i in range(1, 1002)]
++    seen = []
++
++    def host(request):
++        seen.append(request)
++        path = request.url.path
++        if path == "/repos/o/r/pulls/7":
++            return httpx.Response(200, json={"state": "open", "head": {"sha": SHA}})
++        if path == f"/repos/o/r/commits/{SHA}/status":
++            return paged(request, "statuses", [])
++        if path == f"/repos/o/r/commits/{SHA}/check-runs":
++            # All pages, correctly linked, but GitHub has already discarded suite 1.
++            return paged(request, "check_runs", runs[1:])
++        if path == f"/repos/o/r/commits/{SHA}/check-suites":
++            return paged(request, "check_suites", suites)
++        if path.startswith("/repos/o/r/check-suites/") and path.endswith("/check-runs"):
++            suite_id = int(path.split("/")[-2])
++            return paged(request, "check_runs", [runs[suite_id - 1]])
++        raise AssertionError(f"unexpected request: {request.method} {path}")
++
++    git = GitHubProvider(API, "o/r", "local-placeholder")
++    git._client.close()
++    git._client = httpx.Client(base_url=API, transport=httpx.MockTransport(host))
++    assert git.pr_status(PR).checks[CONTEXT_KYVERNO] == "failure"
++    assert any(r.url.path == "/repos/o/r/check-suites/1/check-runs" for r in seen)

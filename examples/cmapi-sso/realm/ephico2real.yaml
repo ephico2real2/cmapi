@@ -79,9 +79,9 @@ roles:
 groups:
   - name: cmapi
     subGroups:
-      - name: cmapi-onboarding                      # members may create namespaces on every instance
+      - name: app-cmapi-rbac-onboarding             # members may create namespaces on every instance
         clientRoles: {cmapi-nonprod: [cmapi-onboarding], cmapi-staging: [cmapi-onboarding], cmapi-prod: [cmapi-onboarding]}
-      - name: cmapi-requesters
+      - name: app-cmapi-rbac-requester
         clientRoles: {cmapi-nonprod: [cmapi-requester], cmapi-staging: [cmapi-requester], cmapi-prod: [cmapi-requester]}
 # A local automation account (not from LDAP) for an AI agent or script. It needs no employee ID because
 # it holds an automation role (instance.yaml identity.automationRoles). Its password lives in a vault,

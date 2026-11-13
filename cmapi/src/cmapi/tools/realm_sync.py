@@ -8,8 +8,9 @@ What it converges, each step idempotent:
      cmapi-directory -> view-users and query-users;
   3. the groups under /cmapi and their client-role mappings (the import creates them; a later
      change to the mapping reaches an existing realm here);
-  4. LDAP federation, read-only, with the group mapper filtered on cmapi-* under /cmapi, when the
-     bind credential Secret is present (CMAPI_LDAP_BIND_DN and CMAPI_LDAP_BIND_PASSWORD);
+  4. LDAP federation, read-only, with the group mapper filtered on groupsFilter under /cmapi, and on
+     a shared directory only the people usersFilter names, when the bind credential Secret is present
+     (CMAPI_LDAP_BIND_DN and CMAPI_LDAP_BIND_PASSWORD);
   5. local test users (ola, amy, opal, bot-user) with the passwords from Secret cmapi-test-users,
      their attributes and group memberships; nothing is printed but names.
 """
@@ -24,9 +25,9 @@ from typing import Any
 import httpx
 
 TEST_USERS = [  # username, first, middle, last, employeeId, groups
-    ("ola", "Ola", "A", "Adeyemi", "1001", ["cmapi-requesters"]),
-    ("amy", "Amy", "B", "Lee", "1002", ["cmapi-platform-leads"]),
-    ("opal", "Opal", None, "Ng", "1003", ["cmapi-platform-operators"]),
+    ("ola", "Ola", "A", "Adeyemi", "1001", ["app-cmapi-rbac-requester"]),
+    ("amy", "Amy", "B", "Lee", "1002", ["app-cmapi-rbac-approver-platform"]),
+    ("opal", "Opal", None, "Ng", "1003", ["app-cmapi-rbac-operator"]),
 ]
 
 
@@ -127,14 +128,19 @@ def groups(rm: Realm, audience: str, mapping: dict[str, list[str]]) -> dict[str,
     return ids
 
 
-def _sync_read_someone(r: httpx.Response) -> bool:
+def _sync_read_someone(r: httpx.Response, expect: int | None = None) -> bool:
+    """Read at least one user and failed on none; and with expect, read exactly that many. A users filter makes "at least one"
+    too weak: a filter that was not applied reads the whole directory, and one that matches too little still reads someone."""
     if r.status_code != 200:
         return False
     try:
         counts = r.json()
     except ValueError:
         return False
-    return isinstance(counts, dict) and not counts.get("failed") and counts.get("added", 0) + counts.get("updated", 0) > 0
+    if not isinstance(counts, dict) or counts.get("failed"):
+        return False
+    read = counts.get("added", 0) + counts.get("updated", 0)
+    return read > 0 if expect is None else read == expect
 
 
 def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
@@ -163,13 +169,17 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
             "cachePolicy": ["MAX_LIFESPAN"], "maxLifespan": ["900000"], "changedSyncPeriod": ["900"], "fullSyncPeriod": ["86400"],
         },
     }
+    if cfg.get("usersFilter"):
+        body["config"]["customUserSearchFilter"] = [cfg["usersFilter"]]
     if existing is None:
         rm.call("POST", "/components", json=body)
         existing = next(c for c in rm.get("/components", params={"type": "org.keycloak.storage.UserStorageProvider"})
                         if c["name"] == "ldap")
         print("LDAP federation: created (read-only)")
     else:
-        rm.call("PUT", f"/components/{existing['id']}", json={**body, "id": existing["id"]})
+        # Keycloak keeps a key a PUT leaves out, and removes one sent empty (measured on 26.6.4). So no usersFilter here has to say so, or an earlier filter would stay.
+        config = {"customUserSearchFilter": [], **body["config"]}
+        rm.call("PUT", f"/components/{existing['id']}", json={**body, "config": config, "id": existing["id"]})
         print("LDAP federation: updated (read-only)")
     mappers = {m["name"]: m for m in rm.get("/components", params={"parent": existing["id"],
                                                                    "type": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper"}) or []}
@@ -191,19 +201,20 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
     mapper("last name", "user-attribute-ldap-mapper", attr("sn", "lastName", "true"))
     # This directory's employee number (docs/11): uidNumber here, employeeNumber in a corporate directory.
     mapper("employee-id", "user-attribute-ldap-mapper", attr(cfg.get("employeeIdAttribute", "employeeNumber"), "employeeId"))
+    groups_filter = cfg.get("groupsFilter", "(cn=app-cmapi-rbac-*)")
     mapper("groups", "group-ldap-mapper", {
-        "groups.dn": [cfg["groupsDn"]], "groups.ldap.filter": [cfg.get("groupsFilter", "(cn=cmapi-*)")],
+        "groups.dn": [cfg["groupsDn"]], "groups.ldap.filter": [groups_filter],
         "group.name.ldap.attribute": ["cn"], "group.object.classes": ["groupOfNames"], "membership.ldap.attribute": ["member"],
         "membership.attribute.type": ["DN"], "membership.user.ldap.attribute": ["uid"], "mode": ["READ_ONLY"],
         "user.roles.retrieve.strategy": ["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"], "groups.path": ["/cmapi"],
         "preserve.group.inheritance": ["false"], "ignore.missing.groups": ["false"], "drop.non.existing.groups.during.sync": ["false"]})
-    print("LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, cn=cmapi-*)")
+    print(f"LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, {groups_filter}); users: {cfg.get('usersFilter', 'everyone in usersDn')}")
     r = rm.call("POST", f"/user-storage/{existing['id']}/sync", params={"action": "triggerFullSync"}, ok=(200, 400, 500))
     print(f"LDAP full sync: {r.status_code} {r.text[:120]}")
     # A deployment that needs federation says so (#96). The status alone is not enough: a directory Keycloak cannot reach answers
-    # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none.
-    if cfg.get("requireSync") and not _sync_read_someone(r):
-        sys.exit(f"LDAP full sync read no user: {r.status_code} {r.text[:120]}")
+    # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none, and exactly expectUsers when that is set.
+    if cfg.get("requireSync") and not _sync_read_someone(r, cfg.get("expectUsers")):
+        sys.exit(f"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {r.text[:120]}")
 
 
 def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:

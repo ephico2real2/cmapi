@@ -34,6 +34,7 @@ instance:
     requireEmployeeId: true
     requireOnBehalfOf: false
     automationRoles: [cmapi-onboarding]
+    groupPath: /cmapi/app-cmapi-rbac-{name}   # the token's group for an approving group in approval-rules.yaml (docs/11)
   docs:
     enabled: true
 
@@ -62,18 +63,18 @@ keycloak:
   realm:
     portalRedirects: []            # https://portal host/*
     docsRedirects: []              # https://api host/docs/oauth2-redirect
-    # The groups the design names (docs/11), each with the client roles its members get.
+    # The groups of docs/11, each with the client roles its members get.
     groups:
-      cmapi-viewers: [cmapi-viewer]
-      cmapi-requesters: [cmapi-requester]
-      cmapi-onboarding: [cmapi-onboarding]
-      cmapi-prod-approvers: [cmapi-approver]
-      cmapi-qa-leads: [cmapi-approver]
-      cmapi-uat-leads: [cmapi-approver]
-      cmapi-platform-leads: [cmapi-approver]
-      cmapi-platform-operators: [cmapi-operator, cmapi-approver]
-      cmapi-platform-admins: [cmapi-admin]
-      cmapi-auditors: [cmapi-auditor]
+      app-cmapi-rbac-viewer: [cmapi-viewer]
+      app-cmapi-rbac-requester: [cmapi-requester]
+      app-cmapi-rbac-onboarding: [cmapi-onboarding]
+      app-cmapi-rbac-approver-prod: [cmapi-approver]
+      app-cmapi-rbac-approver-qa: [cmapi-approver]
+      app-cmapi-rbac-approver-uat: [cmapi-approver]
+      app-cmapi-rbac-approver-platform: [cmapi-approver]
+      app-cmapi-rbac-operator: [cmapi-operator, cmapi-approver]
+      app-cmapi-rbac-admin: [cmapi-admin]
+      app-cmapi-rbac-auditor: [cmapi-auditor]
   # The sync Job (post-install, post-upgrade): local test users with generated passwords, the user
   # profile attributes, and LDAP federation when the cmapi-ldap-bind Secret exists.
   sync:
@@ -84,7 +85,9 @@ keycloak:
       connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443
       usersDn: ou=People,dc=ephico2real,dc=com
       groupsDn: ou=Groups,dc=ephico2real,dc=com
-      groupsFilter: "(cn=cmapi-*)"
+      groupsFilter: "(cn=app-cmapi-rbac-*)"
+      # usersFilter: "(uid=cmapi.*)"   # a shared directory: who the realm reads, customUserSearchFilter. Absent: everyone in usersDn
+      # expectUsers: 13                # fail the sync unless it read exactly this many
       employeeIdAttribute: uidNumber   # this directory's employee number (docs/11); employeeNumber elsewhere
       bindSecret: cmapi-ldap-bind
 

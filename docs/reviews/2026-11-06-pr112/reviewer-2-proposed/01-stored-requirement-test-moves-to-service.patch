@@ -1,0 +1,40 @@
+--- a/cmapi/tests/core/test_approvals.py
++++ b/cmapi/tests/core/test_approvals.py
+@@ -219,17 +219,6 @@
+     assert led.approve(person("bob", groups={"/corp/approver-prod-team"}, **APPROVER))
+ 
+ 
+-def test_a_stored_requirement_keeps_its_group_path():
+-    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON."""
+-    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
+-    raw = {"environments": {"prod": {"create": 1, "group": "approver-prod"}}}
+-    req = ApprovalRules(raw, {"prod"}, group_path="/corp/{name}").decide(facts())
+-    back = requirement_from_json(requirement_to_json(req))
+-    assert back.token_group("approver-prod") == "/corp/approver-prod"
+-    old = requirement_to_json(req); old.pop("groupPath")
+-    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
+-
+-
+ @pytest.mark.parametrize("kind,fact", [("auto", {}), ("waived", {"namespace": "temp-x"})])
+ def test_every_requirement_carries_the_group_path(kind, fact):
+     """decide() builds a Requirement on four paths; one that drops the setting would approve under the default."""
+--- a/cmapi/tests/service/test_flow.py
++++ b/cmapi/tests/service/test_flow.py
+@@ -145,6 +145,17 @@
+     assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+ 
+ 
++def test_a_stored_requirement_keeps_its_group_path():
++    """The stored requirement is what a later approve reads, so the path has to survive the database's JSON. Here and not in tests/core: cmapi.core.db needs sqlalchemy, and the reference-code job runs tests/core with examples/local/requirements.txt, which has none."""
++    from cmapi.core.approvals import Requirement, Slot
++    from cmapi.core.db.repo import requirement_from_json, requirement_to_json
++    req = Requirement(rule="prod-create", slots=(Slot("approver-prod", 1, "r"),), self_approval=False, timeout_hours=48, reasons=("r",), group_path="/corp/{name}")
++    back = requirement_from_json(requirement_to_json(req))
++    assert back.token_group("approver-prod") == "/corp/approver-prod"
++    old = requirement_to_json(req); old.pop("groupPath")
++    assert requirement_from_json(old).token_group("approver-prod") == "/cmapi/app-cmapi-rbac-approver-prod"
++
++
+ def test_a_token_with_no_role_gets_403(world):
+     """cmapi.noaccess: signed in, known, and allowed nothing."""
+     client, ctx, git, kube, validator, keys = world

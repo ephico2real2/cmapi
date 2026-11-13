@@ -7,16 +7,20 @@ HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mkte
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
-mkdir -p "$W/bin" "$W/repo/deploy"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
+mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/ca.pem" -subj "/CN=stub CA" -days 2 2>/dev/null
-openssl req -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/leaf.csr" -subj "/CN=leaf" 2>/dev/null; export STUB_CA=$W/ca.pem
+# The ingress bundle as measured on CRC: the site's certificate, then its CA.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$W/ingress-ca.key" -out "$W/ingress-ca.pem" -subj "/CN=ingress-operator@1" -days 2 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -keyout "$W/leaf.key" -out "$W/leaf.csr" -subj "/CN=*.apps-crc.testing" 2>/dev/null
+printf 'basicConstraints=critical,CA:FALSE\n' >"$W/leaf.ext"; openssl x509 -req -in "$W/leaf.csr" -CA "$W/ingress-ca.pem" -CAkey "$W/ingress-ca.key" -CAcreateserial -days 2 -extfile "$W/leaf.ext" -out "$W/leaf.pem" 2>/dev/null
+cat "$W/leaf.pem" "$W/ingress-ca.pem" >"$W/ingress-bundle.pem"; export STUB_CA=$W/ca.pem STUB_INGRESS=$W/ingress-bundle.pem
 cat >"$W/bin/oc" <<'OC'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$ARGV_LOG"
 s="$*"
 case "$s" in
   "get secret keycloak-tls -n keycloak -o jsonpath={.data.ca\.crt}") base64 <"$STUB_CA"; exit 0;;
-  "get cm default-ingress-cert"*) cat "$STUB_CA"; exit 0;;
+  "get cm default-ingress-cert"*) cat "$STUB_INGRESS"; exit 0;;
   "get istag cmapi:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
   "get istag cmapi:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
   "get route default-route"*) printf 'registry.stub'; exit 0;;
@@ -48,6 +52,17 @@ print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]})
   "exec np-probe"*"cmapi-mockup"*) exit "${STUB_CONTROL_RC:-0}";;
   "exec np-probe"*"cmapi-api"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
   "get secret cmapi-test-users"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
+  "get secret cmapi-ldap-test-users"*) case "$s" in *"${STUB_NO_PASSWORD:-none}"*) exit 0;; esac; printf '%s' "$SECRETVAL" | base64; exit 0;;
+  "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
+  # A measurement reads "a" until the script has deleted in LDAP, and STUB_LDAP_AFTER from then on: the directory moving while the removal runs. The rollback
+  # measures three times (its check before any delete, then before and after the removal), so "the first read" no longer tells the two sides apart.
+  # The identities script's programs, told apart by what they run. Its real behaviour is deploy/tests/ldap-identities-test.sh, on a real server: here, only what the rollback gives it.
+  "exec -i -n ldap-testing"*'printf %s "$LDAP_BASE_DN"'*) printf 'dc=ephico2real,dc=com'; exit 0;;
+  "exec -i -n ldap-testing"*"sha256sum"*) cat >/dev/null; o=a; [ ! -s "$ARGV_LOG.ldap-deleted" ] || o=${STUB_LDAP_AFTER:-a}; printf 'others=%s\ngate=g\nidp=2\nidp_cmapi=0\n' "$o"; exit 0;;
+  "exec -i -n ldap-testing"*"ldapdelete"*) cat >>"$ARGV_LOG.ldap-deleted"; exit 0;;
+  "exec -i -n ldap-testing"*'echo "stranger $dn"'*) sed -n 's/^dn: /same /p'; exit 0;;
+  "exec -i -n ldap-testing"*) cat; exit 0;;
+  "delete secret cmapi-ldap-test-users"*) exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
@@ -71,14 +86,15 @@ printf 'curl %s\n' "$*" >>"$ARGV_LOG"
 if [ -n "${STUB_PROOF:-}" ]; then
   # The proof's curl: by URL. Anything on stdin is what a token must travel on, and it is swallowed here.
   url=; code=; for a in "$@"; do case "$a" in http*) url=$a;; esac; done; case "$*" in *-w*) wants=1;; *) wants=;; esac
-  [ ! -p /dev/stdin ] || cat >/dev/null
+  STDIN_SEEN=; [ ! -p /dev/stdin ] || STDIN_SEEN=$(cat); export STDIN_SEEN
   case "$url" in
     */readyz) code=${STUB_READYZ:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_READYZ_AFTER:-$code}; case "$url" in http://*) code=302;; esac;;
     */api/v1/version) printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0;;
     */metrics) code=${STUB_METRICS:-404};;
     */api/v1/me) case "$*" in *--config*) printf '{"username":"bot-user","roles":["cmapi-onboarding"]}'; exit 0;; *) code=401;; esac;;
     */portal.html) code=200;;
-    */token) printf '{"access_token":"%s"}' "$TOKEN"; exit 0;;
+    */token) python3 "$STUB_TOKEN_PY"; exit 0;;
+    */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
     */namespaces*) printf '{"code":"%s"}\n%s' "${STUB_PLAN_CODE:-cluster-not-writable}" "${STUB_PLAN:-422}"; exit 0;;
     */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
   esac
@@ -89,6 +105,27 @@ exit_code=${STUB_CURL_RC:-0}; [ "$exit_code" = 0 ] || exit "$exit_code"
 out=; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done; [ -z "$out" ] || : >"$out"; printf '%s' "${STUB_CURL_CODE:-200}"
 P
 printf '#!/bin/sh\nexit 0\n' >"$W/bin/tmutil"
+# The token for whoever signed in: claims from the table, and $TOKEN in the signature, so a token on an argument is found. STUB_CLAIMS changes one claim of one user: uid:claim:json.
+cat >"$W/token.py" <<'TOK'
+import base64, json, os, urllib.parse
+form = urllib.parse.parse_qs(os.environ.get("STDIN_SEEN", "")); user = form.get("username", ["bot-user"])[0]
+if user == os.environ.get("STUB_NO_SIGN_IN"):
+    print('{"error":"invalid_grant"}'); raise SystemExit
+claims = {"preferred_username": user}
+for line in open(os.environ["REPO"] + "/examples/cmapi-sso/ldap/test-identities.tsv"):
+    if line.startswith("#") or not line.strip(): continue
+    uid, number, groups, roles = line.rstrip("\n").split("\t")
+    if uid == user:
+        claims = {"preferred_username": uid, "employee_id": number}
+        if groups != "-": claims["groups"] = ["/cmapi/" + g for g in groups.split(",")]
+        if roles != "-": claims["resource_access"] = {"cmapi-nonprod": {"roles": roles.split(",")}}
+if os.environ.get("STUB_CLAIMS"):
+    uid, name, value = os.environ["STUB_CLAIMS"].split(":", 2)
+    if uid == user: claims[name] = json.loads(value)
+enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+print(json.dumps({"access_token": ".".join([enc({"alg": "none"}), enc(claims), os.environ["TOKEN"] + "-" + user])}))
+TOK
+export STUB_TOKEN_PY=$W/token.py
 chmod +x "$W/bin/"*; export PATH="$W/bin:$PATH"
 cd "$W/repo" || exit 1; git init -q .; git -c user.email=t@t -c user.name=t commit -q --allow-empty -m t; export REPO=$W/repo; mkdir -p cmapi; printf 'version = "0.2.0"\n' >cmapi/pyproject.toml
 D=$W/repo/deploy; TRUST=$D/manifests/environments/crc/30-trust.yaml
@@ -121,7 +158,22 @@ if grep -q 'keycloak-tls' "$ARGV_LOG"; then bad "--check read the Secret"; else 
 grep -q -- '--cacert' "$ARGV_LOG" && ok "--check verifies with the file" || bad "--check did not use --cacert"
 want "trust --check: a failed handshake stops" 1 "$(STUB_CURL_RC=60 run "$D/crc-trust.sh" --check)"
 want "trust --check: not 200 stops" 1 "$(STUB_CURL_CODE=503 run "$D/crc-trust.sh" --check)"
-want "trust --mac-ca" 0 "$(run "$D/crc-trust.sh" --mac-ca "$W/mac.pem")"; [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac.pem")" = 2 ] && ok "both CAs in the Mac's bundle" || bad "the Mac's bundle"
+mkdir "$W/mac"; want "trust --mac-ca" 0 "$(run "$D/crc-trust.sh" --mac-ca "$W/mac/crc-ca.pem")"; cp "$W/mac/crc-ca.pem" "$W/mac.pem"; [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac.pem")" = 2 ] && ok "both CAs in the Mac's bundle" || bad "the Mac's bundle"
+fp() { openssl x509 -in "$1" -noout -fingerprint -sha1; }
+[ "$(fp "$W/mac/ingress-ca.pem")" = "$(fp "$W/ingress-ca.pem")" ] && ok "ingress-ca.pem is the ingress CA, though the bundle starts with the site's certificate" || bad "ingress-ca.pem: $(fp "$W/mac/ingress-ca.pem")"
+[ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac/keycloak-ca.pem")" = 1 ] && [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac/ingress-ca.pem")" = 1 ] && ok "one certificate in each file" || bad "a file holds more than one certificate"
+if awk '/BEGIN/{c=""} {c=c $0 "\n"} /END/{printf "%s", c | "openssl x509 -noout -subject"; close("openssl x509 -noout -subject")}' "$W/mac.pem" | grep -q 'apps-crc.testing'; then bad "the site's certificate is in the Mac's bundle"; else ok "the site's certificate is nowhere in the Mac's bundle"; fi
+openssl verify -CAfile "$W/mac.pem" "$W/leaf.pem" >/dev/null 2>&1 && ok "and the CA alone still verifies the site" || bad "the Mac's bundle no longer verifies the site"
+mkdir "$W/mac3"; want "a CA whose openssl goes on writing is still a CA for --mac-ca" 0 "$(PATH="$W/noisy:$PATH" run "$D/crc-trust.sh" --mac-ca "$W/mac3/x.pem")"
+mkdir "$W/mac2"; want "trust --mac-ca: a bundle with no CA stops" 1 "$(STUB_INGRESS=$W/leaf.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"; [ ! -e "$W/mac2/ingress-ca.pem" ] && ok "and writes no ingress-ca.pem" || bad "a leaf was written as the ingress CA"
+cat "$W/ingress-ca.pem" "$W/ca.pem" >"$W/two-cas.pem"; want "trust --mac-ca: a bundle with two CAs stops: which to trust is not a guess" 1 "$(STUB_INGRESS=$W/two-cas.pem run "$D/crc-trust.sh" --mac-ca "$W/mac2/x.pem")"
+# A trust file that also holds an external database's CA (--write --extra-ca, docs/12): --mac-ca still works, the keychain's file is Keycloak's, and the Mac's bundle keeps every CA the pods trust.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/db-ca.pem" -subj "/CN=external-db-ca" -days 2 2>/dev/null
+cp "$TRUST" "$W/keep-trust"; want "trust --write --extra-ca" 0 "$(run "$D/crc-trust.sh" --write --extra-ca "$W/db-ca.pem")"
+mkdir "$W/mac4"; want "trust --mac-ca with an extra CA in the trust file" 0 "$(run "$D/crc-trust.sh" --mac-ca "$W/mac4/crc-ca.pem")"
+[ -e "$W/mac4/keycloak-ca.pem" ] && [ "$(fp "$W/mac4/keycloak-ca.pem")" = "$(fp "$W/ca.pem")" ] && ok "keycloak-ca.pem is Keycloak's CA, not the extra one" || bad "keycloak-ca.pem with an extra CA in the trust file"
+[ -e "$W/mac4/crc-ca.pem" ] && [ "$(grep -c 'BEGIN CERTIFICATE' "$W/mac4/crc-ca.pem")" = 3 ] && ok "the Mac's bundle holds Keycloak's, the extra one and the ingress CA" || bad "the Mac's bundle with an extra CA in the trust file"
+cp "$W/keep-trust" "$TRUST"
 if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; then bad "TLS verification off in a script"; else ok "no script turns TLS verification off"; fi
 
 # crc-image.sh
@@ -193,14 +245,25 @@ pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
 pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
+pstop "a test user who cannot sign in" STUB_NO_SIGN_IN=cmapi.auditor
+pstop "a test user with no password in the Secret" 'STUB_NO_PASSWORD=cmapi\.auditor'
+pstop "a token with a group the table does not give" 'STUB_CLAIMS=cmapi.viewer:groups:["/cmapi/app-cmapi-rbac-viewer","/cmapi/app-cmapi-rbac-admin"]'
+pstop "a token missing its group" 'STUB_CLAIMS=cmapi.requester:groups:[]'
+pstop "an approver with the wrong role" 'STUB_CLAIMS=cmapi.approver-qa:resource_access:{"cmapi-nonprod":{"roles":["cmapi-admin"]}}'
+pstop "the operator without its second role" 'STUB_CLAIMS=cmapi.operator:resource_access:{"cmapi-nonprod":{"roles":["cmapi-operator"]}}'
+pstop "cmapi.noaccess holding a role" 'STUB_CLAIMS=cmapi.noaccess:resource_access:{"cmapi-nonprod":{"roles":["cmapi-viewer"]}}'
+pstop "cmapi.noaccess in a group" 'STUB_CLAIMS=cmapi.noaccess:groups:["/cmapi/app-cmapi-rbac-viewer"]'
+pstop "the wrong employee_id" 'STUB_CLAIMS=cmapi.admin:employee_id:"1"'
+pstop "cmapi.noaccess answered 200" STUB_NOACCESS=200
+pstop "the control: cmapi.viewer not answered 200" STUB_VIEWER=403
 unset STUB_PROOF
 
 # crc-rollback.sh: every delete names one object, from a fixed list.
 want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" ] && ok "and does nothing without it" || bad "it ran without --yes"
-want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
+: >"$ARGV_LOG.ldap-deleted"; want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
-ok={"keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
+ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
 ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-mockup"),("service","cmapi-api"),("service","cmapi-worker"),("service","cmapi-mockup"),("networkpolicy","cmapi-metrics"),("route.route.openshift.io","cmapi-api"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-mockup"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi")]}
 bad=[]
 for line in open(sys.argv[1]):
@@ -211,11 +274,16 @@ print("\n".join(bad)); sys.exit(1 if bad else 0)
 PY
 }
 if out=$(check_deletes); then ok "rollback deletes only named objects from its list"; else bad "rollback deleted: $out"; fi
+# LDAP: only the 23 full names of what the run added, and no other.
+sed -n 's/^dn: //p' "$W/repo/examples/cmapi-sso/ldap/cmapi-groups.ldif" >"$W/ldap-want"; awk -F'\t' '!/^#/ && NF {print "cn=" $1 ",ou=People,dc=ephico2real,dc=com"}' "$W/repo/examples/cmapi-sso/ldap/test-identities.tsv" >>"$W/ldap-want"
+[ "$(LC_ALL=C sort "$ARGV_LOG.ldap-deleted")" = "$(LC_ALL=C sort "$W/ldap-want")" ] && [ "$(wc -l <"$W/ldap-want" | tr -d ' ')" = 23 ] && ok "rollback gives ldapdelete exactly the 10 new groups and 13 test users, by full dn" || bad "rollback's LDAP deletes: $(cat "$ARGV_LOG.ldap-deleted")"
+if grep -qE 'cmapi-(viewers|requesters|onboarding|prod-approvers)|john\.doe' "$ARGV_LOG.ldap-deleted"; then bad "rollback reached an entry the run did not add"; else ok "rollback reaches no other LDAP entry"; fi
 if grep -qE 'delete .*(namespace cmapi( |$)|cmapi-ldap-bind|realm-secrets)' "$ARGV_LOG"; then bad "rollback touched namespace cmapi, the bind Secret or the realm's Secret"; else ok "namespace cmapi, cmapi-ldap-bind and the realm's Secret stay"; fi
 if grep -qF 'admin/realms' "$ARGV_LOG"; then bad "rollback touched the realm without being asked"; else ok "the realm stays unless asked"; fi
 want "rollback: --delete-realm alone is refused" 2 "$(run "$D/crc-rollback.sh" --yes --delete-realm)"
 if grep -qE 'delete ' "$ARGV_LOG"; then bad "it deleted something first"; fi
 : >"$ARGV_LOG"; STUB_PV_WHO=inkcast/other/Bound "$D/crc-rollback.sh" --yes >"$W/out" 2>&1; if grep -q 'oc delete pv ' "$ARGV_LOG"; then bad "a PV another claim holds was deleted"; else ok "a PV that is not ours stays"; fi
+cp "$ARGV_LOG" "$W/rollback-argv"; : >"$ARGV_LOG.ldap-deleted"; [ "$(STUB_LDAP_AFTER=b run "$D/crc-rollback.sh" --yes)" != 0 ] && ok "rollback fails when the rest of the directory moved" || bad "rollback passed with the rest of the directory moved"
 # The static rule, on every script: no broad delete, no prune, ever. It must be able to fail: a copy with --all has to be caught.
 broad() { cat "$@" | grep -vE '^[[:space:]]*#' | grep -nE '(oc_|oc|kc) delete .*( --all| -l | --selector| -f | -R)|(^|[[:space:]])del .*( --all| -l | --selector| -f | -R)|--prune'; }
 if broad "$D"/crc-*.sh; then bad "a broad delete in a script"; else ok "no broad delete in any script"; fi

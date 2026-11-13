@@ -2,7 +2,7 @@
 # allowedEnvironments: ['prod']. Generated from examples/config/approval-rules.yaml.
 defaults:
   required: 0
-  group: platform-leads
+  group: approver-platform
   timeoutHours: 24
   selfApproval: false
 environments:
@@ -10,12 +10,12 @@ environments:
     create: 1
     change: 1
     delete: 2
-    group: prod-approvers
+    group: approver-prod
     timeoutHours: 48
 namespacePatterns:
 - match: critical-*
   required: 2
-  group: platform-leads
+  group: approver-platform
   reason: Critical namespace pattern
 - match: temp-*
   waive:
@@ -25,7 +25,7 @@ namespacePatterns:
 thresholds:
 - when: quotaIncreasePct > 100
   add: 1
-  group: platform-leads
+  group: approver-platform
 - when: requestToPeakRatio > 3
   add: 1
   reason: Possible over-provisioning
@@ -35,7 +35,7 @@ thresholds:
   add: 1
 - when: sensitiveKeyChanged
   add: 1
-  group: platform-leads
+  group: approver-platform
   reason: Sensitive key changed
 - when: action == "delete" and reason != "expired" and (namespaceAgeDays > 90 or pods > 20 or pvcs > 10)
   add: 1

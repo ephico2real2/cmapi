@@ -1,7 +1,8 @@
 # What the import cannot change once the realm exists: the user profile, group-to-role mappings, LDAP federation (read-only) and local
 # test users. Signs in as the realm's own cmapi-realm-admin, never the shared instance's master admin; the only other image placeholder
 # outside components/. One try and no retries: a Keycloak that is down is not helped by a Job hammering it. Rerun by deleting it by name:
-# a Job's template is immutable. requireSync: a federation that did not sync fails the Job, not only a log line.
+# a Job's template is immutable. requireSync: a federation that did not sync fails the Job, not only a log line. usersFilter: this realm reads only the 13 test users of the shared directory (docs/11),
+# and expectUsers fails the Job unless the sync read exactly that many, so a filter that read too many or too few does not pass as a sync that read someone.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -33,10 +34,10 @@ spec:
               valueFrom: {secretKeyRef: {name: cmapi-keycloak, key: realmAdminClientSecret}}
             - {name: CMAPI_REALM_AUDIENCE, value: cmapi-nonprod}
             - name: CMAPI_REALM_GROUPS
-              value: '{"cmapi-auditors":["cmapi-auditor"],"cmapi-onboarding":["cmapi-onboarding"],"cmapi-platform-admins":["cmapi-admin"],"cmapi-platform-leads":["cmapi-approver"],"cmapi-platform-operators":["cmapi-operator","cmapi-approver"],"cmapi-prod-approvers":["cmapi-approver"],"cmapi-qa-leads":["cmapi-approver"],"cmapi-requesters":["cmapi-requester"],"cmapi-uat-leads":["cmapi-approver"],"cmapi-viewers":["cmapi-viewer"]}'
+              value: '{"app-cmapi-rbac-admin":["cmapi-admin"],"app-cmapi-rbac-approver-platform":["cmapi-approver"],"app-cmapi-rbac-approver-prod":["cmapi-approver"],"app-cmapi-rbac-approver-qa":["cmapi-approver"],"app-cmapi-rbac-approver-uat":["cmapi-approver"],"app-cmapi-rbac-auditor":["cmapi-auditor"],"app-cmapi-rbac-onboarding":["cmapi-onboarding"],"app-cmapi-rbac-operator":["cmapi-operator","cmapi-approver"],"app-cmapi-rbac-requester":["cmapi-requester"],"app-cmapi-rbac-viewer":["cmapi-viewer"]}'
             - {name: CMAPI_REALM_TEST_USERS, value: "true"}
             - name: CMAPI_REALM_LDAP
-              value: '{"bindSecret":"cmapi-ldap-bind","connectionUrl":"ldaps://ldaps-ldap-testing.apps-crc.testing:443","employeeIdAttribute":"uidNumber","enabled":true,"groupsDn":"ou=Groups,dc=ephico2real,dc=com","groupsFilter":"(cn=cmapi-*)","requireSync":true,"usersDn":"ou=People,dc=ephico2real,dc=com"}'
+              value: '{"bindSecret":"cmapi-ldap-bind","connectionUrl":"ldaps://ldaps-ldap-testing.apps-crc.testing:443","employeeIdAttribute":"uidNumber","enabled":true,"expectUsers":13,"groupsDn":"ou=Groups,dc=ephico2real,dc=com","groupsFilter":"(cn=app-cmapi-rbac-*)","requireSync":true,"usersDn":"ou=People,dc=ephico2real,dc=com","usersFilter":"(uid=cmapi.*)"}'
             - {name: CMAPI_CA_BUNDLE, value: /etc/cmapi/ca/ca-bundle.crt}
           envFrom:
             - secretRef: {name: cmapi-test-users}
