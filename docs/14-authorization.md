@@ -103,6 +103,26 @@ The test `test_declared_permission_is_the_enforced_one_and_every_route_answers` 
 
 The steps below are in the order of the code. The first step that refuses ends the request.
 
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/authorization-decision/authorization-decision.dark.png">
+  <source srcset="diagrams/authorization-decision/authorization-decision.light.png">
+  <img alt="cmapi decides a request in five ordered steps: the token, the claims, the permission, the environment limit and, for an approval only, who can approve. Each step that refuses ends the request with one problem code." src="diagrams/authorization-decision/authorization-decision.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The order is the order of the code. Steps 1 to 4 run for each route that needs a permission. Step 5 runs for an approval only.*
+
+```text
+request with a bearer token
+  1 the token        -> no: 401 unauthenticated      (keys unreachable and key not cached: 503 idp-unavailable)
+  2 the claims          roles of this client, groups, sub, employee_id
+  3 the permission   -> no: 403 forbidden
+  4 the environment  -> no: 403 environment-forbidden
+  5 approvals only   -> no: 409 self-approval, 409 already-approved, 403 not-eligible
+  the route runs
+```
+
 ### Step 1: the token
 
 Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token check as a dependency (`cmapi/src/cmapi/main.py:87`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:138-171`). It verifies the token offline against the signing keys of the realm.
@@ -232,3 +252,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 |---|---|---|
 | Token checks, the roles table and the environment limit | The service suite on macOS, PostgreSQL 16 on `127.0.0.1:55432`, 2026-11-13: `tests/service/test_auth.py` and `tests/service/test_review_c_authz.py` | 23 passed |
 | The 13 test users through LDAP federation, each with the groups and roles of the table | CRC | Not run yet. `deploy/crc-proof.sh` holds the check, and the Wave 1 run is its first use |
+
+## Diagram sources
+
+The figure is `docs/diagrams/authorization-decision/source.html`, drawn to diagram-kit's `/visual` standard. Render it again with `diagram-render docs/diagrams/authorization-decision/source.html docs/diagrams/authorization-decision authorization-decision`. The picture, the text twin above and the page change together. `docs/diagrams/tools/draft-authz-and-data-model.py` wrote the first draft of the page.

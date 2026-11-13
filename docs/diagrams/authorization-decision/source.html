@@ -1,0 +1,153 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>Authorization Decision</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · authorization · 2026-11-13</div>
+    <h1>How cmapi decides a request</h1>
+    <p class="lede">A request passes five checks in the order of the code. Each check that refuses ends the request with one problem code. <code>docs/14-authorization.md</code> gives the source of each step as <code>file:line</code>.</p>
+    <p class="muted">Read from <code>cmapi/src/cmapi/core/auth.py</code>, <code>core/authz.py</code>, <code>core/approvals.py</code> and <code>routers/</code>, and measured with the service suite.</p>
+  </header>
+  <section>
+    <h2>The authorization decision</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1100 740" role="img" aria-label="cmapi decides a request in five ordered steps: the token (401 unauthenticated, or 503 idp-unavailable when the keys are unreachable), the claims, the permission (403 forbidden), the environment limit (403 environment-forbidden) and, for an approval only, who can approve (409 self-approval, 409 already-approved, 403 not-eligible). Only then does the route run.">
+          <defs><marker id="ahz" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600"><rect x="20" y="14" width="250" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/><text x="145" y="34" text-anchor="middle" fill="var(--none)">CALLER</text><rect x="330" y="14" width="400" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/><text x="530" y="34" text-anchor="middle" fill="var(--remote)">CMAPI-API  ·  in this order</text><rect x="790" y="14" width="290" height="30" rx="6" fill="var(--gap-wash)" stroke="var(--gap)"/><text x="935" y="34" text-anchor="middle" fill="var(--gap)">REFUSAL  ·  RFC 9457 problem</text></g>
+<rect x="20" y="74" width="250" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="95" font-weight="600">A request</text>
+<text x="34" y="113">Authorization: Bearer &lt;access token&gt;</text>
+<text x="34" y="130" fill="var(--muted)">from Keycloak, realm cmapi</text>
+<polyline points="270,112 326,112" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<rect x="330" y="74" width="400" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="344" y="95" font-weight="600">1  The token</text>
+<text x="344" y="113">RS256, signature, iss, aud, exp, typ</text>
+<text x="344" y="130" fill="var(--muted)">core/auth.py · Authenticator.authenticate</text>
+<rect x="790" y="74" width="290" height="76" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.2"/>
+<text x="804" y="95" font-weight="600">401 unauthenticated</text>
+<text x="804" y="113">no token, or a check failed</text>
+<text x="804" y="130" fill="var(--muted)">WWW-Authenticate: Bearer</text>
+<polyline points="730,112 786,112" fill="none" stroke="var(--gap)" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="746" y="105" font-size="11" fill="var(--muted)" text-anchor="middle">no</text>
+<polyline points="530,150 530,174" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="540" y="167" font-size="11" fill="var(--muted)" text-anchor="start">yes</text>
+<rect x="330" y="178" width="400" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="344" y="199" font-weight="600">2  The claims</text>
+<text x="344" y="217">roles of this client, groups, sub, employee_id</text>
+<text x="344" y="234" fill="var(--muted)">core/identity/claims.py · from_claims</text>
+<polyline points="530,254 530,278" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="540" y="271" font-size="11" fill="var(--muted)" text-anchor="start">yes</text>
+<rect x="330" y="282" width="400" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="344" y="303" font-weight="600">3  The permission</text>
+<text x="344" y="321">one role in the token grants x-cmapi-permission</text>
+<text x="344" y="338" fill="var(--muted)">routers/__init__.py · require</text>
+<rect x="790" y="282" width="290" height="76" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.2"/>
+<text x="804" y="303" font-weight="600">403 forbidden</text>
+<text x="804" y="321">no role grants the permission</text>
+<text x="804" y="338" fill="var(--muted)">metric cmapi_authz_denied_total</text>
+<polyline points="730,320 786,320" fill="none" stroke="var(--gap)" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="746" y="313" font-size="11" fill="var(--muted)" text-anchor="middle">no</text>
+<polyline points="530,358 530,382" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="540" y="375" font-size="11" fill="var(--muted)" text-anchor="start">yes</text>
+<rect x="330" y="386" width="400" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="344" y="407" font-weight="600">4  The environment limit</text>
+<text x="344" y="425">the role covers the cluster&#x27;s or request&#x27;s env</text>
+<text x="344" y="442" fill="var(--muted)">core/authz.py · RolePolicy.require</text>
+<rect x="790" y="386" width="290" height="76" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.2"/>
+<text x="804" y="407" font-weight="600">403 environment-forbidden</text>
+<text x="804" y="425">a role grants it, in another env</text>
+<text x="804" y="442" fill="var(--muted)">detail names where it applies</text>
+<polyline points="730,424 786,424" fill="none" stroke="var(--gap)" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="746" y="417" font-size="11" fill="var(--muted)" text-anchor="middle">no</text>
+<polyline points="530,462 530,486" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="540" y="479" font-size="11" fill="var(--muted)" text-anchor="start">yes</text>
+<rect x="330" y="490" width="400" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="344" y="511" font-weight="600">5  Approvals only</text>
+<text x="344" y="529">not the requester, not twice, in a needed group</text>
+<text x="344" y="546" fill="var(--muted)">core/approvals.py · ApprovalLedger.approve</text>
+<rect x="790" y="490" width="290" height="76" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.2"/>
+<text x="804" y="511" font-weight="600">409 self-approval · 409 already-approved</text>
+<text x="804" y="529">403 not-eligible: in no group</text>
+<text x="804" y="546" fill="var(--muted)">that the request still needs</text>
+<polyline points="730,528 786,528" fill="none" stroke="var(--gap)" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="746" y="521" font-size="11" fill="var(--muted)" text-anchor="middle">no</text>
+<polyline points="530,566 530,590" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="540" y="583" font-size="11" fill="var(--muted)" text-anchor="start">yes</text>
+<rect x="330" y="594" width="400" height="58" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.2"/>
+<text x="344" y="615" font-weight="600">The route runs</text>
+<text x="344" y="633">200, 202 with a ChangeRequest, or the route&#x27;s own problem</text>
+<rect x="790" y="178" width="290" height="76" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.2"/>
+<text x="804" y="199" font-weight="600">503 idp-unavailable</text>
+<text x="804" y="217">step 1: signing keys unreachable and</text>
+<text x="804" y="234" fill="var(--muted)">this key is not cached · never a 401</text>
+<polyline points="730,132 766,132 766,216 786,216" fill="none" stroke="var(--gap)" stroke-width="1.2" marker-end="url(#ahz)"/>
+<text x="772" y="167" font-size="11" fill="var(--muted)" text-anchor="start">keys unreachable</text>
+<text x="20" y="686">Each box is built code with tests in the service suite. Plain arrow = the check passed. Red arrow = the check refused.</text>
+<text x="20" y="705">Step 5 runs only on POST /requests/{request_id}:approve. Keycloak decides who holds a role or a group; cmapi only reads the token.</text>
+<text x="20" y="724" fill="var(--host)" font-weight="600">Measured in the service suite on 2026-11-13. Not yet measured with a token of the realm on CRC.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>The order is the order of the code. A refusal ends the request at that step with an RFC 9457 problem. Steps 1 to 4 run for each route that needs a permission, and step 5 runs for an approval only. The 503 belongs to step 1: a token whose key cannot be checked is never called invalid.</figcaption>
+    </figure>
+  </section>
+</div>

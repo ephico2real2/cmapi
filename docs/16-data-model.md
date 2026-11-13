@@ -32,7 +32,15 @@ change_requests (request_id)
 audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 ```
 
-The entity-relationship figure is not drawn yet. It is an item of this document's definition of done.
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/data-model/data-model.dark.png">
+  <source srcset="diagrams/data-model/data-model.light.png">
+  <img alt="The cmapi database has nine tables. change_requests is the centre: request_events, approvals, jobs and approval_notifications refer to it by request_id. audit_events, jwks_keys, admin_switches and expiration_notices have no foreign key." src="diagrams/data-model/data-model.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*One request has many events, many approvals, many jobs and many notices. No built code writes `expiration_notices` yet, so its box is dashed. The text block above is the twin of this figure.*
 
 ## The rules that the schema holds
 
@@ -69,6 +77,10 @@ The owner's rule, 2026-11-13: "we can use postgress for cache as well if needed 
 These caches are in the memory of each process, and are not shared: the signing keys for ten minutes (`cmapi/src/cmapi/core/auth.py:37`), the watch cache of each cluster, the directory lookups, and the rate limits (`cmapi/src/cmapi/core/ratelimit.py:1-4`).
 
 **Decision, 2026-11-13: no new cache table and no cache library.** Nothing in the built code needs a general key-value cache that replicas share. When a feature needs one, the reference is the owner's `github.com/inkcasthq/kvpg` at commit `f654a121820f`: its contract v1 (rules S1 to S14), a logged table, expiry by the database's `now()`, and cleanup in batches. The choice between a small store of cmapi's own and a public Python library is open until then, with the checks in `OB1-PROMPT.md`. OB1 did not read kvpg for this decision, because the decision adds nothing.
+
+## Diagram sources
+
+The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/visual` standard. Render it again with `diagram-render docs/diagrams/data-model/source.html docs/diagrams/data-model data-model`. The picture, its text twin and the page change together.
 
 ## The tables
 
