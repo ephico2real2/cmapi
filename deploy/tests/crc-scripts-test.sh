@@ -67,6 +67,7 @@ print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]})
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
   "exec cmapi-db-1"*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  "exec deploy/cmapi-"*) echo "${STUB_SSLMODE:-verify-full}"; exit "${STUB_SSLMODE_RC:-0}";;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
 OC
@@ -242,6 +243,8 @@ pstop "a plan that passes" STUB_PLAN=200
 pstop "a 422 of another kind" STUB_PLAN_CODE=validation-failed
 pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
+pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
+pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
 pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
