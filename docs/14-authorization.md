@@ -1,6 +1,6 @@
 # Authorization: the contract between cmapi and Keycloak
 
-This document says how cmapi decides who can call what. It says only what the code does. Each statement has its source as `file:line`, at the commit that added this document. A part that is designed and not built has the word "not built".
+This document says how cmapi decides who can call what. It says only what the code does. Each statement has its source as `file:line`. A check holds each citation of this document, of `docs/15` and of `docs/16` to the code that it names: see "The citations" at the end. A part that is designed and not built has the word "not built".
 
 The owner's rule, 2026-11-13: "cmapi must define the groups contract but keycloak has the user and group role that is mapped to cmapi roles". So the work has two owners:
 
@@ -28,7 +28,7 @@ One LDAP group exists for each role. Its name is `app-cmapi-rbac-<role>`. Keyclo
 | `app-cmapi-rbac-admin` | `/cmapi/app-cmapi-rbac-admin` | `cmapi-admin` | |
 | `app-cmapi-rbac-auditor` | `/cmapi/app-cmapi-rbac-auditor` | `cmapi-auditor` | |
 
-Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:375-429`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
+Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:382-436`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
 
 The path template is `identity.groupPath` in `instance.yaml`. Its default is `/cmapi/app-cmapi-rbac-{name}` (`cmapi/src/cmapi/core/authz.py:47`). The service stops at startup if the template cannot name a group (`authz.py:53-59`).
 
@@ -140,7 +140,7 @@ Each route except `/healthz`, `/readyz` and `/api/v1/version` has the token chec
 | `iss` is the issuer of the instance | `auth.py:161-163` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:180-185` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:196-197`, `main.py:68-71`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:196-197`, `main.py:66-69`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 
@@ -172,12 +172,12 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:175`, `:289` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:97`, `:113` |
-| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:80`, `:91`, `:103` |
-| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:121`, `:150`, `:164`, `:180`, `:204` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:98`, `:114` |
+| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:87`, `:98`, `:110` |
+| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:128`, `:157`, `:171`, `:187`, `:211` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:130` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
-| List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:44` |
+| List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
 
 If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:160-163`). A list does not refuse: it leaves out the rows of the other environments.
 
@@ -189,7 +189,7 @@ An approval has more checks than the permission (`approvals.py:269-296`). They a
 
 | Check | Refusal |
 |---|---|
-| The caller has `requests:approve` in the environment of the request (`requests.py:121`) | 403 `environment-forbidden` |
+| The caller has `requests:approve` in the environment of the request (`requests.py:128`) | 403 `environment-forbidden` |
 | The caller has not approved this request before | 409 `already-approved` |
 | The caller did not file the request for another person, and does not own the client that filed it | 409 `self-approval`, "The operation starter or client owner cannot approve" |
 | The caller is not the requester, unless the rule has `selfApproval: true` | 409 `self-approval`, "Requesters cannot approve their own request here" |
@@ -256,3 +256,15 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 ## Diagram sources
 
 The figure is `docs/diagrams/authorization-decision/source.html`, drawn to diagram-kit's `/visual` standard. Render it again with `diagram-render docs/diagrams/authorization-decision/source.html docs/diagrams/authorization-decision authorization-decision`. The picture, the text twin above and the page change together. `docs/diagrams/tools/draft-authz-and-data-model.py` wrote the first draft of the page.
+
+## The citations
+
+`docs/citations.lock.json` holds the text of the lines that each `file:line` citation of `docs/14`, `docs/15` and `docs/16` names. `scripts/doc-citations.py --check` compares that text with the files, and the service suite runs it (`cmapi/tests/service/test_doc_citations.py`). So a change to a cited file fails the suite until the citation is right again.
+
+| When the check fails | Do this |
+|---|---|
+| "moved to line N: run --relocate" | `python scripts/doc-citations.py --relocate`. The cited text is the same at one other place, so the script writes the new line numbers into the document and the lock |
+| "changed" | Read the code and the sentence. Correct the sentence or the citation. Then `python scripts/doc-citations.py --write` |
+| "is not in docs/citations.lock.json" | A new citation. Read the cited lines, then `--write` |
+
+A citation can name a file by the end of its path, such as `authz.py` for `cmapi/src/cmapi/core/authz.py`, or give only a colon and a line after a citation of the same file. A short name that fits two files is an error.

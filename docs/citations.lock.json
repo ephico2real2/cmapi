@@ -1,0 +1,809 @@
+{
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|269-296": [
+  "    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,",
+  "                relay_permitted: bool | None = None, comment: str = \"\") -> bool:",
+  "        \"\"\"approver is the eligible person; relay is the channel client (approvals:relay) if any.",
+  "",
+  "        permitted / relay_permitted: whether the instance's role policy grants requests:approve (in",
+  "        this request's environment) and approvals:relay. None falls back to the built-in roles.",
+  "        \"\"\"",
+  "        if relay is not None:",
+  "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
+  "            if not ok:",
+  "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")",
+  "        ok = permitted if permitted is not None else \"requests:approve\" in builtin_permissions(approver)",
+  "        if not ok:",
+  "            raise Problem.forbidden(\"Missing permission requests:approve for this environment\")",
+  "        if approver.sub in {e[\"sub\"] for e in self.entries}:",
+  "            raise Problem.conflict(\"already-approved\", \"This person already approved the request\")",
+  "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
+  "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")",
+  "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
+  "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")",
+  "        entry = {\"sub\": approver.sub, \"username\": approver.username, \"groups\": frozenset(approver.groups),",
+  "                 \"comment\": comment, \"relayedBy\": relay.client_id if relay else None}",
+  "        if len(self._assign(self.entries + [entry])) <= len(self._assign(self.entries)):",
+  "            raise Problem.forbidden(f\"Not in an approving group still needed: \"",
+  "                                    f\"{[r['group'] for r in self.remaining()]}\", code=\"not-eligible\")",
+  "        self.entries.append(entry)",
+  "        return self.met",
+  ""
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|276-279": [
+  "        if relay is not None:",
+  "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
+  "            if not ok:",
+  "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|127-129": [
+  "        IDP_UNAVAILABLE.inc()",
+  "        raise Problem(503, \"idp-unavailable\", \"Keycloak signing keys are unreachable and this key is not cached\",",
+  "                      extra={\"retryAfter\": 30})"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|138-171": [
+  "    def authenticate(self, bearer: str) -> Identity:",
+  "        try:",
+  "            header = jwt.get_unverified_header(bearer)",
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"malformed\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc",
+  "        if header.get(\"alg\") != \"RS256\" or not header.get(\"kid\"):",
+  "            AUTH_FAILURES.labels(\"algorithm\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token: unsupported algorithm\")",
+  "        try:",
+  "            key = self.jwks.key(header[\"kid\"])",
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"signature\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token: unknown signing key\") from exc",
+  "        try:",
+  "            claims = jwt.decode(bearer, key.key, algorithms=[\"RS256\"], audience=self.audience, issuer=self.issuer,",
+  "                                leeway=self.leeway, options={\"require\": [\"exp\", \"iat\", \"iss\", \"aud\", \"sub\"]})",
+  "        except jwt.ExpiredSignatureError as exc:",
+  "            AUTH_FAILURES.labels(\"expired\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token expired\") from exc",
+  "        except jwt.InvalidAudienceError as exc:",
+  "            AUTH_FAILURES.labels(\"audience\").inc()",
+  "            raise Problem(401, \"unauthenticated\", f\"Token is not for audience {self.audience}\") from exc",
+  "        except jwt.InvalidIssuerError as exc:",
+  "            AUTH_FAILURES.labels(\"issuer\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token issuer is not trusted\") from exc",
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"signature\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc",
+  "        # Keycloak marks every token it issues; an ID or refresh token is never a bearer credential here.",
+  "        if claims.get(\"typ\") not in (None, \"Bearer\"):",
+  "            AUTH_FAILURES.labels(\"token-type\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token is not an access token\")",
+  "        return Identity.from_claims(claims, self.audience)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|139-143": [
+  "        try:",
+  "            header = jwt.get_unverified_header(bearer)",
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"malformed\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|144-146": [
+  "        if header.get(\"alg\") != \"RS256\" or not header.get(\"kid\"):",
+  "            AUTH_FAILURES.labels(\"algorithm\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token: unsupported algorithm\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|147-151": [
+  "        try:",
+  "            key = self.jwks.key(header[\"kid\"])",
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"signature\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token: unknown signing key\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|153-154": [
+  "            claims = jwt.decode(bearer, key.key, algorithms=[\"RS256\"], audience=self.audience, issuer=self.issuer,",
+  "                                leeway=self.leeway, options={\"require\": [\"exp\", \"iat\", \"iss\", \"aud\", \"sub\"]})"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|155-157": [
+  "        except jwt.ExpiredSignatureError as exc:",
+  "            AUTH_FAILURES.labels(\"expired\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token expired\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|158-160": [
+  "        except jwt.InvalidAudienceError as exc:",
+  "            AUTH_FAILURES.labels(\"audience\").inc()",
+  "            raise Problem(401, \"unauthenticated\", f\"Token is not for audience {self.audience}\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|161-163": [
+  "        except jwt.InvalidIssuerError as exc:",
+  "            AUTH_FAILURES.labels(\"issuer\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token issuer is not trusted\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|164-166": [
+  "        except jwt.PyJWTError as exc:",
+  "            AUTH_FAILURES.labels(\"signature\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Invalid token\") from exc"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|168-170": [
+  "        if claims.get(\"typ\") not in (None, \"Bearer\"):",
+  "            AUTH_FAILURES.labels(\"token-type\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Token is not an access token\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|186-188": [
+  "        if not token:",
+  "            AUTH_FAILURES.labels(\"missing\").inc()",
+  "            raise Problem(401, \"unauthenticated\", \"Bearer token required\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|196-197": [
+  "def unauthenticated_headers(problem: Problem) -> Mapping[str, str]:",
+  "    return {\"WWW-Authenticate\": 'Bearer error=\"invalid_token\"'} if problem.status == 401 else {}"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|103-108": [
+  "            if spec is None:",
+  "                if name not in ROLE_PERMISSIONS:",
+  "                    raise ValueError(f\"unknown role {name}\")",
+  "                g = RoleGrant(name, ROLE_PERMISSIONS[name])",
+  "                self.grants[name] = g",
+  "                return g"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|115-117": [
+  "            unknown = perms - PERMISSIONS",
+  "            if unknown:",
+  "                problems.append(f\"role {name}: unknown permissions {sorted(unknown)}\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|121-123": [
+  "                if self.served is not None and envs - self.served:",
+  "                    problems.append(f\"role {name}: environments {sorted(envs - self.served)} \"",
+  "                                    f\"are not served by this instance\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|138-139": [
+  "    def held(self, who: Identity) -> list[RoleGrant]:",
+  "        return [self.grants[r] for r in sorted(who.roles) if r in self.grants]"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|157-165": [
+  "    def require(self, who: Identity, permission: str, env: str | None = None) -> None:",
+  "        if self.allowed(who, permission, env):",
+  "            return",
+  "        if env is not None and self.allowed(who, permission):",
+  "            raise Problem.forbidden(f\"Your roles grant {permission} only in \"",
+  "                                    f\"{sorted(self.environments(who, permission) or [])}, not {env}\",",
+  "                                    code=\"environment-forbidden\")",
+  "        raise Problem.forbidden(f\"Missing permission {permission}: no role in your token grants it \"",
+  "                                f\"(roles: {sorted(who.roles) or 'none'})\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|160-163": [
+  "        if env is not None and self.allowed(who, permission):",
+  "            raise Problem.forbidden(f\"Your roles grant {permission} only in \"",
+  "                                    f\"{sorted(self.environments(who, permission) or [])}, not {env}\",",
+  "                                    code=\"environment-forbidden\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|167-172": [
+  "    def describe(self, who: Identity) -> dict[str, Any]:",
+  "        \"\"\"For GET /me: what the caller's roles let it do, and where.\"\"\"",
+  "        return {\"roles\": [{\"role\": g.role, \"permissions\": sorted(g.permissions),",
+  "                           \"environments\": sorted(g.environments) if g.environments is not None else \"all\"}",
+  "                          for g in self.held(who)],",
+  "                \"permissions\": sorted(self.permissions(who))}"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|21-41": [
+  "_VIEW = {\"clusters:read\", \"objects:read\", \"capacity:read\", \"requests:read\"}",
+  "# namespaces:create is asking for a new namespace; namespaces:write is changing or deleting one.",
+  "_ONBOARD = _VIEW | {\"namespaces:create\", \"requests:cancel\"}",
+  "_REQUEST = _ONBOARD | {\"namespaces:write\", \"quotas:write\", \"serviceaccounts:write\", \"grants:write\"}",
+  "_OPERATE = _REQUEST | {\"requests:retry\", \"adoption:write\", \"reports:read\", \"operations:run\"}",
+  "",
+  "# The built-in roles: used when authz-roles.yaml does not define a role, and the vocabulary of",
+  "# permissions a config file may use.",
+  "ROLE_PERMISSIONS: dict[str, frozenset[str]] = {",
+  "    \"cmapi-viewer\": frozenset(_VIEW),",
+  "    # Create namespaces and follow their requests, nothing else: for onboarding by people or by an",
+  "    # automation client (cmapi-automation, an AI agent). Cannot change or delete a namespace.",
+  "    \"cmapi-onboarding\": frozenset(_ONBOARD),",
+  "    \"cmapi-requester\": frozenset(_REQUEST),",
+  "    \"cmapi-approver\": frozenset(_VIEW | {\"requests:approve\", \"requests:reject\"}),",
+  "    \"cmapi-operator\": frozenset(_OPERATE),",
+  "    \"cmapi-admin\": frozenset(_OPERATE | {\"config:write\", \"clusters:onboard\", \"admin:reload\",",
+  "                                         \"approvals:pause\"}),",
+  "    \"cmapi-auditor\": frozenset(_VIEW | {\"events:read\", \"audit:export\"}),",
+  "    \"cmapi-approval-relay\": frozenset({\"requests:read\", \"approvals:relay\"}),",
+  "}"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|47-47": [
+  "DEFAULT_GROUP_PATH = \"/cmapi/app-cmapi-rbac-{name}\""
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|53-59": [
+  "def check_group_path(template: Any) -> None:",
+  "    \"\"\"A Keycloak full path with one plain {name}. Checked at startup: at the first approval, str.format would raise inside a request.\"\"\"",
+  "    if not isinstance(template, str) or not template.startswith(\"/\"):",
+  "        raise ValueError(f\"{template!r} is not a Keycloak group path: it starts with /\")",
+  "    fields = [(field, spec, conversion) for _, field, spec, conversion in Formatter().parse(template) if field is not None]",
+  "    if fields != [(\"name\", \"\", None)]:",
+  "        raise ValueError(f\"{template!r} must hold {{name}} once, and no other field\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|76-135": [
+  "class RolePolicy:",
+  "    \"\"\"Keycloak role -> permissions and environments, for one instance.",
+  "",
+  "    authz-roles.yaml:",
+  "        roles:",
+  "          cmapi-requester: {}                                  # built-in permissions, every environment",
+  "          cmapi-bot-rnd:                                       # a role you create in Keycloak",
+  "            inherits: [cmapi-requester]",
+  "            environments: [rnd]",
+  "          cmapi-quota-editor:",
+  "            permissions: [objects:read, quotas:write]",
+  "    Built-in roles not named in the file keep their built-in permissions.",
+  "    \"\"\"",
+  "",
+  "    def __init__(self, raw: Mapping[str, Any] | None = None, served: Iterable[str] | None = None):",
+  "        self.served = set(served) if served is not None else None",
+  "        roles = dict((raw or {}).get(\"roles\") or {})",
+  "        problems: list[str] = []",
+  "        self.grants: dict[str, RoleGrant] = {}",
+  "        resolving: set[str] = set()",
+  "",
+  "        def resolve(name: str) -> RoleGrant:",
+  "            if name in self.grants:",
+  "                return self.grants[name]",
+  "            if name in resolving:",
+  "                raise ValueError(f\"role {name}: inherits itself\")",
+  "            spec = roles.get(name)",
+  "            if spec is None:",
+  "                if name not in ROLE_PERMISSIONS:",
+  "                    raise ValueError(f\"unknown role {name}\")",
+  "                g = RoleGrant(name, ROLE_PERMISSIONS[name])",
+  "                self.grants[name] = g",
+  "                return g",
+  "            resolving.add(name)",
+  "            perms = set(spec.get(\"permissions\") or [])",
+  "            if \"permissions\" not in spec and not spec.get(\"inherits\") and name in ROLE_PERMISSIONS:",
+  "                perms |= ROLE_PERMISSIONS[name]",
+  "            for parent in spec.get(\"inherits\") or []:",
+  "                perms |= resolve(parent).permissions",
+  "            unknown = perms - PERMISSIONS",
+  "            if unknown:",
+  "                problems.append(f\"role {name}: unknown permissions {sorted(unknown)}\")",
+  "            envs = spec.get(\"environments\")",
+  "            if envs is not None:",
+  "                envs = frozenset(envs)",
+  "                if self.served is not None and envs - self.served:",
+  "                    problems.append(f\"role {name}: environments {sorted(envs - self.served)} \"",
+  "                                    f\"are not served by this instance\")",
+  "            resolving.discard(name)",
+  "            g = RoleGrant(name, frozenset(perms), envs)",
+  "            self.grants[name] = g",
+  "            return g",
+  "",
+  "        for name in [*ROLE_PERMISSIONS, *roles]:",
+  "            try:",
+  "                resolve(name)",
+  "            except ValueError as exc:",
+  "                problems.append(str(exc))",
+  "        if problems:",
+  "            raise ValueError(\"; \".join(sorted(set(problems))))"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|8-10": [
+  "There is no team or namespace-name scoping. Anyone holding a role with namespaces:create may ask for",
+  "any namespace name (outside the reserved ones) in the environments that role covers; approval rules decide what needs approval,",
+  "and approving groups (Keycloak groups) decide who may approve."
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/db/repo.py|36-44": [
+  "    return {\"rule\": r.rule, \"slots\": [asdict(s) for s in r.slots], \"selfApproval\": r.self_approval,",
+  "            \"timeoutHours\": r.timeout_hours, \"reasons\": list(r.reasons), \"auto\": r.auto,",
+  "            \"autoFallback\": r.auto_fallback, \"groupPath\": r.group_path}",
+  "",
+  "",
+  "def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:",
+  "    if d is None:",
+  "        return None",
+  "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|153-158": [
+  "            if permission:",
+  "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
+  "            op_id = f\"{self.plugin}_{fn.__name__}\"",
+  "            responses = problem_responses(codes)",
+  "            x: dict[str, Any] = {\"x-cmapi-permission\": permission, \"x-cmapi-plugin\": self.plugin,",
+  "                                 \"x-plugin-version\": self.version, **extra}"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|50-67": [
+  "    @classmethod",
+  "    def from_claims(cls, claims: Mapping[str, Any], audience: str) -> \"Identity\":",
+  "        username = claims.get(\"preferred_username\", claims[\"sub\"])",
+  "        service = username.startswith(\"service-account-\")",
+  "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])",
+  "        return cls(",
+  "            sub=claims[\"sub\"],",
+  "            username=username.removeprefix(\"service-account-\"),",
+  "            kind=\"service\" if service else \"user\",",
+  "            client_id=claims.get(\"azp\", \"\"),",
+  "            email=claims.get(\"email\"),",
+  "            given_name=claims.get(\"given_name\"),",
+  "            middle_name=claims.get(\"middle_name\"),",
+  "            family_name=claims.get(\"family_name\"),",
+  "            employee_id=claims.get(\"employee_id\"),",
+  "            roles=frozenset(roles),",
+  "            groups=frozenset(claims.get(\"groups\", [])),",
+  "        )"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|122-124": [
+  "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
+  "                                 self.identity.get(\"requireOnBehalfOf\", False),",
+  "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-175": [
+  "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|289-289": [
+  "        self.cfg.roles.require(who, \"namespaces:write\", env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|66-69": [
+  "    @app.exception_handler(Problem)",
+  "    async def problem_handler(_: Request, exc: Problem) -> Response:",
+  "        return JSONResponse(exc.body(), status_code=exc.status, media_type=\"application/problem+json\",",
+  "                            headers=dict(unauthenticated_headers(exc)))"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|96-96": [
+  "        app.include_router(r, dependencies=[Depends(authed)])"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|114-114": [
+  "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|98-98": [
+  "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
+  "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|42-54": [
+  "def require(permission: str, env_from: Callable[..., str | None] | None = None) -> Callable[..., Identity]:",
+  "    \"\"\"A dependency that checks one permission (the route's x-cmapi-permission).\"\"\"",
+  "",
+  "    def dep(request: Request, who: Identity = Depends(caller)) -> Identity:",
+  "        c: AppContext = request.app.state.ctx",
+  "        try:",
+  "            c.cfg.roles.require(who, permission)",
+  "        except Problem:",
+  "            AUTHZ_DENIED.labels(permission).inc()",
+  "            raise",
+  "        return who",
+  "",
+  "    return dep"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|47-51": [
+  "        try:",
+  "            c.cfg.roles.require(who, permission)",
+  "        except Problem:",
+  "            AUTHZ_DENIED.labels(permission).inc()",
+  "            raise"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|130-130": [
+  "        c.cfg.roles.require(who, \"operations:run\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|15-21": [
+  "@router.read(\"/me\", summary=\"Who am I\", permission=None, response_model=Me, problems=[\"unauthenticated\", \"idp-unavailable\"])",
+  "def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:",
+  "    \"\"\"The caller's identity as cmapi records it, the roles and groups in the token, and the permissions",
+  "    each role grants with the environments it covers. The first thing to check when a call returns 403.\"\"\"",
+  "    return {\"username\": who.username, \"kind\": who.kind, \"client\": who.client_id, \"roles\": sorted(who.roles),",
+  "            \"groups\": sorted(who.groups), \"identity\": who.record(), \"access\": c.cfg.roles.describe(who),",
+  "            \"instance\": c.cfg.name}"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|110-110": [
+  "        c.cfg.roles.require(who, \"requests:read\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|128-128": [
+  "        c.cfg.roles.require(who, \"requests:approve\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|157-157": [
+  "        c.cfg.roles.require(who, \"requests:reject\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|171-171": [
+  "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|187-187": [
+  "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|211-211": [
+  "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|28-28": [
+  "    envs = c.cfg.roles.environments(who, \"requests:read\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|87-87": [
+  "        c.cfg.roles.require(who, \"requests:read\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|98-98": [
+  "        c.cfg.roles.require(who, \"requests:read\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|108-171": [
+  "def test_environment_role_cannot_read_status_in_another_environment(rnd_only):",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only)",
+  "    h = auth(keys, \"v\", roles=[\"view-rnd\"])",
+  "    assert client.get(f\"/api/v1/requests/{rid}\", headers=h).status_code == 403",
+  "    assert client.get(f\"/api/v1/requests/{rid}/events\", headers=h).status_code == 403",
+  "    r = client.get(f\"/api/v1/requests/{rid}/approval-status\", headers=h)",
+  "    assert r.status_code == 403, f\"approval-status answered {r.status_code} {r.text[:120]}\"",
+  "",
+  "",
+  "def test_environment_role_cannot_approve_or_reject_in_another_environment(rnd_only):",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only)",
+  "    h = auth(keys, \"a\", roles=[\"appr-rnd\"], groups=[\"/cmapi/app-cmapi-rbac-approver-platform\"])",
+  "    assert client.post(f\"/api/v1/requests/{rid}:approve\", json={}, headers=h).status_code == 403",
+  "    assert client.post(f\"/api/v1/requests/{rid}:reject\", json={\"comment\": \"x\"}, headers=h).status_code == 403",
+  "",
+  "",
+  "def test_an_approval_in_another_environment_says_so_like_a_rejection(rnd_only):",
+  "    \"\"\"#141: both answers name the environments the role covers. A caller with no approving role gets the plain forbidden.\"\"\"",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only)",
+  "    h = auth(keys, \"a\", roles=[\"appr-rnd\"], groups=[\"/cmapi/app-cmapi-rbac-approver-platform\"])",
+  "    approve = client.post(f\"/api/v1/requests/{rid}:approve\", json={}, headers=h)",
+  "    reject = client.post(f\"/api/v1/requests/{rid}:reject\", json={\"comment\": \"x\"}, headers=h)",
+  "    assert (approve.status_code, approve.json()[\"code\"]) == (403, \"environment-forbidden\"), approve.text",
+  "    assert (reject.status_code, reject.json()[\"code\"]) == (403, \"environment-forbidden\"), reject.text",
+  "    assert \"['rnd'], not dev\" in approve.json()[\"detail\"]",
+  "    none = client.post(f\"/api/v1/requests/{rid}:approve\", json={}, headers=auth(keys, \"v\", roles=[\"view-rnd\"]))",
+  "    assert (none.status_code, none.json()[\"code\"]) == (403, \"forbidden\"), none.text",
+  "    assert client.get(f\"/api/v1/requests/{rid}\", headers=auth(keys, \"ola\", **OLA)).json()[\"status\"] == \"pending_approval\"",
+  "",
+  "",
+  "def test_environment_role_cannot_cancel_in_another_environment(rnd_only):",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only)",
+  "    # the built-in role limited to rnd: actor_is_operator matches it by name, whatever its environments",
+  "    r = client.post(f\"/api/v1/requests/{rid}:cancel\", headers=auth(keys, \"o\", roles=[\"cmapi-operator\"]))",
+  "    assert r.status_code == 403, f\"{r.status_code} status {r.json().get('status')}\"",
+  "",
+  "",
+  "def test_environment_role_cannot_retry_in_another_environment(rnd_only):",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only, tier=\"small\")",
+  "    git.down = True",
+  "    from sqlalchemy import text",
+  "    with ctx.db.session() as s:",
+  "        s.execute(text(\"update change_requests set status='failed' where request_id=:r\"), {\"r\": rid})",
+  "    git.down = False",
+  "    r = client.post(f\"/api/v1/requests/{rid}:retry\", headers=auth(keys, \"o\", roles=[\"op-rnd\"]))",
+  "    assert r.status_code == 403, f\"{r.status_code} {r.text[:150]}\"",
+  "",
+  "",
+  "def test_environment_role_cannot_revert_in_another_environment(rnd_only):",
+  "    client, ctx, git, kube, validator, keys = rnd_only",
+  "    rid = dev_request(rnd_only, tier=\"small\")",
+  "    from sqlalchemy import text",
+  "    with ctx.db.session() as s:",
+  "        s.execute(text(\"update change_requests set status='sync_failed' where request_id=:r\"), {\"r\": rid})",
+  "    r = client.post(f\"/api/v1/requests/{rid}:revert\", headers=auth(keys, \"o\", roles=[\"op-rnd\"]))",
+  "    assert r.status_code == 403, f\"{r.status_code} {r.text[:150]}\"",
+  "",
+  "",
+  "def test_environment_role_cannot_confirm_a_prune_in_another_environment(rnd_only):"
+ ],
+ "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|186-196": [
+  "def test_self_approval_refused_when_the_environment_forbids_it(world):",
+  "    client, ctx, git, kube, validator, keys = world",
+  "    strict(ctx)",
+  "    jane = dict(roles=[\"cmapi-requester\", \"cmapi-approver\"], groups=[\"/cmapi/app-cmapi-rbac-approver-platform\"], sub=\"sub-jane\")",
+  "    r = client.post(\"/api/v1/clusters/CRC/namespaces\", json={**NS, \"tier\": \"large\"}, headers=auth(keys, \"jane\", **jane))",
+  "    rid = r.json()[\"requestId\"]",
+  "    r = client.post(f\"/api/v1/requests/{rid}:approve\", json={}, headers=auth(keys, \"jane\", **jane))",
+  "    assert r.status_code == 409 and r.json()[\"code\"] == \"self-approval\", r.text",
+  "",
+  "",
+  "def test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone(world):"
+ ],
+ "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|39-39": [
+  "def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, capsys):"
+ ],
+ "docs/14-authorization.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|382-436": [
+  "    groups:",
+  "    - name: cmapi",
+  "      path: /cmapi",
+  "      subGroups:",
+  "      - name: app-cmapi-rbac-admin",
+  "        path: /cmapi/app-cmapi-rbac-admin",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-admin",
+  "      - name: app-cmapi-rbac-approver-platform",
+  "        path: /cmapi/app-cmapi-rbac-approver-platform",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-prod",
+  "        path: /cmapi/app-cmapi-rbac-approver-prod",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-qa",
+  "        path: /cmapi/app-cmapi-rbac-approver-qa",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-uat",
+  "        path: /cmapi/app-cmapi-rbac-approver-uat",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-auditor",
+  "        path: /cmapi/app-cmapi-rbac-auditor",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-auditor",
+  "      - name: app-cmapi-rbac-onboarding",
+  "        path: /cmapi/app-cmapi-rbac-onboarding",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-onboarding",
+  "      - name: app-cmapi-rbac-operator",
+  "        path: /cmapi/app-cmapi-rbac-operator",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-operator",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-requester",
+  "        path: /cmapi/app-cmapi-rbac-requester",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-requester",
+  "      - name: app-cmapi-rbac-viewer",
+  "        path: /cmapi/app-cmapi-rbac-viewer",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-viewer"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|1-8": [
+  "\"\"\"Token verification: every bearer token is checked offline against the realm's JWKS.",
+  "",
+  "docs/02, \"Token verification\": RS256 only, iss and aud pinned, exp/nbf with 30 s leeway, keys",
+  "cached ten minutes and refetched once on an unknown kid, at most once per retry window, so forged",
+  "kids cannot drive Keycloak and a hanging Keycloak stalls one caller, not all of them. Stale-on-error: when Keycloak cannot be",
+  "reached the last good key set keeps verifying, in memory and, through KeyStore, persisted so a",
+  "fresh pod after a restart can still verify during an outage. A token whose kid matches no cached",
+  "key while Keycloak is down is 503 idp-unavailable, never 401."
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|135-135": [
+  "    def __init__(self, issuer: str, audience: str, jwks: Jwks, leeway: int = 30):"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|153-154": [
+  "            claims = jwt.decode(bearer, key.key, algorithms=[\"RS256\"], audience=self.audience, issuer=self.issuer,",
+  "                                leeway=self.leeway, options={\"require\": [\"exp\", \"iat\", \"iss\", \"aud\", \"sub\"]})"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|158-160": [
+  "        except jwt.InvalidAudienceError as exc:",
+  "            AUTH_FAILURES.labels(\"audience\").inc()",
+  "            raise Problem(401, \"unauthenticated\", f\"Token is not for audience {self.audience}\") from exc"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|174-179": [
+  "def oauth2_scheme(issuer: str) -> OAuth2AuthorizationCodeBearer:",
+  "    \"\"\"Reads Authorization: Bearer and drives Swagger UI's Authorize button (PKCE through cmapi-docs).\"\"\"",
+  "    return OAuth2AuthorizationCodeBearer(",
+  "        authorizationUrl=f\"{issuer}/protocol/openid-connect/auth\",",
+  "        tokenUrl=f\"{issuer}/protocol/openid-connect/token\",",
+  "        auto_error=False, scheme_name=\"keycloak\")"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|54-54": [
+  "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
+  "            employee_id=claims.get(\"employee_id\"),"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
+  "            groups=frozenset(claims.get(\"groups\", [])),"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|60-61": [
+  "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
+  "                                         \"scopes\": \"openid\"})"
+ ],
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|178-249": [
+  "def ldap(rm: Realm, cfg: dict[str, Any]) -> None:",
+  "    bind_dn, bind_pw = os.environ.get(\"bindDN\") or os.environ.get(\"CMAPI_LDAP_BIND_DN\"), \\",
+  "        os.environ.get(\"password\") or os.environ.get(\"CMAPI_LDAP_BIND_PASSWORD\")",
+  "    if not cfg.get(\"enabled\"):",
+  "        print(\"LDAP federation: off in values\")",
+  "        return",
+  "    if not (bind_dn and bind_pw):",
+  "        print(f\"LDAP federation: NOT configured, Secret {cfg.get('bindSecret', 'cmapi-ldap-bind')} (bindDN, password) is absent\")",
+  "        if cfg.get(\"requireSync\"):",
+  "            sys.exit(\"LDAP federation is required here and its bind credential is absent\")",
+  "        return",
+  "    realm_info = rm.get(\"\")",
+  "    comps = rm.get(\"/components\", params={\"type\": \"org.keycloak.storage.UserStorageProvider\"}) or []",
+  "    existing = next((c for c in comps if c[\"name\"] == \"ldap\"), None)",
+  "    body = {",
+  "        \"name\": \"ldap\", \"providerId\": \"ldap\", \"providerType\": \"org.keycloak.storage.UserStorageProvider\",",
+  "        \"parentId\": realm_info[\"id\"],",
+  "        \"config\": {",
+  "            \"enabled\": [\"true\"], \"vendor\": [\"other\"], \"editMode\": [\"READ_ONLY\"], \"importEnabled\": [\"true\"],",
+  "            \"syncRegistrations\": [\"false\"], \"authType\": [\"simple\"], \"bindDn\": [bind_dn], \"bindCredential\": [bind_pw],",
+  "            \"connectionUrl\": [cfg[\"connectionUrl\"]], \"usersDn\": [cfg[\"usersDn\"]], \"usernameLDAPAttribute\": [\"uid\"],",
+  "            \"rdnLDAPAttribute\": [\"uid\"], \"uuidLDAPAttribute\": [\"entryUUID\"], \"userObjectClasses\": [\"inetOrgPerson\"],",
+  "            \"searchScope\": [\"1\"], \"useTruststoreSpi\": [\"always\"], \"connectionPooling\": [\"true\"], \"pagination\": [\"false\"],",
+  "            \"cachePolicy\": [\"MAX_LIFESPAN\"], \"maxLifespan\": [\"900000\"], \"changedSyncPeriod\": [\"900\"], \"fullSyncPeriod\": [\"86400\"],",
+  "        },",
+  "    }",
+  "    if cfg.get(\"usersFilter\"):",
+  "        body[\"config\"][\"customUserSearchFilter\"] = [cfg[\"usersFilter\"]]",
+  "    if existing is None:",
+  "        rm.call(\"POST\", \"/components\", json=body)",
+  "        existing = next(c for c in rm.get(\"/components\", params={\"type\": \"org.keycloak.storage.UserStorageProvider\"})",
+  "                        if c[\"name\"] == \"ldap\")",
+  "        print(\"LDAP federation: created (read-only)\")",
+  "    else:",
+  "        # Keycloak keeps a key a PUT leaves out, and removes one sent empty (measured on 26.6.4). So no usersFilter here has to say so, or an earlier filter would stay.",
+  "        config = {\"customUserSearchFilter\": [], **body[\"config\"]}",
+  "        rm.call(\"PUT\", f\"/components/{existing['id']}\", json={**body, \"config\": config, \"id\": existing[\"id\"]})",
+  "        print(\"LDAP federation: updated (read-only)\")",
+  "    mappers = {m[\"name\"]: m for m in rm.get(\"/components\", params={\"parent\": existing[\"id\"],",
+  "                                                                   \"type\": \"org.keycloak.storage.ldap.mappers.LDAPStorageMapper\"}) or []}",
+  "",
+  "    def mapper(name: str, provider: str, config: dict[str, list[str]]) -> None:",
+  "        body = {\"name\": name, \"providerId\": provider, \"providerType\": \"org.keycloak.storage.ldap.mappers.LDAPStorageMapper\",",
+  "                \"parentId\": existing[\"id\"], \"config\": config}",
+  "        if name in mappers:",
+  "            rm.call(\"PUT\", f\"/components/{mappers[name]['id']}\", json={**body, \"id\": mappers[name][\"id\"]})",
+  "        else:",
+  "            rm.call(\"POST\", \"/components\", json=body)",
+  "",
+  "    attr = lambda ldap_attr, model, mandatory=\"false\": {\"ldap.attribute\": [ldap_attr], \"user.model.attribute\": [model],  # noqa: E731",
+  "                                                        \"read.only\": [\"true\"], \"always.read.value.from.ldap\": [\"true\"],",
+  "                                                        \"is.mandatory.in.ldap\": [mandatory]}",
+  "    mapper(\"username\", \"user-attribute-ldap-mapper\", {**attr(\"uid\", \"username\", \"true\"), \"always.read.value.from.ldap\": [\"false\"]})",
+  "    mapper(\"email\", \"user-attribute-ldap-mapper\", attr(\"mail\", \"email\"))",
+  "    mapper(\"first name\", \"user-attribute-ldap-mapper\", attr(\"givenName\", \"firstName\"))",
+  "    mapper(\"last name\", \"user-attribute-ldap-mapper\", attr(\"sn\", \"lastName\", \"true\"))",
+  "    # This directory's employee number (docs/11): uidNumber here, employeeNumber in a corporate directory.",
+  "    mapper(\"employee-id\", \"user-attribute-ldap-mapper\", attr(cfg.get(\"employeeIdAttribute\", \"employeeNumber\"), \"employeeId\"))",
+  "    groups_filter = cfg.get(\"groupsFilter\", \"(cn=app-cmapi-rbac-*)\")",
+  "    mapper(\"groups\", \"group-ldap-mapper\", {",
+  "        \"groups.dn\": [cfg[\"groupsDn\"]], \"groups.ldap.filter\": [groups_filter],",
+  "        \"group.name.ldap.attribute\": [\"cn\"], \"group.object.classes\": [\"groupOfNames\"], \"membership.ldap.attribute\": [\"member\"],",
+  "        \"membership.attribute.type\": [\"DN\"], \"membership.user.ldap.attribute\": [\"uid\"], \"mode\": [\"READ_ONLY\"],",
+  "        \"user.roles.retrieve.strategy\": [\"LOAD_GROUPS_BY_MEMBER_ATTRIBUTE\"], \"groups.path\": [\"/cmapi\"],",
+  "        \"preserve.group.inheritance\": [\"false\"], \"ignore.missing.groups\": [\"false\"], \"drop.non.existing.groups.during.sync\": [\"false\"]})",
+  "    print(f\"LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, {groups_filter}); users: {cfg.get('usersFilter', 'everyone in usersDn')}\")",
+  "    r = rm.call(\"POST\", f\"/user-storage/{existing['id']}/sync\", params={\"action\": \"triggerFullSync\"}, ok=(200, 400, 500))",
+  "    print(f\"LDAP full sync: {r.status_code} {r.text[:120]}\")",
+  "    # A deployment that needs federation says so (#96). The status alone is not enough: a directory Keycloak cannot reach answers",
+  "    # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none, and exactly expectUsers when that is set.",
+  "    if cfg.get(\"requireSync\") and not _sync_read_someone(r, cfg.get(\"expectUsers\")):",
+  "        sys.exit(f\"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {r.text[:120]}\")"
+ ],
+ "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|1-3": [
+  "# Realm cmapi for the existing Keycloak (docs/11), from the chart's templates/keycloak-realm.yaml. The RHBK operator creates it once:",
+  "# the import runs --override=false, so an existing realm is left as it is, and this object neither updates nor deletes one. Client",
+  "# secrets are ${...} placeholders the import Job reads from Secret cmapi-realm-secrets, written by deploy/secrets.sh; no secret in Git."
+ ],
+ "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|382-436": [
+  "    groups:",
+  "    - name: cmapi",
+  "      path: /cmapi",
+  "      subGroups:",
+  "      - name: app-cmapi-rbac-admin",
+  "        path: /cmapi/app-cmapi-rbac-admin",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-admin",
+  "      - name: app-cmapi-rbac-approver-platform",
+  "        path: /cmapi/app-cmapi-rbac-approver-platform",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-prod",
+  "        path: /cmapi/app-cmapi-rbac-approver-prod",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-qa",
+  "        path: /cmapi/app-cmapi-rbac-approver-qa",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-approver-uat",
+  "        path: /cmapi/app-cmapi-rbac-approver-uat",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-auditor",
+  "        path: /cmapi/app-cmapi-rbac-auditor",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-auditor",
+  "      - name: app-cmapi-rbac-onboarding",
+  "        path: /cmapi/app-cmapi-rbac-onboarding",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-onboarding",
+  "      - name: app-cmapi-rbac-operator",
+  "        path: /cmapi/app-cmapi-rbac-operator",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-operator",
+  "          - cmapi-approver",
+  "      - name: app-cmapi-rbac-requester",
+  "        path: /cmapi/app-cmapi-rbac-requester",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-requester",
+  "      - name: app-cmapi-rbac-viewer",
+  "        path: /cmapi/app-cmapi-rbac-viewer",
+  "        clientRoles:",
+  "          cmapi-nonprod:",
+  "          - cmapi-viewer"
+ ],
+ "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/20-realm-sync.yaml|36-37": [
+  "            - name: CMAPI_REALM_GROUPS",
+  "              value: '{\"app-cmapi-rbac-admin\":[\"cmapi-admin\"],\"app-cmapi-rbac-approver-platform\":[\"cmapi-approver\"],\"app-cmapi-rbac-approver-prod\":[\"cmapi-approver\"],\"app-cmapi-rbac-approver-qa\":[\"cmapi-approver\"],\"app-cmapi-rbac-approver-uat\":[\"cmapi-approver\"],\"app-cmapi-rbac-auditor\":[\"cmapi-auditor\"],\"app-cmapi-rbac-onboarding\":[\"cmapi-onboarding\"],\"app-cmapi-rbac-operator\":[\"cmapi-operator\",\"cmapi-approver\"],\"app-cmapi-rbac-requester\":[\"cmapi-requester\"],\"app-cmapi-rbac-viewer\":[\"cmapi-viewer\"]}'"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/auth.py|37-37": [
+  "    def __init__(self, issuer: str, url: str, *, verify: str | bool = True, lifespan: float = 600.0,"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|16-16": [
+  "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|117-117": [
+  "    def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|148-148": [
+  "    def insert(self, row: ChangeRequestRow, first_event: E, by: str, note: str = \"\") -> ChangeRequestRow:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|168-173": [
+  "    def event(self, row: ChangeRequestRow, event: str, by: str, note: str = \"\", detail: Mapping[str, Any] | None = None) -> None:",
+  "        self.s.add(RequestEventRow(request_id=row.request_id, event=event, status=row.status, by=by, note=note,",
+  "                                   detail=dict(detail) if detail else None))",
+  "        row.updated_at = utcnow()",
+  "",
+  "    def move(self, row: ChangeRequestRow, event: E, by: str, note: str = \"\", **kw: Any) -> S:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|173-173": [
+  "    def move(self, row: ChangeRequestRow, event: E, by: str, note: str = \"\", **kw: Any) -> S:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|202-202": [
+  "    def ledger(self, row: ChangeRequestRow) -> ApprovalLedger | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|216-216": [
+  "    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None) -> None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|226-226": [
+  "    def enqueue(self, kind: str, *, request_id: str | None = None, cluster_id: str = \"\", delay: float = 0,"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|239-239": [
+  "    def claim(self, worker_id: str, lease_seconds: int = 300) -> JobRow | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|252-252": [
+  "    def assert_lease(self, job_id: int, worker_id: str, generation: int) -> None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|298-298": [
+  "    def record(self, actor: Identity, action: str, target: str, detail: Mapping[str, Any] | None = None) -> None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|302-302": [
+  "    def recent(self, limit: int = 200) -> list[AuditEventRow]:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|310-310": [
+  "    def get(self, name: str) -> dict[str, Any] | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|314-314": [
+  "    def set(self, name: str, value: Mapping[str, Any], by: str) -> None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|328-328": [
+  "    def load(self, issuer: str) -> list[dict[str, Any]] | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|333-333": [
+  "    def save(self, issuer: str, keys: list[dict[str, Any]]) -> None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [
+  "    def record(self) -> dict[str, Any]:",
+  "        \"\"\"What change_requests stores about the requester (database only, never Git).\"\"\"",
+  "        return {\"sub\": self.sub, \"username\": self.username, \"email\": self.email,",
+  "                \"givenName\": self.given_name, \"middleName\": self.middle_name,",
+  "                \"familyName\": self.family_name, \"employeeId\": self.employee_id,",
+  "                \"kind\": self.kind, \"clientId\": self.client_id}"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/ratelimit.py|1-4": [
+  "\"\"\"Rate limits (docs/01, Operational safety): token buckets per caller and per team, separate",
+  "buckets for the expensive calls (:place, :suggest, :export), and a cap on a team's active",
+  "placements. 429 rate-limited with Retry-After. In-process per replica; the limits are set per",
+  "replica count so the instance-wide rate stays near the configured one.\"\"\""
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/jobs/channel_notify.py|30-30": [
+  "        s.add(ApprovalNotificationRow(request_id=row.request_id, channel=ch.name, kind=kind,"
+ ]
+}
