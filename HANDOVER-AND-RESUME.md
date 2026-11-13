@@ -8,6 +8,8 @@ Read this first to continue the build from a new session, with nothing else in h
 
 **Two more owner instructions, 2026-11-13, sent to OB1 through the coordinator after the run began.** First: "also if is important that we have diagrams as well." Diagrams are a required deliverable: the list of figures is in the prompt, under "Records, language and diagrams". Second: "we can use postgress for cache as well if needed so we don't have to use redis or vakkey". cmapi adds no Redis and no Valkey, and a shared cache uses cmapi's PostgreSQL: the detail is in the prompt, under "The database: CloudNativePG".
 
+**The cache reference, 2026-11-13.** The owner: "check my inkcaskhq/kvpg". That is `github.com/inkcasthq/kvpg`, read by the coordinator at `f654a121820f`. It is the reference for a cmapi cache in PostgreSQL, not a dependency: cmapi keeps its contract v1 in a small Python store, on a logged table, only if a shared cache is needed. Never change kvpg and file nothing there. The detail is in the prompt, under "The database: CloudNativePG".
+
 ## Where these files are
 
 This file and `build-tracker.md` are at the root of the repository, on `main` from PR #89. Keep them current on the working branch. The auto-memory note `project-cmapi-resume-point` points here.
