@@ -253,6 +253,14 @@ def test_crc_redirect_uri_is_the_docs_route():
     assert yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["publicUrl"] == f"https://{host}"
 
 
+def test_crc_problem_types_resolve_on_the_api_route():
+    """RFC 9457, section 4: the type URI of a problem "SHOULD resolve to HTML documentation". CRC has one instance, so the base of
+    the types is its own Route, where the API serves /problems/<code> (#182)."""
+    instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
+    assert instance["problems"] == {"typeBase": f"https://{crc('Route', 'cmapi-api')['spec']['host']}/problems/"}
+    assert instance["problems"]["typeBase"] == instance["publicUrl"] + "/problems/"
+
+
 def test_crc_realm_import_names_cmapi_and_holds_no_secret():
     kri = crc("KeycloakRealmImport", "cmapi")
     assert (kri["metadata"]["name"], kri["metadata"]["namespace"]) == ("cmapi", "keycloak")

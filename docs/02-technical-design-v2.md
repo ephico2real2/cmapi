@@ -167,6 +167,8 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
 | git-unavailable | 502 | Git host error; the request row is marked failed |
 
+**Problem type URIs.** The type of a problem is a base and the code of the problem. The base is problems.typeBase in instance.yaml, and its default is https://cmapi.ephico2real.com/problems/. An organisation uses one base for all its instances, because the type is the identifier that a client compares (RFC 9457, section 3.1.1). Each instance serves GET /problems and GET /problems/{code} as HTML, with no token: the type, the title, the status, an example and what the caller does. So the type resolves when the host of the base points at an instance. On CRC the base is the Route of the API.
+
 **Endpoint catalog.** Paths are relative to /api/v1/clusters/{clusterId} unless they start with /api/v1.
 
 | Plugin | Endpoints | Mode |

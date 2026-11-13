@@ -37,6 +37,9 @@ instance:
     groupPath: /cmapi/app-cmapi-rbac-{name}   # the token's group for an approving group in approval-rules.yaml (docs/11)
   docs:
     enabled: true
+  # The base of each problem type URI (RFC 9457). One base for all the instances of an organisation, on a host that points
+  # at an instance: each instance serves /problems/<code>. Empty: the default, https://cmapi.ephico2real.com/problems/.
+  problems: {}             # {typeBase: https://<host>/problems/}
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)
 auth:
