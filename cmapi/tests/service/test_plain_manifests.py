@@ -285,6 +285,16 @@ def test_crc_realm_takes_a_password_through_no_client_and_limits_guesses():
     account = next(u for u in realm["users"] if u.get("serviceAccountClientId") == "cmapi-automation")
     assert account["clientRoles"] == {"cmapi-nonprod": ["cmapi-onboarding"]}
     assert [u["username"] for u in realm["users"] if "serviceAccountClientId" not in u] == [], "a local account in the import"
+
+
+def test_crc_realm_types_the_access_token_of_each_client_that_calls_cmapi():
+    """RFC 9068: an access token has the JOSE header typ at+jwt, and core/auth.py refuses another type (#184). Keycloak 26 writes it for a
+    client with access.token.header.type.rfc9068. Each client with the scope cmapi-audience gets a token for cmapi, so each has it.
+    The API's own client has it also: it gets no token, but Keycloak's V1 token exchange reads the header type from the target client."""
+    realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
+    callers = [c for c in realm["clients"] if "cmapi-audience" in (c.get("defaultClientScopes") or [])]
+    assert {c["clientId"] for c in callers} >= {"cmapi-portal", "cmapi-docs", "cmapi-cli", "cmapi-automation", "svc-payments-ci"}
+    assert [c["clientId"] for c in callers if (c.get("attributes") or {}).get("access.token.header.type.rfc9068") != "true"] == []
     admin_cli = next(c for c in realm["clients"] if c["clientId"] == "admin-cli")
     assert admin_cli["enabled"] is False and admin_cli["directAccessGrantsEnabled"] is False
     assert realm["bruteForceProtected"] is True and realm["permanentLockout"] is False

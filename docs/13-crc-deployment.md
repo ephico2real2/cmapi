@@ -373,24 +373,11 @@ The operator's guide says to delete it once the realm is imported. It removes th
 
 **Stops when** the run is stopped, headroom is under the line, or the database is not healthy.
 
-### Step 20: the workloads, the policy first
-
-The policy goes first by itself: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment.
-
-```bash
-( set -euo pipefail
-  $G gate "$STOP"
-  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
-  oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
-  for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
-); stopped $? 20
-```
-
-**Stops when** a rollout is not done.
-
-### Step 21: the realm's mutable parts
+### Step 20: the realm's mutable parts
 
 The user profile, group mappings, read-only LDAP federation and local test users. Without it `employee_id` never reaches a token. One try and no retries: `requireSync` fails the Job when federation read nobody (#96), and `expectUsers` when it read anything but the 13 test users, which is what `usersFilter` lets it read (#110).
+
+The sync runs before the workloads, so the API never serves a realm that is not complete. The Job needs no API and no database. Its trust file is from step 6, its ServiceAccount from step 8 and its Secrets from step 11. On a realm that was imported before #184 the sync also sets the client attribute for the header `typ: at+jwt`. This run imports a new realm, which has the attribute from the import. [`docs/15`](15-keycloak-integration.md#the-type-of-an-access-token) gives the order of an upgrade.
 
 ```bash
 ( set -euo pipefail
@@ -400,10 +387,25 @@ The user profile, group mappings, read-only LDAP federation and local test users
   rc=0; oc wait job/cmapi-realm-sync -n cmapi --for=condition=Complete --timeout=600s || rc=$?
   oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"      # whichever way it ended: the log says why
   [ "$rc" = 0 ]
-); stopped $? 21
+); stopped $? 20
 ```
 
 **Stops when** the Job fails, which includes a federation that read nobody, or read anyone but the 13. A failed Job is not Complete, so the wait runs out its 600 s; read the log.
+
+### Step 21: the workloads, the policy first
+
+The policy goes first by itself: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment.
+
+```bash
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
+  oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
+  for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
+); stopped $? 21
+```
+
+**Stops when** a rollout is not done.
 
 ### Step 22: nothing else changed
 
@@ -578,7 +580,8 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 | Import alone, if RHBK refuses `resources` | 1,700 Mi | 2,318 Mi | Passes, so the realm goes first in either case |
 | Import plus cmapi, operator default | 2,276 Mi | 1,742 Mi | Under the line. **This order is never run** |
 | Steady | 576 Mi | 3,442 Mi | |
-| Steady plus the realm-sync Job | 672 Mi | 3,346 Mi | The run's peak |
+| The database plus the realm-sync Job | 352 Mi | 3,666 Mi | Step 20. The Job requests 96 Mi, and it ends before the workloads start |
+| Steady plus the realm-sync Job | 672 Mi | 3,346 Mi | What step 19 asks for. It is more than the run uses after the import, because the Job and the workloads do not run together |
 
 ## Trying it without CRC
 

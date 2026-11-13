@@ -16,6 +16,7 @@ What it converges, each step idempotent:
 
 No client of the realm takes the resource owner password grant (RFC 9700, section 2.4; #181): before step 2 the
 sync turns it off on each client of an existing realm, and retires the local account bot-user independently of test-user creation.
+It also sets the attribute that makes Keycloak write the header `typ: at+jwt` on each client that gets a token for cmapi (#184).
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ import time
 from typing import Any
 
 import httpx
+
+RFC9068_HEADER = "access.token.header.type.rfc9068"      # Keycloak's client attribute, OIDCConfigAttributes (26.6.4)
 
 TEST_USERS = [  # username, first, middle, last, employeeId, groups
     ("ola", "Ola", "A", "Adeyemi", "1001", ["app-cmapi-rbac-requester"]),
@@ -125,6 +128,27 @@ def no_password_grant(rm: Realm) -> None:
                 changed.append(c["clientId"])
         first += len(clients)
     print(f"password grant: off on each client{' (changed: ' + ', '.join(sorted(changed)) + ')' if changed else ''}")
+
+
+def access_token_type(rm: Realm) -> None:
+    """Each client that gets a token for cmapi writes the JOSE header `typ: at+jwt` (RFC 9068), which core/auth.py requires
+    (#184). Those clients are the ones with the client scope cmapi-audience, as a default or an optional scope: Keycloak
+    applies an optional scope when the token request names it. The import sets the attribute on a new realm; this step
+    brings it to a realm that was imported before, and to a client that was added by hand."""
+    changed, first = [], 0
+    while True:
+        clients = rm.get("/clients", params={"first": first, "max": 500}) or []
+        if not clients:
+            break
+        for c in clients:
+            attributes = c.get("attributes") or {}
+            scopes = set(c.get("defaultClientScopes") or []) | set(c.get("optionalClientScopes") or [])
+            if "cmapi-audience" in scopes and attributes.get(RFC9068_HEADER) != "true":
+                c["attributes"] = {**attributes, RFC9068_HEADER: "true"}
+                rm.call("PUT", f"/clients/{c['id']}", json=c)
+                changed.append(c["clientId"])
+        first += len(clients)
+    print(f"access token type: at+jwt on each client of cmapi{' (changed: ' + ', '.join(sorted(changed)) + ')' if changed else ''}")
 
 
 def retire_legacy_bot(rm: Realm) -> None:
@@ -289,6 +313,7 @@ def main(argv: list[str]) -> None:
     user_profile(rm)
     no_password_grant(rm)
     retire_legacy_bot(rm)
+    access_token_type(rm)
     service_roles(rm, audience)
     ids = groups(rm, audience, json.loads(os.environ.get("CMAPI_REALM_GROUPS") or "{}"))
     ldap(rm, json.loads(os.environ.get("CMAPI_REALM_LDAP") or "{}"))

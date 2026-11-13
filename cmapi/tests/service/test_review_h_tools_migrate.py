@@ -135,7 +135,8 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
             # An old realm (#181): the automation client still takes the password grant and has no service account.
             if int(req.url.params.get("first", 0)) > 0:               # the list is read page by page, to its end
                 return httpx.Response(200, json=[])
-            return httpx.Response(200, json=[{"id": "c", "clientId": req.url.params.get("clientId", "cmapi-automation"), "directAccessGrantsEnabled": True}])
+            return httpx.Response(200, json=[{"id": "c", "clientId": req.url.params.get("clientId", "cmapi-automation"), "directAccessGrantsEnabled": True,
+                                              "defaultClientScopes": ["basic", "cmapi-audience"], "attributes": {"kept": "1"}}])
         if "/role-mappings/" in p and m == "GET":
             return httpx.Response(200, json=[])
         if p.endswith("/roles"):
@@ -170,6 +171,10 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
     asked = [str(r) for r in host.asked if "username=bot-user" in str(r)]
     assert asked and ("DELETE", "/admin/realms/cmapi/users/u", "") in host.calls, "bot-user is not removed"
     assert "password grant: off on each client (changed: cmapi-automation)" in out.out
+    # #184: the sync makes each client of cmapi write the header typ at+jwt, and keeps the client's other attributes.
+    typed = [json.loads(b) for m, p, b in host.calls if m == "PUT" and p.endswith("/clients/c") and "rfc9068" in b]
+    assert typed and typed[-1]["attributes"] == {"kept": "1", "access.token.header.type.rfc9068": "true"}
+    assert "access token type: at+jwt on each client of cmapi (changed: cmapi-automation)" in out.out
     assert all(p.startswith(("/admin/realms/cmapi", "/realms/cmapi")) for _, p, _ in host.calls)
 
 

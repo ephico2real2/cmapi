@@ -45,6 +45,9 @@ instance:
 auth:
   issuer: https://sso.ephico2real.com/realms/ephico2real
   audience: cmapi-nonprod
+  # true only for a Keycloak that cannot write the header typ at+jwt (RFC 9068) on an access token: cmapi then accepts
+  # the header JWT together with the claim typ Bearer also (docs/15, "The type of an access token").
+  acceptLegacyTokenType: false
   # Where the pods fetch the JWKS and call the admin API; default: the issuer. An internal Service
   # URL avoids the Route when the same Keycloak runs on the hub.
   jwksUrl: ""
