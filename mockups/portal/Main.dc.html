@@ -1937,7 +1937,6 @@ var KPIS = {
     kpi("Capacity freshness", "80%", "100% of clusters", "warn", "cmapi_capacity_snapshot_age_seconds"),
     kpi("Quota efficiency (median)", "31%", "over 40%", "warn", "namespace_verdicts"),
     kpi("Import health", "100%", "100%", "ok", "cmapi_cluster_token_expiry_seconds"),
-    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check"),
     kpi("CPU saturation", "1.6% (cmapi-worker)", "under 1% of periods", "warn", "cmapi_process_cpu_throttled_periods_total"),
     kpi("Backup freshness", "unavailable", "under 26 h; restore tested monthly", "info", "cmapi_db_backup_last_success_timestamp_seconds")
   ],
@@ -1949,7 +1948,6 @@ var KPIS = {
     kpi("Capacity freshness", "100%", "100% of clusters", "ok", "cmapi_capacity_snapshot_age_seconds"),
     kpi("Quota efficiency (median)", "44%", "over 40%", "ok", "namespace_verdicts"),
     kpi("Self-service rate", "86%", "over 80%", "ok", "database"),
-    kpi("Docs coverage", "100%", "100%, enforced", "ok", "startup and CI check"),
     kpi("System headroom (p95, 7 d)", "61% (cmapi-capacity memory)", "under 80% for every component", "ok", "cmapi_process_memory_bytes"),
     kpi("Backup freshness", "15 h", "under 26 h; restore tested monthly", "ok", "cmapi_db_backup_last_success_timestamp_seconds")
   ],

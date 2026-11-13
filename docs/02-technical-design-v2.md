@@ -1885,26 +1885,18 @@ Adoption adds cmapi\_namespaces{cluster\_id, state} (state = managed, candidate,
 
 ## KPIs
 
-The current KPI table, extended with auto-approval rate, placement accuracy, capacity freshness, import health and docs coverage and measured per instance, is in Design and Architecture. Success means teams get namespaces and access faster, with fewer failures and less wasted quota; targets are proposed and need agreement before launch.
+[`docs/17-kpis.md`](17-kpis.md) is the one definition of each KPI: the question that it answers, its formula, its source and labels, its target, its alert and whether code computes it today. Success means that teams get namespaces and access faster, with fewer failures and less wasted quota. Each target is proposed and needs agreement before launch.
 
-| KPI | Definition | Source | Proposed target |
-| --- | --- | --- | --- |
-| Lead time, no approval | Submit to synced, rnd requests | cmapi\_change\_lead\_time\_seconds p90 | Under 10 min |
-| Lead time, with approval | Submit to synced, approved requests | Same, rule label set | Under 1 business day p90 |
-| Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
-| Self-service rate | Requests completed with no platform-team touch | change\_requests without a approver-platform approval or manual edit | Over 80% |
-| Change failure rate | Failed, sync-failed or reverted requests / merged requests | change\_requests, request\_events | Under 5% |
-| Validation reject rate | Rejected at plan / submitted | cmapi\_validation\_failures\_total | Tracked, not targeted; rising means unclear rules or forms |
-| Drift events | OutOfSync without an open request | cmapi\_sync\_drift\_total | 0 per week |
-| Quota efficiency | Used CPU and memory / quota, per namespace, 14-day peak, read live from Thanos | Thanos (live), quota\_analyses, namespace\_verdicts | Over 40% median |
-| Cluster headroom | Quota headroom per cluster | capacity\_snapshots (cmapi-capacity) | Above 20% on every cluster |
-| API availability | Successful requests / all requests, excluding 4xx | cmapi\_http\_requests\_total | 99.5% monthly |
-| Expired namespaces cleaned | Past grace with no delete request, or awaiting prune confirmation over 24 h | Expiration reports | 0 |
-| Rebuild recovery | Cluster bootstrap to Synced and Healthy | cluster\_sync\_state | Under 1 h |
+| Group | KPIs |
+| --- | --- |
+| Delivery | Lead time, auto-approved (p90); Lead time, with approval (p90); Approval turnaround (p50 and p90); Auto-approval rate; Self-service rate; Change failure rate |
+| Reliability and state | API availability (30 d); Drift events (7 d); Expired namespaces cleaned; Managed coverage; Import health |
+| Capacity | Placement accuracy; Capacity freshness; Cluster headroom; Quota efficiency (median); Capacity recovered |
+| System | System headroom (p95, 7 d); CPU saturation; Database headroom; Backup freshness |
 
-The Change flow dashboard carries the first six; a monthly report from the database covers the rest by cluster and team.
+The KPI review of 2026-11-13 removed two entries of the earlier table here. **Rebuild recovery** (cluster bootstrap to Synced and Healthy, under 1 h) is removed by the owner's decision: "i don't think we should be measuring rebuilding a cluster in under 1 hour. this is not our place." Validation reject rate was "tracked, not targeted": it stays a panel of the Change flow dashboard and is not a KPI.
 
-Adoption adds one KPI: managed coverage, managed namespaces / (all namespaces − excluded) per cluster, from cmapi\_namespaces; proposed target 90% within two quarters of launch.
+The Change flow dashboard carries the delivery KPIs. `GET /api/v1/admin/kpi` serves the ones that the database gives, and a monthly report from the database covers the rest by cluster and team.
 
 ## Missing pieces needed for success
 

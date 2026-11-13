@@ -130,6 +130,16 @@ test("a namespace's lock shows the same approval count as its request (#148)", (
   }
 });
 
+test("each KPI card has the name of a KPI of docs/17-kpis.md (#175)", () => {
+  const defined = new Set([...readFileSync(join(repoRoot, "docs", "17-kpis.md"), "utf8").matchAll(/^\| `[a-z0-9-]+` \| ([^|]+) \|/gm)].map((m) => m[1].trim()));
+  assert.ok(defined.size >= 15, "the KPI table of docs/17 was not found");
+  // docs/17 has the two percentiles of the approval turnaround as two KPIs, and a card shows them together.
+  const known = (name) => defined.has(name) || (name === "Approval turnaround (p50 / p90)" && defined.has("Approval turnaround (p50)") && defined.has("Approval turnaround (p90)"));
+  const cards = [...source.matchAll(/^    kpi\("([^"]+)",/gm)].map((m) => m[1]);
+  assert.ok(cards.length >= 25, "the KPI cards of the mockup were not found");
+  assert.deepEqual(cards.filter((name) => !known(name)), []);
+});
+
 test("the standalone runtime parses as ES2019", () => {
   parse(readFileSync(join(portal, "runtime", "dc-lite.js"), "utf8"), { ecmaVersion: 2019 });
 });
