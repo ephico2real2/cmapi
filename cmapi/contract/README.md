@@ -29,4 +29,4 @@ Copy `openapi.json` to `released/<version>.json`. Then run `python contract/chan
 
 ## The tool
 
-oasdiff 1.37.0 does both jobs: the gate (`oasdiff breaking`) and the changelog (`oasdiff changelog`). CI downloads the release archive and checks its SHA-256, as it does for its other tools. Source: <https://github.com/oasdiff/oasdiff/blob/main/docs/BREAKING-CHANGES.md>, read on 2026-11-13: "Errors are definite breaking changes which should be avoided".
+oasdiff 1.37.0 does both jobs: the gate (`oasdiff breaking`) and the changelog (`oasdiff changelog`). CI downloads the release archive and checks its SHA-256, as it does for its other tools. To run the gate on a Mac, install the same version first: the steps are in `ci/local/README.md`, "Requirements". Source: <https://github.com/oasdiff/oasdiff/blob/main/docs/BREAKING-CHANGES.md>, read on 2026-11-13: "Errors are definite breaking changes which should be avoided".
