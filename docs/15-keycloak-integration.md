@@ -54,11 +54,11 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 
 The eight client roles of `cmapi-nonprod` are `cmapi-viewer`, `cmapi-onboarding`, `cmapi-requester`, `cmapi-approver`, `cmapi-operator`, `cmapi-admin`, `cmapi-auditor` and `cmapi-approval-relay`. The realm has no realm role of cmapi.
 
-The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:375-429`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
+The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, each with its client roles. `docs/14`, "The contract in one table", lists them. The import creates the tree (`10-realm-import.yaml:382-436`), and the sync sets the same mapping from `CMAPI_REALM_GROUPS` (`20-realm-sync.yaml:36-37`), so a later change of the mapping needs no new import.
 
 ## The LDAP federation
 
-The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:146-217`).
+The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:178-249`).
 
 | Setting | Value on CRC | Effect |
 |---|---|---|
