@@ -110,17 +110,63 @@ def database_figures(db: Any) -> dict[str, Any]:
         with db.engine.connect() as c:
             out["connections"] = c.execute(text("SELECT count(*) FROM pg_stat_activity")).scalar()
             out["connectionsMax"] = int(c.execute(text("SHOW max_connections")).scalar())
-            out["sizeBytes"] = c.execute(text("SELECT pg_database_size(current_database())")).scalar()
+            out["sizeBytes"] = int(c.execute(text("SELECT pg_database_size(current_database())")).scalar())
             oldest = c.execute(text("SELECT extract(epoch FROM now() - min(xact_start)) FROM pg_stat_activity "
                                     "WHERE state <> 'idle' AND xact_start IS NOT NULL")).scalar()
             out["oldestTransactionSeconds"] = float(oldest) if oldest is not None else 0.0
             try:
-                out["walBytes"] = c.execute(text("SELECT coalesce(sum(size), 0) FROM pg_ls_waldir()")).scalar()
+                out["walBytes"] = int(c.execute(text("SELECT coalesce(sum(size), 0) FROM pg_ls_waldir()")).scalar())
             except Exception:                                         # noqa: BLE001 - needs pg_monitor
                 out["walBytes"] = None
     except Exception:                                                 # noqa: BLE001
         pass
     return out
+
+
+# The KPIs that GET /admin/kpi computes from the database (docs/17-kpis.md, status "live"). The id is the contract: docs/17 and
+# the portal name a KPI by it, and tests/service/test_kpis.py fails when a live KPI of docs/17 is not here. A target is
+# "proposed" until the owner agrees it.
+OPEN_TO_SYNCED = "extract(epoch FROM finished_at - created_at)"
+SUBMIT_TO_APPROVED = "extract(epoch FROM approved_at - created_at)"
+AUTO = "requirement->>'auto' LIKE 'auto:%'"
+
+
+def _row(kpi_id: str, name: str, value: float | None, unit: str, target: str, source: str) -> dict[str, Any]:
+    return {"id": kpi_id, "name": name, "value": value, "unit": unit, "target": target, "targetStatus": "proposed", "source": source}
+
+
+def database_kpis(session: Any) -> list[dict[str, Any]]:
+    """Each live KPI, from change_requests. A value is None when no request is in its denominator: not measured, never 0."""
+    def one(sql: str) -> Any:
+        return session.execute(text(sql)).scalar()
+
+    def ratio(numerator: str, denominator: str) -> float | None:
+        bottom = one(f"SELECT count(*) FROM change_requests WHERE {denominator}") or 0
+        return ((one(f"SELECT count(*) FROM change_requests WHERE {numerator}") or 0) / bottom) if bottom else None
+
+    def percentile(p: float, expression: str, where: str) -> float | None:
+        value = one(f"SELECT percentile_cont({p}) WITHIN GROUP (ORDER BY {expression}) FROM change_requests WHERE {where}")
+        return float(value) if value is not None else None
+
+    synced = "status = 'synced' AND finished_at IS NOT NULL"
+    approved_by_people = f"approved_at IS NOT NULL AND NOT coalesce({AUTO}, false)"
+    return [
+        _row("lead-time-auto-p90", "Lead time, auto-approved (p90)", percentile(0.9, OPEN_TO_SYNCED, f"{synced} AND {AUTO}"),
+             "seconds", "under 10 min", "database: submit to synced, requests that a policy approved"),
+        _row("lead-time-approved-p90", "Lead time, with approval (p90)",
+             percentile(0.9, OPEN_TO_SYNCED, f"{synced} AND NOT coalesce({AUTO}, false)"),
+             "seconds", "under 1 business day", "database: submit to synced, requests that people approved"),
+        _row("approval-turnaround-p50", "Approval turnaround (p50)", percentile(0.5, SUBMIT_TO_APPROVED, approved_by_people),
+             "seconds", "4 h", "database: submit to approved, requests that people approved"),
+        _row("approval-turnaround-p90", "Approval turnaround (p90)", percentile(0.9, SUBMIT_TO_APPROVED, approved_by_people),
+             "seconds", "24 h", "database: submit to approved, requests that people approved"),
+        _row("auto-approval-rate", "Auto-approval rate",
+             ratio(AUTO, f"({AUTO}) OR requirement->>'autoFallback' IS NOT NULL"),
+             "ratio", "tracked", "database: requests that a policy approved over requests that matched a policy"),
+        _row("change-failure-rate", "Change failure rate",
+             ratio("status IN ('failed', 'sync_failed', 'reverted')", "merged_at IS NOT NULL"),
+             "ratio", "under 5%", "database: failed, sync_failed or reverted requests over merged requests"),
+    ]
 
 
 def kpi_report(ctx: Any) -> dict[str, Any]:
@@ -130,28 +176,10 @@ def kpi_report(ctx: Any) -> dict[str, Any]:
     comp = cgroup_figures()
     comp["measuredAt"] = time.time()
     db = database_figures(ctx.db)
-    kpis: list[dict[str, Any]] = []
     try:
         with ctx.db.session() as s:
-            total = s.execute(text("SELECT count(*) FROM change_requests")).scalar() or 0
-            merged = s.execute(text("SELECT count(*) FROM change_requests WHERE merged_at IS NOT NULL")).scalar() or 0
-            bad = s.execute(text("SELECT count(*) FROM change_requests WHERE status IN ('failed','sync_failed','reverted')")).scalar() or 0
-            auto = s.execute(text("SELECT count(*) FROM change_requests WHERE requirement->>'auto' LIKE 'auto:%'")).scalar() or 0
-            synced = s.execute(text("SELECT count(*) FROM change_requests WHERE status='synced'")).scalar() or 0
-            human_touch = s.execute(text("SELECT count(DISTINCT request_id) FROM approvals")).scalar() or 0
-            lead = s.execute(text("SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM finished_at - created_at)) "
-                                  "FROM change_requests WHERE status='synced'")).scalar()
-        kpis = [
-            {"name": "Change failure rate", "value": (bad / merged) if merged else None, "unit": "ratio", "target": "under 5%",
-             "source": "database: failed, sync_failed or reverted over merged"},
-            {"name": "Self-service rate", "value": ((synced - human_touch) / synced) if synced else None, "unit": "ratio",
-             "target": "over 80%", "source": "database: synced requests with no human approval"},
-            {"name": "Auto-approval rate", "value": (auto / total) if total else None, "unit": "ratio", "target": "tracked",
-             "source": "database: requests approved at plan time"},
-            {"name": "Lead time p90 (all)", "value": float(lead) if lead is not None else None, "unit": "seconds",
-             "target": "under 10 min auto-approved", "source": "database: submit to synced"},
-        ]
-    except Exception:                                                 # noqa: BLE001
+            kpis = database_kpis(s)
+    except Exception:                                                 # noqa: BLE001 - a database that does not answer: no row, not a zero
         kpis = []
     return {"instance": ctx.cfg.name, "thresholds": thresholds, "components": [comp], "database": db, "kpis": kpis,
             "unavailable": "a null value means not measured, never zero"}

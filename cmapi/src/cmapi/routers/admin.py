@@ -48,13 +48,47 @@ class Integrations(Api):
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
 
 
+class KpiRow(Api):
+    id: str = Field(description="The stable ID of the KPI, as docs/17-kpis.md names it", examples=["change-failure-rate"])
+    name: str = Field(description="The name that the portal shows", examples=["Change failure rate"])
+    value: float | None = Field(description="The measured value. Null means not measured, never zero", examples=[0.021])
+    unit: str = Field(description="`seconds` or `ratio` (0 to 1)", examples=["ratio"])
+    target: str = Field(description="The target, as text", examples=["under 5%"])
+    target_status: str = Field(description="`proposed` until the owner agrees the target, then `agreed`", examples=["proposed"])
+    source: str = Field(description="Where the value comes from, and its formula in words",
+                        examples=["database: failed, sync_failed or reverted requests over merged requests"])
+
+
+class KpiComponent(Api):
+    component: str = Field(description="`api`, `worker` or `capacity`: the process that answered", examples=["api"])
+    measured_at: float = Field(description="When the figures were read, in seconds since 1970", examples=[1794580977.07])
+    memory_bytes: int | None = Field(description="cgroup `memory.current`. Null outside a cgroup v2 container", examples=[183500800])
+    memory_limit_bytes: int | None = Field(description="cgroup `memory.max`. Null when the container has no limit", examples=[536870912])
+    cpu_usage_seconds: float | None = Field(description="cgroup `cpu.stat` `usage_usec`, in seconds, since the container started", examples=[412.6])
+    cpu_limit_cores: float | None = Field(description="cgroup `cpu.max` as cores. Null when the container has no limit", examples=[0.5])
+    cpu_periods: int | None = Field(description="cgroup `cpu.stat` `nr_periods`", examples=[90210])
+    cpu_throttled_periods: int | None = Field(description="cgroup `cpu.stat` `nr_throttled`: the saturation signal", examples=[12])
+    cpu_throttled_seconds: float | None = Field(description="cgroup `cpu.stat` `throttled_usec`, in seconds", examples=[0.8])
+
+
+class KpiDatabase(Api):
+    pool_size: int | None = Field(description="The size of this process's connection pool", examples=[5])
+    pool_in_use: int | None = Field(description="Connections of the pool that are in use now", examples=[1])
+    connections: int | None = Field(description="Connections to the server, from `pg_stat_activity`", examples=[8])
+    connections_max: int | None = Field(description="The server's `max_connections`", examples=[100])
+    size_bytes: int | None = Field(description="`pg_database_size` of cmapi's database", examples=[10255383])
+    wal_bytes: int | None = Field(description="The size of the WAL folder. Null without the `pg_monitor` role", examples=[83886080])
+    oldest_transaction_seconds: float | None = Field(description="The age of the oldest open transaction", examples=[0.0])
+
+
 class KpiView(Api):
-    model_config = {"extra": "allow"}
     instance: str = Field(description="Instance", examples=["nonprod"])
-    thresholds: dict[str, Any] = Field(description="kpi.thresholds from the chart", examples=[{"memoryPercent": 80}])
-    components: list[dict[str, Any]] = Field(description="Self-reported system metrics per component", examples=[[]])
-    database: dict[str, Any] = Field(description="Pool, connections, size; unavailable when not measured", examples=[{}])
-    kpis: list[dict[str, Any]] = Field(description="The KPI table rows cmapi can compute from its database", examples=[[]])
+    thresholds: dict[str, float] = Field(description="The limit of each watch rule, as a percent or as hours",
+                                         examples=[{"memoryPercent": 80, "cpuPercent": 80}])
+    components: list[KpiComponent] = Field(description="The process that answered, with its own cgroup figures")
+    database: KpiDatabase = Field(description="Pool, connections and size. A null value means not measured")
+    kpis: list[KpiRow] = Field(description="Each KPI that cmapi computes from its database: the KPIs of docs/17-kpis.md with the status live")
+    unavailable: str = Field(description="How to read a null value", examples=["a null value means not measured, never zero"])
 
 
 @router.write("/prune:confirm", summary="Confirm the prune of a deleted namespace", permission="operations:run",

@@ -647,34 +647,16 @@ Two figures come from the platform rather than from cmapi, and are read by the r
 
 Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\_seconds:p90\_1h by approval, short windows only because user workload monitoring keeps about a day; 7- and 30-day figures come from the monthly KPI export), so dashboards and the monthly report read the same numbers.
 
-**KPIs.** Measured per instance; targets are proposed and need agreement before launch.
+**KPIs.** Measured per instance. [`docs/17-kpis.md`](17-kpis.md) is the one definition of each KPI: its formula, its source and labels, its target, its alert and whether code computes it today. Each target is proposed and needs agreement before launch.
 
-| KPI | Definition | Source | Target |
-| --- | --- | --- | --- |
-| Lead time, auto-approved | Submit to synced, auto-approved requests | cmapi\_change\_lead\_time\_seconds{approval="auto"} p90 | Under 10 min |
-| Lead time, with approval | Submit to synced, human-approved requests | Same, approval="human" | Under 1 business day p90 |
-| Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
-| Auto-approval rate | Auto-approved / requests matching a policy | cmapi\_auto\_approvals\_total, \_fallbacks\_total{guard} | Tracked; fallbacks by guard reviewed weekly |
-| Self-service rate | Requests completed with no platform-team touch | Database | Over 80% |
-| Change failure rate | Failed, sync-failed or reverted / merged | Database, cmapi\_change\_requests\_total | Under 5% |
-| Drift events | OutOfSync with no open request | cmapi\_sync\_drift\_total | 0 a week |
-| Placement accuracy | Overcommit breaches in the 30-day backtest | cmapi\_placement\_backtest\_breaches | 0 |
-| Capacity freshness | Clusters with a snapshot newer than two intervals | cmapi\_capacity\_snapshot\_age\_seconds | 100% |
-| Cluster headroom | Quota headroom per cluster | cmapi\_cluster\_quota\_headroom | Above 20% on every cluster |
-| Quota efficiency | Median used / quota, 14-day peak | namespace\_verdicts | Over 40% |
-| Capacity recovered | Cores freed by applied recommendations, per month | cmapi\_recommendations, recommendations | Tracked |
-| Managed coverage | Managed / (all − excluded) namespaces | cmapi\_namespaces | 90% within two quarters |
-| Import health | Tokens rotated before 90% of their life | cmapi\_cluster\_token\_expiry\_seconds | 100% |
-| API availability | Successful / all requests, excluding 4xx | cmapi\_http\_requests\_total | 99.5% monthly |
-| Docs coverage | Documented routes / routes | Startup and CI check | 100%, enforced |
-| Expired namespaces cleaned | Past the grace period with no delete request, or awaiting prune confirmation for more than 24 h | Expiration report | 0 |
-| Rebuild recovery | Cluster bootstrap to Synced and Healthy | Operation runs | Under 1 h |
-| System headroom | Memory and CPU used / limit per component, p95 over 7 days | cmapi\_process\_memory\_bytes, cmapi\_process\_cpu\_usage\_seconds\_total | Under 80% for every component |
-| CPU saturation | Throttled periods / periods per component | cmapi\_process\_cpu\_throttled\_periods\_total | Under 1% |
-| Stability | Container restarts and OOM kills per component, per week | kube-state-metrics | 0 |
-| Event-loop health | Event-loop lag p99 per component | cmapi\_event\_loop\_lag\_seconds | Under 100 ms |
-| Database headroom | Connections / max\_connections, volume used / size, days until the volume is full | cmapi\_db\_connections, kubelet\_volume\_stats | Under 80%; more than 90 days |
-| Backup freshness | Age of the last successful database backup, and of the last restore test | cmapi\_db\_backup\_last\_success\_timestamp\_seconds, restore runbook record | Under 26 h; a restore tested every month |
+| Group | KPIs |
+| --- | --- |
+| Delivery | Lead time, auto-approved (p90); Lead time, with approval (p90); Approval turnaround (p50 and p90); Auto-approval rate; Self-service rate; Change failure rate |
+| Reliability and state | API availability (30 d); Drift events (7 d); Expired namespaces cleaned; Managed coverage; Import health |
+| Capacity | Placement accuracy; Capacity freshness; Cluster headroom; Quota efficiency (median); Capacity recovered |
+| System | System headroom (p95, 7 d); CPU saturation; Database headroom; Backup freshness |
+
+The KPI review of 2026-11-13 removed four entries from this list, each with its reason in `docs/17`. **Rebuild recovery** (cluster bootstrap to Synced and Healthy, under 1 h) is removed by the owner's decision: "i don't think we should be measuring rebuilding a cluster in under 1 hour. this is not our place." A cluster rebuild is the platform team's work, not cmapi's. Docs coverage is a startup gate and not a measurement. Stability and Event-loop health are alerts (CmapiPodRestarting, CmapiEventLoopBlocked) and not KPIs.
 
 **Dashboards.** Eight dashboards per instance, each showing only that instance's clusters:
 

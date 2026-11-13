@@ -1,0 +1,152 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>KPI Sources</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · KPIs · 2026-11-13</div>
+    <h1>Each KPI, its source and where it is shown</h1>
+    <p class="lede">docs/17-kpis.md defines 21 KPIs. This figure groups them by what the code does today.</p>
+    <p class="muted">Read from <code>cmapi/src/cmapi/core/kpi.py</code>, <code>core/observability.py</code> and the manifests, at the commit that added docs/17.</p>
+  </header>
+  <section>
+    <h2>The KPIs by status</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1100 711" role="img" aria-label="Six KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Twelve are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster.">
+          <defs><marker id="ahk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600"><rect x="20" y="14" width="290" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/><text x="165" y="34" text-anchor="middle" fill="var(--none)">SOURCE</text><rect x="380" y="14" width="340" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/><text x="550" y="34" text-anchor="middle" fill="var(--remote)">KPI  ·  docs/17</text><rect x="790" y="14" width="290" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/><text x="935" y="34" text-anchor="middle" fill="var(--host)">WHERE IT IS SHOWN</text></g>
+<rect x="380" y="70" width="340" height="154" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="394" y="91" font-weight="600">Live: the API computes it</text>
+<text x="394" y="111" font-family="IBM Plex Mono, monospace" font-size="11.5">lead-time-auto-p90</text>
+<text x="394" y="128" font-family="IBM Plex Mono, monospace" font-size="11.5">lead-time-approved-p90</text>
+<text x="394" y="145" font-family="IBM Plex Mono, monospace" font-size="11.5">approval-turnaround-p50</text>
+<text x="394" y="162" font-family="IBM Plex Mono, monospace" font-size="11.5">approval-turnaround-p90</text>
+<text x="394" y="179" font-family="IBM Plex Mono, monospace" font-size="11.5">auto-approval-rate</text>
+<text x="394" y="196" font-family="IBM Plex Mono, monospace" font-size="11.5">change-failure-rate</text>
+<text x="394" y="214" font-size="11.5" fill="var(--muted)">formulas tested in the service suite</text>
+<rect x="380" y="250" width="340" height="103" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="394" y="271" font-weight="600">Built: the code feeds the metric</text>
+<text x="394" y="291" font-family="IBM Plex Mono, monospace" font-size="11.5">api-availability</text>
+<text x="394" y="308" font-family="IBM Plex Mono, monospace" font-size="11.5">system-headroom</text>
+<text x="394" y="325" font-family="IBM Plex Mono, monospace" font-size="11.5">cpu-saturation</text>
+<text x="394" y="343" font-size="11.5" fill="var(--muted)">the KPI query is not proven on a cluster</text>
+<rect x="380" y="379" width="340" height="242" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="394" y="400" font-weight="600">Designed: no code feeds the source</text>
+<text x="394" y="420" font-family="IBM Plex Mono, monospace" font-size="11.5">self-service-rate</text>
+<text x="394" y="437" font-family="IBM Plex Mono, monospace" font-size="11.5">drift-events</text>
+<text x="394" y="454" font-family="IBM Plex Mono, monospace" font-size="11.5">expired-namespaces-cleaned</text>
+<text x="394" y="471" font-family="IBM Plex Mono, monospace" font-size="11.5">managed-coverage</text>
+<text x="394" y="488" font-family="IBM Plex Mono, monospace" font-size="11.5">import-health</text>
+<text x="394" y="505" font-family="IBM Plex Mono, monospace" font-size="11.5">placement-accuracy</text>
+<text x="394" y="522" font-family="IBM Plex Mono, monospace" font-size="11.5">capacity-freshness</text>
+<text x="394" y="539" font-family="IBM Plex Mono, monospace" font-size="11.5">cluster-headroom</text>
+<text x="394" y="556" font-family="IBM Plex Mono, monospace" font-size="11.5">quota-efficiency</text>
+<text x="394" y="573" font-family="IBM Plex Mono, monospace" font-size="11.5">capacity-recovered</text>
+<text x="394" y="590" font-family="IBM Plex Mono, monospace" font-size="11.5">database-headroom</text>
+<text x="394" y="607" font-family="IBM Plex Mono, monospace" font-size="11.5">backup-freshness</text>
+<rect x="20" y="90" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="111" font-weight="600">PostgreSQL</text>
+<text x="34" y="129">change_requests: times, status, requirement</text>
+<text x="34" y="146" fill="var(--muted)">read at each call of the API</text>
+<polyline points="310,128 376,128" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
+<rect x="20" y="256" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="34" y="277" font-weight="600">cmapi_ metrics on /metrics</text>
+<text x="34" y="295">HTTP requests, the pod&#x27;s cgroup figures</text>
+<text x="34" y="312" fill="var(--muted)">fed by the api and the worker</text>
+<polyline points="310,294 376,294" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
+<rect x="20" y="419" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="34" y="440" font-weight="600">Not built</text>
+<text x="34" y="458">cmapi-capacity, the usage analysis,</text>
+<text x="34" y="475" fill="var(--muted)">expire_check, backup and volume figures</text>
+<polyline points="310,457 376,457" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="318" y="450" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="790" y="70" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+<text x="804" y="91" font-weight="600">GET /api/v1/admin/kpi</text>
+<text x="804" y="109">kpis, components, database, thresholds</text>
+<text x="804" y="126" fill="var(--muted)">permission reports:read</text>
+<polyline points="720,108 786,108" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ahk)"/>
+<rect x="790" y="174" width="290" height="58" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="804" y="195" font-weight="600">The portal&#x27;s KPIs tab</text>
+<text x="804" y="213">on sample data: it does not call the API yet</text>
+<polyline points="935,146 935,170" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="943" y="163" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="790" y="250" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="804" y="271" font-weight="600">Prometheus, user workload monitoring</text>
+<text x="804" y="289">ServiceMonitors are in the manifests</text>
+<text x="804" y="306" fill="var(--muted)">no scrape proven: nothing is deployed</text>
+<polyline points="720,288 786,288" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="728" y="281" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<rect x="790" y="354" width="290" height="76" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="804" y="375" font-weight="600">Alerts and dashboards</text>
+<text x="804" y="393">12 alert rules are in the manifests</text>
+<text x="804" y="410" fill="var(--muted)">none has fired; dashboards are not built</text>
+<polyline points="935,326 935,350" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ahk)"/>
+<text x="943" y="343" font-size="11" fill="var(--muted)" text-anchor="start">proposed</text>
+<text x="20" y="657">Solid box = built code with tests. Dashed box = not built, or not proven on a cluster. Dashed arrow = proposed.</text>
+<text x="20" y="676">The API also serves the figures of its own process (cgroup) and of the database. They are figures, not KPIs.</text>
+<text x="20" y="695" fill="var(--host)" font-weight="600">21 KPIs on 2026-11-13: 6 live, 3 built, 12 designed. No KPI value is measured on a cluster yet.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Each KPI has one row in docs/17 with its formula and target. The live KPIs come from the request table, so the API can answer without Prometheus. The built KPIs need a Prometheus query, which waits for the first deployment.</figcaption>
+    </figure>
+  </section>
+</div>
