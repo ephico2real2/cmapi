@@ -347,8 +347,11 @@ def curl_sample(request: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str) -> dict[str, Any]:
-    """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation."""
+def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE) -> dict[str, Any]:
+    """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation.
+
+    The routes declare their problem examples at import, with the default type base. `problem_base` is the base of this
+    instance (instance.yaml `problems.typeBase`), so each example shows the type that this instance answers."""
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
@@ -364,7 +367,18 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
     _document_validation_problem(spec)
     add_recorded_examples(spec, load_samples())
-    return spec
+    return spec if problem_base == BASE else _with_type_base(spec, problem_base)
+
+
+def _with_type_base(node: Any, problem_base: str) -> Any:
+    """A copy of the document with each problem type URI on `problem_base`."""
+    if isinstance(node, dict):
+        return {k: _with_type_base(v, problem_base) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_with_type_base(v, problem_base) for v in node]
+    if isinstance(node, str) and node.startswith(BASE):
+        return problem_base + node[len(BASE):]
+    return node
 
 
 def _document_validation_problem(spec: dict[str, Any]) -> None:

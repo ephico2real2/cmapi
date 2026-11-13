@@ -20,9 +20,10 @@ from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
-from cmapi.core.docs import build_openapi, check_documented, plugin_routers
-from cmapi.core.errors import Problem
+from cmapi.core.docs import PROBLEMS, build_openapi, check_documented, plugin_routers
+from cmapi.core.errors import Problem, type_base
 from cmapi.core.kpi import register_collectors
+from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
 from cmapi.routers import admin, health, me, requests
@@ -62,11 +63,14 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     app.state.ctx = ctx
     app.state.auth = ctx.auth
     instrument(app)
+    problem_base = type_base(ctx.cfg.raw_instance["instance"])
+
+    def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
+        return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
     @app.exception_handler(Problem)
     async def problem_handler(_: Request, exc: Problem) -> Response:
-        return JSONResponse(exc.body(), status_code=exc.status, media_type="application/problem+json",
-                            headers=dict(unauthenticated_headers(exc)))
+        return problem_response(exc, dict(unauthenticated_headers(exc)))
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(_: Request, exc: RequestValidationError) -> Response:
@@ -76,17 +80,15 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
                   for e in exc.errors()]
         p = Problem(422, "validation-failed", "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400],
                     errors)
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(p)
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
-        p = Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}])
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}]))
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_: Request, exc: ValueError) -> Response:
-        p = Problem.unprocessable("validation-failed", str(exc)[:300])
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
 
     app.include_router(health.router)
     app.include_router(health.version_router)
@@ -102,16 +104,34 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url)
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
+    _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
-        _add_docs(app, ctx, docs_cfg, authed)
+        _add_docs(app, ctx, docs_cfg, authed, problem_response)
     return app
 
 
-def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any) -> None:
+def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:
+    """/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).
+
+    Public always, also with docs.public false or docs.enabled false: a caller with no token gets the problem unauthenticated,
+    and its type must resolve for that caller. The pages hold the registry of core/docs.py and nothing of the instance's data.
+    """
+    @app.get("/problems", include_in_schema=False)
+    def problems_index() -> Response:
+        return HTMLResponse(problems_index_html(problem_base, ctx.cfg.name))
+
+    @app.get("/problems/{code}", include_in_schema=False)
+    def problem_page(code: str) -> Response:
+        if code not in PROBLEMS:
+            raise Problem(404, "object-not-found", "No such problem type. /problems lists each one")
+        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))
+
+
+def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any, problem_response: Any) -> None:
     """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation").
 
     Public unless instance.yaml says docs.public: false; then each of the five needs a valid bearer token and answers
@@ -152,7 +172,7 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def missing(what: str) -> Response:
         p = Problem(503, "docs-assets-missing", f"The {what} bundle is not in {STATIC}. The image holds it; in a source checkout, "
                                                  "run `cmapi-tools docs-assets` once, which fetches the versions the Containerfile pins.")
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(p)
 
     @app.get("/docs", include_in_schema=False, dependencies=guard)
     def docs() -> Response:
