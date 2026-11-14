@@ -1818,7 +1818,7 @@
                 "type": "null"
               }
             ],
-            "description": "Container and PVC limits that differ from the custom tier, custom tier only. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval",
+            "description": "Container and PVC limits that differ from the custom tier, custom tier only. A pvc value is taken only where storageLimitRange.enabled of GET /tiers is true, and is refused with storage-limits-off elsewhere. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval",
             "examples": [
               {
                 "container": {
@@ -1829,11 +1829,6 @@
                   "max": {
                     "cpu": "4",
                     "memory": "8Gi"
-                  }
-                },
-                "pvc": {
-                  "max": {
-                    "storage": "100Gi"
                   }
                 }
               }
@@ -2019,7 +2014,7 @@
                 "type": "null"
               }
             ],
-            "description": "Custom container and PVC limits, custom tier only, merged over the namespace's values in Git, key by key. Send the tier's value to remove an override",
+            "description": "Custom container and PVC limits, custom tier only (a pvc value only where storageLimitRange.enabled of GET /tiers is true), merged over the namespace's values in Git, key by key. Send the tier's value to remove an override",
             "examples": [
               {
                 "container": {
@@ -2030,11 +2025,6 @@
                   "max": {
                     "cpu": "4",
                     "memory": "8Gi"
-                  }
-                },
-                "pvc": {
-                  "max": {
-                    "storage": "100Gi"
                   }
                 }
               }
@@ -3367,11 +3357,14 @@
           },
           "environments": {
             "additionalProperties": true,
-            "description": "Per environment: tiers and custom bounds",
+            "description": "Per environment: tiers, custom bounds, and storageLimitRange.enabled: whether cmapi renders the storage LimitRange <ns>-limits-storage and takes limitRange.pvc.* values (off unless tiers.yaml turns it on)",
             "examples": [
               {
                 "dev": {
                   "custom": {},
+                  "storageLimitRange": {
+                    "enabled": false
+                  },
                   "tiers": []
                 }
               }
@@ -5533,7 +5526,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{\"namespace\": \"payments-dev\", \"tier\": \"small\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}, \"pvc\": {\"max\": {\"storage\": \"100Gi\"}}}, \"labels\": {\"cmapi.net/team\": \"payments\"}, \"annotations\": {\"cmapi.net/team-dl\": \"payments-team@ephico2real.com\"}, \"expiresAt\": \"2026-12-15\", \"justification\": \"Payments service dev namespace\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{\"namespace\": \"payments-dev\", \"tier\": \"small\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}}, \"labels\": {\"cmapi.net/team\": \"payments\"}, \"annotations\": {\"cmapi.net/team-dl\": \"payments-team@ephico2real.com\"}, \"expiresAt\": \"2026-12-15\", \"justification\": \"Payments service dev namespace\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -6891,7 +6884,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"tier\": \"large\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}, \"pvc\": {\"max\": {\"storage\": \"100Gi\"}}}, \"labels\": {\"cmapi.net/cost-center\": \"cc-4410\"}, \"justification\": \"More capacity for the batch\"}'"
+            "source": "curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"tier\": \"large\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}}, \"labels\": {\"cmapi.net/cost-center\": \"cc-4410\"}, \"justification\": \"More capacity for the batch\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
