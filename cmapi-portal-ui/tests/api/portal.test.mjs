@@ -402,6 +402,15 @@ try {
     await context.close();
   });
 
+  // The theme class starts CSS transitions of PatternFly's colours. A screenshot or an axe scan in the next statement can read a
+  // colour between the light value and the dark value: main's CI failed that way with a contrast finding on "Sign out" (#221).
+  // An animation with no end (a spinner) is not waited for.
+  const FINITE = "(a) => a.effect?.getComputedTiming().endTime !== Infinity && a.playState !== \"finished\"";
+  const running = (page) => page.evaluate(`document.getAnimations().filter(${FINITE}).length`);
+  const settled = (page) => page.evaluate(`Promise.race([
+    Promise.all(document.getAnimations().filter(${FINITE}).map((a) => a.finished.catch(() => undefined))),
+    new Promise((_, refuse) => setTimeout(() => refuse(new Error("the theme transition did not end in 5 s")), 5000))])`).then(() => undefined);
+
   await check("7 layout at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
     for (const width of [390, 820, 1440]) {
       const { context, page, errors } = await fresh({ width });
@@ -409,6 +418,8 @@ try {
       await page.locator("table[aria-label=Requests] tbody tr").first().waitFor();
       for (const theme of ["light", "dark"]) {
         await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+        await settled(page);
+        assert.equal(await running(page), 0, `${width} ${theme}: no colour transition still runs when the page is read`);
         const layout = await page.evaluate(() => {
           const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
           return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
