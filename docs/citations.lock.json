@@ -377,7 +377,7 @@
   "            AUTHZ_DENIED.labels(permission).inc()",
   "            raise"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|130-130": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|15-21": [
