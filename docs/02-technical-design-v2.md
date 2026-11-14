@@ -998,10 +998,10 @@ Callers can set any number of labels and annotations on namespaces and service a
 | System | cmapi.net/cluster-id, managed, request-id, requested-by, requested-by-user, tier, expiry; cmapi.net/expires-at | The renderer | Refused (422 reserved\_key). Tier and TTL change through their own fields. |
 | Operator only | cmapi.net/protected | cmapi-operator and above | Refused for requesters (403 forbidden) |
 | Platform reserved | kubernetes.io/, \*.kubernetes.io/, k8s.io/, openshift.io/, \*.openshift.io/, argocd.argoproj.io/, \*.kyverno.io/, redhatcop.redhat.io/ | Kubernetes, OpenShift and platform controllers | Refused (422 reserved\_key) |
-| Governed | cmapi.net/team (label, required), cmapi.net/cost-center (label), cmapi.net/team-dl (annotation, required) | The caller | Allowed; the value is checked against a pattern, and team must be one the caller is bound to |
-| Team | Everything else, limited to the allowed prefixes | The caller | Allowed within the limits below |
+| Governed | The keys of `requiredLabels`, `requiredAnnotations` and the `keys` of `extraLabels` and `extraAnnotations`: cmapi.net/team (label, required), cmapi.net/team-dl (annotation, required), cmapi.net/cost-center, cmapi.net/app, cmapi.net/rightsizing (labels) | The caller, or cmapi for a key with `value.from` | Allowed; the value is checked against the key's rule |
+| Team | Any other key under a prefix of `allowOther`, for each kind | The caller | Allowed within the limits of `allowOther` |
 
-**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle's metadata-keys policy, so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses.
+**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle: cmapi renders a policy for each required or declared key from it (#212, "Policy in one place"), so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses, and the API document (`/openapi.json`) describes the `labels` and `annotations` of a namespace from it.
 
 ```yaml
 # cluster-configs/policies/metadata-keys.yaml
@@ -1010,21 +1010,51 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
-governed:
-  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; not checked against the caller
-  cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
-  cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
-  cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-  cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
-team:
-  allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
-  maxLabels: 50
-  maxAnnotations: 50
-  maxAnnotationValueBytes: 4096
-  maxAnnotationBytesTotal: 65536
+# Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+# it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+# only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+# another value. allowOther admits any other key under a prefix ("" allows unprefixed keys), within the limits.
+requiredLabels:
+  cmapi.net/team:        {pattern: "^[a-z0-9-]{2,40}$", description: "Ownership and cost; any team, not checked against the caller", example: payments}
+requiredAnnotations:
+  cmapi.net/team-dl:     {format: email-in-domains, description: "The team's mail list, an address in one of emailDomains", example: payments-team@ephico2real.com}
+extraLabels:
+  keys:
+    cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", example: cc-4410}
+    cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", description: "Links an app's environments"}
+    cmapi.net/rightsizing: {pattern: "^(auto|manual)$", description: "Opt-in to automatic rnd and qa decreases"}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50}
+extraAnnotations:
+  keys: {}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+# Read only when an existing namespace is adopted (story #26): a label and the values that mark a namespace that
+# another tool made. A requester cannot set these keys. The owner's decision (#228): the organisation's own
+# cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
+adoptionLabels:
+  company.net/provisioner: {recognise: [cluster-configs]}
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
-emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
+# The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
+# and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
+emailDomains: [ephico2real.com]
 ```
+
+**The four stanzas (#215).** `requiredLabels` and `requiredAnnotations` name the keys that each namespace carries. `extraLabels` and `extraAnnotations` name optional keys in `keys`, and `allowOther` admits any other key under one of its prefixes, within its limits (`max` for each kind; `maxValueBytes` and `maxBytesTotal` for annotations). A key can be a label and an annotation at once, with a rule for each. Each key's rule takes at most one of these, and optional `namespacePrefix`, `description` and `example`:
+
+| Rule | Meaning |
+| --- | --- |
+| `value: {from: namespace \| environment \| cluster \| instance}` | cmapi sets the value from the request's target. A request may send the same value, never another and never a removal (`derived_key`) |
+| `pattern` | A regular expression that the whole value matches |
+| `enum` | A list of the allowed values |
+| `format` | `email-in-domains` (an address in one of `emailDomains`) or `url` (an http or https URL), for annotations only: a label value cannot hold an address or a URL |
+| `namespacePrefix: true` | The namespace name starts with the value and a `-` (the owner's mnemonic: `abc-rnd` starts with `abc-`) |
+
+A required key that is missing or empty, or a value that breaks its rule, refuses the plan with one `policy-violation` problem that lists each key and its rule. The loader refuses a file that declares a system, operator-only or reserved key, gives a key two kinds of rule, puts a `format` on a label, gives a limit that is not a whole number, or still has the stanzas `governed` and `team` of the old format: an old file stops the start, so a required key never silently stops being required. `adoptionLabels` names the keys and values that mark a namespace made by another tool (story #26, adoption); a requester cannot set them, whatever `allowOther` admits. The API document's examples of `labels` and `annotations` are the `example` of each required key that the requester sends. `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample company configuration (namespace `abc-rnd`: `name` and `company.net/app-environment` derived, `company.net/mnemonic`, `lob` and `cl` required, `company.net/provisioner: cluster-configs` for adoption).
+
+The company example's two optional keys are annotations (the owner's decision on #234): `company.net/mnemonic-group-contact`, an address in `emailDomains`, and `company.net/mnemonic-confluence`, an http or https URL. A request that sends either as a label is refused (`invalid_key`, "... is an annotation"). An existing namespace that carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
+
+cmapi's own `cmapi.net/env` stays beside a company key such as `company.net/app-environment`: the first is cmapi's system key, which the approval rules, Kyverno and the instance boundary read; the second is the company's label, derived from the same environment (the owner's decision on #215).
+
+The Kyverno policies come from the same stanzas (#212). Not built yet: the portal's form (Wave 6), and a finding for an existing namespace that misses a new required key (the Policies tab, story #26).
 
 cmapi.net/team is required ownership and cost metadata. Any value matching the pattern is accepted from any caller; it is not checked against the caller's roles or groups (mustMatchBinding is retired).
 
@@ -1250,7 +1280,7 @@ At startup an invalid catalog stops cmapi with every problem listed. On reload c
 | Rightsizing | match(env, hard, tolerance 0.10) | Snaps a recommendation to a tier within 10% |
 | Adoption | not called | Tier custom with the live ResourceQuota and LimitRange as they are (the owner's decision on #26); the custom tier's bounds only report the values beyond them |
 
-The Kyverno bundle does not read the catalog. It checks what it always checked (limits never below requests, the required labels) on the rendered files, so CI and admission need no tier logic.
+The Kyverno bundle is rendered from the same catalog (#212, "Policy in one place"): a policy for each key's maximum of each environment, and the order defaultRequest ≤ default ≤ max of the LimitRange. The minimum and the step of custom values, and the fit of a LimitRange in its quota, stay in Python.
 
 **Beyond the tier.** The owner's rule of 2026-11-13: approval is the gate of a capability, so cmapi refuses only a value that is not valid, and the approval rules decide the rest. A request on the custom tier can change each key of overridable: the four quota keys that the catalog sets (in quota, with the three sizable keys), and the container and PVC limits (in limitRange). A key that is left out keeps the tier's value. The decision record, with the research on the storage and network keys, is docs/reviews/2026-11-14-issue-211/README.md.
 
@@ -1851,13 +1881,13 @@ Branch protection requires CI and the cmapi check rather than a human review, an
 
 ## Policy in one place
 
-Every object rule is written once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. Python validators keep only what Kyverno cannot see.
+Every object rule is rendered once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. cmapi's own checks run as well, so a request is checked the same way when Kyverno is off (#213).
 
 | Checkpoint | How it runs | What it stops |
 | --- | --- | --- |
 | API plan | kyverno apply on the rendered manifests, from the CLI baked into the image | Bad requests, before any PR exists |
 | CI on the PR | Same command, same bundle version | Hand edits to cluster-configs that bypass the API |
-| Cluster admission | Policies synced to each cluster by its ArgoCD; the instance's mode decides Deny or Audit once #212 renders them | Changes that bypass Git entirely |
+| Cluster admission | The rendered policies of the cluster's environment, synced by its policies Application; the instance's mode gives Deny, or Audit and Warn | Changes that bypass Git entirely |
 
 **Kyverno is optional (#213).** One setting for each instance, `policy` in `instance.yaml` (chart value `instance.policy`), gives the engine and a mode for each environment. cmapi works with or without Kyverno: its own checks (names, tiers, bounds, metadata keys) never depend on it.
 
@@ -1872,31 +1902,43 @@ policy:
 | Mode | Plan time in cmapi | Rendered policies (cluster), with #212 | CI on the PR |
 | --- | --- | --- | --- |
 | `enforce` (the default) | A Kyverno finding refuses the plan (`policy-violation`), as before | `validationActions: [Deny]` | Fails |
-| `audit` | A Kyverno finding is a warning on the plan and the dry run. The request goes on to approval, and the warning keeps the auto-approval rules from applying, so an approver sees it | `validationActions: [Audit]` | Reports, does not fail |
+| `audit` | A Kyverno finding is a warning on the plan and the dry run. The request goes on to approval, and the warning keeps the auto-approval rules from applying, so an approver sees it | `validationActions: [Audit, Warn]` | Reports, does not fail |
 | `off`, or `engine: none` | No Kyverno run; kubeconform and cmapi's own checks still run. cmapi needs no kyverno binary | No policies | Skips the Kyverno step |
 
-When a served environment runs Kyverno (`enforce` or `audit`) and the image has no kyverno binary, cmapi does not start (`PolicyEngineMissing`): a missing binary is a configuration error, not a refusal of every plan. A missing binary found while planning stays an error in each mode. `GET /api/v1/admin/integrations` reports the engine, each environment's mode and the Kyverno version that the image pins (v1.20.0, the least version the clusters must run, docs/11); the metric `cmapi_policy_mode{environment, mode}` is 1 for each. Moving an environment away from `enforce` is a change of the instance's configuration and gets the platform group's review; GitHub enforces that review only with branch protection (#227). The policies are `policies.kyverno.io/v1`, which the 1.20 CLI applies; the validator still refuses a run that reports "Applying 0 policy rule(s)". The decision record is `docs/reviews/2026-11-14-issue-213/`. Not built here: rendering each policy's `validationActions` from the mode, and no policies for an `off` environment (#212).
+When a served environment runs Kyverno (`enforce` or `audit`) and the image has no kyverno binary, cmapi does not start (`PolicyEngineMissing`): a missing binary is a configuration error, not a refusal of every plan. A missing binary found while planning stays an error in each mode. `GET /api/v1/admin/integrations` reports the engine, each environment's mode and the Kyverno version that the image pins (v1.20.0, the least version the clusters must run, docs/11); the metric `cmapi_policy_mode{environment, mode}` is 1 for each. Moving an environment away from `enforce` is a change of the instance's configuration and gets the platform group's review; GitHub enforces that review only with branch protection (#227). The policies are `policies.kyverno.io/v1`, which the 1.20 CLI applies. With `CMAPI_KYVERNO_VERSION` set, as the image sets it, cmapi does not start with another CLI version. The decision record is `docs/reviews/2026-11-14-issue-213/`. Each rendered policy takes its `validationActions` from the mode, and an `off` environment gets no policies (#212).
 
-**What moves into the bundle.** DNS-1123 names and reserved prefixes; label and annotation key and value rules; the ServiceAccount subject rule; the ClusterRole and SCC allowlists; limits never below requests; required labels (cmapi.net/cluster-id, cmapi.net/tier, and later owner, team and cost-center); the protected-namespace delete block.
+**The bundle is rendered, not written (#212).** `core/policygen.py` renders it from the instance's own configuration: `metadata-keys.yaml`, `tiers.yaml` and the `policy` of `instance.yaml`. Nobody edits a policy. Each value is a CEL literal in the policy, and each check is its own `ValidatingPolicy`, because Kyverno reports only the first failed validation of a policy. Each message names the key, the offending value and the configured value: "requests.cpu 40 is above the rnd maximum of 32; a bound of tiers.yaml, which approval does not lift". The decision record, with the two independent designs and their measurements, is `docs/reviews/2026-11-14-issue-212/`.
 
-**What stays in Python.** Checks that need more than one object or outside data: the namespace already exists, an open change request on the object, capacity headroom, approval facts, and the caller's namespace-admin check.
+| Family | Object | What each policy checks |
+| --- | --- | --- |
+| `cmapi-metadata-<env>` | A managed Namespace | One required or declared key of metadata-keys.yaml: present and not empty, its `pattern`, `enum` or `format`, `namespacePrefix`, a derived key equal to its source; `cmapi.net/cluster-id` and `cmapi.net/managed` present; `cmapi.net/env` equal to the folder's environment |
+| `cmapi-quota-<env>` | A managed ResourceQuota | One key at or below the environment's maximum (`quantity()`, so `40000m` is `40`) |
+| `cmapi-limits-<env>` | A managed LimitRange | One `limitRange.*` key at or below its maximum; container `default` not below `defaultRequest`, `max` not below `default` |
+| `deny-expiry-in-prod` | Every Namespace of a prod cluster | No `cmapi.net/expires-at`, `cmapi.net/expiry` or `cleanup.kyverno.io/ttl`, as before |
 
-**Keeping it offline.** Allowlists live inside the policies as lists, not as ConfigMap lookups, so the CLI evaluates them with no cluster access and gives the same answer the cluster will.
+**What stays in Python.** What a requester may send (reserved prefixes, system and operator-only keys, `allowOther` and its limits, adoption labels): a live object also carries keys that the platform and operators add. Checks that need more than one object or outside data: the namespace already exists, an open change request on the object, capacity headroom, the minimum and step of custom values, the fit of a LimitRange in its quota, approval facts, and the caller's namespace-admin check.
+
+**A value that Git already holds is not refused.** The bounds of tiers.py do not check an approved value again, so a later, lower bound does not refuse a namespace that was approved before it. The bundle does the same. At admission, an UPDATE that keeps a key's value from `oldObject` passes. At plan time and in CI, where the CLI always evaluates as CREATE, cmapi drops a failure on a key whose value the previous version in Git holds; `env/<env>/index.json` maps each policy to its key. This also lets an adopted namespace keep its values through its first sync (#26).
+
+**Keeping it offline.** Every value lives inside the policies, not in ConfigMap lookups, so the CLI evaluates them with no cluster access and gives the same answer the cluster will. A ConfigMap read with `resource.Get()` works offline only with a context file, and the live ConfigMap could differ from the approved plan (#212, M6, M7).
 
 ```
-cluster-configs/
-└── policies/                         # one bundle, versioned with tags
-    ├── naming.yaml
-    ├── labels.yaml
-    ├── rbac-subjects.yaml            # SA subjects only, same namespace
-    ├── rbac-allowlist.yaml           # grantable ClusterRoles
-    ├── scc-allowlist.yaml
-    ├── quota-limits.yaml             # limits >= requests
-    ├── protected-namespaces.yaml
-    └── tests/                        # kyverno test cases, run in CI on every policy change
+cmapi-cluster-configs/
+└── policies/
+    ├── metadata-keys.yaml            # configuration, read by cmapi; not applied
+    └── env/<env>/                    # rendered for each environment that is not off; synced only to its clusters
+        ├── cmapi-metadata-<env>.yaml
+        ├── cmapi-quota-<env>.yaml
+        ├── cmapi-limits-<env>.yaml
+        ├── deny-expiry-in-prod.yaml  # prod only
+        └── index.json                # policy -> key and rule; not applied
 ```
 
-Each cluster's root Application includes policies/ pinned to a bundle tag, and the API reports the tag it validated against in every Plan. A Kyverno failure maps to the policy-violation problem type, with the policy and rule names in errors.
+Each cluster has a policies Application beside its namespaces Application. It syncs only `policies/env/<its environment>/*.yaml`, with prune, so a namespace's own `cmapi.net/env` cannot choose looser bounds, and an environment that becomes `off` loses its policies (`examples/cluster-configs/clusters/OCP_GF15/argocd/policies-application.yaml`). Each instance renders the folders of its own environments: `cmapi-tools policies render --config-dir <instance> --metadata-keys <file> --out policies`. `cmapi-tools policies check`, with the same arguments, fails when a file differs from the render. This repository's tests run it on the example bundle; the workflow of cmapi-cluster-configs that runs it comes with #244.
+
+At plan time cmapi renders the bundle in memory from its running configuration, adds any hand-written policy of `/etc/cmapi/policies`, and runs one `kyverno apply` with a JSON report on the Namespace, ResourceQuota and LimitRange. A violation is a finding of source kyverno: an error in `enforce`, a warning in `audit`. An evaluation error, a run with no report, and a policy that gives no result for a file that it matches are findings of source cmapi, errors in each mode. A Kyverno failure maps to the policy-violation problem type, with the policy name in errors.
+
+Not built here: the bot's pull request when the configuration changes, and the bundle hash in each plan (#244); a PolicyException for each approved beyond-tier value at admission, an owner choice (#242); a policy for each cluster for a key derived from the cluster (#243). The ServiceAccount subject rule, the ClusterRole and SCC allowlists and the protected-namespace delete block are not rendered yet.
 
 ## Observability
 

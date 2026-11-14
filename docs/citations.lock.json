@@ -335,7 +335,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|318-318": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|321-321": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|142-144": [

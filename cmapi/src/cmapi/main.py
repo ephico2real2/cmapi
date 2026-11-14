@@ -175,7 +175,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base)
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, ctx.cfg.metadata)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]

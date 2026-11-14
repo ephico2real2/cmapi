@@ -1,0 +1,29 @@
+# Source: docs/02-technical-design-v2.md, "Policy in one place"
+# clusters/OCP_GF15/argocd/policies-application.yaml
+# Bootstrap, applied by the baseline process (not written by cmapi), beside the namespaces Application. It syncs only the
+# rendered policies of this cluster's environment (dev, from the cluster registry), never another environment's, so a
+# namespace's own cmapi.net/env label cannot choose looser bounds (#212). Each policy matches only managed namespaces and
+# their objects, except deny-expiry-in-prod, which matches every namespace of a prod cluster.
+# The folder also holds index.json, which is not a manifest: only *.yaml is applied. Prune removes the policies of an
+# environment whose mode becomes off, because cmapi-tools policies render then removes their files.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ocp-gf15-policies
+  namespace: openshift-gitops
+spec:
+  project: cmapi-policies              # platform-owned AppProject: ValidatingPolicy (policies.kyverno.io) only
+  source:
+    repoURL: https://git.ephico2real.com/caas/cluster-configs-nonprod.git
+    targetRevision: main
+    path: policies/env/dev
+    directory:
+      include: '*.yaml'
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

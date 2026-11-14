@@ -5,6 +5,7 @@ to approval with the finding as a warning, and off plans and submits with no kyv
 """
 from __future__ import annotations
 
+import json
 import shutil
 import stat
 
@@ -37,8 +38,13 @@ def world_with(test_config, fresh_db, keys, monkeypatch, tmp_path):
 
     def build(policy, kyverno=True):
         if kyverno:
-            _stub(bin_dir / "kyverno", 'echo "Applying 1 policy rule(s) to 1 resource(s)..."\n'
-                                       'echo "require-team-metadata -> fail: team missing"\necho "pass: 0, fail: 1"\nexit 1\n')
+            # The JSON report of `kyverno apply -p --output-format json` (#212), failing the namespace.
+            report = json.dumps({"summary": {"fail": 1}, "results": [
+                {"policy": "require-team-metadata", "result": "fail", "message": "team missing",
+                 "resources": [{"kind": "Namespace", "name": NS["namespace"]}]}]})
+            # `kyverno version` answers as the pinned CLI does, for the start check of CMAPI_KYVERNO_VERSION.
+            _stub(bin_dir / "kyverno", 'if [ "$1" = version ]; then echo "Version: v1.20.0"; exit 0; fi\n'
+                                       f"echo '{report}'\nexit 1\n")
         d = tmp_path / f"config{len(worlds)}"
         shutil.copytree(test_config, d)
         inst = yaml.safe_load((d / "instance.yaml").read_text())

@@ -1,0 +1,364 @@
+# Rendered by cmapi from its configuration (core/policygen.py, #212). Do not edit: change tiers.yaml,
+# metadata-keys.yaml or instance.yaml policy, and render again (cmapi-tools policies render).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-default-cpu-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i,
+      i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''')).compareTo(quantity("16")) <= 0'
+    message: limitRange.container.default.cpu is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.default.cpu " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') + " is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-default-memory-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default)
+      ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''')).compareTo(quantity("32Gi")) <= 0'
+    message: limitRange.container.default.memory is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.default.memory " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') + " is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-defaultrequest-cpu-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i,
+      i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''')).compareTo(quantity("16")) <= 0'
+    message: limitRange.container.defaultRequest.cpu is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.defaultRequest.cpu " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') + " is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-defaultrequest-memory-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') : '''') != '''' && quantity((has(object.spec.limits)
+      && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''')).compareTo(quantity("32Gi")) <= 0'
+    message: limitRange.container.defaultRequest.memory is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.defaultRequest.memory " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') + " is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-max-cpu-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"]
+      : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''')).compareTo(quantity("16")) <= 0'
+    message: limitRange.container.max.cpu is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.max.cpu " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') + " is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-max-memory-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max)
+      && "memory" in i.max)[0].max["memory"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''')).compareTo(quantity("32Gi")) <= 0'
+    message: limitRange.container.max.memory is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.container.max.memory " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') + " is above the rnd maximum of 32Gi; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-pvc-max-storage-max
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max)
+      && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''')).compareTo(quantity("500Gi")) <= 0'
+    message: limitRange.pvc.max.storage is above the rnd maximum of 500Gi; a bound of tiers.yaml, which approval does not lift
+    messageExpression: '"limitRange.pvc.max.storage " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') + " is above the rnd maximum of 500Gi; a bound of tiers.yaml, which approval does not lift"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-default-cpu-order
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''') == '''' || (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') == '''' || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''')).compareTo(quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i,
+      i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : ''''))) >= 0'
+    message: container default cpu is below its defaultRequest
+    messageExpression: '"container default cpu " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') + " is below its defaultRequest " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "cpu" in i.defaultRequest)[0].defaultRequest["cpu"] : '''')'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-max-cpu-order
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''') == '''' || (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') == '''' || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''')).compareTo(quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''')))
+      >= 0'
+    message: container max cpu is below its default
+    messageExpression: '"container max cpu " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "cpu" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "cpu" in i.max)[0].max["cpu"] : '''') + " is below its default " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "cpu" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "cpu" in i.default)[0].default["cpu"] : '''')'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-default-memory-order
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''') == '''' || (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') == '''' || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''')).compareTo(quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ?
+      (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : ''''))) >= 0'
+    message: container default memory is below its defaultRequest
+    messageExpression: '"container default memory " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') + " is below its defaultRequest " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.defaultRequest) && "memory" in i.defaultRequest)[0].defaultRequest["memory"] : '''')'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-limits-rnd-limit-limitrange-container-max-memory-order
+  annotations:
+    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the rnd maximum; limits never below requests.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - limitranges
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''') == '''' || (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') == '''' || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''')).compareTo(quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"]
+      : ''''))) >= 0'
+    message: container max memory is below its default
+    messageExpression: '"container max memory " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.max) && "memory" in i.max) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.max) && "memory" in i.max)[0].max["memory"] : '''') + " is below its default " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "Container" && has(i.default) && "memory" in i.default) ? (object.spec.limits).filter(i, i.type == "Container" && has(i.default) && "memory" in i.default)[0].default["memory"] : '''')'
