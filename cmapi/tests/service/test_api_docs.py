@@ -377,3 +377,24 @@ def test_the_committed_contract_is_the_document_this_code_serves(world):
         CONTRACT.write_text(served)
     assert CONTRACT.exists(), "cmapi/contract/openapi.json is missing: run this test with CMAPI_WRITE_CONTRACT=1"
     assert CONTRACT.read_text() == served, "the API changed: run this test with CMAPI_WRITE_CONTRACT=1 and commit the file"
+
+
+# ---------------------------------------------------------------- #229 BUG-57 and #230 SEC-11: ReDoc 3
+
+def test_redoc_loads_its_bundle_as_a_module(bundles, test_config, fresh_db, keys, monkeypatch):
+    """ReDoc 3's standalone bundle is an ES module (its 3.0.0 release notes). Loaded by a classic <script src>, it stops
+    at import.meta and the page stays empty (#229). The browser check cmapi-portal-ui/tests/front-door.test.mjs renders
+    the page; this test holds the one tag that decides it."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        page = client.get("/redoc").text
+    assert re.findall(r"<script\b[^>]*>", page) == ['<script type="module" src="/static/redoc/redoc.standalone.js">']
+    assert '<redoc spec-url="/openapi.json"></redoc>' in page
+    assert "<title>cmapi (" in page and ") - reference</title>" in page
+
+
+def test_the_redoc_pin_carries_the_dompurify_fix():
+    """ReDoc 3.0.1 bundles DOMPurify 3.4.16, in the range of GHSA-cg2g-xh64-v4q7 (>= 3.4.4, <= 3.4.16). ReDoc 3.1.0
+    bundles 3.4.17, the fix (#230). The pin is the image's and cmapi-tools docs-assets'."""
+    version, sha = pinned(CMAPI / "Containerfile")["REDOC"]
+    assert tuple(int(p) for p in version.split(".")) >= (3, 1, 0), f"ReDoc {version} bundles a DOMPurify with GHSA-cg2g-xh64-v4q7"
+    assert re.fullmatch(r"[0-9a-f]{64}", sha)

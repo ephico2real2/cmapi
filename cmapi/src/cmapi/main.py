@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import os
 from contextlib import asynccontextmanager
@@ -13,7 +14,7 @@ from typing import Any
 import yaml
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
@@ -262,14 +263,39 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def redoc() -> Response:
         if not redoc_dir.exists():
             return missing("ReDoc")
-        # FastAPI's page with its two outside requests removed: the Google Fonts stylesheet and FastAPI's own favicon.
-        return get_redoc_html(openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - reference",
-                              redoc_js_url="/static/redoc/redoc.standalone.js", with_google_fonts=False,
-                              redoc_favicon_url="/static/swagger/favicon-32x32.png")
+        return HTMLResponse(_redoc_html(f"cmapi ({ctx.cfg.name}) - reference", "/openapi.json",
+                                        "/static/redoc/redoc.standalone.js", "/static/swagger/favicon-32x32.png"))
 
     @app.get("/docs/changelog", include_in_schema=False, dependencies=guard)
     def changelog() -> Response:
         return HTMLResponse(changelog_html(f"cmapi ({ctx.cfg.name})", __version__))
+
+
+def _redoc_html(title: str, spec_url: str, bundle_url: str, favicon_url: str) -> str:
+    """The ReDoc page, with no request to another host (no Google Fonts, no outside favicon).
+
+    ReDoc 3's standalone bundle is an ES module: its 3.0.0 release notes say "Load the bundle with
+    <script type="module" src=".../bundles/redoc.standalone.js">", and the bundle reads import.meta.url. A classic
+    script stops at the first import.meta with a SyntaxError, which is what FastAPI's get_redoc_html gave (#229). As a
+    module the bundle starts itself on the <redoc spec-url> element: the HTML standard evaluates a module script "when
+    the page has finished parsing".
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<link rel="icon" href="{html.escape(favicon_url)}">
+<style>body {{ margin: 0; padding: 0; }}</style>
+</head>
+<body>
+<noscript>ReDoc needs JavaScript to show the reference.</noscript>
+<redoc spec-url="{html.escape(spec_url)}"></redoc>
+<script type="module" src="{html.escape(bundle_url)}"></script>
+</body>
+</html>
+"""
 
 
 def _etag_matches(if_none_match: str | None, etag: str) -> bool:
