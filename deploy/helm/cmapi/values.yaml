@@ -215,6 +215,9 @@ migrate:                          # the initContainer that migrates the schema b
 exposure: Route
 route:
   host: ""                         # empty: subdomain <release>
+  # How long the router waits for the front door's answer. Above the front door's worst case for the API: two tries of
+  # 2 s to connect and 60 s to answer (cmapi-portal-ui/nginx/cmapi/proxy.conf and proxy-api.conf), 124 s.
+  timeout: 130s
   mockup:
     host: ""                       # empty: subdomain <release>-mockup
 ingress:
@@ -246,6 +249,10 @@ monitoring:
 
 networkPolicy:
   enabled: true
+  # With Ingress exposure: the namespace of the ingress controller, which alone may reach the front door. Empty, the
+  # front door's port is open to every pod of the cluster, and each of them can send X-Forwarded-For and
+  # X-Forwarded-Proto as it likes. With Route exposure the router's namespace is known and this is not used.
+  ingressNamespace: ""
   monitoringNamespace: openshift-user-workload-monitoring
 
 # -------------------------------------------------------------------------- security

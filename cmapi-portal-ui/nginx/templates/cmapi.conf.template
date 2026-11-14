@@ -47,7 +47,7 @@ map $host $cmapi_csp_portal {
 # ReDoc's page (cmapi/src/cmapi/main.py, REDOC_CSP): the same string as the API's own header, which proxy.conf hides.
 # 'unsafe-eval' and blob: workers are for ReDoc's search index; the page has no inline script (#235).
 map $host $cmapi_csp_redoc {
-    default "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:";
+    default "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 }
 # Swagger UI as FastAPI renders it starts from an inline script.
 map $host $cmapi_csp_docs {
@@ -96,8 +96,10 @@ server {
     client_body_timeout 10s;
     send_timeout 30s;
     keepalive_timeout 65s;
+    # A header line must fit in one buffer, and the default is 8k. An access token grows with the groups in it.
+    large_client_header_buffers 4 16k;
 
-    # Static files only: gzip_proxied stays off, so no API response that can carry a reflected value is compressed.
+    # The static files, the API's pages and bundles and the OpenAPI document. "location /api/" turns it off.
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
@@ -112,6 +114,10 @@ server {
     # The API: its routes, the OpenAPI document and the problem pages.
     location /api/ {
         include /etc/nginx/cmapi/proxy-api.conf;
+        # No answer of an API route is compressed: one can carry a value that the caller sent next to a secret one.
+        # The server's "gzip on" would compress it: gzip_proxied is about a request that came with a Via header, not
+        # about proxy_pass (ngx_http_gzip_module).
+        gzip off;
     }
     location = /openapi.json {
         include /etc/nginx/cmapi/proxy-api.conf;
@@ -132,6 +138,13 @@ server {
     }
     location /docs/ {
         include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    # Swagger UI's sign-in returns here with "?code=...&state=...". nginx writes the request line and the upstream URL
+    # of a failed upstream request to its error log, query string and all, and that line has no format to set. So
+    # this location logs nothing below "crit"; the access log (no query string) still records the failure.
+    location = /docs/oauth2-redirect {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+        error_log stderr crit;
     }
     location = /redoc {
         include /etc/nginx/cmapi/proxy-redoc.conf;

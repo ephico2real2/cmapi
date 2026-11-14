@@ -236,3 +236,23 @@ test natively against nginx 1.30.6, first with only the tests applied, then with
 
 C1 (path confusion), C4, C7, C8 and C9: Codex found them correct, with the qualifications in its report (one release
 per namespace for the NetworkPolicy; a request longer than the 20 s drain can be cut).
+
+## Fable's review of PR-A (#238)
+
+Fable 5.2 reviewed `0bae57b` (`fable-review.md`) and found seven defects. The coordinator accepted all seven:
+
+- **F1 to F5:** applied unchanged from Fable's diff, with its tests (`front-door-test.py`, `test_front_door_chart.py`).
+  - F1: API answers were compressed against the record's assumption.
+  - F2: an authorization code could reach nginx's error log.
+  - F3: `route.timeout` is set, 130 s, because the router's 30 s default cut off the 60 s limit and the retry.
+  - F4: the header limit is raised for a large Authorization header.
+  - F5: Ingress exposure gets `networkPolicy.ingressNamespace`, and the trust of forwarded headers.
+- **F6:** ReDoc's policy adds `frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, in `REDOC_CSP` and in the
+  front door, which `test_api_docs.py` holds equal, and `/redoc` sends `Cross-Origin-Opener-Policy: same-origin`.
+  Results:
+  - The browser check (`front-door.test.mjs`) still passes with ReDoc rendering and searching.
+  - The harness passes with 0 failures.
+- **F7:** docs/15, docs/13, `config.example.json` and `oidc-login.py` name `cmapi.apps-crc.testing`, and a chart test
+  checks that the removed hosts are gone.
+
+Fable's two notes go to #225: `portal.replicas` is 1, and the API pod has no preStop.
