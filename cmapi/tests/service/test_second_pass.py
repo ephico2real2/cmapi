@@ -366,7 +366,7 @@ def helm(*a):
 
 def test_the_policy_can_contain_argo_cds_controller():
     who = "system:serviceaccount:cmapi-argocd:argocd-application-controller"
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=argocd", "--set", "delivery.hubDeliverer.enabled=false",
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=argocd", "--set", "delivery.hubDeliverer.enabled=false",
              "--set", f"argocd.controllerServiceAccount={who}", "--set", "argocd.namespace=cmapi-argocd")
     assert r.returncode == 0, r.stderr
     docs = [d for d in yaml.safe_load_all(r.stdout) if d]
@@ -513,7 +513,7 @@ def test_migrate_waits_for_a_database_that_is_not_up_yet():
 
 # ------------------------------------------------------------------ C11: what the chart tests could not see
 def _vap():
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
     assert r.returncode == 0, r.stderr
     return next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ValidatingAdmissionPolicy")["spec"]
 
@@ -535,13 +535,13 @@ def test_each_rule_of_the_policy_is_really_a_rule():
 def test_the_policy_matches_the_writer_and_denies():
     spec = _vap()
     assert spec["matchConditions"][0]["expression"] == 'request.userInfo.username == "system:serviceaccount:cmapi:cmapi-worker"'
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
     binding = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ValidatingAdmissionPolicyBinding")
     assert binding["spec"]["validationActions"] == ["Deny"] and spec["failurePolicy"] == "Fail"
 
 
 def test_both_workloads_migrate_before_they_start():
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x")
     for d in yaml.safe_load_all(r.stdout):
         if d and d["kind"] == "Deployment":
             assert d["spec"]["template"]["spec"]["initContainers"][0]["command"] == ["cmapi-migrate", "head"], d["metadata"]["name"]

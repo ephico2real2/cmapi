@@ -1,6 +1,6 @@
 {{- $name := include "cmapi.name" . -}}
 {{- if .Values.networkPolicy.enabled }}
-# Only the router reaches the API port, and only monitoring reaches the metrics ports.
+# Only the front door reaches the API port, and only monitoring reaches the metrics ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -18,14 +18,37 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}}
       ports:
         - {port: 9090, protocol: TCP}
+    # The API port: the front door's pods alone. The front door sets the security headers and writes the access log,
+    # so no request may reach the API around it. kubectl port-forward does not pass through a policy.
+    - from:
+        - podSelector:
+            matchLabels: {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 14 }}
+      ports:
+        - {port: 8080, protocol: TCP}
+{{- if .Values.portal.enabled }}
+---
+# The front door: on OpenShift, the router alone. The router's namespace carries policy-group.network.openshift.io/ingress,
+# the label that OpenShift's documentation prefers. With Ingress exposure the controller's namespace is the site's own
+# choice, so the port is open to the cluster, as the API's port was before the front door.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-front-door
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
     - {{- if eq .Values.exposure "Route" }}
       from:
         - namespaceSelector:
-            matchLabels: {network.openshift.io/policy-group: ingress}
-        - podSelector: {}
+            matchLabels: {policy-group.network.openshift.io/ingress: ""}
       {{- end }}
       ports:
         - {port: 8080, protocol: TCP}
+{{- end }}
 {{- end }}
 {{- if .Values.monitoring.serviceMonitor.enabled }}
 {{- range $c := list "api" "worker" }}

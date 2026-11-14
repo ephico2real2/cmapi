@@ -29,10 +29,6 @@ app.kubernetes.io/component: {{ .component }}
 {{- if .Values.database.cnpg.enabled -}}{{ .Values.database.cnpg.name }}-app{{- else -}}{{ required "database.existingSecret is required when CNPG is off" .Values.database.existingSecret }}{{- end -}}
 {{- end -}}
 
-{{- define "cmapi.apiHost" -}}
-{{- if eq .Values.exposure "Ingress" -}}{{ required "ingress.api.host is required with Ingress exposure" .Values.ingress.api.host }}{{- else -}}{{ .Values.route.api.host }}{{- end -}}
-{{- end -}}
-
 {{- define "cmapi.podSecurityContext" -}}
 runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
 seccompProfile: {{ toYaml .Values.securityContext.seccompProfile | nindent 2 }}

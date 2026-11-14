@@ -7,7 +7,8 @@
 #   deploy/release-crc.sh --build-only   build and verify the stamps, push nothing
 #   deploy/release-crc.sh --deploy-only  helm upgrade from the lock file, build nothing
 #   deploy/release-crc.sh --allow-dirty  tag a dirty tree as sha-<commit>-dirty (never pushed under a clean tag)
-#   deploy/release-crc.sh --no-portal    the cmapi image only, for values with portal.enabled: false
+#   deploy/release-crc.sh --no-portal    the cmapi image only, deployed with portal.enabled=false: no front door, so
+#                                        nothing outside the namespace reaches the API (docs/02, "The front door")
 #
 # Portable nowhere else: the external script for a real registry is the same flow with REGISTRY set.
 # A sha-<commit> tag is immutable: pushing a different image under an existing tag is refused.
@@ -126,8 +127,14 @@ case "$RELEASE_STATE" in
 esac
 ATOMIC=$([ "${RELEASE_ATOMIC:-true}" = true ] && echo "--atomic --cleanup-on-fail" || echo "")
 # -f every time: helm upgrade starts from chart defaults and applies only what this call passes.
+# The front door is the cmapi-portal image: a release without it deploys none, whatever the values say.
+PORTAL_SET=()
+if [ "$BUILD_PORTAL" != true ]; then
+  PORTAL_SET=(--set portal.enabled=false)
+  echo "note    : --no-portal: no front door, so the instance has no host; reach the API with oc port-forward"
+fi
 helm upgrade --install "${RELEASE}" deploy/helm/cmapi --namespace "${NAMESPACE}" \
-  -f "$RELEASE_VALUES" -f "$LOCK" --set-file "trustedCA.certificates=$TRUST" --wait --timeout 10m ${ATOMIC}
+  -f "$RELEASE_VALUES" -f "$LOCK" --set-file "trustedCA.certificates=$TRUST" ${PORTAL_SET[@]+"${PORTAL_SET[@]}"} --wait --timeout 10m ${ATOMIC}
 oc rollout status "deploy/${RELEASE}-api" -n "${NAMESPACE}" --timeout=300s
 oc rollout status "deploy/${RELEASE}-worker" -n "${NAMESPACE}" --timeout=300s
 

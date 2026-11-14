@@ -20,8 +20,10 @@ instance:
   name: nonprod
   displayName: Non-production
   allowedEnvironments: [rnd, dev]
-  publicUrl: ""              # https://<api route host>; left empty, the Route's host is used in NOTES only
-  portalUrl: ""              # https://<portal route host>
+  # The instance's one origin, on the front door (templates/portal.yaml): the portal at /, the API under /api/v1,
+  # Swagger UI at /docs. Both are https://<route.host or ingress.host>; the portal's config.json and the email links use them.
+  publicUrl: ""
+  portalUrl: ""
   # Where to send callers for the environments other instances serve
   directory:
     staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
@@ -185,6 +187,8 @@ worker:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {cpu: 500m, memory: 384Mi}
   logLevel: INFO
+# The front door (the cmapi-portal image): nginx with the portal, the mockup and the proxy to the API. Off, the
+# instance has no host: nothing outside the namespace reaches the API.
 portal:
   enabled: true
   replicas: 1
@@ -201,23 +205,22 @@ migrate:                          # the initContainer that migrates the schema b
     limits: {cpu: 500m, memory: 256Mi}
 
 # -------------------------------------------------------------------------- exposure
-# Route (OpenShift, the default: the router names the host after the fact via spec.subdomain) or
+# One host for the instance, on the front door: the portal at / and the API's paths (docs/02, "The front door"). The
+# API has no Route or Ingress of its own. The mockup has its own host while portal.mockup.enabled is on.
+# Route (OpenShift, the default: with no host the router names it <release>.<apps domain> via spec.subdomain) or
 # Ingress (plain Kubernetes, needs a host).
 exposure: Route
 route:
-  api:
-    host: ""                       # empty: subdomain <release>-api
-    termination: edge
-  portal:
-    host: ""                       # empty: subdomain <release>-portal
+  host: ""                         # empty: subdomain <release>
   mockup:
     host: ""                       # empty: subdomain <release>-mockup
 ingress:
   className: ""
-  api: {host: ""}
-  portal: {host: ""}
+  host: ""
   mockup: {host: ""}
   tls: []
+# The cluster's DNS domain, for the API's headless Service name that the front door resolves.
+clusterDomain: cluster.local
 
 # -------------------------------------------------------------------------- trust
 trustedCA:
