@@ -32,7 +32,7 @@ function serviceUrl(value: unknown, name: string): string {
   }
   const local = url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname);
   if (url.protocol !== "https:" && !local) throw new ConfigError(`config.json: ${name} must be an https URL.`);
-  if (url.username || url.password || url.search || url.hash) throw new ConfigError(`config.json: ${name} must have no user, query or fragment.`);
+  if (url.username || url.password || url.href.includes("?") || url.href.includes("#")) throw new ConfigError(`config.json: ${name} must have no user, query or fragment.`);
   return value.replace(/\/+$/, "");
 }
 

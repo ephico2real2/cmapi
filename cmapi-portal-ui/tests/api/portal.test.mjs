@@ -80,6 +80,8 @@ function expectedRow(r) {
 const CHECK_TIMEOUT_MS = 90_000;
 const done = [];
 async function check(name, run) {
+  // CHECK=F2 runs only the checks whose name starts with F2.
+  if (process.env.CHECK && !name.startsWith(process.env.CHECK)) return;
   let timer;
   const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`"${name}" did not end in ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); });
   try {
@@ -92,6 +94,83 @@ async function check(name, run) {
 }
 
 try {
+  await check("F2 persistent API 401s stop for an explicit sign-in", async () => {
+    const { context, page } = await fresh({ mode: "always401" });
+    expectedStatus = [401];
+    try {
+      await page.goto(`${portal.page}#requests`);
+      await page.getByRole("heading", { name: "Sign-in did not complete." }).waitFor();
+      await page.waitForTimeout(500);
+      assert.equal(issuer.state.seen.filter((s) => s.what === "auth").length, 1);
+      assert.equal(calls("/api/v1/me").length, 2);
+      api.state.mode = "ok";
+      await page.getByRole("button", { name: "Sign in again" }).click();
+      await page.locator("table[aria-label=Requests] tbody tr").first().waitFor();
+      assert.equal(issuer.state.seen.filter((s) => s.what === "auth").length, 2);
+    } finally { await context.close(); }
+  });
+
+  await check("F4 automatic renewal failure has a visible recovery action", async () => {
+    const { context, page } = await fresh();
+    expectedStatus = [400];
+    try {
+      let first = true;
+      await page.route(`${issuer.url}/protocol/openid-connect/token`, async (route) => {
+        if (!first) return route.continue();
+        first = false;
+        const response = await route.fetch();
+        const body = await response.json();
+        await route.fulfill({ response, json: { ...body, expires_in: 2 } });
+      });
+      await open(page);
+      issuer.state.sessions = false;
+      await page.getByRole("heading", { name: "Sign-in did not complete." }).waitFor();
+      assert.equal(await page.getByRole("table").count(), 0);
+      assert.equal(issuer.state.seen.filter((s) => s.what === "auth").length, 1);
+      issuer.state.sessions = true;
+      await page.getByRole("button", { name: "Sign in again" }).click();
+      await page.locator("table[aria-label=Requests] tbody tr").first().waitFor();
+    } finally { await context.close(); }
+  });
+
+  await check("F9 an issuer error without state cannot trigger automatic sign-in", async () => {
+    const { context, page } = await fresh();
+    try {
+      let authorizations = 0;
+      await page.route(`${AUTH}*`, (route) => {
+        ++authorizations;
+        return route.fulfill({ status: 302, headers: { location: `${portal.page}?error=access_denied` }, body: "" });
+      });
+      await page.goto(`${portal.page}?error=access_denied`);
+      await page.getByRole("heading", { name: "Sign-in did not complete." }).waitFor();
+      await page.waitForTimeout(500);
+      assert.equal(authorizations, 0);
+      assert.equal(page.url(), portal.page);
+      assert.equal(await page.getByRole("button", { name: "Sign in again" }).count(), 1);
+    } finally { await context.close(); }
+  });
+
+  await check("F5 failed callbacks scrub the current address and history entry", async () => {
+    for (const kind of ["code-exchange", "error"]) {
+      const { context, page } = await fresh();
+      expectedStatus = [400];
+      try {
+        if (kind === "code-exchange") {
+          await page.route(`${issuer.url}/protocol/openid-connect/token`, (route) => route.fulfill({
+            status: 400, contentType: "application/json", body: JSON.stringify({ error: "invalid_grant" })
+          }));
+          await page.goto(portal.page);
+        } else await page.goto(`${portal.page}?error=access_denied&state=unknown`);
+        await page.getByRole("heading", { name: "Sign-in did not complete." }).waitFor();
+        await page.waitForFunction(() => location.search === "");
+        const cdp = await context.newCDPSession(page);
+        const history = await cdp.send("Page.getNavigationHistory");
+        assert.equal(history.entries[history.currentIndex].url, portal.page);
+        assert.equal(issuer.state.seen.filter((s) => s.what === "auth").length, kind === "error" ? 0 : 1);
+      } finally { await context.close(); }
+    }
+  });
+
   await check("1 no session: the browser goes to the issuer with code, S256, the client and a state; no token in a URL or in storage", async () => {
     const { context, page, errors } = await fresh({ user: null });
     await page.goto(`${portal.page}#requests`);
@@ -232,6 +311,8 @@ try {
     issuer.state.sessions = false;
     issuer.state.user = null;
     await page.getByRole("group", { name: "Status" }).getByRole("button", { name: "Closed", exact: true }).click();
+    await page.getByRole("heading", { name: "Sign-in did not complete." }).waitFor();
+    await page.getByRole("button", { name: "Sign in again" }).click();
     await page.waitForURL((url) => url.href.startsWith(AUTH));
     assert.equal(issuer.state.seen.filter((s) => s.what === "token" && s.grant === "refresh_token").length, 2, "one more renewal try, and no more");
     assert.deepEqual(errors, []);
@@ -354,7 +435,10 @@ try {
     const logout = issuer.state.seen.find((s) => s.what === "logout");
     assert.ok(logout, "the browser went to the end-session endpoint");
     assert.equal(logout.query.post_logout_redirect_uri, portal.page);
-    assert.ok(logout.query.id_token_hint, "with the ID token as the hint, so the issuer asks no question");
+    assert.equal(logout.method, "POST", "a form POST, as OpenID Connect RP-Initiated Logout 1.0 permits");
+    assert.equal(logout.url, "/realms/cmapi/protocol/openid-connect/logout", "no query: no token is in the logout URL");
+    assert.match(logout.query.id_token_hint, /^[\w-]+\.[\w-]+\.[\w-]+$/, "the ID token is the hint, in the body, so the issuer asks no question");
+    assert.equal(logout.query.client_id, "cmapi-portal");
     assert.deepEqual(errors, []);
     await context.close();
   });

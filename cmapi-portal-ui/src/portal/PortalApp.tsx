@@ -83,22 +83,36 @@ function Configured({ config }: { config: PortalConfig }) {
 function SignIn({ config }: { config: PortalConfig }) {
   const auth = useAuth();
   const asked = useRef(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [callbackError] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    return (params.has("error") || params.has("code")) && !params.get("state")
+      ? "The sign-in response has no state. Sign in again to continue." : undefined;
+  });
   const signIn = () => auth.signinRedirect({ state: { hash: location.hash } satisfies ReturnState });
   useEffect(() => {
-    if (hasAuthParams() || auth.isAuthenticated || auth.activeNavigator || auth.isLoading || auth.error || asked.current) return;
+    if (hasAuthParams() || auth.isAuthenticated || auth.activeNavigator || auth.isLoading || auth.error || callbackError || sessionEnded || asked.current) return;
     asked.current = true;
     void signIn();
   });
-  if (auth.isAuthenticated) return <SignedIn config={config} />;
-  if (auth.error) return <Blocked title="Sign-in did not complete." body={auth.error.message} action={<Button onClick={() => void signIn()}>Sign in again</Button>} />;
+  useEffect(() => {
+    if ((auth.error && hasAuthParams()) || callbackError) history.replaceState(null, "", location.pathname);
+  }, [auth.error, callbackError]);
+  // A session failure requires a user gesture. Redirecting automatically here can loop across page loads.
+  if (sessionEnded || auth.error || callbackError) return <Blocked title="Sign-in did not complete." body={auth.error?.message ?? callbackError ?? "The API refused this session. Sign in again to continue."} action={<Button onClick={() => void signIn()}>Sign in again</Button>} />;
+  if (auth.isAuthenticated) return <SignedIn config={config} onSessionEnded={() => setSessionEnded(true)} />;
   return <Waiting>Signing in…</Waiting>;
 }
 
-function SignedIn({ config }: { config: PortalConfig }) {
+function SignedIn({ config, onSessionEnded }: { config: PortalConfig; onSessionEnded: () => void }) {
   const auth = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
   const latest = useRef(auth);
   latest.current = auth;
   const [queries] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 15_000 } } }));
+  const sessionEnded = useRef(onSessionEnded);
+  sessionEnded.current = onSessionEnded;
+  useEffect(() => () => queries.clear(), [queries]);
   const api = useMemo(() => {
     const session: Session = {
       token: () => {
@@ -106,15 +120,17 @@ function SignedIn({ config }: { config: PortalConfig }) {
         return user && !user.expired ? user.access_token : undefined;
       },
       renew: async () => (await latest.current.signinSilent())?.access_token,
-      signIn: () => latest.current.signinRedirect({ state: { hash: location.hash } satisfies ReturnState })
+      signIn: async () => { sessionEnded.current(); }
     };
     return createApi(config.apiUrl, session);
   }, [config.apiUrl]);
   const signOut = () => {
     // Nothing that the API sent stays in memory for the next person on this browser.
+    setSigningOut(true);
     queries.clear();
     void auth.signoutRedirect();
   };
+  if (signingOut) return <Waiting>Signing out…</Waiting>;
   return (
     <QueryClientProvider client={queries}>
       <ApiProvider value={api}><Portal config={config} onSignOut={signOut} /></ApiProvider>

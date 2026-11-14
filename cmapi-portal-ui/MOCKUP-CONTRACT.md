@@ -31,7 +31,7 @@ The states of the Requests tab:
 | Empty | 200 with no rows | The mockup's sentence |
 | Forbidden | 403 | "You do not have permission to see requests." and the problem's `detail`. No action |
 | Error | 5xx, or no answer from the network | "The requests did not load." with the problem's `detail`, and "Try again" |
-| 401 | The token ended | Nothing: one renewal with the refresh token, then the same call. If Keycloak refuses, sign-in again |
+| 401 | The token ended | Nothing: one renewal with the refresh token, then the same call. If Keycloak refuses, or the API answers 401 again, "Sign-in did not complete." with "Sign in again" |
 
 ### Where the portal's Requests tab differs from the mockup
 
@@ -98,4 +98,4 @@ Consequences in the demo build:
 Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
 (`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
 check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
-source 28 ways, one at a time, and each must fail the suite.
+source 36 ways, one at a time, and each must fail the suite.

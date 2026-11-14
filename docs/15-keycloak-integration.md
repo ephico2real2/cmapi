@@ -124,12 +124,12 @@ The sequence figure of Swagger UI is not drawn yet. It follows the first sign-in
 
 The portal (`cmapi-portal-ui`) signs a person in with Authorization Code and PKCE through the public client `cmapi-portal`. The code is `cmapi-portal-ui/src/portal/auth.ts` and `cmapi-portal-ui/src/api/client.ts`. The libraries are `oidc-client-ts` 3.5.0 and `react-oidc-context` 3.3.1, as `docs/02` names them. The second one declares React 16.14 or later as its peer, and the portal runs it on React 19.3.1.
 
-**What was measured, and where.** `cmapi-portal-ui/tests/api/portal.test.mjs` runs the built portal in a browser against a stand-in issuer and a stand-in API on this Mac (11 checks, Chromium 156). The stand-in issuer keeps the rules of the flow: an exact redirect URI, `S256`, a code that works one time, no client secret, and a refresh token that works one time. No sign-in ran on a real Keycloak, on kind or on CRC: realm `cmapi` is not on CRC, and no container runs on this Mac (#157). The API has no CORS headers yet, so the portal cannot call a deployed API from its own host (#206).
+**What was measured, and where.** `cmapi-portal-ui/tests/api/portal.test.mjs` runs the built portal in a browser against a stand-in issuer and a stand-in API on this Mac (15 checks, Chromium 156 and installed Chrome 157). `tests/api/direct.test.mjs` runs the settings and the client with the real libraries and no browser (8 tests). Codex reviewed the change: `docs/reviews/2026-11-14-issue-204/README.md` has the ten findings and the rulings. The stand-in issuer keeps the rules of the flow: an exact redirect URI, `S256`, a code that works one time, no client secret, and a refresh token that works one time. No sign-in ran on a real Keycloak, on kind or on CRC: realm `cmapi` is not on CRC, and no container runs on this Mac (#157). The API has no CORS headers yet, so the portal cannot call a deployed API from its own host (#206).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/portal-sign-in/portal-sign-in.dark.png">
   <source srcset="diagrams/portal-sign-in/portal-sign-in.light.png">
-  <img alt="The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API with the access token. On a 401 it renews one time with the refresh token, and signs in again if Keycloak refuses." src="diagrams/portal-sign-in/portal-sign-in.light.png">
+  <img alt="The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API with the access token. On a 401 it renews one time with the refresh token. If Keycloak refuses, the person clicks Sign in again." src="diagrams/portal-sign-in/portal-sign-in.light.png">
 </picture>
 
 ```text
@@ -149,7 +149,7 @@ Portal (browser)                          Keycloak, realm cmapi                 
  11 <------------------------------------------------ 200: username, roles, access.permissions
  12 GET /api/v1/requests?limit=25 --------------------------------------------->
  13 <------------------------------------------------ 200, or 403, or 5xx, or 401 (step 14)
- 14 POST /token: refresh_token, one time -->   refused: back to step 4
+ 14 POST /token: refresh_token, one time -->   refused: "Sign in again", then step 4
 ```
 
 The choices, each with its source:
@@ -160,10 +160,12 @@ The choices, each with its source:
 | Where the tokens are | In the memory of the page. Nothing in `localStorage`, and no token in `sessionStorage`. A reload signs in again through Keycloak's session cookie | RFC 10017, section 8.4 (in-memory storage), section 8.5 ("localStorage does not protect against unauthorized access from malicious JavaScript") and section 8.6 (browser storage is not always encrypted on disk) |
 | The verifier and the state | In `sessionStorage` of the tab, removed at the code exchange. The library's own default is `localStorage` (`oidc-client-ts` 3.5.0, `OidcClientSettingsStore`) | RFC 10017, section 6.3.2.2: the application "MUST prevent CSRF attacks against their redirect URI" |
 | The address | The code and the state are removed after the exchange (`onSigninCallback`). The view comes back from the state | `react-oidc-context`, `onSigninCallback` |
-| Renewal | The library renews before the 5 minutes end. On a 401 the client renews one time, and each waiting call uses that one renewal. A refused renewal starts a new sign-in | The realm rotates refresh tokens with no reuse (`revokeRefreshToken`, `refreshTokenMaxReuse: 0`). RFC 10017, section 6.3.2.3 |
+| Renewal | The library renews before the 5 minutes end. On a 401 the client renews one time, and each waiting call uses that one renewal. When the renewal is refused, or the API answers 401 again, the page shows "Sign-in did not complete." with "Sign in again": no redirect without a click, so an API that always answers 401 cannot make a cycle | The realm rotates refresh tokens with no reuse (`revokeRefreshToken`, `refreshTokenMaxReuse: 0`). RFC 10017, section 6.3.2.3 |
 | Where the token goes | To the origin of `apiUrl` only, with no cookie and no redirect followed | `cmapi-portal-ui/src/api/client.ts` |
 | Permissions | From `access.permissions` of `GET /api/v1/me`. The browser reads no claim of the token | `docs/02`, "GET /api/v1/me"; `docs/14` |
 | Settings | `config.json` at run time: `issuer` and `apiUrl` must be `https` (or `http` on `localhost`), with no user, query or fragment | `cmapi-portal-ui/src/portal/config.ts` |
+| The issuer's endpoints | Each endpoint of the discovery document must be `https` (or `http` on `localhost`), or the sign-in stops | `cmapi-portal-ui/src/portal/auth.ts`; review finding F8 |
+| Sign-out | The page waits for a renewal in flight, removes the tokens, and sends a form POST to the end-session endpoint with `id_token_hint`, `client_id` and `post_logout_redirect_uri` in the body. No token is in a URL | OpenID Connect RP-Initiated Logout 1.0, section 2: `id_token_hint` is RECOMMENDED, and issuers "MUST support the use of the HTTP GET and POST methods" |
 
 **Not built, and known.**
 

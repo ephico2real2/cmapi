@@ -12,7 +12,7 @@
     "build": "tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo",
     "preview": "vite preview",
     "test:mutants": "node tests/api/mutants.mjs",
-    "test": "node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node scripts/api-types.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo && node tests/api/bundle.test.mjs && node tests/api/portal.test.mjs && node tests/behaviour.test.mjs && node tests/parity.test.mjs"
+    "test": "node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node scripts/api-types.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo && node tests/api/direct.test.mjs && node tests/api/bundle.test.mjs && node tests/api/portal.test.mjs && node tests/behaviour.test.mjs && node tests/parity.test.mjs"
   },
   "dependencies": {
     "@patternfly/react-core": "6.7.0",

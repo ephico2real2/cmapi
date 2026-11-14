@@ -32,7 +32,7 @@ STEPS = [
     (A, P, "11  200: username, roles, access.permissions", "a tab shows only with its permission"),
     (P, A, "12  GET /api/v1/requests?limit=25", "q, state and cursor are parameters of the API"),
     (A, P, "13  200: one page  ·  403: the detail  ·  401: step 14", "5xx: the detail, and Try again"),
-    (P, K, "14  POST /token: refresh_token, one time", "refused: back to step 4"),
+    (P, K, "14  POST /token: refresh_token, one time", "refused: Sign in again, then step 4"),
 ]
 
 
@@ -65,7 +65,7 @@ def main():
     svg, height = body()
     aria = ("The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in "
             "and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API "
-            "with the access token. On a 401 it renews one time with the refresh token, and signs in again if Keycloak refuses.")
+            "with the access token. On a 401 it renews one time with the refresh token. If Keycloak refuses, the person clicks Sign in again.")
     page = "\n".join([
         "<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->",
         "<title>cmapi portal: sign-in to a permitted call</title>", FONTS, STYLE, "", '<div class="page">', "  <header>",

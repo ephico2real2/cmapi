@@ -69,7 +69,7 @@ a { color: var(--remote); }
     <h2>Sign-in sequence</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1180 836" role="img" aria-label="The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API with the access token. On a 401 it renews one time with the refresh token, and signs in again if Keycloak refuses.">
+        <svg viewBox="0 0 1180 836" role="img" aria-label="The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API with the access token. On a 401 it renews one time with the refresh token. If Keycloak refuses, the person clicks Sign in again.">
           <defs><marker id="psi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
 <rect x="40" y="14" width="300" height="46" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.2"/>
@@ -125,7 +125,7 @@ a { color: var(--remote); }
 <text x="395.0" y="719" text-anchor="middle" font-size="11" fill="var(--muted)">5xx: the detail, and Try again</text>
 <line x1="190" y1="754" x2="594" y2="754" stroke="currentColor" stroke-width="1.2" marker-end="url(#psi)"/>
 <text x="395.0" y="746" text-anchor="middle" font-weight="600" font-size="11.5">14  POST /token: refresh_token, one time</text>
-<text x="395.0" y="769" text-anchor="middle" font-size="11" fill="var(--muted)">refused: back to step 4</text>
+<text x="395.0" y="769" text-anchor="middle" font-size="11" fill="var(--muted)">refused: Sign in again, then step 4</text>
           </g>
         </svg>
       </div>

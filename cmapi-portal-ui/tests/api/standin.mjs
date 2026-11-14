@@ -128,8 +128,9 @@ export async function startIssuer({ clientId = "cmapi-portal", redirectUris }) {
     }
 
     if (path === "/protocol/openid-connect/logout") {
-      const q = Object.fromEntries(url.searchParams);
-      state.seen.push({ what: "logout", query: q });
+      // GET with a query, or POST with a form: OpenID Connect RP-Initiated Logout 1.0 requires both of the issuer.
+      const q = req.method === "POST" ? Object.fromEntries(await formOf(req)) : Object.fromEntries(url.searchParams);
+      state.seen.push({ what: "logout", method: req.method, url: req.url, query: q });
       state.user = null;
       state.sessions = false;
       return redirectUris().includes(q.post_logout_redirect_uri) ? send(302, "", { location: q.post_logout_redirect_uri }) : send(200, "signed out", { "content-type": "text/plain" });

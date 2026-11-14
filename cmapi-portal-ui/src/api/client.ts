@@ -9,7 +9,7 @@ export interface Session {
   token(): string | undefined;
   /** One renewal with the refresh token. Gives the new access token, or nothing if the issuer refused. */
   renew(): Promise<string | undefined>;
-  /** Sends the browser to the issuer to sign in again. */
+  /** Requests interactive sign-in recovery; the UI requires a user gesture. */
   signIn(): Promise<void>;
 }
 
@@ -18,31 +18,39 @@ export type Api = Client<paths>;
 export function createApi(apiUrl: string, session: Session): Api {
   const origin = new URL(apiUrl).origin;
   let renewal: Promise<string | undefined> | undefined;
+  let replacement: { rejected: string; token: Promise<string | undefined> } | undefined;
+  let signingIn: Promise<void> | undefined;
+  const signInOnce = () => (signingIn ??= session.signIn());
   // Each call that meets an expired token waits for the same renewal: the realm refuses a refresh token used twice.
-  const renewOnce = () => (renewal ??= session.renew().finally(() => { renewal = undefined; }));
+  const renewOnce = () => (renewal ??= Promise.resolve().then(() => session.renew()).catch(() => undefined).finally(() => { renewal = undefined; }));
 
   async function authFetch(request: Request): Promise<Response> {
     // The token goes to the API of config.json and to no other origin.
     if (new URL(request.url).origin !== origin) throw new Error(`Refused a call to ${new URL(request.url).origin}: it is not the API.`);
     const send = (token: string) => {
-      const attempt = request.clone();
+      const attempt = new Request(request.clone(), { credentials: "omit", redirect: "error" });
       attempt.headers.set("Authorization", `Bearer ${token}`);
       return fetch(attempt);
     };
     const token = session.token() ?? await renewOnce();
     if (!token) {
-      await session.signIn();
+      await signInOnce();
       throw new Error("Not signed in.");
     }
     const first = await send(token);
     if (first.status !== 401) return first;
     // 401: the session ended, or the token did. One silent renewal, then the same call again.
-    const fresh = await renewOnce();
+    // A late 401 for a token already replaced joins that recovery even after it settled.
+    if (replacement?.rejected !== token) {
+      const current = session.token();
+      replacement = { rejected: token, token: current && current !== token ? Promise.resolve(current) : renewOnce() };
+    }
+    const fresh = await replacement.token;
     if (fresh) {
       const second = await send(fresh);
       if (second.status !== 401) return second;
     }
-    await session.signIn();
+    await signInOnce();
     return first;
   }
 

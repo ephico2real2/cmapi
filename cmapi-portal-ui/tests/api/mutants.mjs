@@ -17,9 +17,17 @@ const MUTANTS = [
   ["tokens kept in sessionStorage", "src/portal/auth.ts", `new WebStorageStateStore({ store: new InMemoryWebStorage() })`, `new WebStorageStateStore({ store: window.sessionStorage })`, "portal"],
   ["the code stays in the address", "src/portal/auth.ts", `onSigninCallback: (user) => history.replaceState(null, "", location.pathname + returnHash(user))`, `onSigninCallback: () => {}`, "portal"],
   ["the view is lost at sign-in", "src/portal/auth.ts", `? state.hash : "";`, `? "" : "";`, "portal"],
-  ["no renewal on a 401", "src/api/client.ts", `const fresh = await renewOnce();`, `const fresh = undefined as string | undefined;`, "portal"],
-  ["no sign-in when the renewal fails", "src/api/client.ts", `    await session.signIn();\n    return first;`, `    return first;`, "portal"],
-  ["a cookie goes to the API", "src/api/client.ts", `credentials: "omit"`, `credentials: "include"`, "portal"],
+  ["no renewal on a 401", "src/api/client.ts", `const fresh = await replacement.token;`, `const fresh = undefined as string | undefined;`, "portal"],
+  ["no recovery when the renewal fails", "src/api/client.ts", `    await signInOnce();\n    return first;`, `    return first;`, "portal"],
+  ["a call can send a cookie or follow a redirect", "src/api/client.ts", `new Request(request.clone(), { credentials: "omit", redirect: "error" })`, `request.clone()`, "direct"],
+  ["the ID token is in the logout URL", "src/portal/auth.ts", `await this.leave(endpoint, fields);`, `location.assign(endpoint + "?" + new URLSearchParams(fields));`, "portal"],
+  ["a renewal in flight outlives the sign-out", "src/portal/auth.ts", `await this.pendingRenewal?.catch(() => undefined);`, ``, "direct"],
+  ["a discovered http endpoint is accepted", "src/portal/auth.ts", `if (url.protocol !== "https:" && !local) throw new Error(`, `if (false) throw new Error(`, "direct"],
+  ["an empty query in config.json is accepted", "src/portal/config.ts", `url.href.includes("?") || url.href.includes("#")`, `url.search || url.hash`, "direct"],
+  ["an API that always answers 401 redirects without end", "src/portal/PortalApp.tsx", `signIn: async () => { sessionEnded.current(); }`, `signIn: async () => { await latest.current.signinRedirect(); }`, "portal"],
+  ["a failed callback stays in the address", "src/portal/PortalApp.tsx", `if ((auth.error && hasAuthParams()) || callbackError) history.replaceState(null, "", location.pathname);`, ``, "portal"],
+  ["an error with no state signs in again", "src/portal/PortalApp.tsx", `(params.has("error") || params.has("code")) && !params.get("state")`, `false`, "portal"],
+  ["a failed renewal hides behind the page", "src/portal/PortalApp.tsx", `if (sessionEnded || auth.error || callbackError) return`, `if (sessionEnded || (auth.error && !auth.isAuthenticated) || callbackError) return`, "portal"],
   ["a 403 reads as an error with a retry", "src/api/hooks.ts", `error.status === 403`, `error.status === 999`, "portal"],
   ["each tab shows, whatever /me says", "src/portal/PortalApp.tsx", `TABS.filter((tab) => tab.needs === null || held.has(tab.needs))`, `TABS.filter(() => true)`, "portal"],
   ["the name comes from nowhere", "src/portal/PortalApp.tsx", `<b>{me.data.username}</b>`, `<b>ola</b>`, "portal"],
@@ -44,6 +52,9 @@ const MUTANTS = [
 
 const SUITE_TIMEOUT_MS = 240_000;
 const only = process.argv[2];
+// Each text must be in its file exactly one time. Check all of them before the first build, not in the middle of a run.
+const stale = MUTANTS.filter(([, file, from]) => readFileSync(join(app, file), "utf8").split(from).length !== 2).map(([what, file]) => `${what} (${file})`);
+if (stale.length) throw new Error(`the text of these mutants is not in the source exactly one time: ${stale.join("; ")}`);
 const results = [];
 for (const [what, file, from, to, suite] of MUTANTS) {
   if (only && !what.includes(only)) continue;
