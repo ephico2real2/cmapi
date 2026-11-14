@@ -14,8 +14,10 @@ from conftest import EXAMPLES, build_world
 from test_flow import OLA, auth
 
 URL = "/api/v1/clusters/CRC/namespaces"
-SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1",
-        "company.net/mnemonic-group-contact": "", "company.net/mnemonic-confluence": ""}
+SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1"}
+# The two optional keys are annotations, with their formats (the owner's decision on #234).
+OPTIONAL = {"company.net/mnemonic-group-contact": "abc-team@company.net",
+            "company.net/mnemonic-confluence": "https://wiki.company.net/abc"}
 
 
 @pytest.fixture
@@ -28,7 +30,7 @@ def company(test_config, fresh_db, keys, monkeypatch, tmp_path):
 
 
 def body(**over) -> dict:
-    return {"namespace": "abc-dev", "tier": "small", "labels": SENT, "annotations": {},
+    return {"namespace": "abc-dev", "tier": "small", "labels": SENT, "annotations": OPTIONAL,
             "justification": "The owner's sample namespace", **over}
 
 
@@ -43,9 +45,9 @@ def test_the_plan_fills_the_derived_keys_from_the_target(company):
     meta = namespace_yaml(r.json())["metadata"]
     assert {k: v for k, v in meta["labels"].items() if not k.startswith("cmapi.net/")} == {
         "name": "abc-dev", "company.net/app-environment": "dev", "company.net/mnemonic": "abc",
-        "company.net/lob": "amgsst", "company.net/cl": "1",
-        "company.net/mnemonic-group-contact": "", "company.net/mnemonic-confluence": ""}
+        "company.net/lob": "amgsst", "company.net/cl": "1"}
     assert meta["annotations"]["company.net/app-environment"] == "dev"
+    assert {k: meta["annotations"][k] for k in OPTIONAL} == OPTIONAL
 
 
 def test_a_body_with_another_derived_value_or_a_wrong_prefix_is_refused_with_each_key(company):

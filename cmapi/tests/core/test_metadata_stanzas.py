@@ -16,8 +16,10 @@ from conftest import ALL_ENVS, EX
 COMPANY = EX / "cluster-configs/policies/metadata-keys.company.yaml"
 SOURCES = {"namespace": "abc-rnd", "environment": "rnd", "cluster": "OCP_GF15", "instance": "nonprod"}
 # What the requester sends for the owner's sample: no derived key.
-SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1",
-        "company.net/mnemonic-group-contact": "", "company.net/mnemonic-confluence": ""}
+SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1"}
+# The two optional keys are annotations, with their formats (the owner's decision on #234).
+OPTIONAL = {"company.net/mnemonic-group-contact": "abc-team@company.net",
+            "company.net/mnemonic-confluence": "https://wiki.company.net/abc"}
 
 
 @pytest.fixture(scope="module")
@@ -36,16 +38,16 @@ def codes(errs):
 
 def test_the_owners_sample_namespace_renders_exactly(keys):
     renderer = ManifestRenderer(TierCatalog.load(EX / "config/tiers.yaml", ALL_ENVS), keys)
-    assert keys.validate(SENT, {}, operator=False, sources=SOURCES) == []
+    assert keys.validate(SENT, OPTIONAL, operator=False, sources=SOURCES) == []
     files = renderer.render(NamespaceSpec(namespace="abc-rnd", cluster_id="OCP_GF15", instance="nonprod", env="rnd",
                                           tier="small", request_id="req-20261114-0001", requested_by_user="ola",
-                                          requested_by_email="ola@company.net", labels=SENT, annotations={}))
+                                          requested_by_email="ola@company.net", labels=SENT, annotations=OPTIONAL))
     ns = yaml.safe_load(files["clusters/OCP_GF15/namespaces/abc-rnd/namespace.yaml"])
     company = {k: v for k, v in ns["metadata"]["labels"].items() if not k.startswith("cmapi.net/")}
     assert company == {"name": "abc-rnd", "company.net/app-environment": "rnd", "company.net/mnemonic": "abc",
-                       "company.net/lob": "amgsst", "company.net/cl": "1",
-                       "company.net/mnemonic-group-contact": "", "company.net/mnemonic-confluence": ""}
+                       "company.net/lob": "amgsst", "company.net/cl": "1"}
     assert ns["metadata"]["annotations"]["company.net/app-environment"] == "rnd"
+    assert {k: ns["metadata"]["annotations"][k] for k in OPTIONAL} == OPTIONAL
     # cmapi's own system keys stay beside the company's: cmapi.net/env is not the company's key (#215, owner's item 1).
     assert ns["metadata"]["labels"]["cmapi.net/env"] == "rnd" and ns["metadata"]["labels"]["cmapi.net/managed"] == "true"
 
@@ -132,3 +134,22 @@ def test_the_shipped_configuration_keeps_its_keys_and_classes():
     assert [k for k, r in keys.rules["annotation"].items() if r.required] == ["cmapi.net/team-dl"]
     assert keys.classify("cmapi.net/cost-center") == "governed" and keys.classify("owner") == "team"
     assert keys.derived(SOURCES) == ({}, {})
+
+
+@pytest.mark.parametrize("annotations, want", [
+    ({}, []),                                                                        # optional: neither is required
+    ({"company.net/mnemonic-group-contact": "abc-team@other.org"}, [("invalid_value", "company.net/mnemonic-group-contact")]),
+    ({"company.net/mnemonic-group-contact": ""}, [("invalid_value", "company.net/mnemonic-group-contact")]),
+    ({"company.net/mnemonic-confluence": "wiki.company.net/abc"}, [("invalid_value", "company.net/mnemonic-confluence")]),
+    ({"company.net/mnemonic-confluence": "ftp://wiki.company.net/abc"}, [("invalid_value", "company.net/mnemonic-confluence")]),
+])
+def test_the_two_optional_keys_are_annotations_with_their_formats(keys, annotations, want):
+    """The owner's decision on #234: company.net/mnemonic-group-contact is an address in emailDomains and
+    company.net/mnemonic-confluence an http or https URL, each an optional annotation."""
+    assert codes(keys.validate(SENT, annotations, operator=False, sources=SOURCES)) == want
+
+
+@pytest.mark.parametrize("key", sorted(OPTIONAL))
+def test_a_requester_cannot_send_either_optional_key_as_a_label(keys, key):
+    errs = keys.validate({**SENT, key: ""}, {}, operator=False, sources=SOURCES)
+    assert [(e["code"], e["key"], e["detail"]) for e in errs] == [("invalid_key", key, f"{key} is an annotation")]

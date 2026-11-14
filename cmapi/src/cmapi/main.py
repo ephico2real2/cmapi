@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import os
 from contextlib import asynccontextmanager
@@ -13,7 +14,7 @@ from typing import Any
 import yaml
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
@@ -262,14 +263,61 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def redoc() -> Response:
         if not redoc_dir.exists():
             return missing("ReDoc")
-        # FastAPI's page with its two outside requests removed: the Google Fonts stylesheet and FastAPI's own favicon.
-        return get_redoc_html(openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - reference",
-                              redoc_js_url="/static/redoc/redoc.standalone.js", with_google_fonts=False,
-                              redoc_favicon_url="/static/swagger/favicon-32x32.png")
+        return HTMLResponse(_redoc_html(f"cmapi ({ctx.cfg.name}) - reference", REDOC_START,
+                                        "/static/swagger/favicon-32x32.png"),
+                            headers={"Content-Security-Policy": REDOC_CSP})
+
+    @app.get(REDOC_START, include_in_schema=False, dependencies=guard)
+    def redoc_start() -> Response:
+        return Response(REDOC_START_JS, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/docs/changelog", include_in_schema=False, dependencies=guard)
     def changelog() -> Response:
         return HTMLResponse(changelog_html(f"cmapi ({ctx.cfg.name})", __version__))
+
+
+# ReDoc 3 starts itself on <redoc spec-url> with no options (init(specUrl, {}, element)), and its telemetry then sends
+# each use of the page to https://otel.cloud.redocly.com/v1/traces, its default collector (#235). cmapi starts it
+# through this module instead, with disableTelemetry, from a file of its own: the docs' CSP allows no inline script.
+REDOC_START = "/docs/redoc-start.js"
+# The ReDoc page fetches from this server only (docs/01: the bundles come from the image, never a CDN), also when the API
+# is reached without the front door (#226). ReDoc 3.1.0 asks two other hosts by itself: the telemetry, which the start
+# module turns off, and the "API docs by Redocly" logo from cdn.redoc.ly, which no option removes; this policy refuses
+# both, and whatever a later bundle adds. 'unsafe-eval' and blob: workers are for the bundle's search index, and
+# 'unsafe-inline' styles for its styled components: without them the search workers do not start (measured in Fable's
+# review of PR #231). The front door's policy for /redoc is the same string (cmapi-portal-ui/nginx/).
+REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
+import { init } from "/static/redoc/redoc.standalone.js";
+init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));
+"""
+
+
+def _redoc_html(title: str, start_url: str, favicon_url: str) -> str:
+    """The ReDoc page. With REDOC_CSP on its response it makes no request to another host.
+
+    ReDoc 3's standalone bundle is an ES module: its 3.0.0 release notes say to load it with a module script and to
+    import init from it, and the bundle reads import.meta.url. A classic script stops at the first import.meta with a SyntaxError, which is what FastAPI's
+    get_redoc_html gave (#229). The page loads cmapi's start module (REDOC_START) as a module script, which imports init;
+    the HTML standard evaluates a module script "when the page has finished parsing", so the element exists then.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<link rel="icon" href="{html.escape(favicon_url)}">
+<style>body {{ margin: 0; padding: 0; }}</style>
+</head>
+<body>
+<noscript>ReDoc needs JavaScript to show the reference.</noscript>
+<div id="redoc"></div>
+<script type="module" src="{html.escape(start_url)}"></script>
+</body>
+</html>
+"""
 
 
 def _etag_matches(if_none_match: str | None, etag: str) -> bool:
