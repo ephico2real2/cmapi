@@ -70,6 +70,8 @@ CSP_DOCS = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 's
             f"font-src 'self' data:; connect-src 'self' {OIDC}; worker-src 'self' blob:; form-action 'self' {OIDC}; "
             "frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
 CSP_API = "default-src 'none'; frame-ancestors 'none'"
+CSP_REDOC = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
 CSP_MOCKUP = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; "
               "font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; form-action 'none'; frame-src 'none'; "
@@ -341,6 +343,12 @@ def case_routes(ng: Nginx) -> None:
         expect_headers(h, {"x-frame-options": "DENY"}, "an API header that the front door sets is sent once")
         _s, h, _b = request(port, "GET", "/docs")
         expect_headers(h, {**COMMON, "content-security-policy": CSP_DOCS, "cross-origin-opener-policy": None}, "/docs")
+        _s, h, _b = request(port, "GET", "/redoc", headers={"X-Test-Security": "1"})
+        expect_headers(h, {**COMMON, "content-security-policy": CSP_REDOC, "cross-origin-opener-policy": None}, "/redoc")
+        main_src = (ROOT / "cmapi/src/cmapi/main.py").read_text()
+        app_csp = re.search(r'REDOC_CSP = \((.*?)\)\n', main_src, re.S)
+        check(app_csp is not None and "".join(re.findall(r'"([^"]*)"', app_csp.group(1))) == CSP_REDOC,
+              "the front door's /redoc policy is the API's own REDOC_CSP")
         _s, h, _b = request(port, "GET", "/", host=MOCKUP_HOST)
         expect_headers(h, {**COMMON, "content-security-policy": CSP_MOCKUP}, "the mockup")
 

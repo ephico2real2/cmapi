@@ -109,7 +109,8 @@ door sets is hidden from the API's answer (`proxy_hide_header`), so the browser 
 | Page | Content-Security-Policy | Why it differs from OWASP's `default-src 'self'` |
 |---|---|---|
 | The portal | `script-src 'self'; style-src 'self'`, `connect-src` and `form-action` add the issuer's origin, `frame-src 'none'`, `frame-ancestors 'none'` | The portal fetches tokens from the issuer and signs out with a form POST to it. It renews with the refresh token, not an iframe |
-| Swagger UI, ReDoc, the problem pages | adds `'unsafe-inline'` for scripts and styles, and `worker-src blob:` | FastAPI's Swagger UI page starts from an inline script; ReDoc runs a worker from a blob |
+| Swagger UI, the problem pages | adds `'unsafe-inline'` for scripts and styles, and `worker-src blob:` | FastAPI's Swagger UI page starts from an inline script |
+| ReDoc (`/redoc`) | the API's own policy for the page, `REDOC_CSP` in `cmapi/src/cmapi/main.py`: `default-src 'none'`, `script-src 'self' 'unsafe-eval'`, `connect-src 'self'`, `worker-src 'self' blob:` (Fable's review of PR #231) | The page has no inline script (#235). ReDoc's search workers need `'unsafe-eval'`: without it none starts (measured). The test checks that the two strings are equal |
 | JSON and YAML of the API | `default-src 'none'; frame-ancestors 'none'` | Nothing in an API answer may load or run anything (OWASP REST Security Cheat Sheet) |
 | The mockup | adds `'unsafe-inline'`, `'unsafe-eval'`, and Google Fonts' two hosts | The mockup is one file with its runtime inline; the runtime compiles the mockup's components; its design loads two fonts from Google Fonts. The mockup is the design source, so it is not changed |
 
@@ -188,8 +189,10 @@ stable branch (1.30) gets only critical fixes; the mainline (1.31) adds features
   location renamed, the start check taking `http://`.
 - `cmapi-portal-ui/tests/front-door.test.mjs` in Chromium (Playwright 1.64.1): the portal signs in through the stand-in
   issuer and lists requests through `/api/v1` with no `Origin` header (same origin, no CORS), signs out with a form POST
-  to the issuer, and Swagger UI, the problem pages and the mockup render, each with no CSP violation. ReDoc renders with
-  #229's fix (PR #231). The check found #229 (BUG-57, `/redoc` empty on main) and the mockup's Google Fonts.
+  to the issuer, and Swagger UI, the problem pages and the mockup render, each with no CSP violation. ReDoc renders and
+  its search (Ctrl+K) lists results, with one violation: the refused Redocly logo, which no option removes. The check
+  found #229 (BUG-57, `/redoc` empty on main), #235 (ReDoc's telemetry) and the mockup's Google Fonts. With
+  `'unsafe-eval'` removed from the `/redoc` policy, the ReDoc check fails (no search worker).
 - `cmapi/tests/service/test_front_door_chart.py`: the chart's hosts, values, Services and policies.
 
 Not measured: the image's build and its entrypoint (no container here; GitHub's `front-door` job runs

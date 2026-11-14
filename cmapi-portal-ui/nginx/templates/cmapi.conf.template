@@ -44,7 +44,12 @@ map $upstream_http_cache_control $cmapi_api_cache_control {
 map $host $cmapi_csp_portal {
     default "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CMAPI_OIDC_ORIGIN}; form-action 'self' ${CMAPI_OIDC_ORIGIN}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 }
-# Swagger UI and ReDoc as FastAPI renders them start from an inline script, and ReDoc runs a worker from a blob.
+# ReDoc's page (cmapi/src/cmapi/main.py, REDOC_CSP): the same string as the API's own header, which proxy.conf hides.
+# 'unsafe-eval' and blob: workers are for ReDoc's search index; the page has no inline script (#235).
+map $host $cmapi_csp_redoc {
+    default "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:";
+}
+# Swagger UI as FastAPI renders it starts from an inline script.
 map $host $cmapi_csp_docs {
     default "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CMAPI_OIDC_ORIGIN}; worker-src 'self' blob:; form-action 'self' ${CMAPI_OIDC_ORIGIN}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 }
@@ -129,7 +134,7 @@ server {
         include /etc/nginx/cmapi/proxy-docs.conf;
     }
     location = /redoc {
-        include /etc/nginx/cmapi/proxy-docs.conf;
+        include /etc/nginx/cmapi/proxy-redoc.conf;
     }
     location /static/swagger/ {
         include /etc/nginx/cmapi/proxy-docs.conf;

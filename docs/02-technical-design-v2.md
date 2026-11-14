@@ -2184,7 +2184,8 @@ NetworkPolicy: only the router reaches the front door; only the front door reach
 |---|---|---|
 | `/`, `/index.html`, `/config.json`, `/assets/` | The portal's files (assets cached for a year; the page and `config.json` `no-cache`) | `'self'`, plus the issuer's origin for `connect-src` and `form-action` |
 | `/api/`, `/openapi.json`, `/openapi.yaml` | The API pods | `default-src 'none'` |
-| `/docs`, `/docs/`, `/redoc`, `/problems`, `/problems/`, `/static/swagger/`, `/static/redoc/` | The API pods | As the portal's, with inline scripts and styles and a blob worker for Swagger UI and ReDoc |
+| `/docs`, `/docs/`, `/problems`, `/problems/`, `/static/swagger/`, `/static/redoc/` | The API pods | As the portal's, with inline scripts and styles for Swagger UI |
+| `/redoc` | The API pods | The API's own policy for the page (`REDOC_CSP`): this server only, `'unsafe-eval'` for ReDoc's search |
 | `/healthz` | nginx itself | none |
 | The mockup's host | `mockups/portal/dist/portal.html` | As the docs', with `'unsafe-eval'` and Google Fonts |
 

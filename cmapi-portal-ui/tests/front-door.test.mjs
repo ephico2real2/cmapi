@@ -153,11 +153,19 @@ try {
     await context.close();
   });
 
-  await check("ReDoc renders the reference, with no CSP violation", async () => {
+  // ReDoc 3 loads its "API docs by Redocly" logo from cdn.redoc.ly, and no option removes it (docs/reviews/2026-11-14-issue-229/).
+  // The policy refuses it, and the bundle hides the image. Any other refused request fails the check.
+  const REDOC_LOGO = /^(img-src https:\/\/cdn\.redoc\.ly\/redoc\/logo-mini(-full)?\.svg|.*Loading the image 'https:\/\/cdn\.redoc\.ly\/redoc\/logo-mini(-full)?\.svg'.*)$/;
+  await check("ReDoc renders the reference and searches it, with only its logo refused", async () => {
     const { context, p, violations } = await page();
     await p.goto(`${origin}/redoc`);
     await shows(p, ".api-content", violations);
-    assert.deepEqual(await violations(), []);
+    await p.waitForTimeout(2000);
+    assert.ok(p.workers().length > 0, "ReDoc's search workers run ('unsafe-eval' and blob: workers in the policy)");
+    await p.keyboard.press("Control+k");
+    await p.locator('input[placeholder="Search docs..."]').fill("namespace");
+    await p.getByText("request fields", { exact: false }).first().waitFor();
+    assert.deepEqual((await violations()).filter((v) => !REDOC_LOGO.test(v)), []);
     await context.close();
   });
 
