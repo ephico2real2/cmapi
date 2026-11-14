@@ -338,12 +338,12 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|318-318": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|71-73": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|72-74": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|98-98": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|99-99": [
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|114-114": [
@@ -594,7 +594,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|61-62": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|62-63": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
