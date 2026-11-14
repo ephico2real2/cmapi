@@ -542,9 +542,13 @@ def test_the_policy_matches_the_writer_and_denies():
 
 def test_both_workloads_migrate_before_they_start():
     r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x")
+    seen = set()
     for d in yaml.safe_load_all(r.stdout):
-        if d and d["kind"] == "Deployment":
+        # The two workloads that use the database; the front door (cmapi-portal, #226) has no schema to migrate.
+        if d and d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker"):
             assert d["spec"]["template"]["spec"]["initContainers"][0]["command"] == ["cmapi-migrate", "head"], d["metadata"]["name"]
+            seen.add(d["metadata"]["name"])
+    assert seen == {"cmapi-api", "cmapi-worker"}
 
 
 def test_docs_do_not_claim_a_span_export_that_does_not_exist():
