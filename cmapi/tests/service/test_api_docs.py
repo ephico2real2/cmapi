@@ -32,7 +32,8 @@ from conftest import build_world
 
 CMAPI = Path(__file__).resolve().parents[2]
 CONTRACT = CMAPI / "contract" / "openapi.json"
-DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/docs/changelog")
+# docs.enabled and docs.public govern each of these; /docs/redoc-start.js starts ReDoc (#235).
+DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/docs/changelog", "/docs/redoc-start.js")
 
 
 @pytest.fixture
@@ -341,7 +342,7 @@ def _config(test_config: Path, tmp_path: Path, docs: dict) -> Path:
     return d
 
 
-def test_docs_public_false_puts_the_five_paths_behind_a_token(bundles, test_config, tmp_path, fresh_db, keys, monkeypatch):
+def test_docs_public_false_puts_the_docs_paths_behind_a_token(bundles, test_config, tmp_path, fresh_db, keys, monkeypatch):
     with build_world(_config(test_config, tmp_path, {"public": False}), keys, monkeypatch) as (client, *_):
         token = {"Authorization": f"Bearer {keys.token('ada', roles=['cmapi-viewer'])}"}
         for path in DOCS_PATHS:
@@ -355,14 +356,14 @@ def test_docs_public_false_puts_the_five_paths_behind_a_token(bundles, test_conf
 
 def test_docs_are_public_by_default_and_when_public_is_true(bundles, test_config, tmp_path, fresh_db, keys, monkeypatch):
     with build_world(test_config, keys, monkeypatch) as (client, *_):
-        assert [client.get(p).status_code for p in DOCS_PATHS] == [200] * 5
+        assert [client.get(p).status_code for p in DOCS_PATHS] == [200] * len(DOCS_PATHS)
     with build_world(_config(test_config, tmp_path, {"public": True}), keys, monkeypatch) as (client, *_):
-        assert [client.get(p).status_code for p in DOCS_PATHS] == [200] * 5
+        assert [client.get(p).status_code for p in DOCS_PATHS] == [200] * len(DOCS_PATHS)
 
 
 def test_docs_enabled_false_serves_none_of_them(bundles, test_config, tmp_path, fresh_db, keys, monkeypatch):
     with build_world(_config(test_config, tmp_path, {"enabled": False}), keys, monkeypatch) as (client, *_):
-        assert [client.get(p).status_code for p in DOCS_PATHS] == [404] * 5
+        assert [client.get(p).status_code for p in DOCS_PATHS] == [404] * len(DOCS_PATHS)
         assert client.get("/api/v1/version").status_code == 200
 
 
@@ -383,13 +384,28 @@ def test_the_committed_contract_is_the_document_this_code_serves(world):
 
 def test_redoc_loads_its_bundle_as_a_module(bundles, test_config, fresh_db, keys, monkeypatch):
     """ReDoc 3's standalone bundle is an ES module (its 3.0.0 release notes). Loaded by a classic <script src>, it stops
-    at import.meta and the page stays empty (#229). The browser check cmapi-portal-ui/tests/front-door.test.mjs renders
-    the page; this test holds the one tag that decides it."""
+    at import.meta and the page stays empty (#229). The page loads cmapi's start module as a module script, and the start
+    module imports the bundle. No test in this repository renders the page in a browser yet: the render was done by hand
+    and is in docs/reviews/2026-11-14-issue-229/, and the front door's browser check (#226) adds one."""
     with build_world(test_config, keys, monkeypatch) as (client, *_):
         page = client.get("/redoc").text
-    assert re.findall(r"<script\b[^>]*>", page) == ['<script type="module" src="/static/redoc/redoc.standalone.js">']
-    assert '<redoc spec-url="/openapi.json"></redoc>' in page
+        start = client.get("/docs/redoc-start.js")
+    assert re.findall(r"<script\b[^>]*>", page) == ['<script type="module" src="/docs/redoc-start.js">']
+    assert '<div id="redoc"></div>' in page
     assert "<title>cmapi (" in page and ") - reference</title>" in page
+    assert start.status_code == 200 and start.headers["content-type"].startswith("text/javascript")
+    assert 'import { init } from "/static/redoc/redoc.standalone.js";' in start.text
+
+
+def test_redoc_starts_with_its_telemetry_off(bundles, test_config, fresh_db, keys, monkeypatch):
+    """ReDoc 3 starts itself on <redoc spec-url> with no options, and its telemetry then sends each use of the page to
+    https://otel.cloud.redocly.com/v1/traces (#235, measured in Chromium). The page has no such element, and cmapi's
+    start module passes disableTelemetry, the option that the bundle reads as options?.disableTelemetry."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        page = client.get("/redoc").text
+        start = client.get("/docs/redoc-start.js").text
+    assert "<redoc" not in page and "spec-url" not in page
+    assert 'init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));' in start
 
 
 def test_the_redoc_pin_carries_the_dompurify_fix():
@@ -398,3 +414,21 @@ def test_the_redoc_pin_carries_the_dompurify_fix():
     version, sha = pinned(CMAPI / "Containerfile")["REDOC"]
     assert tuple(int(p) for p in version.split(".")) >= (3, 1, 0), f"ReDoc {version} bundles a DOMPurify with GHSA-cg2g-xh64-v4q7"
     assert re.fullmatch(r"[0-9a-f]{64}", sha)
+
+
+def test_the_redoc_page_asks_no_other_host(bundles, test_config, fresh_db, keys, monkeypatch):
+    """ReDoc 3 sends usage telemetry to otel.cloud.redocly.com by default and loads its logo from cdn.redoc.ly (measured
+    in Chromium on the 3.1.0 bundle). docs/01: a network-limited zone may not reach another host. The start module turns
+    the telemetry off (#235), and the page's policy lets the browser fetch from this server only, also when the API is
+    reached without the front door. Fable's test from the review of PR #231; its telemetry line reads the start module,
+    which is how this page turns the telemetry off, instead of a tag attribute."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        r = client.get("/redoc")
+        start = client.get("/docs/redoc-start.js").text
+    assert "disableTelemetry: true" in start, "ReDoc's telemetry is on"
+    policy = {d.split()[0]: d.split()[1:] for d in r.headers.get("content-security-policy", "").split(";") if d.strip()}
+    assert policy.get("default-src") == ["'none'"], policy
+    assert policy.get("connect-src") == ["'self'"], "the page may send data to another host"
+    assert policy.get("script-src") == ["'self'", "'unsafe-eval'"] and policy.get("worker-src") == ["'self'", "blob:"]
+    for directive, sources in policy.items():
+        assert not [s for s in sources if "//" in s or s in ("*", "https:", "http:")], f"{directive} lets in another host"

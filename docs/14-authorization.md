@@ -97,7 +97,7 @@ Each route declares one permission. The OpenAPI document shows it as `x-cmapi-pe
 | `reports:read` | `GET /api/v1/admin/git-log`<br>`GET /api/v1/admin/kpi` |
 | `approvals:pause` | `POST /api/v1/admin/auto-approval:pause`<br>`POST /api/v1/admin/auto-approval:resume` |
 
-The test `test_declared_permission_is_the_enforced_one_and_every_route_answers` compares the declared permission of each route with the permission that the route enforces (`cmapi/tests/service/test_review_c_authz.py:41`).
+The test `test_declared_permission_is_the_enforced_one_and_every_route_answers` compares the declared permission of each route with the permission that the route enforces (`cmapi/tests/service/test_review_c_authz.py:43`).
 
 ## How cmapi decides a request
 
@@ -181,7 +181,7 @@ A role can have a list of environments. The route checks the permission again wh
 
 If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:160-163`). A list does not refuse: it leaves out the rows of the other environments.
 
-The tests `test_environment_role_cannot_*` cover each route group (`test_review_c_authz.py:110-173`). Before #141 (BUG-30), an approval in another environment answered `forbidden`. It now answers `environment-forbidden`, as a rejection does (`test_an_approval_in_another_environment_says_so_like_a_rejection`).
+The tests `test_environment_role_cannot_*` cover each route group (`test_review_c_authz.py:112-175`). Before #141 (BUG-30), an approval in another environment answered `forbidden`. It now answers `environment-forbidden`, as a rejection does (`test_an_approval_in_another_environment_says_so_like_a_rejection`).
 
 ### Step 5: who can approve
 
@@ -195,7 +195,7 @@ An approval has more checks than the permission (`approvals.py:307-334`). They a
 | The caller is not the requester, unless the rule has `selfApproval: true` | 409 `self-approval`, "Requesters cannot approve their own request here" |
 | The caller is in an approving group that the request still needs | 403 `not-eligible`, with the groups that are still needed |
 
-An approval rule names a group by its short name, for example `approver-platform`. The path template makes the full path, and the check compares it with the `groups` claim. A request keeps the path that it was decided under, so a change of the template does not move the approvers of an open request (`cmapi/src/cmapi/core/db/repo.py:36-44`). The tests are `test_self_approval_refused_when_the_environment_forbids_it` and `test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone` (`test_review_c_authz.py:188-198`).
+An approval rule names a group by its short name, for example `approver-platform`. The path template makes the full path, and the check compares it with the `groups` claim. A request keeps the path that it was decided under, so a change of the template does not move the approvers of an open request (`cmapi/src/cmapi/core/db/repo.py:36-44`). The tests are `test_self_approval_refused_when_the_environment_forbids_it` and `test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone` (`test_review_c_authz.py:190-200`).
 
 ### Step 6: the identity of a requester
 
