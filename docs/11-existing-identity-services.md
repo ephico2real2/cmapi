@@ -128,6 +128,10 @@ Nobody in this directory has `employeeNumber`, which the realm file maps to `emp
 deployment, the `cmapi` realm's mapper reads `uidNumber` instead, which the test users have as `posixAccount` entries.
 This is a value for this directory only. A real directory maps its real employee ID.
 
+## Existing Kyverno
+
+cmapi installs no Kyverno. When an instance's `policy` runs Kyverno in an environment (`enforce` or `audit`, docs/02 "Policy in one place", #213), each cluster of that environment runs Kyverno v1.20.0 or later, installed by the platform, so that the `policies.kyverno.io/v1` types of cmapi's bundle are admitted the way the API's CLI (pinned at v1.20.0 in `cmapi/Containerfile`) checks them at plan time. `GET /api/v1/admin/integrations` reports that version as `policy.kyvernoVersion`. An instance with `engine: none`, or every environment `off`, needs no Kyverno on its clusters and no kyverno binary in its image.
+
 ## Why Keycloak access stays inside cmapi
 
 Decided on 2026-11-05: Keycloak access stays a module of `cmapi-core`, as `docs/01` and `docs/02` say. There is no separate

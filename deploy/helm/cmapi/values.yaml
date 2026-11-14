@@ -41,6 +41,10 @@ instance:
   # The base of each problem type URI (RFC 9457). One base for all the instances of an organisation, on a host that points
   # at an instance: each instance serves /problems/<code>. Empty: the default, https://cmapi.ephico2real.com/problems/.
   problems: {}             # {typeBase: https://<host>/problems/}
+  # The policy engine and the mode of each environment (#213; docs/02, "Policy in one place"): engine kyverno or none,
+  # mode enforce, audit or off, and environments: {rnd: {mode: audit}}. Empty: Kyverno enforces in each environment.
+  # Moving an environment away from enforce is a change of this file, reviewed by the platform group (CODEOWNERS).
+  policy: {}
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)
 auth:
