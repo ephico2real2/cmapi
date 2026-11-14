@@ -153,8 +153,9 @@ class Nginx:
 
     def command(self, conf: Path, *extra: str, name: str | None = None) -> list[str]:
         if self.args.image:
-            run = [self.args.engine, "run", "--rm", "--network", "host", "-v", f"{self.work}:{self.work}",
-                   "--entrypoint", "nginx"]
+            # The runner's own user: the work folder is private to it (mkdtemp), and nginx writes its log and temp files there.
+            run = [self.args.engine, "run", "--rm", "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}",
+                   "-v", f"{self.work}:{self.work}", "--entrypoint", "nginx"]
             if name:
                 run += ["--name", name]
             return run + [self.args.image, "-e", "stderr", "-c", str(conf), *extra]

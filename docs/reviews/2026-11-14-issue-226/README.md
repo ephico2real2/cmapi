@@ -177,7 +177,7 @@ stable branch (1.30) gets only critical fixes; the mainline (1.31) adds features
 
 ## Measured, on this Mac (no cluster, no container: #157)
 
-- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 132 checks, 0 failed.
+- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 133 checks, 0 failed.
   The upstream, the routes, the headers of each kind of page, what reaches the API, retries (each GET answered when a pod
   fails; no POST sent to a second pod), keepalive (12 requests over 3 pods used 3 connections), the 413, the log, and
   the start check.

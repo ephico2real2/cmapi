@@ -171,7 +171,7 @@ The choices, each with its source:
 
 - RFC 10017, section 6.3.4.3, says that a browser-only OAuth client "is not recommended for business applications", and section 6.1.4.3 strongly recommends a backend for frontend. The design of `docs/02` is the browser-only client, and the portal is built to it. The owner decides if a backend for frontend replaces it.
 - Two browser tabs do not share one renewal, as `docs/02` says they do (#208).
-- The Content-Security-Policy header comes with the portal's image and its Route, which are not built.
+- The front door's Content-Security-Policy (`docs/reviews/2026-11-14-issue-226/`) is proven in a browser on this Mac only, not on a cluster (#157).
 
 ## The redirect URIs of the portal
 
@@ -194,7 +194,7 @@ Sources, read on 2026-11-14: <https://www.rfc-editor.org/rfc/rfc9700>, <https://
 
 **The decision: one origin for the portal and the API, through the front door of the instance. CORS is off unless an origin is listed.**
 
-The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx, behind the Route. It sends `/api/`, `/docs`, `/redoc`, `/openapi.*` and `/problems/` to the API, and `/` to the portal. So the portal's page and the API have one origin, and the browser needs no CORS header for the portal's calls. The front door is not built yet (#226). Until then the portal of #204 runs against its stand-in API only.
+The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx, behind the Route. It sends `/api/`, `/docs`, `/redoc`, `/openapi.*` and `/problems/` to the API, and `/` to the portal. So the portal's page and the API have one origin, and the browser needs no CORS header for the portal's calls. The front door is built in the chart (`cmapi-portal-ui/nginx/`, `deploy/helm/cmapi/templates/portal.yaml`; #226). In a browser on this Mac the portal signed in and called `/api/v1` through it with no `Origin` header (`cmapi-portal-ui/tests/front-door.test.mjs`). The plain manifests move to it in the next pull request of #226; until then they keep the API's own Route.
 
 | Option | For | Against |
 |---|---|---|

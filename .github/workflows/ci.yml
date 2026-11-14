@@ -89,6 +89,36 @@ jobs:
         working-directory: cmapi-portal-ui
         run: npm test
 
+  front-door:
+    # The front door (#226): the cmapi-portal image is built, then nginx in it is measured on its own configuration
+    # (deploy/tests/front-door-test.py --image) and the portal, Swagger UI, ReDoc, the problem pages and the mockup are
+    # loaded through it in Chromium with no CSP violation (cmapi-portal-ui/tests/front-door.test.mjs).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install
+        run: |
+          python -m pip install -e cmapi
+          cd cmapi-portal-ui && npm ci && npx playwright install --with-deps chromium
+      - name: Build the image
+        run: docker build -f cmapi-portal-ui/Containerfile --build-arg "GIT_COMMIT=${GITHUB_SHA}" -t cmapi-portal:ci .
+      - name: nginx in the image, on its own configuration
+        run: python deploy/tests/front-door-test.py --image cmapi-portal:ci --engine docker
+      - name: The pages through the front door, in a browser
+        working-directory: cmapi-portal-ui
+        run: |
+          cmapi-tools docs-assets --static-dir "$RUNNER_TEMP/static" --containerfile ../cmapi/Containerfile
+          npm run build
+          FRONT_DOOR_IMAGE=cmapi-portal:ci FRONT_DOOR_ENGINE=docker FRONT_DOOR_PYTHON=python FRONT_DOOR_STATIC="$RUNNER_TEMP/static" node tests/front-door.test.mjs
+
   api-contract:
     # The API contract gates (docs/01 "API documentation"). Gate 1 (#143): Spectral lints cmapi/contract/openapi.json with cmapi's
     # ruleset. Gate 3 (#131): a pull request that breaks the contract of its base branch fails here, by oasdiff. The service job
