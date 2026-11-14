@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +21,7 @@ from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
+from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, allowed_origins
 from cmapi.core.docs import PROBLEMS, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.kpi import register_collectors
@@ -62,11 +64,30 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
                                          "scopes": "openid"})
     app.state.ctx = ctx
     app.state.auth = ctx.auth
-    instrument(app)
     problem_base = type_base(ctx.cfg.raw_instance["instance"])
 
     def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
+
+    # The inner middleware: an exception that no handler takes becomes the problem internal-error here (#216). Starlette's own
+    # 500 is sent outside each middleware, so it has no CORS header and no X-Request-Id, and a browser on another origin shows a
+    # network error. The answer has no text of the exception; the log line has it, with the request ID that the answer carries.
+    @app.middleware("http")
+    async def unhandled_to_problem(request: Request, call_next: Any) -> Response:
+        try:
+            return await call_next(request)
+        except Exception:
+            log.exception("unhandled", method=request.method, route=getattr(request.scope.get("route"), "path", "unmatched"))
+            return problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
+
+    instrument(app)
+    # CORS is added after the request middleware, so it is the outer one: each answer that the application makes has the
+    # headers, a problem and a rate limit refusal too. Without them a browser hides the status and the body from the portal.
+    origins = allowed_origins(ctx.cfg.raw_instance["instance"])
+    if origins:
+        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=METHODS, allow_headers=REQUEST_HEADERS,
+                           expose_headers=EXPOSED_HEADERS, allow_credentials=False, max_age=MAX_AGE)
+    app.state.cors_origins = origins
 
     @app.exception_handler(Problem)
     async def problem_handler(_: Request, exc: Problem) -> Response:
