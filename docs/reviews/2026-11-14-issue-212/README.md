@@ -115,3 +115,17 @@ no old object, M8), and Argo CD's prune of the policies Application.
 - Kyverno policy exceptions, <https://kyverno.io/docs/guides/exceptions/>: "PolicyExceptions are disabled by default."
 - Kubernetes CEL, <https://kubernetes.io/docs/reference/using-api/cel/>: the quantity library, `quantity(string)`.
 - Codex's sources, with their hashes: `ob1-run6/codex-212/experiments/sources/manifest.json`.
+
+## Fable's review (head `584e183`)
+
+Fable 5.2 (`fable-review.md`) found three defects, and the coordinator accepted all three:
+
+| # | Finding | Fix |
+|---|---|---|
+| F1 (high) | #240's F1: in audit, the PR check failed an approved request on its Kyverno warning | Carried by #240, merged into this branch: only an error fails the PR check |
+| F2 | A hand-written policy of a kind or apiVersion that the CLI does not know gave no result, and the rendered bundle's results hid it | A document that is not a ValidatingPolicy must give one result at least, or it is a cmapi finding |
+| F3 (low) | Admission had no static message behind each messageExpression | Each validation carries a static `message` with the key and the configured value, and the examples are rendered again |
+
+Fable's fixes and tests are applied unchanged, except their `policy.py` and `pr_checks.py` parts, which #240 carries. `tests/core/test_fable_review_245.py` and `test_fable_review_240.py` (#240's F3 cases) failed 3 of 11 before the fixes and pass after. #240's text-stub F2 cases do not apply to this branch's JSON report. The JSON guard covers the same faults (`test_review_212.py`, F7).
+
+Filed from the review: #248 (an adoption in enforce mode has no base in Git; the adoption design, D6a) and #249 (audit on the external-CI path).

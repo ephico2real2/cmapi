@@ -26,8 +26,11 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: '!("cmapi.net/expires-at" in (has(object.metadata.annotations) ? object.metadata.annotations : {}))'
+    message: 'Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'
     messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''
   - expression: '!("cmapi.net/expiry" in (has(object.metadata.labels) ? object.metadata.labels : {}))'
+    message: 'Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'
     messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''
   - expression: '!("cleanup.kyverno.io/ttl" in (has(object.metadata.labels) ? object.metadata.labels : {}))'
+    message: 'Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'
     messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''

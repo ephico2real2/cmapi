@@ -204,6 +204,11 @@ class CliValidator:
             for rel, doc in docs.items():
                 if doc.get("kind") in kinds and (name, rel) not in seen:
                     out.append(Finding("cmapi", name, rel, "policy not understood by the CLI (no result for this file)"))
+        # A document of another kind (a hand-written policy): the kinds it matches are not read here, so it must give
+        # one result at least. The CLI gives none for a kind or an apiVersion it does not know (M11), and says nothing.
+        reported = {res.get("policy") for res in results}
+        for name in sorted(_other_documents(policies) - reported):
+            out.append(Finding("cmapi", name, "", "policy not understood by the CLI (no result for any file)"))
         return out
 
 
@@ -249,6 +254,16 @@ def _limit(doc: Mapping[str, Any], kind: str, part: str, res: str) -> str | None
         if item.get("type") == LIMIT_KINDS[kind] and res in (item.get(part) or {}):
             return str(item[part][res])
     return None
+
+
+def _other_documents(policies: Mapping[str, str]) -> set[str]:
+    """The names of the bundle's documents that are not a ValidatingPolicy, which _matched_kinds does not cover."""
+    out: set[str] = set()
+    for text in policies.values():
+        for doc in yaml.safe_load_all(text):
+            if isinstance(doc, Mapping) and doc.get("kind") != "ValidatingPolicy":
+                out.add(str((doc.get("metadata") or {}).get("name") or doc.get("kind") or "a document with no kind"))
+    return out
 
 
 def _matched_kinds(policies: Mapping[str, str]) -> dict[str, set[str]]:

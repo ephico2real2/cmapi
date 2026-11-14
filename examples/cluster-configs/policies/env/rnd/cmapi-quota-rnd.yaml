@@ -29,6 +29,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "persistentvolumeclaims" in oldObject.spec.hard && "persistentvolumeclaims" in object.spec.hard && quantity(object.spec.hard["persistentvolumeclaims"]).compareTo(quantity(oldObject.spec.hard["persistentvolumeclaims"])) == 0) || !(has(object.spec.hard) && "persistentvolumeclaims" in object.spec.hard) || quantity(object.spec.hard["persistentvolumeclaims"]).compareTo(quantity("100")) <= 0
+    message: persistentvolumeclaims is above the rnd maximum of 100; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"persistentvolumeclaims " + (has(object.spec.hard) && "persistentvolumeclaims" in object.spec.hard ? string(object.spec.hard["persistentvolumeclaims"]) : ''missing'') + " is above the rnd maximum of 100; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -60,6 +61,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "pods" in oldObject.spec.hard && "pods" in object.spec.hard && quantity(object.spec.hard["pods"]).compareTo(quantity(oldObject.spec.hard["pods"])) == 0) || !(has(object.spec.hard) && "pods" in object.spec.hard) || quantity(object.spec.hard["pods"]).compareTo(quantity("300")) <= 0
+    message: pods is above the rnd maximum of 300; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"pods " + (has(object.spec.hard) && "pods" in object.spec.hard ? string(object.spec.hard["pods"]) : ''missing'') + " is above the rnd maximum of 300; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -91,6 +93,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "requests.cpu" in oldObject.spec.hard && "requests.cpu" in object.spec.hard && quantity(object.spec.hard["requests.cpu"]).compareTo(quantity(oldObject.spec.hard["requests.cpu"])) == 0) || !(has(object.spec.hard) && "requests.cpu" in object.spec.hard) || quantity(object.spec.hard["requests.cpu"]).compareTo(quantity("32")) <= 0
+    message: requests.cpu is above the rnd maximum of 32; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"requests.cpu " + (has(object.spec.hard) && "requests.cpu" in object.spec.hard ? string(object.spec.hard["requests.cpu"]) : ''missing'') + " is above the rnd maximum of 32; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -122,6 +125,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "requests.memory" in oldObject.spec.hard && "requests.memory" in object.spec.hard && quantity(object.spec.hard["requests.memory"]).compareTo(quantity(oldObject.spec.hard["requests.memory"])) == 0) || !(has(object.spec.hard) && "requests.memory" in object.spec.hard) || quantity(object.spec.hard["requests.memory"]).compareTo(quantity("64Gi")) <= 0
+    message: requests.memory is above the rnd maximum of 64Gi; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"requests.memory " + (has(object.spec.hard) && "requests.memory" in object.spec.hard ? string(object.spec.hard["requests.memory"]) : ''missing'') + " is above the rnd maximum of 64Gi; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -153,6 +157,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "requests.storage" in oldObject.spec.hard && "requests.storage" in object.spec.hard && quantity(object.spec.hard["requests.storage"]).compareTo(quantity(oldObject.spec.hard["requests.storage"])) == 0) || !(has(object.spec.hard) && "requests.storage" in object.spec.hard) || quantity(object.spec.hard["requests.storage"]).compareTo(quantity("2Ti")) <= 0
+    message: requests.storage is above the rnd maximum of 2Ti; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"requests.storage " + (has(object.spec.hard) && "requests.storage" in object.spec.hard ? string(object.spec.hard["requests.storage"]) : ''missing'') + " is above the rnd maximum of 2Ti; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -184,6 +189,7 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "services.loadbalancers" in oldObject.spec.hard && "services.loadbalancers" in object.spec.hard && quantity(object.spec.hard["services.loadbalancers"]).compareTo(quantity(oldObject.spec.hard["services.loadbalancers"])) == 0) || !(has(object.spec.hard) && "services.loadbalancers" in object.spec.hard) || quantity(object.spec.hard["services.loadbalancers"]).compareTo(quantity("2")) <= 0
+    message: services.loadbalancers is above the rnd maximum of 2; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"services.loadbalancers " + (has(object.spec.hard) && "services.loadbalancers" in object.spec.hard ? string(object.spec.hard["services.loadbalancers"]) : ''missing'') + " is above the rnd maximum of 2; a bound of tiers.yaml, which approval does not lift"'
 ---
 apiVersion: policies.kyverno.io/v1
@@ -215,4 +221,5 @@ spec:
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
   - expression: (variables.update && has(oldObject.spec.hard) && "services.nodeports" in oldObject.spec.hard && "services.nodeports" in object.spec.hard && quantity(object.spec.hard["services.nodeports"]).compareTo(quantity(oldObject.spec.hard["services.nodeports"])) == 0) || !(has(object.spec.hard) && "services.nodeports" in object.spec.hard) || quantity(object.spec.hard["services.nodeports"]).compareTo(quantity("10")) <= 0
+    message: services.nodeports is above the rnd maximum of 10; a bound of tiers.yaml, which approval does not lift
     messageExpression: '"services.nodeports " + (has(object.spec.hard) && "services.nodeports" in object.spec.hard ? string(object.spec.hard["services.nodeports"]) : ''missing'') + " is above the rnd maximum of 10; a bound of tiers.yaml, which approval does not lift"'

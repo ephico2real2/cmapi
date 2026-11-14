@@ -67,6 +67,10 @@ class Check:
     rule: str                 # required | pattern | enum | format | namespacePrefix | derived | max | min | step | order | absent
     expression: str
     message: str
+    # The static message, with the key and the configured value and without the offending one. Kyverno falls back to it
+    # at admission when the messageExpression fails or gives an empty or multi-line string (an annotation value may hold
+    # a newline): "Kyverno falls back to the static message" (kyverno.io, ValidatingPolicy, read 2026-11-14).
+    fallback: str
 
 
 def _policy(name: str, resource: str, actions: list[str], checks: list[Check], description: str,
@@ -82,7 +86,7 @@ def _policy(name: str, resource: str, actions: list[str], checks: list[Check], d
         # The CLI evaluates as CREATE with an empty oldObject (measured, M8), so offline every key is checked.
         {"name": "update", "expression": "request.operation == 'UPDATE' && has(oldObject.metadata)"},
     ]
-    spec["validations"] = [{"expression": c.expression, "messageExpression": c.message} for c in checks]
+    spec["validations"] = [{"expression": c.expression, "message": c.fallback, "messageExpression": c.message} for c in checks]
     return {"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
             "metadata": {"name": name, "annotations": {"policies.kyverno.io/description": description,
                                                        "cmapi.net/generated": "true"}},
@@ -131,11 +135,13 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
     for kind, key in SYSTEM_REQUIRED:
         k, m = cel(key), _meta(kind)
         checks.append(Check(kind, key, "required", f"{_same(kind, key)} || ({k} in {m} && {m}[{k}] != '')",
-                            cel(f"the {kind} {key} is missing: cmapi writes it on each namespace it manages")))
+                            cel(f"the {kind} {key} is missing: cmapi writes it on each namespace it manages"),
+                            f"the {kind} {key} is missing: cmapi writes it on each namespace it manages"))
     k, m = cel(ENV_LABEL), _meta("label")
     checks.append(Check("label", ENV_LABEL, "derived", f"{_same('label', ENV_LABEL)} || ({k} in {m} && {m}[{k}] == {cel(env)})",
                         f"{cel(f'the label {ENV_LABEL} is ')} + ({k} in {m} ? {m}[{k}] : 'missing') + "
-                        + cel(f"; it must be {env}, the environment of this policy")))
+                        + cel(f"; it must be {env}, the environment of this policy"),
+                        f"the label {ENV_LABEL} must be {env}, the environment of this policy"))
     constants = {"environment": env, "instance": instance}
     for kind in KINDS:
         for key, rule in keys.rules[kind].items():
@@ -154,7 +160,8 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 present = f"{k} in {m}"
                 good = f"{present} && {value} == {want}" if rule.required else f"!({present}) || {value} == {want}"
                 checks.append(Check(kind, key, "derived", f"{_same(kind, key)} || ({good})",
-                                    f"{cel(where + ' is ')} + {shown} + {cel('; cmapi sets it to ' + said)}"))
+                                    f"{cel(where + ' is ')} + {shown} + {cel('; cmapi sets it to ' + said)}",
+                                    f"{where} is not what cmapi sets it to: {said}"))
                 continue
             vr = _value_rule(rule, value, keys.email_domains)
             parts = []
@@ -178,7 +185,8 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
             name = "required" if rule.required and not vr and not rule.namespace_prefix else \
                 (vr[0] if vr else "namespacePrefix")
             checks.append(Check(kind, key, name, f"{_same(kind, key)} || ({' && '.join(parts)})",
-                                f"{cel(where + ' is ')} + {shown} + {cel('; it must be: ' + words)}"))
+                                f"{cel(where + ' is ')} + {shown} + {cel('; it must be: ' + words)}",
+                                f"{where} must be: {words}"))
     return checks
 
 
@@ -193,7 +201,8 @@ def _quota_checks(catalog: TierCatalog, env: str) -> list[Check]:
         good = f"!(has(object.spec.hard) && {k} in {hard}) || quantity({hard}[{k}]).compareTo(quantity({mx})) <= 0"
         checks.append(Check("quota", key, "max", f"{same} || {good}",
                             f"{cel(key + ' ')} + (has(object.spec.hard) && {k} in {hard} ? string({hard}[{k}]) : 'missing') + "
-                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift")))
+                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift"),
+                            f"{key} is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift"))
     return checks
 
 
@@ -216,7 +225,8 @@ def _limits_checks(catalog: TierCatalog, env: str) -> list[Check]:
         same = f"({v} != '' && {was} != '' && quantity({v}).compareTo(quantity({was})) == 0)"
         checks.append(Check("limit", key, "max", f"{v} == '' || {same} || quantity({v}).compareTo(quantity({mx})) <= 0",
                             f"{cel(key + ' ')} + {v} + "
-                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift")))
+                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift"),
+                            f"{key} is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift"))
     # Limits never below requests: default not below defaultRequest, max not below default, for each container resource.
     # Structure, not a bound: never kept for a value that the object already held.
     for res in ("cpu", "memory"):
@@ -225,7 +235,8 @@ def _limits_checks(catalog: TierCatalog, env: str) -> list[Check]:
             key = f"limitRange.container.{high}.{res}"
             checks.append(Check("limit", key, "order",
                                 f"{lo} == '' || {hi} == '' || quantity({hi}).compareTo(quantity({lo})) >= 0",
-                                f"{cel(f'container {high} {res} ')} + {hi} + {cel(f' is below its {low} ')} + {lo}"))
+                                f"{cel(f'container {high} {res} ')} + {hi} + {cel(f' is below its {low} ')} + {lo}",
+                                f"container {high} {res} is below its {low}"))
     return checks
 
 
@@ -234,7 +245,9 @@ def _expiry_checks() -> list[Check]:
     for kind, key in EXPIRY_KEYS:
         out.append(Check(kind, key, "absent", f"!({cel(key)} in {_meta(kind)})",
                          "'Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry "
-                         "and cleanup.kyverno.io/ttl.'"))
+                         "and cleanup.kyverno.io/ttl.'",
+                         "Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry "
+                         "and cleanup.kyverno.io/ttl."))
     return out
 
 
