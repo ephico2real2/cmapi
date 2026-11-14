@@ -30,7 +30,9 @@ keycloak:
     realm: cmapi
     displayName: "cmapi (CRC)"
   realm:
-    portalRedirects: ["https://cmapi-portal.apps-crc.testing/*", "http://localhost:5173/*"]
+    # Exact URIs only (RFC 9700, section 2.1; #205): the two addresses of the portal's one page. No wildcard, and no localhost in
+    # the realm of a shared cluster (docs/15, "The redirect URIs of the portal").
+    portalRedirects: ["https://cmapi-portal.apps-crc.testing/", "https://cmapi-portal.apps-crc.testing/index.html"]
     docsRedirects: ["https://cmapi-api.apps-crc.testing/docs/oauth2-redirect"]
   sync:
     enabled: true

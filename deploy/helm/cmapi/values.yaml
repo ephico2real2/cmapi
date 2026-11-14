@@ -67,7 +67,8 @@ keycloak:
     displayName: cmapi
     apiVersion: k8s.keycloak.org/v2beta1
   realm:
-    portalRedirects: []            # https://portal host/*
+    # Exact redirect URIs. The chart refuses a wildcard, a fragment, and http on a host that is not localhost (RFC 9700, section 2.1; #205).
+    portalRedirects: []            # https://<portal host>/ and https://<portal host>/index.html: the portal sends the address of its page
     docsRedirects: []              # https://api host/docs/oauth2-redirect
     # The groups of docs/11, each with the client roles its members get.
     groups:
