@@ -53,7 +53,10 @@ def cel(value: Any) -> str:
         return "[" + ", ".join(cel(v) for v in value) + "]"
     if isinstance(value, bool):
         return "true" if value else "false"
-    return json.dumps(str(value))
+    text = str(value)
+    if any(0xD800 <= ord(c) <= 0xDFFF for c in text):
+        raise PolicyGenError("CEL strings must contain Unicode scalar values, not isolated surrogates")
+    return json.dumps(text, ensure_ascii=False)
 
 
 @dataclass(frozen=True)
@@ -114,9 +117,11 @@ def _value_rule(rule: KeyRule, value: str, domains: list[str]) -> tuple[str, str
                 f"{value}.split('@')[1].lowerAscii() in {cel([d.lower() for d in domains])}",
                 f"an address in {', '.join(domains)}")
     if rule.format == "url":
+        # Match metadata._governed's scheme, nonempty authority and Python isspace() checks.
+        # Go's URL parser adds restrictions (e.g. percent escapes) that Python does not impose.
+        whitespace = r"[\t-\r\x{1c}-\x{20}\x{85}\p{Z}]"
         return ("format",
-                f"isURL({value}) && url({value}).getScheme() in ['http', 'https'] && url({value}).getHost() != '' && "
-                f"!{value}.matches('\\\\s')",
+                f"{value}.matches({cel('(?i)^https?://[^/?#]+')}) && !{value}.matches({cel(whitespace)})",
                 "an http or https URL")
     return None
 
@@ -126,11 +131,11 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
     for kind, key in SYSTEM_REQUIRED:
         k, m = cel(key), _meta(kind)
         checks.append(Check(kind, key, "required", f"{_same(kind, key)} || ({k} in {m} && {m}[{k}] != '')",
-                            f"'the {kind} {key} is missing: cmapi writes it on each namespace it manages'"))
+                            cel(f"the {kind} {key} is missing: cmapi writes it on each namespace it manages")))
     k, m = cel(ENV_LABEL), _meta("label")
     checks.append(Check("label", ENV_LABEL, "derived", f"{_same('label', ENV_LABEL)} || ({k} in {m} && {m}[{k}] == {cel(env)})",
-                        f"'the label {ENV_LABEL} is ' + ({k} in {m} ? {m}[{k}] : 'missing') + "
-                        f"'; it must be {env}, the environment of this policy'"))
+                        f"{cel(f'the label {ENV_LABEL} is ')} + ({k} in {m} ? {m}[{k}] : 'missing') + "
+                        + cel(f"; it must be {env}, the environment of this policy")))
     constants = {"environment": env, "instance": instance}
     for kind in KINDS:
         for key, rule in keys.rules[kind].items():
@@ -149,7 +154,7 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 present = f"{k} in {m}"
                 good = f"{present} && {value} == {want}" if rule.required else f"!({present}) || {value} == {want}"
                 checks.append(Check(kind, key, "derived", f"{_same(kind, key)} || ({good})",
-                                    f"'{where} is ' + {shown} + '; cmapi sets it to {said}'"))
+                                    f"{cel(where + ' is ')} + {shown} + {cel('; cmapi sets it to ' + said)}"))
                 continue
             vr = _value_rule(rule, value, keys.email_domains)
             parts = []
@@ -162,6 +167,10 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 parts.append(prefix if rule.required else f"(!({k} in {m}) || {value} == '' || {prefix})")
             if not parts:
                 continue
+            if kind == "label":
+                # The Python metadata checker enforces Kubernetes label syntax before the value rule.
+                syntax = f"size({value}) <= 63 && {value}.matches({cel('^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$')})"
+                parts.append(f"(!({k} in {m}) || {value} == '' || ({syntax}))")
             words = "; ".join(w for w in ("required" if rule.required else "",
                                           vr[2] if vr else "",
                                           "the start of the namespace name, before its first '-'" if rule.namespace_prefix else "")
@@ -169,7 +178,7 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
             name = "required" if rule.required and not vr and not rule.namespace_prefix else \
                 (vr[0] if vr else "namespacePrefix")
             checks.append(Check(kind, key, name, f"{_same(kind, key)} || ({' && '.join(parts)})",
-                                f"'{where} is ' + {shown} + {cel('; it must be: ' + words)}"))
+                                f"{cel(where + ' is ')} + {shown} + {cel('; it must be: ' + words)}"))
     return checks
 
 
@@ -183,8 +192,8 @@ def _quota_checks(catalog: TierCatalog, env: str) -> list[Check]:
         same = f"(variables.update && has(oldObject.spec.hard) && {k} in {old} && {k} in {hard} && quantity({hard}[{k}]).compareTo(quantity({old}[{k}])) == 0)"
         good = f"!(has(object.spec.hard) && {k} in {hard}) || quantity({hard}[{k}]).compareTo(quantity({mx})) <= 0"
         checks.append(Check("quota", key, "max", f"{same} || {good}",
-                            f"'{key} ' + string({hard}[{k}]) + ' is above the {env} maximum of {b.max[key]}; "
-                            f"a bound of tiers.yaml, which approval does not lift'"))
+                            f"{cel(key + ' ')} + (has(object.spec.hard) && {k} in {hard} ? string({hard}[{k}]) : 'missing') + "
+                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift")))
     return checks
 
 
@@ -206,8 +215,8 @@ def _limits_checks(catalog: TierCatalog, env: str) -> list[Check]:
         was = f"(variables.update && has(oldObject.spec) ? ({_limit_value(*parts, obj='oldObject')}) : '')"
         same = f"({v} != '' && {was} != '' && quantity({v}).compareTo(quantity({was})) == 0)"
         checks.append(Check("limit", key, "max", f"{v} == '' || {same} || quantity({v}).compareTo(quantity({mx})) <= 0",
-                            f"'{key} ' + {v} + ' is above the {env} maximum of {b.max[key]}; "
-                            f"a bound of tiers.yaml, which approval does not lift'"))
+                            f"{cel(key + ' ')} + {v} + "
+                            + cel(f" is above the {env} maximum of {b.max[key]}; a bound of tiers.yaml, which approval does not lift")))
     # Limits never below requests: default not below defaultRequest, max not below default, for each container resource.
     # Structure, not a bound: never kept for a value that the object already held.
     for res in ("cpu", "memory"):
@@ -216,7 +225,7 @@ def _limits_checks(catalog: TierCatalog, env: str) -> list[Check]:
             key = f"limitRange.container.{high}.{res}"
             checks.append(Check("limit", key, "order",
                                 f"{lo} == '' || {hi} == '' || quantity({hi}).compareTo(quantity({lo})) >= 0",
-                                f"'container {high} {res} ' + {hi} + ' is below its {low} ' + {lo}"))
+                                f"{cel(f'container {high} {res} ')} + {hi} + {cel(f' is below its {low} ')} + {lo}"))
     return checks
 
 

@@ -70,12 +70,32 @@ Both designs measured these, each separately. The files are in `experiments/` an
 | A policy under `env/prod` ran for prod only; the other paths ran everywhere | A policy under `env/<env>` runs for `<env>` only |
 | Audit turned every finding of Kyverno into a warning | Audit turns a violation into a warning. An evaluation error, a missing report and a missing result stay errors |
 
+## Reviewer 1 (Codex `gpt-6.1-sol`) on head `c67a8f4`
+
+Codex reviewed the code against eight claims (`reviewer-1-report.md`; the full fixes and tests are
+`review-artifacts/all-fixes-and-tests.diff`). It found nine defects, each with a test. Its 47 tests (`cmapi/tests/core/test_review_212.py`)
+gave 26 failed and 21 passed on `c67a8f4`, run by the coordinator in this worktree, and 47 passed with the fixes. All nine are accepted
+and applied unchanged:
+
+| # | Finding | Fix |
+|---|---|---|
+| F1 | A non-BMP character in a configured value (`😀`) became a UTF-16 surrogate pair that the CLI refuses | `cel()` writes the character itself, and refuses an isolated surrogate |
+| F2 | The instance and environment names went into single-quoted CEL messages unencoded; `owner's instance` broke the bundle | Every message part goes through `cel()` |
+| F3 | `cmapi.net/team: aa-` passed the rendered pattern, but Python refuses it as a label value | The rendered metadata policy checks Kubernetes label syntax too |
+| F4 | The URL check used Go's URL parser, which refuses `%zz`, and `\s`, which misses a non-breaking space; Python does neither | A scheme and authority match, and Python's `isspace()` set |
+| F5 | `_held` treated equal numbers, booleans or nulls, and equal invalid quantities, as held | Only equal strings and valid equal amounts are held |
+| F6 | A changed LimitRange order (defaultRequest above default) was dropped when the upper key was unchanged | An `order` check is never held, as at admission |
+| F7 | `warn`, an unknown or missing result, exit 2 with a report, a bad `results`, and a wildcard policy with no result were lost | Each is a cmapi finding |
+| F8 | Findings were mapped to files by kind and name, not namespace | Kind, namespace and name |
+| F9 | `render` could overwrite a hand-written policy at a rendered path, or write through a symlinked `env/<env>` | A preflight of every path before any change |
+
 ## Proof
 
 | Test | Before (main) | After |
 |---|---|---|
 | `cmapi/tests/core/test_policygen.py` (25: each mode; a tier above the maximum; the index; the committed example bundle for each instance; the check refuses a hand edit; the owner's sample in each tier; the example folder `payments-dev`; each rule's message; Python and Kyverno refuse the same 7 values; a changed bound; prod expiry; an unmanaged namespace; the validator's findings; a value that Git holds; audit; the guard; the pinned version) | fails at import (no `core/policygen.py`) | 25 passed |
-| `cmapi/tests/core` | 227 passed | 252 passed |
+| `cmapi/tests/core/test_review_212.py` (Codex, 47) | 26 failed, 21 passed on `c67a8f4` | 47 passed |
+| `cmapi/tests/core` | 227 passed | 299 passed |
 | The reference job, in a virtual environment with only `examples/local/requirements.txt`, as CI runs it | | 251 passed |
 | `cmapi/tests/service` | | see the pull request |
 

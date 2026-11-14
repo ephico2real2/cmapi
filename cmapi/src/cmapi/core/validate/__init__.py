@@ -151,19 +151,36 @@ class CliValidator:
                            "-p", "--output-format", "json"])
         try:
             report = json.loads(r.stdout)
-            results = report["results"] or []
-        except (json.JSONDecodeError, KeyError, TypeError):
+            results = report["results"]
+            if not isinstance(results, list) or not all(isinstance(res, dict) for res in results):
+                raise ValueError("results must be a list of result objects")
+        except (ValueError, KeyError, TypeError):
             # The CLI stops with exit 2 and no report on a fault of its own (a panic, a policy it cannot read).
             tail = [ln for ln in (r.stderr or r.stdout).strip().splitlines() if ln.strip()]
             return [Finding("cmapi", "validator", "", f"kyverno exited {r.returncode} with no report: "
                                                       f"{(tail[0] if tail else '')[:200]}")]
         docs = {rel: yaml.safe_load(files[rel]) or {} for rel in checked}
-        by_object = {(d.get("kind"), (d.get("metadata") or {}).get("name")): rel for rel, d in docs.items()}
+        by_object = {(d.get("kind"), (d.get("metadata") or {}).get("namespace", ""),
+                      (d.get("metadata") or {}).get("name")): rel for rel, d in docs.items()}
         out: list[Finding] = []
+        if r.returncode not in (0, 1):
+            out.append(Finding("cmapi", "validator", "", f"kyverno exited {r.returncode}: {r.stderr[:200]}"))
+        if not results:
+            out.append(Finding("cmapi", "validator", "", "kyverno returned no results"))
         seen: set[tuple[str, str]] = set()
         for res in results:
-            obj = (res.get("resources") or [{}])[0]
-            rel = by_object.get((obj.get("kind"), obj.get("name")), "")
+            if not isinstance(res.get("policy"), str):
+                out.append(Finding("cmapi", "validator", "", "kyverno result has no policy name"))
+                continue
+            resources = res.get("resources")
+            if not isinstance(resources, list) or len(resources) != 1 or not isinstance(resources[0], dict):
+                out.append(Finding("cmapi", "validator", "", "kyverno result has no unique resource"))
+                continue
+            obj = resources[0]
+            rel = by_object.get((obj.get("kind"), obj.get("namespace", ""), obj.get("name")), "")
+            if not rel:
+                out.append(Finding("cmapi", "validator", "", "kyverno result refers to an unknown resource"))
+                continue
             seen.add((res.get("policy", ""), rel))
             if res.get("result") == "error":
                 # The policy could not be evaluated (a CEL error, a value that is not a quantity): a fault of the bundle or
@@ -171,7 +188,11 @@ class CliValidator:
                 out.append(Finding("cmapi", res.get("policy", ""), rel,
                                    f"kyverno could not evaluate the policy: {res.get('message') or ''}"[:300]))
                 continue
+            if res.get("result") in ("pass", "skip"):
+                continue
             if res.get("result") != "fail":
+                out.append(Finding("cmapi", res.get("policy", ""), rel,
+                                   f"kyverno returned unexpected result {res.get('result')!r}: {res.get('message') or ''}"[:300]))
                 continue
             check = self.index.get(res.get("policy", ""))
             if check and check.get("key") and rel and _held(check, docs[rel], _previous_doc(previous, rel)):
@@ -191,14 +212,15 @@ def _previous_doc(previous: Mapping[str, str | None], rel: str) -> dict[str, Any
 
 def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[str, Any] | None) -> bool:
     """True when the key that a rendered policy checks has the same value in the previous version of the object."""
-    if old is None:
+    if old is None or not check.get("key") or check.get("rule") == "order":
         return False
     kind, key = check["kind"], str(check["key"])
     if kind in ("label", "annotation"):
         field = "labels" if kind == "label" else "annotations"
         a = ((new.get("metadata") or {}).get(field) or {})
         b = ((old.get("metadata") or {}).get(field) or {})
-        return (key in a) == (key in b) and a.get(key) == b.get(key)
+        return (key not in a and key not in b) or \
+            (isinstance(a.get(key), str) and isinstance(b.get(key), str) and a[key] == b[key])
     if kind == "quota":
         a = ((new.get("spec") or {}).get("hard") or {}).get(key)
         b = ((old.get("spec") or {}).get("hard") or {}).get(key)
@@ -213,11 +235,11 @@ def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[
 
 
 def _same_amount(a: str, b: str) -> bool:
-    """"1" and "1000m" are one amount; a value that is not a quantity is the same only as the same text."""
+    """Equivalent quantities are one amount; invalid quantities never prove equality."""
     try:
         return qty(a) == qty(b)
     except ValueError:
-        return a == b
+        return False
 
 
 def _limit(doc: Mapping[str, Any], kind: str, part: str, res: str) -> str | None:
@@ -236,6 +258,8 @@ def _matched_kinds(policies: Mapping[str, str]) -> dict[str, set[str]]:
                 continue
             rules = (((doc.get("spec") or {}).get("matchConstraints") or {}).get("resourceRules") or [])
             kinds = {_PLURAL[r] for rule in rules for r in (rule.get("resources") or []) if r in _PLURAL}
+            if any("*" in (rule.get("resources") or []) for rule in rules):
+                kinds.update(CHECKED.values())
             name = (doc.get("metadata") or {}).get("name")
             if name and kinds:
                 out[name] = kinds

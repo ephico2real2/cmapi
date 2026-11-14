@@ -71,6 +71,21 @@ def main(argv: list[str]) -> None:
                      "run cmapi-tools policies render")
         print(f"{len(want)} rendered policy files match the configuration")
         return
+    # Preflight the entire change before touching any file. Ownership of the environment alone
+    # does not grant ownership of a hand-written policy at a generated filename.
+    for rel in sorted(set(have) | set(want)):
+        parts = rel.split("/")
+        if len(parts) < 3 or parts[0] != "env" or parts[1] not in environments or \
+                any(p in ("", ".", "..") for p in parts):
+            sys.exit(f"render path is outside the instance's environment folders: {rel}")
+        f = root
+        for part in (None, *parts):
+            if part is not None:
+                f = f / part
+            if f.is_symlink():
+                sys.exit(f"refusing to render through symlink: {f}")
+        if rel in want and f.exists() and rel not in have:
+            sys.exit(f"refusing to overwrite hand-written policy: {f}")
     for rel in sorted(set(have) - set(want)):
         (root / rel).unlink()
     for rel, text in want.items():
