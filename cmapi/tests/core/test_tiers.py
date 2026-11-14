@@ -295,3 +295,49 @@ def test_the_order_check_covers_each_kind_of_limit():
         c.limits_for("rnd", "custom", {"pvc": {"min": {"storage": "60Gi"}}}, SIZES)          # the tier's max is 50Gi
     assert e.value.code == "limit-order-invalid" and e.value.data["kind"] == "pvc"
     assert c.limits_for("rnd", "custom", {"pvc": {"min": {"storage": "1Gi"}}}, SIZES)["pvc"] == {"max": {"storage": "50Gi"}, "min": {"storage": "1Gi"}}
+
+
+# ---- from the review of #211 (Codex, findings F3 to F5)
+@pytest.mark.parametrize("amount", ["4e0", "4E+0", "4.", "+4", "4.0", "4000m"])
+def test_each_spelling_of_a_quantity_that_kubernetes_takes_is_read_as_its_amount(cat, amount):
+    limits = {"container": {"max": {"cpu": amount}}}
+    rq, lr = cat.render(namespace="review-dev", cluster_id="CRC", instance="nonprod", env="dev", tier="custom", request_id="r",
+                        hard=SIZES, limits=limits)
+    assert lr["spec"]["limits"][0]["max"]["cpu"] == amount
+    assert cat.beyond("dev", "custom", rq["spec"]["hard"], cat.limits_for("dev", "custom", limits, SIZES)) == {
+        "limitRange.container.max.cpu": {"tier": "2", "requested": amount}}
+
+
+def test_a_quantity_keeps_each_digit_and_rounds_up_to_the_nano_unit_as_kubernetes_does(cat):
+    assert qty("2.0000000000000000000000000001") > qty("2") and qty("2.0000000000000000000000000001") == qty("2000000001n")
+    assert qty("500.00000000000000000000000001Gi") > qty("500Gi") and qty("1Ei") == 2 ** 60 and qty("1E") == 10 ** 18
+    assert qty("1e3") == qty("1k") and qty(".5") == qty("500m") and qty("1E3") == 1000
+    hard = cat.quota_for("dev", "custom", SIZES)
+    tiny = cat.limits_for("dev", "custom", {"container": {"max": {"cpu": "2.0000000000000000000000000001"}}}, hard)
+    assert list(cat.beyond("dev", "custom", hard, tiny)) == ["limitRange.container.max.cpu"]      # a new value, not the tier's 2
+
+
+def test_rounding_cannot_reuse_an_approval_for_a_larger_value():
+    r = raw()
+    r["custom"]["max"]["requests.storage"] = "300Gi"
+    with pytest.raises(TierError) as e:
+        TierCatalog(r, ALL).quota_for("dev", "custom", {**SIZES, "requests.storage": "500.00000000000000000000000001Gi"},
+                                      {"requests.storage": "500Gi"})
+    assert e.value.code == "custom-out-of-bounds"
+
+
+def test_a_resource_that_cannot_overcommit_needs_equal_defaults():
+    r, gpu = raw(), "nvidia.com/gpu"
+    for part in ("defaultRequest", "default"):
+        r["overridable"].append(f"limitRange.container.{part}.{gpu}")
+        r["custom"]["max"][f"limitRange.container.{part}.{gpu}"] = "4"
+    c = TierCatalog(r, ALL)
+    with pytest.raises(TierError) as e:
+        c.limits_for("dev", "custom", {"container": {"defaultRequest": {gpu: "1"}, "default": {gpu: "2"}}}, SIZES)
+    assert e.value.code == "limit-order-invalid" and e.value.data["resources"] == [gpu]
+    assert c.limits_for("dev", "custom", {"container": {"defaultRequest": {gpu: "1"}, "default": {gpu: "1"}}}, SIZES)
+    bad = raw()
+    bad["defaults"]["limitRange"]["container"]["default"][gpu] = "2"
+    bad["defaults"]["limitRange"]["container"]["defaultRequest"][gpu] = "1"
+    with pytest.raises(CatalogError, match="cannot overcommit"):
+        TierCatalog(bad, ALL)

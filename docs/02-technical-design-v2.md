@@ -1258,8 +1258,8 @@ The Kyverno bundle does not read the catalog. It checks what it always checked (
                 "pvc": {"max": {"storage": "100Gi"}}}}
 ```
 
-- **Not valid, refused.** A limit key that is not overridable; a value outside the environment's bounds or off its step; container values that are not in the order min ≤ defaultRequest ≤ default ≤ max; a container max above requests.cpu or requests.memory of the same request; limitRange with a named tier.
-- **Beyond the tier.** A value that differs from the tier's value, compared as a quantity ("1" equals "1000m"). The planner sets the facts beyondTier, beyondTierKeys and networkExposure (the request raises services.loadbalancers or services.nodeports). The reference rules add one approver-platform approval for beyondTier and one more for networkExposure, on top of the environment's rule. Auto-approval covers such a request only when a policy's match says beyondTier: true.
+- **Not valid, refused.** A limit key that is not overridable; a value outside the environment's bounds or off its step; values of one resource that are not in the order min ≤ defaultRequest ≤ default ≤ max; a default that differs from its defaultRequest for a resource that cannot overcommit (an extended resource or huge pages); a container max above requests.cpu or requests.memory of the same request; limitRange with a named tier.
+- **Beyond the tier.** A value that differs from the tier's value, compared as Kubernetes reads a quantity ("1" equals "1000m"; core/tiers.py qty keeps each digit and rounds up to the nano-unit, as the API server does). The planner sets the facts beyondTier, beyondTierKeys and networkExposure (the new quota has more services.loadbalancers or services.nodeports than Git holds; for a new namespace, more than the tier gives). The reference rules add one approver-platform approval for beyondTier and one more for networkExposure, on top of the environment's rule. Auto-approval covers such a request only when a policy's match says beyondTier: true. When no rule that reads one of the three facts is true for such a request, the engine adds one approver of defaults.group, so a file with no beyond-tier rule does not open the gate. A rule that means no extra approval says add: 0.
 - **Shown.** The plan, the dry run and the request (PlanView.beyondTier, ChangeRequest.beyondTier) list each key with the tier's value and the requested value, and the approvals that those rules add.
 - **Recorded.** The rendered ResourceQuota and LimitRange each name their own beyond-tier keys in the annotation cmapi.net/beyond-tier, a system key. cmapi.net/request-id on the same object is the request that last changed it.
 - **A later change.** PATCH merges quota and limitRange over the values that Git holds, key by key. Only a value that differs from the tier and from Git is beyond the tier again, so a label change on a namespace with approved overrides needs no extra approval. The tier's value removes an override. A change to a named tier drops each override.
@@ -1810,8 +1810,7 @@ autoApproval:
 
 **Guards that no policy can switch off.** A request matching a policy still goes to humans when any of these holds:
 
-- The action is a delete. Deletes are never auto-approved.
-- The request has a value beyond its tier (beyondTier), and the policy's match does not say beyondTier: true. The guard is beyond-tier.
+- The action is a delete. Deletes are never auto-approved. The same holds for a request with a value beyond its tier (beyondTier), unless the policy's match says beyondTier: true (the guard is beyond-tier).
 - A namespace pattern or threshold added approvals: capacity warn, request-to-peak ratio, quota increase over 100%, a sensitive label key, or a critical-\* namespace.
 - Placement or the capacity check is anything other than fits on fresh data.
 - The Plan has warnings.

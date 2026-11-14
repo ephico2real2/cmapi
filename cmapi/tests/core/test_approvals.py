@@ -98,8 +98,18 @@ def test_auto_approval_covers_a_value_beyond_the_tier_only_when_the_policy_says_
     raw = yaml.safe_load((ex / "config/approval-rules.yaml").read_text())
     raw["thresholds"] = [t for t in raw["thresholds"] if t["when"] not in ("beyondTier", "networkExposure")]
     f = facts(environment="rnd", namespace="payments-rnd", tier="small", beyondTier=True, beyondTierKeys=["requests.storage"])
-    r = ApprovalRules(raw, ALL_ENVS).decide(f)            # no threshold adds an approver, and still no auto-approval
-    assert r.auto is None and r.auto_fallback == "beyond-tier" and [(s.group, s.count) for s in r.slots] == [("approver-platform", 1)]
+    r = ApprovalRules(raw, ALL_ENVS).decide(f)            # no rule reads beyondTier: one approver of defaults.group, no auto-approval
+    assert r.auto is None and r.auto_fallback == "beyond-tier" and [(s.group, s.count) for s in r.slots] == [("approver-platform", 2)]
+    assert "beyond the tier, and no rule reads beyondTier: +1 approver-platform" in r.reasons
+    change = {**f, "action": "update", "tier": "custom"}      # an rnd change needs 0 approvals, and a value beyond the tier still needs 1
+    r = ApprovalRules(raw, ALL_ENVS).decide(change)
+    assert r.auto is None and [(s.group, s.count, s.reason) for s in r.slots] == [("approver-platform", 1, "Value beyond the tier")]
+    assert ApprovalRules(raw, ALL_ENVS).added_for(change, BEYOND_FACTS) == list(r.slots)
+    # a rule can say that no extra approval is needed, and a policy can say that it covers such a request: both are explicit
+    raw["thresholds"].append({"when": "beyondTier", "add": 0})
+    r = ApprovalRules(raw, ALL_ENVS).decide(change)
+    assert r.auto == "none-required" and r.slots == () and "threshold beyondTier: +0 approver-platform" in r.reasons
+    assert ApprovalRules(raw, ALL_ENVS).decide(f).auto_fallback == "beyond-tier"
     next(p for p in raw["autoApproval"]["policies"] if p["name"] == "baseline-rnd-namespace")["match"]["beyondTier"] = True
     assert ApprovalRules(raw, ALL_ENVS).decide(f).auto == "auto:baseline-rnd-namespace"
     # with the reference rules the threshold stops it first, and the guard that is named is the specific one

@@ -288,8 +288,10 @@ class Pipeline:
         # was approved before is not beyond the tier again.
         beyond = {k: v for k, v in self.cfg.tiers.beyond(env, tier, hard, limit_range).items()
                   if k not in approved or qty(approved[k]) != qty(v["requested"])}
-        raised = [k for k, v in beyond.items()
-                  if k in EXPOSURE_KEYS and qty(v["requested"]) > qty(approved.get(k) or v["tier"] or "0")]
+        # Network exposure: the new quota has more load balancers or NodePorts than Git holds (for a new namespace: than the
+        # tier gives). It does not depend on the beyond-tier keys: a change to a tier with a higher value raises it too.
+        exposure_base = (old_quota or {}) if old_tier else resolved.quota
+        raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
         facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)
         beyond_view = None

@@ -18,7 +18,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal, localcontext
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -34,15 +34,31 @@ _SUFFIX = {
     "Ki": Decimal(2) ** 10, "Mi": Decimal(2) ** 20, "Gi": Decimal(2) ** 30,
     "Ti": Decimal(2) ** 40, "Pi": Decimal(2) ** 50, "Ei": Decimal(2) ** 60,
 }
-_QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]+)?)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E)?$")
+_QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?[0-9]+)?$")
+_NANO = Decimal("1e-9")
 
 
 def qty(value: str | int | float) -> Decimal:
-    """Parse a Kubernetes quantity ("500m", "16", "32Gi") to a Decimal in base units."""
+    """Parse a Kubernetes quantity ("500m", "16", "32Gi", "4e0") to a Decimal in base units, as the API server reads it.
+
+    Two values that this function gives as equal are one amount for Kubernetes, and no others are: the approval of a value
+    beyond the tier depends on it. So no digit is lost in the multiplication (Decimal's default is 28 digits), and a fraction
+    below one nano-unit is rounded up, as apimachinery's ParseQuantity does ("2.0000000000000000000000000001" is 2000000001n).
+    """
     m = _QTY.fullmatch(str(value).strip())
     if not m:
         raise ValueError(f"not a Kubernetes quantity: {value!r}")
-    return Decimal(m.group(1)) * _SUFFIX[m.group(2) or ""]
+    suffix = m.group(2) or ""
+    if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
+        amount = Decimal(m.group(1) + suffix)
+    else:
+        number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+        with localcontext() as exact:
+            exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
+            amount = number * factor
+    with localcontext() as exact:
+        exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
+        return amount.quantize(_NANO, rounding=ROUND_CEILING)
 
 
 # --------------------------------------------------------------------------- limit keys
@@ -78,6 +94,18 @@ def flatten_limits(limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None)
 def _same(a: str | None, b: str | None) -> bool:
     """Two quantities are the same amount: "1" and "1000m" are, a missing value and a value are not."""
     return (a is None and b is None) or (a is not None and b is not None and qty(a) == qty(b))
+
+
+def _unequal_fixed_defaults(parts: Mapping[str, Mapping[str, str]]) -> list[str]:
+    """The resources of one limit kind whose default differs from its defaultRequest, and that Kubernetes does not let differ.
+
+    ValidateLimitRange refuses the object for a resource that cannot overcommit: an extended resource (nvidia.com/gpu) or huge
+    pages. IsOvercommitAllowed is true only for a native resource (no "/", or a kubernetes.io/ name) that is not hugepages-*.
+    """
+    defaults, requests = parts.get("default", {}), parts.get("defaultRequest", {})
+    return sorted(res for res in defaults.keys() & requests.keys()
+                  if (res.startswith("hugepages-") or ("/" in res and "kubernetes.io/" not in res))
+                  and not _same(defaults[res], requests[res]))
 
 
 # --------------------------------------------------------------------------- errors
@@ -315,6 +343,9 @@ class TierCatalog:
                                 p.append(f"{where}: limitRange.{kind}.{part}.{k}: {exc}")
                 if len(p) > before:
                     continue
+                for kind, parts in lr.items():
+                    for res in _unequal_fixed_defaults(parts):
+                        p.append(f"{where}: {kind} {res} defaultRequest must equal default: the resource cannot overcommit")
                 if t.custom:
                     if sizable & set(quota):
                         p.append(f"{where}: a custom tier cannot fix sizable keys {sorted(sizable & set(quota))}")
@@ -468,6 +499,10 @@ class TierCatalog:
             kind, part, res = limit_key_parts(key)        # type: ignore[misc]  # overridable keys were checked at load
             out.setdefault(kind, {}).setdefault(part, {})[res] = value
         for kind in sorted(out):
+            unequal = _unequal_fixed_defaults(out[kind])
+            if unequal:
+                raise TierError("limit-order-invalid", f"{LIMIT_KINDS[kind]} {unequal} cannot overcommit: defaultRequest must "
+                                "equal default", kind=kind, resources=unequal)
             for res in sorted({res for vals in out[kind].values() for res in vals}):
                 chain = {part: out[kind][part][res] for part in LIMIT_PARTS if res in out[kind].get(part, {})}
                 if [qty(v) for v in chain.values()] != sorted(qty(v) for v in chain.values()):

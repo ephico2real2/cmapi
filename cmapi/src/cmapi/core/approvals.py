@@ -119,10 +119,28 @@ class ApprovalRules:
     def is_protected(self, labels: Mapping[str, str]) -> bool:
         return any(labels.get(k) == v for k, _, v in (p.partition("=") for p in self.protected))
 
+    def _added(self, facts: Mapping[str, Any]) -> list[tuple[Slot, str, frozenset[str]]]:
+        """What the thresholds add for these facts: (slot, the line for `reasons`, the facts that the rule reads).
+
+        A request beyond its tier always gets an answer from a rule. When no threshold that reads a beyond-tier fact is true,
+        one approver of defaults.group is added: an instance that removes the rule does not open the gate by accident. A
+        rule that means no extra approval says so with `add: 0`.
+        """
+        out = []
+        for expr, t in self.thresholds:
+            if expr(facts):
+                g, n = t.get("group", self.defaults["group"]), int(t.get("add", 1))
+                out.append((Slot(g, n, t.get("reason") or expr.source), f"threshold {expr.source}: +{n} {g}",
+                            frozenset(expr.names())))
+        if facts.get("beyondTier") and not any(names & BEYOND_FACTS for _, _, names in out):
+            g = self.defaults["group"]
+            out.append((Slot(g, 1, "Value beyond the tier"), f"beyond the tier, and no rule reads beyondTier: +1 {g}",
+                        frozenset({"beyondTier"})))
+        return out
+
     def added_for(self, facts: Mapping[str, Any], names: frozenset[str]) -> list[Slot]:
-        """The approvers that the thresholds reading one of the named facts add for these facts, one slot for each rule."""
-        return [Slot(t.get("group", self.defaults["group"]), int(t.get("add", 1)), t.get("reason") or expr.source)
-                for expr, t in self.thresholds if expr.names() & names and expr(facts)]
+        """The approvers that the rules reading one of the named facts add for these facts, one slot for each rule."""
+        return [slot for slot, _, read in self._added(facts) if read & names and slot.count]
 
     # ---- decide
     def decide(self, facts: Mapping[str, Any], *, paused: bool = False,
@@ -148,11 +166,10 @@ class ApprovalRules:
                         reasons.append(f"pattern {p['match']}: {count} from {group}")
                     break
         slots = [Slot(group, count, reasons[-1])] if count else []
-        for expr, t in self.thresholds:
-            if expr(facts):
-                g = t.get("group", self.defaults["group"])
-                slots.append(Slot(g, int(t.get("add", 1)), t.get("reason") or expr.source))
-                reasons.append(f"threshold {expr.source}: +{t.get('add', 1)} {g}")
+        for slot, line, _ in self._added(facts):
+            reasons.append(line)
+            if slot.count:                    # `add: 0` is a rule that answers and adds no approver
+                slots.append(slot)
                 added = True
         merged: dict[str, Slot] = {}
         for s in slots:

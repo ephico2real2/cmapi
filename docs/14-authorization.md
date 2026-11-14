@@ -171,7 +171,7 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:180`, `:319` |
+| Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:177`, `:318` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:98`, `:114` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:87`, `:98`, `:110` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:128`, `:157`, `:171`, `:187`, `:211` |
@@ -185,7 +185,7 @@ The tests `test_environment_role_cannot_*` cover each route group (`test_review_
 
 ### Step 5: who can approve
 
-An approval has more checks than the permission (`approvals.py:287-314`). They are in this order:
+An approval has more checks than the permission (`approvals.py:307-334`). They are in this order:
 
 | Check | Refusal |
 |---|---|
@@ -199,7 +199,7 @@ An approval rule names a group by its short name, for example `approver-platform
 
 ### Step 6: the identity of a requester
 
-A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:127-129`). These refusals are 422, because the token is valid and the request cannot be recorded:
+A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:124-126`). These refusals are 422, because the token is valid and the request cannot be recorded:
 
 | Code | When |
 |---|---|
@@ -243,7 +243,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 | Part of the design | State |
 |---|---|
 | Routes for quotas, service accounts, grants, adoption, capacity, configuration, cluster onboarding, reload, events and audit export | Not built. Their permissions exist in `authz.py`, and no route uses them |
-| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:294-297`. No route accepts a relayed approval |
+| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:314-317`. No route accepts a relayed approval |
 | A scope by team or by namespace name | Not designed. A role with `namespaces:create` can ask for each name that is not reserved (`authz.py:8-10`) |
 
 ## Proof

@@ -242,3 +242,46 @@ def test_an_approved_change_of_limits_opens_a_pull_request_with_the_planned_file
     limits = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits")]
     assert limits["spec"]["limits"][0]["max"] == {"cpu": "4", "memory": "8Gi"}
     assert limits["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.cpu,limitRange.container.max.memory"
+
+
+# ---- from the review of #211 (Codex, findings F2 and F5)
+
+def with_nodeports_default(world, small: str = "0") -> None:
+    """A catalog whose tiers give one NodePort, and `small` the given count."""
+    from pathlib import Path
+    from cmapi.core.tiers import TierCatalog
+    client, ctx, git, kube, validator, keys = world
+    raw = yaml.safe_load((Path(ctx.settings.config_dir) / "tiers.yaml").read_text())
+    raw["defaults"]["quota"]["services.nodeports"] = "1"
+    raw["tiers"]["small"]["quota"]["services.nodeports"] = small
+    ctx.cfg.tiers = ctx.pipeline.renderer.catalog = TierCatalog(raw, set(ctx.cfg.allowed_environments))
+
+
+@pytest.mark.parametrize("first,small,change", [
+    (custom(quota={**SIZES, "services.nodeports": "0"}), "1", {"quota": {"services.nodeports": "1"}}),   # back up to the tier's value
+    ({**NS, "tier": "small"}, "0", {"tier": "custom", "quota": SIZES}),                                   # a named tier with 0 to custom with 1
+    (custom(quota={**SIZES, "services.nodeports": "0"}), "1", {"tier": "small"}),                         # custom with 0 to a named tier with 1
+])
+def test_more_node_ports_than_git_holds_is_network_exposure_also_at_the_tiers_value(world, first, small, change):
+    client, ctx, git, kube, validator, keys = world
+    with_nodeports_default(world, small)
+    r = client.post(URL, json=first, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 202, r.text
+    if r.json()["status"] == "pending_approval":
+        approve_and_sync(world, r.json()["requestId"], approvals=len(PLATFORM[:r.json()["approval"]["remaining"][0]["needed"]]))
+    else:
+        run_jobs(ctx)
+    etag = client.get(ONE, headers=auth(keys, "ola", **OLA)).json()["etag"]
+    plan = patch(world, etag, change)
+    assert plan.status_code == 200, plan.text
+    assert rendered(plan.json()["files"], "resourcequota.yaml")["spec"]["hard"]["services.nodeports"] == "1"
+    assert any("networkExposure" in reason for reason in plan.json()["approval"]["reasons"]), plan.json()["approval"]
+    assert plan.json()["approval"]["auto"] is None and plan.json()["approval"]["slots"][0]["count"] >= 1
+
+
+def test_a_value_that_differs_from_the_tier_by_less_than_decimal_precision_is_beyond_the_tier(world):
+    etag = synced(world, custom(), approvals=1)
+    r = patch(world, etag, {"limitRange": {"container": {"max": {"cpu": "2.0000000000000000000000000001"}}}})
+    assert r.status_code == 200, r.text
+    assert [k["key"] for k in r.json()["beyondTier"]["keys"]] == ["limitRange.container.max.cpu"]
+    assert r.json()["approval"]["auto"] is None and r.json()["approval"]["slots"][0]["count"] == 1
