@@ -19,6 +19,8 @@ imagePullPolicy: IfNotPresent
 instance:
   name: nonprod
   displayName: Non-production
+  # The names are the owner's choice. One has a meaning in code: a namespace in "prod" never expires, and the
+  # policies of policies/env/prod/ run for "prod" only (docs/02, "The names of instances and environments"; #232).
   allowedEnvironments: [rnd, dev]
   # The instance's one origin, on the front door (templates/portal.yaml): the portal at /, the API under /api/v1,
   # Swagger UI at /docs. Both are https://<route.host or ingress.host>; the portal's config.json and the email links use them.
