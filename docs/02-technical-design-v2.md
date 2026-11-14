@@ -998,10 +998,10 @@ Callers can set any number of labels and annotations on namespaces and service a
 | System | cmapi.net/cluster-id, managed, request-id, requested-by, requested-by-user, tier, expiry; cmapi.net/expires-at | The renderer | Refused (422 reserved\_key). Tier and TTL change through their own fields. |
 | Operator only | cmapi.net/protected | cmapi-operator and above | Refused for requesters (403 forbidden) |
 | Platform reserved | kubernetes.io/, \*.kubernetes.io/, k8s.io/, openshift.io/, \*.openshift.io/, argocd.argoproj.io/, \*.kyverno.io/, redhatcop.redhat.io/ | Kubernetes, OpenShift and platform controllers | Refused (422 reserved\_key) |
-| Governed | cmapi.net/team (label, required), cmapi.net/cost-center (label), cmapi.net/team-dl (annotation, required) | The caller | Allowed; the value is checked against a pattern, and team must be one the caller is bound to |
-| Team | Everything else, limited to the allowed prefixes | The caller | Allowed within the limits below |
+| Governed | The keys of `requiredLabels`, `requiredAnnotations` and the `keys` of `extraLabels` and `extraAnnotations`: cmapi.net/team (label, required), cmapi.net/team-dl (annotation, required), cmapi.net/cost-center, cmapi.net/app, cmapi.net/rightsizing (labels) | The caller, or cmapi for a key with `value.from` | Allowed; the value is checked against the key's rule |
+| Team | Any other key under a prefix of `allowOther`, for each kind | The caller | Allowed within the limits of `allowOther` |
 
-**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle's metadata-keys policy, so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses.
+**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle's metadata-keys policy, so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses, and the API document (`/openapi.json`) describes the `labels` and `annotations` of a namespace from it.
 
 ```yaml
 # cluster-configs/policies/metadata-keys.yaml
@@ -1010,21 +1010,49 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
-governed:
-  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; not checked against the caller
-  cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
-  cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
-  cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-  cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
-team:
-  allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
-  maxLabels: 50
-  maxAnnotations: 50
-  maxAnnotationValueBytes: 4096
-  maxAnnotationBytesTotal: 65536
+# Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+# it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+# only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+# another value. allowOther admits any other key under a prefix ("" allows unprefixed keys), within the limits.
+requiredLabels:
+  cmapi.net/team:        {pattern: "^[a-z0-9-]{2,40}$", description: "Ownership and cost; any team, not checked against the caller", example: payments}
+requiredAnnotations:
+  cmapi.net/team-dl:     {format: email-in-domains, description: "The team's mail list, an address in one of emailDomains", example: payments-team@ephico2real.com}
+extraLabels:
+  keys:
+    cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", example: cc-4410}
+    cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", description: "Links an app's environments"}
+    cmapi.net/rightsizing: {pattern: "^(auto|manual)$", description: "Opt-in to automatic rnd and qa decreases"}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50}
+extraAnnotations:
+  keys: {}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+# Read only when an existing namespace is adopted (story #26): a label and the values that mark a namespace that
+# another tool made. A requester cannot set these keys. The owner's decision (#228): the organisation's own
+# cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
+adoptionLabels:
+  company.net/provisioner: {recognise: [cluster-configs]}
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
-emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
+# The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
+# and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
+emailDomains: [ephico2real.com]
 ```
+
+**The four stanzas (#215).** `requiredLabels` and `requiredAnnotations` name the keys that each namespace carries. `extraLabels` and `extraAnnotations` name optional keys in `keys`, and `allowOther` admits any other key under one of its prefixes, within its limits (`max` for each kind; `maxValueBytes` and `maxBytesTotal` for annotations). A key can be a label and an annotation at once, with a rule for each. Each key's rule takes at most one of these, and optional `namespacePrefix`, `description` and `example`:
+
+| Rule | Meaning |
+| --- | --- |
+| `value: {from: namespace \| environment \| cluster \| instance}` | cmapi sets the value from the request's target. A request may send the same value, never another and never a removal (`derived_key`) |
+| `pattern` | A regular expression that the whole value matches |
+| `enum` | A list of the allowed values |
+| `format` | `email-in-domains` (an address in one of `emailDomains`), or `url` (an http or https URL, annotations only: a label value cannot hold a URL) |
+| `namespacePrefix: true` | The namespace name starts with the value and a `-` (the owner's mnemonic: `abc-rnd` starts with `abc-`) |
+
+A required key that is missing or empty, or a value that breaks its rule, refuses the plan with one `policy-violation` problem that lists each key and its rule. The loader refuses a file that declares a system, operator-only or reserved key, gives a key two kinds of rule, puts `format: url` on a label, or still has the stanzas `governed` and `team` of the old format: an old file stops the start, so a required key never silently stops being required. `adoptionLabels` names the keys and values that mark a namespace made by another tool (story #26, adoption); a requester cannot set them. `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample company configuration (namespace `abc-rnd`: `name` and `company.net/app-environment` derived, `company.net/mnemonic`, `lob` and `cl` required, two optional keys, `company.net/provisioner: cluster-configs` for adoption).
+
+cmapi's own `cmapi.net/env` stays beside a company key such as `company.net/app-environment`: the first is cmapi's system key, which the approval rules, Kyverno and the instance boundary read; the second is the company's label, derived from the same environment (the owner's decision on #215).
+
+Not built yet: the Kyverno policies from the same stanzas (#212; the bundle's policy still names cmapi.net/team, cmapi.net/cluster-id and cmapi.net/team-dl), the portal's form (Wave 6), and a finding for an existing namespace that misses a new required key (the Policies tab, story #26).
 
 cmapi.net/team is required ownership and cost metadata. Any value matching the pattern is accepted from any caller; it is not checked against the caller's roles or groups (mustMatchBinding is retired).
 

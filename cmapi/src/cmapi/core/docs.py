@@ -348,11 +348,13 @@ def curl_sample(request: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE) -> dict[str, Any]:
+def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE,
+                  metadata: Any = None) -> dict[str, Any]:
     """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation.
 
     The routes declare their problem examples at import, with the default type base. `problem_base` is the base of this
-    instance (instance.yaml `problems.typeBase`), so each example shows the type that this instance answers."""
+    instance (instance.yaml `problems.typeBase`), so each example shows the type that this instance answers. `metadata`
+    (core/metadata.py) is this instance's metadata-keys.yaml: the labels and annotations of a namespace say its keys."""
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
@@ -367,8 +369,37 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
             op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
     _document_validation_problem(spec)
+    if metadata is not None:
+        _document_metadata(spec, metadata)
     add_recorded_examples(spec, load_samples())
     return spec if problem_base == BASE else _with_type_base(spec, problem_base)
+
+
+def metadata_description(keys: Any, kind: str) -> str:
+    """The keys of one kind, from metadata-keys.yaml (#215): the same rules that the plan checks."""
+    rules = keys.rules[kind]
+    def listed(items):
+        return "; ".join(f"`{k}` ({r.text(keys.email_domains)})" for k, r in items) or "none"
+    required = [(k, r) for k, r in rules.items() if r.required and not r.derived]
+    extra = [(k, r) for k, r in rules.items() if not r.required]
+    derived = [(k, r) for k, r in rules.items() if r.derived]
+    other = keys.allow_other[kind]
+    prefixes = ", ".join(f"`{p}/`" if p else "no prefix" for p in other.prefixes) or "none"
+    parts = [f"Required: {listed(required)}.", f"Optional: {listed(extra)}.",
+             f"Any other key with {prefixes}, at most {other.max}."]
+    if derived:
+        parts.append(f"Set by cmapi, not by the requester: {listed(derived)}. A request may send the same value, never another.")
+    return " ".join(parts)
+
+
+def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
+    """The labels and annotations of NamespaceCreate and NamespacePatch name this instance's keys and rules."""
+    schemas = spec.get("components", {}).get("schemas", {})
+    for schema, prefix in (("NamespaceCreate", ""), ("NamespacePatch", "Merge patch; null removes a key. ")):
+        props = (schemas.get(schema) or {}).get("properties") or {}
+        for field, kind in (("labels", "label"), ("annotations", "annotation")):
+            if field in props:
+                props[field]["description"] = prefix + metadata_description(keys, kind)
 
 
 def _with_type_base(node: Any, problem_base: str) -> Any:
