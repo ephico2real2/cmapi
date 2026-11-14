@@ -181,6 +181,20 @@ def test_the_chart_gives_the_portal_client_exact_redirect_uris(docs):
     ("portalRedirects", "http://cmapi-portal.apps-crc.testing/", "must be an https URI"),
     ("portalRedirects", "http://localhost.evil.example/", "must be an https URI"),
     ("portalRedirects", "cmapi-portal://callback", "must be an https URI"),
+    # Keycloak matches a loopback URI with no port against each port, so the port is required (review finding F1)
+    ("portalRedirects", "http://localhost/", "must be an https URI"),
+    ("portalRedirects", "http://127.0.0.1/", "must be an https URI"),
+    ("portalRedirects", "http://[::1]/", "must be an https URI"),
+    ("docsRedirects", "http://localhost/", "must be an https URI"),
+    ("docsRedirects", "http://127.0.0.1/", "must be an https URI"),
+    ("docsRedirects", "http://[::1]/", "must be an https URI"),
+    # not a URI that a browser sends
+    ("portalRedirects", "https://", "must be an https URI"),
+    ("portalRedirects", "https:///callback", "must be an https URI"),
+    ("portalRedirects", "https://cmapi-portal.apps-crc.testing/a b", "must be an https URI"),
+    ("portalRedirects", "https://cmapi-portal.apps-crc.testing/\nhttps://evil.example/", "must be an https URI"),
+    ("portalRedirects", "https://CMAPI-PORTAL.apps-crc.testing/", "must be an https URI"),
+    ("portalRedirects", "https://cmapi-portal.apps-crc.testing", "must be an https URI"),
     ("portalRedirects", "https://cmapi-portal.apps-crc.testing/#x", "has a fragment"),
 ])
 def test_the_chart_refuses_a_redirect_uri_that_is_not_exact(tmp_path, key, uri, message):
@@ -195,5 +209,6 @@ def test_the_chart_takes_a_localhost_redirect_for_a_local_realm(tmp_path):
     (tmp_path / "ca.crt").write_text(PEM)
     r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
                         "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}", "--set-json",
-                        'keycloak.realm.portalRedirects=["http://localhost:5173/","http://127.0.0.1:5173/index.html"]'], capture_output=True, text=True)
+                        'keycloak.realm.portalRedirects=["http://localhost:5173/","http://127.0.0.1:5173/index.html","http://[::1]:5173/"]'],
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-400:]
