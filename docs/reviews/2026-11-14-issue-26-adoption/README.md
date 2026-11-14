@@ -405,8 +405,9 @@ and does not remove its code, as the rule "do not block a capability" asks.
   `limitRange.<kind>.<part>.<resource>` (`limit_key_parts` in `core/tiers.py`). The `overridable` list, the bounds and the
   approval facts use these keys. A switch in the same form would look like a value key. So the switch has its own name.
 - **Off.** cmapi renders only `<ns>-limits-cpu` and `<ns>-limits-memory`. A request with a custom `limitRange.pvc.*` value
-  is refused with 422 and the new problem `storage-limits-off`, whose detail names the key and the environment ("Storage
-  limits are off in environment rnd: limitRange.pvc.max.storage cannot be set"). #212's generated policies for that
+  is refused with 422 `policy-violation`, as every tier refusal is (the TierError handler in `main.py`). Its item has the
+  new code `storage-limits-off`, with the keys and the environment, and the detail says "Storage limits are off in
+  environment rnd: limitRange.pvc.max.storage cannot be set". #212's generated policies for that
   environment have no storage rule. The tiers' `pvc` values stay in `tiers.yaml` and the loader still checks them, so an
   operator can turn the switch on with no other edit.
 - **On.** cmapi also renders `<ns>-limits-storage` from the tier's `pvc` values. `limitRange.pvc.max.storage` stays
