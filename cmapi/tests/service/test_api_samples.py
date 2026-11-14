@@ -167,7 +167,13 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("admin_switch_state", "GET", "/api/v1/admin/auto-approval", ola)
 
     # ---- a namespace: the dry run, the create, then the worker to synced
-    rec.call("namespaces_create_namespace:dryRun", "POST", f"{base}?dryRun=true", ola, json_body=NS)
+    # The dry run is of a custom-tier request with values beyond the tier (#211), so the sample shows `beyondTier` and the
+    # approval that it adds. The create below is the small tier, which the baseline policy approves.
+    sized = {**NS, "tier": "custom", "quota": {"requests.cpu": "4", "requests.memory": "8Gi", "pods": "20", "requests.storage": "500Gi"},
+             "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}},
+                            "pvc": {"max": {"storage": "100Gi"}}}}
+    dry = rec.call("namespaces_create_namespace:dryRun", "POST", f"{base}?dryRun=true", ola, json_body=sized)
+    assert dry.status_code == 200 and dry.json()["beyondTier"]["approvals"], dry.text
     created = rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS, key=True)
     assert created.status_code == 202, created.text
     rid = created.json()["requestId"]

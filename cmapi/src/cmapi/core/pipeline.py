@@ -16,7 +16,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from cmapi.core.approvals import ApprovalLedger, Requirement
+from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
 from cmapi.core.clients.kube import ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig
@@ -34,7 +34,7 @@ from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, diff_files, folder, plan_hash
-from cmapi.core.tiers import qty
+from cmapi.core.tiers import EXPOSURE_KEYS, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo
 
 SYSTEM_PREFIX = "cmapi.net/"
@@ -60,6 +60,7 @@ class Plan:
     reason: str | None = None
     etag: str = ""
     warnings: list[str] = field(default_factory=list)
+    beyond_tier: dict[str, Any] | None = None      # the new beyond-tier keys of this request and the approvals they add
 
     @property
     def hash(self) -> str:
@@ -73,13 +74,14 @@ class Plan:
                              "bindingResource": self.capacity.binding_resource, **dict(self.capacity.detail)},
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
-                "findings": [asdict(f) for f in self.findings]}
+                "findings": [asdict(f) for f in self.findings], "beyondTier": self.beyond_tier}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
         return {"files": self.files, "prev": self.prev, "changes": self.changes, "facts": self.facts,
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh, **dict(self.capacity.detail)},
-                "spec": _spec_json(self.spec), "findings": [asdict(f) for f in self.findings]}
+                "spec": _spec_json(self.spec), "findings": [asdict(f) for f in self.findings],
+                "beyondTier": self.beyond_tier}
 
 
 def _spec_json(spec: NamespaceSpec | None) -> dict[str, Any] | None:
@@ -209,9 +211,7 @@ class Pipeline:
         old_exp = (prev_ns or {}).get("metadata", {}).get("annotations", {}).get("cmapi.net/expires-at")
         old_quota = _old_quota(prev_files)
         tier = body.get("tier") or old_tier or "small"
-        quota = body.get("quota")
-        if quota is None and tier == "custom" and old_tier == "custom" and old_quota:
-            quota = old_quota
+        quota, limits = body.get("quota"), body.get("limitRange")
         expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
             date.fromisoformat(old_exp) if old_exp and action != "create" else None)
         exp_facts: dict[str, Any] = {}
@@ -231,11 +231,25 @@ class Pipeline:
                 p = self.cfg.expiration.plan_set(info, expires, date.today())
                 expires = p.new_date
             exp_facts = p.facts()
-        hard = self.cfg.tiers.quota_for(env, tier, quota)
+        resolved = self.cfg.tiers.resolve(env, tier)
+        custom_before = bool(old_tier) and self.cfg.tiers.resolve(env, old_tier).custom
+        # The custom values that Git holds: the sizable keys, and each key that the objects name as beyond the tier.
+        # A change merges the request over them, key by key, so a change of one label keeps the approved sizes (#214).
+        approved: dict[str, str] = {}
+        if custom_before and old_quota:
+            approved = {**{k: v for k, v in old_quota.items() if k in self.cfg.tiers.sizable},
+                        **self.cfg.tiers.rendered_overrides(_doc(prev_files, "resourcequota.yaml"),
+                                                            _doc(prev_files, "limitrange.yaml"))}
+        if resolved.custom and custom_before:
+            quota = {**{k: v for k, v in approved.items() if not k.startswith("limitRange.")}, **(quota or {})}
+            limits = _merge_limits(approved, limits)
+        hard = self.cfg.tiers.quota_for(env, tier, quota, approved)
+        limit_range = self.cfg.tiers.limits_for(env, tier, limits, hard, approved)
         spec = NamespaceSpec(namespace=ns, cluster_id=cluster_id, instance=self.cfg.name, env=env, tier=tier,
                              request_id="(planned)", requested_by_user=requester.person.username.lower(),
                              requested_by_email=requester.email, labels=labels, annotations=anns,
-                             quota=quota if self.cfg.tiers.resolve(env, tier).custom else None, expires_at=expires,
+                             quota=quota if resolved.custom else None, limit_range=limits if resolved.custom else None,
+                             approved=approved if resolved.custom else {}, expires_at=expires,
                              service_accounts=_service_accounts(prev_files), grants=_grants(prev_files, scc=False),
                              scc_grants=_grants(prev_files, scc=True))
         files = self.renderer.render(spec, previous=prev_files)
@@ -255,8 +269,8 @@ class Pipeline:
                                             for f in errors])
         old_hard = {}
         if old_tier:
-            custom_before = self.cfg.tiers.resolve(env, old_tier).custom
-            old_hard = self.cfg.tiers.quota_for(env, old_tier, old_quota if custom_before else None)
+            # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
+            old_hard = dict(old_quota or {}) if custom_before else self.cfg.tiers.quota_for(env, old_tier)
         cpu_delta = float(qty(hard["requests.cpu"]) - qty(old_hard.get("requests.cpu", "0")))
         mem_delta = float(qty(hard["requests.memory"]) - qty(old_hard.get("requests.memory", "0")))
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
@@ -270,9 +284,24 @@ class Pipeline:
                  **exp_facts, **self.cfg.metadata.change_facts({**cur_l, **cur_a}, {**labels, **anns})}
         if old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
+        # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
+        # was approved before is not beyond the tier again.
+        beyond = {k: v for k, v in self.cfg.tiers.beyond(env, tier, hard, limit_range).items()
+                  if k not in approved or qty(approved[k]) != qty(v["requested"])}
+        # Network exposure: the new quota has more load balancers or NodePorts than Git holds (for a new namespace: than the
+        # tier gives). It does not depend on the beyond-tier keys: a change to a tier with a higher value raises it too.
+        exposure_base = (old_quota or {}) if old_tier else resolved.quota
+        raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
+        facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)
+        beyond_view = None
+        if beyond:
+            added = self.cfg.approvals.added_for(facts, BEYOND_FACTS)
+            beyond_view = {"keys": [{"key": k, **beyond[k]} for k in sorted(beyond)],
+                           "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
-                    requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings])
+                    requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
+                    beyond_tier=beyond_view)
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
         req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)
@@ -359,11 +388,27 @@ def _date(v: Any) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
+def _doc(prev: Mapping[str, str], name: str) -> dict[str, Any] | None:
+    """The one object of a file of the namespace's folder, or None when the folder has no such file."""
+    text = next((t for p, t in prev.items() if p.endswith("/" + name)), None)
+    return yaml.safe_load(text) if text else None
+
+
 def _old_quota(prev: Mapping[str, str]) -> dict[str, str] | None:
-    text = next((t for p, t in prev.items() if p.endswith("resourcequota.yaml")), None)
-    if not text:
+    doc = _doc(prev, "resourcequota.yaml")
+    if not doc:
         return None
-    return dict(yaml.safe_load(text).get("spec", {}).get("hard", {}))
+    return {k: str(v) for k, v in (doc.get("spec", {}).get("hard") or {}).items()}
+
+
+def _merge_limits(approved: Mapping[str, str], asked: Mapping[str, Any] | None) -> dict[str, dict[str, dict[str, str]]] | None:
+    """The request's limitRange over the approved limit values of the namespace, as the nested object that a request sends."""
+    flat = {**{k: v for k, v in approved.items() if k.startswith("limitRange.")}, **flatten_limits(asked)}
+    out: dict[str, dict[str, dict[str, str]]] = {}
+    for key, value in flat.items():
+        kind, part, res = key.removeprefix("limitRange.").split(".", 2)
+        out.setdefault(kind, {}).setdefault(part, {})[res] = value
+    return out or None
 
 
 def _service_accounts(prev: Mapping[str, str]) -> list[str]:

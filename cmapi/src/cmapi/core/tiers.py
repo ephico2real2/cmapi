@@ -6,6 +6,10 @@ serves describe(); the quota view and the tiers-rerender operation call is_outda
 
 Nothing here talks to a cluster, Git or Keycloak. Pure functions over one loaded catalog, so the
 same answer comes back at plan time, at commit time and in tests.
+
+A custom-tier request can also change each key of `overridable` (docs/reviews/2026-11-14-issue-211): a quota key by its
+Kubernetes name, a LimitRange value as limitRange.<kind>.<part>.<resource>. A value that differs from the tier is "beyond
+the tier": beyond() lists it for the approval rules, and render() records it in the annotation cmapi.net/beyond-tier.
 """
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal, localcontext
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -30,15 +34,78 @@ _SUFFIX = {
     "Ki": Decimal(2) ** 10, "Mi": Decimal(2) ** 20, "Gi": Decimal(2) ** 30,
     "Ti": Decimal(2) ** 40, "Pi": Decimal(2) ** 50, "Ei": Decimal(2) ** 60,
 }
-_QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]+)?)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E)?$")
+_QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?[0-9]+)?$")
+_NANO = Decimal("1e-9")
 
 
 def qty(value: str | int | float) -> Decimal:
-    """Parse a Kubernetes quantity ("500m", "16", "32Gi") to a Decimal in base units."""
+    """Parse a Kubernetes quantity ("500m", "16", "32Gi", "4e0") to a Decimal in base units, as the API server reads it.
+
+    Two values that this function gives as equal are one amount for Kubernetes, and no others are: the approval of a value
+    beyond the tier depends on it. So no digit is lost in the multiplication (Decimal's default is 28 digits), and a fraction
+    below one nano-unit is rounded up, as apimachinery's ParseQuantity does ("2.0000000000000000000000000001" is 2000000001n).
+    """
     m = _QTY.fullmatch(str(value).strip())
     if not m:
         raise ValueError(f"not a Kubernetes quantity: {value!r}")
-    return Decimal(m.group(1)) * _SUFFIX[m.group(2) or ""]
+    suffix = m.group(2) or ""
+    if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
+        amount = Decimal(m.group(1) + suffix)
+    else:
+        number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+        with localcontext() as exact:
+            exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
+            amount = number * factor
+    with localcontext() as exact:
+        exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
+        return amount.quantize(_NANO, rounding=ROUND_CEILING)
+
+
+# --------------------------------------------------------------------------- limit keys
+
+LIMIT_PREFIX = "limitRange."
+LIMIT_KINDS = {"container": "Container", "pvc": "PersistentVolumeClaim"}
+LIMIT_PARTS = ("min", "defaultRequest", "default", "max")       # the order that a container resource must keep
+BEYOND_TIER = "cmapi.net/beyond-tier"
+# A higher count of these two quota keys opens a path into the cluster (a port on each node, an external load balancer).
+EXPOSURE_KEYS = frozenset({"services.loadbalancers", "services.nodeports"})
+
+LimitRange = dict[str, dict[str, dict[str, str]]]
+
+
+def is_limit_key(key: str) -> bool:
+    return key.startswith(LIMIT_PREFIX)
+
+
+def limit_key_parts(key: str) -> tuple[str, str, str] | None:
+    """limitRange.container.max.cpu -> (container, max, cpu). None when the key does not have that form."""
+    parts = key.removeprefix(LIMIT_PREFIX).split(".", 2) if is_limit_key(key) else []
+    if len(parts) == 3 and parts[0] in LIMIT_KINDS and parts[1] in LIMIT_PARTS and parts[2]:
+        return parts[0], parts[1], parts[2]
+    return None
+
+
+def flatten_limits(limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None) -> dict[str, str]:
+    """{"container": {"max": {"cpu": "4"}}} -> {"limitRange.container.max.cpu": "4"}."""
+    return {f"{LIMIT_PREFIX}{kind}.{part}.{res}": str(v)
+            for kind, parts in (limits or {}).items() for part, vals in parts.items() for res, v in vals.items()}
+
+
+def _same(a: str | None, b: str | None) -> bool:
+    """Two quantities are the same amount: "1" and "1000m" are, a missing value and a value are not."""
+    return (a is None and b is None) or (a is not None and b is not None and qty(a) == qty(b))
+
+
+def _unequal_fixed_defaults(parts: Mapping[str, Mapping[str, str]]) -> list[str]:
+    """The resources of one limit kind whose default differs from its defaultRequest, and that Kubernetes does not let differ.
+
+    ValidateLimitRange refuses the object for a resource that cannot overcommit: an extended resource (nvidia.com/gpu) or huge
+    pages. IsOvercommitAllowed is true only for a native resource (no "/", or a kubernetes.io/ name) that is not hugepages-*.
+    """
+    defaults, requests = parts.get("default", {}), parts.get("defaultRequest", {})
+    return sorted(res for res in defaults.keys() & requests.keys()
+                  if (res.startswith("hugepages-") or ("/" in res and "kubernetes.io/" not in res))
+                  and not _same(defaults[res], requests[res]))
 
 
 # --------------------------------------------------------------------------- errors
@@ -93,6 +160,7 @@ class CatalogFile(_Strict):
     apiVersion: Literal["cmapi.net/v1"]
     kind: Literal["TierCatalog"]
     sizable: list[str]
+    overridable: list[str] = []                # more keys that a custom-tier request can change, each with a custom.max
     defaults: dict[str, Any] = {}
     tiers: dict[str, TierDef]
     custom: Bounds = Bounds()
@@ -186,6 +254,15 @@ class TierCatalog:
         p: list[str] = []
         f = self.file
         sizable = set(f.sizable)
+        overridable = set(f.overridable)
+        bounded = sizable | overridable
+        for k in f.overridable:
+            if k in sizable:
+                p.append(f"overridable: {k} is already sizable")
+            elif is_limit_key(k) and limit_key_parts(k) is None:
+                p.append(f"overridable: {k} is not limitRange.<{'|'.join(LIMIT_KINDS)}>.<{'|'.join(LIMIT_PARTS)}>.<resource>")
+        if len(overridable) != len(f.overridable):
+            p.append("overridable: a key is listed more than once")
         extra = set(f.environments) - self.allowed
         missing = self.allowed - set(f.environments)
         if extra:
@@ -219,15 +296,18 @@ class TierCatalog:
             # bounds for custom values
             b = Bounds.model_validate(_merge(f.custom.model_dump(), e.custom))
             self._bounds[env] = b
+            bounds_before = len(p)
             for part in ("min", "max", "step"):
                 for k, v in getattr(b, part).items():
-                    if k not in sizable:
-                        p.append(f"{env}: custom.{part}.{k} is not a sizable key")
+                    if k not in bounded:
+                        p.append(f"{env}: custom.{part}.{k} is not a sizable or overridable key")
                     try:
                         qty(v)
                     except ValueError as exc:
                         p.append(f"{env}: custom.{part}.{k}: {exc}")
-            for k in sizable:
+            if len(p) > bounds_before:              # a value that is not a quantity: the comparisons below cannot run
+                continue
+            for k in sorted(bounded):
                 if k in b.min and k in b.max and qty(b.min[k]) > qty(b.max[k]):
                     p.append(f"{env}: custom.min.{k} above custom.max.{k}")
                 if k in b.step and qty(b.step[k]) > 0:
@@ -263,9 +343,19 @@ class TierCatalog:
                                 p.append(f"{where}: limitRange.{kind}.{part}.{k}: {exc}")
                 if len(p) > before:
                     continue
+                for kind, parts in lr.items():
+                    for res in _unequal_fixed_defaults(parts):
+                        p.append(f"{where}: {kind} {res} defaultRequest must equal default: the resource cannot overcommit")
                 if t.custom:
                     if sizable & set(quota):
                         p.append(f"{where}: a custom tier cannot fix sizable keys {sorted(sizable & set(quota))}")
+                    tier_values = {**quota, **flatten_limits(lr)}
+                    for k in sorted(overridable):
+                        # Without a max, each value would be valid, and the approval would be the only bound.
+                        if k not in b.max:
+                            p.append(f"{env}: custom.max.{k} missing: each overridable key needs a maximum")
+                        elif k in tier_values and not (qty(b.min.get(k, "0")) <= qty(tier_values[k]) <= qty(b.max[k])):
+                            p.append(f"{where}: the tier's own {k} ({tier_values[k]}) is outside the custom bounds")
                 else:
                     for k in sizable - set(quota):
                         p.append(f"{where}: quota.{k} missing")
@@ -303,6 +393,14 @@ class TierCatalog:
     def sizable(self) -> list[str]:
         return list(self.file.sizable)
 
+    @property
+    def overridable_quota(self) -> list[str]:
+        return [k for k in self.file.overridable if not is_limit_key(k)]
+
+    @property
+    def overridable_limits(self) -> list[str]:
+        return [k for k in self.file.overridable if is_limit_key(k)]
+
     def environments(self) -> list[str]:
         return sorted(self._env)
 
@@ -330,37 +428,127 @@ class TierCatalog:
                             environment=env, served=self.environments())
 
     # ---- request-time checks
-    def quota_for(self, env: str, tier: str, hard: Mapping[str, str] | None = None) -> dict[str, str]:
-        """The full spec.hard to render. A named tier takes no hard values; a custom tier needs
-        every sizable key, each within the environment's bounds and on its step."""
+    def _out_of_bounds(self, env: str, values: Mapping[str, str], approved: Mapping[str, str]) -> list[dict[str, Any]]:
+        """The values outside the environment's bounds or off their step. A value that Git already holds (approved) is not
+        checked again: a later, lower bound must not refuse a change of a label on a namespace that was approved before it."""
+        b, bad = self.bounds(env), []
+        for k in sorted(values):
+            if k in approved and _same(values[k], approved[k]):
+                continue
+            v = qty(values[k])
+            lo, hi, st = (qty(x) if x is not None else None for x in (b.min.get(k), b.max.get(k), b.step.get(k)))
+            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and v % st != 0):
+                bad.append({"key": k, "value": values[k], "min": b.min.get(k), "max": b.max.get(k), "step": b.step.get(k)})
+        return bad
+
+    def quota_for(self, env: str, tier: str, hard: Mapping[str, str] | None = None,
+                  approved: Mapping[str, str] | None = None) -> dict[str, str]:
+        """The full spec.hard to render. A named tier takes no hard values. A custom tier needs every sizable key and can
+        send overridable quota keys; each is within the environment's bounds and on its step. approved: the values that
+        the namespace has in Git, which are not checked against the bounds again."""
         r = self.resolve(env, tier)
-        hard = dict(hard or {})
+        hard = {k: str(v) for k, v in (hard or {}).items()}
         if not r.custom:
             if hard:
                 raise TierError("quota-with-named-tier",
                                 f"Tier {tier} fixes its quota; send tier: custom to size it yourself",
                                 tier=tier)
             return dict(r.quota)
-        not_sizable = sorted(set(hard) - set(self.sizable))
+        approved = approved or {}
+        allowed = [*self.sizable, *self.overridable_quota]
+        # A value that Git holds stays valid when the catalog no longer names its key: the approval stands until a change.
+        not_sizable = sorted(k for k in set(hard) - set(allowed) if not _same(hard[k], approved.get(k)))
         if not_sizable:
-            raise TierError("quota-key-not-sizable", f"Only {self.sizable} can be requested",
-                            keys=not_sizable, sizable=self.sizable)
+            raise TierError("quota-key-not-sizable", f"Only {allowed} can be requested",
+                            keys=not_sizable, sizable=self.sizable, overridable=self.overridable_quota)
         missing = [k for k in self.sizable if k not in hard]
         if missing:
             raise TierError("custom-quota-required", "A custom tier needs every sizable key",
                             missing=missing)
-        b, bad = self.bounds(env), []
-        for k in self.sizable:
-            v = qty(hard[k])
-            lo, hi, st = (qty(x) if x is not None else None
-                          for x in (b.min.get(k), b.max.get(k), b.step.get(k)))
-            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and v % st != 0):
-                bad.append({"key": k, "value": hard[k], "min": b.min.get(k), "max": b.max.get(k),
-                            "step": b.step.get(k)})
+        bad = self._out_of_bounds(env, hard, approved)
         if bad:
             raise TierError("custom-out-of-bounds",
                             f"Custom quota outside {env}'s bounds", items=bad)
-        return {**r.quota, **{k: str(hard[k]) for k in self.sizable}}
+        return {**r.quota, **hard}
+
+    def limits_for(self, env: str, tier: str, limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None,
+                   hard: Mapping[str, str], approved: Mapping[str, str] | None = None) -> LimitRange:
+        """The full LimitRange values to render: the tier's, with the request's overridable values over them.
+
+        A named tier takes no limits. On a custom tier each requested key is overridable and within the bounds; then, for
+        each container resource, min <= defaultRequest <= default <= max, and max fits the requests.<resource> of hard.
+        approved: the flat limit values that the namespace has in Git, which are not checked against the bounds again."""
+        r = self.resolve(env, tier)
+        asked = flatten_limits(limits)
+        if not r.custom:
+            if asked:
+                raise TierError("limits-with-named-tier",
+                                f"Tier {tier} fixes its container limits; send tier: custom to set them yourself", tier=tier)
+            return copy.deepcopy(r.limit_range)
+        approved = approved or {}
+        not_overridable = sorted(k for k in set(asked) - set(self.overridable_limits)
+                                 if limit_key_parts(k) is None or not _same(asked[k], approved.get(k)))
+        if not_overridable:
+            raise TierError("limit-key-not-overridable", f"Only {self.overridable_limits} can be requested",
+                            keys=not_overridable, overridable=self.overridable_limits)
+        bad = self._out_of_bounds(env, asked, approved)
+        if bad:
+            raise TierError("custom-out-of-bounds", f"Custom limits outside {env}'s bounds", items=bad)
+        out = copy.deepcopy(r.limit_range)
+        for key, value in asked.items():
+            kind, part, res = limit_key_parts(key)        # type: ignore[misc]  # overridable keys were checked at load
+            out.setdefault(kind, {}).setdefault(part, {})[res] = value
+        for kind in sorted(out):
+            unequal = _unequal_fixed_defaults(out[kind])
+            if unequal:
+                raise TierError("limit-order-invalid", f"{LIMIT_KINDS[kind]} {unequal} cannot overcommit: defaultRequest must "
+                                "equal default", kind=kind, resources=unequal)
+            for res in sorted({res for vals in out[kind].values() for res in vals}):
+                chain = {part: out[kind][part][res] for part in LIMIT_PARTS if res in out[kind].get(part, {})}
+                if [qty(v) for v in chain.values()] != sorted(qty(v) for v in chain.values()):
+                    raise TierError("limit-order-invalid", f"{LIMIT_KINDS[kind]} {res} must be {' <= '.join(LIMIT_PARTS)}",
+                                    kind=kind, resource=res, values=chain)
+        container = out.get("container", {})
+        for res in sorted(container.get("max", {})):
+            chain = {"max": container["max"][res]}
+            quota_key = f"requests.{res}"
+            if quota_key in hard and qty(chain["max"]) > qty(hard[quota_key]):
+                raise TierError("limit-exceeds-quota",
+                                f"Container max {res} {chain['max']} is above the namespace's {quota_key} {hard[quota_key]}: "
+                                "one container at its limit would not fit", resource=res, max=chain["max"],
+                                quota=hard[quota_key])
+        return out
+
+    def beyond(self, env: str, tier: str, hard: Mapping[str, str],
+               limit_range: Mapping[str, Mapping[str, Mapping[str, str]]]) -> dict[str, dict[str, str | None]]:
+        """Each value that differs from the tier's, the sizable keys apart: key -> {"tier": the tier's value, "requested":
+        the value}. In the order of `overridable`; a key that the catalog named before and Git still holds comes after.
+        Empty for a named tier, which takes no value of its own."""
+        r = self.resolve(env, tier)
+        if not r.custom:
+            return {}
+        mine = {**r.quota, **flatten_limits(r.limit_range)}
+        asked = {k: v for k, v in {**hard, **flatten_limits(limit_range)}.items() if k not in self.file.sizable}
+        order = [*self.file.overridable, *sorted(set(asked) - set(self.file.overridable))]
+        return {k: {"tier": mine.get(k), "requested": asked[k]} for k in order
+                if k in asked and not _same(asked[k], mine.get(k))}
+
+    @staticmethod
+    def rendered_overrides(rq: Mapping[str, Any] | None, lr: Mapping[str, Any] | None) -> dict[str, str]:
+        """The approved beyond-tier values of a namespace, from its two rendered objects: each key that the annotation
+        cmapi.net/beyond-tier names, with the value that the object holds. The inverse of render() for those keys."""
+        out: dict[str, str] = {}
+        hard = ((rq or {}).get("spec") or {}).get("hard") or {}
+        for k in _beyond_keys(rq):
+            if k in hard:
+                out[k] = str(hard[k])
+        by_kind = {item.get("type"): item for item in ((lr or {}).get("spec") or {}).get("limits") or []}
+        for k in _beyond_keys(lr):
+            parts = limit_key_parts(k)
+            value = parts and by_kind.get(LIMIT_KINDS[parts[0]], {}).get(parts[1], {}).get(parts[2])
+            if value is not None:
+                out[k] = str(value)
+        return out
 
     def match(self, env: str, hard: Mapping[str, str], tolerance: float = 0.0) -> str | None:
         """The named tier whose sizable values equal hard (within tolerance), else None.
@@ -414,10 +602,15 @@ class TierCatalog:
 
     # ---- rendering (called by core/render/manifests.py)
     def render(self, *, namespace: str, cluster_id: str, instance: str, env: str, tier: str,
-               request_id: str, hard: Mapping[str, str] | None = None) -> tuple[dict, dict]:
-        """resourcequota.yaml and limitrange.yaml for one namespace, as dicts."""
+               request_id: str, hard: Mapping[str, str] | None = None,
+               limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
+               approved: Mapping[str, str] | None = None) -> tuple[dict, dict]:
+        """resourcequota.yaml and limitrange.yaml for one namespace, as dicts. Each object names its own beyond-tier keys
+        in the annotation cmapi.net/beyond-tier, so a later change and a policy can tell an approved override from drift."""
         r = self.resolve(env, tier)
-        spec_hard = self.quota_for(env, tier, hard)
+        spec_hard = self.quota_for(env, tier, hard, approved)
+        limit_range = self.limits_for(env, tier, limits, spec_hard, approved)
+        beyond = list(self.beyond(env, tier, spec_hard, limit_range))
         labels = {"cmapi.net/cluster-id": cluster_id, "cmapi.net/managed": "true", "cmapi.net/tier": tier}
         annotations = {"cmapi.net/instance": instance, "cmapi.net/request-id": request_id,
                        "cmapi.net/tier-hash": r.hash}
@@ -425,16 +618,19 @@ class TierCatalog:
               "metadata": {"name": f"{namespace}-quota", "namespace": namespace,
                            "labels": labels, "annotations": annotations},
               "spec": {"hard": {k: spec_hard[k] for k in sorted(spec_hard, key=_quota_order)}}}
-        limits = []
-        for kind, k8s in (("container", "Container"), ("pvc", "PersistentVolumeClaim")):
-            parts = r.limit_range.get(kind)
+        items = []
+        for kind, k8s in LIMIT_KINDS.items():
+            parts = limit_range.get(kind)
             if parts:
-                limits.append({"type": k8s, **{p: dict(parts[p]) for p in
-                                                ("defaultRequest", "default", "min", "max") if p in parts}})
+                items.append({"type": k8s, **{p: dict(parts[p]) for p in
+                                               ("defaultRequest", "default", "min", "max") if p in parts}})
         lr = {"apiVersion": "v1", "kind": "LimitRange",
               "metadata": {"name": f"{namespace}-limits", "namespace": namespace,
                            "labels": dict(labels), "annotations": dict(annotations)},
-              "spec": {"limits": limits}}
+              "spec": {"limits": items}}
+        for doc, keys in ((rq, [k for k in beyond if not is_limit_key(k)]), (lr, [k for k in beyond if is_limit_key(k)])):
+            if keys:
+                doc["metadata"]["annotations"][BEYOND_TIER] = ",".join(keys)
         return rq, lr
 
     def describe(self, env: str | None = None) -> dict[str, Any]:
@@ -442,9 +638,14 @@ class TierCatalog:
         envs = [env] if env else self.environments()
         for e in envs:
             self._need_env(e)
-        return {"catalogHash": self.catalog_hash, "sizable": self.sizable,
+        return {"catalogHash": self.catalog_hash, "sizable": self.sizable, "overridable": list(self.file.overridable),
                 "environments": {e: {"tiers": [r.as_dict() for r in self.offered(e)],
                                      "custom": self.bounds(e).model_dump()} for e in envs}}
+
+
+def _beyond_keys(doc: Mapping[str, Any] | None) -> list[str]:
+    value = (((doc or {}).get("metadata") or {}).get("annotations") or {}).get(BEYOND_TIER) or ""
+    return [k for k in value.split(",") if k]
 
 
 _ORDER = ["requests.cpu", "requests.memory", "pods"]
