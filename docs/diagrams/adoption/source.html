@@ -1,0 +1,154 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>cmapi: adoption</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · story #26 · design</div>
+    <h1>Adoption: raw YAML, as it is, under tier custom</h1>
+    <p class="lede">An existing namespace goes under GitOps with no change but cmapi's own keys. Each difference from the rules is a finding, never a change.</p>
+    <p class="muted">Dashed: designed, not built (Wave 8). Solid: built. The namespace is the owner's sample of an existing one.</p>
+  </header>
+  <section>
+    <h2>The adoption flow</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1080 570" role="img" aria-label="cmapi adopts a namespace that carries the opt-in label. It reads the live Namespace, ResourceQuota and LimitRange from the cluster, drops server-set fields and skipped keys, adds its system keys under tier custom, and lists each difference from the rules as a finding. After approval the bot opens a pull request with the raw YAML; Argo CD applies it, and cmapi checks that only its own keys changed. The old cluster-configs repository is never read.">
+          <defs><marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<text x="20" y="22" font-weight="600" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">THE CLUSTER</text>
+<text x="300" y="22" font-weight="600" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">CMAPI (THE ADOPTION PLUGIN, NOT BUILT)</text>
+<text x="800" y="22" font-weight="600" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">GIT AND ARGO CD</text>
+<line x1="282" y1="8" x2="282" y2="560" stroke="var(--rule)" stroke-width="1.2" stroke-dasharray="6 5"/>
+<line x1="778" y1="8" x2="778" y2="560" stroke="var(--rule)" stroke-width="1.2" stroke-dasharray="6 5"/>
+<rect x="20" y="40" width="244" height="218" rx="7" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.2"/>
+<text x="32" y="60" font-weight="600" fill="var(--none)">Namespace abc-rnd</text>
+<text x="32" y="78" font-size="11.5" fill="var(--muted)">name: aao-rnd</text>
+<text x="32" y="94" font-size="11.5" fill="var(--muted)">company.net/app-environment: rnd</text>
+<text x="32" y="110" font-size="11.5" fill="var(--muted)">company.net/mnemonic: abc</text>
+<text x="32" y="126" font-size="11.5" fill="var(--muted)">company.net/lob: amgsst</text>
+<text x="32" y="142" font-size="11.5" fill="var(--muted)">company.net/cl: &#x27;1&#x27;</text>
+<text x="32" y="158" font-size="11.5" fill="var(--muted)">company.net/provisioner: cluster-configs</text>
+<text x="32" y="174" font-size="11.5" fill="var(--muted)">mnemonic-group-contact: &#x27;&#x27;</text>
+<text x="32" y="190" font-size="11.5" fill="var(--muted)">mnemonic-confluence: &#x27;&#x27;</text>
+<text x="32" y="206" font-size="11.5" fill="var(--muted)">cmapi.net/adopt: &quot;true&quot;  (opt-in)</text>
+<rect x="20" y="274" width="244" height="58" rx="7" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.2"/>
+<text x="32" y="294" font-weight="600" fill="var(--none)">ResourceQuota, LimitRange</text>
+<text x="32" y="312" font-size="11.5" fill="var(--muted)">each one, whatever its keys</text>
+<rect x="20" y="360" width="244" height="74" rx="7" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.2"/>
+<text x="32" y="380" font-weight="600" fill="var(--none)">Not adopted</text>
+<text x="32" y="398" font-size="11.5" fill="var(--muted)">ServiceAccounts, RoleBindings,</text>
+<text x="32" y="414" font-size="11.5" fill="var(--muted)">SCC grants: they stay unmanaged</text>
+<rect x="20" y="470" width="244" height="74" rx="7" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="32" y="490" font-weight="600" fill="var(--none)">The old cluster-configs repository</text>
+<text x="32" y="508" font-size="11.5" fill="var(--muted)">cmapi never reads or writes it</text>
+<rect x="300" y="40" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="312" y="60" font-weight="600" fill="var(--host)">1  Candidate?</text>
+<text x="312" y="78" font-size="11.5" fill="var(--muted)">opt-in label; not excluded; not managed;</text>
+<text x="312" y="94" font-size="11.5" fill="var(--muted)">not tracked by another Argo CD app</text>
+<rect x="300" y="132" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="312" y="152" font-weight="600" fill="var(--host)">2  Read the live objects</text>
+<text x="312" y="170" font-size="11.5" fill="var(--muted)">the Namespace, each ResourceQuota</text>
+<text x="312" y="186" font-size="11.5" fill="var(--muted)">and LimitRange, from the cluster</text>
+<line x1="512" y1="114" x2="512" y2="130" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<rect x="300" y="224" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="312" y="244" font-weight="600" fill="var(--host)">3  Drop, then add</text>
+<text x="312" y="262" font-size="11.5" fill="var(--muted)">drop server-set fields and skip prefixes;</text>
+<text x="312" y="278" font-size="11.5" fill="var(--muted)">add cmapi&#x27;s system keys, tier custom</text>
+<line x1="512" y1="206" x2="512" y2="222" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<rect x="300" y="316" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="312" y="336" font-weight="600" fill="var(--host)">4  Findings, never changes</text>
+<text x="312" y="354" font-size="11.5" fill="var(--muted)">name: aao-rnd is not the namespace name;</text>
+<text x="312" y="370" font-size="11.5" fill="var(--muted)">two empty values; made by another tool</text>
+<line x1="512" y1="298" x2="512" y2="314" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<rect x="300" y="416" width="424" height="58" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.2"/>
+<text x="312" y="436" font-weight="600" fill="var(--remote)">5  Approval, as for any request (built)</text>
+<text x="312" y="454" font-size="11.5" fill="var(--muted)">approver-platform; one more when there are findings</text>
+<line x1="512" y1="390" x2="512" y2="412" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<rect x="300" y="492" width="424" height="58" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="312" y="512" font-weight="600" fill="var(--host)">8  Verify after the sync</text>
+<text x="312" y="530" font-size="11.5" fill="var(--muted)">only cmapi&#x27;s keys, the removed adopt label and</text>
+<text x="312" y="545" font-size="11.5" fill="var(--muted)">Argo CD's tracking annotation may differ</text>
+<line x1="264" y1="140" x2="296" y2="140" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<text x="280" y="132" text-anchor="middle" font-size="11.5">read</text>
+<line x1="264" y1="300" x2="296" y2="170" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<rect x="800" y="40" width="260" height="92" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.2"/>
+<text x="812" y="60" font-weight="600" fill="var(--remote)">6  The bot&#x27;s pull request (built)</text>
+<text x="812" y="78" font-size="11.5" fill="var(--muted)">cmapi-cluster-configs:</text>
+<text x="812" y="94" font-size="11.5" fill="var(--muted)">clusters/&lt;cluster&gt;/namespaces/</text>
+<text x="812" y="110" font-size="11.5" fill="var(--muted)">abc-rnd/: the raw YAML</text>
+<rect x="800" y="160" width="260" height="108" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="812" y="180" font-weight="600" fill="var(--remote)">7  Argo CD applies the folder</text>
+<text x="812" y="198" font-size="11.5" fill="var(--muted)">to the cluster: only cmapi&#x27;s keys</text>
+<text x="812" y="214" font-size="11.5" fill="var(--muted)">change. ServerSideApply,</text>
+<text x="812" y="230" font-size="11.5" fill="var(--muted)">FailOnSharedResource, Prune=confirm</text>
+<text x="812" y="246" font-size="11.5" fill="var(--muted)">(Argo CD on CRC: Wave 5)</text>
+<line x1="724" y1="440" x2="796" y2="90" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<text x="734" y="432" text-anchor="start" font-size="11.5">approved</text>
+<line x1="930" y1="132" x2="930" y2="156" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
+<text x="936" y="149" text-anchor="start" font-size="11.5">merged</text>
+<path d="M 1040,268 L 1040,521 L 728,521" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ad)"/>
+<text x="1032" y="400" text-anchor="end" font-size="11.5">Synced, Healthy</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>
+    </figure>
+  </section>
+</div>

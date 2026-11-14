@@ -1165,7 +1165,7 @@ spec:
 
 **On the cluster.** ArgoCD compares only the keys in Git. Keys that controllers add later, such as OpenShift's openshift.io/sa.scc.\* annotations or the pod-security sync labels, never show as drift. Removing a key from Git removes it from the cluster. Namespace Applications use the ServerSideApply=true sync option, so field ownership is explicit when ArgoCD and a controller write to the same object. A key someone changes by hand with oc label is reverted by self-heal if it is in Git. A new key added by hand stays, and shows as unmanaged in GET and in the drift report until a request adopts it into Git.
 
-**Adoption.** Adopting a namespace copies its existing governed and team keys into Git. Reserved and system keys stay on the cluster but out of the file. A missing required governed key blocks adoption and is listed in the unmanaged-namespaces report.
+**Adoption.** Adopting a namespace copies each of its labels and annotations into Git as it is, minus the skip prefixes of adoption.yaml. A key that breaks a rule, and a missing required key, are findings of the adoption's plan, never a block and never a change; the first update through cmapi is checked against the rules (Adoption plugin).
 
 **New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden. Identity and DL checks add three more 422 codes: identity-incomplete (a person's token has no employee\_id claim; automation accounts are exempt), unknown-user (onBehalfOf names nobody, or a disabled user) and invalid-team-dl (not an address in one of the emailDomains listed in metadata-keys.yaml). The DL is format-checked only; cmapi does not look it up or check membership. Namespace names add invalid-namespace-name and reserved-namespace (422) and namespace-exists-unmanaged (409, at create).
 
@@ -1248,7 +1248,7 @@ At startup an invalid catalog stops cmapi with every problem listed. On reload c
 | PATCH or PUT .../quota | normalise(env, hard) | The named tier when the values equal one exactly, otherwise custom |
 | Quota view | is\_outdated(env, tier, rendered hash) | State tier-outdated, a filter on GET /api/v1/quotas |
 | Rightsizing | match(env, hard, tolerance 0.10) | Snaps a recommendation to a tier within 10% |
-| Adoption | match(env, live hard) | The named tier when the live quota equals one, otherwise custom with the live values |
+| Adoption | not called | Tier custom with the live ResourceQuota and LimitRange as they are (the owner's decision on #26); the custom tier's bounds only report the values beyond them |
 
 The Kyverno bundle does not read the catalog. It checks what it always checked (limits never below requests, the required labels) on the rendered files, so CI and admission need no tier logic.
 
@@ -1627,16 +1627,29 @@ The total is multiplied by the cluster's placement.weight and capped at 100. Tie
 
 ## Adoption plugin
 
-Adoption brings existing namespaces under the API by rendering their live state into Git; it is opt-in per namespace with the label cmapi.net/adopt: "true", and exclusions from a ConfigMap always win over the label.
+Not built yet (Wave 8). The design, with each decision, its reason and its sources, is docs/reviews/2026-11-14-issue-26-adoption/README.md; this section is its short form. The owner decided on #26: opt-in with `cmapi.net/adopt: "true"`; cmapi reads the cluster, not the organisation's old `cluster-configs` repository; the Namespace, ResourceQuota and LimitRange go to `cmapi-cluster-configs` as raw YAML, as they are, under tier `custom`; values that break a rule are adopted and reported, never changed.
 
-**Selection order.** A namespace is a candidate only if every step passes:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/adoption/adoption.dark.png">
+  <source srcset="diagrams/adoption/adoption.light.png">
+  <img alt="cmapi adopts a namespace that carries the opt-in label. It reads the live Namespace, ResourceQuota and LimitRange from the cluster, drops server-set fields and skipped keys, adds its system keys under tier custom, and lists each difference from the rules as a finding. After approval the bot opens a pull request with the raw YAML; Argo CD applies it, and cmapi checks that only its own keys changed. The old cluster-configs repository is never read." src="diagrams/adoption/adoption.light.png">
+</picture>
 
-1. **Built-in exclusions** (code, cannot be removed): default, openshift, openshift-*, kube-*.
-2. **Configured exclusions** from the ConfigMap: exact names, glob patterns and label selectors, global or per cluster and environment.
-3. **Already managed:** carries cmapi.net/managed: "true" or already has a folder in Git; skipped.
-4. **Opt-in label:** cmapi.net/adopt="true", found with a labelSelector on the namespace list.
+*The adoption flow, on the owner's sample of an existing namespace. Dashed: designed, not built. The source is `diagrams/adoption/source.html`, drawn by `diagrams/tools/draft-adoption.py`; the picture, this text and the page change together.*
 
-Label values are strings, so the label must be quoted ("true"); an unquoted true in YAML is a boolean and the API server rejects it. A labelled namespace that matches an exclusion is reported as skipped with the rule that matched, never adopted.
+```text
+Cluster: Namespace abc-rnd (opt-in cmapi.net/adopt), each ResourceQuota and LimitRange
+  1 candidate? opt-in; not excluded; not managed; not tracked by another Argo CD Application
+  2 read the live objects from the cluster (never the old cluster-configs repository)
+  3 drop server-set fields and skip prefixes; add cmapi's system keys; tier custom
+  4 findings, never changes (name: aao-rnd; two empty values; made by another tool)
+  5 approval (built) -> 6 the bot's pull request to cmapi-cluster-configs (built)
+  7 Argo CD applies the folder: ServerSideApply, FailOnSharedResource, Prune=confirm
+  8 the worker checks that only cmapi's keys, the adopt label and Argo CD's tracking annotation changed
+Not adopted: ServiceAccounts, RoleBindings, SCC grants (they stay unmanaged)
+```
+
+**Candidates.** A namespace is one when each step passes: not a built-in exclusion (default, openshift, openshift-\*, kube-\*) or a configured one; not managed already (`cmapi.net/managed`, or a folder in Git); not tracked by another Argo CD Application (its `argocd.argoproj.io/tracking-id` names another Application: skipped, with the Application named); and labelled `cmapi.net/adopt: "true"`. `adoptionLabels` of metadata-keys.yaml (#215) only marks a namespace as made by another tool, for the reports; it never selects one.
 
 **Configuration.** A ConfigMap in the API's namespace (cmapi) on the hub, mounted as a file and re-read on POST /admin/reload:
 
@@ -1663,10 +1676,9 @@ data:
     clusters:
       OCP_GF1:
         names: [legacy-batch]
-    skip:                                 # objects inside an adopted namespace never adopted
-      serviceAccounts: [default, builder, deployer, pipeline]
-      roleBindings: ["system:image-pullers", "system:image-builders", "system:deployers"]
-      annotationPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/"]
+    skip:
+      # A key under one of these prefixes is dropped from the file and listed in the plan (the design, D3).
+      keyPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/", "kubernetes.io/metadata.name", "pod-security.kubernetes.io/"]
 ```
 
 Patterns are matched with fnmatch on the full name; exclusions from global, environment and cluster scopes are combined, never subtracted, so a cluster entry can only exclude more.
@@ -1675,30 +1687,31 @@ Patterns are matched with fnmatch on the full name; exclusions from global, envi
 
 | Object | Adopted | Notes |
 | --- | --- | --- |
-| Namespace | Labels and annotations, minus skip prefixes and server-set fields | Renderer adds cmapi.net/managed and cmapi.net/cluster-id; drops cmapi.net/adopt |
-| ResourceQuota, LimitRange | Yes | Mapped to the nearest tier, or custom if none matches |
-| ServiceAccounts | Yes, except the skip list and operator-owned ones | Owner references mark operator-owned |
-| RoleBindings with a ServiceAccount subject | Yes, if the role is allowlisted | A non-allowlisted grant stays unmanaged and is listed as a finding |
-| SCC grants to ServiceAccounts | Yes, if the SCC is allowlisted | Same rule |
-| RoleBindings with User or Group subjects | No | Owned by the separate access process; ArgoCD does not prune objects it never tracked |
+| Namespace | Each label and annotation as it is, minus the skip prefixes; server-set fields dropped | cmapi adds its system keys (`cmapi.net/managed`, `cluster-id`, `env`, `tier: custom`, `requested-by-user`; annotations `instance`, `request-id`, `requested-by`, `sync-options`) and removes `cmapi.net/adopt` |
+| ResourceQuota, LimitRange | Each one, as it is, whatever its keys, scopes or item types | Tier `custom`, not mapped to a named tier. A value beyond the custom bounds is a finding |
+| ServiceAccounts, RoleBindings, SCC grants | No | They stay unmanaged; the plan counts them. Argo CD does not prune an object it never tracked |
 
-Server-set fields (uid, resourceVersion, creationTimestamp, managedFields, status) are always stripped. The openshift.io/sa.scc.\* annotations are skipped by default; keep them only if you need a rebuilt cluster to reuse the same UID ranges for existing PV data.
+Server-set fields (uid, resourceVersion, generation, creationTimestamp, managedFields, status, a Namespace's spec.finalizers) are always stripped. Argo CD adds its `argocd.argoproj.io/tracking-id` annotation on the first sync. Those keys are the only differences on the live objects; the worker checks it after the sync.
+
+**Findings, never changes.** The plan checks the Namespace's keys against metadata-keys.yaml and reports each difference: a derived key with another value (the owner's sample: `name: aao-rnd` on `abc-rnd`), a missing required key, a value that breaks its rule, an empty value, a key that no stanza declares, an adoption label, a skipped key, a value beyond the custom bounds, and a namespace made by another tool (remove it from that tool before approving). A missing required key does not block adoption: the first update through cmapi must add it. cmapi keeps each key in Git that it does not own, such as `company.net/provisioner`, through each later update, and a requester may remove one but not set it.
 
 **Flow.**
 
-1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller must be admin of each namespace, checked with a SubjectAccessReview on that cluster, or be a platform admin.
-2. **Plan.** The plugin reads live objects, applies the skip rules and policies, and renders the files. The diff between rendered and live must be empty apart from the managed labels; anything else is a finding.
-3. **Approve, then PR. One request per namespace with the findings in its plan. Approval in cmapi: one namespace admin in rnd and qa, plus approver-platform in prod; once approved, the bot opens the PR**.
-4. **Sync.** On merge, the cluster's ArgoCD takes ownership. The first sync is a no-op except for the managed labels and the removal of cmapi.net/adopt, which marks adoption done.
-5. **Verify.** The worker confirms Synced and Healthy with no other changes; any unexpected diff fails the request and leaves the namespace as it was.
+1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller has `adoption:write` (cmapi-operator) or is admin of the namespace, checked with a SubjectAccessReview on that cluster.
+2. **Plan.** The plugin reads the live objects, drops what is listed above, renders the folder `clusters/<cluster>/namespaces/<namespace>/` and lists the findings. It changes nothing on the cluster.
+3. **Approve, then PR.** One request for each namespace, plugin `adoption`, with the findings and the facts `findings`, `beyondTier` and `beyondTierKeys`. The default rules ask one approver of approver-platform, and one more when the plan has findings; auto-approval never covers an adoption unless a rule names it. Once approved, the bot opens the PR.
+4. **Sync.** On merge, the cluster's Argo CD applies the folder with ServerSideApply and FailOnSharedResource. The first sync changes only cmapi's system keys, removes `cmapi.net/adopt` and adds Argo CD's tracking annotation.
+5. **Verify.** The worker compares each live object with the plan's snapshot after Synced and Healthy; any other difference fails the request and names the field. `Prune=confirm` keeps a revert from removing the namespace.
+
+A later change of an adopted ResourceQuota or LimitRange sets the keys that the request names and keeps each other field; a namespace with more than one of them refuses such a request until an operator merges them.
 
 **Endpoints.**
 
-- **GET /adoption/candidates.** Labelled, not excluded, not managed.
-- **GET /adoption/skipped.** Labelled but excluded, with the matching rule.
+- **GET /adoption/candidates.** Labelled, not excluded, not managed, not tracked elsewhere; marked "recognised" when an adoption label matches.
+- **GET /adoption/skipped.** Labelled but skipped, with the rule that matched.
 - **POST /namespaces/{ns}:adopt.** Adopt one namespace; supports ?dryRun=true.
 - **POST /adoption:scan.** Plan every candidate on the cluster; dryRun=true by default, so a scan never opens PRs unless asked.
-- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted.
+- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, recognised, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted.
 
 **RBAC.** The adoption plugin adds create on subjectaccessreviews (authorization.k8s.io) to each cluster's read ClusterRole, for the namespace-admin check.
 
