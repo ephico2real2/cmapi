@@ -31,7 +31,7 @@ def helm(*args):
 
 
 def rendered(*args):
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", *args)
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", *args)
     assert r.returncode == 0, r.stderr
     return [d for d in yaml.safe_load_all(r.stdout) if d]
 
@@ -143,11 +143,11 @@ def test_retry_after_a_smuggled_branch_does_not_merge_it(world):
 
 def test_the_design_is_the_default_and_apply_must_be_acknowledged():
     # argocd mode needs the controller's identity named (or the lack acknowledged) since the third pass
-    plain = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
+    plain = helm("--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
     assert plain.returncode == 0, plain.stderr
     assert "cmapi-deliverer" not in [d["metadata"]["name"] for d in yaml.safe_load_all(plain.stdout) if d and d["kind"] in ("ClusterRole", "ClusterRoleBinding")], \
         "a default install gives the worker a cluster-wide write identity"
-    bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "delivery.mode=apply")
+    bare = helm("--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "portal.enabled=false", "--set", "delivery.mode=apply")
     assert bare.returncode != 0 and "acknowledgeDirectWrites" in bare.stderr
 
 
@@ -235,6 +235,7 @@ def test_no_portal_release_runs_end_to_end_with_stubbed_tools(tmp_path):
     lock = yaml.safe_load((repo/"deploy/images.lock.yaml").read_text())
     assert set(lock) == {"cmapi"} and lock["cmapi"]["digest"].startswith("sha256:")
     assert "helm upgrade --install" in log and "images.lock.yaml" in log and "trustedCA.certificates=" in log
+    assert "portal.enabled=false" in log, "a release with no portal image deploys no front door (#226)"
     # the same chart renders from that lock with the portal off
-    out = subprocess.run(["helm", "template", "cmapi", str(repo/"deploy/helm/cmapi"), "-n", "cmapi", "-f", str(repo/"deploy/environments/crc.yaml"), "-f", str(repo/"deploy/images.lock.yaml"), "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
+    out = subprocess.run(["helm", "template", "cmapi", str(repo/"deploy/helm/cmapi"), "-n", "cmapi", "-f", str(repo/"deploy/environments/crc.yaml"), "-f", str(repo/"deploy/images.lock.yaml"), "--set", "trustedCA.certificates=x", "--set", "portal.enabled=false"], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr

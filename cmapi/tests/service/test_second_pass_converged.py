@@ -212,7 +212,7 @@ def test_migrate_refuses_a_revision_it_cannot_place(schema):
 
 # ------------------------------------------------------------------ chart, values and scripts
 def _docs(*a):
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", *a)
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", *a)
     assert r.returncode == 0, r.stderr
     return [d for d in yaml.safe_load_all(r.stdout) if d]
 
@@ -237,7 +237,7 @@ def test_the_migrate_init_container_trusts_what_the_main_container_trusts():
         mounts = {m["name"]: m["mountPath"] for m in init.get("volumeMounts", [])}
         assert mounts.get("trust") == "/etc/cmapi/ca", f"{name}: the init container verifies an external TLS database against nothing"
         assert any(v["name"] == "trust" for v in spec["volumes"]), name
-    bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
+    bare = helm("--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
     assert bare.returncode == 0, bare.stderr
     for d in yaml.safe_load_all(bare.stdout):
         if d and d["kind"] == "Deployment":

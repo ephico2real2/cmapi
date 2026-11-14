@@ -11,8 +11,9 @@ instance:
   name: nonprod
   displayName: Non-production (CRC)
   allowedEnvironments: [rnd, dev]
-  publicUrl: https://cmapi-api.apps-crc.testing
-  portalUrl: https://cmapi-portal.apps-crc.testing
+  # The front door: the portal at /, the API at /api/v1 (docs/02, "The front door").
+  publicUrl: https://cmapi.apps-crc.testing
+  portalUrl: https://cmapi.apps-crc.testing
 
 auth:
   issuer: https://keycloak.apps-crc.testing/realms/cmapi
@@ -32,8 +33,8 @@ keycloak:
   realm:
     # Exact URIs only (RFC 9700, section 2.1; #205): the two addresses of the portal's one page. No wildcard, and no localhost in
     # the realm of a shared cluster (docs/15, "The redirect URIs of the portal").
-    portalRedirects: ["https://cmapi-portal.apps-crc.testing/", "https://cmapi-portal.apps-crc.testing/index.html"]
-    docsRedirects: ["https://cmapi-api.apps-crc.testing/docs/oauth2-redirect"]
+    portalRedirects: ["https://cmapi.apps-crc.testing/", "https://cmapi.apps-crc.testing/index.html"]
+    docsRedirects: ["https://cmapi.apps-crc.testing/docs/oauth2-redirect"]
   sync:
     enabled: true
     testUsers: true
@@ -83,14 +84,13 @@ argocd:
   controllerServiceAccount: system:serviceaccount:cmapi-argocd:argocd-application-controller
 
 portal:
-  enabled: false                    # turned on once the portal runs on the API (CRC-BUILD-STATUS.md)
+  enabled: true                     # the front door: without it nothing outside the namespace reaches the API
   mockup:
     enabled: true
 
 exposure: Route
 route:
-  api: {host: cmapi-api.apps-crc.testing, termination: edge}
-  portal: {host: cmapi-portal.apps-crc.testing}
+  host: cmapi.apps-crc.testing
   mockup: {host: cmapi-mockup.apps-crc.testing}
 
 trustedCA:

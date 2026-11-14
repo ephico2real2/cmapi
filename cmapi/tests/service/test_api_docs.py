@@ -432,3 +432,12 @@ def test_the_redoc_page_asks_no_other_host(bundles, test_config, fresh_db, keys,
     assert policy.get("script-src") == ["'self'", "'unsafe-eval'"] and policy.get("worker-src") == ["'self'", "blob:"]
     for directive, sources in policy.items():
         assert not [s for s in sources if "//" in s or s in ("*", "https:", "http:")], f"{directive} lets in another host"
+
+
+def test_the_front_doors_redoc_policy_is_the_apis_own():
+    """Fable's review of #231 (N1): the API sends REDOC_CSP on /redoc, and the front door sets its own policy there. A
+    browser enforces both, so a front door string that differs (one more directive, one less source) could stop ReDoc's
+    search workers. The nginx template's $cmapi_csp_redoc must be REDOC_CSP, character for character."""
+    template = (Path(__file__).resolve().parents[3] / "cmapi-portal-ui/nginx/templates/cmapi.conf.template").read_text()
+    found = re.findall(r'map \$host \$cmapi_csp_redoc \{\s*default "([^"]*)";', template)
+    assert found == [main_mod.REDOC_CSP]

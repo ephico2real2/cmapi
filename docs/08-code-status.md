@@ -167,7 +167,9 @@ through Keycloak with Authorization Code and PKCE, and its page frame and its Re
 (`GET /api/v1/me`, `GET /api/v1/requests`), with typed TanStack Query hooks from the OpenAPI document (#204).
 It is proven in a browser against a stand-in issuer and a stand-in API only (`tests/api`). The other eight
 tabs are not on the API. The demo build still runs the mockup's sample logic and must not be deployed as the
-portal. Not built: the portal's image and Route, CORS on the API (#206). The chart's `portal.enabled` is off.
+portal. The portal's image is the front door of the instance (`cmapi-portal-ui/Containerfile`, nginx 1.30.6): the
+portal at `/` and the API's paths proxied to the API pods, on one origin, so CORS stays off (#226, #206). The chart
+deploys it; the plain manifests do not yet. Measured on this Mac with a native nginx and Chromium only, not on a cluster.
 
 **CLI and SDK:** not started.
 

@@ -248,7 +248,7 @@ def test_each_realm_secret_falls_back_to_the_keycloak_copy(key):
 
 def _render(*sets):
     a = [x for s in sets for x in ("--set", s)]
-    return subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
+    return subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
                           capture_output=True, text=True)
 
 
