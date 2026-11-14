@@ -263,9 +263,11 @@ class FakeValidator:
     def __init__(self):
         self.findings: list[Finding] = []
         self.calls = 0
+        self.previous: list = []        # the previous folder that each call gave (#212: a held value is not refused)
 
-    def validate(self, files, cluster_id, environment):
+    def validate(self, files, cluster_id, environment, previous=None):
         self.calls += 1
+        self.previous.append(previous)
         return list(self.findings)
 
 
