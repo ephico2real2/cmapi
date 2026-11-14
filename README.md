@@ -23,6 +23,11 @@ the final design and the source of truth: where another document disagrees, it w
 | [docs/07-argo-events-workflows-review.md](docs/07-argo-events-workflows-review.md) | Where Argo CD Notifications, Argo Workflows and Argo Events help, and why each is optional | Current reference |
 | [docs/08-code-status.md](docs/08-code-status.md) | What code is built and tested, what exists only for the local run, and what is still to build | Current |
 | [docs/11-existing-identity-services.md](docs/11-existing-identity-services.md) | The existing Keycloak and existing LDAP server cmapi uses on CRC: what it adds to each, the `app-cmapi-rbac-*` groups and test users, what it leaves alone | Current |
+| [docs/14-authorization.md](docs/14-authorization.md) | The contract between cmapi and Keycloak: groups, roles, permissions, and the five steps that decide a request | Current |
+| [docs/15-keycloak-integration.md](docs/15-keycloak-integration.md) | The Keycloak side: realm, clients, tokens and the portal's sign-in | Current |
+| [docs/16-data-model.md](docs/16-data-model.md) | Each table and column of the cmapi database, the rules that the schema holds, and what each column holds | Current |
+| [docs/17-kpis.md](docs/17-kpis.md) | The one definition of each KPI: question, formula, source, target and status | Current |
+| [docs/18-configuration.md](docs/18-configuration.md) | Each configuration file, key and Helm value an operator sets, with its default, and the owner's decisions behind them | Current |
 | [examples/local/INSTALL.md](examples/local/INSTALL.md) | Setup and installation guide for the local stack (Keycloak, k3s / kind / existing cluster, Kyverno CLI, kubeconform, Git, the API), with screenshots | Current |
 | [docs/diagrams/](docs/diagrams) | The diagrams embedded in the documents (PNG) | |
 | [mockups/cmapi-flow.html](mockups/cmapi-flow.html) | Clickable request-flow mockup: rnd create (auto-approved), prod create (approved in cmapi, then bot PR), quota change (three approvals), policy reject, cluster import, expiry to delete with prune confirmation, wrong instance, and an AI agent onboarding a namespace as bot-user (cmapi-onboarding: create only, change and delete refused). Open in a browser | |

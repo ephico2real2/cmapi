@@ -38,7 +38,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 
 | Permission | viewer | onboarding | requester | approver | operator | admin | auditor | approval-relay | Routes today |
 |---|---|---|---|---|---|---|---|---|---|
-| `clusters:read` | yes | yes | yes | yes | yes | yes | yes | | 2 |
+| `clusters:read` | yes | yes | yes | yes | yes | yes | yes | | 3 |
 | `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 8 |
 | `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 0 |
 | `requests:read` | yes | yes | yes | yes | yes | yes | yes | yes | 5 |
@@ -74,7 +74,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 | `inherits` | Adds the permissions of another role |
 | `environments` | Limits the role to some environments that the instance serves |
 
-A permission that is not in the table above stops startup (`authz.py:115-117`). An environment that the instance does not serve also stops startup (`authz.py:121-123`). A built-in role that the file does not name keeps its permissions in each environment (`authz.py:103-108`).
+[`docs/18-configuration.md`](18-configuration.md) lists each key of the file with its default. A permission that is not in the table above stops startup (`authz.py:115-117`). An environment that the instance does not serve also stops startup (`authz.py:121-123`). A built-in role that the file does not name keeps its permissions in each environment (`authz.py:103-108`).
 
 ### Which route needs which permission
 
