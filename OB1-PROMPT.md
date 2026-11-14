@@ -99,6 +99,20 @@ An item is done only when all of these hold. Check each one, and cite the eviden
 - If Claude Code refuses an action, the refusal stands: do not route around it or edit permission settings. Do everything else, and tell me the exact command at the end.
 - Things only I can do: trust the two CAs in the keychain (LOCAL-DEV-TRUST.md), create the GitHub App, and make each GHCR package public. Build everything up to each one, then tell me exactly what to do and keep working on what does not depend on it.
 
+## Local CI is the merge gate
+
+The owner, 2026-11-13: "use local ci for all work and forget the githiub", and "tell ob1 to use this going forward". From that point OB1 uses local CI for all work, not GitHub Actions, and does not wait for a GitHub run.
+- Read `~/.claude/skills/setup-local-ci/SKILL.md` and `~/.claude/skills/local-ci-web/SKILL.md` in full first. The script is `ci/local/act-ci.sh` (from the coordinator's branch `local-ci`), or `~/.claude/skills/setup-local-ci/act-ci.sh` until that merges. The runner image is `act-runner:ubuntu-24.04`, built for `linux/amd64`.
+- Run each job of `.github/workflows/ci.yml` in a clone with no remote, in a folder with the name of the repository, with `-b <base commit of the pull request>` and `-o <a log folder for that run>`. Never run a bare `act`.
+- Do not start a kind cluster or touch CRC from these runs. Do not remove the `act-*` containers of a run that you did not start.
+- The merge gate: each job exits 0 on the exact head commit. The pull request says that the gate was local CI, with the commit, the result of each job, and the differences from a GitHub run (the skill's section 6).
+- The viewer is `http://127.0.0.1:2026/`. The coordinator starts it. Do not stop it.
+- If a local job fails for an act or Podman reason, match it to the skill's gotcha table, and file it as a defect.
+- The `manifests` job is not run locally. act-ci.sh passes `--container-daemon-socket -` (G1), and the job needs a container engine and a kind cluster. A kind run killed `keycloak-0` on the shared CRC at 08:58:42Z (#157), so no kind runs on this Mac until #157 is decided. The local gate is the other five jobs. A pull request that changes `deploy/`, the `Containerfile` or the manifests job waits for the `manifests` proof.
+- Branch protection on `main` still requires the GitHub checks. The coordinator does not change it; that is the owner's choice. So a merge also waits for GitHub's required checks, but OB1 does not sit idle on them: it works on the next item.
+- Before and after each local run, read `keycloak-0`'s restart count. If it rises, stop local CI and add the measurement to #157.
+- The records (`HANDOVER-AND-RESUME.md`, `build-tracker.md`, `issue-register.md`) belong to the coordinator. OB1 may make a short edit to them when it costs little time. At the end of each task, OB1 sends the coordinator what it did, what is still needed and any blocker. OB1 files its own issues.
+
 ## The database: CloudNativePG
 The database is CloudNativePG, as decided and measured on kind, and docs/12's path for an existing PostgreSQL server stays as it is. Connect with TLS and verify the server (#91 is that work). Add no other database.
 
