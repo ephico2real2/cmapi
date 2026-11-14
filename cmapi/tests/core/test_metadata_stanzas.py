@@ -153,3 +153,33 @@ def test_the_two_optional_keys_are_annotations_with_their_formats(keys, annotati
 def test_a_requester_cannot_send_either_optional_key_as_a_label(keys, key):
     errs = keys.validate({**SENT, key: ""}, {}, operator=False, sources=SOURCES)
     assert [(e["code"], e["key"], e["detail"]) for e in errs] == [("invalid_key", key, f"{key} is an annotation")]
+
+
+# The owner's decision on #26: a required key that an existing namespace lacks is never forced, only reported. cmapi's
+# own check holds it as the rendered policies do, and checks each value that a request sends.
+HELD = {k: v for k, v in SENT.items() if k != "company.net/lob"}           # an adopted namespace with no line of business
+
+
+def test_an_existing_namespace_that_lacks_a_required_key_takes_an_unrelated_change(keys):
+    change = {"company.net/cl": "2"}
+    assert keys.validate(change, {}, operator=False, sources=SOURCES, current_labels=HELD, existing=True) == []
+    # A new namespace must still carry it.
+    assert ("missing_required_key", "company.net/lob") in codes(keys.validate(HELD, {}, operator=False, sources=SOURCES))
+
+
+def test_a_request_that_touches_the_held_key_must_give_a_valid_value(keys):
+    for sent, want in (({"company.net/lob": "retail"}, ("invalid_value", "company.net/lob")),
+                       ({"company.net/lob": None}, ("missing_required_key", "company.net/lob"))):
+        assert want in codes(keys.validate(sent, {}, operator=False, sources=SOURCES, current_labels=HELD, existing=True))
+    assert keys.validate({"company.net/lob": "amgsst"}, {}, operator=False, sources=SOURCES, current_labels=HELD,
+                         existing=True) == []
+
+
+def test_a_held_value_that_breaks_its_rule_is_not_checked_again(keys):
+    """An adopted namespace whose mnemonic does not start its name keeps it through an unrelated change."""
+    current = {**SENT, "company.net/mnemonic": "xyz"}
+    assert keys.validate({"company.net/cl": "2"}, {}, operator=False, sources=SOURCES, current_labels=current,
+                         existing=True) == []
+    assert ("invalid_value", "company.net/mnemonic") in codes(
+        keys.validate({"company.net/mnemonic": "xyz"}, {}, operator=False, sources=SOURCES, current_labels=current,
+                      existing=True))

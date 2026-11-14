@@ -116,7 +116,8 @@ class GitProvider(Protocol):
 @runtime_checkable
 class Validator(Protocol):
     """core/validate/: the Kyverno CLI bundle plus kubeconform on the rendered files."""
-    def validate(self, files: Mapping[str, str], cluster_id: str, environment: str) -> list[Finding]: ...
+    def validate(self, files: Mapping[str, str], cluster_id: str, environment: str,
+                 previous: Mapping[str, str | None] | None = None) -> list[Finding]: ...
 
 
 @runtime_checkable
