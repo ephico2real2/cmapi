@@ -179,7 +179,10 @@ stable branch (1.30) gets only critical fixes; the mainline (1.31) adds features
 
 ## Measured, on this Mac (no cluster, no container: #157)
 
-- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 327 checks, 0 failed (316 at the review fixes; the `/redoc` checks added 11).
+- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 330 checks, 0 failed (316 at the review fixes; the `/redoc` checks added 11; #241 added 3), with the work folder
+  under `/var/folders/` and under `/tmp/`. #241 (BUG-58): on the GitHub runner the work folder is under `/tmp/`, and the
+  harness moved the paths it had already moved, so nginx loaded no server and never listened; the old code fails the
+  new checks (2 failed), the new code passes them. The syntax check now also reads `nginx -T` for both servers.
   The upstream, the routes, the headers of each kind of page and of `/healthz` and nginx's own errors (400, 404, 413,
   502, 504), what reaches the API, retries (a GET, DELETE or PUT goes to the other pod after a reset, a read timeout,
   a 502, 503 or 504; a POST, PATCH or LOCK never does), keepalive (12 requests over 3 pods used 3 connections), the log,

@@ -187,10 +187,14 @@ class Nginx:
         if port is not None:
             site = re.sub(r"listen 8080( default_server)?;", lambda m: f"listen 127.0.0.1:{port}{m.group(1) or ''};", site)
 
+        # One pass (#241): a work folder under /tmp/ (the GitHub runner's) must not be moved again by the "/tmp/" rule.
+        moves = {"/etc/nginx/cmapi/": f"{d}/cmapi/", "/etc/nginx/conf.d/": f"{d}/conf.d/",
+                 "/etc/nginx/mime.types": self.mime_types(), "/usr/share/nginx/html": f"{d}/html",
+                 "/dev/stdout": f"{d}/access.log", "/tmp/": f"{d}/run/"}
+        image_path = re.compile("|".join(map(re.escape, moves)))
+
         def move(text: str) -> str:
-            return (text.replace("/etc/nginx/cmapi/", f"{d}/cmapi/").replace("/etc/nginx/conf.d/", f"{d}/conf.d/")
-                    .replace("/etc/nginx/mime.types", self.mime_types()).replace("/usr/share/nginx/html", f"{d}/html")
-                    .replace("/dev/stdout", f"{d}/access.log").replace("/tmp/", f"{d}/run/"))
+            return image_path.sub(lambda m: moves[m.group(0)], text)
 
         (d / "conf.d" / "cmapi.conf").write_text(move(site))
         for f in (SRC / "cmapi").glob("*.conf"):
@@ -205,8 +209,14 @@ class Nginx:
         (d / "nginx.conf").write_text(main)
         return d
 
-    def test(self, d: Path) -> subprocess.CompletedProcess:
-        return subprocess.run(self.command(d / "nginx.conf", "-t"), capture_output=True, text=True, timeout=60)
+    def test(self, d: Path, flag: str = "-t") -> subprocess.CompletedProcess:
+        return subprocess.run(self.command(d / "nginx.conf", flag), capture_output=True, text=True, timeout=60)
+
+    def server_names(self, d: Path) -> list[str]:
+        """The server_name lines that nginx -T loads. A glob include that matches no file is not an error to nginx,
+        so nginx -t alone passes a configuration with no server (#241)."""
+        r = self.test(d, "-T")
+        return re.findall(r"^\s*server_name\s+([^;]+);", r.stdout, re.M) if r.returncode == 0 else []
 
     def start(self, d: Path, port: int) -> subprocess.Popen:
         name = f"cmapi-front-door-test-{os.getpid()}-{port}" if self.args.image else None
@@ -287,10 +297,33 @@ def site_files(work: Path) -> None:
 
 def case_syntax(ng: Nginx) -> None:
     print("nginx -t on the template as the image renders it (the upstream's resolve line unchanged)")
-    r = ng.test(ng.write(GOOD_ENV))
+    d = ng.write(GOOD_ENV)
+    r = ng.test(d)
     check(r.returncode == 0, f"nginx -t passes ({(r.stderr or '').strip().splitlines()[-1:]})")
+    names = ng.server_names(d)
+    check(names == [PORTAL_HOST, MOCKUP_HOST], f"nginx -T loads the portal and mockup servers ({names})")
     r = ng.test(ng.write({**GOOD_ENV, "CMAPI_PORTAL_HOST": "cmapi.*", "CMAPI_MOCKUP_HOST": "cmapi-mockup.*"}))
     check(r.returncode == 0, f"nginx -t passes with the wildcard server names ({(r.stderr or '').strip().splitlines()[-1:]})")
+
+
+def case_review_work_under_tmp(args: argparse.Namespace) -> None:
+    """#241: on the GitHub runner the work folder is under /tmp/, which the image's temp paths also start with. Each
+    path that the harness writes must name the work folder once, and nginx must load both servers."""
+    print("a work folder under /tmp/ (the runner's), each image path moved once")
+    with tempfile.TemporaryDirectory(prefix="front-door-tmp-", dir="/tmp") as tmp:
+        work = Path(tmp)
+        site_files(work)
+        ng = Nginx(args, work)
+        d = ng.write(GOOD_ENV)
+        paths = [m for f in d.rglob("*.conf")
+                 for m in re.findall(r"^\s*(?:include|pid|\w+_temp_path|access_log|error_log|root|alias)\s+(/\S+?)[;\s]",
+                                     f.read_text(), re.M)]
+        under = [p for p in paths if p.startswith(str(d) + "/")]
+        # A path moved twice holds the work folder's name again after the work folder: {d}/run/<work>/<sub>/conf.d/.
+        twice = [p for p in under if work.name in p[len(str(d)):]]
+        check(bool(under) and not twice, f"{len(under)} paths under the work folder, none moved twice ({twice[:2]})")
+        names = ng.server_names(d)
+        check(names == [PORTAL_HOST, MOCKUP_HOST], f"nginx -T loads the portal and mockup servers ({names})")
 
 
 def case_routes(ng: Nginx) -> None:
@@ -640,6 +673,7 @@ def main() -> int:
         site_files(work)
         ng = Nginx(args, work)
         case_syntax(ng)
+        case_review_work_under_tmp(args)
         case_routes(ng)
         case_retries(ng)
         case_env_check()
