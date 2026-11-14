@@ -1,0 +1,187 @@
+# The front door of one cmapi instance: one origin for the portal and the API (docs/02, "The front door").
+# The image's 20-envsubst-on-templates.sh writes this file to /etc/nginx/conf.d/cmapi.conf at start. It fills only the
+# variables that NGINX_ENVSUBST_FILTER names (CMAPI_* and NGINX_LOCAL_RESOLVERS), so nginx's own $variables stay as
+# they are. 16-cmapi-check-env.envsh refuses to start with a missing or malformed value.
+#
+#   CMAPI_API_UPSTREAM      host:port of the API's headless Service, for example cmapi-api-pods.cmapi.svc.cluster.local:8080
+#   CMAPI_PORTAL_HOST       the public host of the instance (the Route), which serves the portal and the API
+#   CMAPI_MOCKUP_HOST       the public host of the standalone mockup
+#   CMAPI_OIDC_ORIGIN       the issuer's origin, for example https://keycloak.apps-crc.testing: the portal and Swagger UI
+#                           fetch tokens from it and post the sign-out form to it
+#   NGINX_LOCAL_RESOLVERS   the pod's DNS servers, from /etc/resolv.conf (15-local-resolvers.envsh)
+
+# One JSON object for each request. $uri has no query string: the portal's sign-in returns to "/?code=...&state=...",
+# and an authorization code must not reach a log. No header that carries a credential is logged.
+log_format cmapi_json escape=json
+    '{"time":"$time_iso8601","request_id":"$cmapi_request_id","traceparent":"$http_traceparent",'
+    '"remote_addr":"$remote_addr","forwarded_for":"$http_x_forwarded_for","host":"$host",'
+    '"method":"$request_method","uri":"$uri","status":$status,"bytes_sent":$body_bytes_sent,'
+    '"request_time":$request_time,"upstream_addr":"$upstream_addr","upstream_status":"$upstream_status",'
+    '"upstream_response_time":"$upstream_response_time","user_agent":"$http_user_agent"}';
+
+# The API takes X-Request-Id from the request (cmapi/src/cmapi/core/observability.py). A well-formed id from the caller
+# is kept, so a client can follow its own call; anything else is replaced by nginx's own 32-character id.
+map $http_x_request_id $cmapi_request_id {
+    "~^[A-Za-z0-9._-]{1,64}$" $http_x_request_id;
+    default $request_id;
+}
+
+# The OpenShift router terminates TLS and sends X-Forwarded-Proto. Only the router reaches this pod (the NetworkPolicy),
+# so its value is passed on. The API needs it to build https links (uvicorn's proxy_headers).
+map $http_x_forwarded_proto $cmapi_forwarded_proto {
+    https https;
+    default $scheme;
+}
+
+# An API response that sets no Cache-Control gets "no-store" (OWASP REST Security Cheat Sheet). One that sets its own,
+# such as /openapi.json's "no-cache" with an ETag, keeps it: an empty value makes add_header add nothing.
+map $upstream_http_cache_control $cmapi_api_cache_control {
+    "" "no-store";
+    default "";
+}
+
+# The Content-Security-Policy of each kind of page. Each policy is one string, so a test can read it exactly.
+map $host $cmapi_csp_portal {
+    default "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CMAPI_OIDC_ORIGIN}; form-action 'self' ${CMAPI_OIDC_ORIGIN}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+}
+# Swagger UI and ReDoc as FastAPI renders them start from an inline script, and ReDoc runs a worker from a blob.
+map $host $cmapi_csp_docs {
+    default "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CMAPI_OIDC_ORIGIN}; worker-src 'self' blob:; form-action 'self' ${CMAPI_OIDC_ORIGIN}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+}
+# JSON and YAML only: nothing in an API response may load or run anything.
+map $host $cmapi_csp_api {
+    default "default-src 'none'; frame-ancestors 'none'";
+}
+# The mockup is one file with its runtime inline, and the runtime compiles the mockup's components (new Function).
+# Its design (mockups/portal/Main.dc.html) loads two fonts from Google Fonts: the stylesheet from fonts.googleapis.com,
+# the font files from fonts.gstatic.com. Only the mockup's host allows those two hosts.
+map $host $cmapi_csp_mockup {
+    default "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
+}
+
+# The API pods, found through the headless Service: "resolve" follows its DNS answer, which lists the ready pods only.
+# So nginx balances over each pod, passes a failed idempotent request to another pod, and stops sending to a pod that
+# fails. The resolver's "valid" bounds how long a pod that left the Service can still get a new request.
+resolver ${NGINX_LOCAL_RESOLVERS} valid=5s;
+resolver_timeout 2s;
+upstream cmapi_api {
+    zone cmapi_api 64k;
+    server ${CMAPI_API_UPSTREAM} resolve max_fails=2 fail_timeout=10s;
+    # nginx keeps up to 32 idle connections to the API in each worker (the default from 1.29.7). uvicorn closes an
+    # idle connection after 5 s (its timeout_keep_alive default), so nginx closes its own first: a request sent on a
+    # connection that uvicorn is closing fails, and nginx never passes a POST to another pod once it was sent.
+    keepalive_timeout 4s;
+}
+
+server {
+    listen 8080 default_server;
+    server_name ${CMAPI_PORTAL_HOST};
+    root /usr/share/nginx/html/portal;
+    index index.html;
+    access_log /dev/stdout cmapi_json;
+    # Redirects that nginx makes itself are relative: the pod's port 8080 and http are not what the browser sees.
+    absolute_redirect off;
+
+    # Every API request body is a small JSON document.
+    client_max_body_size 1m;
+    client_header_timeout 10s;
+    client_body_timeout 10s;
+    send_timeout 30s;
+    keepalive_timeout 65s;
+
+    # Static files only: gzip_proxied stays off, so no API response that can carry a reflected value is compressed.
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/css application/javascript application/json image/svg+xml text/plain;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # The API: its routes, the OpenAPI document and the problem pages.
+    location /api/ {
+        include /etc/nginx/cmapi/proxy-api.conf;
+    }
+    location = /openapi.json {
+        include /etc/nginx/cmapi/proxy-api.conf;
+    }
+    location = /openapi.yaml {
+        include /etc/nginx/cmapi/proxy-api.conf;
+    }
+    location = /problems {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    location /problems/ {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+
+    # Swagger UI (/docs, /docs/oauth2-redirect, /docs/changelog), ReDoc, and the bundles that the image serves for both.
+    location = /docs {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    location /docs/ {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    location = /redoc {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    location /static/swagger/ {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+    location /static/redoc/ {
+        include /etc/nginx/cmapi/proxy-docs.conf;
+    }
+
+    # The portal. Vite puts a content hash in each asset's name, so an asset never changes and can be cached for a year.
+    location /assets/ {
+        include /etc/nginx/cmapi/headers-portal.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+    # The page and config.json name the current assets and the instance: the browser asks again each time.
+    location = /config.json {
+        include /etc/nginx/cmapi/headers-portal.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+    location = /index.html {
+        include /etc/nginx/cmapi/headers-portal.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+    location / {
+        include /etc/nginx/cmapi/headers-portal.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri /index.html;
+    }
+}
+
+# The standalone mockup (mockups/portal/dist/portal.html) on its own host: a static page with no API behind it.
+server {
+    listen 8080;
+    server_name ${CMAPI_MOCKUP_HOST};
+    root /usr/share/nginx/html/mockup;
+    access_log /dev/stdout cmapi_json;
+    absolute_redirect off;
+    client_max_body_size 1k;
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+    location = / {
+        include /etc/nginx/cmapi/headers-mockup.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files /portal.html =404;
+    }
+    location / {
+        include /etc/nginx/cmapi/headers-mockup.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
+    }
+}

@@ -1,0 +1,56 @@
+# cmapi-portal: the front door of one instance (docs/02, "The front door"; decision record
+# docs/reviews/2026-11-14-issue-226/). nginx serves the portal and the standalone mockup, and proxies the API's paths
+# to the API pods, so the browser sees one origin.
+#
+# Build from the repository root: the portal's build reads the mockup (scripts/extract-model.mjs).
+#   podman build -f cmapi-portal-ui/Containerfile -t cmapi-portal .
+# Each base image is pinned by the digest of its manifest list (skopeo inspect --raw | sha256sum, 2026-11-14), and each
+# was published more than two weeks before it was pinned.
+
+# node 24.22.1-alpine3.24, published 2026-10-21. It builds the files and is not in the final image.
+FROM docker.io/library/node@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+WORKDIR /src
+COPY mockups/portal/ mockups/portal/
+COPY cmapi-portal-ui/package.json cmapi-portal-ui/package-lock.json cmapi-portal-ui/
+RUN cd cmapi-portal-ui && npm ci --ignore-scripts --no-audit --no-fund
+COPY cmapi-portal-ui/ cmapi-portal-ui/
+RUN cd cmapi-portal-ui && npm run build
+
+# nginxinc/nginx-unprivileged 1.30.6-alpine3.24 (nginx stable 1.30.6), published 2026-10-19. It runs as a non-root user
+# with group 0, listens on 8080 and stops gracefully on SIGQUIT, which fits OpenShift's restricted-v2 SCC.
+FROM docker.io/nginxinc/nginx-unprivileged@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+
+ARG GIT_COMMIT=unknown
+ARG BUILD_VERSION=0.0.0
+LABEL org.opencontainers.image.title="cmapi-portal" \
+      org.opencontainers.image.description="The front door of a cmapi instance: the portal, the mockup and the API on one origin" \
+      org.opencontainers.image.source="https://github.com/ephico2real2/cmapi" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+# CMAPI_GIT_COMMIT: deploy/release-crc.sh reads this stamp to prove which commit an image holds.
+# NGINX_ENTRYPOINT_LOCAL_RESOLVERS: 15-local-resolvers.envsh puts the pod's DNS servers in NGINX_LOCAL_RESOLVERS, for
+#   the upstream's "resolve".
+# NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: 30-tune-worker-processes.sh sets worker_processes from the container's
+#   CPU limit, not the node's CPU count.
+# NGINX_ENVSUBST_FILTER: envsubst fills only the names that match, so the template's nginx variables ($host, $uri)
+#   stay as they are.
+ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
+    NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE=1 \
+    NGINX_ENVSUBST_FILTER="^(CMAPI_|NGINX_LOCAL_RESOLVERS)"
+
+USER 0
+# The stock site goes: if the template were not written, nginx would start with no server and fail its readiness probe,
+# not serve the stock page.
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY cmapi-portal-ui/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY cmapi-portal-ui/nginx/cmapi/ /etc/nginx/cmapi/
+COPY cmapi-portal-ui/nginx/templates/ /etc/nginx/templates/
+COPY --chmod=0755 cmapi-portal-ui/nginx/16-cmapi-check-env.envsh /docker-entrypoint.d/16-cmapi-check-env.envsh
+COPY --from=build /src/cmapi-portal-ui/dist/ /usr/share/nginx/html/portal/
+COPY mockups/portal/dist/portal.html /usr/share/nginx/html/mockup/portal.html
+# The entrypoint writes conf.d and nginx.conf (the worker count) at start, as the image's arbitrary UID in group 0.
+RUN chown -R 101:0 /etc/nginx /usr/share/nginx/html && chmod -R g+w /etc/nginx && chmod -R a+rX /usr/share/nginx/html
+USER 101
