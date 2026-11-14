@@ -1331,7 +1331,7 @@ Writes keep their shape: POST .../namespaces takes tier and, for custom only, qu
 
 **Changing a tier.** A PR to tiers.yaml (approver-platform in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values and their approved beyond-tier values; only the rest of their catalog part re-renders.
 
-**Reference implementation.** examples/src/cmapi/core/tiers.py, with 28 tests in examples/tests/test\_tiers.py that load every instance's file, cover each refusal and each catalog check, and render the example namespace's resourcequota.yaml and limitrange.yaml byte for byte.
+**Reference implementation.** cmapi/src/cmapi/core/tiers.py, with tests in cmapi/tests/core/test_tiers.py and cmapi/tests/core/test_limitrange_split.py that load every instance's file, cover refusals and catalog checks, and render the example namespace's resourcequota-payments-dev-quota.yaml, limitrange-payments-dev-limits-cpu.yaml and limitrange-payments-dev-limits-memory.yaml byte for byte.
 
 ## Capacity plugin (API side)
 

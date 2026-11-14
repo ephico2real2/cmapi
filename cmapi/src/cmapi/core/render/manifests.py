@@ -66,13 +66,15 @@ _NAME_MAX = 255                                  # bytes in a file name on the f
 
 
 def object_file(kind: str, name: str) -> str:
-    """The file of one ResourceQuota or LimitRange: <kind>-<name>.yaml, or <kind>-<sha256 of the name>.yaml when that is
+    """The file of one ResourceQuota or LimitRange: <kind>-<name>.yaml, or <kind>--<sha256 of the name>.yaml when that is
     longer than a file name can be. Readers find the objects by kind (objects_of), never by this name."""
     stem = OBJECT_FILE_STEM[kind]
     file = f"{stem}-{name}.yaml"
     if len(file.encode()) <= _NAME_MAX:
         return file
-    return f"{stem}-{hashlib.sha256(name.encode()).hexdigest()[:32]}.yaml"
+    # Ordinary names start with an alphanumeric character. The extra '-' keeps the hash
+    # namespace disjoint from their paths, without needing a cryptographic collision.
+    return f"{stem}--{hashlib.sha256(name.encode()).hexdigest()}.yaml"
 
 
 def objects_of(files: Mapping[str, str | None], kind: str) -> list[dict[str, Any]]:

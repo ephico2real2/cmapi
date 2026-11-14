@@ -87,7 +87,14 @@ def limit_object_suffix(kind: str, res: str) -> str:
     hugepages-2mi). The catalog refuses two resources that would share an object (_object_collisions)."""
     if kind == STORAGE_KIND:
         return "storage"
-    return re.sub(r"[^a-z0-9.-]+", "-", res.lower()).strip("-.")
+    suffix = re.sub(r"[^a-z0-9.-]+", "-", res.lower()).strip("-.")
+    # A namespace can occupy 63 characters and "-limits-" another eight. Qualified resource
+    # names can contain consecutive dots or a dot next to a hyphen, and can exceed the remaining
+    # 182 characters. Keep familiar names where valid; use a stable DNS label otherwise.
+    dns = r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*"
+    if suffix and (len(suffix) > 182 or re.fullmatch(dns, suffix) is None):
+        return "resource-" + hashlib.sha256(res.encode()).hexdigest()
+    return suffix
 
 
 def limit_object_name(namespace: str, kind: str, res: str) -> str:
@@ -689,7 +696,7 @@ class TierCatalog:
                        "cmapi.net/tier-hash": r.hash}
         rq = {"apiVersion": "v1", "kind": "ResourceQuota",
               "metadata": {"name": f"{namespace}-quota", "namespace": namespace,
-                           "labels": labels, "annotations": annotations},
+                           "labels": dict(labels), "annotations": dict(annotations)},
               "spec": {"hard": {k: spec_hard[k] for k in sorted(spec_hard, key=_quota_order)}}}
         quota_beyond = [k for k in beyond if not is_limit_key(k)]
         if quota_beyond:
