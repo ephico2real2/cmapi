@@ -206,7 +206,7 @@ class Pipeline:
         # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
         sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
         self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
-                                sources=sources)
+                                sources=sources, existing=prev_ns is not None)
         labels = self.cfg.metadata.merge_patch(cur_l, labels)
         anns = self.cfg.metadata.merge_patch(cur_a, anns)
 

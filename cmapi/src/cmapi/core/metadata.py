@@ -247,11 +247,15 @@ class MetadataKeys:
                  operator: bool, require_governed: bool = True,
                  current_labels: Mapping[str, str] | None = None,
                  current_annotations: Mapping[str, str] | None = None,
-                 sources: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
+                 sources: Mapping[str, str] | None = None, existing: bool = False) -> list[dict[str, Any]]:
         """labels/annotations: what the caller sends (a merge patch; None removes a key).
         Classes and values are checked on what is sent; required keys and limits on the result,
         so a PATCH can neither remove a required key nor slip past the caps. sources: the request's target
-        (namespace, environment, cluster, instance), from which cmapi fills each value.from key."""
+        (namespace, environment, cluster, instance), from which cmapi fills each value.from key.
+
+        existing: the namespace is in Git already. Then a required key that its current version lacks, and that the
+        request does not touch, is held: not refused, as the rendered policies hold it (the owner's decision on #26: a
+        missing required key is never forced, only reported). A request that sends the key must give a valid value."""
         sources = sources or {}
         errs: list[dict[str, Any]] = []
         merged = {"label": self.merge_patch(current_labels or {}, labels),
@@ -279,18 +283,14 @@ class MetadataKeys:
             for kind in KINDS:
                 for key, rule in self.rules[kind].items():
                     if rule.required and not rule.derived and not merged[kind].get(key):
+                        sent = labels if kind == "label" else annotations
+                        current = (current_labels if kind == "label" else current_annotations) or {}
+                        if existing and key not in sent and not current.get(key):
+                            continue                # held: the namespace lacked it before, and the request leaves it
                         errs.append({"code": "missing_required_key", "key": key, "kind": kind,
                                      "detail": rule.text(self.email_domains)})
-        namespace = sources.get("namespace")
-        if namespace:
-            for kind in KINDS:
-                for key, rule in self.rules[kind].items():
-                    value = merged[kind].get(key)
-                    # Checked on the result, so a key sent earlier still has to fit the namespace it is on.
-                    if rule.namespace_prefix and value and not namespace.startswith(f"{value}-") \
-                            and key not in (labels if kind == "label" else annotations):
-                        errs.append({"code": "invalid_value", "key": key, "kind": kind,
-                                     "detail": f"{namespace} does not start with {value}-"})
+        # A value that the request does not send is the current one, which Git holds: it is not checked again (the same
+        # rule as the bounds of tiers.py and the rendered policies). Each value that the request sends is checked above.
         for kind in KINDS:
             limits = self.allow_other[kind]
             team = {k: v for k, v in merged[kind].items() if self.classify(k, kind) == "team"}
@@ -343,10 +343,10 @@ class MetadataKeys:
         return []
 
     def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,
-              current_labels=None, current_annotations=None, sources=None) -> None:
+              current_labels=None, current_annotations=None, sources=None, existing: bool = False) -> None:
         errs = self.validate(labels, annotations, operator=operator,
                              require_governed=require_governed, current_labels=current_labels,
-                             current_annotations=current_annotations, sources=sources)
+                             current_annotations=current_annotations, sources=sources, existing=existing)
         if any(e["code"] == "operator_only_key" for e in errs):
             raise Problem.forbidden("Only cmapi-operator may set " +
                                     ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key"))
