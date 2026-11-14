@@ -8,7 +8,7 @@ import { chromium } from "playwright";
 import { serve } from "../../tests/portal/views.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
-const server = await serve(join(app, "dist"));
+const server = await serve(join(app, "dist-demo"));
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL });
 const page = await (await browser.newContext({ viewport: { width: 1440, height: 1000 } })).newPage();
 page.setDefaultTimeout(5000);

@@ -1,0 +1,8 @@
+{
+  "apiUrl": "https://cmapi-api.apps-crc.testing",
+  "issuer": "https://keycloak.apps-crc.testing/realms/cmapi",
+  "clientId": "cmapi-portal",
+  "instance": "nonprod",
+  "displayName": "Non-production",
+  "environments": ["rnd", "dev"]
+}

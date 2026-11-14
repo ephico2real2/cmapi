@@ -6,21 +6,60 @@ The contract between `mockups/portal/Main.dc.html` and this app. The mockup does
 **The mockup file is the source.** Copy, labels and fields come from it. `npm run model` extracts its logic class,
 and `tests/parity.test.mjs` fails if a string it shows is missing here.
 
-## Data: the app does not call the API yet
+## Two builds from one source
 
-The API is built for a part of the mockup, and this app calls none of it. `cmapi/contract/openapi.json` is the API's
-document, and `docs/diagrams/portal-architecture/README.md` maps each action of the mockup to its endpoint: 13 of the 26
-endpoints that the actions need are built. Until this app calls them, the mockup's logic class is its stand-in
-(`src/model/logic.generated.js`). Components take view-model props from `renderVals()`. Typed TanStack Query hooks will
-replace `usePortal` without changing how components read their data; that is phase 2, with the libraries `docs/02` names.
+| Build | Command | What it is |
+|---|---|---|
+| The portal | `vite build`, to `dist/` | The portal on the API. It reads `config.json`, signs the person in through Keycloak, and calls the API. It holds no sample data |
+| The demo | `vite build --mode demo`, to `dist-demo/` | The mockup's stand-in. It runs the mockup's logic class (`src/model/logic.generated.js`) with no sign-in and no API call. It must not be deployed as the portal |
 
-Consequences until then:
+`tests/api/bundle.test.mjs` reads the names of the mockup's sample data from the mockup. It fails if one of them is in `dist/`.
 
-- Sample data ships in the bundle. This app is a demo and must not be deployed as the portal.
+## The portal on the API (issue #204)
+
+- **Settings.** `config.json` lies beside `index.html`. It gives `apiUrl`, `issuer`, `clientId`, `instance`, `displayName` and `environments`. `config.example.json` is a sample. With no valid `config.json`, the portal shows "The portal is not configured." and starts nothing.
+- **Sign-in.** Authorization Code with PKCE (`S256`) through `oidc-client-ts` and `react-oidc-context` (`src/portal/auth.ts`). The tokens stay in the memory of the page. `docs/15-keycloak-integration.md` gives the flow and the sources.
+- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe` and `useRequests`.
+- **Permissions.** A tab shows only when `GET /api/v1/me` gives its permission in `access.permissions`. The permission of each call comes from the OpenAPI document (`src/api/permissions.generated.ts`). The browser reads no role from the token.
+- **On the API today:** the page frame and the Requests tab. Each other tab says "This tab is not on the API yet."
+
+The states of the Requests tab:
+
+| State | Cause | The page shows |
+|---|---|---|
+| Loading | No answer yet | "Loading requests…" as a status line, and a skeleton |
+| Empty | 200 with no rows | The mockup's sentence |
+| Forbidden | 403 | "You do not have permission to see requests." and the problem's `detail`. No action |
+| Error | 5xx, or no answer from the network | "The requests did not load." with the problem's `detail`, and "Try again" |
+| 401 | The token ended | Nothing: one renewal with the refresh token, then the same call. If Keycloak refuses, or the API answers 401 again, "Sign-in did not complete." with "Sign in again" |
+
+### Where the portal's Requests tab differs from the mockup
+
+| Difference | Why |
+|---|---|
+| "Where it is" shows the last event of the request and who made it | The mockup's step number comes from its sample scenarios. The API has events, and no step count |
+| "Open at current step" is off, with one line that says why | The Workflow tab is not on the API yet |
+| No "Replay a policy rejection" and no "Replay a wrong-instance request" | They open sample scenarios of the mockup |
+| No instance buttons | The mockup says "Mockup only": each instance is its own deployment |
+| "Sign out" in the page frame | A signed-in person needs it. The mockup has no session |
+| The name and the roles in the page frame come from `GET /api/v1/me` | The mockup shows its sample person |
+| A tab that the person has no permission for is not shown | `docs/02`: the portal shows only the actions that a person can take |
+| Words for loading, forbidden and error | The mockup's model cannot wait and cannot fail, so it has no words for them |
+| The address is `#requests?q=...&state=...` | One portal serves one instance, so the address has no instance |
+
+The demo build has none of these differences. The sections below describe it.
+
+## The demo build: the mockup's logic stands in for the API
+
+The API is built for a part of the mockup. `docs/diagrams/portal-architecture/README.md` maps each action of the mockup to its endpoint. Until each tab calls the API, the demo build keeps the mockup's logic class as the stand-in, and the parity and behaviour suites compare it with the mockup. Components take view-model props from `renderVals()`.
+
+Consequences in the demo build:
+
+- Sample data ships in its bundle.
 - There are no loading or error states, because the model is synchronous and cannot fail. Each list has its empty state.
 - There is no sign-in. The user shown is the mockup's.
 - Paging, filters and search run in the browser inside the model, not as server parameters.
-- `src/model/types.ts` infers types from the JavaScript, with gaps typed `any`. OpenAPI types replace it.
+- `src/model/types.ts` infers types from the JavaScript, with gaps typed `any`.
 
 ## Tabs
 
@@ -52,6 +91,11 @@ Consequences until then:
 
 ## Run it
 
-`npm install`, then `npm run dev`. `npm test` checks that `mockups/portal/dist/portal.html` and the generated model are
-current, then runs the extractor and contract tests, the style check, the type check, the build, the behaviour test and
-the parity test. The browser tests need `npx playwright install chromium`.
+`npm install`. `npm run dev:demo` runs the demo. `npm run dev` runs the portal: copy `config.example.json` to
+`public/config.json` first, and name a real issuer and API in it.
+
+`npm test` checks that `mockups/portal/dist/portal.html`, the generated model and the generated API types are current.
+Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
+(`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
+check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
+source 36 ways, one at a time, and each must fail the suite.

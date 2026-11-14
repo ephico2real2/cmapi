@@ -192,7 +192,7 @@ export function DataTable<T>({ label, cols, rows, cells, selected, blank = "Acti
     <InnerScrollContainer>
       <Table aria-label={label} variant="compact" gridBreakPoint="grid-md">
         <Thead>
-          <Tr>{cols.map((c, i) => (c ? <Th key={i}>{c}</Th> : <Th key={i} screenReaderText={blank} />))}</Tr>
+          <Tr>{cols.map((c, i) => (c ? <Th key={i} modifier="nowrap">{c}</Th> : <Th key={i} screenReaderText={blank} />))}</Tr>
         </Thead>
         <Tbody>
           {rows.map((row, r) => (

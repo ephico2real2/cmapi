@@ -5,18 +5,25 @@
   "scripts": {
     "model": "node scripts/extract-model.mjs",
     "predev": "npm run model",
+    "api:types": "node scripts/api-types.mjs",
     "dev": "vite",
+    "dev:demo": "vite --mode demo",
     "prebuild": "npm run model",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo",
     "preview": "vite preview",
-    "test": "node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && node tests/behaviour.test.mjs && node tests/parity.test.mjs"
+    "test:mutants": "node tests/api/mutants.mjs",
+    "test": "node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node scripts/api-types.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo && node tests/api/direct.test.mjs && node tests/api/bundle.test.mjs && node tests/api/portal.test.mjs && node tests/behaviour.test.mjs && node tests/parity.test.mjs"
   },
   "dependencies": {
     "@patternfly/react-core": "6.7.0",
     "@patternfly/react-icons": "6.7.0",
     "@patternfly/react-table": "6.7.0",
+    "@tanstack/react-query": "5.107.1",
+    "oidc-client-ts": "3.5.0",
+    "openapi-fetch": "0.17.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "react-oidc-context": "3.3.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
