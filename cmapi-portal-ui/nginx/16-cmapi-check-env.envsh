@@ -1,0 +1,40 @@
+#!/bin/sh
+# Sourced by the image's docker-entrypoint.sh after 15-local-resolvers.envsh and before 20-envsubst-on-templates.sh.
+# The template takes these values as they are, so a missing or malformed one would give a front door that starts and
+# routes wrongly. Each is checked here, and the container stops with the name of the value at fault.
+# Sourced inside the entrypoint pipeline: exit fails its last stage; set -e stops nginx startup.
+
+cmapi_refuse() {
+  echo "$0: ERROR: $1" >&2
+  exit 1
+}
+
+# grep -x matches individual lines. Reject line breaks before testing any value.
+cmapi_single_line() {
+  case "$2" in
+    *'
+'*) cmapi_refuse "$1 must be a single line" ;;
+  esac
+}
+cmapi_single_line CMAPI_API_UPSTREAM "${CMAPI_API_UPSTREAM:-}"
+cmapi_single_line CMAPI_PORTAL_HOST "${CMAPI_PORTAL_HOST:-}"
+cmapi_single_line CMAPI_MOCKUP_HOST "${CMAPI_MOCKUP_HOST:-}"
+cmapi_single_line CMAPI_OIDC_ORIGIN "${CMAPI_OIDC_ORIGIN:-}"
+
+# A DNS name in lower case (RFC 1123 labels), with no anchors, so each check below can add a port.
+cmapi_host='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*'
+
+printf '%s' "${CMAPI_API_UPSTREAM:-}" | grep -Eqx "${cmapi_host}:[0-9]{1,5}" \
+  || cmapi_refuse "CMAPI_API_UPSTREAM must be host:port of the API's headless Service, not '${CMAPI_API_UPSTREAM:-}'"
+# A host, or "name.*" (nginx's wildcard server name, ngx_http_core_module) when a Route names its host at admission.
+printf '%s' "${CMAPI_PORTAL_HOST:-}" | grep -Eqx "${cmapi_host}(\.\*)?" \
+  || cmapi_refuse "CMAPI_PORTAL_HOST must be the instance's public host name or name.*, not '${CMAPI_PORTAL_HOST:-}'"
+printf '%s' "${CMAPI_MOCKUP_HOST:-}" | grep -Eqx "${cmapi_host}(\.\*)?" \
+  || cmapi_refuse "CMAPI_MOCKUP_HOST must be the mockup's public host name or name.*, not '${CMAPI_MOCKUP_HOST:-}'"
+# An origin only: https, a host and an optional port. A path, a space or a quote would change the Content-Security-Policy.
+printf '%s' "${CMAPI_OIDC_ORIGIN:-}" | grep -Eqx "https://${cmapi_host}(:[0-9]{1,5})?" \
+  || cmapi_refuse "CMAPI_OIDC_ORIGIN must be the issuer's https origin with no path, not '${CMAPI_OIDC_ORIGIN:-}'"
+[ -n "${NGINX_LOCAL_RESOLVERS:-}" ] \
+  || cmapi_refuse "NGINX_LOCAL_RESOLVERS is empty: set NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1, and check /etc/resolv.conf"
+
+unset cmapi_host

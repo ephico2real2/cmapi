@@ -2,7 +2,7 @@
 """Sign a test user in to a Keycloak realm as a browser does, and print the access token.
 
     printf '%s' "$password" | deploy/oidc-login.py --issuer https://keycloak.apps-crc.testing/realms/cmapi \\
-        --client-id cmapi-docs --redirect-uri https://cmapi-api.apps-crc.testing/docs/oauth2-redirect \\
+        --client-id cmapi-docs --redirect-uri https://cmapi.apps-crc.testing/docs/oauth2-redirect \\
         --username cmapi.viewer --cacert "$CMAPI_CRC_CA"
 
 The flow is the authorization code grant with PKCE (RFC 7636, S256) through a public client: the request to the

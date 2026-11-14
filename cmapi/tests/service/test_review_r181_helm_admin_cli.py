@@ -14,7 +14,7 @@ CHART = Path(os.environ.get('REVIEW_CHART', ROOT / 'deploy/helm/cmapi'))
 class HelmAdminCliTests(unittest.TestCase):
     def test_import_disables_generated_password_client(self):
         args = ['helm', 'template', 'cmapi', str(CHART), '-n', 'cmapi', '-f', str(ROOT / 'deploy/environments/crc.yaml'),
-                '--set', 'cmapi.digest=sha256:' + 'a' * 64, '--set', 'trustedCA.certificates=']
+                '--set', 'cmapi.digest=sha256:' + 'a' * 64, '--set', 'cmapi_portal.digest=sha256:' + 'b' * 64, '--set', 'trustedCA.certificates=']
         result = subprocess.run(args, capture_output=True, text=True, check=True)
         docs = list(yaml.safe_load_all(result.stdout))
         realm = next(d for d in docs if d and d['kind'] == 'KeycloakRealmImport')['spec']['realm']

@@ -285,9 +285,12 @@ REDOC_START = "/docs/redoc-start.js"
 # module turns off, and the "API docs by Redocly" logo from cdn.redoc.ly, which no option removes; this policy refuses
 # both, and whatever a later bundle adds. 'unsafe-eval' and blob: workers are for the bundle's search index, and
 # 'unsafe-inline' styles for its styled components: without them the search workers do not start (measured in Fable's
-# review of PR #231). The front door's policy for /redoc is the same string (cmapi-portal-ui/nginx/).
+# review of PR #231). The front door's policy for /redoc is the same string ($cmapi_csp_redoc in
+# cmapi-portal-ui/nginx/templates/cmapi.conf.template): a browser enforces both, so two different strings could stop the
+# search workers. tests/service/test_api_docs.py holds them equal.
 REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; "
+             "form-action 'none'")
 REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
 import { init } from "/static/redoc/redoc.standalone.js";
 init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));

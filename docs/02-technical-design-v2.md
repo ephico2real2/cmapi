@@ -2192,6 +2192,40 @@ Each candidate was updated on npm in 2026 (checked 2026-11-04). uniforms-pattern
 
 **Standalone mockup.** The standalone HTML version of the portal mockup is separate and stays framework-free: it only renders the existing mockup file.
 
+### The front door (cmapi-portal)
+
+Each instance has one host, on nginx: the portal at `/`, and the API's paths sent to the API pods, so the browser sees one origin and the API needs no CORS (#226, #206). The image is `cmapi-portal-ui/Containerfile`: nginx 1.30.6 (stable), the portal's build and the mockup. The configuration is code in `cmapi-portal-ui/nginx/`, filled at start with four values from the chart; a start check refuses a missing or malformed one.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/front-door/front-door.dark.png">
+  <source srcset="diagrams/front-door/front-door.light.png">
+  <img alt="The browser and the CLI reach one host, the Route cmapi, which goes to the front door, nginx in the cmapi-portal image. The front door serves the portal's files and sends the API's paths to the API pods, which it finds through the headless Service cmapi-api-pods. A failed GET goes to another pod; a POST is never sent twice. Keycloak is on its own host." src="diagrams/front-door/front-door.light.png">
+</picture>
+
+*The request path through the front door, with CRC's host names. Built in the chart; measured on this Mac only (#157). The source is `diagrams/front-door/source.html`, drawn by `diagrams/tools/draft-front-door.py`; the picture, this text and the page change together.*
+
+```text
+Browser (portal, Swagger UI, ReDoc) --> Route cmapi (edge TLS) --> cmapi-portal, nginx 1.30.6
+CLI, SDK, pipelines ----------------/                               /, /assets/, /config.json: the portal's files
+Browser --> Route cmapi-mockup ------------------------------------> the mockup's host: portal.html
+Browser --> Keycloak (its own host): sign-in and tokens             /api/, /openapi.*, /docs, /redoc, /problems:
+                                                                       --> cmapi-api pods 1..3, found through the
+                                                                           headless Service cmapi-api-pods (resolve)
+A GET that fails on one pod goes to another. A POST, PATCH or LOCK is never sent twice.
+NetworkPolicy: only the router reaches the front door; only the front door reaches the API port.
+```
+
+| Path | Goes to | Content-Security-Policy |
+|---|---|---|
+| `/`, `/index.html`, `/config.json`, `/assets/` | The portal's files (assets cached for a year; the page and `config.json` `no-cache`) | `'self'`, plus the issuer's origin for `connect-src` and `form-action` |
+| `/api/`, `/openapi.json`, `/openapi.yaml` | The API pods | `default-src 'none'` |
+| `/docs`, `/docs/`, `/problems`, `/problems/`, `/static/swagger/`, `/static/redoc/` | The API pods | As the portal's, with inline scripts and styles for Swagger UI |
+| `/redoc` | The API pods | The API's own policy for the page (`REDOC_CSP`): this server only, `'unsafe-eval'` for ReDoc's search |
+| `/healthz` | nginx itself | none |
+| The mockup's host | `mockups/portal/dist/portal.html` | As the docs', with `'unsafe-eval'` and Google Fonts |
+
+nginx finds the API pods through the headless Service `<release>-api-pods` and follows its DNS answer, so it balances over each ready pod. A request goes to another pod only when it is idempotent and the first pod did not answer or answered 502, 503 or 504; a POST or a PATCH is never sent twice. Every answer has the OWASP security headers, set once. The access log is one JSON line for each request, with the request id and `traceparent`, and without the query string. The limits per caller stay in the API (`core/ratelimit.py`, #225): nginx has no rate limit of its own. Only the front door's pods reach the API port (NetworkPolicy), and only the router reaches the front door. The decision record, with each option not taken and its sources, is `docs/reviews/2026-11-14-issue-226/README.md`.
+
 ### Review findings, fixed in this pass
 
 - **One approving group per request was not enough.** Thresholds add approver-platform on top of the environment's group, so ApprovalRequirement is now a list of slots, one per group, and the ledger fills them one person at a time.

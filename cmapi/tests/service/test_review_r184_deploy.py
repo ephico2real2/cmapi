@@ -13,7 +13,7 @@ needs_helm = pytest.mark.skipif(shutil.which("helm") is None, reason="helm")
 
 def helm_template(*sets):
     args = ["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-f", str(ROOT / "deploy/environments/crc.yaml"),
-            "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "trustedCA.certificates=x"]
+            "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64, "--set", "trustedCA.certificates=x"]
     for s in sets:
         args += ["--set", s]
     return [d for d in yaml.safe_load_all(subprocess.run(args, check=True, capture_output=True, text=True).stdout) if d]
