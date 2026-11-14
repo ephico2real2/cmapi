@@ -77,3 +77,23 @@ def test_quota_and_limits_keep_their_values_when_only_the_cpu_limit_changes(worl
     assert changed(plan) == [LR("cpu")]                       # the quota and the memory object are not touched
     assert rendered(plan["files"], LR("cpu"))["spec"]["limits"][0]["max"] == {"cpu": "3"}
     assert not any(p.endswith((LR("memory"), RQ)) for p in plan["files"])
+
+
+def test_the_sync_check_finds_the_quota_by_kind_in_the_named_files_and_the_old_ones():
+    """core/sync.py confirmed_by_read: the ResourceQuota is found by kind, in resourcequota-<ns>-quota.yaml (#253) or in the
+    resourcequota.yaml of a folder written before. Before #253 it read only a file ending in resourcequota.yaml, so the named
+    file was not read and the check said "namespace present" without comparing the quota."""
+    from cmapi.core.sync import confirmed_by_read
+    base = "clusters/CRC/namespaces/abc-rnd/"
+    rq = {"apiVersion": "v1", "kind": "ResourceQuota", "metadata": {"name": "abc-rnd-quota", "namespace": "abc-rnd"},
+          "spec": {"hard": {"requests.cpu": "8", "pods": "50"}}}
+    named = {base + "namespace.yaml": "kind: Namespace\nmetadata: {name: abc-rnd}\n",
+             base + "resourcequota-abc-rnd-quota.yaml": yaml.safe_dump(rq)}
+    old = {base + "namespace.yaml": named[base + "namespace.yaml"], base + "resourcequota.yaml": yaml.safe_dump(rq)}
+    live = {("Namespace", None, "abc-rnd"): {}, ("ResourceQuota", "abc-rnd", "abc-rnd-quota"): rq}
+    get = lambda kind, ns, name: live.get((kind, ns, name))
+    assert confirmed_by_read(get, "abc-rnd", named) == (True, "quota matches the plan")
+    assert confirmed_by_read(get, "abc-rnd", old) == (True, "quota matches the plan")
+    live[("ResourceQuota", "abc-rnd", "abc-rnd-quota")] = {"spec": {"hard": {"requests.cpu": "8", "pods": "1"}}}
+    ok, why = confirmed_by_read(get, "abc-rnd", named)
+    assert not ok and why.startswith("quota abc-rnd-quota differs"), why

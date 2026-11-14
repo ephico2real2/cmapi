@@ -1,6 +1,7 @@
 """#253 (the adoption design's D19): cmapi's own LimitRanges, one for each resource, and the storage switch.
 
-Each test fails on the code before #253: it rendered one <ns>-limits object with a Container item and a PVC item, wrote
+The sync check's read by kind is in tests/service/test_storage_limits_switch.py: core/sync.py needs the service's
+packages, which the reference-code job does not install. Each test fails on the code before #253: it rendered one <ns>-limits object with a Container item and a PVC item, wrote
 resourcequota.yaml and limitrange.yaml, and had no storageLimitRange switch.
 """
 from __future__ import annotations
@@ -14,7 +15,6 @@ from cmapi.core.metadata import MetadataKeys
 from cmapi.core.policy import PolicySettings
 from cmapi.core.policygen import index_of, render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, object_file, objects_of
-from cmapi.core.sync import confirmed_by_read
 from cmapi.core.tiers import CatalogError, TierCatalog, TierError
 from conftest import ALL_ENVS, EX
 from test_policygen import BASE, LR_CPU, RQ, kyverno, owners_sample, validator  # noqa: F401  (fixtures)
@@ -250,18 +250,6 @@ def test_an_old_folder_moves_to_the_named_files_in_one_change_and_keeps_its_appr
     # the quota object kept its name and its content, so it keeps the request ID that Git holds
     (rq,) = objects_of(again, "ResourceQuota")
     assert rq["metadata"]["annotations"]["cmapi.net/request-id"] == "req-1"
-
-
-def test_the_sync_check_finds_the_quota_by_kind():
-    files = renderer().render(spec(tier="small"))
-    (rq,) = objects_of(files, "ResourceQuota")
-    live = {("Namespace", None, "abc-rnd"): {}, ("ResourceQuota", "abc-rnd", "abc-rnd-quota"): rq}
-    get = lambda kind, ns, name: live.get((kind, ns, name))
-    assert confirmed_by_read(get, "abc-rnd", files) == (True, "quota matches the plan")
-    assert confirmed_by_read(get, "abc-rnd", old_layout(files)) == (True, "quota matches the plan")
-    live[("ResourceQuota", "abc-rnd", "abc-rnd-quota")] = {"spec": {"hard": {**rq["spec"]["hard"], "pods": "1"}}}
-    ok, why = confirmed_by_read(get, "abc-rnd", files)
-    assert not ok and why.startswith("quota abc-rnd-quota differs")
 
 
 def test_a_value_that_git_held_before_the_split_stays_held(kyverno, tmp_path):
