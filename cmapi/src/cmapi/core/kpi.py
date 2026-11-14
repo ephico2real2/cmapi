@@ -17,6 +17,8 @@ from prometheus_client import REGISTRY
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from sqlalchemy import text
 
+from cmapi.core.naming import reserved
+
 CGROUP = Path("/sys/fs/cgroup")
 COMPONENT = os.environ.get("CMAPI_COMPONENT", "api")
 
@@ -86,13 +88,61 @@ class CgroupCollector:
                 yield c
 
 
+def namespace_counts(registry: Any, reserved_patterns: tuple[str, ...]) -> dict[str, dict[str, int]]:
+    """cluster ID -> {managed, unmanaged, excluded}, from the watch cache of each cluster whose namespaces are listed.
+
+    managed: the label cmapi.net/managed=true. excluded: a name that nobody may ask for (core/naming.py: the built-in names
+    and the instance's reservedPatterns), so cmapi can never manage it. unmanaged: each other namespace. A cluster with no
+    cache, or whose first list has not ended, has no entry: not measured, never 0. docs/17, "Managed coverage"."""
+    out: dict[str, dict[str, int]] = {}
+    for cluster_id, st in sorted(registry.clusters.items()):
+        cache = st.cache
+        if cache is None or cache.state["Namespace"].last_good is None:
+            continue
+        counts = {"managed": 0, "unmanaged": 0, "excluded": 0}
+        for obj in cache.all("Namespace"):
+            meta = obj["metadata"]
+            if (meta.get("labels") or {}).get("cmapi.net/managed") == "true":
+                counts["managed"] += 1
+            elif reserved(meta["name"], reserved_patterns) is not None:
+                counts["excluded"] += 1
+            else:
+                counts["unmanaged"] += 1
+        out[cluster_id] = counts
+    return out
+
+
+class NamespacesCollector:
+    """Exports cmapi_namespaces{cluster_id, state} from the watch caches at each scrape (#172). The source is set by
+    register_collectors, so a process with no registry exports no sample."""
+
+    def __init__(self) -> None:
+        self.registry: Any = None
+        self.reserved_patterns: tuple[str, ...] = ()
+
+    def collect(self):
+        g = GaugeMetricFamily("cmapi_namespaces", "Namespaces by management state: managed, unmanaged or excluded",
+                              labels=["cluster_id", "state"])
+        if self.registry is not None:
+            for cluster_id, counts in namespace_counts(self.registry, self.reserved_patterns).items():
+                for state, n in counts.items():
+                    g.add_metric([cluster_id, state], n)
+        yield g
+
+
+_namespaces = NamespacesCollector()
 _registered = False
 
 
-def register_collectors() -> None:
+def register_collectors(registry: Any = None, reserved_patterns: tuple[str, ...] = ()) -> None:
+    """Registers the collectors one time for the process. `registry` is the ClusterRegistry whose watch caches give
+    cmapi_namespaces; the last caller's registry is the one that is read (a process has one)."""
     global _registered
+    if registry is not None:
+        _namespaces.registry, _namespaces.reserved_patterns = registry, tuple(reserved_patterns)
     if not _registered:
         REGISTRY.register(CgroupCollector())
+        REGISTRY.register(_namespaces)
         _registered = True
 
 

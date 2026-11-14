@@ -43,8 +43,8 @@ CLUSTER_STATUS = Gauge("cmapi_cluster_status", "1 for the cluster's current impo
 CLUSTER_CALLS = Counter("cmapi_cluster_api_calls_total", "Cluster API calls", ["cluster_id", "result"])
 OPEN_REQUEST_AGE = Gauge("cmapi_open_change_requests_oldest_age_seconds", "Age of the oldest open request", ["status", "environment"])
 CONFIG_INFO = Gauge("cmapi_config_info", "Hash of the loaded configuration", ["hash"])
-SYNC_DRIFT = Counter("cmapi_sync_drift_total", "OutOfSync seen with no open request", ["cluster_id"])
-NAMESPACES = Gauge("cmapi_namespaces", "Namespaces by management state", ["cluster_id", "state"])
+# cmapi_namespaces is a collector over the watch caches (core/kpi.py). cmapi_sync_drift_total is not declared: no code sees an
+# OutOfSync state with no open request yet, and a counter with no sample reads as "no drift" (#172, docs/17 "Drift events").
 
 
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})

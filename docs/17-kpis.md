@@ -30,14 +30,14 @@ Each KPI is measured for one instance. A ratio is a number from 0 to 1. A value 
 | `system-headroom` | System headroom (p95, 7 d) | Does each cmapi component have room? The platform team raises a limit | Memory used divided by its limit, and CPU used divided by its limit, for each component | `cmapi_process_memory_bytes`, `cmapi_process_memory_limit_bytes`, `cmapi_process_cpu_usage_seconds_total`, `cmapi_process_cpu_limit_cores`, label `component` | Under 80% for each component | `CmapiMemoryNearLimit`, shipped | `built` |
 | `cpu-saturation` | CPU saturation | Does a component hit its CPU limit while use looks low? The platform team raises the limit | Throttled periods divided by periods, for each component | `cmapi_process_cpu_throttled_periods_total`, `cmapi_process_cpu_periods_total`, label `component` | Under 1% of periods | `CmapiCpuThrottled`, shipped | `built` |
 | `self-service-rate` | Self-service rate | Do teams finish their requests without the platform team? The product owner acts | `synced` requests with no approval that counted for the platform group, divided by `synced` requests | Database, `change_requests` and `approvals.counted_for`. The platform group is `defaults.group` of `approval-rules.yaml`. A request with an approval from before migration `0004` is in neither part | Over 80% | None | `live` |
-| `drift-events` | Drift events (7 d) | Does someone change a cluster outside Git? The platform team finds the cause | Count of OutOfSync states with no open request | `cmapi_sync_drift_total{cluster_id}`. The metric is declared, and no code feeds it (#172) | 0 in a week | `CmapiDriftDetected`, designed | `designed` |
+| `drift-events` | Drift events (7 d) | Does someone change a cluster outside Git? The platform team finds the cause | Count of OutOfSync states with no open request | No metric yet. `cmapi_sync_drift_total{cluster_id}` is the designed name. No code sees an OutOfSync state with no open request, so #172 removed the declared counter: a counter with no sample reads as "no drift". The detection comes with Argo CD (Wave 2) | 0 in a week | `CmapiDriftDetected`, designed | `designed` |
 | `expired-namespaces-cleaned` | Expired namespaces cleaned | Do expired namespaces leave the clusters? The platform team confirms the prunes | Namespaces past the grace period with no delete request, plus deletes that wait for a prune for more than 24 h | The expiration report. The job `expire_check` is not built | 0 | `CmapiPruneStuck`, shipped, for the second part | `designed` |
 | `placement-accuracy` | Placement accuracy | Does placement keep each cluster inside its overcommit limit? The capacity owner acts | Overcommit breaches in the 30-day backtest | `cmapi_placement_backtest_breaches`. `cmapi-capacity` is not built | 0 | None | `designed` |
 | `capacity-freshness` | Capacity freshness | Is each capacity decision made on new data? The platform team acts | Clusters with a snapshot newer than two intervals, divided by clusters | `cmapi_capacity_snapshot_age_seconds{cluster_id}`. Not built | 100% | `CmapiCapacitySnapshotStale`, designed | `designed` |
 | `cluster-headroom` | Cluster headroom | Which cluster runs out of quota room? The capacity owner adds capacity | Quota headroom of each cluster, for CPU and for memory | `cmapi_cluster_quota_headroom{cluster_id, environment, region, resource}`. Not built | Above 20% on each cluster, for each resource | `CmapiCapacityTargetBreached`, designed | `designed` |
 | `quota-efficiency` | Quota efficiency (median) | Do namespaces use the quota that they hold? The teams and the capacity owner act | Median of used divided by quota, at the 14-day peak, for each namespace | `namespace_verdicts`. The usage analysis is not built | Over 40% | None | `designed` |
 | `capacity-recovered` | Capacity recovered | What do the rightsizing recommendations give back? The product owner reports it | Cores that applied recommendations freed, for each month | `cmapi_recommendations{state}`, `recommendations`. Not built | Tracked, no target | None | `designed` |
-| `managed-coverage` | Managed coverage | How much of each cluster does cmapi manage? The product owner follows adoption | Managed namespaces divided by all namespaces minus the excluded ones, for each cluster | `cmapi_namespaces{cluster_id, state}`. The metric is declared, and no code feeds it (#172) | 90% within two quarters of launch | None | `designed` |
+| `managed-coverage` | Managed coverage | How much of each cluster does cmapi manage? The product owner follows adoption | Managed namespaces divided by all namespaces minus the excluded ones, for each cluster | `cmapi_namespaces{cluster_id, state}`, with the states `managed`, `unmanaged` and `excluded` (a reserved name), read from the watch cache at each scrape. The query: `managed / (managed + unmanaged)` | 90% within two quarters of launch | None | `built` |
 | `import-health` | Import health | Are the cluster credentials rotated in time? The platform team rotates a token | Import tokens rotated before 90% of their life, divided by import tokens | `cmapi_cluster_token_expiry_seconds{cluster_id}`. Not built | 100% | `CmapiClusterTokenExpiring`, designed | `designed` |
 | `database-headroom` | Database headroom | Does the database have room? The platform team acts before it is full | Connections divided by `max_connections`; volume used divided by its size; days until the volume is full | `GET /api/v1/admin/kpi` gives the connections and the size as figures (`database`). The `cmapi_db_*` metrics and the volume figures are not built | Under 80%; more than 90 days | `CmapiDbConnectionsHigh`, `CmapiDbVolumeFilling`, designed | `designed` |
 | `backup-freshness` | Backup freshness | Can the database be restored? The platform team acts on an old backup | Age of the last good backup, and of the last restore test | `cmapi_db_backup_last_success_timestamp_seconds`. Not built | Under 26 h; a restore test each month | `CmapiDbBackupStale`, designed | `designed` |
@@ -88,7 +88,7 @@ What cmapi does not measure, on purpose:
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/kpis/kpis.dark.png">
   <source srcset="diagrams/kpis/kpis.light.png">
-  <img alt="Seven KPIs are live: the API computes them from the database. Three are built: the code feeds their metrics, and a dashboard query is not proven. Eleven are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster." src="diagrams/kpis/kpis.light.png">
+  <img alt="Seven KPIs are live: the API computes them from the database. Four are built: the code feeds their metrics, and a dashboard query is not proven. Ten are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster." src="diagrams/kpis/kpis.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
@@ -100,8 +100,8 @@ database (change_requests, approvals) -> GET /api/v1/admin/kpi -> the portal's K
           auto-approval-rate, self-service-rate, change-failure-rate
 the process's own cgroup, and pg_stat_activity -> the same response: components, database (figures, not KPIs)
 /metrics -> Prometheus (user workload monitoring) -> dashboards and alerts      (not proven on a cluster)
-    built: api-availability, system-headroom, cpu-saturation
-    designed: the other eleven KPIs
+    built: api-availability, system-headroom, cpu-saturation, managed-coverage
+    designed: the other ten KPIs
 ```
 
 ## The API contract
@@ -132,6 +132,7 @@ One defect was in that sample: `walBytes` was a text, not a number (#173). It is
 |---|---|---|
 | The six live KPIs, their formulas, null for an empty denominator, the cgroup figures, the permission | The service suite on macOS, PostgreSQL 16 on `127.0.0.1:55432`, 2026-11-13: `tests/service/test_kpis.py` | 5 passed. On the code before the review, 4 of the 5 failed |
 | The self-service rate: two synced requests, one approved by a team group and one by the platform group, give 0.5; a request with an approval that has no stored group is in neither part | The same suite, `tests/service/test_self_service_rate.py` | 2 passed. On the code before #171 the API had no such row |
+| `cmapi_namespaces`: a managed, an unmanaged and two reserved namespaces give 1, 1 and 2; a cluster that is not listed has no sample; no drift counter is declared | The same suite, `tests/service/test_namespaces_metric.py` | 3 passed. On the code before #172 the metric had no sample |
 | Any KPI value on a cluster, Prometheus scraping, a dashboard, an alert that fires | CRC | Not run. The CRC work is stopped (#157) |
 
 ## Diagram sources

@@ -42,7 +42,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        register_collectors()
+        register_collectors(ctx.registry, ctx.pipeline.reserved)
         if s.metrics_port:
             start_metrics(s.metrics_port, ctx.cfg.name, s.component)
         log.info("startup", instance=ctx.cfg.name, issuer=issuer, audience=ctx.audience, version=__version__,
