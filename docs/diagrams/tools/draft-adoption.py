@@ -50,14 +50,14 @@ def body():
         "mnemonic-confluence: ''", "cmapi.net/adopt: \"true\"  (opt-in)"), mono=False)
     out += box(20, 274, 244, 58, "none", "ResourceQuota, LimitRange", ("each one, whatever its keys",))
     out += box(20, 360, 244, 74, "none", "Not adopted", ("ServiceAccounts, RoleBindings,", "SCC grants: they stay unmanaged"))
-    out += box(20, 470, 244, 74, "none", "The old cluster-configs repository", ("cmapi never reads or writes it",), dashed=True)
+    out += box(20, 470, 244, 74, "none", "After the adoption", ("cmapi.net/adopt stays, inert;", "cmapi only reads the cluster"), dashed=True)
 
     # cmapi's steps.
     steps = [
         ("1  Candidate?", ("opt-in label; not excluded; not managed;", "not tracked by another Argo CD app")),
-        ("2  Read the live objects", ("the Namespace, each ResourceQuota", "and LimitRange, from the cluster")),
+        ("2  Read the live objects", ("Namespace, ResourceQuotas, LimitRanges;", "uid, resourceVersion, field managers")),
         ("3  Drop, then add", ("drop server-set fields and skip prefixes;", "add cmapi's system keys, tier custom")),
-        ("4  Findings, never changes", ("name: aao-rnd is not the namespace name;", "two labels that are annotations now; made by another tool")),
+        ("4  Findings, never changes", ("a wrong name label; a missing key: reported,", "never forced; two labels that are annotations now")),
     ]
     for i, (title, lines) in enumerate(steps):
         y = 40 + 92 * i
@@ -66,7 +66,7 @@ def body():
             out += arrow(512, y - 18, 512, y - 2)
     out += box(300, 416, 424, 58, "remote", "5  Approval, as for any request (built)", ("approver-platform; one more when there are findings",))
     out += arrow(512, 390, 512, 412)
-    out += box(300, 492, 424, 58, "host", "8  Verify after the sync", ("only cmapi's keys, the removed adopt label and", ), dashed=True)
+    out += box(300, 492, 424, 58, "host", "8  Verify after the sync", ("only cmapi's keys, the field managers and", ), dashed=True)
     out.append('<text x="312" y="545" font-size="11.5" fill="var(--muted)">Argo CD\'s tracking annotation may differ</text>')
 
     out += arrow(264, 140, 296, 140, "read", 280, 132)
@@ -88,7 +88,7 @@ def main():
     aria = ("cmapi adopts a namespace that carries the opt-in label. It reads the live Namespace, ResourceQuota and LimitRange "
             "from the cluster, drops server-set fields and skipped keys, adds its system keys under tier custom, and lists "
             "each difference from the rules as a finding. After approval the bot opens a pull request with the raw YAML; Argo "
-            "CD applies it, and cmapi checks that only its own keys changed. The old cluster-configs repository is never read.")
+            "CD applies it, and cmapi checks that only its own keys and the field managers changed. The opt-in label stays, inert.")
     page = "\n".join([
         "<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->",
         "<title>cmapi: adoption</title>", FONTS, STYLE, "", '<div class="page">', "  <header>",

@@ -1,35 +1,46 @@
 # Story #26: the adoption design
 
-OB1 run 6 (Opus 5.5 at high) wrote this design on 2026-11-14, from the owner's decisions on #26. Fable reviews it. It is a
-design: no adoption code exists yet (`cmapi/src/cmapi/plugins/` has no adoption plugin), and building it stays in Wave 8
-(the reasons are under D14). Each decision says why, and where a fact comes from. docs/02, "Adoption plugin", is replaced
-by the short form of this design in the same pull request.
+OB1 run 6 (Opus 5.5 at high) wrote this design on 2026-11-14, from the owner's decisions on #26. Fable 5.2 reviewed it
+(`fable-review.md`, findings A1 to A10), and this version applies all ten and the owner's three later decisions (§1,
+items 6 to 8). It is a design: no adoption code exists yet (`cmapi/src/cmapi/plugins/` has no adoption plugin), and
+building it stays in Wave 8 (D14). Each decision says why, and where a fact comes from. docs/02, "Adoption plugin", holds
+the short form of this design.
 
 ## 1. The owner's decisions (#26, 2026-11-14)
 
-1. cmapi's Git repository is `cmapi-cluster-configs` (#228). The organisation's existing `cluster-configs` repository is
-   left alone: cmapi does not read, write or migrate it.
+1. cmapi's Git repository is `cmapi-cluster-configs` (#228).
 2. "cmapi reads the cluster, finds the namespaces labelled `cmapi.net/adopt`, and extracts each one's Namespace,
    ResourceQuota and LimitRange."
 3. "they would be custom as the existing ones don't have to match our standard tiers. we will migrate the raw yaml
    as-is." An adopted namespace gets tier `custom` with its quota and LimitRange unchanged, not mapped to a named tier.
-   Only server-set fields and the configured skip prefixes are dropped. cmapi adds its system keys and removes
-   `cmapi.net/adopt`. Values outside the custom bounds are adopted as they are and reported.
+   Only server-set fields and the configured skip prefixes are dropped. cmapi adds its system keys. Values outside the
+   custom bounds are adopted as they are and reported.
 4. The test plan: test namespaces only, opt-in, kind then CRC, no change to the live object.
-5. The input a typical namespace gives (the owner's sample, 07:57Z): `abc-rnd` with `name: aao-rnd` (a wrong copy of the
-   name), five company labels, `company.net/provisioner: cluster-configs`, two empty optional labels, and the annotation
-   `company.net/app-environment`. Keep each key as it is, report each difference from #215's rules, and decide (a) whether
-   a missing required key blocks adoption and (b) what happens to `company.net/provisioner`.
+5. The input a typical namespace gives (the owner's sample, 07:57Z): `abc-rnd`, its company labels,
+   `company.net/provisioner: cluster-configs`, two empty optional labels, and the annotation `company.net/app-environment`.
+   At 14:28Z the owner said that the sample's `name: aao-rnd` was a typo: keep one test namespace with a deliberate
+   mismatch, to prove the finding, and make the others correct.
+6. **`cmapi.net/adopt` stays on the live namespace** (owner's decision on #26, after Fable's review). It is ignored after
+   the adoption: `cmapi.net/managed` means adopted, and cmapi stays read-only on the clusters. This replaces "cmapi removes
+   `cmapi.net/adopt`" in item 3.
+7. **A required key missing at adoption is never forced, only reported.** Each plan lists it until a request sets it. This
+   replaces the earlier rule that the first update must add it.
+8. **cmapi reads the namespace state, and nothing else.** From cmapi's standpoint no earlier repository exists: the
+   adoption reads only the live namespace from the cluster, and this design has no step about another repository.
+   `company.net/provisioner: cluster-configs` is only a label value: kept as it is, recognised by `adoptionLabels`,
+   never followed.
+9. The two contact keys are annotations now (#215, 14:25Z): an existing namespace that carries them as labels keeps those
+   labels at adoption, and each is a finding.
 
 ## 2. The design in one paragraph
 
 An operator, or the namespace's admin, asks cmapi to adopt a namespace that carries `cmapi.net/adopt: "true"`. cmapi reads
 the live Namespace, every ResourceQuota and every LimitRange of it from the cluster, drops only what the API server sets and
-the keys that a controller owns, and writes them to `cmapi-cluster-configs` exactly as they are, with tier `custom` and its
-own system keys added. Each difference from the instance's rules (#215's stanzas, the custom tier's bounds) is a finding
-in the plan, never a change. The request is approved like any other, the bot opens the pull request, and on the merge the
-cluster's Argo CD takes the namespace over. The worker then checks that the live objects changed only by the keys this
-design lists, or the request fails.
+the keys under the skip prefixes that no other tool would remove, and writes them to `cmapi-cluster-configs` exactly as they
+are, with tier `custom` and its own system keys added. Each difference from the instance's rules (#215's stanzas, the
+custom tier's bounds) is a finding in the plan, never a change. The request is approved like any other, the bot opens the
+pull request, and on the merge the cluster's Argo CD takes the namespace over. The worker then checks that the live
+objects changed only by the keys this design lists, or the request fails, and nothing that existed before is removed.
 
 ![The adoption flow](../../diagrams/adoption/adoption.light.png)
 
@@ -40,29 +51,32 @@ design lists, or the request fails.
 A namespace is a candidate when each step passes, in this order (docs/02's order, kept):
 
 1. Not a built-in exclusion (`default`, `openshift`, `openshift-*`, `kube-*`), and not a configured one (`adoption.yaml`:
-   names, globs, label selectors, global or for an environment or a cluster; exclusions add up, never subtract).
-2. Not managed already: no `cmapi.net/managed: "true"`, and no folder in Git.
-3. **Not tracked by another Argo CD Application.** New. A namespace whose `argocd.argoproj.io/tracking-id` annotation (or
-   `app.kubernetes.io/instance` label, Argo CD's label tracking) names an Application that is not cmapi's is skipped, with
-   the Application named. Two GitOps owners of one object fight: Argo CD's `FailOnSharedResource` exists because a sync
-   must "fail ... whenever it finds a resource in the current Application" that is "already applied in the cluster by
-   another Application" (Argo CD, "Sync Options"). The operator takes the namespace out of the other Application first.
+   names, globs, label selectors, global or for an environment or a cluster; exclusions add up, never subtract). Not
+   `Terminating`.
+2. Not managed already: no `cmapi.net/managed: "true"`, and no folder in Git. Since `cmapi.net/adopt` stays on the
+   namespace (§1, item 6), this step is what makes the label inert after the adoption.
+3. **Not tracked by another Argo CD Application.** A namespace whose `argocd.argoproj.io/tracking-id` annotation names an
+   Application that is not cmapi's is skipped, with the Application named. The `app.kubernetes.io/instance` label counts
+   only when the hub's Argo CD uses label tracking (`application.resourceTrackingMethod: label`). Otherwise it is a
+   recommended label that Helm and kustomize users set by hand, and it is a finding, not a skip (Argo CD, "Resource
+   Tracking": the annotation is the default). Two GitOps owners of one object fight: Argo CD's `FailOnSharedResource`
+   exists because a sync must "fail ... whenever it finds a resource in the current Application" that is "already applied
+   in the cluster by another Application" (Argo CD, "Sync Options").
 4. **Opt-in:** `cmapi.net/adopt: "true"` (quoted: a label value is a string).
 
 `adoptionLabels` (#215; for example `company.net/provisioner: {recognise: [cluster-configs]}`) never selects a namespace by
-itself. It names namespaces that another tool made: the unmanaged-namespaces report and `GET .../adoption/candidates`
-show them as "recognised, made by cluster-configs", so an operator knows which ones to label. Opt-in stays the gate (the
-owner's decision 2).
+itself. It marks a namespace that another tool made: the unmanaged-namespaces report and `GET .../adoption/candidates`
+show it as "recognised", so an operator knows which ones to label. Opt-in stays the gate (the owner's decision 2).
 
 ### D2. What cmapi reads, and from where
 
-From the cluster, through cmapi's per-cluster read client: the Namespace, every ResourceQuota and every LimitRange in it.
-Nothing else is adopted. ServiceAccounts, RoleBindings and SCC grants stay unmanaged: the owner's decision names three
-kinds, and Argo CD does not prune an object it never tracked. The plan reports how many of the other kinds the namespace
-has, so a later request can bring them in (the namespaces plugin already manages ServiceAccounts and grants). cmapi never
-reads the organisation's `cluster-configs` repository: the cluster is the source of truth for what exists (decision 1).
+From the cluster, through cmapi's per-cluster read client: the Namespace, every ResourceQuota and every LimitRange in it,
+each with its `uid`, `resourceVersion` and `metadata.managedFields`. Nothing else is adopted. ServiceAccounts,
+RoleBindings and SCC grants stay unmanaged: the owner's decision names three kinds, and Argo CD does not prune an object
+it never tracked. The plan reports how many of the other kinds the namespace has, so a later request can bring them in
+(the namespaces plugin already manages ServiceAccounts and grants). The cluster is the only source (§1, item 8).
 
-### D3. Raw, as it is: what is dropped
+### D3. Raw, as it is: what is dropped, and who owns each key
 
 The object is written to Git as YAML with these fields removed, and nothing else:
 
@@ -71,41 +85,66 @@ The object is written to Git as YAML with these fields removed, and nothing else
 | `metadata.uid`, `resourceVersion`, `generation`, `creationTimestamp`, `managedFields`, `selfLink`, `deletionTimestamp`, `deletionGracePeriodSeconds` | The API server sets them (the owner's list, plus the other read-only metadata of the same kind) |
 | `status` | Server-set |
 | A Namespace's `spec.finalizers` (`[kubernetes]`) | The API server sets it on each namespace; a namespace has no other `spec` field |
-| Each label or annotation under a skip prefix of `adoption.yaml` | The owner's decision 3 |
+| Each label or annotation under a skip prefix of `adoption.yaml`, when D3a allows it | The owner's decision 3 |
 
-Each skipped key is listed in the plan with the prefix that matched. The default skip prefixes of `adoption.yaml` (`skip.keyPrefixes`):
+The default skip prefixes of `adoption.yaml` (`skip.keyPrefixes`):
 
 | Prefix | Source |
 |---|---|
-| `openshift.io/sa.scc.` | The owner. OpenShift writes the UID and SELinux ranges; keep them only to reuse the ranges of existing PV data on a rebuilt cluster (docs/02) |
+| `openshift.io/sa.scc.` | The owner. OpenShift writes the UID and SELinux ranges |
 | `kubectl.kubernetes.io/` | The owner. `kubectl.kubernetes.io/last-applied-configuration` is a client-side apply's copy of the whole object |
-| `kubernetes.io/metadata.name` | Recommended. "The Kubernetes control plane sets an immutable label `kubernetes.io/metadata.name` on all namespaces" (Kubernetes, "Namespaces", stable since v1.22) |
-| `pod-security.kubernetes.io/` | Recommended. On OpenShift a controller synchronises these labels, and if someone changes one by hand, synchronisation stops for that label (OpenShift 4.22, "Understanding and managing pod security admission"). With the label in Git, Argo CD becomes a second writer of it, and the namespace's pod security stops following its ServiceAccounts' SCCs |
+| `kubernetes.io/metadata.name` | Recommended. "The Kubernetes control plane sets an immutable label `kubernetes.io/metadata.name` on all namespaces" (Kubernetes, "Namespaces") |
+| `pod-security.kubernetes.io/` | Recommended. On OpenShift a controller synchronises these labels, and a hand change stops the synchronisation for that label (OpenShift 4.22, "Understanding and managing pod security admission"). The CRC test confirms it (§5) |
 
 The two recommended prefixes are configuration, not code: an organisation that wants them in Git removes them from
-`adoption.yaml`. Fable's review should confirm the second one on CRC (the kind test cannot show OpenShift's controller).
+`adoption.yaml`.
+
+**D3a. Who owns each key (Fable's A3).** A key left out of the file is not always left alone on the cluster:
+
+- Server-side apply removes a field that a manifest leaves out only when no other manager owns it ("If the field is not
+  owned by any other field managers, it is either deleted from the live object or reset to its default value",
+  Kubernetes, "Server-Side Apply").
+- Argo CD's client-side apply migration is on by default. On a server-side sync it moves "field ownership from the
+  client-side apply manager to Argo CD's server-side apply manager" (Argo CD, "Sync Options", "Client-Side Apply
+  Migration"). After that, Argo CD alone owns each field that a `kubectl apply` wrote, and the same sync removes each one
+  that the file leaves out. A `pod-security.kubernetes.io/enforce` label that an old `kubectl apply` wrote would go, and
+  the namespace's pod security would change.
+
+So the plan reads `metadata.managedFields` (D2) and records the manager of each label and annotation:
+
+- A key under a skip prefix is left out of the file only when its managers are server components (the API server,
+  OpenShift's controllers) that Argo CD's migration does not take over. Then leaving it out changes nothing on the
+  cluster.
+- A key under a skip prefix that a client-side apply manager wrote stays in the file as it is, with a finding
+  `skipped-key-kept` that names the manager, because leaving it out would remove it from the cluster on the first sync.
+- cmapi's Applications set the migration as the measurement on kind decides (§5): on, with the rule above, or off, with
+  the old manager co-owning each key it wrote. Either way, the plan says for each key whether a later removal from Git
+  removes it from the cluster ("removed from Git; stays on the cluster" when another manager still owns it).
 
 ### D4. What cmapi adds, and the only differences on the live object
 
 On the Namespace, the keys that cmapi's renderer writes on each namespace it manages (`core/render/manifests.py`): the
-labels `cmapi.net/managed: "true"`, `cmapi.net/cluster-id`, `cmapi.net/env`, `cmapi.net/tier: custom`,
-`cmapi.net/requested-by-user` (who asked for the adoption), and the annotations `cmapi.net/instance`,
-`cmapi.net/request-id`, `cmapi.net/requested-by` (that person's address) and `argocd.argoproj.io/sync-options:
-Prune=confirm,ServerSideApply=true`. It removes `cmapi.net/adopt` (the owner's decision 3).
+labels `cmapi.net/managed: "true"`, `cmapi.net/cluster-id`, `cmapi.net/env` (the environment of the cluster in the
+registry, as `core/pipeline.py` takes it; a `company.net/app-environment` that names another one is a finding
+`environment-mismatch`), `cmapi.net/tier: custom`, `cmapi.net/requested-by-user` (who asked for the adoption), and the
+annotations `cmapi.net/instance`, `cmapi.net/request-id`, `cmapi.net/requested-by` (that person's address) and
+`argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true`. A namespace that already has that annotation with
+another value gets a finding `sync-options-replaced`, and cmapi's value is written, because `Prune=confirm` is the guard
+of D11. `cmapi.net/adopt` stays (§1, item 6).
 
-On each ResourceQuota and LimitRange: the labels `cmapi.net/managed`, `cmapi.net/cluster-id` and `cmapi.net/tier: custom`
-and the annotations `cmapi.net/instance` and `cmapi.net/request-id`, as the tier renderer writes them (`core/tiers.py`).
-Not `cmapi.net/tier-hash`, because an adopted object is not a rendering of a tier, and not `cmapi.net/beyond-tier`: the
+On each ResourceQuota and LimitRange: the labels `cmapi.net/managed`, `cmapi.net/cluster-id` and `cmapi.net/tier: custom`,
+and the annotations `cmapi.net/instance`, `cmapi.net/request-id` and `argocd.argoproj.io/sync-options: Prune=confirm`
+(Fable's A2: nothing that existed before the adoption is removed without an operator's confirmation). Not
+`cmapi.net/tier-hash`, because an adopted object is not a rendering of a tier, and not `cmapi.net/beyond-tier`: the
 adoption request's plan records the keys beyond the custom bounds instead (D5), so that an adopted object gains no
 annotation that reads as an approval it never had.
 
-No new object: the renderer's `cmapi-token-issuer` RoleBinding, which it writes into each namespace it creates, is not
-part of an adoption. The first update of the namespace through cmapi adds it, and that plan shows it.
+No new object: the renderer's `cmapi-token-issuer` RoleBinding is not part of an adoption. The first update of the
+namespace through cmapi adds it, and that plan shows it.
 
-Argo CD's annotation tracking adds `argocd.argoproj.io/tracking-id` to each object it applies ("annotation (default)",
-Argo CD, "Resource Tracking"). So the full list of live differences after the first sync is: the keys above, the removed
-`cmapi.net/adopt`, and the tracking annotation. "No change to the live object" in the test plan means: no other
-difference, which the worker checks (D11).
+Argo CD's annotation tracking adds `argocd.argoproj.io/tracking-id` to each object it applies. So the full list of live
+differences after the first sync is: the keys above, the tracking annotation, and the change of field managers that D3a
+names. "No change to the live object" in the test plan means: no other difference, which the worker checks (D11).
 
 ### D5. Tier custom, values as they are
 
@@ -123,56 +162,77 @@ Namespace's keys against the instance's `metadata-keys.yaml` (#215) and reports,
 
 | Finding | Example on the owner's sample |
 |---|---|
-| `derived-mismatch`: a `value.from` key whose value is not the derived one | `name: aao-rnd` on `abc-rnd` (derived from the namespace name) |
+| `derived-mismatch`: a `value.from` key whose value is not the derived one | the test namespace with the deliberate mismatch, `name: aao-rnd` on `abc-rnd` (§5); the sample's own was a typo (§1, item 5) |
 | `missing-required-key` | none on the sample with the company configuration; `cmapi.net/team` with the shipped one |
 | `invalid-value`: breaks its `pattern`, `enum`, `format` or `namespacePrefix` | none on the sample |
-| `wrong-kind`: a key that the stanzas declare for the other kind (a label that is now an annotation) | `company.net/mnemonic-group-contact` and `company.net/mnemonic-confluence`, labels on the sample, annotations with their formats since the owner's decision on #234 |
-| `empty-value` | none on the sample with the company configuration |
+| `declared-as-annotation`: a label whose key the stanzas declare as an annotation | `company.net/mnemonic-group-contact` and `company.net/mnemonic-confluence` (§1, item 9) |
+| `empty-value`: a declared key with an empty value | none on the sample |
 | `unknown-key`: a key that no stanza declares and `allowOther` does not admit | none with the company configuration; each `company.net/` key with the shipped one |
 | `adoption-label` | `company.net/provisioner: cluster-configs` (recognised, kept: D7) |
-| `skipped-key`: dropped by a skip prefix | none on the sample |
+| `skipped-key`, `skipped-key-kept` | D3a |
+| `policy-ratcheted` | each failure of a rendered policy that D6a holds, with the policy's name |
 
-**A key of the wrong kind stays as it is** (the owner's decision on #234, 2026-11-14). An existing namespace that carries `company.net/mnemonic-group-contact` or `company.net/mnemonic-confluence` as a label keeps that label in Git, unchanged, and the plan reports each one as `wrong-kind`: the key belongs in an annotation now. cmapi never moves it: the first update through cmapi may send the annotation, and the requester removes the label (a request cannot set it as a label, `invalid_key` "... is an annotation").
+**One rule for a value that the namespace already has** (the owner's decision 7, Fable's A6). A key that the last version
+of the namespace already had wrong, or lacked, is not checked again while it does not change, in Python, in CI and at
+admission alike:
 
-**A missing required key does not block adoption** (the owner's question a). The reasons: the owner's decision 3 says
-"as-is", and the test plan says "no change to the live object"; blocking would force a change on the live namespace
-before cmapi may manage it, which is the change adoption exists to avoid. The approval gate holds the risk: the plan lists
-the finding, and the instance's approval rules can ask for more approvers when an adoption has findings (D10). After the
-adoption, an update request is checked against the rules on its result, so the first change through cmapi must add the
-key (`missing_required_key` refuses it otherwise, `core/metadata.py`). This replaces docs/02's sentence "A missing
-required governed key blocks adoption".
+- **cmapi's own check:** `core/metadata.py` does not refuse a missing required key that the current version also lacks,
+  nor a value that it already holds.
+- **The rendered policies (#212):** they hold a key whose value equals the old one, and a key that is absent in both
+  (`policygen.py`).
 
-### D6a. The rendered policies and an adoption (#248)
+Each plan lists such a key as a finding until a request fixes it. A request that touches the key must give a valid
+value. A missing required key therefore never blocks the adoption or a later, unrelated request. The derived `name`
+label stays as it is until a request sets it, and the plan of that request shows the change. This replaces docs/02's "A
+missing required governed key blocks adoption" and the earlier "the first update must add it".
 
-The Kyverno bundle of #212 (PR #245) does not refuse a value that Git already holds: at plan time and in the PR check,
-a failure on a key whose value the previous version of the object holds is dropped. An adoption has no previous version
-in Git, so in `enforce` its plan and its PR check would refuse each value that D6 keeps and reports. Fable found this in
-the review of #245, and #248 tracks it.
+**A namespace with no team.** With the shipped configuration a namespace can be adopted without `cmapi.net/team`, which
+the approval rules and the daily allowance read. A later request of such a namespace is approved by `approver-platform`,
+and no automatic approval covers it, until a request sets the team.
 
-The rule: **the adoption plan's approved findings serve as the base.** The plan builds the previous version of each object
-from the live object that it read (D2), minus D3, and passes it to the validator as the object that Git holds. A value
-that the namespace already has is then held, at plan time and in the PR check, exactly as at admission, where the first
-sync is an UPDATE of an existing object and the `oldObject` ratchet holds it. The plan stores that base with its
-snapshot, so the PR check uses the same one and never the PR head. Each held value is still listed as a finding (D6),
-and a value that the request changes is checked as usual.
+**A label that is now an annotation** (§1, item 9). It stays in Git as a label, and each plan reports it. Setting the
+annotation does not remove the label: a request removes it with `null`.
 
-Proof (with B1): the plan of the owner's sample with a deliberate mismatch (`name: aao-rnd`) passes in `enforce` with
-its findings listed, and the same plan with the value changed again is refused.
+### D6a. The rendered policies and an adoption (#248, Fable's A1)
+
+The Kyverno bundle of #212 (PR #245) does not refuse a value that Git already holds. At plan time and in the PR check, a
+failure on a key whose value the previous version of the object holds is dropped. An adoption has no previous version in
+Git, so in `enforce` its plan and its PR check would refuse each value that D6 keeps and reports.
+
+**At plan time and in the PR check, the base is the approved plan's snapshot.** It is never taken from the PR.
+1. The adoption plan gives the validator, as `previous`, the three kinds of objects as it read them from the cluster,
+   after D3. It stores that snapshot in the request's plan, which the plan hash covers.
+2. The PR check finds the snapshot by the request ID and checks it against the plan's hash. It never reads `previous`
+   from a file of the pull request.
+3. So the check drops only the failures that the approvers saw. Each failure that it drops stays in the plan as a finding
+   `policy-ratcheted`, with the policy's name.
+4. After the merge, Git holds the base, and a later request is checked as any other.
+
+**At admission,** the first sync is an UPDATE of each object. The policies do not check a key whose value equals
+`oldObject`'s, or that is absent in both. So the adopted differences pass while the live object still equals the snapshot,
+which D16 keeps true. The keys that cmapi adds are new, so they are checked, and cmapi writes them valid. If an adopted
+ResourceQuota or LimitRange was deleted after the read, Argo CD would create it with no `oldObject`. The policy then
+checks every key, and the request fails. D16 refuses this case earlier.
+
+**Not measured:** the ratchet at admission (#245 records it). The kind test runs with the environment in `enforce` (§5).
 
 ### D7. `company.net/provisioner`, and every key that cmapi does not own
 
-**It stays as it is** (the owner's question b). Removing it or rewriting it would change the live object (D4's list is
-the only change). cmapi records the adoption in what it already writes: the change request (`plugin: adoption`), its
-`cmapi.net/request-id` annotation on the namespace, and the Git history of the folder. A key such as
-`cmapi.net/adopted-from` would add a fact that those three already hold.
+**It stays as it is** (the owner's question b, and §1, item 8). It is a label value, nothing more. Removing it or
+rewriting it would change the live object. cmapi records the adoption in what it already writes: the change request
+(`plugin: adoption`), its `cmapi.net/request-id` annotation on the namespace, and the Git history of the folder.
 
-This needs one rule for the namespace's whole life, which the build must add (B2): **cmapi keeps each key in Git that it
-does not own.** Today the renderer builds a namespace's labels from the requester's keys and its own system keys, so on
-the first update it would drop `company.net/provisioner` and each other key that the instance's stanzas do not declare.
-After the change, a key in Git that is neither a system key nor settable by the requester is carried over unchanged on each
-update, and the requester may remove it with a merge patch `null` (a removal, checked and approved as usual), but may not
-set it. A derived key that does not match (`name: aao-rnd`) is the exception: the renderer sets the derived value on the
-first update, and the plan shows that change.
+One rule holds for the namespace's whole life, which the build must add (B2): **cmapi keeps each key in Git that it does
+not own.** Today the renderer builds a namespace's labels from the requester's keys and its own system keys, so on the
+first update it would drop `company.net/provisioner` and each other key that the instance's stanzas do not declare. After
+the change:
+- A key in Git that is neither a system key nor settable by the requester is carried over unchanged on each update.
+- The requester may remove it with a merge patch `null`, a removal that is checked and approved as usual, but may not
+  set it. The plan says whether the removal reaches the cluster (D3a).
+- A key under a prefix that #215 reserves, such as `openshift.io/node-selector`,
+  `scheduler.alpha.kubernetes.io/defaultTolerations` or `argocd.argoproj.io/managed-by`, is removed only by an operator.
+  It was there before the adoption, and self-heal now keeps it, so nothing is gained or lost at adoption. The adoption's
+  plan lists every kept key with its manager, also when `allowOther` admits it and it is no finding.
 
 ### D8. The repository and the folder
 
@@ -180,14 +240,22 @@ The folder is `clusters/<cluster>/namespaces/<namespace>/` in `cmapi-cluster-con
 `resourcequota.yaml` (each ResourceQuota, one document each) and `limitrange.yaml` (each LimitRange). The file names are
 the renderer's, so a later request finds them.
 
+The YAML writer keeps each string a string: `'1'`, `''` and `"true"` stay quoted, because the API server refuses
+`company.net/cl: 1`. The quantities are what the API server returned, so Argo CD sees no difference after the takeover
+(Fable's A9).
+
 ### D9. A later change of an adopted quota or LimitRange
 
-cmapi changes an adopted object in place: it sets the keys that the request names (`spec.hard` of the ResourceQuota, the
-`Container` and `PersistentVolumeClaim` items of the LimitRange, as #211's `limitRange` does) and keeps each other field
-(scopes, other item types, other keys). The namespace stays on tier `custom`. A namespace with more than one
-ResourceQuota (or LimitRange) cannot take such a request, because the request does not say which object it changes: the
-plan refuses it with a problem that names the objects, and the operator merges them first. A change to a named tier
-replaces the adopted objects with the tier's, and the plan shows each field that goes.
+cmapi changes an adopted object in place. It sets the keys that the request names: `spec.hard` of the ResourceQuota, and
+the `Container` and `PersistentVolumeClaim` items of the LimitRange, as #211's `limitRange` does. It keeps each other
+field: scopes, other item types, other keys. The namespace stays on tier `custom`.
+
+A namespace with more than one ResourceQuota (or LimitRange) cannot take such a request, because the request does not
+say which object it changes: the plan refuses it with a problem that names the objects. Any other request of such a
+namespace, a change of a label for example, passes and leaves both documents unchanged. Today every reader of
+`resourcequota.yaml` takes one document only (`core/pipeline.py`, `yaml.safe_load`), so such an update answers 500: that
+is #250 (§4). A change to a named tier replaces the adopted objects with the tier's, and the plan shows each field
+that goes.
 
 ### D10. Who may ask, and the approval
 
@@ -197,32 +265,37 @@ replaces the adopted objects with the tier's, and the plan shows each field that
 - **Facts** for `approval-rules.yaml`: `environment`, `findings` (the count by code), `beyondTier`, `beyondTierKeys`,
   `trackedElsewhere` (always false for a request that exists: D1 skips those).
 - **Default rules** in the shipped `approval-rules.yaml`: one approver of `approver-platform` in each environment, and one
-  more when the plan has findings. Auto-approval never covers an adoption unless a rule names it: adoption puts a live
-  namespace under GitOps, which the platform team should see once.
+  more when the plan has findings. Auto-approval never covers an adoption unless a rule names it. This replaces docs/02's
+  earlier rule, in which one namespace admin approved in rnd and qa. The new rule is stricter, and the pull request names
+  the change.
 
 ### D11. The sync and the check after it
 
-1. The bot opens the pull request with the folder; Git CI runs the policies on it like any other folder (the instance's
-   mode: #213).
-2. On the merge, the cluster's root Application applies the folder. cmapi's Applications use `ServerSideApply=true` (Argo
-   CD, "Sync Options": it applies with `kubectl apply --server-side --force-conflicts`), so field ownership is explicit,
-   and `FailOnSharedResource=true`, so that a namespace that another Application owns fails the sync instead of being
-   taken (D1 skips it first; this is the second layer).
-3. The worker reads the live objects after `Synced` and `Healthy`, and compares each with the snapshot that the plan took:
-   only D4's differences are allowed. Any other difference fails the request with a finding that names the field, and
-   the namespace stays as it is on the cluster: the Namespace's `argocd.argoproj.io/sync-options` holds `Prune=confirm`, so
-   a revert of the folder cannot prune it without an operator's confirmation ("Resources such as Namespaces are critical
-   and should not be pruned without confirmation", Argo CD, "Sync Options").
-4. Argo CD's server-side diff (#217) is what makes "only these keys differ" visible before the merge: the pull request's
-   check shows Argo CD's diff of the folder against the live objects.
+1. The bot opens the pull request with the folder. CI runs the policies on it with the snapshot as the base (D6a).
+2. On the merge, the cluster's root Application applies the folder. cmapi's Applications use:
+   - `ServerSideApply=true`. Argo CD then "applies with `kubectl apply --server-side --force-conflicts`" ("Sync Options"),
+     so field ownership is explicit (D3a).
+   - `FailOnSharedResource=true`, so that a namespace that another Application owns fails the sync instead of being taken.
+     D1 skips such a namespace first; this is the second layer.
+3. The worker reads the live objects after `Synced` and `Healthy`, and compares each with the plan's snapshot, its
+   `managedFields` included. Only D4's differences and D3a's change of managers are allowed. Any other difference fails
+   the request with a finding that names the field.
+4. **A failed adoption is never reverted** (Fable's A2). A request of plugin `adoption` in `sync_failed` does not take
+   `:revert` (409 `invalid-transition`). A revert would remove the folder, and Argo CD would then prune objects that
+   cmapi did not create. Each adopted object carries `Prune=confirm` (D4), so nothing is removed without an operator's
+   confirmation in any case ("Resources such as Namespaces are critical and should not be pruned without confirmation",
+   Argo CD, "Sync Options"). The operator's way out is `:retry` after the cause is removed. The page that confirms a
+   prune names an adopted namespace as "existed before cmapi", and the build proves on kind the steps that take a folder
+   out of Git and leave the live objects, before any operator needs them.
+5. **The diff before the merge** (Fable's A9). #217 is open and not measured. Until it delivers, the pull request's
+   check shows cmapi's own diff of the files against the snapshot, and the worker's check after the sync (step 3) is the
+   proof. With #217, the check shows Argo CD's server-side diff of the root Application at the pull request's revision
+   (`argocd app diff`, with the read right that #217 grants).
 
-### D12. The old tool
+### D12. (Withdrawn)
 
-`company.net/provisioner: cluster-configs` says that the organisation's old pipeline made the namespace. If that pipeline
-still applies the namespace, two writers remain after adoption. cmapi cannot see a pipeline that is not Argo CD (D1 sees an
-Argo CD Application), and it must not touch the old repository (decision 1). So the plan of a recognised namespace (D1,
-`adoptionLabels`) carries a finding `made-by-other-tool` with the value, and the runbook says: remove the namespace from
-the old repository before you approve. The approval gate holds the step.
+The earlier D12 described steps about another tool's repository. The owner's decision (§1, item 8) removes it:
+adoption reads only the live namespace, and `company.net/provisioner` is a label value that `adoptionLabels` recognises.
 
 ### D13. The endpoints (docs/02's set, kept)
 
@@ -230,32 +303,61 @@ the old repository before you approve. The approval gate holds the step.
   "recognised" when an adoption label matches.
 - `GET .../adoption/skipped`: labelled but skipped, with the rule (exclusion, managed, tracked by another Application).
 - `POST .../namespaces/{ns}:adopt`, with `?dryRun=true`: the plan, its findings and the files.
-- `POST .../adoption:scan`: a plan for each candidate; `dryRun` is true unless the caller sets it false.
+- `POST .../adoption:scan`: a plan for each candidate; `dryRun` is true unless the caller sets it false. A namespace that
+  is open in another request, or managed, is listed as skipped, and the scan goes on.
 - `GET /api/v1/reports/unmanaged-namespaces`: managed, candidates, recognised, unlabelled, excluded, for each cluster.
   Unlabelled namespaces are reported, never adopted.
 
 ### D14. When it is built
 
-Wave 8, as planned. It needs: #215 (the stanzas the findings use; PR #234), #217 (Argo CD's server-side diff), Argo CD
-on CRC (Wave 5), and #157's decision for the kind and CRC tests. Nothing in this design moves earlier work.
+Wave 8, as planned. It needs: #215 (the stanzas the findings use; PR #234), #212 (the rendered policies; PR #245), #217
+(Argo CD's server-side diff), Argo CD on CRC (Wave 5), and #157's decision for the kind and CRC tests. Nothing in this
+design moves earlier work.
+
+### D16. What can go wrong between the read and the sync (Fable's A4)
+
+The worker's check after the sync (D11) cannot see a change made between the read and the sync, because the sync writes
+the snapshot's values back. So the plan stores each object's `uid` and `resourceVersion`, and cmapi reads again before
+each step:
+
+| Case | What cmapi does |
+|---|---|
+| An object changed after the read | cmapi reads again when the request is approved, when the bot opens the pull request, and in the pull request's check. A difference fails the request with `adoption-plan-stale`, and the operator plans again. cmapi never writes the old values over the new ones. The time between the last read and the sync is not covered: the runbook says so, and the check is a required one, so that the merge follows it at once |
+| The namespace was deleted and made again | Its `uid` differs: the same refusal |
+| The namespace is `Terminating` | Not a candidate (D1) |
+| A second adoption of the same namespace | The open-request lock refuses it with 409 (`uq_cr_open_namespace`, docs/02). After the merge the folder exists, and after the sync the namespace is managed: D1 step 2 skips it |
+| `cmapi.net/adopt` removed before the merge | The same reads see it. The request is cancelled with `adoption-label-removed`, and the bot closes the pull request: the label is the consent. After the merge the label has no effect (§1, item 6) |
+| No ResourceQuota, or no LimitRange | No file for that kind, and a finding `no-resourcequota` or `no-limitrange`. A later quota request adds the object, and its plan shows it as added |
+| More than one ResourceQuota or LimitRange | Each is written, one document each (D8); D9's rules apply |
+| An object deleted after the read, before the sync | The reads above refuse the request first; in `enforce` admission also refuses the create (D6a) |
 
 ## 4. What the build must add (each with a test that fails before it)
 
 | # | What | Test |
 |---|---|---|
-| B1 | The adoption plugin: D1 to D5, D8, D10, D13 | The plan of the owner's sample: the files equal the live objects minus D3 plus D4; the findings of D6 |
+| B1 | The adoption plugin: D1 to D5, D8, D10, D13, D16 | The plan of the owner's sample: the files equal the live objects minus D3 plus D4; the findings of D6; `'1'`, `''` and `"true"` stay strings |
 | B2 | The renderer keeps keys in Git that it does not own (D7); a merge patch may remove them | An update of an adopted namespace keeps `company.net/provisioner`; a `null` removes it; setting it is refused |
-| B3 | A change of an adopted quota or LimitRange patches the object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; two ResourceQuotas refuse it with a problem |
-| B4 | The worker's check after the sync (D11) | A live object with one more changed field fails the request with that field named |
-| B5 | `adoption.yaml` with the skip prefixes of D3 | A key under each prefix is listed as skipped and is not in the file |
-| B7 | The adoption plan's base for the rendered policies (D6a, #248) | The owner's sample with `name: aao-rnd` passes the plan and the PR check in `enforce`, with the finding listed; a changed value is refused |
+| B3 | A change of an adopted quota or LimitRange patches the object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; two ResourceQuotas refuse it with a problem; an update of a label on a namespace with two ResourceQuotas passes and both documents are unchanged |
+| B4 | The worker's check after the sync, `managedFields` included (D11) | A live object with one more changed field fails the request with that field named |
+| B5 | `adoption.yaml` with the skip prefixes of D3, and D3a's rule on managers | A key under each prefix that a server component owns is skipped; one that `kubectl apply` wrote is kept with `skipped-key-kept` |
 | B6 | `FailOnSharedResource=true` on cmapi's Applications (Wave 5's ApplicationSet) | A namespace in another Application fails the sync (kind) |
+| B7 | The adoption plan's base for the rendered policies (D6a, #248) | The test namespace with `name: aao-rnd` passes the plan and the PR check in `enforce`, with `policy-ratcheted`; a PR whose head carries another base is not believed; a changed value is refused |
+| B8 | No revert of a failed adoption (D11) | A failed adoption, then `:revert`: 409; the three live objects are unchanged |
+| B9 | One rule for a value the namespace already has (D6) | An update of an adopted namespace that lacks `company.net/lob` and changes only the quota passes, with the finding listed; a request that sets `company.net/lob` to an invalid value is refused |
+
+**A bug that this design found, filed apart:** `core/pipeline.py` reads `resourcequota.yaml` with `yaml.safe_load`, which
+raises `ComposerError: expected a single document in the stream` on a file with two documents. A folder with two
+ResourceQuotas then answers 500 on every update (Fable's A4). It is #250 (BUG-61), with a test that fails before the fix.
 
 ## 5. The test plan (the owner's, made concrete)
 
-Test namespaces only, made for the test "the old way" (with `oc apply` of a plain YAML file, no Argo CD), exactly in the
-owner's shape; never inkcast, corp, group-sync or another project's namespace. On kind first, then on CRC; both wait on
-#157.
+Test namespaces only, made for the test with `oc apply` of a plain YAML file and labelled with `oc label`, exactly in the
+owner's shape. Never inkcast, corp, group-sync or another project's namespace. On kind first, then on CRC; both wait on
+#157. The test refuses to run when a namespace of its names exists already, and it records each `uid` it made, so the
+cleanup removes only those.
+
+Two namespaces. `abc-rnd` carries the deliberate mismatch `name: aao-rnd`. `abd-rnd` carries the right `name: abd-rnd`.
+Both carry the two contact keys as empty labels:
 
 ```yaml
 apiVersion: v1
@@ -263,7 +365,7 @@ kind: Namespace
 metadata:
   name: abc-rnd
   labels:
-    name: aao-rnd
+    name: aao-rnd                      # the deliberate mismatch (abd-rnd has its own name)
     company.net/app-environment: rnd
     company.net/mnemonic: abc
     company.net/lob: amgsst
@@ -276,35 +378,49 @@ metadata:
     company.net/app-environment: rnd
 ```
 
-with one ResourceQuota (a value above the custom bound for `rnd`, and a `scopes` list) and one LimitRange (a `Pod` item
-that cmapi does not model). The instance uses `metadata-keys.company.yaml`.
+Each has one ResourceQuota (a value above the custom bound for `rnd`, and a `scopes` list) and one LimitRange (a `Pod`
+item that cmapi does not model). The instance uses `metadata-keys.company.yaml`, and the environment runs in `enforce`.
+The before-and-after comparison uses `oc get -o yaml --show-managed-fields`.
 
 | Case | Expected |
 |---|---|
-| Plan (`dryRun`) | Files: the three objects minus D3, plus D4. Findings: `derived-mismatch` (`name`), two `wrong-kind` (the two labels that are annotations now), `adoption-label`, `made-by-other-tool`, `beyond-custom-bounds` (the quota key). No change on the cluster |
+| Plan (`dryRun`) | Files: the three objects minus D3, plus D4. Findings: `derived-mismatch` (`name`, on `abc-rnd` only), two `declared-as-annotation`, `adoption-label`, `beyond-custom-bounds` (the quota key), and `policy-ratcheted` for each held failure. No change on the cluster |
+| `abd-rnd`'s plan | No `derived-mismatch` |
 | The same namespace without `cmapi.net/adopt` | Not a candidate; in the report as "recognised, unlabelled" |
 | A namespace in another Argo CD Application | Skipped, with the Application named |
-| Approve, merge, sync | The live objects differ from the snapshot only by D4 (read with `oc get -o yaml` before and after, diffed); `cmapi.net/adopt` is gone |
-| An update after the adoption (set `company.net/mnemonic-group-contact`) | `name` becomes `abc-rnd` (shown in the plan), `company.net/provisioner` stays, the quota's `scopes` stay |
+| Approve, merge, sync, in `enforce` | The first sync is admitted. The live objects differ from the snapshot only by D4 and D3a. `cmapi.net/adopt` is still there. The managers before and after are recorded, with each key that the sync removed (none expected) |
+| A sync that also changes a wrong value | Refused at admission in `enforce` |
+| A quota changed after the plan | `adoption-plan-stale`; the live value is not written over |
+| `cmapi.net/adopt` removed after the approval | The request is cancelled; the pull request is closed |
+| A second `:adopt` while the first is open | 409 |
+| No ResourceQuota; two ResourceQuotas | The findings; an update of a label passes with two |
+| A failed adoption, then `:revert` | 409; the three live objects are unchanged |
+| An update after the adoption (set the annotation `company.net/mnemonic-group-contact`) | The annotation is set; the label of the same key stays until a request removes it with `null`; `name` stays `aao-rnd` (D6); `company.net/provisioner` stays; the quota's `scopes` stay |
+| A missing required key (remove `company.net/lob` before the plan) | Adopted, with `missing-required-key`; a later quota change passes with the finding listed (D6) |
 | A key changed by hand on the cluster after the adoption | Reverted by Argo CD's self-heal if the key is in Git (docs/02, "On the cluster") |
-| A missing required key (remove `company.net/lob` before the plan) | Adopted, with `missing-required-key`; the first update must add it |
-| Cleanup | The test removes only the namespaces and the folders it made |
+| On CRC: a namespace whose `pod-security.kubernetes.io/` labels OpenShift's controller wrote | Skipped as D3 says, and unchanged on the cluster after the sync |
+| Cleanup | The test removes only the namespaces (by `uid`) and the folders it made |
 
 ## 6. Sources, each read on 2026-11-14
 
-- Argo CD, "Sync Options" (`FailOnSharedResource`, `ServerSideApply`, `Prune=confirm`, `Delete=confirm`):
+- Argo CD, "Sync Options" (`FailOnSharedResource`, `ServerSideApply`, Client-Side Apply Migration, `Prune=confirm`):
   <https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/>.
 - Argo CD, "Resource Tracking" (annotation tracking is the default; `argocd.argoproj.io/tracking-id`):
   <https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/>.
+- Kubernetes, "Server-Side Apply" (a field left out of a manifest; shared ownership):
+  <https://kubernetes.io/docs/reference/using-api/server-side-apply/>.
 - Kubernetes, "Namespaces", automatic labelling: <https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/>.
-- OpenShift Container Platform 4.22, "Understanding and managing pod security admission" (label synchronisation stops for
-  a label that someone changed):
+- OpenShift Container Platform 4.22, "Understanding and managing pod security admission":
   <https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/authentication_and_authorization/understanding-and-managing-pod-security-admission>.
-- cmapi: docs/02 "Adoption plugin" (before this change), `core/metadata.py` (#215, PR #234), `core/render/manifests.py`,
-  `core/approvals.py`, docs/reviews/2026-11-14-issue-211/ (beyond the tier).
+- cmapi: docs/02 "Adoption plugin", `core/metadata.py` (#215, PR #234), `core/render/manifests.py`, `core/pipeline.py`,
+  `core/policygen.py` (#212, PR #245), `routers/requests.py`, docs/reviews/2026-11-14-issue-211/.
+- Fable's review: `fable-review.md` in this folder.
 
 ## 7. For the reviewer
 
-The choices that most need a second reader: D3's two recommended skip prefixes (owner's list is two; this adds two with
-sources), D6 (no block on a missing required key), D7/B2 (cmapi keeps keys it does not own for the namespace's life), and
-D9 (patch in place; several objects refused).
+The choices that most need a second reader:
+- D3a: who owns each key, and the migration, which kind decides.
+- D6: one rule for a value the namespace already has.
+- D6a: the base for the policies.
+- D11 step 4: no revert of an adoption.
+- D16: the reads before each step.
