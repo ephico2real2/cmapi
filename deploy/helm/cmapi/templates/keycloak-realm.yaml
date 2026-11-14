@@ -22,6 +22,25 @@ The cmapi-identity scope adds employee_id, middle_name and the group paths; cmap
 the audience claim to every caller's token.
 */}}
 {{- $r := .Values.keycloak.realmImport -}}
+{{- /*
+A redirect URI of a public client is an exact URI (RFC 9700, section 2.1: "authorization servers MUST utilize exact string
+matching"; RFC 10017, section 6.3.3.2.1). Keycloak reads a `*` at the end as each path below, so the chart refuses one (#205).
+*/ -}}
+{{- range $key := list "portalRedirects" "docsRedirects" }}
+{{- range $uri := index $.Values.keycloak.realm $key }}
+{{- if contains "*" $uri }}
+{{- fail (printf "keycloak.realm.%s: %q has a wildcard. List each exact redirect URI (RFC 9700, section 2.1)" $key $uri) }}
+{{- end }}
+{{- if contains "#" $uri }}
+{{- fail (printf "keycloak.realm.%s: %q has a fragment, which a redirect URI must not have (RFC 6749, section 3.1.2)" $key $uri) }}
+{{- end }}
+{{- /* https://host[:port]/path with a lower-case host, as a browser sends it. http only for a loopback host with an explicit
+port: Keycloak matches a loopback URI with no port against each port (RedirectUtils, Keycloak 26.6.4). No space in the URI. */ -}}
+{{- if not (or (regexMatch "^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?/[^\\s]*$" $uri) (regexMatch "^http://(localhost|127\\.0\\.0\\.1|\\[::1\\]):[0-9]+/[^\\s]*$" $uri)) }}
+{{- fail (printf "keycloak.realm.%s: %q must be an https URI: https://host/path, with a lower-case host and no space. http is for localhost with an explicit port only" $key $uri) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- $aud := .Values.auth.audience -}}
 {{- $mappers := list
   (dict "name" "employee_id" "protocol" "openid-connect" "protocolMapper" "oidc-usermodel-attribute-mapper"

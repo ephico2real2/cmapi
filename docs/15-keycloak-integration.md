@@ -22,7 +22,7 @@ Nine clients are in the import. The table is read from the file.
 | Client | Type | Flow | Used by | Note |
 |---|---|---|---|---|
 | `cmapi-nonprod` | Confidential, bearer only | None: it issues no token | The API. It is the audience of each token and holds the eight client roles | The audience name is `cmapi-<instance>` |
-| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/*` and `http://localhost:5173/*` (the wildcards are a defect: #205). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
+| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/` and `https://cmapi-portal.apps-crc.testing/index.html`, exact (see "The redirect URIs of the portal"). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
 | `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi-api.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
 | `cmapi-cli` | Public | Device authorization | The `cmapi` CLI | `offline_access` is optional. The CLI is not built |
 | `cmapi-automation` | Confidential | Client credentials | An AI agent or a script, by the client's service account | The service account holds `cmapi-onboarding` only |
@@ -170,9 +170,25 @@ The choices, each with its source:
 **Not built, and known.**
 
 - RFC 10017, section 6.3.4.3, says that a browser-only OAuth client "is not recommended for business applications", and section 6.1.4.3 strongly recommends a backend for frontend. The design of `docs/02` is the browser-only client, and the portal is built to it. The owner decides if a backend for frontend replaces it.
-- The redirect URIs of `cmapi-portal` are wildcards (#205).
 - Two browser tabs do not share one renewal, as `docs/02` says they do (#208).
 - The Content-Security-Policy header comes with the portal's image and its Route, which are not built.
+
+## The redirect URIs of the portal
+
+The client `cmapi-portal` has two redirect URIs, and each is exact: `<portal>/` and `<portal>/index.html`. The portal has one page, and it sends the address of that page with no query and no fragment (`cmapi-portal-ui/src/portal/auth.ts`, `location.origin + location.pathname`). The sign-out returns to the same two addresses (`post.logout.redirect.uris: +`), and `webOrigins: +` gives Keycloak's own CORS answer to the portal's origin only.
+
+Before #205 the two URIs ended in `/*`, and one was `http://localhost:5173/*`.
+
+| Rule | Source |
+|---|---|
+| No wildcard | RFC 9700 (BCP 240), section 2.1: "authorization servers MUST utilize exact string matching except for port numbers in localhost redirection URIs of native apps". RFC 10017, section 6.3.3.2.1: "Authorization servers MUST require an exact match of a registered redirect URI". Keycloak does not do this by itself: "You can use wildcards at the end of the URL pattern", and "Exclusive redirect URI patterns are typically more secure" (Server Administration Guide, "Valid Redirect URIs"). So the exact list is cmapi's part |
+| No `localhost` in the realm of a shared cluster | The exception of RFC 9700 for `localhost` is for native apps. The portal is not one. Each program on a person's computer can listen on `localhost:5173`. With that URI in the realm, a link could start a sign-in of `cmapi-portal` that ends at that program, and Keycloak asks for no consent when the person has a session. A developer uses a realm of their own for a portal on `localhost`, or the stand-in issuer of the portal's suite (`cmapi-portal-ui/tests/api/standin.mjs`) |
+| `https` only | The chart refuses a wildcard, a fragment, a space, an upper-case host, and `http` on a host that is not a loopback host with an explicit port, for `portalRedirects` and `docsRedirects` (`deploy/helm/cmapi/templates/keycloak-realm.yaml`). A local realm can list `http://localhost:5173/`. The port is required: Keycloak matches a loopback URI with no port against each port (`RedirectUtils`, Keycloak 26.6.4) |
+| The root of the host | The two URIs are for a portal at `https://<portal>/`. A portal on another port or below a path sends another address, and `portalRedirects` must list it |
+
+Tests: `test_crc_public_clients_take_exact_redirect_uris_only` reads the realm of the plain manifests, and `test_review_g_chart.py` renders the chart with each bad URI (9 of the new tests failed before the change, and 12 more cases came from the review, `docs/reviews/2026-11-14-issue-205/`). Keycloak's own clients of the realm (`account`, `account-console`, `security-admin-console`) keep their wildcards: #220. Not measured: Keycloak's refusal of a redirect URI that is not in the list, because no container can run now (#157). Realm `cmapi` exists on no cluster yet, so no realm has the old URIs.
+
+Sources, read on 2026-11-14: <https://www.rfc-editor.org/rfc/rfc9700>, <https://www.rfc-editor.org/rfc/rfc10017>, and `keycloak/keycloak` at `a29205c77840`, `docs/documentation/server_admin/topics/clients/oidc/con-basic-settings.adoc`.
 
 ## The portal's origin and the API
 

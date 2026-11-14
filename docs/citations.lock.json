@@ -1,5 +1,5 @@
 {
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|277-304": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|307-334": [
   "    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,",
   "                relay_permitted: bool | None = None, comment: str = \"\") -> bool:",
   "        \"\"\"approver is the eligible person; relay is the channel client (approvals:relay) if any.",
@@ -29,7 +29,7 @@
   "        return self.met",
   ""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|284-287": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|314-317": [
   "        if relay is not None:",
   "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
   "            if not ok:",
@@ -327,15 +327,15 @@
   "            groups=frozenset(claims.get(\"groups\", [])),",
   "        )"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|122-124": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|124-126": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-175": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|289-289": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|318-318": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|141-143": [

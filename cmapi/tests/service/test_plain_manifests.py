@@ -253,6 +253,27 @@ def test_crc_redirect_uri_is_the_docs_route():
     assert yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["publicUrl"] == f"https://{host}"
 
 
+def test_crc_public_clients_take_exact_redirect_uris_only():
+    """RFC 9700, section 2.1: "authorization servers MUST utilize exact string matching". RFC 10017, section 6.3.3.2.1, says the same for
+    a browser application. Keycloak reads `*` at the end of a URI as each path below it, so the realm has none (#205). The portal sends
+    location.origin + location.pathname (cmapi-portal-ui/src/portal/auth.ts): the two addresses of its one page. No localhost: this
+    realm is on a shared cluster."""
+    realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
+    public = {c["clientId"]: c.get("redirectUris") or [] for c in realm["clients"] if c.get("publicClient") and c.get("standardFlowEnabled")}
+    assert set(public) == {"cmapi-portal", "cmapi-docs"}
+    for client, uris in public.items():
+        assert uris, f"{client} has no redirect URI"
+        for uri in uris:
+            assert "*" not in uri and "#" not in uri and uri.startswith("https://"), f"{client}: {uri}"
+    portal = "https://cmapi-portal.apps-crc.testing"          # the portal's Route is not in the plain manifests yet (Wave 6)
+    assert public["cmapi-portal"] == [f"{portal}/", f"{portal}/index.html"]
+    wild = [(c["clientId"], u) for c in realm["clients"] for u in (c.get("redirectUris") or []) if "*" in u]
+    assert wild == [], "a wildcard redirect URI in the realm"
+    portal_client = next(c for c in realm["clients"] if c["clientId"] == "cmapi-portal")
+    # "+" is each origin of the redirect URIs: with exact URIs, the portal's origin and no other
+    assert portal_client["webOrigins"] == ["+"] and portal_client["attributes"]["post.logout.redirect.uris"] == "+"
+
+
 def test_crc_problem_types_resolve_on_the_api_route():
     """RFC 9457, section 4: the type URI of a problem "SHOULD resolve to HTML documentation". CRC has one instance, so the base of
     the types is its own Route, where the API serves /problems/<code> (#182)."""

@@ -259,8 +259,8 @@ spec:
         post.logout.redirect.uris: +
         access.token.header.type.rfc9068: 'true'
       redirectUris:
-      - https://cmapi-portal.apps-crc.testing/*
-      - http://localhost:5173/*
+      - https://cmapi-portal.apps-crc.testing/
+      - https://cmapi-portal.apps-crc.testing/index.html
       webOrigins:
       - +
       defaultClientScopes:

@@ -1,7 +1,7 @@
 # Source: docs/02-technical-design-v2.md
 # cluster-configs/policies/metadata-keys.yaml
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
-         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/expiry, cmapi.net/expires-at]
+         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
