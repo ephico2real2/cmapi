@@ -14,7 +14,7 @@ const app = join(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(app, "test-output");
 mkdirSync(out, { recursive: true });
 
-const server = await serve(join(app, "dist"));
+const server = await serve(join(app, "dist-demo"));
 // PW_CHANNEL=chrome runs in the installed Chrome, and PW_HEADED=1 shows the window.
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL, headless: !process.env.PW_HEADED });
 const open = async (url, ready) => {
