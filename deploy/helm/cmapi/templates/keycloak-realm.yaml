@@ -22,6 +22,23 @@ The cmapi-identity scope adds employee_id, middle_name and the group paths; cmap
 the audience claim to every caller's token.
 */}}
 {{- $r := .Values.keycloak.realmImport -}}
+{{- /*
+A redirect URI of a public client is an exact URI (RFC 9700, section 2.1: "authorization servers MUST utilize exact string
+matching"; RFC 10017, section 6.3.3.2.1). Keycloak reads a `*` at the end as each path below, so the chart refuses one (#205).
+*/ -}}
+{{- range $key := list "portalRedirects" "docsRedirects" }}
+{{- range $uri := index $.Values.keycloak.realm $key }}
+{{- if contains "*" $uri }}
+{{- fail (printf "keycloak.realm.%s: %q has a wildcard. List each exact redirect URI (RFC 9700, section 2.1)" $key $uri) }}
+{{- end }}
+{{- if contains "#" $uri }}
+{{- fail (printf "keycloak.realm.%s: %q has a fragment, which a redirect URI must not have (RFC 6749, section 3.1.2)" $key $uri) }}
+{{- end }}
+{{- if not (or (hasPrefix "https://" $uri) (regexMatch "^http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?/" $uri)) }}
+{{- fail (printf "keycloak.realm.%s: %q must be an https URI. http is for localhost only" $key $uri) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- $aud := .Values.auth.audience -}}
 {{- $mappers := list
   (dict "name" "employee_id" "protocol" "openid-connect" "protocolMapper" "oidc-usermodel-attribute-mapper"
