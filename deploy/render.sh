@@ -49,10 +49,15 @@ config_checksum() {
     printf '%s %s\n' "$name" "$(sha256 <"$files")"
   done | sha256
 }
-# check_image <what> <reference> <repositories, as an ERE alternation>
+# An image reference by the grammar of github.com/distribution/reference (reference.go), less IPv6 hosts and other digest algorithms.
+# A reference that --allow-tag lets through still becomes a sed replacement and an unquoted YAML value below, so a character the
+# grammar has no place for (white space, "|", "&", "#", a backslash, a line break) is refused, not filled in.
+REFERENCE='^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*(:[0-9]+)?/)?[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(@sha256:[0-9a-f]{64})?$'
+# check_image <what> <reference> <repositories, as an ERE alternation> <the GHCR repository, for the message>
 check_image() {
   if ! [[ "$2" =~ ^($3)@sha256:[0-9a-f]{64}$ ]]; then
     if [ "$ALLOW_TAG" = true ] && [ "$ENV_NAME" = kind ]; then
+      [[ "$2" =~ $REFERENCE ]] || { echo "ERROR: $1 '${2}' is not an image reference (name[:tag][@sha256:<64 hex>]); refused even with --allow-tag" >&2; exit 1; }
       echo "note    : $1 ${2} is not a GHCR digest; accepted because of --allow-tag (a kind test, never a deployment)"
     else
       echo "ERROR: $1 ${2} is not ${4}@sha256:<64 hex> or the internal registry's; a deployment is by digest only (--allow-tag for a kind test, on environment kind)" >&2; exit 1

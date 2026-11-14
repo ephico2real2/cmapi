@@ -7,6 +7,10 @@
 # redirect URIs, instance.yaml's publicUrl and 60-portal.yaml name it.
 # set-forwarded-headers replace: the router's X-Forwarded-* replace the client's, which by default it appends to, so a client
 # cannot prefix the values that the front door and the API read (Red Hat's route-specific annotations; Codex's F4 on PR #238).
+# timeout 130s: the router waits 30 s for an answer unless the Route says otherwise (the IngressController's serverTimeout), and
+# nginx waits up to 2 tries x (2 s connect + 60 s read) = 124 s on an API path (cmapi-portal-ui/nginx/cmapi/proxy.conf,
+# proxy-api.conf). So the router waits longer than nginx, and a slow call gets nginx's own answer, a retry on another pod, or
+# its 504 with the front door's headers and log line, never the router's 504 halfway. The mockup is static and keeps the default.
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -15,6 +19,7 @@ metadata:
   labels: {app.kubernetes.io/part-of: cmapi}
   annotations:
     haproxy.router.openshift.io/set-forwarded-headers: replace
+    haproxy.router.openshift.io/timeout: 130s
 spec:
   host: cmapi.apps-crc.testing
   to: {kind: Service, name: cmapi-portal}

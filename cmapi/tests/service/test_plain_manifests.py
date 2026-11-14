@@ -304,8 +304,29 @@ def test_crc_routes():
         assert spec["to"] == {"kind": "Service", "name": "cmapi-portal"}
         assert spec["port"] == {"targetPort": "http"}
         assert spec["tls"] == {"termination": "edge", "insecureEdgeTerminationPolicy": "Redirect"}
-        # The router's X-Forwarded-* replace the client's, which it otherwise appends to (Codex's F4 on PR #238).
-        assert route["metadata"]["annotations"] == {"haproxy.router.openshift.io/set-forwarded-headers": "replace"}
+        # The router's X-Forwarded-* replace the client's, which it otherwise appends to (Codex's F4 on PR #238). The instance's
+        # Route waits longer than nginx does (test_the_instance_route_outlasts_the_front_door); the mockup is static.
+        want = {"haproxy.router.openshift.io/set-forwarded-headers": "replace"}
+        if name == "cmapi":
+            want["haproxy.router.openshift.io/timeout"] = "130s"
+        assert route["metadata"]["annotations"] == want
+
+
+def nginx_seconds(name, file):
+    value = re.search(rf"^{name}\s+(\d+)s;", (ROOT / "cmapi-portal-ui/nginx/cmapi" / file).read_text(), re.M)
+    assert value, f"{name} in {file}"
+    return int(value.group(1))
+
+
+def test_the_instance_route_outlasts_the_front_door():
+    """The router answers 504 after its serverTimeout, 30 s by default, unless the Route sets haproxy.router.openshift.io/timeout
+    (OpenShift, Ingress Controller configuration parameters). nginx waits up to proxy_next_upstream_tries x (proxy_connect_timeout +
+    proxy_read_timeout) on an API path. A Route that gives up first cuts a slow plan, and the read-timeout retry of an idempotent
+    call (Codex's F3 on PR #238) never happens (the review of PR #247, F1)."""
+    tries = int(re.search(r"^proxy_next_upstream_tries\s+(\d+);", (ROOT / "cmapi-portal-ui/nginx/cmapi/proxy.conf").read_text(), re.M).group(1))
+    worst = tries * (nginx_seconds("proxy_connect_timeout", "proxy.conf") + nginx_seconds("proxy_read_timeout", "proxy-api.conf"))
+    timeout = crc("Route", "cmapi")["metadata"]["annotations"]["haproxy.router.openshift.io/timeout"]
+    assert re.fullmatch(r"\d+s", timeout) and int(timeout[:-1]) > worst, (timeout, worst)
 
 
 def test_crc_routes_are_the_hosts_nginx_serves():

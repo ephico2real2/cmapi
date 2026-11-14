@@ -59,6 +59,20 @@ want "a tag with --allow-tag on kind" "--allow-tag refused on kind" quiet r kind
 grep -q 'image: localhost/cmapi:dev' "$W/o3/components/cmapi/20-api.yaml" || bad "--allow-tag did not fill the image"
 # --allow-tag means a kind test, never a deployment.
 if r crc localhost/cmapi:dev "$W/o4" --allow-tag >/dev/null 2>&1; then bad "--allow-tag was accepted for crc"; else ok "--allow-tag is refused for anything but kind"; fi
+# --allow-tag takes a tag, not any text: the reference becomes a sed replacement and an unquoted YAML value. "|w <file>" made sed
+# write a file outside the out dir, "#" turned the rest of the image line into a YAML comment, and "&" pasted the placeholder back.
+mkdir -p "$W/inj"
+for ref in 'localhost/cmapi:dev|w INJECTED' 'localhost/cmapi:dev # comment' 'localhost/cmapi:dev&' 'localhost/cmapi:dev\x' 'localhost/cmapi:dev
+  command: [sh]' 'Localhost/CMAPI:dev' ''; do
+  for flag in image portal; do
+    if [ "$flag" = image ]; then args=(kind "$ref" --portal-image localhost/cmapi-portal:dev); else args=(kind localhost/cmapi:dev --portal-image "$ref"); fi
+    if (cd "$W/inj" && quiet "$R" "${args[@]}" --allow-tag "$W/inj/out"); then bad "--allow-tag filled the $flag reference $(printf %q "$ref")"; else ok "--allow-tag refuses the $flag reference $(printf %q "$ref")"; fi
+  done
+done
+left=$(ls -A "$W/inj"); want "and nothing was written for them" "a refused reference wrote $left" [ -z "$left" ]
+for ref in localhost/cmapi:dev localhost:5000/team/cmapi_dev:v1.2-rc.1 "docker.io/library/cmapi:x@sha256:$(printf 'a%.0s' {1..64})" cmapi; do
+  want "--allow-tag takes the reference $ref" "--allow-tag refused the reference $ref" quiet "$R" kind "$ref" --portal-image "$ref" --allow-tag "$W/inj-ok"
+done
 # The internal registry's digest is what Wave 1 deploys, by digest; no flag that says "never a deployment".
 want "the internal registry by digest" "the internal registry's digest needs --allow-tag" quiet r crc "$INTERNAL" "$W/o5"
 # Exactly five on CRC: the four, and the realm sync's Job, which only environments/crc carries. Every one filled, and the checksum over CRC's own three files.
