@@ -11,12 +11,13 @@ A policy under env/prod runs only for prod namespaces. A missing binary is a fin
 cannot approve anything.
 
 The mode of each environment (instance.yaml `policy`, core/policy.py; #213): off runs no Kyverno, audit turns each
-Kyverno finding into a warning, enforce keeps it an error. A finding of cmapi itself (a missing binary) stays an error
-in each mode. When a served environment needs Kyverno and the binary is missing, cmapi does not start.
+Kyverno violation into a warning, enforce keeps it an error. A finding of cmapi itself (a missing binary, a policy that
+the CLI could not evaluate or applied no rule of) stays an error in each mode. When a served environment needs Kyverno and the binary is missing, cmapi does not start.
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import replace
 import subprocess
@@ -26,6 +27,10 @@ from typing import Mapping
 
 from cmapi.core.policy import PolicySettings
 from cmapi.core.ports import Finding
+
+
+# The summary line of `kyverno apply`: "pass: 0, fail: 1, warn: 0, error: 0, skip: 0".
+_COUNT = re.compile(r"\b(fail|error): (\d+)")
 
 
 class ValidatorUnavailable(RuntimeError):
@@ -109,9 +114,15 @@ class CliValidator:
             for rel, f in ns_files.items():
                 r = self._run([self.kyverno, "apply", str(pol), "--resource", f])
                 text = r.stdout + r.stderr
+                counts = {k: int(n) for k, n in _COUNT.findall(text)}
+                last = [ln for ln in text.strip().splitlines() if ln.strip()]
                 if "Applying 0 policy rule" in text:
-                    out.append(Finding("kyverno", pol.stem, rel, "policy not understood by the CLI (0 rules applied)"))
-                elif r.returncode != 0 or "fail: 0" not in text:
-                    last = [ln for ln in text.strip().splitlines() if ln.strip()]
+                    # Source cmapi: a fault of the bundle or the image, not a verdict, so audit keeps it an error.
+                    out.append(Finding("cmapi", pol.stem, rel, "policy not understood by the CLI (0 rules applied)"))
+                elif counts.get("fail", 0) > 0 and counts.get("error", 0) == 0:
                     out.append(Finding("kyverno", pol.stem, rel, (last[-1] if last else f"exit {r.returncode}")[:300]))
+                elif r.returncode != 0 or counts.get("error", 0) > 0 or "fail" not in counts:
+                    # No verdict: the policy did not compile, could not be evaluated, or the CLI printed no summary.
+                    out.append(Finding("cmapi", pol.stem, rel, "kyverno could not evaluate the policy: "
+                                                               f"{(last[-1] if last else f'exit {r.returncode}')[:260]}"))
         return out

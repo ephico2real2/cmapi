@@ -69,23 +69,29 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
         outside = [f"a list that is not complete: {exc}"]
     cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env)
-    kc = [f for f in findings if f.source in ("kubeconform", "cmapi")]
-    ky = [f for f in findings if f.source == "kyverno"]
+    # Only an error fails a check. In audit a Kyverno finding is a warning (core/validate, #213): the plan showed it and the
+    # approvers accepted it, so the PR check reports it and does not fail, as the cluster's Audit action does.
+    errors = [f for f in findings if f.severity == "error"]
+    audited = [f for f in findings if f.severity != "error"]
+    kc = [f for f in errors if f.source in ("kubeconform", "cmapi")]
+    ky = [f for f in errors if f.source == "kyverno"]
+    ky_text = "; ".join(f"{f.rule}: {f.message}" for f in ky) or \
+        ("audit, not refused: " + "; ".join(f"{f.rule}: {f.message}" for f in audited) if audited else "policies ok")
     link = f"{ctx.cfg.raw_instance['instance'].get('publicUrl', '')}/api/v1/requests/{row.request_id}"
     jobs.fence()                       # the statuses are external writes: a worker whose lease was claimed posts none
     if not ctx.git.external_ci:
         ctx.git.set_check(head, CONTEXT_KUBECONFORM, "failure" if kc else "success",
                           "; ".join(f.message for f in kc)[:200] or "schema ok", link)
         ctx.git.set_check(head, CONTEXT_KYVERNO, "failure" if ky else "success",
-                          "; ".join(f"{f.rule}: {f.message}" for f in ky)[:200] or "policies ok", link)
+                          ky_text[:200], link)
     ctx.git.set_check(head, CONTEXT_CMAPI, "success" if cmapi_ok else "failure",
                       f"request {row.request_id} approved, head == plan {row.plan_hash[:12]}" if cmapi_ok
                       else f"head differs from the approved plan {row.plan_hash[:12]}, moved after it was opened, or touches {outside[:3]}", link)
     host_ci = "".join(f"; {c}: {state}" for c, state in ci.items())
-    repo.event(row, "ci", "ci", f"kubeconform: {'pass' if not kc else 'fail'}; kyverno: {'pass' if not ky else 'fail'}; "
+    repo.event(row, "ci", "ci", f"kubeconform: {'pass' if not kc else 'fail'}; kyverno: {'fail' if ky else 'audit' if audited else 'pass'}; "
                                 f"cmapi check: {'pass' if cmapi_ok else 'fail'}{host_ci}",
                {"findings": [f.message for f in findings], "head": head})
-    if findings or not cmapi_ok or ci_failed:
+    if errors or not cmapi_ok or ci_failed:
         if head != pr.head_sha:
             repo.event(row, "head_moved", "ci", f"PR head moved from {pr.head_sha[:8]} to {head[:8]} after approval")
         repo.move(row, E.PR_FAILED, "ci", "checks failed")
