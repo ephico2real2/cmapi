@@ -2,12 +2,24 @@
 # Sourced by the image's docker-entrypoint.sh after 15-local-resolvers.envsh and before 20-envsubst-on-templates.sh.
 # The template takes these values as they are, so a missing or malformed one would give a front door that starts and
 # routes wrongly. Each is checked here, and the container stops with the name of the value at fault.
-# Sourced, not run: "exit" ends the entrypoint itself, so nginx does not start.
+# Sourced inside the entrypoint pipeline: exit fails its last stage; set -e stops nginx startup.
 
 cmapi_refuse() {
   echo "$0: ERROR: $1" >&2
   exit 1
 }
+
+# grep -x matches individual lines. Reject line breaks before testing any value.
+cmapi_single_line() {
+  case "$2" in
+    *'
+'*) cmapi_refuse "$1 must be a single line" ;;
+  esac
+}
+cmapi_single_line CMAPI_API_UPSTREAM "${CMAPI_API_UPSTREAM:-}"
+cmapi_single_line CMAPI_PORTAL_HOST "${CMAPI_PORTAL_HOST:-}"
+cmapi_single_line CMAPI_MOCKUP_HOST "${CMAPI_MOCKUP_HOST:-}"
+cmapi_single_line CMAPI_OIDC_ORIGIN "${CMAPI_OIDC_ORIGIN:-}"
 
 # A DNS name in lower case (RFC 1123 labels), with no anchors, so each check below can add a port.
 cmapi_host='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*'

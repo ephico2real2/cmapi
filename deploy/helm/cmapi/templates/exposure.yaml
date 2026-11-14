@@ -40,6 +40,8 @@ metadata:
   name: {{ $site.subdomain }}
   namespace: {{ $.Release.Namespace }}
   labels: {{- include "cmapi.labels" $ | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/set-forwarded-headers: replace
 spec:
   {{- if $site.host }}
   host: {{ $site.host }}

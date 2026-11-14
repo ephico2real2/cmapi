@@ -76,6 +76,9 @@ upstream cmapi_api {
 server {
     listen 8080 default_server;
     server_name ${CMAPI_PORTAL_HOST};
+    # For the answers that no location makes (nginx's own errors before a location is chosen) and /healthz.
+    # A location that adds a header of its own includes the file again: nginx drops the outer add_header lines then.
+    include /etc/nginx/cmapi/headers-portal.conf;
     root /usr/share/nginx/html/portal;
     index index.html;
     access_log /dev/stdout cmapi_json;
@@ -161,6 +164,9 @@ server {
 server {
     listen 8080;
     server_name ${CMAPI_MOCKUP_HOST};
+    # For the answers that no location makes (nginx's own errors before a location is chosen) and /healthz.
+    # A location that adds a header of its own includes the file again: nginx drops the outer add_header lines then.
+    include /etc/nginx/cmapi/headers-mockup.conf;
     root /usr/share/nginx/html/mockup;
     access_log /dev/stdout cmapi_json;
     absolute_redirect off;

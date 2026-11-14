@@ -60,7 +60,8 @@ nginx 1.27.3 made `resolve` and the upstream `resolver` part of the open-source 
 ### Retries only for idempotent requests
 
 `proxy_next_upstream error timeout http_502 http_503 http_504`, with `proxy_next_upstream_tries 2` and
-`proxy_next_upstream_timeout 10s`. nginx does not pass a POST, PATCH or LOCK to another server once it was sent
+`proxy_next_upstream_timeout 0`: the two tries bound the retries, and a time limit below `proxy_read_timeout` would stop a
+GET that timed out on one pod from going to another (Codex's finding F3). nginx does not pass a POST, PATCH or LOCK to another server once it was sent
 (ngx_http_proxy_module), and `non_idempotent` is not set. A create must not run twice: the Idempotency-Key of the API
 is the client's way to repeat a write, not the front door's.
 
@@ -177,17 +178,18 @@ stable branch (1.30) gets only critical fixes; the mainline (1.31) adds features
 
 ## Measured, on this Mac (no cluster, no container: #157)
 
-- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 133 checks, 0 failed.
-  The upstream, the routes, the headers of each kind of page, what reaches the API, retries (each GET answered when a pod
-  fails; no POST sent to a second pod), keepalive (12 requests over 3 pods used 3 connections), the 413, the log, and
-  the start check.
+- `deploy/tests/front-door-test.py --nginx <nginx 1.30.6 built from nginx.org's signed source>`: 316 checks, 0 failed.
+  The upstream, the routes, the headers of each kind of page and of `/healthz` and nginx's own errors (400, 404, 413,
+  502, 504), what reaches the API, retries (a GET, DELETE or PUT goes to the other pod after a reset, a read timeout,
+  a 502, 503 or 504; a POST, PATCH or LOCK never does), keepalive (12 requests over 3 pods used 3 connections), the log,
+  and the start check, also against values with a line break.
 - The same test against mutants of the configuration: each of these failed it: `non_idempotent` added, one
   `proxy_hide_header` removed, `$request_uri` in the log, the common headers left out of the portal's locations, a docs
   location renamed, the start check taking `http://`.
 - `cmapi-portal-ui/tests/front-door.test.mjs` in Chromium (Playwright 1.64.1): the portal signs in through the stand-in
   issuer and lists requests through `/api/v1` with no `Origin` header (same origin, no CORS), signs out with a form POST
-  to the issuer, and Swagger UI, ReDoc, the problem pages and the mockup render, each with no CSP violation. It found
-  #229 (BUG-57, `/redoc` empty) and the mockup's Google Fonts.
+  to the issuer, and Swagger UI, the problem pages and the mockup render, each with no CSP violation. ReDoc renders with
+  #229's fix (PR #231). The check found #229 (BUG-57, `/redoc` empty on main) and the mockup's Google Fonts.
 - `cmapi/tests/service/test_front_door_chart.py`: the chart's hosts, values, Services and policies.
 
 Not measured: the image's build and its entrypoint (no container here; GitHub's `front-door` job runs
@@ -214,4 +216,17 @@ the router's behaviour with a pod that stops.
 
 ## Review
 
-The brief and Codex's report are in this folder; each finding is ruled in the pull request.
+Codex (`gpt-6.1-sol`, CLI 0.167.0) reviewed export `9250712` from `brief.md`; its report is `reviewer-1-report.md`, and
+its combined patch is `review-artifacts/all-fixes-and-tests.diff` (the other artifacts it names stayed in its export).
+Its sandbox could not start nginx, so it proved F1 and F4 by test and left F2 and F3 "not proven". OB1 ran every new
+test natively against nginx 1.30.6, first with only the tests applied, then with the fixes:
+
+| Finding | Claim | Before the fix (measured here) | After | Ruling |
+|---|---|---|---|---|
+| F1: a value with a line break passes the start check, because `grep -x` matches each line | C5 | 13 cases failed (each of the four values with three suffixes, and the entrypoint pipeline) | passed | Accepted. The check refuses a value with a line break first |
+| F2: `/healthz` and nginx's early errors (a 400 before a location is chosen) have no security headers | C2 | the headers of `/healthz` on both hosts and of the early 400 were missing | passed | Accepted. Each server includes its header file at server level as well |
+| F3: `proxy_next_upstream_timeout 10s` is below `proxy_read_timeout`, so a GET that times out is not sent to the other pod | C3 | GET, DELETE and PUT after a read timeout: 504, the healthy pod never asked | 200 from the healthy pod | Accepted. The time limit is 0; two tries bound the retries |
+| F4: the Route appends the client's `X-Forwarded-*` to the router's, so a client can prefix the values that the API reads | C6 | `test_route_replaces_untrusted_forwarded_headers` failed | passed | Accepted. Both Routes set `haproxy.router.openshift.io/set-forwarded-headers: replace` (Red Hat's route-specific annotations: append is the default; replace keeps only the router's values) |
+
+C1 (path confusion), C4, C7, C8 and C9: Codex found them correct, with the qualifications in its report (one release
+per namespace for the NetworkPolicy; a request longer than the 20 s drain can be cut).

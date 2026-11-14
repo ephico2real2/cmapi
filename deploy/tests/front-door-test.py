@@ -114,11 +114,16 @@ class Pod:
                 pod.peers.add(self.client_address[1])
                 pod.seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers.items()),
                                  "body": body.decode("utf-8", "replace")})
-                if pod.mode == "reset":
+                failure = self.headers.get("X-Test-Failure") or pod.mode
+                if failure == "timeout":
+                    time.sleep(2)
+                    self.close_connection = True
+                    return
+                if failure == "reset":
                     self.close_connection = True
                     self.connection.shutdown(socket.SHUT_RDWR)
                     return
-                status = 503 if pod.mode == "503" else int(self.headers.get("X-Test-Status") or 200)
+                status = int(failure) if failure in ("502", "503", "504") else int(self.headers.get("X-Test-Status") or 200)
                 out = json.dumps({"pod": pod.name, "path": self.path}).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -127,10 +132,13 @@ class Pod:
                     self.send_header("Cache-Control", "no-cache")
                 if self.headers.get("X-Test-Frame"):
                     self.send_header("X-Frame-Options", "SAMEORIGIN")
+                if self.headers.get("X-Test-Security"):
+                    for key in (*COMMON, "content-security-policy", "cross-origin-opener-policy"):
+                        self.send_header(key, "attacker-value")
                 self.end_headers()
                 self.wfile.write(out)
 
-            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = _serve
+            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_LOCK = _serve
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.server.server_address[1]
@@ -486,6 +494,116 @@ def render(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def case_review_env_single_line() -> None:
+    print("review C5: full environment values and the entrypoint pipeline")
+    script = SRC / "16-cmapi-check-env.envsh"
+    for name in ("CMAPI_API_UPSTREAM", "CMAPI_PORTAL_HOST", "CMAPI_MOCKUP_HOST", "CMAPI_OIDC_ORIGIN"):
+        for suffix in ("\n; location = /injected { return 200 injected; } #", "\ninclude /tmp/attacker.conf; #", "\n"):
+            value = GOOD_ENV[name] + suffix
+            r = subprocess.run(["/bin/sh", "-c", '. "$1"; echo started', "review", str(script)],
+                               env={"PATH": "/usr/bin:/bin", **GOOD_ENV, name: value},
+                               capture_output=True, text=True, timeout=10)
+            check(r.returncode != 0 and "started" not in r.stdout,
+                  f"{name}: rejects multiline suffix {suffix!r}")
+        for suffix in (";", "{", '"', "'", " ", "$host", " include /tmp/attacker.conf", "*", ".*.evil"):
+            r = subprocess.run(["/bin/sh", "-c", '. "$1"; echo started', "review", str(script)],
+                               env={"PATH": "/usr/bin:/bin", **GOOD_ENV, name: GOOD_ENV[name] + suffix},
+                               capture_output=True, text=True, timeout=10)
+            check(r.returncode != 0 and "started" not in r.stdout,
+                  f"{name}: rejects suffix {suffix!r}")
+    # Same last-stage while pipeline and set -e as the image, with a harmless stand-in for envsubst/nginx.
+    pipeline = """set -e
+find "$1" -type f -print | sort -V | while read -r f; do
+  case "$f" in
+    *.envsh) . "$f" ;;
+    *.sh) "$f" ;;
+  esac
+done
+echo nginx-started
+"""
+    with tempfile.TemporaryDirectory(prefix="entrypoint-review-") as tmp:
+        scripts = Path(tmp)
+        shutil.copy2(script, scripts / script.name)
+        later = scripts / "20-envsubst-on-templates.sh"
+        later.write_text("#!/bin/sh\necho envsubst-ran\n")
+        later.chmod(0o755)
+        for value, allowed in ((PORTAL_HOST, True), ("bad host", False),
+                               (PORTAL_HOST + "\n; location = /injected { return 200 injected; } #", False)):
+            r = subprocess.run(["/bin/sh", "-c", pipeline, "review", str(scripts)],
+                               env={"PATH": "/usr/bin:/bin", **GOOD_ENV, "CMAPI_PORTAL_HOST": value},
+                               capture_output=True, text=True, timeout=10)
+            check((r.returncode == 0 and "envsubst-ran" in r.stdout and "nginx-started" in r.stdout) if allowed else
+                  (r.returncode != 0 and "envsubst-ran" not in r.stdout and "nginx-started" not in r.stdout),
+                  f"entrypoint pipeline permits valid values only: {value!r}")
+
+
+def case_review_error_headers(ng: Nginx) -> None:
+    print("review C2: health, early errors, static and upstream errors")
+    pod = Pod("headers")
+    port = free_port()
+    d = ng.write(GOOD_ENV, port, [f"127.0.0.1:{pod.port}"])
+    # Speed up the 504 only; keep the shipped header hierarchy.
+    conf = d / "cmapi" / "proxy-api.conf"
+    conf.write_text(conf.read_text().replace("proxy_read_timeout 60s;", "proxy_read_timeout 1s;"))
+    proc = ng.start(d, port)
+    try:
+        for host, csp in ((PORTAL_HOST, CSP_PORTAL), (MOCKUP_HOST, CSP_MOCKUP)):
+            status, headers, _ = request(port, "GET", "/healthz", host)
+            check(status == 200, f"health status {host}")
+            expect_headers(headers, {**COMMON, "content-security-policy": csp}, f"health {host}")
+        # Bad escapes can be rejected before Host is parsed: use the default server's policy.
+        status, headers, _ = request(port, "GET", "/%00")
+        check(status == 400, "bad escape status on default server")
+        expect_headers(headers, {**COMMON, "content-security-policy": CSP_PORTAL}, "early 400")
+        for status_want, path, kwargs in (
+            (404, "/assets/missing.js", {}),
+            (413, "/api/v1/requests", {"method": "POST", "body": b"x" * (2 * 1024 * 1024)}),
+            (401, "/api/v1/me", {"headers": {"X-Test-Status": "401"}}),
+            (500, "/api/v1/version", {"headers": {"X-Test-Status": "500"}}),
+            (502, "/api/v1/version", {"headers": {"X-Test-Failure": "reset"}}),
+            (504, "/api/v1/version", {"headers": {"X-Test-Failure": "timeout"}}),
+        ):
+            method = kwargs.pop("method", "GET")
+            status, headers, _ = request(port, method, path, **kwargs)
+            check(status == status_want, f"expected status {status_want}, got {status}")
+            expect_headers(headers, COMMON, f"status {status_want}")
+        for path, csp in (("/api/v1/version", CSP_API), ("/docs", CSP_DOCS)):
+            _, headers, _ = request(port, "GET", path, headers={"X-Test-Security": "1"})
+            expect_headers(headers, {**COMMON, "content-security-policy": csp}, "upstream security values hidden")
+    finally:
+        ng.stop(proc)
+        pod.stop()
+
+
+def case_review_retry_matrix(ng: Nginx) -> None:
+    print("review C3: reset, read timeout, 502/503/504 across all method classes")
+    for failure in ("reset", "timeout", "502", "503", "504"):
+        for method in ("GET", "POST", "PATCH", "LOCK", "DELETE", "PUT"):
+            bad, good = Pod("bad", failure), Pod("good")
+            port = free_port()
+            d = ng.write(GOOD_ENV, port, [f"127.0.0.1:{p.port}" for p in (bad, good)])
+            # A 1 s read timeout with the same 1:6 ratio to the retry budget makes this bounded.
+            for file in (d / "cmapi").glob("*.conf"):
+                text = file.read_text().replace("proxy_read_timeout 60s;", "proxy_read_timeout 1s;")
+                text = text.replace("proxy_next_upstream_timeout 10s;", "proxy_next_upstream_timeout 150ms;")
+                file.write_text(text)
+            proc = ng.start(d, port)
+            try:
+                tag = f"/api/v1/version?case={failure}-{method}"
+                status, _, _ = request(port, method, tag, body=b"{}")
+                bad_seen = [s for s in bad.seen if s["path"] == tag]
+                good_seen = [s for s in good.seen if s["path"] == tag]
+                retryable = method in ("GET", "DELETE", "PUT")
+                check(len(bad_seen) == 1 and len(good_seen) == int(retryable) and
+                      ((status == 200) == retryable), f"{method} after {failure}: status={status}, "
+                      f"bad={len(bad_seen)}, good={len(good_seen)}")
+            finally:
+                ng.stop(proc)
+                bad.stop()
+                good.stop()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group(required=True)
@@ -513,6 +631,9 @@ def main() -> int:
         case_routes(ng)
         case_retries(ng)
         case_env_check()
+        case_review_env_single_line()
+        case_review_error_headers(ng)
+        case_review_retry_matrix(ng)
         if args.image:
             case_image(args)
     print(f"front door cases failed: {len(failures)}")

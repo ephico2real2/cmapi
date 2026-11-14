@@ -138,3 +138,11 @@ def test_the_front_door_needs_the_instance_url_and_ingress_needs_a_host(tmp_path
 def test_with_the_front_door_off_nothing_is_exposed(tmp_path):
     docs = render(tmp_path, "-f", str(CRC), "--set", "portal.enabled=false")
     assert find(docs, "Route") == [] and find(docs, "Ingress") == [] and find(docs, "Deployment", "cmapi-portal") == []
+
+
+def test_route_replaces_untrusted_forwarded_headers(crc):
+    routes = find(crc, "Route")
+    assert len(routes) == 2
+    for route in routes:
+        annotations = route["metadata"].get("annotations", {})
+        assert annotations.get("haproxy.router.openshift.io/set-forwarded-headers") == "replace", route["metadata"]["name"]
