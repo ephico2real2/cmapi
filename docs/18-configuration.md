@@ -59,7 +59,7 @@ The file has one key, `instance`. The chart writes it from the values `instance.
 | `instance.identity.directory` | `keycloak` | `keycloak` | The directory provider. `keycloak` is the only provider that is built. With another value, cmapi has no directory, and a request that names `onBehalfOf` answers 422 `unknown-user`, "No directory is configured" (`core/context.py`, `core/identity/checks.py`) |
 | `instance.identity.adminClient` | text | `cmapi-directory` | The Keycloak client that reads users. It needs `view-users` and `query-users` only. Its secret is `CMAPI_DIRECTORY_CLIENT_SECRET`. Without the secret, cmapi has no directory |
 | `instance.identity.cacheSeconds` | integer | `900` | How long a directory answer stays in the memory of a process (`core/context.py`) |
-| `instance.identity.requireEmployeeId` | boolean | `true` | A person's token needs the claim `employee_id`. Without it: 422 `identity-incomplete` (`core/pipeline.py`) |
+| `instance.identity.requireEmployeeId` | boolean | `true` | A person's token needs the claim `employee_id`. Without it: 422 `identity-incomplete` (`resolve_requester`, `core/identity/checks.py`) |
 | `instance.identity.requireOnBehalfOf` | boolean | `false` | `true` makes a service client name the person that the request is for |
 | `instance.identity.automationRoles` | list of roles | `[cmapi-onboarding]` | A caller with one of these roles needs no `employee_id` |
 | `instance.identity.groupPath` | text | `/cmapi/app-cmapi-rbac-{name}` | The path of the Keycloak group that an approving group of `approval-rules.yaml` names. It starts with `/` and holds `{name}` one time. A bad value stops the start (`core/authz.py`, `check_group_path`) |
@@ -104,7 +104,7 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
 - When a served environment runs Kyverno and the image has no `kyverno` binary, cmapi does not start (`PolicyEngineMissing`, `core/validate/__init__.py`). When the variable `CMAPI_KYVERNO_VERSION` is set, the binary must be that version. The image sets it (`cmapi/Containerfile`: v1.20.0).
 - `GET /api/v1/admin/integrations` reports the engine, the mode of each environment, and the Kyverno version (`routers/admin.py`). The metric `cmapi_policy_mode{environment, mode}` is 1 for each (`core/context.py`).
 - The policies come from the configuration, not from files that a person writes. `core/policygen.py` renders them from `metadata-keys.yaml`, `tiers.yaml` and `instance.yaml` `policy`, as `policies.kyverno.io/v1` `ValidatingPolicy` objects. A hand-written policy in `CMAPI_POLICIES_DIR` (default `/etc/cmapi/policies`) runs with them (`core/validate/__init__.py`).
-- To write the rendered files into the cluster-configs repository, run `cmapi-tools policies render --config-dir <dir> --metadata-keys <file> --out <dir>`. `cmapi-tools policies check` with the same arguments fails when a file differs from the render (`cmapi/src/cmapi/tools/policies.py`). The rendered files of an instance are the folders `env/<env>/` of its own environments. The decision record is `docs/reviews/2026-11-14-issue-212/` and `docs/reviews/2026-11-14-issue-213/`.
+- To write the rendered files into the cluster-configs repository, run `cmapi-tools policies render --config-dir <dir> --metadata-keys <file> --out <dir>`. `cmapi-tools policies check --config-dir <dir> --metadata-keys <file> --dir <dir>` fails when a file differs from the render (`cmapi/src/cmapi/tools/policies.py`). The rendered files of an instance are the folders `env/<env>/` of its own environments. The decision record is `docs/reviews/2026-11-14-issue-212/` and `docs/reviews/2026-11-14-issue-213/`.
 
 ---
 
@@ -138,7 +138,7 @@ The catalog must have an entry for each served environment and none for another 
 - A container `max` for a resource is not above the `requests.<resource>` of its tier (or `custom.min` for the custom tier), so one container at its limit fits.
 - A resource that cannot overcommit (an extended resource or huge pages) has `defaultRequest` equal to `default`.
 
-For an environment whose policy mode is not `off`, the start also stops when a named tier has a value above the `custom.max` of the environment, because the rendered policies would refuse a tier that cmapi offers (`render_bundle` in `core/policygen.py`, called from `build_context` in `core/context.py`).
+The start also stops when a tier has a value above the `custom.max` of its environment, in an environment whose policy mode is not `off`. The rendered policies would refuse that tier at admission (`_check_offered` in `core/policygen.py`, called from `build_context` in `core/context.py`).
 
 ### Values beyond the tier: approval is the gate
 
@@ -150,7 +150,7 @@ The owner's rule: approval is the gate of a capability. cmapi refuses a value th
 | A custom tier, with a key that is not `sizable` or `overridable` | Refuses: `quota-key-not-sizable`, `limit-key-not-overridable` | `quota_for`, `limits_for` |
 | A custom tier, with a value outside `custom.min`, `custom.max` or off its `step` | Refuses: `custom-out-of-bounds` | `_out_of_bounds` |
 | A custom tier, with limits in the wrong order, or a container `max` above the namespace's `requests.<resource>` | Refuses: `limit-order-invalid`, `limit-exceeds-quota` | `limits_for` |
-| A custom tier, with a valid value that differs from the tier's value | The value is beyond the tier. cmapi sets the facts `beyondTier` and `beyondTierKeys`, and writes the keys in the annotation `cmapi.net/beyond-tier` on the object | `TierCatalog.beyond`, `render` |
+| A custom tier, with a valid value of a key that is not `sizable`, and that differs from the tier's value | The value is beyond the tier. cmapi sets the facts `beyondTier` and `beyondTierKeys`, and writes the keys in the annotation `cmapi.net/beyond-tier` on the object. A `sizable` key is never beyond the tier | `TierCatalog.beyond`, `render` |
 | A request that raises `services.loadbalancers` or `services.nodeports` above the value that Git holds (or the tier, for a new namespace) | The fact `networkExposure` is `true` | `core/pipeline.py`, `EXPOSURE_KEYS` in `core/tiers.py` |
 
 A value that Git already holds is not checked against the bounds again, and is not beyond the tier a second time. So a later, lower bound does not refuse a change to an old namespace (`_out_of_bounds`).
@@ -176,7 +176,7 @@ The rules for the labels and the annotations that a requester sets on a namespac
 | `requiredAnnotations` | mapping of key to rule | `{}` | Annotations that each namespace carries |
 | `extraLabels` | mapping | `{}` | `keys`: optional labels, each with a rule. `allowOther`: any other label under a prefix |
 | `extraAnnotations` | mapping | `{}` | The same, for annotations |
-| `adoptionLabels` | mapping of key to `{recognise: [values]}` | `{}` | Labels that mark a namespace that another tool made. Read when an existing namespace is adopted (story #26). A requester cannot set them: the class of such a key is `reserved` |
+| `adoptionLabels` | mapping of key to `{recognise: [values]}` | `{}` | Labels that mark a namespace that another tool made. A requester cannot set them: the class of such a key is `reserved`. Today cmapi reads only the keys, for that class. The adoption that reads the values (story #26) is not built |
 | `sensitiveKeys` | list of keys | `[]` | A change of the value of one of these keys adds the fact `sensitiveKeyChanged`. The first time that a key is set is not a change |
 | `emailDomains` | list of domains | `[]` | The mail domains for a key with `format: email-in-domains`. A key of that format needs at least one domain |
 
@@ -195,7 +195,18 @@ A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extra
 | `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes |
 | `description`, `example` | text | Text for people and for the API document |
 
-The loader refuses a key that is a system, operator-only or reserved key, a key declared two times as the same kind, an invalid label or annotation key, an unknown field, a `pattern` that does not compile, and more than one of `pattern`, `enum` and `format`. A key can be a label and an annotation at the same time, each with its own rule.
+The loader refuses each of these, and the start stops:
+
+- A key that is a system, operator-only or reserved key.
+- A key declared two times as the same kind.
+- An invalid label or annotation key, or an unknown field.
+- A `pattern` that does not compile.
+- More than one of `pattern`, `enum` and `format`.
+- A format on a label, and `email-in-domains` with no `emailDomains`.
+- An `adoptionLabels` key that a stanza declares, or that is a system or operator-only key.
+- An `adoptionLabels` entry whose `recognise` is not a list of label values.
+
+A key can be a label and an annotation at the same time, each with its own rule.
 
 ### `allowOther`
 
@@ -227,14 +238,19 @@ A required key that is missing or empty refuses the plan with `missing_required_
 
 ### What the code reads by name
 
-Four key names are in the code and not in the file:
+Some key names are in the code, not only in the file. The `system` list of the reference files names each key that the renderer writes, so a requester cannot send one (`reserved_key`). Keep each of them in `system`.
 
 | Name | Where | Effect |
 |---|---|---|
-| `cmapi.net/team` | `core/pipeline.py`, `plugins/quotas/__init__.py` | The label gives the fact `team` of a plan, and the column `change_requests.team`. The limit `maxPerTeamPerDay` counts requests for this value (`RequestRepo.auto_approvals_today`). A namespace with no such label has no team, and no daily allowance applies to it |
+| `cmapi.net/cluster-id`, `cmapi.net/managed`, `cmapi.net/env`, `cmapi.net/tier`, `cmapi.net/requested-by-user` (labels) | `core/render/manifests.py`, `core/tiers.py` (`render`) | The renderer writes them on each namespace. The ResourceQuota and the LimitRange carry `cmapi.net/cluster-id`, `cmapi.net/managed` and `cmapi.net/tier` |
+| `cmapi.net/instance`, `cmapi.net/request-id`, `cmapi.net/requested-by`, `cmapi.net/tier-hash`, `cmapi.net/beyond-tier` (annotations) | `core/render/manifests.py`, `core/tiers.py` (`render`) | The renderer writes them. `cmapi.net/tier-hash` and `cmapi.net/beyond-tier` are on the ResourceQuota and the LimitRange |
+| `cmapi.net/expiry` (label), `cmapi.net/expires-at` (annotation) | `core/render/manifests.py`, `core/pipeline.py` | The renderer writes them for a namespace with an expiry date. The planner reads `cmapi.net/expires-at` and `cmapi.net/tier` back from Git |
+| `cmapi.net/team` | `core/pipeline.py`, `plugins/quotas/__init__.py`, `plugins/namespaces/router.py` | The label gives the fact `team` of a plan, and the column `change_requests.team`. The limit `maxPerTeamPerDay` counts requests for this value (`RequestRepo.auto_approvals_today`). A namespace with no such label has no team, and no daily allowance applies to it (#258) |
+| `cmapi.net/team-dl` | `core/metadata.py` (`_governed`) | A bad address in this key is refused with the code `invalid-team-dl`. A bad address in each other key of the format `email-in-domains` is refused with `invalid_value` |
 | `cmapi.net/app` | `plugins/quotas/__init__.py` | The quota list shows it as `app` |
-| `cmapi.net/cluster-id`, `cmapi.net/managed` | `core/policygen.py` (`SYSTEM_REQUIRED`) | The rendered policies require both on a managed namespace. cmapi writes them |
+| `cmapi.net/cluster-id`, `cmapi.net/managed` | `core/policygen.py` (`SYSTEM_REQUIRED`) | The rendered policies require both on a managed namespace |
 | `cmapi.net/env` | `core/policygen.py` (`ENV_LABEL`) | The rendered policy for an environment requires `cmapi.net/env` to equal that environment |
+| `cmapi.net/expires-at`, `cmapi.net/expiry`, `cleanup.kyverno.io/ttl` | `core/policygen.py` (`EXPIRY_KEYS`) | The rendered policy `deny-expiry-in-prod` refuses each of them in `prod` |
 
 A file that does not declare `cmapi.net/team` is valid. Then the per-team allowance does not apply (the fact `team` is empty and `Pipeline.submit` skips the count). The owner's company example declares no `cmapi.net/team`, so with that file no namespace has a team in cmapi's sense.
 
@@ -267,6 +283,9 @@ requiredLabels:
   company.net/cl:              {enum: ["0", "1", "2", "3"]}
 requiredAnnotations:
   company.net/app-environment: {value: {from: environment}}
+extraLabels:
+  keys: {}
+  allowOther: {prefixes: ["", "*.company.net/"], max: 50}
 extraAnnotations:
   keys:
     company.net/mnemonic-group-contact: {format: email-in-domains}
@@ -278,10 +297,12 @@ sensitiveKeys: [company.net/mnemonic, company.net/lob]
 emailDomains: [company.net]
 ```
 
+This is an excerpt. The file also has the `system`, `operatorOnly` and `reservedPrefixes` lists of the reference file, and a `description` and an `example` for most keys.
+
 The owner's decisions behind it:
 
 - `name` is derived from the namespace name. The sample text `aao-rnd` was a typo (#215).
-- The two contact keys are annotations, with the formats `email-in-domains` and `url`. A label cannot hold an address or a URL (#234). An existing namespace that carries them as labels keeps those labels when it is adopted (story #26).
+- The two contact keys are annotations, with the formats `email-in-domains` and `url`. A label cannot hold an address or a URL (#234). The design: an existing namespace that carries them as labels keeps those labels when it is adopted. Adoption (story #26) is not built.
 - `cmapi.net/env` (the system key that cmapi, the approval rules and Kyverno read) stays beside the company's `company.net/app-environment`. Both come from the environment (#215).
 - `company.net/provisioner: cluster-configs` marks a namespace that the earlier process made. A requester cannot set it (#228).
 
@@ -325,20 +346,20 @@ A requirement is a list of slots, one for each approving group. The ledger fills
 | `thresholds[].reason` | text | The `when` text | Text in the `reasons` of the request |
 | `protected.labels` | list of `key=value` | `[]` | A namespace with one of these labels is protected: a delete is refused (`namespace-protected`) |
 | `autoApproval.enabled` | boolean | `false` | The master switch for auto-approval |
-| `autoApproval.maxPerTeamPerDay` | integer | `20` | The most auto-approvals for one team in a day (UTC) |
+| `autoApproval.maxPerTeamPerDay` | integer | `20` | The most auto-approvals for one team in a day (UTC). cmapi counts at submit, for a request with a team. `0` stops each auto-approval, also of a request with no team |
 | `autoApproval.policies[]` | list | `[]` | The policies. See below |
 
 ### The facts
 
-A `when` line reads these facts. The names are fixed in the code. An unknown name stops the start (`KNOWN_FACTS`, `core/expression.py`). A fact that is absent is empty, and a comparison with an empty fact is false, never a surprise approval.
+A `when` line reads these facts. The names are fixed in the code. An unknown name stops the start (`KNOWN_FACTS`, `core/expression.py`). A fact that is absent has no value. `==` and `!=` compare it as usual: when `reason` is absent, `reason != "expired"` is true. `<`, `<=`, `>`, `>=`, `in` and `not in` with an absent fact give no answer. A line with no answer is false, also under `not`. So a missing number never adds or waives an approval.
 
 | Fact | Meaning | Set by |
 |---|---|---|
 | `plugin`, `action`, `environment`, `namespace`, `clusterId`, `reason`, `team`, `tier` | The request | `core/pipeline.py` |
 | `tierChange` | `up`, `down`, `same`, `to-custom`, `from-custom` or `custom`. Set for a change of an existing namespace only | `TierCatalog.compare` |
 | `quotaIncreasePct` | The largest increase of a sizable key, in percent. Set for a change of an existing namespace only | `QuotaChange.quota_increase_pct` |
-| `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`) | `QuotaChange.facts` |
-| `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today | Not set by any built code |
+| `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`, #256) | `QuotaChange.facts` |
+| `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today (#257) | Not set by any built code |
 | `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh | `core/capacity_backend.py` |
 | `namespaceAgeDays`, `pods`, `pvcs`, `protected` | The namespace for a delete | `Pipeline.plan_delete` |
 | `keyClasses`, `sensitiveKeyChanged` | The classes of the changed keys, and a change of a `sensitiveKeys` key | `MetadataKeys.change_facts` |
@@ -346,8 +367,10 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `beyondTier` | A custom-tier value differs from the tier | `Pipeline.plan_namespace` |
 | `beyondTierKeys` | The keys that differ | `Pipeline.plan_namespace` |
 | `networkExposure` | The request raises `services.loadbalancers` or `services.nodeports` | `Pipeline.plan_namespace` |
-| `warnings`, `requesterClient`, `automated`, `clusterLabels` | The findings of the validator, and facts of the requester and the cluster | `core/pipeline.py` |
-| `clusterRoles` | The cluster roles of a grant | Not set by any built code. `match.clusterRoles` reads it |
+| `warnings`, `requesterClient`, `automated` | The findings of the validator, the client of a service caller, and whether the caller is automated | `core/pipeline.py` |
+| `clusterRoles` | The cluster roles of a grant | Not set by any built code (#257). `match.clusterRoles` reads it |
+
+`clusterLabels` is not a fact for a `when` line: a line that names it stops the start. Only `match.clusterSelector` of an auto-approval policy reads the labels of the cluster.
 
 ### Approval is the gate for a value beyond the tier
 
@@ -356,7 +379,7 @@ A request with `beyondTier` always gets an answer from a rule (`ApprovalRules._a
 - A threshold that reads `beyondTier`, `beyondTierKeys` or `networkExposure` and is true adds its approvers. The reference files add one approver of `approver-platform` for `beyondTier`, and one more for `networkExposure`.
 - When no true threshold reads one of those facts, cmapi adds one approver of `defaults.group` with the reason "Value beyond the tier". An instance that removes the rule does not open the gate by accident.
 - A rule that means no extra approver says `add: 0`.
-- A beyond-tier request is covered by an auto-approval policy only when that policy has `match.beyondTier: true`. Otherwise the guard `beyond-tier` stops it (`ApprovalRules._auto`).
+- An auto-approval policy covers a beyond-tier request only when two things are true. The policy has `match.beyondTier: true`, or the guard `beyond-tier` stops it. And no rule adds an approver for the request, or the guard `rules-added-approvers` stops it (`ApprovalRules._auto`). So the instance also needs a true threshold that reads `beyondTier` with `add: 0`. The reference files add one approver for `beyondTier`, so with them no policy covers a beyond-tier request (`test_auto_approval_covers_a_value_beyond_the_tier_only_when_the_policy_says_so`, `cmapi/tests/core/test_approvals.py`).
 
 The plan, the dry run and the request show each key with the tier's value and the requested value, and the approvals that the keys add (`beyondTier` in the view).
 
@@ -372,13 +395,13 @@ Each item of `autoApproval.policies` has:
 | `match.actions`, `match.environments`, `match.tiers` | list of text | Any | The values that match. `"*"` matches any |
 | `match.reason` | text | Any | The `reason` of the request. `expired` is for the expiry delete |
 | `match.keyClasses` | list of text | Any | The classes that the changed keys can have. All the classes of the request must be in this list |
-| `match.clusterRoles` | list of text | Any | The roles that a service-account grant can have |
+| `match.clusterRoles` | list of text | Any | The roles that a service-account grant can have. No built code sets the fact `clusterRoles` (#257), and a request with no roles passes each list, so today this match excludes no request |
 | `match.clusterSelector.matchLabels` | mapping | Any | Labels that the cluster must have |
 | `match.beyondTier` | `true` | Not set | Lets the policy cover a request with a value beyond the tier |
 | `requester.clients` | list of text | Any | The clients that can use the policy |
-| `guards` | list | `[]` | Extra guards: `noOpenRequest`, `notProtected`, `noExtensionInLast24h`, `noticesSentAtLeast2`. An unknown guard stops the start |
+| `guards` | list | `[]` | Extra guards: `noOpenRequest`, `notProtected`, `noExtensionInLast24h`, `noticesSentAtLeast2`. An unknown guard stops the start. Three of them read facts that only the daily expiry check sets, and that check is not built. So today `noOpenRequest` and `noExtensionInLast24h` always pass, and `noticesSentAtLeast2` always stops the policy. `notProtected` reads the fact `protected` of a delete |
 
-A policy approves only when no fixed guard stops it. The fixed guards are in `FIXED_GUARDS` and `ApprovalRules._auto`:
+The first enabled policy that matches the request decides. When a guard stops that policy, cmapi does not try the next policy (`ApprovalRules._auto`). A policy approves only when no fixed guard and none of its own guards stops it. The fixed guards are in `FIXED_GUARDS` and `ApprovalRules._auto`, in this order:
 
 | Guard | Stops the policy when |
 |---|---|
@@ -396,17 +419,17 @@ The guard that stopped a policy is stored in `change_requests.requirement` as `a
 
 ## `expiration.yaml`
 
-The file is needed. The code is `cmapi/src/cmapi/plugins/expiration/rules.py`. An environment with no entry refuses each expiry field with 422 `expiration-not-allowed`. `prod` cannot have an entry.
+The file is needed. The code is `cmapi/src/cmapi/plugins/expiration/rules.py`. An environment with no entry refuses each expiry field with 422 `expiration-not-allowed`. `prod` cannot have an entry. The daily expiry check that sends the notices and opens the delete (`ExpirationRules.expire_check`) is in the code, and no job runs it: it is not built. So today cmapi reads only `allowedAtCreate`, `maxExtensionDays`, `maxLifetimeDays`, and whether an environment has an entry.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `defaults.allowedAtCreate` | boolean | `true` | A new namespace can have an expiry date |
 | `defaults.maxExtensionDays` | integer | `30` | One extension adds at most this many days |
-| `defaults.maxLifetimeDays` | integer | `180` | A date past this many days from creation adds an approver of `approver-platform` |
-| `defaults.notifyDaysBefore` | list of integers | `[14, 7, 1]` | The days before the date for a notice |
-| `defaults.graceDays` | integer | `7` | The namespace still runs and can be extended for this many days from the date |
-| `defaults.deleteAfterGrace` | boolean | `true` | The job `expire_check` opens a delete after the grace. The job is not built |
-| `defaults.minNoticesBeforeDelete` | integer | `2` | The notices that must go before the delete |
+| `defaults.maxLifetimeDays` | integer | `180` | A date past this many days from creation sets the fact `expirationBeyondLimits`. `:makePermanent` sets it too. The reference `approval-rules.yaml` adds one approver of `approver-platform` for the fact |
+| `defaults.notifyDaysBefore` | list of integers | `[14, 7, 1]` | The days before the date for a notice. Read only by the daily expiry check, which is not built |
+| `defaults.graceDays` | integer | `7` | The namespace still runs and can be extended for this many days from the date. Read only by the daily expiry check, which is not built |
+| `defaults.deleteAfterGrace` | boolean | `true` | The daily expiry check opens a delete after the grace. The check is not built |
+| `defaults.minNoticesBeforeDelete` | integer | `2` | The notices that must go before the delete. Read only by the daily expiry check, which is not built |
 | `environments.<env>` | mapping | `{}` | The same keys as `defaults`, for one environment. An empty mapping means "the defaults" |
 
 ---
@@ -417,8 +440,8 @@ Which Keycloak role grants which permission, for the instance. The full table of
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `roles.<role>.permissions` | list of text | The built-in permissions of the role | Replaces the permissions of the role |
-| `roles.<role>.inherits` | list of roles | `[]` | Adds the permissions of other roles |
+| `roles.<role>.permissions` | list of text | For a built-in role with no `permissions` and no `inherits`: its built-in permissions. Otherwise none | Replaces the permissions of the role |
+| `roles.<role>.inherits` | list of roles | `[]` | Adds the permissions of the named roles. A built-in role with `inherits` and no `permissions` loses its own built-in permissions: name them in `permissions`. A role does not take the `environments` of a role that it inherits |
 | `roles.<role>.environments` | list of text | Each served environment | Limits the role to some environments |
 
 A role that the file does not name keeps its built-in permissions. A permission that no built-in role has, an environment that the instance does not serve, and a role that inherits itself each stop the start.
@@ -434,7 +457,14 @@ Optional. The code is `cmapi/src/cmapi/core/plugins.py`. The chart does not moun
 | `enabled` | list of plugin names | Each built-in plugin: `namespaces`, `tiers`, `directory`, `quotas` | The plugins whose routes the API mounts. A plugin that is not listed has no route and no line in the API document |
 | `overrides.<instance>.<env>.disabled` | list of plugin names | None | Stops the writes of an enabled plugin in one environment of one instance. The reads stay. The write answers 422 `plugin-disabled` |
 
-The loader checks only the block of its own instance. Each mistake stops the start: a name that is not a built-in plugin, a name of a core router, an environment that the instance does not serve, an unknown key, and an override that changes nothing (the plugin is not enabled, or has no write). Only `namespaces` has a write today (`WRITERS`). `GET /api/v1/admin/plugins` shows the state.
+The loader checks only the block of its own instance. Each of these mistakes stops the start:
+
+- A name that is not a built-in plugin, or a name of a core router.
+- An environment that the instance does not serve.
+- An unknown key.
+- An override that changes nothing: the plugin is not enabled, or it has no write.
+
+Only `namespaces` has a write today (`WRITERS`). `GET /api/v1/admin/plugins` shows the state.
 
 ---
 
@@ -449,7 +479,7 @@ Optional. The code that reads it is `cmapi/src/cmapi/core/sync.py` (`DeliveryCon
 | `delivery.argocd.namespace` | text | `openshift-gitops` | The namespace of the Argo CD root Application |
 | `delivery.argocd.rootApplication` | text | `cluster-configs-{clusterId}` | The name of the root Application. `{clusterId}` becomes the cluster ID in lower case with `_` as `-` |
 | `syncSignal.pollInterval` | duration | `30s` | How often the worker reads the Application |
-| `syncSignal.default`, `syncSignal.reconcileInterval` | text | `poll` | Reported by the API. The value `notify` is not built |
+| `syncSignal.default`, `syncSignal.reconcileInterval` | text | None. With no `syncSignal` key the route reports `{default: poll}` | Reported by `GET /api/v1/admin/integrations`. No other code reads them. The value `notify` is not built |
 | `operations.*` | mapping | `engine: builtin` | Reported by `GET /api/v1/admin/integrations`. No built code runs an operation engine |
 | `events.*` | mapping | `publisher: none` | Reported by the same route. No built code publishes events |
 | `notifier.smtp.host` | text | None | The SMTP host. Without it, only the portal channel is active |
@@ -465,18 +495,20 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 
 ## `clusters.yaml` and `capacity.yaml`
 
-`clusters.yaml` is a list, or a mapping of cluster ID to entry (`load_policies`, `core/registry.py`). Each cluster has:
+`clusters.yaml` has one key, `clusters`: a list of entries, or a mapping of cluster ID to entry (`load_policies`, `core/registry.py`). A file with the list or the mapping at the top level does not work: a mapping gives no cluster, and a list stops the start with an `AttributeError`. Each cluster has:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `clusterId` | text | None | The ID, in the list form |
 | `environment` | text | None. Needed | An environment that the instance serves. Another value stops the start |
-| `gitopsPath` | text | `clusters/<clusterId>` | The folder of the cluster in the repository |
+| `gitopsPath` | text | `clusters/<clusterId>` | Shown in `GET /api/v1/clusters`. No built code uses it for the folder: the folder is always `clusters/<clusterId>/namespaces/<namespace>/` (`folder`, `core/render/manifests.py`) |
 | `writes` | boolean | `true` | `false` makes the cluster read only |
-| `syncSignal` | `poll` or `notify` | `poll` | How cmapi learns of a sync |
-| `delivery`, `thanosUrl` | text | None | A delivery mode for the cluster, and an optional Thanos address |
-| `labels`, `metadata`, `placement` | mapping | `{}` | Labels that `match.clusterSelector` reads, and information for people |
-| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check |
+| `syncSignal` | text | `poll` | No built code reads it. `notify` is not built |
+| `delivery` | `argocd` or `apply` | The `delivery.mode` of `integrations.yaml` | The delivery mode of this cluster (`jobs/watch_sync.py`) |
+| `thanosUrl` | text | None | No built code reads it |
+| `labels` | mapping | `{}` | Labels that `match.clusterSelector` reads. `GET /api/v1/clusters` shows them |
+| `metadata`, `placement` | mapping | `{}` | No built code reads them |
+| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check. Without it the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change |
 
 `capacity.yaml` keys that built code reads (`core/capacity_backend.py`, `core/context.py`, `core/kpi.py`): `overcommit.<env>.cpu` and `.memory` (default 1.0), `targets.<env>.commitment.warn` (default `0.85`), and `kpi.thresholds`. The other keys of the reference file are designed for the capacity service, which is not built.
 
@@ -484,7 +516,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 
 ## Environment variables
 
-`cmapi/src/cmapi/settings.py` holds each variable. The name is `CMAPI_` and the field name in upper case. The chart sets them (`deploy/helm/cmapi/templates/_helpers.tpl`, `api.yaml`, `worker.yaml`). A value that is a secret comes from a Kubernetes Secret.
+`cmapi/src/cmapi/settings.py` holds most variables: the name is `CMAPI_` and the field name in upper case. Some modules read a variable directly, and the table names the module for each of those. The variables of the chart Jobs (realm sync, Git bootstrap) are in `cmapi/src/cmapi/tools/`. The chart sets them (`deploy/helm/cmapi/templates/_helpers.tpl`, `api.yaml`, `worker.yaml`). A value that is a secret comes from a Kubernetes Secret.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -503,8 +535,8 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `CMAPI_GIT_TOKEN` | `""` | The token of the bot. A secret |
 | `CMAPI_GIT_USER`, `CMAPI_GIT_PASSWORD` | `""` | Basic authentication instead of a token. A secret |
 | `CMAPI_GIT_DEFAULT_BRANCH` | `main` | The branch that the bot merges to |
-| `CMAPI_CURSOR_KEY` | `""` | The key that signs list cursors. A secret |
-| `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. A secret |
+| `CMAPI_CURSOR_KEY` | `""` | The key that signs list cursors. Empty: cmapi signs with the fixed text `unset-cursor-key` (`core/context.py`), the same on each instance. A secret |
+| `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. Empty: cmapi signs with the fixed text `unset-link-key` (`core/channels.py`). A secret |
 | `CMAPI_IMPORTS_NAMESPACE` | `cmapi-imports` | The hub namespace that holds the cluster import Secrets |
 | `CMAPI_IMPORTS_DIR` | None | Reads import Secrets from YAML files in this folder, for tests |
 | `CMAPI_KUBE_TOKEN_FILE`, `CMAPI_KUBE_CA_FILE`, `CMAPI_KUBE_API_URL` | The service account files, and `https://kubernetes.default.svc` | How cmapi reads the import Secrets of the hub |
@@ -513,7 +545,14 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `CMAPI_BIND_PORT`, `CMAPI_METRICS_PORT` | `8080`, `9090` | The ports of the API and of the metrics |
 | `CMAPI_WORKER_POLL_SECONDS` | `2.0` | How often the worker looks for a due job |
 | `CMAPI_WORKER_ID` | The host name | The name of the worker in a lease |
-| `CMAPI_KYVERNO_VERSION` | None | When set, the `kyverno` binary must be this version, or cmapi does not start |
+| `CMAPI_KYVERNO_VERSION` | None | When set, the `kyverno` binary must be this version, or cmapi does not start (`core/validate/__init__.py`). The image sets it |
+| `CMAPI_KUBECONFORM_SCHEMAS` | None | The `-schema-location` of kubeconform (`core/context.py`) |
+| `CMAPI_KUBERNETES_VERSION` | None | The `-kubernetes-version` of kubeconform (`core/context.py`) |
+| `CMAPI_SMTP_USER`, `CMAPI_SMTP_PASSWORD` | None | The SMTP login of the email channel. cmapi logs in only when both are set (`core/channels.py`). The chart does not set them. A secret |
+| `CMAPI_STATIC_DIR` | `/opt/app-root/static` | The folder of the Swagger UI and ReDoc files of `/docs` and `/redoc` (`main.py`). The image sets it |
+| `CMAPI_GIT_COMMIT` | `unknown` | The commit of the build, in `GET /api/v1/version` and in the build metric (`routers/health.py`, `main.py`). The image sets it |
+| `CMAPI_MIGRATE_WAIT_SECONDS` | `540` | How long `cmapi-migrate` waits for the database (`core/db/migrate.py`) |
+| `CMAPI_MIGRATE_LOCK_TIMEOUT` | `30s` | The PostgreSQL `lock_timeout` of a migration (`core/db/migrations/env.py`) |
 
 ---
 

@@ -89,14 +89,14 @@ One row is one write to one namespace. The row is the only record of a request: 
 |---|---|---|
 | `request_id` | `req-YYYYMMDD-NNNN`: the day and a number for that day. The number comes from the highest id of the day, under a transaction lock for the day (`RequestRepo.next_id`) | `Pipeline.submit` (`core/pipeline.py`) |
 | `instance`, `cluster_id`, `namespace`, `env` | The instance name from `instance.yaml`, the cluster, the namespace, and the environment of that cluster | `Pipeline.submit` |
-| `plugin`, `action` | The plugin that planned the write (`namespaces` today), and the action: `create`, `update` (a PATCH, or an expiry extension) or `delete` | `Pipeline.submit` |
+| `plugin`, `action` | The plugin that planned the write (`namespaces` today), and the action: `create`, `update` (a PATCH, an expiry extension, or the revert of a change) or `delete` (a DELETE, or the revert of a create) | `Pipeline.submit` |
 | `status` | One of 13 states. See "The states" below | `RequestRepo.insert` and `RequestRepo.move`, from the table in `core/lifecycle.py` |
-| `reason` | A short code for the cause of a request: `expiration:extend` for an expiry extension, `revert` for a revert request, `expired` for the delete that the expiry job opens (a rule of `approval-rules.yaml` reads it). Null for a plain write | `Pipeline.submit` |
+| `reason` | A short code for the cause of a request: `expiration:extend` for an expiry extension, and `revert` for a revert request. Null for a plain write. The design has `expired` for the delete that the daily expiry check opens, and a rule of `approval-rules.yaml` reads it. The check is not built, and no code sets `expired` today | `Pipeline.submit` |
 | `justification` | The text that the requester wrote | `Pipeline.submit` |
 | `team` | The value of the label `cmapi.net/team` at plan time. The daily allowance of auto-approvals counts requests for this value (`RequestRepo.auto_approvals_today`) | `Pipeline.submit` |
 | `plan` | The stored plan, as JSON. See "The JSON columns" below | `Plan.stored` (`core/pipeline.py`) |
 | `plan_hash` | SHA-256 of the rendered files. The worker checks that the files of the pull request still have this hash before it merges | `Pipeline.submit` |
-| `base_sha` | The Git commit that the plan read. A change of the namespace folder in Git after this commit moves the request to `superseded` | `Pipeline.submit` |
+| `base_sha` | The Git commit that the plan read, shown as `baseSha` in the request view. No code compares it. `open_pr` compares the folder as Git holds it now with `plan.prev`, and a difference moves the request to `superseded` (`jobs/open_pr.py`) | `Pipeline.submit` |
 | `requirement` | The approval requirement that the rules decided, as JSON (`requirement_to_json`, `repo.py`) | `Pipeline.submit` |
 | `requester` | The record of the person and of the caller, as JSON. See "The JSON columns" below | `Requester.record` (`core/identity/checks.py`) |
 | `requester_sub`, `requester_kind`, `requester_client`, `requester_username` | The person's token subject, `user` or `service`, the client that got the token, and the person's username. The ledger refuses `requester_sub` as an approver unless the rule has `selfApproval` | `Pipeline.submit` |
@@ -140,7 +140,7 @@ One row is one event of one request. `idx_request_events_request` serves the rea
 |---|---|
 | `event` | The name of the event: a lifecycle event (`plan_needs_approval`, `plan_auto_approved`, `approved`, `rejected`, `cancel`, `approval_timeout`, `pr_opened`, `pr_failed`, `base_changed`, `merged`, `synced`, `prune_pending`, `prune_confirmed`, `sync_timeout`, `retry`, `revert`) or a note that a handler wrote: `approval`, `error`, `prune_confirm`, `revert_requested`, `revert_opened`, `revert_noop`, `pr_closed`, `ci`, `ci_wait`, `head_moved`, `sync_wait`, `argocd`, `applied`, `refused`, `prune_waiting`, `pruned` |
 | `status` | The status of the request after the event |
-| `by` | A username, or `worker`, `ci`, `argocd` or `cmapi-deliverer` |
+| `by` | A username, or `worker`, `ci`, `cmapi-bot`, `argocd` or `cmapi-deliverer` |
 | `note`, `detail` | A text, and optional JSON |
 
 Sources: `core/lifecycle.py` for the lifecycle names, and each `repo.event(` call in `cmapi/src/cmapi/jobs/` and `cmapi/src/cmapi/routers/`.
@@ -166,7 +166,7 @@ One row is one unit of work. The worker claims a due row with `FOR UPDATE SKIP L
 |---|---|
 | `kind` | One of `open_pr`, `open_revert`, `pr_checks`, `watch_sync`, `prune`, `approval_timeout`, `channel_notify` (`HANDLERS`, `cmapi/src/cmapi/jobs/__init__.py`) |
 | `request_id`, `cluster_id` | The request, and its cluster. `approval_timeout` has no request and no cluster. It runs again every hour and queues itself (`RECURRING`) |
-| `payload` | Optional JSON. `channel_notify` has `kind`: `pending`, `approved`, `rejected` or `timeout`. `watch_sync` has `since`. `open_revert` has `by`. `approval_timeout` has `every` |
+| `payload` | Optional JSON. `channel_notify` has `kind`: `pending`, `approved`, `rejected` or `timeout`. `watch_sync` has `since` when `:retry` queued it. `open_revert` has `by`. `approval_timeout` has `every` |
 | `run_after` | The earliest time that a worker can claim the job. A retry moves it |
 | `attempts` | Added 1 at each claim. At 5 attempts (`MAX_ATTEMPTS`), a failed job closes. If its request is `approved` or `pr_open`, the request moves to `failed`. If its request is `merged` or `awaiting_prune`, the request moves to `sync_failed` (`Worker._record_failure`, `cmapi/src/cmapi/worker.py`) |
 | `last_error`, `locked_until`, `locked_by`, `lease_generation` | The last error (cut to 2000 characters), the end of the lease (300 seconds from the claim), the worker that holds it, and the fencing token |
@@ -174,7 +174,7 @@ One row is one unit of work. The worker claims a due row with `FOR UPDATE SKIP L
 
 ### `audit_events`
 
-One row is one action by one caller: `action` is for example `namespace.create`, `request.approve`, `request.reject`, `request.cancel`, `request.retry`, `request.revert`, `prune.confirm`, `auto-approval.pause`, `auto-approval.resume` or `quotas.export`. `target` is the object (`<cluster>/<namespace>`, a request ID, or `instance`). Each write route calls `AuditRepo.record`. No route reads the rows yet.
+One row is one action by one caller: `action` is for example `namespace.create`, `request.approve`, `request.reject`, `request.cancel`, `request.retry`, `request.revert`, `prune.confirm`, `auto-approval.pause`, `auto-approval.resume` or `quotas.export`. `target` is the object (`<cluster>/<namespace>`, a request ID, `instance`, or `csv` for the export). Each write route calls `AuditRepo.record`, and so does the CSV export of the quota list, which is a read route. No route reads the rows yet.
 
 ### `jwks_keys`, `admin_switches`
 
