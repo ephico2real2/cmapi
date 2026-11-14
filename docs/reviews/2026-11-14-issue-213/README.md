@@ -44,6 +44,9 @@ SHA-256 in `cmapi/Containerfile` (`06b8f3ca...942e2`) is the release's `checksum
 | `cmapi/tests/core/test_policy_modes.py` (15: defaults, modes, bad settings, each mode with stub binaries, the start check, a binary missing while planning) | fails at import (no `core/policy.py`) | 15 passed |
 | `cmapi/tests/service/test_policy_modes_api.py` (enforce refuses; audit sends to approval with the warning; off plans and submits with no binary and is auto-approved by the dev rule; the integrations endpoint and the metric; the chart passes the setting) | fails | see the pull request |
 
+`test_the_charts_rendered_config_loads_with_the_real_adapters` (`test_review_h_tools_migrate.py`) puts a stub `kyverno`
+on PATH: the chart's default enforces Kyverno, the image holds the binary, and the start check now needs one.
+
 Not measured: the image build (no container, #157), a cluster's admission with the v1 types (kind and CRC wait on #157).
 
 ## Sources, read on 2026-11-14
