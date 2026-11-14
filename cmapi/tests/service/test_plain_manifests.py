@@ -481,15 +481,30 @@ def test_crc_realm_sync_runs_on_an_account_and_secrets_that_exist():
     assert 'cmapi-tools = "cmapi.tools:run"' in (ROOT / "cmapi/pyproject.toml").read_text()
 
 
-def test_crc_rollback_names_every_object_the_run_creates():
-    """deploy/crc-rollback.sh deletes by name from a fixed list, so an object added to the manifests and not to the list would stay behind on a shared cluster, with nothing to say so.
-    Objects in cmapi-imports and cmapi-system go with their namespace; namespace cmapi was there before this wave."""
-    text = (ROOT / "deploy/crc-rollback.sh").read_text()
+def rollback_missing(text, objects):
+    """Each object that the rollback's text does not name, kind and whole name. The name ends at a quote, a space or the line's end:
+    with a word boundary, "route.route.openshift.io cmapi-mockup" stood for Route cmapi too, and "service cmapi-api-pods" for Service
+    cmapi-api (BUG-60, #246). Objects in cmapi-imports and cmapi-system go with their namespace; namespace cmapi was there before this wave."""
     missing = []
-    for d in [*docs(), *crc_docs()]:
+    for d in objects:
         kind, name, ns = d["kind"], d["metadata"]["name"], d["metadata"].get("namespace")
         if ns in ("cmapi-imports", "cmapi-system") or (kind == "Namespace" and name == "cmapi"):
             continue
-        if not re.search(rf"\b{kind.lower()}(\.[a-z.]+)? {re.escape(name)}\b", text):
+        if not re.search(rf"\b{kind.lower()}(\.[a-z.]+)? {re.escape(name)}(?=[\s\"]|$)", text, re.M):
             missing.append(f"{kind}/{name}")
-    assert missing == []
+    return missing
+
+
+def test_crc_rollback_names_every_object_the_run_creates():
+    """deploy/crc-rollback.sh deletes by name from a fixed list, so an object added to the manifests and not to the list would stay behind on a shared cluster, with nothing to say so."""
+    assert rollback_missing((ROOT / "deploy/crc-rollback.sh").read_text(), [*docs(), *crc_docs()]) == []
+
+
+@pytest.mark.parametrize("text,missing", [
+    pytest.param('for o in "route.route.openshift.io cmapi-mockup" "service cmapi-api-pods"; do', ["Route/cmapi", "Service/cmapi-api"], id="a longer name only"),
+    pytest.param('for o in "route.route.openshift.io cmapi" "service cmapi-api"; do', [], id="each in quotes"),
+    pytest.param("del route.route.openshift.io cmapi -n cmapi\ndel service cmapi-api", [], id="each before a space or at the end of a line"),
+])
+def test_the_rollback_guard_tells_a_name_from_a_longer_one(text, missing):
+    objects = [{"kind": "Route", "metadata": {"name": "cmapi", "namespace": "cmapi"}}, {"kind": "Service", "metadata": {"name": "cmapi-api", "namespace": "cmapi"}}]
+    assert rollback_missing(text, objects) == missing
