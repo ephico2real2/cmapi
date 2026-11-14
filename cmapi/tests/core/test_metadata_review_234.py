@@ -77,3 +77,12 @@ def test_the_shipped_copies_still_load():
     for path in ("cluster-configs/policies/metadata-keys.yaml", "cluster-configs/policies/metadata-keys.company.yaml",
                  "local/config/metadata-keys.yaml"):
         MetadataKeys.load(EX / path)
+
+
+def test_a_key_of_the_other_kind_is_refused_when_allow_other_admits_its_prefix(raw):
+    # 527eedb: accepted as a team label, so the address lands where the owner decided it does not go.
+    raw["extraLabels"]["allowOther"]["prefixes"] = ["", "company.net/"]
+    keys = MetadataKeys(raw)
+    errs = keys.validate({**SENT, "company.net/mnemonic-confluence": "abc"}, {}, operator=False, sources=SOURCES)
+    assert [(e["code"], e["key"], e["detail"]) for e in errs] == [
+        ("invalid_key", "company.net/mnemonic-confluence", "company.net/mnemonic-confluence is an annotation")]
