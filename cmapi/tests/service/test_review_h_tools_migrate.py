@@ -203,6 +203,8 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monke
     assert ctx.issuer == "https://keycloak.apps-crc.testing/realms/cmapi" and ctx.audience == "cmapi-nonprod"
     assert ctx.directory is not None and ctx.registry.policies["CRC"].environment == "dev"
     assert ctx.pipeline.validator.policy.modes({"dev", "rnd"}) == {"dev": "enforce", "rnd": "enforce"}
+    # The Kyverno bundle rendered from the chart's own configuration (#212), for each environment it serves.
+    assert {p.split("/")[1] for p in ctx.pipeline.validator.bundle if p.startswith("env/")} == {"dev", "rnd"}
 
 
 def test_environment_role_cannot_create_in_another_environment(rnd_only):

@@ -1,10 +1,11 @@
 """#213: the policy engine and its mode for each environment (core/policy.py), and the validator that follows them.
 
-The kyverno and kubeconform binaries are stubs on PATH, so each test runs anywhere: the stub kyverno fails every
-namespace and writes a mark when it runs. The real Kyverno 1.20 CLI's results are in docs/reviews/2026-11-14-issue-213/.
+The kyverno and kubeconform binaries are stubs on PATH, so each test runs anywhere: the stub kyverno writes a JSON
+report that fails every namespace (the form that `kyverno apply -p --output-format json` writes, #212) and leaves a mark. The real Kyverno 1.20 CLI's results are in docs/reviews/2026-11-14-issue-213/.
 """
 from __future__ import annotations
 
+import json
 import os
 import stat
 from pathlib import Path
@@ -30,8 +31,9 @@ def stubs(tmp_path, monkeypatch) -> Path:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _stub(bin_dir, "kubeconform", 'echo \'{"resources": [], "summary": {"valid": 1}}\'\n')
-    _stub(bin_dir, "kyverno", f'touch "{tmp_path}/kyverno-ran"\necho "Applying 1 policy rule(s) to 1 resource(s)..."\n'
-                              'echo "pass: 0, fail: 1, warn: 0, error: 0, skip: 0"\nexit 1\n')
+    report = json.dumps({"summary": {"fail": 1}, "results": [{"policy": "p", "result": "fail", "message": "refused",
+                                                               "resources": [{"kind": "Namespace", "name": "abc-dev"}]}]})
+    _stub(bin_dir, "kyverno", f'touch "{tmp_path}/kyverno-ran"\necho \'{report}\'\nexit 1\n')
     (tmp_path / "policies").mkdir()
     (tmp_path / "policies" / "p.yaml").write_text("apiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\n")
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
