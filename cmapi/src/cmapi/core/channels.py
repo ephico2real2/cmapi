@@ -34,14 +34,17 @@ class PortalChannel:
 class EmailChannel:
     name = "email"
 
-    def __init__(self, smtp: Mapping[str, Any], portal_url: str, link_key: bytes, group_mail: Mapping[str, str]):
+    def __init__(self, smtp: Mapping[str, Any], portal_url: str, link_key: bytes, group_mail: Mapping[str, str], instance: str):
         self.smtp, self.portal_url, self.key, self.group_mail = smtp, portal_url.rstrip("/"), link_key, group_mail
+        # The portal's address has the instance first (#<instance>/<tab>). It is this instance's own name, never a literal:
+        # an instance and its environments have the names that the owner gives them (#222).
+        self.instance = instance
 
     def _link(self, request_id: str) -> tuple[str, str]:
         issued = str(int(time.time()))
         mac = hmac.new(self.key, f"{request_id}:{issued}".encode(), hashlib.sha256).hexdigest()[:24]
         link_id = f"{issued}.{mac}"
-        return link_id, f"{self.portal_url}/#nonprod/approvals?request={request_id}&link={link_id}"
+        return link_id, f"{self.portal_url}/#{self.instance}/approvals?request={request_id}&link={link_id}"
 
     def _send(self, to: list[str], subject: str, body: str) -> None:
         msg = EmailMessage()
@@ -74,7 +77,7 @@ class EmailChannel:
             return {"recipients": [], "skipped": "requester has no email"}
         self._send([email], f"[cmapi] {request['requestId']} {decision}",
                    f"Your request {request['requestId']} ({request['action']} {request['namespace']}) is {decision}.\n"
-                   f"Follow it: {self.portal_url}/#nonprod/requests?request={request['requestId']}")
+                   f"Follow it: {self.portal_url}/#{self.instance}/requests?request={request['requestId']}")
         return {"recipients": [email], "decision": decision}
 
 
@@ -84,5 +87,6 @@ def channels_for(ctx: Any) -> list[Any]:
     smtp = notifier.get("smtp")
     if smtp and smtp.get("host"):
         out.append(EmailChannel(smtp, ctx.cfg.raw_instance["instance"].get("portalUrl", ""),
-                                (ctx.settings.link_key or "unset-link-key").encode(), notifier.get("groupMail") or {}))
+                                (ctx.settings.link_key or "unset-link-key").encode(), notifier.get("groupMail") or {},
+                                instance=ctx.cfg.name))
     return out
