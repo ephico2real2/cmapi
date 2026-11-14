@@ -2061,6 +2061,23 @@ cmapi/
 
 Each plugin folder has the same five files, so adding an offering is copying one folder, renaming it and registering its entry point.
 
+### The names of instances and environments
+
+The owner gives each instance and each environment its name, and cmapi takes each name from the configuration: the instance from `instance.name`, its environments from `allowedEnvironments` (`instance.yaml`). No code of the service reads a literal instance name. One tool has a default: `tools/realm_sync.py` takes the audience `cmapi-nonprod` when `CMAPI_REALM_AUDIENCE` is not set, and the chart always sets it. The portal's links of the email channel start with the running instance's name, `#<instance>/approvals` (`core/channels.py`, #222). The shipped portal does not read that address yet (#236).
+
+**One environment name has a meaning in code: `prod`.** A namespace in the environment `prod` never expires, and the policies under `policies/env/prod/` run for it only:
+
+| Rule | Where |
+|---|---|
+| A request with an expiry date in `prod` is refused (`expiration-not-allowed`) | `core/render/manifests.py`, `render` |
+| `expiration.yaml` cannot have an entry for `prod` | `plugins/expiration/rules.py` |
+| An instance that serves `prod` and lets `prod` expire does not start | `core/config.py` |
+| The Kyverno policies under `env/prod/` run only for `prod` | `core/validate/__init__.py`, `_kyverno` |
+
+So a production environment with another name (for example `production` or `prd`) gets none of these rules. Until that changes, name the production environment `prod`.
+
+**Recommended, not built: production as a setting.** GitLab gives each environment a deployment tier (`development`, `testing`, `staging`, `production`, `other`), guesses it from the name, and lets `deployment_tier` set it (<https://docs.gitlab.com/ci/environments/>, read on 2026-11-14). cmapi can do the same: a list of the production environments in `instance.yaml` (for example `productionEnvironments: [prod]`), with `[prod]` when the key is absent, so that no instance changes behaviour. The four rules above then read that list. #232 holds this work.
+
 ## Module catalog
 
 Every module cmapi needs for the features agreed so far: approval-first lifecycle, optional expiration, the Policies, Expiration, Quotas and Approvals views, system KPIs, identity from the token with a directory, the tier catalog, plain-manifest rendering and configurable email domains. Status says how far each is taken. **Reference code** is working, tested Python in examples/src/cmapi (120 tests in examples/tests, run with `PYTHONPATH=src:tests python -m pytest -q` from examples/). **Protocol** means the interface is fixed in core/ports.py and the adapter is still to write. **Specified** means the design text is complete and no code exists yet. Phases are the delivery plan's.
