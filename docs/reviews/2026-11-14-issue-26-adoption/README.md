@@ -142,6 +142,23 @@ adoption, an update request is checked against the rules on its result, so the f
 key (`missing_required_key` refuses it otherwise, `core/metadata.py`). This replaces docs/02's sentence "A missing
 required governed key blocks adoption".
 
+### D6a. The rendered policies and an adoption (#248)
+
+The Kyverno bundle of #212 (PR #245) does not refuse a value that Git already holds: at plan time and in the PR check,
+a failure on a key whose value the previous version of the object holds is dropped. An adoption has no previous version
+in Git, so in `enforce` its plan and its PR check would refuse each value that D6 keeps and reports. Fable found this in
+the review of #245, and #248 tracks it.
+
+The rule: **the adoption plan's approved findings serve as the base.** The plan builds the previous version of each object
+from the live object that it read (D2), minus D3, and passes it to the validator as the object that Git holds. A value
+that the namespace already has is then held, at plan time and in the PR check, exactly as at admission, where the first
+sync is an UPDATE of an existing object and the `oldObject` ratchet holds it. The plan stores that base with its
+snapshot, so the PR check uses the same one and never the PR head. Each held value is still listed as a finding (D6),
+and a value that the request changes is checked as usual.
+
+Proof (with B1): the plan of the owner's sample with a deliberate mismatch (`name: aao-rnd`) passes in `enforce` with
+its findings listed, and the same plan with the value changed again is refused.
+
 ### D7. `company.net/provisioner`, and every key that cmapi does not own
 
 **It stays as it is** (the owner's question b). Removing it or rewriting it would change the live object (D4's list is
@@ -231,6 +248,7 @@ on CRC (Wave 5), and #157's decision for the kind and CRC tests. Nothing in this
 | B3 | A change of an adopted quota or LimitRange patches the object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; two ResourceQuotas refuse it with a problem |
 | B4 | The worker's check after the sync (D11) | A live object with one more changed field fails the request with that field named |
 | B5 | `adoption.yaml` with the skip prefixes of D3 | A key under each prefix is listed as skipped and is not in the file |
+| B7 | The adoption plan's base for the rendered policies (D6a, #248) | The owner's sample with `name: aao-rnd` passes the plan and the PR check in `enforce`, with the finding listed; a changed value is refused |
 | B6 | `FailOnSharedResource=true` on cmapi's Applications (Wave 5's ApplicationSet) | A namespace in another Application fails the sync (kind) |
 
 ## 5. The test plan (the owner's, made concrete)
