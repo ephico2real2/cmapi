@@ -199,11 +199,14 @@ class Pipeline:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
         cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
-                 if self.cfg.metadata.classify(k) in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "label") in ("governed", "team")}
         cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
-                 if self.cfg.metadata.classify(k) in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "annotation") in ("governed", "team")}
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
-        self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a)
+        # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
+        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
+        self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
+                                sources=sources)
         labels = self.cfg.metadata.merge_patch(cur_l, labels)
         anns = self.cfg.metadata.merge_patch(cur_a, anns)
 
