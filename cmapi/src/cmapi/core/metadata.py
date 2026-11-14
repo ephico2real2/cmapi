@@ -267,14 +267,16 @@ class MetadataKeys:
                     errs.append(e)
                     continue
                 cls = self.classify(key, kind)
-                if cls in ("system", "reserved"):
+                # A key declared for the other kind only (#234: the company's contact and wiki keys are annotations)
+                # is refused here even when allowOther admits its prefix, or it would pass as a team key.
+                other = "annotation" if kind == "label" else "label"
+                if cls in ("team", "disallowed") and key in self.rules[other]:
+                    article = "an" if other == "annotation" else "a"
+                    errs.append({"code": "invalid_key", "key": key, "detail": f"{key} is {article} {other}"})
+                elif cls in ("system", "reserved"):
                     errs.append({"code": "reserved_key", "key": key})
                 elif cls == "disallowed":
-                    # A key declared for the other kind (#234: the company's contact and wiki keys are annotations).
-                    other = "annotation" if kind == "label" else "label"
-                    article = "an" if other == "annotation" else "a"
-                    detail = f"{key} is {article} {other}" if key in self.rules[other] else "prefix not allowed"
-                    errs.append({"code": "invalid_key", "key": key, "detail": detail})
+                    errs.append({"code": "invalid_key", "key": key, "detail": "prefix not allowed"})
                 elif cls == "operatorOnly" and not operator:
                     errs.append({"code": "operator_only_key", "key": key})
                 elif cls == "governed":
