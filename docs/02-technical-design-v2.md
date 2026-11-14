@@ -982,6 +982,7 @@ If your cluster-configs repo keeps the existing segment/mnemonic/clusterEnv layo
 | cmapi.net/env | Label | rnd, dev, qa, uat, prod | Renderer | Environment of the namespace; Kyverno's deny-expiry-in-prod and the approval rules read it |
 | cmapi.net/instance | Annotation | nonprod, staging, prod | Renderer, on every object | Provenance: which instance wrote the object |
 | cmapi.net/tier-hash | Annotation | 12 hex digits, e.g. dec3e603bf8d | Renderer, on the ResourceQuota and LimitRange | Which catalog version rendered the tier; differs from the current hash means tier-outdated |
+| cmapi.net/beyond-tier | Annotation | Keys with a comma between them, e.g. limitRange.container.max.cpu,limitRange.container.max.memory | Renderer, on the ResourceQuota and LimitRange of a custom-tier namespace, only when the object has such a value | The values of this object that an approved request set beyond the tier. A later change keeps them |
 
 Label values must be 63 characters or fewer and use only letters, digits, dots, dashes and underscores, which is why the email goes in an annotation.
 
@@ -1002,7 +1003,7 @@ Callers can set any number of labels and annotations on namespaces and service a
 ```yaml
 # cluster-configs/policies/metadata-keys.yaml
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
-         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/expiry, cmapi.net/expires-at]
+         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
@@ -1169,13 +1170,18 @@ spec:
 
 A tier is a named size for a namespace: the ResourceQuota and LimitRange cmapi writes into its folder. The catalog is config/tiers.yaml, and one module, core/tiers.py, is the only code that reads it. The planner, the renderer, the capacity check, the approval engine, the quota view, rightsizing and adoption all ask that module; none of them hold tier values of their own.
 
-**The file.** Four parts. sizable names the quota keys a request may size: requests.cpu, requests.memory and pods, the three the Quotas view tracks. defaults holds the quota keys and LimitRange every tier gets (PVC count and storage, no LoadBalancer or NodePort Services, container defaults). tiers holds small, medium, large and custom, each with an order, a description and its own values; custom takes its sizable values from the approved request. environments lists, per environment the instance serves, which tiers are offered, any per-tier overrides, the custom bounds, or inherit: another environment (dev inherits rnd). Each instance's file holds only its own environments.
+**The file.** Five parts. sizable names the quota keys a request may size: requests.cpu, requests.memory and pods, the three the Quotas view tracks. overridable names more keys that a custom-tier request can change (see "Beyond the tier" below). defaults holds the quota keys and LimitRange every tier gets (PVC count and storage, no LoadBalancer or NodePort Services, container defaults). tiers holds small, medium, large and custom, each with an order, a description and its own values; custom takes its sizable values from the approved request. environments lists, per environment the instance serves, which tiers are offered, any per-tier overrides, the custom bounds, or inherit: another environment (dev inherits rnd). Each instance's file holds only its own environments.
 
 ```yaml
 # config/tiers.yaml (combined reference; each instance keeps only its environments)
 apiVersion: cmapi.net/v1
 kind: TierCatalog
 sizable: [requests.cpu, requests.memory, pods]
+overridable:                                 # a custom-tier request can change these; a value that differs from the tier needs more approval
+  [persistentvolumeclaims, requests.storage, services.loadbalancers, services.nodeports,
+   limitRange.container.defaultRequest.cpu, limitRange.container.defaultRequest.memory,
+   limitRange.container.default.cpu, limitRange.container.default.memory,
+   limitRange.container.max.cpu, limitRange.container.max.memory, limitRange.pvc.max.storage]
 defaults:
   quota: {persistentvolumeclaims: "20", requests.storage: 200Gi, services.loadbalancers: "0", services.nodeports: "0"}
   limitRange:
@@ -1194,7 +1200,11 @@ tiers:
   custom: {order: 4, custom: true}           # sizable values come from the approved request
 custom:                                      # bounds for custom values
   min:  {requests.cpu: "2",  requests.memory: 4Gi,   pods: "10"}
-  max:  {requests.cpu: "64", requests.memory: 256Gi, pods: "500"}
+  max:  {requests.cpu: "64", requests.memory: 256Gi, pods: "500",
+         persistentvolumeclaims: "100", requests.storage: 2Ti, services.loadbalancers: "2", services.nodeports: "10",
+         limitRange.container.defaultRequest.cpu: "16", limitRange.container.defaultRequest.memory: 32Gi,
+         limitRange.container.default.cpu: "16", limitRange.container.default.memory: 32Gi,
+         limitRange.container.max.cpu: "16", limitRange.container.max.memory: 32Gi, limitRange.pvc.max.storage: 500Gi}
   step: {requests.cpu: "1",  requests.memory: 1Gi,   pods: "10"}
 environments:
   rnd:  {offered: [small, medium, large, custom], custom: {max: {requests.cpu: "32", requests.memory: 64Gi, pods: "300"}}}
@@ -1215,7 +1225,8 @@ environments:
 - Every value is a Kubernetes quantity. Every named tier has all sizable keys; the custom tier fixes none of them.
 - Sizes grow with order: for each sizable key, small < medium < large in every environment.
 - Container limits are ordered min ≤ defaultRequest ≤ default ≤ max, and a container at its max fits the namespace: max ≤ the tier's requests.cpu and requests.memory (for custom, ≤ custom.min).
-- Custom bounds use sizable keys only, min ≤ max, and min and max sit on step.
+- Custom bounds use sizable and overridable keys only, min ≤ max, and min and max sit on step.
+- An overridable key is not a sizable key, is listed one time, and has a custom.max in each environment. A limit key has the form limitRange.\<container or pvc>.\<min, defaultRequest, default or max>.\<resource>. The custom tier's own value of an overridable key is inside the bounds.
 - Across files, every tier named in approval-rules.yaml (for example baseline-rnd-namespace's tiers: \[small, medium\]) exists in the catalog.
 
 At startup an invalid catalog stops cmapi with every problem listed. On reload cmapi keeps the running catalog, logs the problems and sets cmapi\_tier\_catalog\_reload\_failed to 1, shown on the System status panel.
@@ -1226,16 +1237,33 @@ At startup an invalid catalog stops cmapi with every problem listed. On reload c
 
 | Step | Call in core/tiers.py | Result |
 | --- | --- | --- |
-| Plan a create or tier change | resolve(env, tier), quota\_for(env, tier, quota) | The full spec.hard; a custom quota is checked against the bounds and step |
+| Plan a create or tier change | resolve(env, tier), quota\_for(env, tier, quota, approved), limits\_for(env, tier, limitRange, hard, approved) | The full spec.hard and the full LimitRange values; each custom value is checked against the bounds and step. A value that Git already holds (approved) is not checked against the bounds again |
+| Beyond the tier | beyond(env, tier, hard, limit range), rendered\_overrides(quota object, limit range object) | Each overridable value that differs from the tier, for the facts beyondTier and beyondTierKeys; and the approved overrides of a namespace, read from the annotation cmapi.net/beyond-tier |
 | Capacity and placement | the resolved requests.cpu and requests.memory | The size reserved; an increase reserves only the delta |
 | Approval rules | compare(env, old tier, old hard, new tier, new hard, used) | Facts tier, tierChange (up, down, same, to-custom, from-custom, custom), quotaIncreasePct and quotaBelowRequested |
-| Render | render(namespace, cluster, instance, env, tier, request, quota) | resourcequota.yaml and limitrange.yaml, called by core/render/manifests.py |
+| Render | render(namespace, cluster, instance, env, tier, request, quota, limits, approved) | resourcequota.yaml and limitrange.yaml, called by core/render/manifests.py. Each object names its own beyond-tier keys in cmapi.net/beyond-tier |
 | PATCH or PUT .../quota | normalise(env, hard) | The named tier when the values equal one exactly, otherwise custom |
 | Quota view | is\_outdated(env, tier, rendered hash) | State tier-outdated, a filter on GET /api/v1/quotas |
 | Rightsizing | match(env, hard, tolerance 0.10) | Snaps a recommendation to a tier within 10% |
 | Adoption | match(env, live hard) | The named tier when the live quota equals one, otherwise custom with the live values |
 
 The Kyverno bundle does not read the catalog. It checks what it always checked (limits never below requests, the required labels) on the rendered files, so CI and admission need no tier logic.
+
+**Beyond the tier.** The owner's rule of 2026-11-13: approval is the gate of a capability, so cmapi refuses only a value that is not valid, and the approval rules decide the rest. A request on the custom tier can change each key of overridable: the four quota keys that the catalog sets (in quota, with the three sizable keys), and the container and PVC limits (in limitRange). A key that is left out keeps the tier's value. The decision record, with the research on the storage and network keys, is docs/reviews/2026-11-14-issue-211/README.md.
+
+```json
+{"namespace": "payments-dev", "tier": "custom",
+ "quota": {"requests.cpu": "4", "requests.memory": "8Gi", "pods": "20", "requests.storage": "500Gi"},
+ "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}},
+                "pvc": {"max": {"storage": "100Gi"}}}}
+```
+
+- **Not valid, refused.** A limit key that is not overridable; a value outside the environment's bounds or off its step; container values that are not in the order min ≤ defaultRequest ≤ default ≤ max; a container max above requests.cpu or requests.memory of the same request; limitRange with a named tier.
+- **Beyond the tier.** A value that differs from the tier's value, compared as a quantity ("1" equals "1000m"). The planner sets the facts beyondTier, beyondTierKeys and networkExposure (the request raises services.loadbalancers or services.nodeports). The reference rules add one approver-platform approval for beyondTier and one more for networkExposure, on top of the environment's rule. Auto-approval covers such a request only when a policy's match says beyondTier: true.
+- **Shown.** The plan, the dry run and the request (PlanView.beyondTier, ChangeRequest.beyondTier) list each key with the tier's value and the requested value, and the approvals that those rules add.
+- **Recorded.** The rendered ResourceQuota and LimitRange each name their own beyond-tier keys in the annotation cmapi.net/beyond-tier, a system key. cmapi.net/request-id on the same object is the request that last changed it.
+- **A later change.** PATCH merges quota and limitRange over the values that Git holds, key by key. Only a value that differs from the tier and from Git is beyond the tier again, so a label change on a namespace with approved overrides needs no extra approval. The tier's value removes an override. A change to a named tier drops each override.
+- **Network exposure.** The tier's value of services.loadbalancers and services.nodeports stays 0. The reference catalog bounds a custom request at 2 load balancers and 10 NodePorts. services.nodeports also counts the node ports of each LoadBalancer Service. An instance that does not allow the exception removes the two keys from overridable.
 
 **API.**
 
@@ -1246,10 +1274,11 @@ The Kyverno bundle does not read the catalog. It checks what it always checked (
 | GET /api/v1/tiers/{tier}/namespaces?environment=&state=current\|outdated&limit=&cursor= | Namespaces on that tier with their rendered and current hash, on the shared paging contract | Scoped like GET /api/v1/quotas |
 | POST /api/v1/operations with template tiers-rerender | An operation that re-renders outdated namespaces | operations:run (cmapi-operator) |
 
-Writes keep their shape: POST .../namespaces takes tier and, for custom only, quota; PATCH .../namespaces/{ns} with {"tier": "large"} changes tier; PATCH or PUT .../quota takes the sizable keys only. Refusals are 422 policy-violation with errors\[\].code: tier-unknown, tier-not-offered, quota-with-named-tier (quota sent with small, medium or large), quota-key-not-sizable, custom-quota-required (a sizable key missing) and custom-out-of-bounds (each offending key with its min, max and step).
+Writes keep their shape: POST .../namespaces takes tier and, for custom only, quota and limitRange; PATCH .../namespaces/{ns} with {"tier": "large"} changes tier, and on a custom namespace it merges quota and limitRange over the values in Git; PATCH or PUT .../quota takes the sizable keys only. Refusals are 422 policy-violation with errors\[\].code: tier-unknown, tier-not-offered, quota-with-named-tier (quota sent with small, medium or large), quota-key-not-sizable (a quota key that is not sizable and not overridable), custom-quota-required (a sizable key missing), custom-out-of-bounds (each offending key with its min, max and step), limits-with-named-tier, limit-key-not-overridable, limit-order-invalid and limit-exceeds-quota.
 
 ```json
 {"catalogHash": "618ae03a131d6626", "sizable": ["requests.cpu", "requests.memory", "pods"],
+ "overridable": ["persistentvolumeclaims", "requests.storage", "…", "limitRange.container.max.cpu", "…"],
  "environments": {"prod": {
    "tiers": [{"name": "medium", "order": 2, "custom": false, "hash": "…",
               "quota": {"requests.cpu": "16", "requests.memory": "32Gi", "pods": "100", "persistentvolumeclaims": "30",
@@ -1262,7 +1291,7 @@ Writes keep their shape: POST .../namespaces takes tier and, for custom only, qu
               "step": {"requests.cpu": "1", "requests.memory": "1Gi", "pods": "10"}}}}}
 ```
 
-**Changing a tier.** A PR to tiers.yaml (approver-platform in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values; only their catalog part re-renders.
+**Changing a tier.** A PR to tiers.yaml (approver-platform in CODEOWNERS) changes no namespace by itself; after the rollout, namespaces whose cmapi.net/tier-hash differs show as tier-outdated. An operator then runs the tiers-rerender operation with tier, environments, an optional clusterSelector, batchSize (default 20) and maxOpenPerCluster (default 5). It opens one ordinary update request per outdated namespace: the plan diff shows old and new values, increases go through the capacity check and reserve the delta, a decrease below current use is skipped and listed in the operation report, and the approval rules apply as for any quota change. Namespaces on custom keep their sizable values and their approved beyond-tier values; only the rest of their catalog part re-renders.
 
 **Reference implementation.** examples/src/cmapi/core/tiers.py, with 28 tests in examples/tests/test\_tiers.py that load every instance's file, cover each refusal and each catalog check, and render the example namespace's resourcequota.yaml and limitrange.yaml byte for byte.
 
@@ -1708,6 +1737,14 @@ thresholds:                     # facts come from the planner and the capacity p
     add: 1
   - when: quotaBelowRequested       # a decrease below what pods already request
     add: 1
+  - when: beyondTier                # a custom-tier value that differs from the tier (see Tiers, "Beyond the tier")
+    add: 1
+    group: approver-platform
+    reason: Value beyond the tier
+  - when: networkExposure           # the request raises services.loadbalancers or services.nodeports
+    add: 1
+    group: approver-platform
+    reason: Network exposure
   - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
     add: 1
     group: approver-platform
@@ -1774,6 +1811,7 @@ autoApproval:
 **Guards that no policy can switch off.** A request matching a policy still goes to humans when any of these holds:
 
 - The action is a delete. Deletes are never auto-approved.
+- The request has a value beyond its tier (beyondTier), and the policy's match does not say beyondTier: true. The guard is beyond-tier.
 - A namespace pattern or threshold added approvals: capacity warn, request-to-peak ratio, quota increase over 100%, a sensitive label key, or a critical-\* namespace.
 - Placement or the capacity check is anything other than fits on fresh data.
 - The Plan has warnings.

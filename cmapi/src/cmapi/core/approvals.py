@@ -7,7 +7,8 @@ decide(facts) turns a plan's facts into a Requirement, evaluated in this order:
    Skipped for an expiry delete (reason expired).
 3. Thresholds: each `when:` that is true adds approvers (its group, or defaults.group).
 4. Auto-approval: when the master switch is on, the kill switch is off, a policy matches and every
-   fixed guard and the policy's own guards pass, the request is approved by auto:<policy>.
+   fixed guard and the policy's own guards pass, the request is approved by auto:<policy>. A request with a value
+   beyond its tier (fact beyondTier) is covered only by a policy whose match says beyondTier: true.
 
 A Requirement is a list of slots, one per approving group, so "2 approver-prod + 1 approver-platform"
 is expressible. The ledger fills slots one approver at a time and enforces eligibility.
@@ -64,7 +65,10 @@ class Requirement:
         return self.auto is not None
 
 
-FIXED_GUARDS = ("delete", "rules-added-approvers", "capacity", "warnings", "team-allowance")
+# The facts that say a request goes beyond its tier. A threshold that reads one of them is a beyond-tier rule, and the plan
+# names the approvals that it adds (added_for).
+BEYOND_FACTS = frozenset({"beyondTier", "beyondTierKeys", "networkExposure"})
+FIXED_GUARDS = ("delete", "beyond-tier", "rules-added-approvers", "capacity", "warnings", "team-allowance")
 CAPACITY_PLUGINS = frozenset({"namespaces", "quotas"})   # their creates and changes need "fits" on fresh data
 POLICY_GUARDS = {
     "noOpenRequest": lambda f: not f.get("openRequestOnNamespace", False),
@@ -114,6 +118,11 @@ class ApprovalRules:
 
     def is_protected(self, labels: Mapping[str, str]) -> bool:
         return any(labels.get(k) == v for k, _, v in (p.partition("=") for p in self.protected))
+
+    def added_for(self, facts: Mapping[str, Any], names: frozenset[str]) -> list[Slot]:
+        """The approvers that the thresholds reading one of the named facts add for these facts, one slot for each rule."""
+        return [Slot(t.get("group", self.defaults["group"]), int(t.get("add", 1)), t.get("reason") or expr.source)
+                for expr, t in self.thresholds if expr.names() & names and expr(facts)]
 
     # ---- decide
     def decide(self, facts: Mapping[str, Any], *, paused: bool = False,
@@ -176,6 +185,10 @@ class ApprovalRules:
             expiry_policy = p.get("match", {}).get("reason") == "expired"
             if kind == "delete" and not expiry_policy:
                 return None, "delete"
+            # The owner's rule (#211): approval is the gate of a value beyond the tier. Only a policy that names the fact
+            # covers such a request, so an instance with no beyond-tier threshold does not auto-approve one by accident.
+            if f.get("beyondTier") and p.get("match", {}).get("beyondTier") is not True:
+                return None, "beyond-tier"
             if added:
                 return None, "rules-added-approvers"
             needs_capacity = f.get("plugin") in CAPACITY_PLUGINS and kind != "delete"

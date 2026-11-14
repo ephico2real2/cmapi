@@ -43,7 +43,9 @@ class NamespaceSpec:
     requested_by_email: str | None
     labels: dict[str, str] = field(default_factory=dict)        # governed and team keys only
     annotations: dict[str, str] = field(default_factory=dict)   # governed (team-dl) and team keys
-    quota: dict[str, str] | None = None                         # sizable keys, custom tier only
+    quota: dict[str, str] | None = None                         # sizable and overridable quota keys, custom tier only
+    limit_range: dict[str, dict[str, dict[str, str]]] | None = None   # overridable LimitRange values, custom tier only
+    approved: dict[str, str] = field(default_factory=dict)      # the custom values Git holds: not checked against the bounds again
     expires_at: date | None = None
     service_accounts: list[str] = field(default_factory=list)
     grants: list[tuple[str, str]] = field(default_factory=list)        # (sa, ClusterRole)
@@ -122,7 +124,8 @@ class ManifestRenderer:
         # resourcequota.yaml and limitrange.yaml from the tier catalog
         rq, lr = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
                                      instance=spec.instance, env=spec.env, tier=spec.tier,
-                                     request_id=spec.request_id, hard=spec.quota)
+                                     request_id=spec.request_id, hard=spec.quota, limits=spec.limit_range,
+                                     approved=spec.approved)
         for d in (rq, lr):
             d["metadata"]["labels"] = self.keys.ordered(d["metadata"]["labels"])
             d["metadata"]["annotations"] = self.keys.ordered(d["metadata"]["annotations"])

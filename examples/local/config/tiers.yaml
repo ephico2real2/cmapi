@@ -16,6 +16,22 @@ kind: TierCatalog
 # quota key comes from the catalog. These are also the three the Quotas view tracks.
 sizable: [requests.cpu, requests.memory, pods]
 
+# More keys that a custom-tier request can change, each with a maximum under custom. A value that differs from the
+# tier is beyond the tier: approval-rules.yaml adds an approver for it (beyondTier), and one more when it raises
+# services.loadbalancers or services.nodeports (networkExposure). docs/reviews/2026-11-14-issue-211 has the reasons.
+overridable:
+  - persistentvolumeclaims
+  - requests.storage
+  - services.loadbalancers
+  - services.nodeports
+  - limitRange.container.defaultRequest.cpu
+  - limitRange.container.defaultRequest.memory
+  - limitRange.container.default.cpu
+  - limitRange.container.default.memory
+  - limitRange.container.max.cpu
+  - limitRange.container.max.memory
+  - limitRange.pvc.max.storage
+
 defaults:                        # every tier gets these unless it overrides them
   quota:
     persistentvolumeclaims: "20"
@@ -60,7 +76,21 @@ tiers:
 
 custom:                          # bounds for custom values; min must cover the custom tier's container max
   min:  {requests.cpu: "2",   requests.memory: 4Gi,   pods: "10"}
-  max:  {requests.cpu: "64",  requests.memory: 256Gi, pods: "500"}
+  max:
+    requests.cpu: "64"
+    requests.memory: 256Gi
+    pods: "500"
+    persistentvolumeclaims: "100"
+    requests.storage: 2Ti
+    services.loadbalancers: "2"            # network exposure: low on purpose
+    services.nodeports: "10"               # also counts the node ports of each LoadBalancer Service
+    limitRange.container.defaultRequest.cpu: "16"
+    limitRange.container.defaultRequest.memory: 32Gi
+    limitRange.container.default.cpu: "16"
+    limitRange.container.default.memory: 32Gi
+    limitRange.container.max.cpu: "16"     # and never above the request's own requests.cpu
+    limitRange.container.max.memory: 32Gi
+    limitRange.pvc.max.storage: 500Gi
   step: {requests.cpu: "1",   requests.memory: 1Gi,   pods: "10"}
 
 environments:

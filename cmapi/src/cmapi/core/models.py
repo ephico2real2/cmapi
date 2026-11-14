@@ -170,6 +170,7 @@ class ChangeRequest(ClusterScoped):
     pr: PrView | None = Field(description="The bot PR, once open")
     merge_sha: str | None = Field(description="Merge commit, once merged", examples=["4e5f6a7b"])
     files: dict[str, str] = Field(description="Per file: added, changed, removed or unchanged", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
+    beyond_tier: BeyondTier | None = Field(default=None, description="The values beyond the tier and the approvals they add; null when the request has none")
     events: list[RequestEvent] = Field(description="Every state change, oldest first")
     created_at: datetime = Field(description="When it was submitted", examples=["2026-11-05T10:00:00Z"])
     updated_at: datetime = Field(description="Last change", examples=["2026-11-05T10:00:00Z"])
@@ -210,11 +211,30 @@ class DecisionBody(Api):
 
 # --------------------------------------------------------------------------- namespaces
 
+# kind (container, pvc) -> part (min, defaultRequest, default, max) -> resource (cpu, memory, storage) -> quantity. The catalog
+# decides which keys a request can send (tiers.yaml, overridable), so the model does not fix them.
+LimitRangeValues = dict[str, dict[str, dict[str, str]]]
+LIMIT_RANGE_EXAMPLE = {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}},
+                       "pvc": {"max": {"storage": "100Gi"}}}
+
+
+class BeyondTierKey(Api):
+    key: str = Field(description="The key: a quota key, or limitRange.<kind>.<part>.<resource>", examples=["limitRange.container.max.cpu"])
+    tier: str | None = Field(description="The value that the tier sets, or null when the tier sets none", examples=["2"])
+    requested: str = Field(description="The value that the request asks for", examples=["4"])
+
+
+class BeyondTier(Api):
+    keys: list[BeyondTierKey] = Field(description="Each value of this request that differs from its tier and from the value that Git holds")
+    approvals: list[ApprovalSlot] = Field(description="The approvals that the beyond-tier rules of approval-rules.yaml add for them, "
+                                                      "on top of the environment's rule")
+
 
 class NamespaceCreate(Api):
     namespace: DnsLabel = Field(description="Namespace name: DNS-1123, not reserved", examples=["payments-dev"])
     tier: str = Field(default="small", description="A tier from the catalog, or custom", examples=["small"])
-    quota: dict[str, str] | None = Field(default=None, description="Sizable quota keys, custom tier only", examples=[None])
+    quota: dict[str, str] | None = Field(default=None, description="Custom tier only: each sizable quota key, and any overridable quota key of GET /tiers. An overridable value that differs from the tier needs the beyond-tier approval", examples=[None])
+    limit_range: LimitRangeValues | None = Field(default=None, description="Container and PVC limits that differ from the custom tier, custom tier only. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval", examples=[LIMIT_RANGE_EXAMPLE])
     labels: dict[str, str] = Field(default_factory=dict, description="Governed and team labels", examples=[{"cmapi.net/team": "payments"}])
     annotations: dict[str, str] = Field(default_factory=dict, description="Governed and team annotations", examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
     expires_at: date | None = Field(default=None, description="Optional expiry; never in prod", examples=["2026-12-15"])
@@ -225,7 +245,8 @@ class NamespaceCreate(Api):
 
 class NamespacePatch(Api):
     tier: str | None = Field(default=None, description="New tier", examples=["large"])
-    quota: dict[str, str] | None = Field(default=None, description="Custom quota values", examples=[None])
+    quota: dict[str, str] | None = Field(default=None, description="Custom quota values. On a namespace that is already on the custom tier, they are merged over its values in Git, key by key", examples=[None])
+    limit_range: LimitRangeValues | None = Field(default=None, description="Custom container and PVC limits, custom tier only, merged over the namespace's values in Git, key by key. Send the tier's value to remove an override", examples=[LIMIT_RANGE_EXAMPLE])
     labels: dict[str, str | None] | None = Field(default=None, description="Merge patch; null removes a key", examples=[{"cmapi.net/cost-center": "cc-4410"}])
     annotations: dict[str, str | None] | None = Field(default=None, description="Merge patch; null removes a key", examples=[None])
     on_behalf_of: str | None = Field(default=None, description="Username or employee ID, for services and automation", examples=[None])
@@ -241,6 +262,7 @@ class PlanView(Api):
     approval: ApprovalView = Field(description="The approval that would apply")
     files: dict[str, str] = Field(description="Rendered content of each changed file", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\n..."}])
     findings: list[dict[str, Any]] = Field(default_factory=list, description="Validator warnings", examples=[[]])
+    beyond_tier: BeyondTier | None = Field(default=None, description="The values beyond the tier and the approvals they add; null when the request has none")
 
 
 class NamespaceView(ClusterScoped):
@@ -337,6 +359,7 @@ class TierCatalogView(BaseModel):
     model_config = ConfigDict(extra="allow")
     catalog_hash: str = Field(alias="catalogHash", description="Hash of the catalog", examples=["dec3e603bf8d"])
     sizable: list[str] = Field(description="Quota keys a request may size", examples=[["requests.cpu", "requests.memory", "pods"]])
+    overridable: list[str] = Field(default_factory=list, description="More keys that a custom-tier request can change: a quota key, or limitRange.<kind>.<part>.<resource>. A value that differs from the tier needs the beyond-tier approval", examples=[["requests.storage", "limitRange.container.max.cpu"]])
     environments: dict[str, Any] = Field(description="Per environment: tiers and custom bounds", examples=[{"dev": {"tiers": [], "custom": {}}}])
 
 

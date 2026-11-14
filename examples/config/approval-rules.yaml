@@ -34,6 +34,14 @@ thresholds:                     # facts come from the planner and cmapi-capacity
     add: 1
   - when: quotaBelowRequested       # a decrease below what pods already request
     add: 1
+  - when: beyondTier                # a custom-tier value that differs from the tier (docs/reviews/2026-11-14-issue-211)
+    add: 1
+    group: approver-platform
+    reason: Value beyond the tier
+  - when: networkExposure           # the request raises services.loadbalancers or services.nodeports
+    add: 1
+    group: approver-platform
+    reason: Network exposure
   - when: sensitiveKeyChanged       # a sensitiveKeys entry in metadata-keys.yaml changed
     add: 1
     group: approver-platform

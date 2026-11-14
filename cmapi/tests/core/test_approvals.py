@@ -1,6 +1,6 @@
 import pytest
 
-from cmapi.core.approvals import ApprovalLedger, ApprovalRules
+from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, ApprovalRules
 from cmapi.core.errors import Problem
 from cmapi.core.expression import Expression, ExpressionError
 from conftest import ALL_ENVS, EX, INSTANCES, person
@@ -72,6 +72,38 @@ def test_rnd_small_create_is_auto_approved(rules):
 def test_auto_approval_guards(rules, override, guard):
     r = rules.decide(facts(**{"environment": "dev", "namespace": "payments-dev", "tier": "small", **override}))
     assert r.auto is None and r.auto_fallback == guard
+
+
+# ---- values beyond the tier (#211)
+def test_a_value_beyond_the_tier_adds_a_platform_approver_on_top_of_the_rule(rules):
+    r = rules.decide(facts(tier="custom", beyondTier=True, beyondTierKeys=["limitRange.container.max.cpu"]))
+    assert {(s.group, s.count) for s in r.slots} == {("approver-prod", 1), ("approver-platform", 1)}
+    assert "Value beyond the tier" in [s.reason for s in r.slots if s.group == "approver-platform"][0]
+    plain = rules.decide(facts(tier="custom", beyondTier=False, beyondTierKeys=[]))
+    assert [(s.group, s.count) for s in plain.slots] == [("approver-prod", 1)]
+
+
+def test_network_exposure_adds_one_more(rules):
+    f = facts(environment="dev", namespace="payments-dev", tier="custom", beyondTier=True,
+              beyondTierKeys=["services.loadbalancers"], networkExposure=True)
+    r = rules.decide(f)
+    assert [(s.group, s.count) for s in r.slots] == [("approver-platform", 3)]       # dev create, beyond the tier, exposure
+    assert [(s.group, s.count, s.reason) for s in rules.added_for(f, BEYOND_FACTS)] == [
+        ("approver-platform", 1, "Value beyond the tier"), ("approver-platform", 1, "Network exposure")]
+    assert rules.added_for({**f, "beyondTier": False, "networkExposure": False}, BEYOND_FACTS) == []
+
+
+def test_auto_approval_covers_a_value_beyond_the_tier_only_when_the_policy_says_so(ex):
+    import yaml
+    raw = yaml.safe_load((ex / "config/approval-rules.yaml").read_text())
+    raw["thresholds"] = [t for t in raw["thresholds"] if t["when"] not in ("beyondTier", "networkExposure")]
+    f = facts(environment="rnd", namespace="payments-rnd", tier="small", beyondTier=True, beyondTierKeys=["requests.storage"])
+    r = ApprovalRules(raw, ALL_ENVS).decide(f)            # no threshold adds an approver, and still no auto-approval
+    assert r.auto is None and r.auto_fallback == "beyond-tier" and [(s.group, s.count) for s in r.slots] == [("approver-platform", 1)]
+    next(p for p in raw["autoApproval"]["policies"] if p["name"] == "baseline-rnd-namespace")["match"]["beyondTier"] = True
+    assert ApprovalRules(raw, ALL_ENVS).decide(f).auto == "auto:baseline-rnd-namespace"
+    # with the reference rules the threshold stops it first, and the guard that is named is the specific one
+    assert ApprovalRules(yaml.safe_load((ex / "config/approval-rules.yaml").read_text()), ALL_ENVS).decide(f).auto_fallback == "beyond-tier"
 
 
 def test_team_allowance_and_kill_switch(rules):
