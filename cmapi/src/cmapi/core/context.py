@@ -21,6 +21,7 @@ from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
 from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
+from cmapi.core.policygen import render_bundle
 from cmapi.core.registry import ClusterRegistry, DirImportSource, HubImportSource, ImportSource, load_policies
 from cmapi.core.sync import DeliveryConfig
 from cmapi.core.validate import CliValidator
@@ -94,9 +95,11 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                         default_branch=settings.git_default_branch, verify=settings.verify,
                         web_url=inst["git"].get("webUrl"),
                         basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None)
+    # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
+    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,
                              kubernetes_version=os.environ.get("CMAPI_KUBERNETES_VERSION") or None,
-                             policy=cfg.policy, environments=cfg.allowed_environments)
+                             policy=cfg.policy, environments=cfg.allowed_environments, bundle=bundle)
     for env, mode in cfg.policy.modes(cfg.allowed_environments).items():
         POLICY_MODE.labels(env, mode).set(1)
     capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")

@@ -13,19 +13,36 @@ cannot approve anything.
 The mode of each environment (instance.yaml `policy`, core/policy.py; #213): off runs no Kyverno, audit turns each
 Kyverno finding into a warning, enforce keeps it an error. A finding of cmapi itself (a missing binary) stays an error
 in each mode. When a served environment needs Kyverno and the binary is missing, cmapi does not start.
+
+The bundle (#212): the policies that core/policygen.py renders from this instance's own configuration, given as
+`bundle`, and any hand-written policy under `policies_dir`. A policy under `env/<env>/` runs only for `<env>`. One
+`kyverno apply` runs for each plan, on the Namespace, ResourceQuota and LimitRange, and cmapi reads its JSON report
+(`-p --output-format json`). Each failed or errored result is a finding. A rendered policy's failure on a key whose value
+the previous version of the object (Git) already holds is dropped, as the policy itself does at admission with
+oldObject and as tiers.py does for the bounds. The guard against a vacuous pass: each policy that matches a kind among
+the files gives a result for each file of that kind; a policy with no result is a finding.
 """
 from __future__ import annotations
 
 import json
+import os
 import shutil
-from dataclasses import replace
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
+
+import yaml
 
 from cmapi.core.policy import PolicySettings
+from cmapi.core.policygen import environment_of, index_of
 from cmapi.core.ports import Finding
+from cmapi.core.tiers import LIMIT_KINDS, limit_key_parts, qty
+
+# The files that the bundle checks, and the kind each one holds.
+CHECKED = {"namespace.yaml": "Namespace", "resourcequota.yaml": "ResourceQuota", "limitrange.yaml": "LimitRange"}
+_PLURAL = {"namespaces": "Namespace", "resourcequotas": "ResourceQuota", "limitranges": "LimitRange"}
 
 
 class ValidatorUnavailable(RuntimeError):
@@ -39,8 +56,14 @@ class PolicyEngineMissing(RuntimeError):
 class CliValidator:
     def __init__(self, policies_dir: str | Path, *, kubeconform: str = "kubeconform", kyverno: str = "kyverno",
                  schema_location: str | None = None, kubernetes_version: str | None = None, timeout: float = 60.0,
-                 policy: PolicySettings | None = None, environments: set[str] | None = None):
-        self.policies = sorted(p for p in Path(policies_dir).rglob("*.yaml")) if Path(policies_dir).exists() else []
+                 policy: PolicySettings | None = None, environments: set[str] | None = None,
+                 bundle: Mapping[str, str] | None = None):
+        root = Path(policies_dir)
+        # Relative path -> text: the hand-written policies first, then the rendered bundle (#212), which wins on a clash.
+        self.bundle: dict[str, str] = {str(p.relative_to(root)): p.read_text() for p in sorted(root.rglob("*.yaml"))} \
+            if root.exists() else {}
+        self.bundle.update(bundle or {})
+        self.index = index_of(self.bundle)
         self.kubeconform, self.kyverno, self.timeout = kubeconform, kyverno, timeout
         self.schema_location, self.kubernetes_version = schema_location, kubernetes_version
         self.policy = policy or PolicySettings()
@@ -49,11 +72,21 @@ class CliValidator:
             needing = sorted(e for e in environments if self.policy.mode_for(e) != "off")
             raise PolicyEngineMissing(f"{self.kyverno} is not installed, and the environments {needing} run Kyverno "
                                       "(instance.yaml policy). Install it, or set their mode to off")
+        # The image names the CLI it pins (Containerfile, CMAPI_KYVERNO_VERSION): another binary on PATH would check the
+        # rendered policies with other semantics than the clusters run (Codex's design of #212, Q8).
+        pinned = os.environ.get("CMAPI_KYVERNO_VERSION")
+        if pinned and environments and self.policy.needs_kyverno(environments):
+            out = self._run([self.kyverno, "version"]).stdout
+            if f"Version: {pinned}" not in out:
+                found = next((ln for ln in out.splitlines() if ln.startswith("Version:")), "no version")
+                raise PolicyEngineMissing(f"{self.kyverno} is not the pinned {pinned} ({found})")
 
     def _run(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, check=False)
 
-    def validate(self, files: Mapping[str, str | None], cluster_id: str, environment: str) -> list[Finding]:
+    def validate(self, files: Mapping[str, str | None], cluster_id: str, environment: str,
+                 previous: Mapping[str, str | None] | None = None) -> list[Finding]:
+        """previous: the folder as Git holds it before this change, so a value that it already holds is not refused."""
         live = {p: t for p, t in files.items() if t}
         if not live:
             return []
@@ -67,7 +100,7 @@ class CliValidator:
             out.extend(self._kubeconform(paths))
             mode = self.policy.mode_for(environment)
             if mode != "off":
-                found = self._kyverno(paths, environment)
+                found = self._kyverno(paths, live, environment, previous or {})
                 if mode == "audit":
                     found = [replace(f, severity="warning") if f.source == "kyverno" else f for f in found]
                 out.extend(found)
@@ -97,21 +130,113 @@ class CliValidator:
             out.append(Finding("cmapi", "validator", "", f"kubeconform exited {r.returncode}: {(r.stderr or r.stdout)[:200]}"))
         return out
 
-    def _kyverno(self, paths: Mapping[str, str], environment: str) -> list[Finding]:
-        ns_files = {p: f for p, f in paths.items() if p.endswith("namespace.yaml")}
-        if not ns_files:
+    def policies_for(self, environment: str) -> dict[str, str]:
+        """The bundle's files that run for one environment: those outside env/, and those under env/<environment>/."""
+        return {p: t for p, t in self.bundle.items() if p.endswith(".yaml") and environment_of(p) in (None, environment)}
+
+    def _kyverno(self, paths: Mapping[str, str], files: Mapping[str, str], environment: str,
+                 previous: Mapping[str, str | None]) -> list[Finding]:
+        checked = {p: f for p, f in paths.items() if p.rsplit("/", 1)[-1] in CHECKED}
+        policies = self.policies_for(environment)
+        if not checked or not policies:
             return []
         if shutil.which(self.kyverno) is None:
             return [Finding("cmapi", "validator", "", f"{self.kyverno} is not installed in this image")]
-        policies = [p for p in self.policies if environment == "prod" or "env/prod" not in str(p).replace("\\", "/")]
-        out = []
-        for pol in policies:
-            for rel, f in ns_files.items():
-                r = self._run([self.kyverno, "apply", str(pol), "--resource", f])
-                text = r.stdout + r.stderr
-                if "Applying 0 policy rule" in text:
-                    out.append(Finding("kyverno", pol.stem, rel, "policy not understood by the CLI (0 rules applied)"))
-                elif r.returncode != 0 or "fail: 0" not in text:
-                    last = [ln for ln in text.strip().splitlines() if ln.strip()]
-                    out.append(Finding("kyverno", pol.stem, rel, (last[-1] if last else f"exit {r.returncode}")[:300]))
+        with tempfile.TemporaryDirectory(prefix="cmapi-policies-") as pd:
+            for rel, text in policies.items():
+                f = Path(pd) / rel
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(text)
+            r = self._run([self.kyverno, "apply", pd, "--resource", ",".join(checked.values()),
+                           "-p", "--output-format", "json"])
+        try:
+            report = json.loads(r.stdout)
+            results = report["results"] or []
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # The CLI stops with exit 2 and no report on a fault of its own (a panic, a policy it cannot read).
+            tail = [ln for ln in (r.stderr or r.stdout).strip().splitlines() if ln.strip()]
+            return [Finding("cmapi", "validator", "", f"kyverno exited {r.returncode} with no report: "
+                                                      f"{(tail[0] if tail else '')[:200]}")]
+        docs = {rel: yaml.safe_load(files[rel]) or {} for rel in checked}
+        by_object = {(d.get("kind"), (d.get("metadata") or {}).get("name")): rel for rel, d in docs.items()}
+        out: list[Finding] = []
+        seen: set[tuple[str, str]] = set()
+        for res in results:
+            obj = (res.get("resources") or [{}])[0]
+            rel = by_object.get((obj.get("kind"), obj.get("name")), "")
+            seen.add((res.get("policy", ""), rel))
+            if res.get("result") == "error":
+                # The policy could not be evaluated (a CEL error, a value that is not a quantity): a fault of the bundle or
+                # the file, not a verdict, so source cmapi keeps it an error in audit too (Codex's design, Q2).
+                out.append(Finding("cmapi", res.get("policy", ""), rel,
+                                   f"kyverno could not evaluate the policy: {res.get('message') or ''}"[:300]))
+                continue
+            if res.get("result") != "fail":
+                continue
+            check = self.index.get(res.get("policy", ""))
+            if check and check.get("key") and rel and _held(check, docs[rel], _previous_doc(previous, rel)):
+                continue
+            out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300]))
+        for name, kinds in _matched_kinds(policies).items():
+            for rel, doc in docs.items():
+                if doc.get("kind") in kinds and (name, rel) not in seen:
+                    out.append(Finding("cmapi", name, rel, "policy not understood by the CLI (no result for this file)"))
         return out
+
+
+def _previous_doc(previous: Mapping[str, str | None], rel: str) -> dict[str, Any] | None:
+    text = previous.get(rel)
+    return (yaml.safe_load(text) or {}) if text else None
+
+
+def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[str, Any] | None) -> bool:
+    """True when the key that a rendered policy checks has the same value in the previous version of the object."""
+    if old is None:
+        return False
+    kind, key = check["kind"], str(check["key"])
+    if kind in ("label", "annotation"):
+        field = "labels" if kind == "label" else "annotations"
+        a = ((new.get("metadata") or {}).get(field) or {})
+        b = ((old.get("metadata") or {}).get(field) or {})
+        return (key in a) == (key in b) and a.get(key) == b.get(key)
+    if kind == "quota":
+        a = ((new.get("spec") or {}).get("hard") or {}).get(key)
+        b = ((old.get("spec") or {}).get("hard") or {}).get(key)
+        return a is not None and b is not None and _same_amount(str(a), str(b))
+    if kind == "limit":
+        parts = limit_key_parts(key)
+        if not parts:
+            return False
+        a, b = _limit(new, *parts), _limit(old, *parts)
+        return a is not None and b is not None and _same_amount(a, b)
+    return False
+
+
+def _same_amount(a: str, b: str) -> bool:
+    """"1" and "1000m" are one amount; a value that is not a quantity is the same only as the same text."""
+    try:
+        return qty(a) == qty(b)
+    except ValueError:
+        return a == b
+
+
+def _limit(doc: Mapping[str, Any], kind: str, part: str, res: str) -> str | None:
+    for item in ((doc.get("spec") or {}).get("limits") or []):
+        if item.get("type") == LIMIT_KINDS[kind] and res in (item.get(part) or {}):
+            return str(item[part][res])
+    return None
+
+
+def _matched_kinds(policies: Mapping[str, str]) -> dict[str, set[str]]:
+    """Policy name -> the kinds its resourceRules match, for each ValidatingPolicy of the bundle."""
+    out: dict[str, set[str]] = {}
+    for text in policies.values():
+        for doc in yaml.safe_load_all(text):
+            if not isinstance(doc, Mapping) or doc.get("kind") != "ValidatingPolicy":
+                continue
+            rules = (((doc.get("spec") or {}).get("matchConstraints") or {}).get("resourceRules") or [])
+            kinds = {_PLURAL[r] for rule in rules for r in (rule.get("resources") or []) if r in _PLURAL}
+            name = (doc.get("metadata") or {}).get("name")
+            if name and kinds:
+                out[name] = kinds
+    return out

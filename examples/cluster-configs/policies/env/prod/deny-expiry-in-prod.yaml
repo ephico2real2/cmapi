@@ -1,29 +1,33 @@
-# Source: docs/01-design-and-architecture.md, "Namespace expiration"
-# cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml
-# Synced only to prod clusters (their root Application includes policies/env/prod) and run by CI
-# against every clusters/<prod cluster>/namespaces/*/namespace.yaml (plain manifests, nothing to
-# expand), so a hand edit cannot add expiry metadata either.
-# Kyverno CEL policy, policies.kyverno.io/v1: the Kyverno 1.20 CLI that the image pins applies its rules (measured, #213).
-# CI still fails when the CLI reports "Applying 0 policy rule(s)", the guard from the 1.16 CLI, which applied none.
+# Rendered by cmapi from its configuration (core/policygen.py, #212). Do not edit: change tiers.yaml,
+# metadata-keys.yaml or instance.yaml policy, and render again (cmapi-tools policies render).
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
   name: deny-expiry-in-prod
   annotations:
     policies.kyverno.io/description: Production namespaces never carry expiration metadata.
+    cmapi.net/generated: 'true'
 spec:
-  validationActions: [Deny]
+  validationActions:
+  - Deny
   matchConstraints:
     resourceRules:
-      - apiGroups: [""]
-        apiVersions: [v1]
-        operations: [CREATE, UPDATE]
-        resources: [namespaces]
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   validations:
-    - expression: >-
-        !(has(object.metadata.annotations) && 'cmapi.net/expires-at' in object.metadata.annotations) &&
-        !(has(object.metadata.labels) && ('cmapi.net/expiry' in object.metadata.labels ||
-          'cleanup.kyverno.io/ttl' in object.metadata.labels))
-      message: >-
-        Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry
-        and cleanup.kyverno.io/ttl.
+  - expression: '!("cmapi.net/expires-at" in (has(object.metadata.annotations) ? object.metadata.annotations : {}))'
+    messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''
+  - expression: '!("cmapi.net/expiry" in (has(object.metadata.labels) ? object.metadata.labels : {}))'
+    messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''
+  - expression: '!("cleanup.kyverno.io/ttl" in (has(object.metadata.labels) ? object.metadata.labels : {}))'
+    messageExpression: '''Production namespaces never expire: remove cmapi.net/expires-at, cmapi.net/expiry and cleanup.kyverno.io/ttl.'''

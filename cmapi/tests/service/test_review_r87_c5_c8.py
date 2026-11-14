@@ -63,7 +63,7 @@ def test_no_external_ci_preserves_main_semantics(world, monkeypatch, source, hos
     findings = [] if source is None else [Finding(source=source, rule='r', path='p', message='refused')]
     calls = []
 
-    def validate(tree, cluster_id, env):
+    def validate(tree, cluster_id, env, previous=None):     # previous: the default branch's folder (#212)
         calls.append((tree, cluster_id, env))
         return findings
 

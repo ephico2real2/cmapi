@@ -1,0 +1,250 @@
+# Rendered by cmapi from its configuration (core/policygen.py, #212). Do not edit: change tiers.yaml,
+# metadata-keys.yaml or instance.yaml policy, and render again (cmapi-tools policies render).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-cluster-id-required
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/cluster-id" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/cluster-id" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/cluster-id" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/cluster-id"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/cluster-id"])) || ("cmapi.net/cluster-id" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/cluster-id"] != '''')'
+    messageExpression: '''the label cmapi.net/cluster-id is missing: cmapi writes it on each namespace it manages'''
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-managed-required
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"])) || ("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] != '''')'
+    messageExpression: '''the label cmapi.net/managed is missing: cmapi writes it on each namespace it manages'''
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-env-derived
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/env" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/env" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/env" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/env"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/env"])) || ("cmapi.net/env" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/env"] == "rnd")'
+    messageExpression: '''the label cmapi.net/env is '' + ("cmapi.net/env" in (has(object.metadata.labels) ? object.metadata.labels : {}) ? (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/env"] : ''missing'') + ''; it must be rnd, the environment of this policy'''
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-team-pattern
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/team" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/team" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/team" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/team"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/team"])) || ("cmapi.net/team" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/team"] != '''' && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/team"].matches("^(?:^[a-z0-9-]{2,40}$)$"))'
+    messageExpression: '''the label cmapi.net/team is '' + ("cmapi.net/team" in (has(object.metadata.labels) ? object.metadata.labels : {}) ? ''"'' + (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/team"] + ''"'' : ''missing'') + "; it must be: required; must match ^[a-z0-9-]{2,40}$"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-cost-center-pattern
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/cost-center" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/cost-center" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/cost-center" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/cost-center"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/cost-center"])) || ((!("cmapi.net/cost-center" in (has(object.metadata.labels) ? object.metadata.labels : {})) || ((has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/cost-center"].matches("^(?:^cc-[0-9]{4}$)$"))))'
+    messageExpression: '''the label cmapi.net/cost-center is '' + ("cmapi.net/cost-center" in (has(object.metadata.labels) ? object.metadata.labels : {}) ? ''"'' + (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/cost-center"] + ''"'' : ''missing'') + "; it must be: must match ^cc-[0-9]{4}$"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-app-pattern
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/app" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/app" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/app" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/app"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/app"])) || ((!("cmapi.net/app" in (has(object.metadata.labels) ? object.metadata.labels : {})) || ((has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/app"].matches("^(?:^[a-z0-9-]{2,40}$)$"))))'
+    messageExpression: '''the label cmapi.net/app is '' + ("cmapi.net/app" in (has(object.metadata.labels) ? object.metadata.labels : {}) ? ''"'' + (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/app"] + ''"'' : ''missing'') + "; it must be: must match ^[a-z0-9-]{2,40}$"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-label-cmapi-net-rightsizing-pattern
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/rightsizing" in (has(object.metadata.labels) ? object.metadata.labels : {})) == ("cmapi.net/rightsizing" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})) && (!("cmapi.net/rightsizing" in (has(object.metadata.labels) ? object.metadata.labels : {})) || (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/rightsizing"] == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/rightsizing"])) || ((!("cmapi.net/rightsizing" in (has(object.metadata.labels) ? object.metadata.labels : {})) || ((has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/rightsizing"].matches("^(?:^(auto|manual)$)$"))))'
+    messageExpression: '''the label cmapi.net/rightsizing is '' + ("cmapi.net/rightsizing" in (has(object.metadata.labels) ? object.metadata.labels : {}) ? ''"'' + (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/rightsizing"] + ''"'' : ''missing'') + "; it must be: must match ^(auto|manual)$"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-rnd-annotation-cmapi-net-team-dl-format
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in rnd.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Deny
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  validations:
+  - expression: '(variables.update && ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {})) == ("cmapi.net/team-dl" in (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})) && (!("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {})) || (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})["cmapi.net/team-dl"])) || ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {}) && (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] != '''' && size((has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"].split(''@'')) == 2 && (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"].split(''@'')[0].matches("^[A-Za-z0-9!#$%&''*+/=?^_`{|}~.-]+$")
+      && (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"].split(''@'')[1].lowerAscii() in ["ephico2real.com"])'
+    messageExpression: '''the annotation cmapi.net/team-dl is '' + ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {}) ? ''"'' + (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] + ''"'' : ''missing'') + "; it must be: required; an address in ephico2real.com"'

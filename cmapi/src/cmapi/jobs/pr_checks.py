@@ -68,7 +68,9 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
     except IncompleteList as exc:      # a list that the host cut cannot show that nothing is outside the plan: the check fails
         outside = [f"a list that is not complete: {exc}"]
     cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
-    findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env)
+    # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212).
+    base = ctx.git.tree_files(ctx.git.default_branch, folder(row.cluster_id, row.namespace))
+    findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env, previous=base)
     kc = [f for f in findings if f.source in ("kubeconform", "cmapi")]
     ky = [f for f in findings if f.source == "kyverno"]
     link = f"{ctx.cfg.raw_instance['instance'].get('publicUrl', '')}/api/v1/requests/{row.request_id}"

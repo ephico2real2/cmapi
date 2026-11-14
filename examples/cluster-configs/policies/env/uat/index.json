@@ -1,0 +1,132 @@
+{
+  "cmapi-limits-uat-limit-limitrange-container-default-cpu-max": {
+    "key": "limitRange.container.default.cpu",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-default-cpu-order": {
+    "key": "limitRange.container.default.cpu",
+    "kind": "limit",
+    "rule": "order"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-default-memory-max": {
+    "key": "limitRange.container.default.memory",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-default-memory-order": {
+    "key": "limitRange.container.default.memory",
+    "kind": "limit",
+    "rule": "order"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-defaultrequest-cpu-max": {
+    "key": "limitRange.container.defaultRequest.cpu",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-defaultrequest-memory-max": {
+    "key": "limitRange.container.defaultRequest.memory",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-max-cpu-max": {
+    "key": "limitRange.container.max.cpu",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-max-cpu-order": {
+    "key": "limitRange.container.max.cpu",
+    "kind": "limit",
+    "rule": "order"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-max-memory-max": {
+    "key": "limitRange.container.max.memory",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-limits-uat-limit-limitrange-container-max-memory-order": {
+    "key": "limitRange.container.max.memory",
+    "kind": "limit",
+    "rule": "order"
+  },
+  "cmapi-limits-uat-limit-limitrange-pvc-max-storage-max": {
+    "key": "limitRange.pvc.max.storage",
+    "kind": "limit",
+    "rule": "max"
+  },
+  "cmapi-metadata-uat-annotation-cmapi-net-team-dl-format": {
+    "key": "cmapi.net/team-dl",
+    "kind": "annotation",
+    "rule": "format"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-app-pattern": {
+    "key": "cmapi.net/app",
+    "kind": "label",
+    "rule": "pattern"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-cluster-id-required": {
+    "key": "cmapi.net/cluster-id",
+    "kind": "label",
+    "rule": "required"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-cost-center-pattern": {
+    "key": "cmapi.net/cost-center",
+    "kind": "label",
+    "rule": "pattern"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-env-derived": {
+    "key": "cmapi.net/env",
+    "kind": "label",
+    "rule": "derived"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-managed-required": {
+    "key": "cmapi.net/managed",
+    "kind": "label",
+    "rule": "required"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-rightsizing-pattern": {
+    "key": "cmapi.net/rightsizing",
+    "kind": "label",
+    "rule": "pattern"
+  },
+  "cmapi-metadata-uat-label-cmapi-net-team-pattern": {
+    "key": "cmapi.net/team",
+    "kind": "label",
+    "rule": "pattern"
+  },
+  "cmapi-quota-uat-quota-persistentvolumeclaims-max": {
+    "key": "persistentvolumeclaims",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-pods-max": {
+    "key": "pods",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-requests-cpu-max": {
+    "key": "requests.cpu",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-requests-memory-max": {
+    "key": "requests.memory",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-requests-storage-max": {
+    "key": "requests.storage",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-services-loadbalancers-max": {
+    "key": "services.loadbalancers",
+    "kind": "quota",
+    "rule": "max"
+  },
+  "cmapi-quota-uat-quota-services-nodeports-max": {
+    "key": "services.nodeports",
+    "kind": "quota",
+    "rule": "max"
+  }
+}

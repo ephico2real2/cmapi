@@ -260,7 +260,7 @@ class Pipeline:
         if not changes:
             raise Problem.unprocessable("no-change", "The request changes nothing")
         try:
-            findings = self.validator.validate(files, cluster_id, env)
+            findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
         except ValidatorUnavailable as exc:
             raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
         errors = [f for f in findings if f.severity == "error"]
