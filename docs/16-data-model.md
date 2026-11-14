@@ -77,6 +77,38 @@ A changed server default is not compared. To add a column: change the model, wri
 - No token, password or client secret is in any table. `jwks_keys` holds public keys.
 - The live state of a namespace is not stored. It comes from the watch cache of each cluster, in the memory of the process.
 
+## Planned adoption quota view (#26, #251; not built)
+
+This section describes the proposed model in docs/reviews/2026-11-14-issue-26-adoption/README.md, D8 and D17–D19.
+The tables below continue to describe only the implemented schema.
+
+Git is the desired-state record: each adopted ResourceQuota and LimitRange has its original name and free-form
+content in `resourcequota-<name>.yaml` or `limitrange-<name>.yaml`, one object per file, after D3's removals and D4's
+system keys. There is no new table holding the current objects. The existing `change_requests.plan` JSONB records
+the planned files and approved adoption snapshot; the design requires the plan hash to bind the snapshot used for
+policy checks. Live objects come from each cluster's watch cache, rather than a database copy of current state.
+
+The planned namespace quota API returns `resourceQuotas` and `limitRanges` lists, each entry with its `name` and raw
+YAML. ResourceQuota entries also expose `scopes`, `scopeSelector`, `hard` and `used`. A `derived` map supplies used/hard
+pairs for interpreted resources; `uninterpreted` lists other keys. Each number identifies its source, including
+whether live state differs from Git. The quota columns, capacity reservation and KPIs use these derived values.
+
+For each resource, the namespace-wide hard value is the smallest quantity among unscoped quotas, never their sum;
+the used value comes from that same quota. Empty scopes and no selector expressions mean unscoped. Normalize `cpu`
+to `requests.cpu` and `memory` to `requests.memory` for comparison while preserving raw spelling. The other interpreted
+keys are `pods`, `persistentvolumeclaims`, `requests.storage`, `services.loadbalancers` and `services.nodeports`.
+Scoped quotas remain visible but do not enter namespace-wide numbers. A key held only by scoped quotas is null
+(unknown), with `scoped-only`; capacity excludes that namespace for the key and reports the omission, and KPIs count
+it as unknown. Other keys remain raw and visible, excluded from these calculations, with `uninterpreted-key`.
+Overlapping LimitRange defaults remain raw and produce `duplicate-default`.
+
+Requests edit raw objects by kind and name, preserving fields they do not change; only an explicit request replaces
+them with a named tier's objects. Tier rendering uses CPU and memory LimitRanges and an optional storage LimitRange.
+`storageLimitRange.enabled` defaults to false in code when absent; a true instance or environment override enables
+storage rendering and policies. Off refuses custom `limitRange.pvc.*` requests with 422 `policy-violation` and item
+code `storage-limits-off`. Adopted storage LimitRanges remain raw regardless of the switch. D19's separate build
+changes the renderer, catalog, policies, hashes and tests together; these behaviors are not implemented by this PR.
+
 ## Caches, and why cmapi has no Redis or Valkey
 
 The owner's rule, 2026-11-13: "we can use postgress for cache as well if needed so we don't have to use redis or vakkey". cmapi has no Redis and no Valkey, and adds none. The state that more than one replica must share is already in PostgreSQL:
