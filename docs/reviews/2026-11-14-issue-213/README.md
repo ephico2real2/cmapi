@@ -57,3 +57,18 @@ Not measured: the image build (no container, #157), a cluster's admission with t
 - OB1 run 5's measurements of the v1.20.0 CLI (`workbench/cmapi/ob1-run5/kyverno-exp/`): it applies v1 rules,
   `messageExpression` works offline, and `validationActions` is ignored by the CLI, so cmapi's mode turns a finding into
   a warning itself.
+
+## Fable's review
+
+Fable 5.2 reviewed PR #240 at `0248031` (`fable-review.md`). It found three defects, and the coordinator accepted all three.
+They are applied unchanged, with Fable's tests (`tests/core/test_fable_review_240.py`, 8 failed before, and
+`tests/service/test_fable_review_240.py`):
+
+| # | Finding | Fix |
+|---|---|---|
+| F1 (high) | In audit, the PR check failed and closed the PR of a request that was approved with its warning | The PR check fails only on an error; it reports an audit warning, as the cluster's Audit action does |
+| F2 | In audit, a policy that would not compile or evaluate, and the "0 rules applied" guard, became warnings | They are cmapi findings, errors in each mode |
+| F3 | An unquoted `mode: off` is YAML's boolean false and stopped the start | false is the mode off |
+
+Filed from the review: #249, about audit on the GitHub external-CI path. The workflow of the configuration repository
+must report and not fail (Wave 3).

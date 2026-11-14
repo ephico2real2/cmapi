@@ -11,8 +11,9 @@ A policy under env/prod runs only for prod namespaces. A missing binary is a fin
 cannot approve anything.
 
 The mode of each environment (instance.yaml `policy`, core/policy.py; #213): off runs no Kyverno, audit turns each
-Kyverno finding into a warning, enforce keeps it an error. A finding of cmapi itself (a missing binary) stays an error
-in each mode. When a served environment needs Kyverno and the binary is missing, cmapi does not start.
+Kyverno violation into a warning, enforce keeps it an error. A finding of cmapi itself (a missing binary, a policy that
+the CLI could not evaluate or gave no result for) stays an error in each mode. When a served environment needs Kyverno
+and the binary is missing, cmapi does not start.
 
 The bundle (#212): the policies that core/policygen.py renders from this instance's own configuration, given as
 `bundle`, and any hand-written policy under `policies_dir`. A policy under `env/<env>/` runs only for `<env>`. One
@@ -43,6 +44,7 @@ from cmapi.core.tiers import LIMIT_KINDS, limit_key_parts, qty
 # The files that the bundle checks, and the kind each one holds.
 CHECKED = {"namespace.yaml": "Namespace", "resourcequota.yaml": "ResourceQuota", "limitrange.yaml": "LimitRange"}
 _PLURAL = {"namespaces": "Namespace", "resourcequotas": "ResourceQuota", "limitranges": "LimitRange"}
+
 
 
 class ValidatorUnavailable(RuntimeError):

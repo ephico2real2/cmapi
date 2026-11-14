@@ -28,6 +28,12 @@ ENGINES = ("kyverno", "none")
 MODES = ("enforce", "audit", "off")
 
 
+def _mode(value: Any) -> Any:
+    """YAML 1.1 reads an unquoted `off` as the boolean false (PyYAML here, and Helm for a values file), so false is the
+    mode off. True (`on`, `yes`) is no mode and stays a problem."""
+    return "off" if value is False else value
+
+
 @dataclass(frozen=True)
 class PolicySettings:
     engine: str = "kyverno"
@@ -62,13 +68,13 @@ class PolicySettings:
         if engine not in ENGINES:
             problems.append(f"instance.yaml: policy.engine must be one of {list(ENGINES)}, not {engine!r}")
             engine = "kyverno"
-        default = raw.get("mode", "enforce")
+        default = _mode(raw.get("mode", "enforce"))
         if default not in MODES:
             problems.append(f"instance.yaml: policy.mode must be one of {list(MODES)}, not {default!r}")
             default = "enforce"
         envs: dict[str, str] = {}
         for env, spec in (raw.get("environments") or {}).items():
-            mode = (spec or {}).get("mode") if isinstance(spec, Mapping) else None
+            mode = _mode((spec or {}).get("mode")) if isinstance(spec, Mapping) else None
             if env not in allowed:
                 problems.append(f"instance.yaml: policy.environments.{env} is not an environment this instance serves")
             elif mode not in MODES:
