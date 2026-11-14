@@ -166,8 +166,11 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | precondition-required / failed | 428 / 412 | Missing or stale If-Match |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
 | git-unavailable | 502 | Git host error; the request row is marked failed |
+| internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error |
 
 **Problem type URIs.** The type of a problem is a base and the code of the problem. The base is problems.typeBase in instance.yaml, and its default is https://cmapi.ephico2real.com/problems/. An organisation uses one base for all its instances, because the type is the identifier that a client compares (RFC 9457, section 3.1.1). Each instance serves GET /problems and GET /problems/{code} as HTML, with no token: the type, the title, the status, an example and what the caller does. So the type resolves when the host of the base points at an instance. On CRC the base is the Route of the API.
+
+**Browser origins (CORS).** The portal and the API have one origin, through the front door of the instance (nginx, #226), so the portal's calls need no CORS header, and CORS is off. An origin of another host can be listed on purpose in cors.allowedOrigins of instance.yaml, for example a developer's portal on localhost. Then the API sends CORS headers for that exact list only, with no wildcard and no credentials: the API reads no cookie. A value that is not an exact origin stops the start of cmapi. core/cors.py holds the policy, and the decision, with its sources, is in docs/15, "The portal's origin and the API".
 
 **Endpoint catalog.** Paths are relative to /api/v1/clusters/{clusterId} unless they start with /api/v1.
 

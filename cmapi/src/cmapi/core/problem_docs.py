@@ -12,6 +12,8 @@ from cmapi.core.docs import PROBLEMS
 
 # What the caller does about each problem type. tests/service/test_problem_type_docs.py holds one entry for each code of PROBLEMS.
 ACTIONS: dict[str, str] = {
+    "internal-error": "Send the request again later. If it fails again, give the `X-Request-Id` header of the answer to the platform team: "
+                      "the log line with that ID has the cause. The answer never has the text of the error.",
     "unauthenticated": "Get a new access token from Keycloak, and send it as `Authorization: Bearer`. The token must be an access token for this instance's audience.",
     "forbidden": "Ask for the role that grants the permission in `detail`. `GET /api/v1/me` lists your permissions.",
     "environment-forbidden": "Use an environment that your roles permit, or ask for a role that permits this one.",

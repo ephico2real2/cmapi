@@ -24,6 +24,7 @@ instance:
   # Swagger UI at /docs. Both are https://<route.host or ingress.host>; the portal's config.json and the email links use them.
   publicUrl: ""
   portalUrl: ""
+  cors: {}                   # CORS is off: the front door gives one origin. {allowedOrigins: [http://localhost:5173]} lets a page of another origin call the API (docs/15)
   # Where to send callers for the environments other instances serve
   directory:
     staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}

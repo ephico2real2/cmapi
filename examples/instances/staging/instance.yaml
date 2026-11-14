@@ -6,6 +6,7 @@ instance:
   allowedEnvironments: [qa, uat]
   publicUrl: https://cmapi-staging.ephico2real.com
   portalUrl: https://portal-staging.ephico2real.com
+  # cors: {allowedOrigins: [http://localhost:5173]}   # an origin of another host that can call the API from a browser; without it CORS is off (docs/15)
   # problems: {typeBase: https://cmapi.ephico2real.com/problems/}   # the base of each problem type URI (RFC 9457): one for all instances, on a host that points at an instance
   auth:
     issuer: https://sso.ephico2real.com/realms/ephico2real
