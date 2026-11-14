@@ -36,8 +36,9 @@ class EmailChannel:
 
     def __init__(self, smtp: Mapping[str, Any], portal_url: str, link_key: bytes, group_mail: Mapping[str, str], instance: str):
         self.smtp, self.portal_url, self.key, self.group_mail = smtp, portal_url.rstrip("/"), link_key, group_mail
-        # The portal's address has the instance first (#<instance>/<tab>). It is this instance's own name, never a literal:
-        # an instance and its environments have the names that the owner gives them (#222).
+        # The links name this instance, never a literal: an instance has the name that the owner gives it (#222). The
+        # address #<instance>/<tab> is the demo build's (cmapi-portal-ui/src/model/usePortal.ts). The shipped portal reads
+        # #<tab>?query (src/portal/route.ts), so these links open its first tab until #236 settles the address.
         self.instance = instance
 
     def _link(self, request_id: str) -> tuple[str, str]:

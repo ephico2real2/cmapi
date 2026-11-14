@@ -2045,7 +2045,7 @@ Each plugin folder has the same five files, so adding an offering is copying one
 
 ### The names of instances and environments
 
-The owner gives each instance and each environment its name, and cmapi takes each name from the configuration: the instance from `instance.name`, its environments from `allowedEnvironments` (`instance.yaml`). No code reads a literal instance name. The portal's links of the email channel start with the running instance's name, `#<instance>/approvals` (`core/channels.py`, #222).
+The owner gives each instance and each environment its name, and cmapi takes each name from the configuration: the instance from `instance.name`, its environments from `allowedEnvironments` (`instance.yaml`). No code of the service reads a literal instance name. One tool has a default: `tools/realm_sync.py` takes the audience `cmapi-nonprod` when `CMAPI_REALM_AUDIENCE` is not set, and the chart always sets it. The portal's links of the email channel start with the running instance's name, `#<instance>/approvals` (`core/channels.py`, #222). The shipped portal does not read that address yet (#236).
 
 **One environment name has a meaning in code: `prod`.** A namespace in the environment `prod` never expires, and the policies under `policies/env/prod/` run for it only:
 

@@ -11,7 +11,7 @@ REQUEST = {"requestId": "req-20261114-0001", "action": "create", "namespace": "p
 
 
 @pytest.mark.parametrize("instance", ["prod", "staging", "nonprod", "emea-lab"])
-def test_each_link_opens_the_view_of_the_instance_that_sent_it(instance, monkeypatch):
+def test_each_link_names_the_instance_that_sent_it(instance, monkeypatch):
     sent = []
     channel = EmailChannel({"host": "smtp.test"}, "https://portal.example.com/", b"k", {}, instance=instance)
     monkeypatch.setattr(channel, "_send", lambda to, subject, body: sent.append(body))
