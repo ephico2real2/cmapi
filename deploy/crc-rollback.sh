@@ -34,7 +34,9 @@ del keycloakrealmimport cmapi -n keycloak
 del job cmapi-realm-sync -n cmapi
 del deployment cmapi-api -n cmapi
 del deployment cmapi-worker -n cmapi
-del deployment cmapi-mockup -n cmapi
+del deployment cmapi-portal -n cmapi
+# The proof's control pod (deploy/crc-proof.sh), in case a run was cut short before its own cleanup.
+del pod cmapi-np-target -n cmapi
 # The database: read the PV's name first. The storage class is Retain, so deleting the claim leaves the PV Released, holding the data.
 pv=$(oc_ get pvc cmapi-db-1 -n cmapi --ignore-not-found -o 'jsonpath={.spec.volumeName}')
 del cluster.postgresql.cnpg.io cmapi-db -n cmapi
@@ -45,10 +47,12 @@ if [ -n "$pv" ]; then
   case "$who" in cmapi/cmapi-db-1/Released) del pv "$pv"; echo "note    : the PV's directory stays on the node's disk: the provisioner does not remove data under Retain, and cmapi does not write to the node";;
     *) echo "note    : PV $pv left alone: $who";; esac
 fi
-for o in "service cmapi-api" "service cmapi-worker" "service cmapi-mockup" "networkpolicy cmapi-metrics" "route.route.openshift.io cmapi-api" "route.route.openshift.io cmapi-mockup" \
+for o in "service cmapi-api" "service cmapi-api-pods" "service cmapi-worker" "service cmapi-portal" "networkpolicy cmapi-metrics" "networkpolicy cmapi-front-door" \
+         "route.route.openshift.io cmapi" "route.route.openshift.io cmapi-mockup" \
          "servicemonitor.monitoring.coreos.com cmapi-api" "servicemonitor.monitoring.coreos.com cmapi-worker" "prometheusrule.monitoring.coreos.com cmapi" \
-         "configmap cmapi-env" "configmap cmapi-config" "configmap cmapi-trust" "configmap cmapi-mockup" \
-         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" "imagestream.image.openshift.io cmapi"; do
+         "configmap cmapi-env" "configmap cmapi-config" "configmap cmapi-trust" "configmap cmapi-portal-config" \
+         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" \
+         "imagestream.image.openshift.io cmapi" "imagestream.image.openshift.io cmapi-portal"; do
   # shellcheck disable=SC2086  # "kind name"
   del $o -n cmapi
 done

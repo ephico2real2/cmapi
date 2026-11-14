@@ -15,8 +15,8 @@ data:
       name: nonprod
       displayName: "Non-production (CRC)"
       allowedEnvironments: ["rnd","dev"]
-      publicUrl: "https://cmapi-api.apps-crc.testing"
-      portalUrl: ""
+      publicUrl: "https://cmapi.apps-crc.testing"
+      portalUrl: "https://cmapi.apps-crc.testing"
       auth:
         issuer: "https://keycloak.apps-crc.testing/realms/cmapi"
         audience: "cmapi-nonprod"
@@ -28,7 +28,7 @@ data:
         webUrl: "https://github.com"
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
       docs: {"enabled":true}
-      problems: {"typeBase":"https://cmapi-api.apps-crc.testing/problems/"}
+      problems: {"typeBase":"https://cmapi.apps-crc.testing/problems/"}
   clusters.yaml: |
     clusters: {"CRC":{"environment":"dev","gitopsPath":"clusters/CRC","labels":{"region":"us-central"},"simulatedCapacity":{"cpu":64,"memory":"256Gi"},"writes":false}}
   integrations.yaml: |
