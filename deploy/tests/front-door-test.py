@@ -213,7 +213,10 @@ class Nginx:
         proc = subprocess.Popen(self.command(d / "nginx.conf", "-g", "daemon off;", name=name),
                                 stdout=subprocess.DEVNULL, stderr=open(d / "error.log", "w"))
         proc.cmapi_name = name  # type: ignore[attr-defined]
-        for _ in range(100):
+        # A container takes longer to start than a process: 60 s for the image, 10 s for a local binary.
+        limit = 60 if self.args.image else 10
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline:
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
                 return proc
@@ -221,7 +224,8 @@ class Nginx:
                 if proc.poll() is not None:
                     raise SystemExit(f"nginx stopped: {(d / 'error.log').read_text()}")
                 time.sleep(0.1)
-        raise SystemExit("nginx did not listen within 10 s")
+        self.stop(proc)
+        raise SystemExit(f"nginx did not listen on 127.0.0.1:{port} within {limit} s; its stderr:\n{(d / 'error.log').read_text()}")
 
     def stop(self, proc: subprocess.Popen) -> None:
         if getattr(proc, "cmapi_name", None):
