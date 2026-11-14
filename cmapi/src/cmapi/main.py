@@ -175,7 +175,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base)
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, ctx.cfg.metadata)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
@@ -289,7 +289,8 @@ REDOC_START = "/docs/redoc-start.js"
 # cmapi-portal-ui/nginx/templates/cmapi.conf.template): a browser enforces both, so two different strings could stop the
 # search workers. tests/service/test_api_docs.py holds them equal.
 REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; "
+             "form-action 'none'")
 REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
 import { init } from "/static/redoc/redoc.standalone.js";
 init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));

@@ -45,6 +45,10 @@ spec:
       from:
         - namespaceSelector:
             matchLabels: {policy-group.network.openshift.io/ingress: ""}
+      {{- else if .Values.networkPolicy.ingressNamespace }}
+      from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}}
       {{- end }}
       ports:
         - {port: 8080, protocol: TCP}

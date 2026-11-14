@@ -199,11 +199,14 @@ class Pipeline:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
         cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
-                 if self.cfg.metadata.classify(k) in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "label") in ("governed", "team")}
         cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
-                 if self.cfg.metadata.classify(k) in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "annotation") in ("governed", "team")}
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
-        self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a)
+        # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
+        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
+        self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
+                                sources=sources, existing=prev_ns is not None)
         labels = self.cfg.metadata.merge_patch(cur_l, labels)
         anns = self.cfg.metadata.merge_patch(cur_a, anns)
 
@@ -257,7 +260,7 @@ class Pipeline:
         if not changes:
             raise Problem.unprocessable("no-change", "The request changes nothing")
         try:
-            findings = self.validator.validate(files, cluster_id, env)
+            findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
         except ValidatorUnavailable as exc:
             raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
         errors = [f for f in findings if f.severity == "error"]

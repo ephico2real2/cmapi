@@ -335,7 +335,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|318-318": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|321-321": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|142-144": [
@@ -377,7 +377,7 @@
   "            AUTHZ_DENIED.labels(permission).inc()",
   "            raise"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|130-130": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|15-21": [

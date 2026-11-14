@@ -972,7 +972,7 @@ If your cluster-configs repo keeps the existing segment/mnemonic/clusterEnv layo
 | --- | --- | --- | --- | --- |
 | cmapi.net/cluster-id | Label | Cluster ID, e.g. OCP\_GF1 | Renderer, on every object | Joins capacity, usage and audit data; the cluster-ID rule |
 | cmapi.net/managed | Label | "true" | Renderer | Marks objects owned through Git; adoption skips them |
-| cmapi.net/adopt | Label | "true" | Namespace owner or platform | Opt-in for adoption; removed when adoption completes |
+| cmapi.net/adopt | Label | "true" | Namespace owner or platform | Opt-in for adoption. It stays on the namespace afterwards and is ignored: `cmapi.net/managed` means adopted |
 | cmapi.net/protected | Label | "true" | Platform | Blocks delete through the API |
 | cmapi.net/tier | Label | small, medium, large, custom | Renderer | Picks the tier's ResourceQuota and LimitRange values from config/tiers.yaml; target of the tiers-rerender operation |
 | cmapi.net/requested-by | Annotation | Requester's email | Renderer | Reports; an email cannot be a label value |
@@ -998,10 +998,10 @@ Callers can set any number of labels and annotations on namespaces and service a
 | System | cmapi.net/cluster-id, managed, request-id, requested-by, requested-by-user, tier, expiry; cmapi.net/expires-at | The renderer | Refused (422 reserved\_key). Tier and TTL change through their own fields. |
 | Operator only | cmapi.net/protected | cmapi-operator and above | Refused for requesters (403 forbidden) |
 | Platform reserved | kubernetes.io/, \*.kubernetes.io/, k8s.io/, openshift.io/, \*.openshift.io/, argocd.argoproj.io/, \*.kyverno.io/, redhatcop.redhat.io/ | Kubernetes, OpenShift and platform controllers | Refused (422 reserved\_key) |
-| Governed | cmapi.net/team (label, required), cmapi.net/cost-center (label), cmapi.net/team-dl (annotation, required) | The caller | Allowed; the value is checked against a pattern, and team must be one the caller is bound to |
-| Team | Everything else, limited to the allowed prefixes | The caller | Allowed within the limits below |
+| Governed | The keys of `requiredLabels`, `requiredAnnotations` and the `keys` of `extraLabels` and `extraAnnotations`: cmapi.net/team (label, required), cmapi.net/team-dl (annotation, required), cmapi.net/cost-center, cmapi.net/app, cmapi.net/rightsizing (labels) | The caller, or cmapi for a key with `value.from` | Allowed; the value is checked against the key's rule |
+| Team | Any other key under a prefix of `allowOther`, for each kind | The caller | Allowed within the limits of `allowOther` |
 
-**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle's metadata-keys policy, so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses.
+**Key classes live in one file.** cluster-configs/policies/metadata-keys.yaml feeds the Kyverno bundle: cmapi renders a policy for each required or declared key from it (#212, "Policy in one place"), so the same rules run at plan time, in CI and at admission. cmapi reads the same file to label each key's class in GET responses, and the API document (`/openapi.json`) describes the `labels` and `annotations` of a namespace from it.
 
 ```yaml
 # cluster-configs/policies/metadata-keys.yaml
@@ -1010,21 +1010,51 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
-governed:
-  cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; not checked against the caller
-  cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
-  cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
-  cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-  cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
-team:
-  allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
-  maxLabels: 50
-  maxAnnotations: 50
-  maxAnnotationValueBytes: 4096
-  maxAnnotationBytesTotal: 65536
+# Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+# it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+# only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+# another value. allowOther admits any other key under a prefix ("" allows unprefixed keys), within the limits.
+requiredLabels:
+  cmapi.net/team:        {pattern: "^[a-z0-9-]{2,40}$", description: "Ownership and cost; any team, not checked against the caller", example: payments}
+requiredAnnotations:
+  cmapi.net/team-dl:     {format: email-in-domains, description: "The team's mail list, an address in one of emailDomains", example: payments-team@ephico2real.com}
+extraLabels:
+  keys:
+    cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", example: cc-4410}
+    cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", description: "Links an app's environments"}
+    cmapi.net/rightsizing: {pattern: "^(auto|manual)$", description: "Opt-in to automatic rnd and qa decreases"}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50}
+extraAnnotations:
+  keys: {}
+  allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+# Read only when an existing namespace is adopted (story #26): a label and the values that mark a namespace that
+# another tool made. A requester cannot set these keys. The owner's decision (#228): the organisation's own
+# cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
+adoptionLabels:
+  company.net/provisioner: {recognise: [cluster-configs]}
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
-emailDomains: [ephico2real.com]   # placeholder: the organisation's mail domains (one or more), read by cmapi and the Kyverno bundle
+# The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
+# and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
+emailDomains: [ephico2real.com]
 ```
+
+**The four stanzas (#215).** `requiredLabels` and `requiredAnnotations` name the keys that each namespace carries. `extraLabels` and `extraAnnotations` name optional keys in `keys`, and `allowOther` admits any other key under one of its prefixes, within its limits (`max` for each kind; `maxValueBytes` and `maxBytesTotal` for annotations). A key can be a label and an annotation at once, with a rule for each. Each key's rule takes at most one of these, and optional `namespacePrefix`, `description` and `example`:
+
+| Rule | Meaning |
+| --- | --- |
+| `value: {from: namespace \| environment \| cluster \| instance}` | cmapi sets the value from the request's target. A request may send the same value, never another and never a removal (`derived_key`) |
+| `pattern` | A regular expression that the whole value matches |
+| `enum` | A list of the allowed values |
+| `format` | `email-in-domains` (an address in one of `emailDomains`) or `url` (an http or https URL), for annotations only: a label value cannot hold an address or a URL |
+| `namespacePrefix: true` | The namespace name starts with the value and a `-` (the owner's mnemonic: `abc-rnd` starts with `abc-`) |
+
+A required key that is missing or empty, or a value that breaks its rule, refuses the plan with one `policy-violation` problem that lists each key and its rule. The loader refuses a file that declares a system, operator-only or reserved key, gives a key two kinds of rule, puts a `format` on a label, gives a limit that is not a whole number, or still has the stanzas `governed` and `team` of the old format: an old file stops the start, so a required key never silently stops being required. `adoptionLabels` names the keys and values that mark a namespace made by another tool (story #26, adoption); a requester cannot set them, whatever `allowOther` admits. The API document's examples of `labels` and `annotations` are the `example` of each required key that the requester sends. `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample company configuration (namespace `abc-rnd`: `name` and `company.net/app-environment` derived, `company.net/mnemonic`, `lob` and `cl` required, `company.net/provisioner: cluster-configs` for adoption).
+
+The company example's two optional keys are annotations (the owner's decision on #234): `company.net/mnemonic-group-contact`, an address in `emailDomains`, and `company.net/mnemonic-confluence`, an http or https URL. A request that sends either as a label is refused (`invalid_key`, "... is an annotation"). An existing namespace that carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
+
+cmapi's own `cmapi.net/env` stays beside a company key such as `company.net/app-environment`: the first is cmapi's system key, which the approval rules, Kyverno and the instance boundary read; the second is the company's label, derived from the same environment (the owner's decision on #215).
+
+The Kyverno policies come from the same stanzas (#212). Not built yet: the portal's form (Wave 6), and a finding for an existing namespace that misses a new required key (the Policies tab, story #26).
 
 cmapi.net/team is required ownership and cost metadata. Any value matching the pattern is accepted from any caller; it is not checked against the caller's roles or groups (mustMatchBinding is retired).
 
@@ -1163,9 +1193,9 @@ spec:
     pods: "100"
 ```
 
-**On the cluster.** ArgoCD compares only the keys in Git. Keys that controllers add later, such as OpenShift's openshift.io/sa.scc.\* annotations or the pod-security sync labels, never show as drift. Removing a key from Git removes it from the cluster. Namespace Applications use the ServerSideApply=true sync option, so field ownership is explicit when ArgoCD and a controller write to the same object. A key someone changes by hand with oc label is reverted by self-heal if it is in Git. A new key added by hand stays, and shows as unmanaged in GET and in the drift report until a request adopts it into Git.
+**On the cluster.** ArgoCD compares only the keys in Git. Keys that controllers add later, such as OpenShift's openshift.io/sa.scc.\* annotations or the pod-security sync labels, never show as drift. Removing a key from Git removes it from the cluster when Argo CD is the key's only field manager; the plan says which case holds (Adoption plugin). Namespace Applications use the ServerSideApply=true sync option, so field ownership is explicit when ArgoCD and a controller write to the same object. A key someone changes by hand with oc label is reverted by self-heal if it is in Git. A new key added by hand stays, and shows as unmanaged in GET and in the drift report until a request adopts it into Git.
 
-**Adoption.** Adopting a namespace copies its existing governed and team keys into Git. Reserved and system keys stay on the cluster but out of the file. A missing required governed key blocks adoption and is listed in the unmanaged-namespaces report.
+**Adoption.** Adopting a namespace copies each of its labels and annotations into Git as it is, minus the skip prefixes of adoption.yaml. A key that breaks a rule, and a missing required key, are findings of the adoption's plan, never a block and never a change; a later request is refused only for a key that it changes (Adoption plugin).
 
 **New error codes,** all returned as policy-violation (422) with errors\[\].code set: reserved\_key, invalid\_key, invalid\_value, missing\_required\_key, too\_many\_keys, annotations\_too\_large. operator\_only\_key returns 403 forbidden. Identity and DL checks add three more 422 codes: identity-incomplete (a person's token has no employee\_id claim; automation accounts are exempt), unknown-user (onBehalfOf names nobody, or a disabled user) and invalid-team-dl (not an address in one of the emailDomains listed in metadata-keys.yaml). The DL is format-checked only; cmapi does not look it up or check membership. Namespace names add invalid-namespace-name and reserved-namespace (422) and namespace-exists-unmanaged (409, at create).
 
@@ -1248,9 +1278,9 @@ At startup an invalid catalog stops cmapi with every problem listed. On reload c
 | PATCH or PUT .../quota | normalise(env, hard) | The named tier when the values equal one exactly, otherwise custom |
 | Quota view | is\_outdated(env, tier, rendered hash) | State tier-outdated, a filter on GET /api/v1/quotas |
 | Rightsizing | match(env, hard, tolerance 0.10) | Snaps a recommendation to a tier within 10% |
-| Adoption | match(env, live hard) | The named tier when the live quota equals one, otherwise custom with the live values |
+| Adoption | not called | Tier custom with the live ResourceQuota and LimitRange as they are (the owner's decision on #26); the custom tier's bounds only report the values beyond them |
 
-The Kyverno bundle does not read the catalog. It checks what it always checked (limits never below requests, the required labels) on the rendered files, so CI and admission need no tier logic.
+The Kyverno bundle is rendered from the same catalog (#212, "Policy in one place"): a policy for each key's maximum of each environment, and the order defaultRequest ≤ default ≤ max of the LimitRange. The minimum and the step of custom values, and the fit of a LimitRange in its quota, stay in Python.
 
 **Beyond the tier.** The owner's rule of 2026-11-13: approval is the gate of a capability, so cmapi refuses only a value that is not valid, and the approval rules decide the rest. A request on the custom tier can change each key of overridable: the four quota keys that the catalog sets (in quota, with the three sizable keys), and the container and PVC limits (in limitRange). A key that is left out keeps the tier's value. The decision record, with the research on the storage and network keys, is docs/reviews/2026-11-14-issue-211/README.md.
 
@@ -1627,16 +1657,30 @@ The total is multiplied by the cluster's placement.weight and capped at 100. Tie
 
 ## Adoption plugin
 
-Adoption brings existing namespaces under the API by rendering their live state into Git; it is opt-in per namespace with the label cmapi.net/adopt: "true", and exclusions from a ConfigMap always win over the label.
+Not built yet (Wave 8). The design, with each decision, its reason and its sources, is docs/reviews/2026-11-14-issue-26-adoption/README.md; this section is its short form. The owner decided on #26: opt-in with `cmapi.net/adopt: "true"`, which stays on the namespace and is ignored once it is managed; cmapi reads only the live namespace state from the cluster and stays read-only there; the Namespace, ResourceQuota and LimitRange go to `cmapi-cluster-configs` as raw YAML, as they are, under tier `custom`; values that break a rule, and a missing required key, are adopted and reported, never changed or forced.
 
-**Selection order.** A namespace is a candidate only if every step passes:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/adoption/adoption.dark.png">
+  <source srcset="diagrams/adoption/adoption.light.png">
+  <img alt="cmapi adopts a namespace that carries the opt-in label. It reads the live Namespace, ResourceQuota and LimitRange from the cluster, drops server-set fields and skipped keys, adds its system keys under tier custom, and lists each difference from the rules as a finding. After approval the bot opens a pull request with the raw YAML; Argo CD applies it, and cmapi checks that only its own keys and the field managers changed. The opt-in label stays, inert." src="diagrams/adoption/adoption.light.png">
+</picture>
 
-1. **Built-in exclusions** (code, cannot be removed): default, openshift, openshift-*, kube-*.
-2. **Configured exclusions** from the ConfigMap: exact names, glob patterns and label selectors, global or per cluster and environment.
-3. **Already managed:** carries cmapi.net/managed: "true" or already has a folder in Git; skipped.
-4. **Opt-in label:** cmapi.net/adopt="true", found with a labelSelector on the namespace list.
+*The adoption flow, on the owner's sample of an existing namespace. Dashed: designed, not built. The source is `diagrams/adoption/source.html`, drawn by `diagrams/tools/draft-adoption.py`; the picture, this text and the page change together.*
 
-Label values are strings, so the label must be quoted ("true"); an unquoted true in YAML is a boolean and the API server rejects it. A labelled namespace that matches an exclusion is reported as skipped with the rule that matched, never adopted.
+```text
+Cluster: Namespace abc-rnd (opt-in cmapi.net/adopt), each ResourceQuota and LimitRange
+  1 candidate? opt-in; not excluded; not managed; not tracked by another Argo CD Application
+  2 read the live objects from the cluster, with uid, resourceVersion and field managers
+  3 drop server-set fields; skip keys only when D3a allows; add cmapi's system keys; tier custom
+  4 findings, never changes (a wrong name label; two labels that are annotations now; an adoption label)
+  5 approval (built) -> 6 the bot's pull request to cmapi-cluster-configs (built)
+    D16: read again at approval, PR opening and the required PR check; stale objects fail, removed opt-in cancels
+  7 Argo CD applies the folder: ServerSideApply, FailOnSharedResource, Prune=confirm on each object
+  8 the worker checks that only cmapi's keys, the field managers and Argo CD's tracking annotation changed
+Not adopted: ServiceAccounts, RoleBindings, SCC grants (they stay unmanaged)
+```
+
+**Candidates.** A namespace is one when each step passes: not a built-in exclusion (default, openshift, openshift-\*, kube-\*) or a configured one; not managed already (`cmapi.net/managed`, or a folder in Git: this is what makes the kept `cmapi.net/adopt` inert); not tracked by another Argo CD Application (its `argocd.argoproj.io/tracking-id` names another Application: skipped, with the Application named; the `app.kubernetes.io/instance` label counts only under Argo CD's label tracking); not `Terminating`; and labelled `cmapi.net/adopt: "true"`. `adoptionLabels` of metadata-keys.yaml (#215) only marks a namespace as made by another tool, for the reports; it never selects one, and cmapi never follows it.
 
 **Configuration.** A ConfigMap in the API's namespace (cmapi) on the hub, mounted as a file and re-read on POST /admin/reload:
 
@@ -1663,10 +1707,9 @@ data:
     clusters:
       OCP_GF1:
         names: [legacy-batch]
-    skip:                                 # objects inside an adopted namespace never adopted
-      serviceAccounts: [default, builder, deployer, pipeline]
-      roleBindings: ["system:image-pullers", "system:image-builders", "system:deployers"]
-      annotationPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/"]
+    skip:
+      # D3a decides which matching keys can be omitted safely; keep others with skipped-key-kept and list their managers.
+      keyPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/", "kubernetes.io/metadata.name", "pod-security.kubernetes.io/"]
 ```
 
 Patterns are matched with fnmatch on the full name; exclusions from global, environment and cluster scopes are combined, never subtracted, so a cluster entry can only exclude more.
@@ -1675,30 +1718,35 @@ Patterns are matched with fnmatch on the full name; exclusions from global, envi
 
 | Object | Adopted | Notes |
 | --- | --- | --- |
-| Namespace | Labels and annotations, minus skip prefixes and server-set fields | Renderer adds cmapi.net/managed and cmapi.net/cluster-id; drops cmapi.net/adopt |
-| ResourceQuota, LimitRange | Yes | Mapped to the nearest tier, or custom if none matches |
-| ServiceAccounts | Yes, except the skip list and operator-owned ones | Owner references mark operator-owned |
-| RoleBindings with a ServiceAccount subject | Yes, if the role is allowlisted | A non-allowlisted grant stays unmanaged and is listed as a finding |
-| SCC grants to ServiceAccounts | Yes, if the SCC is allowlisted | Same rule |
-| RoleBindings with User or Group subjects | No | Owned by the separate access process; ArgoCD does not prune objects it never tracked |
+| Namespace | Each label and annotation as it is, minus the skip prefixes when no client-side apply wrote the key (the design, D3a); server-set fields dropped | cmapi adds its system keys (`cmapi.net/managed`, `cluster-id`, `env`, `tier: custom`, `requested-by-user`; annotations `instance`, `request-id`, `requested-by`, `sync-options: Prune=confirm,ServerSideApply=true`). `cmapi.net/adopt` stays |
+| ResourceQuota, LimitRange | Each one, as it is, whatever its keys, scopes or item types | Tier `custom`, not mapped to a named tier. Each carries `Prune=confirm`. A value beyond the custom bounds is a finding |
+| ServiceAccounts, RoleBindings, SCC grants | No | They stay unmanaged; the plan counts them. Argo CD does not prune an object it never tracked |
 
-Server-set fields (uid, resourceVersion, creationTimestamp, managedFields, status) are always stripped. The openshift.io/sa.scc.\* annotations are skipped by default; keep them only if you need a rebuilt cluster to reuse the same UID ranges for existing PV data.
+Server-set fields (uid, resourceVersion, generation, creationTimestamp, managedFields, status, a Namespace's spec.finalizers) are always stripped. Argo CD adds its `argocd.argoproj.io/tracking-id` annotation on the first sync. Those keys and the change of field managers are the only differences on the live objects; the worker checks it after the sync. A key that a `kubectl apply` wrote under a skip prefix stays in the file, because Argo CD's client-side apply migration would otherwise remove it from the cluster on the first sync.
+
+**Findings, never changes.** The plan checks the Namespace's keys against metadata-keys.yaml and reports each difference: a derived key with another value (for example `name: aao-rnd` on `abc-rnd`), a missing required key, a value that breaks its rule, an empty value, a key that no stanza declares, a label that the stanzas declare as an annotation (kept as it is; the owner's decision on #215), an adoption label, a skipped or kept key, a value beyond the custom bounds, and each policy failure that the base holds. A key that the namespace already had wrong, or lacked, is not checked again while it does not change, in cmapi's check, in CI and at admission; each plan lists it until a request fixes it, and it never blocks an adoption or a later request (the owner's decision on #26). With the rendered Kyverno policies in `enforce`, the base at plan time and in the PR check is the approved plan's snapshot, bound to the plan hash and never taken from the PR, as `oldObject` is at admission (#248). cmapi keeps each key in Git that it does not own, such as `company.net/provisioner`, through each later update, and a requester may remove one but not set it.
 
 **Flow.**
 
-1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller must be admin of each namespace, checked with a SubjectAccessReview on that cluster, or be a platform admin.
-2. **Plan.** The plugin reads live objects, applies the skip rules and policies, and renders the files. The diff between rendered and live must be empty apart from the managed labels; anything else is a finding.
-3. **Approve, then PR. One request per namespace with the findings in its plan. Approval in cmapi: one namespace admin in rnd and qa, plus approver-platform in prod; once approved, the bot opens the PR**.
-4. **Sync.** On merge, the cluster's ArgoCD takes ownership. The first sync is a no-op except for the managed labels and the removal of cmapi.net/adopt, which marks adoption done.
-5. **Verify.** The worker confirms Synced and Healthy with no other changes; any unexpected diff fails the request and leaves the namespace as it was.
+1. **Request.** A caller asks to adopt one namespace or scans a cluster. The caller has `adoption:write` (cmapi-operator) or is admin of the namespace, checked with a SubjectAccessReview on that cluster.
+2. **Plan.** The plugin reads the live objects, drops what is listed above, renders the folder `clusters/<cluster>/namespaces/<namespace>/` and lists the findings. It changes nothing on the cluster.
+3. **Approve, then PR.** One request for each namespace, plugin `adoption`, with the findings and the facts `findings`, `beyondTier` and `beyondTierKeys`. The default rules ask one approver of approver-platform, and one more when the plan has findings; auto-approval never covers an adoption unless a rule names it. Once approved, the bot opens the PR.
+4. **Sync.** cmapi reads the objects again on approval, when the bot opens the PR and in the PR check; a changed `uid` or `resourceVersion` fails the request (`adoption-plan-stale`), and removing `cmapi.net/adopt` before the merge cancels it. On merge, the cluster's Argo CD applies the folder with ServerSideApply and FailOnSharedResource. The first sync adds only cmapi's system keys and Argo CD's tracking annotation.
+5. **Verify.** The worker compares each live object, field managers included, with the plan's snapshot after Synced and Healthy; any other difference fails the request and names the field. A failed adoption takes no `:revert` (409): a revert would let Argo CD prune objects that existed before cmapi, and each adopted object carries `Prune=confirm`.
+
+**Quotas and LimitRanges, free-form (#251).** Each adopted ResourceQuota and LimitRange is kept raw under its own name, with any content Kubernetes allows (extended resources, `count/<resource>.<group>`, `scopes`, `scopeSelector`, every LimitRange type), one file for each object: `resourcequota-<name>.yaml`, `limitrange-<name>.yaml` (this closes #250). A request names the object it changes and changes it in place, keeping each other field; with one object of a kind the name may be left out. The namespace moves to a named tier only when a request asks for it. The API's quota view returns a list of objects and derived numbers: the hard limit of a key is the smallest `hard` among the quotas with no scope, because each quota is enforced on its own; a scoped quota is shown and not counted; a key that cmapi does not interpret is shown raw, left out of the maths, and reported (`uninterpreted-key`).
+
+**Removing an adopted label later (#251).** An approved request can remove `company.net/provisioner` from Git and from the live namespace (D18). If Argo CD is its only field manager, one removal merge suffices. With a co-owner, the intermediate-value mechanism takes two separate merges: first set `cmapi-removing`, wait for `Synced` and verify in `managedFields` that Argo CD is the sole owner; only then merge the omission and verify that the live label is gone. If ownership is not exclusive, fail with `removal-not-owned` and retain the intermediate value until retry or an approved change. This mechanism is limited to `company.net/provisioner`, requires the intermediate value to pass the instance's rules and policies, excludes reserved prefixes and controllers that still write the label, and shows the intermediate value and duration in the plan. Otherwise the plan says “removed from Git; stays on the cluster” and an operator removes it by hand. B12 also measures the Application-level client-side-apply migration-manager route; D18 prefers it if it works with all fields of that manager preserved in Git. The bulk form is #252's admin operations (Wave 8).
+
+**cmapi's own LimitRanges (#251, the company standard).** A tier namespace gets two LimitRanges, `<ns>-limits-cpu` and `<ns>-limits-memory`, because Kubernetes enforces every LimitRange but picks defaults from several in no fixed order, so no two objects may set the same default. A third LimitRange for storage, `<ns>-limits-storage` (the PVC item's `max.storage`), is behind a switch in tiers.yaml, `storageLimitRange.enabled`, which is off by default in code and in the three instances, whose catalogs carry no such key; an instance or one environment turns it on with `enabled: true` (the owner: "turn it off by default in code and then provide an override"). With it off, a custom `limitRange.pvc.*` value is refused with 422 `policy-violation` and the item code `storage-limits-off`, #212's policies have no storage rule, and storage is governed by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims` only. With it on, the third object is rendered, `limitRange.pvc.max.storage` stays overridable within its bounds, and the policies check it. It is built as its own pull request after #245.
 
 **Endpoints.**
 
-- **GET /adoption/candidates.** Labelled, not excluded, not managed.
-- **GET /adoption/skipped.** Labelled but excluded, with the matching rule.
+- **GET /adoption/candidates.** Labelled, not excluded, not managed, not tracked elsewhere; marked "recognised" when an adoption label matches.
+- **GET /adoption/skipped.** Labelled but skipped, with the rule that matched.
 - **POST /namespaces/{ns}:adopt.** Adopt one namespace; supports ?dryRun=true.
 - **POST /adoption:scan.** Plan every candidate on the cluster; dryRun=true by default, so a scan never opens PRs unless asked.
-- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted.
+- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, recognised, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted.
 
 **RBAC.** The adoption plugin adds create on subjectaccessreviews (authorization.k8s.io) to each cluster's read ClusterRole, for the namespace-admin check.
 
@@ -1834,34 +1882,64 @@ Branch protection requires CI and the cmapi check rather than a human review, an
 
 ## Policy in one place
 
-Every object rule is written once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. Python validators keep only what Kyverno cannot see.
+Every object rule is rendered once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. cmapi's own checks run as well, so a request is checked the same way when Kyverno is off (#213).
 
 | Checkpoint | How it runs | What it stops |
 | --- | --- | --- |
 | API plan | kyverno apply on the rendered manifests, from the CLI baked into the image | Bad requests, before any PR exists |
 | CI on the PR | Same command, same bundle version | Hand edits to cluster-configs that bypass the API |
-| Cluster admission | Policies synced to each cluster by its ArgoCD, in Enforce mode | Changes that bypass Git entirely |
+| Cluster admission | The rendered policies of the cluster's environment, synced by its policies Application; the instance's mode gives Deny, or Audit and Warn | Changes that bypass Git entirely |
 
-**What moves into the bundle.** DNS-1123 names and reserved prefixes; label and annotation key and value rules; the ServiceAccount subject rule; the ClusterRole and SCC allowlists; limits never below requests; required labels (cmapi.net/cluster-id, cmapi.net/tier, and later owner, team and cost-center); the protected-namespace delete block.
+**Kyverno is optional (#213).** One setting for each instance, `policy` in `instance.yaml` (chart value `instance.policy`), gives the engine and a mode for each environment. cmapi works with or without Kyverno: its own checks (names, tiers, bounds, metadata keys) never depend on it.
 
-**What stays in Python.** Checks that need more than one object or outside data: the namespace already exists, an open change request on the object, capacity headroom, approval facts, and the caller's namespace-admin check.
-
-**Keeping it offline.** Allowlists live inside the policies as lists, not as ConfigMap lookups, so the CLI evaluates them with no cluster access and gives the same answer the cluster will.
-
-```
-cluster-configs/
-└── policies/                         # one bundle, versioned with tags
-    ├── naming.yaml
-    ├── labels.yaml
-    ├── rbac-subjects.yaml            # SA subjects only, same namespace
-    ├── rbac-allowlist.yaml           # grantable ClusterRoles
-    ├── scc-allowlist.yaml
-    ├── quota-limits.yaml             # limits >= requests
-    ├── protected-namespaces.yaml
-    └── tests/                        # kyverno test cases, run in CI on every policy change
+```yaml
+policy:
+  engine: kyverno          # kyverno | none
+  mode: enforce            # the mode of each environment that `environments` does not name
+  environments:
+    rnd: {mode: audit}
 ```
 
-Each cluster's root Application includes policies/ pinned to a bundle tag, and the API reports the tag it validated against in every Plan. A Kyverno failure maps to the policy-violation problem type, with the policy and rule names in errors.
+| Mode | Plan time in cmapi | Rendered policies (cluster), with #212 | CI on the PR |
+| --- | --- | --- | --- |
+| `enforce` (the default) | A Kyverno finding refuses the plan (`policy-violation`), as before | `validationActions: [Deny]` | Fails |
+| `audit` | A Kyverno finding is a warning on the plan and the dry run. The request goes on to approval, and the warning keeps the auto-approval rules from applying, so an approver sees it | `validationActions: [Audit, Warn]` | Reports, does not fail |
+| `off`, or `engine: none` | No Kyverno run; kubeconform and cmapi's own checks still run. cmapi needs no kyverno binary | No policies | Skips the Kyverno step |
+
+When a served environment runs Kyverno (`enforce` or `audit`) and the image has no kyverno binary, cmapi does not start (`PolicyEngineMissing`): a missing binary is a configuration error, not a refusal of every plan. A missing binary found while planning stays an error in each mode. `GET /api/v1/admin/integrations` reports the engine, each environment's mode and the Kyverno version that the image pins (v1.20.0, the least version the clusters must run, docs/11); the metric `cmapi_policy_mode{environment, mode}` is 1 for each. Moving an environment away from `enforce` is a change of the instance's configuration and gets the platform group's review; GitHub enforces that review only with branch protection (#227). The policies are `policies.kyverno.io/v1`, which the 1.20 CLI applies. With `CMAPI_KYVERNO_VERSION` set, as the image sets it, cmapi does not start with another CLI version. The decision record is `docs/reviews/2026-11-14-issue-213/`. Each rendered policy takes its `validationActions` from the mode, and an `off` environment gets no policies (#212).
+
+**The bundle is rendered, not written (#212).** `core/policygen.py` renders it from the instance's own configuration: `metadata-keys.yaml`, `tiers.yaml` and the `policy` of `instance.yaml`. Nobody edits a policy. Each value is a CEL literal in the policy, and each check is its own `ValidatingPolicy`, because Kyverno reports only the first failed validation of a policy. Each message names the key, the offending value and the configured value: "requests.cpu 40 is above the rnd maximum of 32; a bound of tiers.yaml, which approval does not lift". The decision record, with the two independent designs and their measurements, is `docs/reviews/2026-11-14-issue-212/`.
+
+| Family | Object | What each policy checks |
+| --- | --- | --- |
+| `cmapi-metadata-<env>` | A managed Namespace | One required or declared key of metadata-keys.yaml: present and not empty, its `pattern`, `enum` or `format`, `namespacePrefix`, a derived key equal to its source; `cmapi.net/cluster-id` and `cmapi.net/managed` present; `cmapi.net/env` equal to the folder's environment |
+| `cmapi-quota-<env>` | A managed ResourceQuota | One key at or below the environment's maximum (`quantity()`, so `40000m` is `40`) |
+| `cmapi-limits-<env>` | A managed LimitRange | One `limitRange.*` key at or below its maximum; container `default` not below `defaultRequest`, `max` not below `default` |
+| `deny-expiry-in-prod` | Every Namespace of a prod cluster | No `cmapi.net/expires-at`, `cmapi.net/expiry` or `cleanup.kyverno.io/ttl`, as before |
+
+**What stays in Python.** What a requester may send (reserved prefixes, system and operator-only keys, `allowOther` and its limits, adoption labels): a live object also carries keys that the platform and operators add. Checks that need more than one object or outside data: the namespace already exists, an open change request on the object, capacity headroom, the minimum and step of custom values, the fit of a LimitRange in its quota, approval facts, and the caller's namespace-admin check.
+
+**A value that Git already holds is not refused.** The bounds of tiers.py do not check an approved value again, so a later, lower bound does not refuse a namespace that was approved before it. The bundle does the same. At admission, an UPDATE that keeps a key's value from `oldObject` passes. At plan time and in CI, where the CLI always evaluates as CREATE, cmapi drops a failure on a key whose value the previous version in Git holds; `env/<env>/index.json` maps each policy to its key. This also lets an adopted namespace keep its values through its first sync (#26).
+
+**Keeping it offline.** Every value lives inside the policies, not in ConfigMap lookups, so the CLI evaluates them with no cluster access and gives the same answer the cluster will. A ConfigMap read with `resource.Get()` works offline only with a context file, and the live ConfigMap could differ from the approved plan (#212, M6, M7).
+
+```
+cmapi-cluster-configs/
+└── policies/
+    ├── metadata-keys.yaml            # configuration, read by cmapi; not applied
+    └── env/<env>/                    # rendered for each environment that is not off; synced only to its clusters
+        ├── cmapi-metadata-<env>.yaml
+        ├── cmapi-quota-<env>.yaml
+        ├── cmapi-limits-<env>.yaml
+        ├── deny-expiry-in-prod.yaml  # prod only
+        └── index.json                # policy -> key and rule; not applied
+```
+
+Each cluster has a policies Application beside its namespaces Application. It syncs only `policies/env/<its environment>/*.yaml`, with prune, so a namespace's own `cmapi.net/env` cannot choose looser bounds, and an environment that becomes `off` loses its policies (`examples/cluster-configs/clusters/OCP_GF15/argocd/policies-application.yaml`). Each instance renders the folders of its own environments: `cmapi-tools policies render --config-dir <instance> --metadata-keys <file> --out policies`. `cmapi-tools policies check`, with the same arguments, fails when a file differs from the render. This repository's tests run it on the example bundle; the workflow of cmapi-cluster-configs that runs it comes with #244.
+
+At plan time cmapi renders the bundle in memory from its running configuration, adds any hand-written policy of `/etc/cmapi/policies`, and runs one `kyverno apply` with a JSON report on the Namespace, ResourceQuota and LimitRange. A violation is a finding of source kyverno: an error in `enforce`, a warning in `audit`. An evaluation error, a run with no report, and a policy that gives no result for a file that it matches are findings of source cmapi, errors in each mode. A Kyverno failure maps to the policy-violation problem type, with the policy name in errors.
+
+Not built here: the bot's pull request when the configuration changes, and the bundle hash in each plan (#244); a PolicyException for each approved beyond-tier value at admission, an owner choice (#242); a policy for each cluster for a key derived from the cluster (#243). The ServiceAccount subject rule, the ClusterRole and SCC allowlists and the protected-namespace delete block are not rendered yet.
 
 ## Observability
 

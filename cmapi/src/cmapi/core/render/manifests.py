@@ -41,8 +41,8 @@ class NamespaceSpec:
     request_id: str
     requested_by_user: str               # from the token (Identity.label_value), used at create
     requested_by_email: str | None
-    labels: dict[str, str] = field(default_factory=dict)        # governed and team keys only
-    annotations: dict[str, str] = field(default_factory=dict)   # governed (team-dl) and team keys
+    labels: dict[str, str] = field(default_factory=dict)        # required, extra and other keys of the requester
+    annotations: dict[str, str] = field(default_factory=dict)   # the same, for annotations; derived keys are added at render
     quota: dict[str, str] | None = None                         # sizable and overridable quota keys, custom tier only
     limit_range: dict[str, dict[str, dict[str, str]]] | None = None   # overridable LimitRange values, custom tier only
     approved: dict[str, str] = field(default_factory=dict)      # the custom values Git holds: not checked against the bounds again
@@ -108,10 +108,13 @@ class ManifestRenderer:
         old_ns = next(iter(prev.get("namespace.yaml", [])), None)
         old_ann = (old_ns or {}).get("metadata", {}).get("annotations", {})
         old_lab = (old_ns or {}).get("metadata", {}).get("labels", {})
-        # caller keys first, system keys last: a caller can never override what the renderer owns
-        labels = {**spec.labels, **common_labels, "cmapi.net/env": spec.env, "cmapi.net/tier": spec.tier,
+        # caller keys first, then the keys that cmapi derives (value.from of metadata-keys.yaml), system keys last:
+        # a caller can never override what the renderer owns
+        derived_labels, derived_ann = self.keys.derived({"namespace": spec.namespace, "environment": spec.env,
+                                                         "cluster": spec.cluster_id, "instance": spec.instance})
+        labels = {**spec.labels, **derived_labels, **common_labels, "cmapi.net/env": spec.env, "cmapi.net/tier": spec.tier,
                   "cmapi.net/requested-by-user": old_lab.get("cmapi.net/requested-by-user", spec.requested_by_user)}
-        ann = {**spec.annotations, "argocd.argoproj.io/sync-options": SYNC_OPTIONS}
+        ann = {**spec.annotations, **derived_ann, "argocd.argoproj.io/sync-options": SYNC_OPTIONS}
         requested_by = old_ann.get("cmapi.net/requested-by", spec.requested_by_email)
         if requested_by:
             ann["cmapi.net/requested-by"] = requested_by

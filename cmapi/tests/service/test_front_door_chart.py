@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -105,6 +106,11 @@ def test_the_instance_url_is_the_front_door_for_the_realm_and_the_api(crc):
     assert clients["cmapi-docs"]["redirectUris"] == ["https://cmapi.apps-crc.testing/docs/oauth2-redirect"]
     instance = yaml.safe_load(find(crc, "ConfigMap", "cmapi-config")[0]["data"]["instance.yaml"])["instance"]
     assert instance["publicUrl"] == instance["portalUrl"] == "https://cmapi.apps-crc.testing"
+    # Fable's review of #238, F7: the guides and examples name the one host too.
+    for doc in ("docs/15-keycloak-integration.md", "docs/13-crc-deployment.md", "cmapi-portal-ui/config.example.json",
+                "deploy/oidc-login.py"):
+        text = (ROOT / doc).read_text()
+        assert "cmapi-api.apps-crc.testing" not in text and "cmapi-portal.apps-crc.testing" not in text, doc
 
 
 def test_only_the_front_door_reaches_the_api_port(crc):
@@ -146,3 +152,31 @@ def test_route_replaces_untrusted_forwarded_headers(crc):
     for route in routes:
         annotations = route["metadata"].get("annotations", {})
         assert annotations.get("haproxy.router.openshift.io/set-forwarded-headers") == "replace", route["metadata"]["name"]
+
+
+def _seconds(conf: str, directive: str) -> int:
+    return int(re.search(rf"^{directive} (\d+)s;", conf, re.M).group(1))
+
+
+def test_the_router_waits_longer_than_the_front_door(crc):
+    """Fable's review, F3. The router's default server timeout is 30 s (IngressController tuningOptions.serverTimeout). Below the
+    front door's own limit, the router answers 504 with its own page first, and nginx's limit and second try never run."""
+    nginx = ROOT / "cmapi-portal-ui/nginx/cmapi"
+    proxy, api = (nginx / "proxy.conf").read_text(), (nginx / "proxy-api.conf").read_text()
+    tries = int(re.search(r"^proxy_next_upstream_tries (\d+);", proxy, re.M).group(1))
+    worst = tries * (_seconds(proxy, "proxy_connect_timeout") + _seconds(api, "proxy_read_timeout"))
+    routes = {r["metadata"]["name"]: r["metadata"]["annotations"] for r in find(crc, "Route")}
+    timeout = routes["cmapi"].get("haproxy.router.openshift.io/timeout")
+    assert timeout is not None and timeout.endswith("s") and int(timeout[:-1]) > worst, (timeout, worst)
+    assert "haproxy.router.openshift.io/timeout" not in routes["cmapi-mockup"]      # a static page: the default is enough
+
+
+def test_with_ingress_the_front_door_can_be_closed_to_all_but_the_controller(tmp_path):
+    """Fable's review, F5. With Ingress exposure the port was open to every pod of the cluster, and nginx passes a caller's
+    X-Forwarded-For and X-Forwarded-Proto on. networkPolicy.ingressNamespace names the controller's namespace."""
+    args = ("-f", str(CRC), "--set", "exposure=Ingress", "--set", "ingress.host=cmapi.example", "--set", "ingress.mockup.host=m.example")
+    door = find(render(tmp_path, *args, "--set", "networkPolicy.ingressNamespace=ingress-nginx"), "NetworkPolicy", "cmapi-front-door")[0]["spec"]
+    assert door["ingress"] == [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "ingress-nginx"}}}],
+                                "ports": [{"port": 8080, "protocol": "TCP"}]}]
+    door = find(render(tmp_path, *args), "NetworkPolicy", "cmapi-front-door")[0]["spec"]
+    assert door["ingress"] == [{"ports": [{"port": 8080, "protocol": "TCP"}]}]      # unset: open, as before, and documented

@@ -42,6 +42,11 @@ metadata:
   labels: {{- include "cmapi.labels" $ | nindent 4 }}
   annotations:
     haproxy.router.openshift.io/set-forwarded-headers: replace
+    {{- if eq $site.key "instance" }}
+    # The router's own limit on the wait for an answer is 30 s. It must be above the front door's, or the router
+    # answers 504 with its own page before nginx's limit and second try run (values.yaml, route.timeout).
+    haproxy.router.openshift.io/timeout: {{ $.Values.route.timeout | quote }}
+    {{- end }}
 spec:
   {{- if $site.host }}
   host: {{ $site.host }}

@@ -18,7 +18,7 @@ kept when the new one fails, and cmapi_config_reload_failed{file} is set.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -27,6 +27,7 @@ from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
+from cmapi.core.policy import PolicySettings
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
 
@@ -49,6 +50,7 @@ class InstanceConfig:
     metadata: MetadataKeys
     plugins: PluginSwitch
     hashes: dict[str, str]
+    policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
 
 
 def _read(path: Path) -> tuple[dict, str]:
@@ -107,6 +109,8 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
             problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
     if expiration and "prod" in allowed and expiration.allows("prod"):
         problems.append("expiration.yaml: prod can never expire")
+    policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
+    problems.extend(policy_problems)
     if problems:
         raise ConfigError(problems)
-    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes)
+    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy)

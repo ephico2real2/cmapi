@@ -71,7 +71,8 @@ CSP_DOCS = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 's
             "frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
 CSP_API = "default-src 'none'; frame-ancestors 'none'"
 CSP_REDOC = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; "
+             "form-action 'none'")
 CSP_MOCKUP = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; "
               "font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; form-action 'none'; frame-src 'none'; "
@@ -381,7 +382,7 @@ def case_routes(ng: Nginx) -> None:
         _s, h, _b = request(port, "GET", "/docs")
         expect_headers(h, {**COMMON, "content-security-policy": CSP_DOCS, "cross-origin-opener-policy": None}, "/docs")
         _s, h, _b = request(port, "GET", "/redoc", headers={"X-Test-Security": "1"})
-        expect_headers(h, {**COMMON, "content-security-policy": CSP_REDOC, "cross-origin-opener-policy": None}, "/redoc")
+        expect_headers(h, {**COMMON, "content-security-policy": CSP_REDOC, "cross-origin-opener-policy": "same-origin"}, "/redoc")
         main_src = (ROOT / "cmapi/src/cmapi/main.py").read_text()
         app_csp = re.search(r'REDOC_CSP = \((.*?)\)\n', main_src, re.S)
         check(app_csp is not None and "".join(re.findall(r'"([^"]*)"', app_csp.group(1))) == CSP_REDOC,
@@ -649,6 +650,48 @@ def case_review_retry_matrix(ng: Nginx) -> None:
                 good.stop()
 
 
+def case_fable_review(ng: Nginx) -> None:
+    print("Fable's review: no compressed API answer, no query string in nginx's error log, a large bearer token")
+    pods = [Pod("a"), Pod("b")]
+    port = free_port()
+    d = ng.write(GOOD_ENV, port, [f"127.0.0.1:{p.port}" for p in pods])
+    proc = ng.start(d, port)
+    try:
+        # F1: the stand-in answers with the path, so a long path gives a JSON answer above gzip_min_length.
+        long = "/api/v1/requests?filter=" + "a" * 3000
+        status, h, body = request(port, "GET", long, headers={"Accept-Encoding": "gzip"})
+        check(status == 200 and one(h, "content-encoding") is None and len(body) > 3000,
+              f"a JSON answer of the API is not compressed (Content-Encoding: {one(h, 'content-encoding')}, {len(body)} bytes)")
+        for path in ("/openapi.json", "/static/swagger/swagger-ui-bundle.js"):
+            status, h, _b = request(port, "GET", path + "?pad=" + "a" * 3000, headers={"Accept-Encoding": "gzip"})
+            check(status == 200 and one(h, "content-encoding") == "gzip", f"{path}, which holds no secret, stays compressed")
+        status, h, _b = request(port, "GET", "/assets/index-AbC123.js", headers={"Accept-Encoding": "gzip"})
+        check(status == 200 and one(h, "content-encoding") == "gzip", "a static file of the portal is compressed")
+
+        # F4: Keycloak's access token grows with the groups in it; nginx's default refuses a header line above 8k.
+        status, _h, _b = request(port, "GET", "/api/v1/me", headers={"Authorization": "Bearer " + "t" * 12000})
+        check(status == 200, f"a 12 kB Authorization header reaches the API ({status})")
+        status, _h, _b = request(port, "GET", "/api/v1/me", headers={"Authorization": "Bearer " + "t" * 20000})
+        check(status == 400, f"a 20 kB Authorization header is refused ({status})")
+
+        # F2: the Swagger UI sign-in returns to /docs/oauth2-redirect?code=...&state=... . nginx writes the request line
+        # of a failed upstream request to its error log, so that location logs no upstream error.
+        status, _h, _b = request(port, "GET", "/docs/oauth2-redirect?code=AUTHZ-CODE-SECRET&state=STATE-SECRET",
+                                 headers={"X-Test-Failure": "reset"})
+        check(status == 502, f"the redirect page answers 502 when both pods fail ({status})")
+        time.sleep(0.3)
+        errors = (d / "error.log").read_text()
+        check("AUTHZ-CODE-SECRET" not in errors and "STATE-SECRET" not in errors,
+              "the authorization code of a failed /docs/oauth2-redirect is not in nginx's error log")
+        entry = [e for e in access_log(d) if e["uri"] == "/docs/oauth2-redirect"]
+        check(len(entry) == 1 and entry[0]["status"] == 502 and "," in entry[0]["upstream_addr"],
+              "the access log still records the failure and both pods")
+    finally:
+        ng.stop(proc)
+        for p in pods:
+            p.stop()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group(required=True)
@@ -680,6 +723,7 @@ def main() -> int:
         case_review_env_single_line()
         case_review_error_headers(ng)
         case_review_retry_matrix(ng)
+        case_fable_review(ng)
         if args.image:
             case_image(args)
     print(f"front door cases failed: {len(failures)}")
