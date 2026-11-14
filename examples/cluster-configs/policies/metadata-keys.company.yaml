@@ -11,10 +11,13 @@
 #       company.net/mnemonic: abc         # required: the start of the namespace name
 #       company.net/lob: amgsst           # required: line of business
 #       company.net/cl: '1'               # required: critical level
-#       company.net/mnemonic-group-contact: ''   # optional
-#       company.net/mnemonic-confluence: ''      # optional
 #     annotations:
 #       company.net/app-environment: rnd  # derived
+#       company.net/mnemonic-group-contact: abc-team@company.net       # optional: an address in emailDomains
+#       company.net/mnemonic-confluence: https://wiki.company.net/abc  # optional: an http or https URL
+#
+# The owner's decision on #234: the two optional keys are annotations, with their formats. An existing namespace that
+# carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
 operatorOnly: [cmapi.net/protected]
@@ -29,13 +32,12 @@ requiredLabels:
 requiredAnnotations:
   company.net/app-environment: {value: {from: environment}}
 extraLabels:
-  keys:
-    # A label value is at most 63 characters of [A-Za-z0-9_.-], so neither key can hold an address or a URL.
-    company.net/mnemonic-group-contact: {description: "The mnemonic's group contact"}
-    company.net/mnemonic-confluence:    {description: "The mnemonic's Confluence space"}
+  keys: {}
   allowOther: {prefixes: ["", "*.company.net/"], max: 50}
 extraAnnotations:
-  keys: {}
+  keys:
+    company.net/mnemonic-group-contact: {format: email-in-domains, description: "The mnemonic's group contact", example: abc-team@company.net}
+    company.net/mnemonic-confluence:    {format: url, description: "The mnemonic's Confluence space", example: "https://wiki.company.net/abc"}
   allowOther: {prefixes: ["", "*.company.net/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
 adoptionLabels:
   company.net/provisioner: {recognise: [cluster-configs]}

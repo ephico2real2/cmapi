@@ -266,7 +266,11 @@ class MetadataKeys:
                 if cls in ("system", "reserved"):
                     errs.append({"code": "reserved_key", "key": key})
                 elif cls == "disallowed":
-                    errs.append({"code": "invalid_key", "key": key, "detail": "prefix not allowed"})
+                    # A key declared for the other kind (#234: the company's contact and wiki keys are annotations).
+                    other = "annotation" if kind == "label" else "label"
+                    article = "an" if other == "annotation" else "a"
+                    detail = f"{key} is {article} {other}" if key in self.rules[other] else "prefix not allowed"
+                    errs.append({"code": "invalid_key", "key": key, "detail": detail})
                 elif cls == "operatorOnly" and not operator:
                     errs.append({"code": "operator_only_key", "key": key})
                 elif cls == "governed":
