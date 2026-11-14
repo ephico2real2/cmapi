@@ -1,8 +1,15 @@
 # Fable's review of PR #239: the adoption design (story #26)
 
-> **Superseded in part.** The owner decided on #26 (2026-11-14, 15:09Z and 15:11Z) that this design has no step about
-> any other repository. A7's proposed text for D12, and each sentence here about an old tool or its repository, are
-> withdrawn and are not part of the design. The second pass is at the end of this file.
+> **Historical review; superseded proposals are not implementation instructions.** The two passes below review older
+> heads. Current decisions are in README.md, D1–D19, and docs/02's Adoption plugin section. The owner's #26 decisions
+> (2026-11-14, 15:09Z and 15:11Z) replace all proposals here to remove `cmapi.net/adopt`, force a missing required key,
+> or plan any step about another repository; A7's D12 proposal and every such repository instruction are withdrawn.
+> The owner's #251 decisions (15:45Z and 16:09Z) replace R5's “none for storage” and removal of PVC capability:
+> D19 retains storage LimitRanges behind `storageLimitRange.enabled`, absent means off in code, with an explicit true
+> override; off refuses custom PVC limit requests clearly. R4's accepted mechanism in D18 uses two separate merges
+> with a verified sync between them, subject to D18's limits, not two commits in one merge or an unrestricted operation
+> on any adopted label. The first pass's nearest-tier references describe rejected text; adoption always uses custom.
+> The second pass is at the end of this file. Preserve the historical text below as review evidence only.
 
 Reviewer: Fable 5.2, 2026-11-14. Head `3e121a1`. Read in full: `docs/reviews/2026-11-14-issue-26-adoption/README.md`
 (289 lines), the PR's diff of `docs/02`, #26 with its six comments, #215's comment of 14:25Z, #217, PR #245's body and

@@ -56,7 +56,7 @@ def body():
     steps = [
         ("1  Candidate?", ("opt-in label; not excluded; not managed;", "not tracked by another Argo CD app")),
         ("2  Read the live objects", ("Namespace, ResourceQuotas, LimitRanges;", "uid, resourceVersion, field managers")),
-        ("3  Drop, then add", ("drop server-set fields and skip prefixes;", "add cmapi's system keys, tier custom")),
+        ("3  Drop, then add", ("drop server fields; skip keys only when D3a allows;", "add cmapi's system keys, tier custom")),
         ("4  Findings, never changes", ("a wrong name label; a missing key: reported,", "never forced; two labels that are annotations now")),
     ]
     for i, (title, lines) in enumerate(steps):
@@ -99,7 +99,7 @@ def main():
         f'        <svg viewBox="0 0 1080 {height}" role="img" aria-label="{e(aria)}">',
         '          <defs><marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>',
         f"          <g {SANS}>", svg, "          </g>", "        </svg>", "      </div>",
-        "      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>",
+        "      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. D16 requires another live read on approval, at PR opening and in the required PR check: changed uid or resourceVersion fails with adoption-plan-stale; an opt-in label removed before merge cancels the request. The interval from the last check to sync remains uncovered. D3a keeps skipped-prefix keys whose omission would remove them on the cluster. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>",
         "    </figure>", "  </section>", "</div>"]) + "\n"
     out = ROOT / "docs/diagrams/adoption/source.html"
     out.parent.mkdir(parents=True, exist_ok=True)

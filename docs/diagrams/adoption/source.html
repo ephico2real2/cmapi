@@ -110,7 +110,7 @@ a { color: var(--remote); }
 <line x1="512" y1="114" x2="512" y2="130" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
 <rect x="300" y="224" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
 <text x="312" y="244" font-weight="600" fill="var(--host)">3  Drop, then add</text>
-<text x="312" y="262" font-size="11.5" fill="var(--muted)">drop server-set fields and skip prefixes;</text>
+<text x="312" y="262" font-size="11.5" fill="var(--muted)">drop server fields; skip keys only when D3a allows;</text>
 <text x="312" y="278" font-size="11.5" fill="var(--muted)">add cmapi&#x27;s system keys, tier custom</text>
 <line x1="512" y1="206" x2="512" y2="222" stroke="currentColor" stroke-width="1.2" marker-end="url(#ad)"/>
 <rect x="300" y="316" width="424" height="74" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.2" stroke-dasharray="5 4"/>
@@ -149,7 +149,7 @@ a { color: var(--remote); }
           </g>
         </svg>
       </div>
-      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>
+      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. D16 requires another live read on approval, at PR opening and in the required PR check: changed uid or resourceVersion fails with adoption-plan-stale; an opt-in label removed before merge cancels the request. The interval from the last check to sync remains uncovered. D3a keeps skipped-prefix keys whose omission would remove them on the cluster. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>
     </figure>
   </section>
 </div>

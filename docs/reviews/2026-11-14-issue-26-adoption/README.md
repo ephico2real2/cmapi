@@ -324,8 +324,9 @@ shape that the API returns for a namespace:
 - The view says which source each number has: the live objects of the cluster's watch cache, or Git, when the two
   differ.
 
-The quota view's `cpu`, `memory` and `pods` columns, and the capacity reservation of a later request, use `derived`. The
-data model doc (docs/16) gets a section on this view when it is built.
+The quota view's `cpu`, `memory` and `pods` columns, and the capacity reservation of a later request, use `derived`.
+docs/16-data-model.md records this planned view and its storage below “What the database does not hold”; no schema
+change or implemented API is claimed by this design PR.
 
 ### D18. Keep or remove `company.net/provisioner` after the adoption (#251)
 
@@ -431,8 +432,9 @@ renderer maps each key to its object. What follows the split:
   ResourceQuota and on each LimitRange, so `is_outdated` reads the same value from any of them;
 - the plan diff and the dry run, which show each object;
 - the quota view, which lists each LimitRange;
-- #212's generated policies, which check each object's keys, with the order checks inside the CPU and memory objects;
-  each check passes an object that does not hold its key, as today;
+- #212's generated policies (PR #245, merged as `6f8ec6d`): they check each object's keys, with order checks inside
+  the CPU and memory objects, and pass an object that does not hold the checked key. Fable observed that behavior at
+  #245's head; the D19 build verifies it again on the CPU and memory objects;
 - docs/02's `tiers.yaml` examples, which get the switch (off) and say that the `pvc` values apply only when it is on.
   They change in that pull request, listed in its body.
 
@@ -530,7 +532,18 @@ each step:
 | B6 | `FailOnSharedResource=true` on cmapi's Applications (Wave 5's ApplicationSet) | A namespace in another Application fails the sync (kind) |
 | B7 | The adoption plan's base for the rendered policies (D6a, #248) | The test namespace with `name: aao-rnd` passes the plan and the PR check in `enforce`, with `policy-ratcheted`; a PR whose head carries another base is not believed; a changed value is refused |
 | B8 | No revert of a failed adoption (D11) | A failed adoption, then `:revert`: 409; the three live objects are unchanged |
-| B9 | One rule for a value the namespace already has (D6) | An update of an adopted namespace that lacks `company.net/lob` and changes only the quota passes, with the finding listed; a request that sets `company.net/lob` to an invalid value is refused |
+| B9 | One rule for a value the namespace already has (D6) | A service test in `cmapi/tests/service/` submits the update through the namespace API and `core/pipeline.py`: an adopted namespace missing `company.net/lob` accepts a quota-only change and lists `missing-required-key` in the plan; setting that key to an invalid value returns 422. A helper-only test does not satisfy this item. The live adoption suite repeats the case in enforce mode on kind, then CRC, after #157 allows it |
+
+**Test assignments.** B1, B2, B3, B5, B10's parser/renderer checks and B11's quantity/derivation checks run in
+`cmapi/tests/core/` with recorded objects and Git folders. B4, B7, B8 and B9 run in `cmapi/tests/service/` through the
+API or worker as applicable; B7 exercises both planning and PR validation with the approved snapshot and a tampered
+PR base. B9 must use the API as its row specifies. The live adoption integration suite runs B1's takeover, B4's live
+comparison, B5's ownership cases, B6, B7's admission case, B8's unchanged live objects, B9's held-key update, B10's
+empty Argo CD rename diff and B12 on kind first, then CRC, gated by #157 and restricted to the test namespaces of §5.
+B2, B3 and B11 retain their offline assertions as well as the update/view checks of that live suite. The CRC-only
+controller-owned pod-security-label case remains in §5. B12 records whether the Application-level migration-manager
+route transfers sole ownership without changing retained fields; use that route only on success, otherwise prove
+the permitted two-merge fallback. No live result is claimed by this documentation PR.
 
 **A bug that this design found, filed apart:** `core/pipeline.py` reads `resourcequota.yaml` with `yaml.safe_load`, which
 raises `ComposerError: expected a single document in the stream` on a file with two documents. A folder with two
@@ -602,8 +615,10 @@ The before-and-after comparison uses `oc get -o yaml --show-managed-fields`.
 - Kubernetes, "Namespaces", automatic labelling: <https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/>.
 - OpenShift Container Platform 4.22, "Understanding and managing pod security admission":
   <https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/authentication_and_authorization/understanding-and-managing-pod-security-admission>.
-- cmapi: docs/02 "Adoption plugin", `core/metadata.py` (#215, PR #234), `core/render/manifests.py`, `core/pipeline.py`,
-  `core/policygen.py` (#212, PR #245), `routers/requests.py`, docs/reviews/2026-11-14-issue-211/.
+- cmapi at this export: docs/02 "Adoption plugin", `core/metadata.py` (#215, PR #234), `core/render/manifests.py`,
+  `core/pipeline.py`, `core/validate/__init__.py`, `routers/requests.py`, docs/reviews/2026-11-14-issue-211/.
+- #212 / PR #245 (merged as `6f8ec6d`): `core/policygen.py` and the validator's base (`previous`) for the ratchet.
+  D6a specifies the adoption integration still to build on top of it: the approved plan's snapshot as the base.
 - Fable's review: `fable-review.md` in this folder.
 
 ## 7. For the reviewer

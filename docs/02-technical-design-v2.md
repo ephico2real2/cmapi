@@ -1671,9 +1671,10 @@ Not built yet (Wave 8). The design, with each decision, its reason and its sourc
 Cluster: Namespace abc-rnd (opt-in cmapi.net/adopt), each ResourceQuota and LimitRange
   1 candidate? opt-in; not excluded; not managed; not tracked by another Argo CD Application
   2 read the live objects from the cluster, with uid, resourceVersion and field managers
-  3 drop server-set fields and skip prefixes; add cmapi's system keys; tier custom
+  3 drop server-set fields; skip keys only when D3a allows; add cmapi's system keys; tier custom
   4 findings, never changes (a wrong name label; two labels that are annotations now; an adoption label)
   5 approval (built) -> 6 the bot's pull request to cmapi-cluster-configs (built)
+    D16: read again at approval, PR opening and the required PR check; stale objects fail, removed opt-in cancels
   7 Argo CD applies the folder: ServerSideApply, FailOnSharedResource, Prune=confirm on each object
   8 the worker checks that only cmapi's keys, the field managers and Argo CD's tracking annotation changed
 Not adopted: ServiceAccounts, RoleBindings, SCC grants (they stay unmanaged)
@@ -1707,7 +1708,7 @@ data:
       OCP_GF1:
         names: [legacy-batch]
     skip:
-      # A key under one of these prefixes is dropped from the file and listed in the plan (the design, D3).
+      # D3a decides which matching keys can be omitted safely; keep others with skipped-key-kept and list their managers.
       keyPrefixes: ["openshift.io/sa.scc.", "kubectl.kubernetes.io/", "kubernetes.io/metadata.name", "pod-security.kubernetes.io/"]
 ```
 
@@ -1735,7 +1736,7 @@ Server-set fields (uid, resourceVersion, generation, creationTimestamp, managedF
 
 **Quotas and LimitRanges, free-form (#251).** Each adopted ResourceQuota and LimitRange is kept raw under its own name, with any content Kubernetes allows (extended resources, `count/<resource>.<group>`, `scopes`, `scopeSelector`, every LimitRange type), one file for each object: `resourcequota-<name>.yaml`, `limitrange-<name>.yaml` (this closes #250). A request names the object it changes and changes it in place, keeping each other field; with one object of a kind the name may be left out. The namespace moves to a named tier only when a request asks for it. The API's quota view returns a list of objects and derived numbers: the hard limit of a key is the smallest `hard` among the quotas with no scope, because each quota is enforced on its own; a scoped quota is shown and not counted; a key that cmapi does not interpret is shown raw, left out of the maths, and reported (`uninterpreted-key`).
 
-**Removing an adopted label later (#251).** An approved request removes `company.net/provisioner`, or any adopted label, from Git and from the live namespace. When another field manager co-owns the label, the request takes two commits: one value that Argo CD's forced apply takes over, then the removal. The bulk form is #252's admin operations (Wave 8).
+**Removing an adopted label later (#251).** An approved request can remove `company.net/provisioner` from Git and from the live namespace (D18). If Argo CD is its only field manager, one removal merge suffices. With a co-owner, the intermediate-value mechanism takes two separate merges: first set `cmapi-removing`, wait for `Synced` and verify in `managedFields` that Argo CD is the sole owner; only then merge the omission and verify that the live label is gone. If ownership is not exclusive, fail with `removal-not-owned` and retain the intermediate value until retry or an approved change. This mechanism is limited to `company.net/provisioner`, requires the intermediate value to pass the instance's rules and policies, excludes reserved prefixes and controllers that still write the label, and shows the intermediate value and duration in the plan. Otherwise the plan says “removed from Git; stays on the cluster” and an operator removes it by hand. B12 also measures the Application-level client-side-apply migration-manager route; D18 prefers it if it works with all fields of that manager preserved in Git. The bulk form is #252's admin operations (Wave 8).
 
 **cmapi's own LimitRanges (#251, the company standard).** A tier namespace gets two LimitRanges, `<ns>-limits-cpu` and `<ns>-limits-memory`, because Kubernetes enforces every LimitRange but picks defaults from several in no fixed order, so no two objects may set the same default. A third LimitRange for storage, `<ns>-limits-storage` (the PVC item's `max.storage`), is behind a switch in tiers.yaml, `storageLimitRange.enabled`, which is off by default in code and in the three instances, whose catalogs carry no such key; an instance or one environment turns it on with `enabled: true` (the owner: "turn it off by default in code and then provide an override"). With it off, a custom `limitRange.pvc.*` value is refused with 422 `policy-violation` and the item code `storage-limits-off`, #212's policies have no storage rule, and storage is governed by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims` only. With it on, the third object is rendered, `limitRange.pvc.max.storage` stays overridable within its bounds, and the policies check it. It is built as its own pull request after #245.
 
