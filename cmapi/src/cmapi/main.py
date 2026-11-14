@@ -263,22 +263,44 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def redoc() -> Response:
         if not redoc_dir.exists():
             return missing("ReDoc")
-        return HTMLResponse(_redoc_html(f"cmapi ({ctx.cfg.name}) - reference", "/openapi.json",
-                                        "/static/redoc/redoc.standalone.js", "/static/swagger/favicon-32x32.png"))
+        return HTMLResponse(_redoc_html(f"cmapi ({ctx.cfg.name}) - reference", REDOC_START,
+                                        "/static/swagger/favicon-32x32.png"),
+                            headers={"Content-Security-Policy": REDOC_CSP})
+
+    @app.get(REDOC_START, include_in_schema=False, dependencies=guard)
+    def redoc_start() -> Response:
+        return Response(REDOC_START_JS, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/docs/changelog", include_in_schema=False, dependencies=guard)
     def changelog() -> Response:
         return HTMLResponse(changelog_html(f"cmapi ({ctx.cfg.name})", __version__))
 
 
-def _redoc_html(title: str, spec_url: str, bundle_url: str, favicon_url: str) -> str:
-    """The ReDoc page, with no request to another host (no Google Fonts, no outside favicon).
+# ReDoc 3 starts itself on <redoc spec-url> with no options (init(specUrl, {}, element)), and its telemetry then sends
+# each use of the page to https://otel.cloud.redocly.com/v1/traces, its default collector (#235). cmapi starts it
+# through this module instead, with disableTelemetry, from a file of its own: the docs' CSP allows no inline script.
+REDOC_START = "/docs/redoc-start.js"
+# The ReDoc page fetches from this server only (docs/01: the bundles come from the image, never a CDN), also when the API
+# is reached without the front door (#226). ReDoc 3.1.0 asks two other hosts by itself: the telemetry, which the start
+# module turns off, and the "API docs by Redocly" logo from cdn.redoc.ly, which no option removes; this policy refuses
+# both, and whatever a later bundle adds. 'unsafe-eval' and blob: workers are for the bundle's search index, and
+# 'unsafe-inline' styles for its styled components: without them the search workers do not start (measured in Fable's
+# review of PR #231). The front door's policy for /redoc is the same string (cmapi-portal-ui/nginx/).
+REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
+import { init } from "/static/redoc/redoc.standalone.js";
+init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));
+"""
 
-    ReDoc 3's standalone bundle is an ES module: its 3.0.0 release notes say "Load the bundle with
-    <script type="module" src=".../bundles/redoc.standalone.js">", and the bundle reads import.meta.url. A classic
-    script stops at the first import.meta with a SyntaxError, which is what FastAPI's get_redoc_html gave (#229). As a
-    module the bundle starts itself on the <redoc spec-url> element: the HTML standard evaluates a module script "when
-    the page has finished parsing".
+
+def _redoc_html(title: str, start_url: str, favicon_url: str) -> str:
+    """The ReDoc page. With REDOC_CSP on its response it makes no request to another host.
+
+    ReDoc 3's standalone bundle is an ES module: its 3.0.0 release notes say to load it with a module script and to
+    import init from it, and the bundle reads import.meta.url. A classic script stops at the first import.meta with a SyntaxError, which is what FastAPI's
+    get_redoc_html gave (#229). The page loads cmapi's start module (REDOC_START) as a module script, which imports init;
+    the HTML standard evaluates a module script "when the page has finished parsing", so the element exists then.
     """
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -291,8 +313,8 @@ def _redoc_html(title: str, spec_url: str, bundle_url: str, favicon_url: str) ->
 </head>
 <body>
 <noscript>ReDoc needs JavaScript to show the reference.</noscript>
-<redoc spec-url="{html.escape(spec_url)}"></redoc>
-<script type="module" src="{html.escape(bundle_url)}"></script>
+<div id="redoc"></div>
+<script type="module" src="{html.escape(start_url)}"></script>
 </body>
 </html>
 """
