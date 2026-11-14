@@ -76,9 +76,17 @@ function expectedRow(r) {
     r.pr ? `#${r.pr.number}` : "—", today ? time : `${MONTHS[at.getUTCMonth()]} ${at.getUTCDate()} ${time}`, "Open at current step"];
 }
 
+// No check may wait without end: a defect in the page must fail the suite, not hang it.
+const CHECK_TIMEOUT_MS = 90_000;
 const done = [];
 async function check(name, run) {
-  await run();
+  let timer;
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`"${name}" did not end in ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); });
+  try {
+    await Promise.race([run(), late]);
+  } finally {
+    clearTimeout(timer);
+  }
   done.push(name);
   console.log(`ok - ${name}`);
 }
@@ -143,7 +151,9 @@ try {
     const ranges = [];
     const next = page.getByRole("button", { name: "Next ›" }).first(), prev = page.getByRole("button", { name: "‹ Previous" }).first();
     assert.equal(await prev.getAttribute("aria-disabled"), "true", "no page before the first");
-    for (;;) {
+    // 61 rows are three pages. One more turn than that means that Next did not go off on the last page.
+    for (let turn = 0; ; turn++) {
+      assert.ok(turn < 3, "Next is off on the last page");
       ranges.push(await range(page));
       seen.push(...(await rows(page)).map((r) => r[0]));
       if (await next.getAttribute("aria-disabled") === "true") break;
@@ -350,9 +360,15 @@ try {
   });
 
   console.log(`ok - portal on the API: ${done.length} checks, ${browser.browserType().name()} ${browser.version()}`);
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
 } finally {
-  await browser.close();
+  // A check that timed out can still hold the browser: do not wait for it longer than this.
+  await Promise.race([browser.close(), new Promise((resolve) => setTimeout(resolve, 5000))]);
   portal.close();
   api.close();
   issuer.close();
+  // The servers keep their sockets open for a moment. The result is known, so end now.
+  process.exit(process.exitCode ?? 0);
 }

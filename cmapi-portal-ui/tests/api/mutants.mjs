@@ -42,6 +42,7 @@ const MUTANTS = [
   ["a missing issuer is accepted", "src/portal/config.ts", "if (typeof value !== \"string\" || !value) throw new ConfigError(`config.json has no ${name}.`);", `if (typeof value !== "string" || !value) return "https://sso.example.test";`, "bundle"]
 ];
 
+const SUITE_TIMEOUT_MS = 240_000;
 const only = process.argv[2];
 const results = [];
 for (const [what, file, from, to, suite] of MUTANTS) {
@@ -52,8 +53,10 @@ for (const [what, file, from, to, suite] of MUTANTS) {
   let outcome;
   try {
     execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
-    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, encoding: "utf8" });
-    outcome = run.status === 0 ? "SURVIVED" : `killed: ${(run.stderr.match(/AssertionError[^\n]*\n?[^\n]*|TimeoutError[^\n]*|Timeout \d+ms[^\n]*/) ?? ["the suite failed"])[0].replace(/\s+/g, " ").slice(0, 150)}`;
+    // A mutant can make the page wait without end. The suite has its own limit for each check; this one is the backstop.
+    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL" });
+    if (run.error?.code === "ETIMEDOUT") outcome = "killed: timeout";
+    else outcome = run.status === 0 ? "SURVIVED" : `killed: ${(run.stderr.match(/AssertionError[^\n]*\n?[^\n]*|TimeoutError[^\n]*|Timeout \d+ms[^\n]*|did not end in \d+ s/) ?? ["the suite failed"])[0].replace(/\s+/g, " ").slice(0, 150)}`;
   } catch {
     outcome = "killed: the build failed";
   } finally {

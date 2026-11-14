@@ -6,6 +6,8 @@ The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. T
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
+**After #204 (2026-11-14).** The figures and the sentences below that say "the portal makes no API call" are from before #204. The portal build of `cmapi-portal-ui` now signs a person in and calls `GET /api/v1/me` and `GET /api/v1/requests` (rows 16 to 19, and the page frame). This is proven against a stand-in issuer and a stand-in API only. The arrows of those rows are still dashed in figures 1 and 3: #209 draws them again. The demo build is what the figures show.
+
 ## The counts
 
 | Item | Count |

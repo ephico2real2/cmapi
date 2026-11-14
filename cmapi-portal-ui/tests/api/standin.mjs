@@ -96,7 +96,7 @@ export async function startIssuer({ clientId = "cmapi-portal", redirectUris }) {
       if (q.response_type !== "code") return refuse("response_type must be code");
       if (!q.state) return refuse("Missing parameter: state");
       if (!q.code_challenge || q.code_challenge_method !== "S256") return refuse("Missing parameter: code_challenge_method");
-      if (!state.user) return send(200, "<!doctype html><title>Sign in to cmapi</title><h1>Sign in to cmapi</h1>", { "content-type": "text/html" });
+      if (!state.user) return send(200, '<!doctype html><title>Sign in to cmapi</title><link rel="icon" href="data:,"><h1>Sign in to cmapi</h1>', { "content-type": "text/html" });
       const code = token("code");
       state.codes.set(code, { challenge: q.code_challenge, redirectUri: q.redirect_uri, user: state.user });
       return send(302, "", { location: `${q.redirect_uri}?${new URLSearchParams({ code, state: q.state, iss: base })}` });

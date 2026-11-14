@@ -22,7 +22,7 @@ Nine clients are in the import. The table is read from the file.
 | Client | Type | Flow | Used by | Note |
 |---|---|---|---|---|
 | `cmapi-nonprod` | Confidential, bearer only | None: it issues no token | The API. It is the audience of each token and holds the eight client roles | The audience name is `cmapi-<instance>` |
-| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/*` and `http://localhost:5173/*`. The portal's sign-in is not built |
+| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/*` and `http://localhost:5173/*` (the wildcards are a defect: #205). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
 | `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi-api.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
 | `cmapi-cli` | Public | Device authorization | The `cmapi` CLI | `offline_access` is optional. The CLI is not built |
 | `cmapi-automation` | Confidential | Client credentials | An AI agent or a script, by the client's service account | The service account holds `cmapi-onboarding` only |
@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:61-62`, `core/auth.py:189-194`). The portal will use the same flow through `cmapi-portal`: that part is not built.
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:61-62`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
@@ -118,7 +118,60 @@ Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 c
                                                                                 (docs/14)
 ```
 
-The sequence figure is not drawn yet. It follows the first sign-in on CRC, so that it shows what was measured.
+The sequence figure of Swagger UI is not drawn yet. It follows the first sign-in on CRC, so that it shows what was measured.
+
+## The portal's sign-in
+
+The portal (`cmapi-portal-ui`) signs a person in with Authorization Code and PKCE through the public client `cmapi-portal`. The code is `cmapi-portal-ui/src/portal/auth.ts` and `cmapi-portal-ui/src/api/client.ts`. The libraries are `oidc-client-ts` 3.5.0 and `react-oidc-context` 3.3.1, as `docs/02` names them. The second one declares React 16.14 or later as its peer, and the portal runs it on React 19.3.1.
+
+**What was measured, and where.** `cmapi-portal-ui/tests/api/portal.test.mjs` runs the built portal in a browser against a stand-in issuer and a stand-in API on this Mac (11 checks, Chromium 156). The stand-in issuer keeps the rules of the flow: an exact redirect URI, `S256`, a code that works one time, no client secret, and a refresh token that works one time. No sign-in ran on a real Keycloak, on kind or on CRC: realm `cmapi` is not on CRC, and no container runs on this Mac (#157). The API has no CORS headers yet, so the portal cannot call a deployed API from its own host (#206).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/portal-sign-in/portal-sign-in.dark.png">
+  <source srcset="diagrams/portal-sign-in/portal-sign-in.light.png">
+  <img alt="The portal reads config.json, then sends the browser to Keycloak with a PKCE challenge and a state. Keycloak signs the person in and sends a code back. The portal exchanges the code and its verifier for tokens, keeps them in memory, and calls the API with the access token. On a 401 it renews one time with the refresh token, and signs in again if Keycloak refuses." src="diagrams/portal-sign-in/portal-sign-in.light.png">
+</picture>
+
+```text
+Portal (browser)                          Keycloak, realm cmapi                 cmapi-api
+  1 read config.json: apiUrl, issuer, clientId
+  2 GET /.well-known/openid-configuration -->
+  3 make code_verifier, code_challenge = S256(verifier), state;
+    keep them in sessionStorage of this tab
+  4 redirect: GET /auth response_type=code, client_id=cmapi-portal,
+    code_challenge, code_challenge_method=S256, state, redirect_uri -->
+  5                                        sign-in page; Keycloak binds to LDAP
+  6 <-- redirect to the page with code and state
+  7 POST /token: code + code_verifier (no client secret, no password) -->
+  8 <-- access token (5 minutes), refresh token, ID token: kept in memory only
+  9 remove code and state from the address
+ 10 GET /api/v1/me with Authorization: Bearer -------------------------------->
+ 11 <------------------------------------------------ 200: username, roles, access.permissions
+ 12 GET /api/v1/requests?limit=25 --------------------------------------------->
+ 13 <------------------------------------------------ 200, or 403, or 5xx, or 401 (step 14)
+ 14 POST /token: refresh_token, one time -->   refused: back to step 4
+```
+
+The choices, each with its source:
+
+| Choice | What the portal does | Source |
+|---|---|---|
+| The flow | Authorization Code with PKCE, `S256`. No implicit flow and no password | RFC 10017 (BCP 212, "OAuth 2.0 for Browser-Based Applications", August 2026), section 7.2: "Browser-based clients MUST use the Authorization Code grant type", and section 6.3.2.1 on PKCE |
+| Where the tokens are | In the memory of the page. Nothing in `localStorage`, and no token in `sessionStorage`. A reload signs in again through Keycloak's session cookie | RFC 10017, section 8.4 (in-memory storage), section 8.5 ("localStorage does not protect against unauthorized access from malicious JavaScript") and section 8.6 (browser storage is not always encrypted on disk) |
+| The verifier and the state | In `sessionStorage` of the tab, removed at the code exchange. The library's own default is `localStorage` (`oidc-client-ts` 3.5.0, `OidcClientSettingsStore`) | RFC 10017, section 6.3.2.2: the application "MUST prevent CSRF attacks against their redirect URI" |
+| The address | The code and the state are removed after the exchange (`onSigninCallback`). The view comes back from the state | `react-oidc-context`, `onSigninCallback` |
+| Renewal | The library renews before the 5 minutes end. On a 401 the client renews one time, and each waiting call uses that one renewal. A refused renewal starts a new sign-in | The realm rotates refresh tokens with no reuse (`revokeRefreshToken`, `refreshTokenMaxReuse: 0`). RFC 10017, section 6.3.2.3 |
+| Where the token goes | To the origin of `apiUrl` only, with no cookie and no redirect followed | `cmapi-portal-ui/src/api/client.ts` |
+| Permissions | From `access.permissions` of `GET /api/v1/me`. The browser reads no claim of the token | `docs/02`, "GET /api/v1/me"; `docs/14` |
+| Settings | `config.json` at run time: `issuer` and `apiUrl` must be `https` (or `http` on `localhost`), with no user, query or fragment | `cmapi-portal-ui/src/portal/config.ts` |
+
+**Not built, and known.**
+
+- RFC 10017, section 6.3.4.3, says that a browser-only OAuth client "is not recommended for business applications", and section 6.1.4.3 strongly recommends a backend for frontend. The design of `docs/02` is the browser-only client, and the portal is built to it. The owner decides if a backend for frontend replaces it.
+- The redirect URIs of `cmapi-portal` are wildcards (#205).
+- The API sends no CORS headers (#206).
+- Two browser tabs do not share one renewal, as `docs/02` says they do (#208).
+- The Content-Security-Policy header comes with the portal's image and its Route, which are not built.
 
 ## Get a token from a script
 

@@ -9,7 +9,7 @@ as code and tests, and nothing of it runs on a cluster yet.** What exists:
   validator, the cluster registry, the worker, an image and Helm charts (section 2);
 - the local application `examples/local` with its stand-ins (section 3).
 
-Not built: the portal on the API (the React app still runs the mockup's sample logic), the CLI and
+Not built: eight of the portal's nine tabs on the API (sign-in and the Requests tab are built, #204), the CLI and
 SDK, cmapi-capacity, and every plugin after the namespaces one. No cluster has run the service:
 `CRC-BUILD-STATUS.md` records what has been measured and what has not.
 
@@ -162,8 +162,12 @@ registry relists instead), `reconcile`, `kpi_export`, `outbox_publish`, `operati
 
 **cmapi-capacity:** all of it.
 
-**Portal:** `cmapi-portal-ui/` still runs the mockup's sample logic with no sign-in and no API call; it
-must not be deployed as the portal (`MOCKUP-CONTRACT.md`). The chart's `portal.enabled` is off.
+**Portal:** `cmapi-portal-ui/` has two builds (`MOCKUP-CONTRACT.md`). The portal build signs a person in
+through Keycloak with Authorization Code and PKCE, and its page frame and its Requests tab call the API
+(`GET /api/v1/me`, `GET /api/v1/requests`), with typed TanStack Query hooks from the OpenAPI document (#204).
+It is proven in a browser against a stand-in issuer and a stand-in API only (`tests/api`). The other eight
+tabs are not on the API. The demo build still runs the mockup's sample logic and must not be deployed as the
+portal. Not built: the portal's image and Route, CORS on the API (#206). The chart's `portal.enabled` is off.
 
 **CLI and SDK:** not started.
 

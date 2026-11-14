@@ -82,6 +82,8 @@ jobs:
         working-directory: cmapi-portal-ui
         run: |
           npm ci
+          # The generator of the API types has its own lockfile (openapi-typescript needs TypeScript 5).
+          npm ci --ignore-scripts --prefix tools/openapi-types
           npx playwright install --with-deps chromium
       - name: Test
         working-directory: cmapi-portal-ui
