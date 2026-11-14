@@ -398,9 +398,12 @@ until then it is unproven.
 **The storage LimitRange is a switch, off by default** (the owner, 15:45Z: "Why don't we keep it and turn it off in
 configuration". This replaces the 15:34Z decision "We don't enforce limit ranges for storage"). cmapi keeps the capability
 and does not remove its code, as the rule "do not block a capability" asks.
-- **The switch.** `tiers.yaml` gets `storageLimitRange: {enabled: false}` at its top level. An environment can set its own
-  value in `environments.<env>.storageLimitRange.enabled`, and `inherit` passes it on, as for the other environment
-  settings. When the key is absent, the switch is off. The owner's three instances (nonprod, staging, prod) set it off.
+- **The switch, off by default in code** (the owner, 16:09Z: "turn it off by default in code and then provide an override
+  if we want to enforce storage LimitRanges"). With no `storageLimitRange` key in any configuration, storage LimitRanges
+  are off. An instance turns them on with `storageLimitRange: {enabled: true}` at the top of its `tiers.yaml`, or one
+  environment with `environments.<env>.storageLimitRange.enabled`, which `inherit` passes on, as for the other
+  environment settings. The shipped catalogs of the three instances carry no key, so they are off, and a test proves the
+  default with the key absent. The value is a strict boolean: a quoted `"false"` is refused at load.
 - **Why not `limitRange.storage.enabled`.** In `tiers.yaml`, a key that starts with `limitRange.` is a value key of the form
   `limitRange.<kind>.<part>.<resource>` (`limit_key_parts` in `core/tiers.py`). The `overridable` list, the bounds and the
   approval facts use these keys. A switch in the same form would look like a value key. So the switch has its own name.
