@@ -250,9 +250,12 @@ The folder is `clusters/<cluster>/namespaces/<namespace>/` in `cmapi-cluster-con
 file for each ResourceQuota and each LimitRange, named after the object**: `resourcequota-<name>.yaml` and
 `limitrange-<name>.yaml` (#251). One object in one file means that no reader needs to take several documents, which
 closes #250, and that a request names the object it changes by its file. The same layout serves cmapi's own tier
-namespaces (D19). A folder written before this layout (`resourcequota.yaml`, `limitrange.yaml`) is still read, as a stream of
-documents, and the next change of that namespace writes the named files instead. Argo CD sees the same objects, by kind
-and name, so moving an object from one file to another changes nothing on the cluster.
+namespaces (D19). A folder written before this layout (`resourcequota.yaml`, `limitrange.yaml`) is still read, as a
+stream of documents. The next change of that namespace removes the old file and writes the named files in one commit, each
+object's text unchanged; no commit holds an object in two files. Argo CD knows an object by its kind and name, so the move
+changes nothing on the cluster and prunes nothing. Each reader of these files finds them by kind, not by file name
+(`core/sync.py`, `core/pipeline.py`, `core/render/manifests.py` name the old files today, and the D17 build changes the
+three). A name longer than a file name allows is written under a hash of the name, and the plan says so.
 
 The YAML writer keeps each string a string: `'1'`, `''` and `"true"` stay quoted, because the API server refuses
 `company.net/cl: 1`. The quantities are what the API server returned, so Argo CD sees no difference after the takeover
@@ -269,7 +272,9 @@ the plan. Any other request, a change of a label for example, leaves every objec
 
 The namespace stays on tier `custom`. It moves to a named tier only when a request asks for it, never automatically:
 that request replaces the adopted objects with the tier's (D19's names), and its plan shows each object and field that
-goes.
+goes. Until the operator confirms the prune of the adopted objects, both sets exist. The tighter value of each key holds,
+and a default may come from either set. The plan of the move says so and lists the keys where the adopted value is the
+tighter one.
 
 ### D17. The data model of adopted quotas and LimitRanges (#251)
 
@@ -289,7 +294,7 @@ shape that the API returns for a namespace:
 ```json
 {
   "resourceQuotas": [
-    {"name": "abc-rnd-quota", "scopes": [], "hard": {"requests.cpu": "40", "count/deployments.apps": "20"},
+    {"name": "abc-rnd-quota", "scopes": [], "scopeSelector": null, "hard": {"requests.cpu": "40", "count/deployments.apps": "20"},
      "used": {"requests.cpu": "12"}, "raw": "<the object as YAML>"}
   ],
   "limitRanges": [{"name": "abc-rnd-limits-cpu", "raw": "<the object as YAML>"}],
@@ -303,11 +308,20 @@ shape that the API returns for a namespace:
   (Kubernetes, "Resource Quotas"). So the hard limit of a key for the whole namespace is the **smallest** `hard` value of
   that key among the quotas that have **no scope and no scopeSelector**, not their sum. `used` comes from the same quota.
 - A quota with a scope measures only the matching objects, so it is shown, and it is not counted in the namespace's
-  numbers.
-- A key that cmapi does not interpret (an extended resource, an object count, any name that is not `requests.cpu`,
-  `requests.memory`, `pods`, `persistentvolumeclaims`, `requests.storage`, `services.loadbalancers` or
-  `services.nodeports`) is kept and shown raw. It is excluded from the maths and listed in `uninterpreted`, and the
-  adoption plan reports it as a finding `uninterpreted-key`.
+  numbers. A quota with an empty `scopes` list and no `scopeSelector` expression is unscoped.
+- When only scoped quotas hold a key, its derived number is null, which means "not known", never zero and never
+  unlimited. The adoption plan reports a finding `scoped-only` with the key and the quotas. Capacity does not count the
+  namespace for that key and says so in its answer, and the KPIs count it under "not known".
+- A key is read by its meaning, not its spelling: `cpu` is `requests.cpu` and `memory` is `requests.memory` ("Same as
+  `requests.cpu`", Kubernetes, "Resource Quotas"). The derived number of a key is the smallest `hard` over both
+  spellings. The values are compared as quantities, so `1500m` is smaller than `2`. The raw object keeps the spelling it
+  has. The interpreted keys are those and `pods`, `persistentvolumeclaims`, `requests.storage`, `services.loadbalancers`
+  and `services.nodeports`. Any other name (an extended resource, an object count, `limits.*`, a storage class's key) is
+  kept and shown raw, left out of the maths, listed in `uninterpreted`, and reported as `uninterpreted-key`.
+- Two LimitRanges that set a `default` or a `defaultRequest` for the same resource of the same type are adopted as they
+  are, with a finding `duplicate-default` that names both: Kubernetes does not say which one applies (D19).
+- The view says which source each number has: the live objects of the cluster's watch cache, or Git, when the two
+  differ.
 
 The quota view's `cpu`, `memory` and `pods` columns, and the capacity reservation of a later request, use `derived`. The
 data model doc (docs/16) gets a section on this view when it is built.
@@ -316,7 +330,8 @@ data model doc (docs/16) gets a section on this view when it is built.
 
 The label stays at the adoption (D7). Later, an approved request can remove it from Git and from the live namespace. The
 request is an ordinary metadata change with `null` for the key, for one namespace, or many through #252's bulk
-operation. The same mechanism serves any adopted label that is to go later.
+operation. The two-merge removal below is for `company.net/provisioner`; it is not offered for any adopted label (see
+its limits).
 
 **Why the removal reaches the cluster.** Under server-side apply, a field that a manifest leaves out is removed only when
 no other manager owns it (D3a). The label is in the adopted file (D7), so the first sync makes Argo CD's server-side apply
@@ -326,14 +341,31 @@ manager an owner of it. Whether it is the **only** owner depends on who wrote it
   the cluster.
 - If another manager wrote it (`oc label`, a controller), that manager keeps a share, because an apply of the same value
   is shared ownership, not a conflict. The removal from Git would then leave it on the cluster. So the adoption plan
-  records the label's managers (D2), and the removal plan says which case holds. When another manager co-owns the label,
-  the removal request takes two commits:
-  1. The first sets the label to another value (`cmapi-removing`). Argo CD's forced apply (`--force-conflicts`) then
-     takes it, because a forced apply "removes the field from all other managers' entries" (Kubernetes, "Server-Side
-     Apply").
-  2. After that sync, the second commit leaves it out, and Argo CD, now the only owner, removes it.
+  records the label's managers (D2), and the removal plan says which case holds.
 
-  The adoption itself never changes the label (D4).
+When another manager co-owns the label, the removal request takes two merges, never two commits in one merge: Argo CD
+applies only the last revision it sees.
+1. The first sets the label to `cmapi-removing`. Argo CD's forced apply (`--force-conflicts`) takes it, because a forced
+   apply "removes the field from all other managers' entries" (Kubernetes, "Server-Side Apply"). The worker waits for
+   `Synced`, reads `managedFields`, and goes on only when Argo CD's manager is the label's only owner. If it is not, the
+   request fails with `removal-not-owned`, and the label keeps `cmapi-removing` in Git and on the cluster until `:retry`
+   or a request that sets a value.
+2. The second leaves the label out. The worker checks that it is gone from the live object.
+
+The two-merge removal is offered only when all of these hold; otherwise the plan says "removed from Git; stays on the
+cluster" (D3a), and an operator removes the label on the cluster by hand after the merge:
+- the co-owner is not a controller that still writes the label (it would write it back, and Argo CD and the controller
+  would then fight);
+- `cmapi-removing` is a valid value for the key by the instance's rules and policies, so no rule is switched off for it;
+- the key is not under a prefix that #215 reserves (D7).
+
+The plan of the removal shows the value in between and how long it will be there. A way with no value in between is
+measured first in B12: Argo CD's migration can take over the fields of a manager that the annotation
+`argocd.argoproj.io/client-side-apply-migration-manager` names ("Sync Options", "Client-Side Apply Migration"). Naming
+`oc label`'s manager for one sync would move the label to Argo CD with its value unchanged. Its cost: every field of that
+manager moves, so each must already be in Git (D3a). If kind shows that it works, D18 prefers it.
+
+The adoption itself never changes the label (D4).
 
 **Proof** (when #157 allows): on kind, adopt a namespace made with `kubectl apply` and one labelled with `oc label`. Read
 `--show-managed-fields` after the first sync. Then remove the label by a request, and show that it is gone from the live
@@ -357,17 +389,27 @@ the same default:
 | `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` |
 | `<ns>-limits-memory` | the same for `memory` |
 
+Not measured: that a pod with no resources gets the CPU default from `<ns>-limits-cpu` and the memory default from
+`<ns>-limits-memory`. The kind test of the split's pull request shows it, with ten pods, before the split is merged;
+until then it is unproven.
+
 **No LimitRange for storage** (the owner: "We don't enforce limit ranges for storage"). The `PersistentVolumeClaim` item
 and its key `limitRange.pvc.max.storage` leave the tiers' values, `tiers.yaml`'s `overridable` list and `custom` bounds,
 #211's custom limits (merged in #224, so the D19 pull request removes the key there and records it), and #212's generated
-policies. Storage is governed only by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
+policies. Storage is governed only by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`. After that
+pull request a request with a custom `limitRange.pvc.*` value is refused with a problem that names the key.
 
-The container keys of `tiers.yaml` stay as they are (`limitRange.container.max.cpu`, ...), so the approval facts and the
-bounds of CPU and memory do not change. Only the renderer maps each key to its object. What follows the split:
-- the tier hash, which covers the rendered objects;
+**The coordinator's choice within the owner's sentence:** the container keys of `tiers.yaml` stay as they are
+(`limitRange.container.max.cpu`, ...), so the approval facts and the bounds of CPU and memory do not change, and only the
+renderer maps each key to its object. What follows the split:
+- the tier hash: one hash of the tier's whole rendering, written on the ResourceQuota and on both LimitRanges, so
+  `is_outdated` reads the same value from any of them;
 - the plan diff and the dry run, which show each object;
 - the quota view, which lists each LimitRange;
-- #212's generated policies, which check each object's keys, with the order checks inside the CPU and memory objects.
+- #212's generated policies, which check each object's keys, with the order checks inside the CPU and memory objects;
+  each check passes an object that does not hold its key, as today;
+- docs/02's `tiers.yaml` examples (the lines that show `limitRange.pvc.max.storage` and `pvc: {max: {storage: ...}}`), which
+  are true of the code today and change in that pull request, listed in its body.
 
 **No migration.** Nothing of cmapi runs on a cluster yet (#157), so the old single `<ns>-limits` object needs no live
 migration. The examples, tests, docs and recorded samples change.
@@ -411,10 +453,7 @@ unchanged by it: adopted LimitRanges stay raw, any number, under their own names
    proof. With #217, the check shows Argo CD's server-side diff of the root Application at the pull request's revision
    (`argocd app diff`, with the read right that #217 grants).
 
-### D12. (Withdrawn)
-
-The earlier D12 described steps about another tool's repository. The owner's decision (§1, item 8) removes it:
-adoption reads only the live namespace, and `company.net/provisioner` is a label value that `adoptionLabels` recognises.
+### D12. (Withdrawn by the owner's decision, §1 item 8.)
 
 ### D13. The endpoints (docs/02's set, kept)
 
@@ -447,7 +486,7 @@ each step:
 | A second adoption of the same namespace | The open-request lock refuses it with 409 (`uq_cr_open_namespace`, docs/02). After the merge the folder exists, and after the sync the namespace is managed: D1 step 2 skips it |
 | `cmapi.net/adopt` removed before the merge | The same reads see it. The request is cancelled with `adoption-label-removed`, and the bot closes the pull request: the label is the consent. After the merge the label has no effect (§1, item 6) |
 | No ResourceQuota, or no LimitRange | No file for that kind, and a finding `no-resourcequota` or `no-limitrange`. A later quota request adds the object, and its plan shows it as added |
-| More than one ResourceQuota or LimitRange | Each is written, one document each (D8); D9's rules apply |
+| More than one ResourceQuota or LimitRange | Each is written to its own file (D8); D9's rules apply |
 | An object deleted after the read, before the sync | The reads above refuse the request first; in `enforce` admission also refuses the create (D6a) |
 
 ## 4. What the build must add (each with a test that fails before it)
@@ -457,9 +496,9 @@ each step:
 | B1 | The adoption plugin: D1 to D5, D8, D10, D13, D16 | The plan of the owner's sample: the files equal the live objects minus D3 plus D4; the findings of D6; `'1'`, `''` and `"true"` stay strings |
 | B2 | The renderer keeps keys in Git that it does not own (D7); a merge patch may remove them | An update of an adopted namespace keeps `company.net/provisioner`; a `null` removes it; setting it is refused |
 | B3 | A change of an adopted quota or LimitRange patches the named object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; with two ResourceQuotas, a request that names one changes only it, and one with no name is refused with a problem; an update of a label leaves both unchanged |
-| B10 | One file for each object, named after it, and the reader of the earlier layout (D8; closes #250) | A folder with two ResourceQuotas: an update of a label passes; the next change writes `resourcequota-<name>.yaml` files; Argo CD's diff of the rename is empty (kind) |
-| B11 | The derived numbers and `uninterpreted` (D17) | Two unscoped quotas give the smaller `requests.cpu`; a scoped quota is listed and not counted; `count/deployments.apps` is in `uninterpreted` and in the findings |
-| B12 | The removal of an adopted label from the cluster (D18) | On kind, for a label written by `kubectl apply` and one written by `oc label`: removed by a request, gone from the live object |
+| B10 | One file for each object, named after it, and the reader of the earlier layout (D8; closes #250) | A folder with two ResourceQuotas: an update of a label passes; the next change writes `resourcequota-<name>.yaml` files; no commit holds both layouts; the sync check and the quota reader of the worker find the named files; Argo CD's diff of the rename is empty (kind) |
+| B11 | The derived numbers and `uninterpreted` (D17) | Two unscoped quotas give the smaller `requests.cpu`; a quota with `cpu: '40'` and another with `requests.cpu: 30` give a derived CPU of 30; `1500m` against `2` gives `1500m`; a scoped quota is listed and not counted; a key held only by scoped quotas is null with `scoped-only`; `count/deployments.apps` is in `uninterpreted` and in the findings; two LimitRanges with `default.cpu` give `duplicate-default` |
+| B12 | The removal of `company.net/provisioner` from the cluster (D18) | On kind, for a label written by `kubectl apply` and one written by `oc label`: removed by a request, gone from the live object; after the first merge, `managedFields` shows Argo CD as the label's only manager; a label with an `enum` rule is not offered the two merges; the client-side-apply-migration-manager route measured too |
 | B4 | The worker's check after the sync, `managedFields` included (D11) | A live object with one more changed field fails the request with that field named |
 | B5 | `adoption.yaml` with the skip prefixes of D3, and D3a's rule on managers | A key under each prefix that a server component owns is skipped; one that `kubectl apply` wrote is kept with `skipped-key-kept` |
 | B6 | `FailOnSharedResource=true` on cmapi's Applications (Wave 5's ApplicationSet) | A namespace in another Application fails the sync (kind) |

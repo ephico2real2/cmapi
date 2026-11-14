@@ -1,5 +1,9 @@
 # Fable's review of PR #239: the adoption design (story #26)
 
+> **Superseded in part.** The owner decided on #26 (2026-11-14, 15:09Z and 15:11Z) that this design has no step about
+> any other repository. A7's proposed text for D12, and each sentence here about an old tool or its repository, are
+> withdrawn and are not part of the design. The second pass is at the end of this file.
+
 Reviewer: Fable 5.2, 2026-11-14. Head `3e121a1`. Read in full: `docs/reviews/2026-11-14-issue-26-adoption/README.md`
 (289 lines), the PR's diff of `docs/02`, #26 with its six comments, #215's comment of 14:25Z, #217, PR #245's body and
 `cmapi/src/cmapi/core/policygen.py` and `core/pipeline.py` at #245's head `584e183`.
@@ -314,3 +318,277 @@ stays a row of the CRC test.
 - cmapi at `3e121a1`: `core/pipeline.py:189, 394`; `routers/requests.py:201-216`;
   `examples/cluster-configs/clusters/OCP_GF15/argocd/root-application.yaml:24-26`; `docs/02-technical-design-v2.md:902,
   1166`.
+
+---
+
+# Second pass: head `c874e72b510eaa8a97d241e3128415abe9a857c1`
+
+Reviewer: Fable 5.2, 2026-11-14. I read `a2b5854` in full (550 lines) and then the diff from it to `c874e72`, which
+changes only D19, §1 item 12 and one paragraph of docs/02. Also read: the design's other files, the PR's diff of `docs/02` against
+main, the figure's text, #26's comments of 15:09Z and 15:11Z, #251 and its comments of 15:28Z and 15:31Z. Sources read
+again today: Kubernetes "Resource Quotas" and "Limit Ranges", "Server-Side Apply", Argo CD "Sync Options". Nothing was
+measured on a cluster (#157). No pytest was run: the PR changes seven files, all under `docs/`.
+
+**Verdict: not yet. Seven texts to change (R1 to R7), none of them large.** R1 and R2 are wrong as written. R3 to R6 are
+gaps in the three new decisions. R7 is the owner's "no step about the old repository" rule.
+
+## 1. A1 to A10
+
+| Finding | In the new head | Result |
+|---|---|---|
+| A1 enforce mode | D6a: the approved plan's snapshot is the base, found by the request ID, checked against the plan hash, never read from the PR; admission by `oldObject`; B7 | Fixed |
+| A2 revert and prune | D4: `Prune=confirm` on each ResourceQuota and LimitRange; D11 step 4: no `:revert` (409); B8 | Fixed |
+| A3 field ownership | D3a: managers read from `managedFields`; a skipped key that a client-side apply wrote stays in the file; D11 step 3 compares `managedFields`; `cmapi.net/adopt` stays (the owner) | Fixed in the design. docs/02 line 975 still says the label is removed: R1 |
+| A4 failure modes | D16, and B1, B3, B10 | Fixed. One row still says "one document each": R6 |
+| A5 later decisions | §1 items 5 and 9; `declared-as-annotation`; two test namespaces | Fixed |
+| A6 the next update | D6 "One rule for a value that the namespace already has"; the team rule; B9 | Fixed, by the owner's decision 2 |
+| A7 the hazard in D12 | D12 withdrawn | Fixed. See R7 for what still names it |
+| A8 label tracking | D1 step 3 | Fixed |
+| A9 #217 | D11 step 5; D8's string rule | Fixed |
+| A10 test plan | §5: each row is there | Fixed |
+
+## 2. The owner's decisions on #26 (15:09Z, 15:11Z)
+
+| Decision | In the design | Result |
+|---|---|---|
+| `cmapi.net/adopt` stays and is ignored | §1 item 6, D1 step 2, D4, §5 | Carried in the design. Not in docs/02 line 975: R1 |
+| A missing required key is never forced, only reported | §1 item 7, D6, B9, §5 | Carried exactly |
+| Adoption reads only the live namespace; no step about the old repository | §1 item 8, D2, D7, D12 withdrawn | No step remains in the design, docs/02 or the figure |
+
+The search: `grep -rn "cluster-configs"` over the design, the figure's source, its drawing script and the PR's lines of
+docs/02, without `cmapi-cluster-configs`. Every hit is the label value `company.net/provisioner: cluster-configs` or
+`recognise: [cluster-configs]` (design lines 20, 30, 77, 181, 496; `source.html:87`; `draft-adoption.py:49`). No hit in
+docs/02's new lines. Two places still describe a step: R7.
+
+## 3. Remaining issues, each with the text to change
+
+### R1 (must). docs/02 still says that `cmapi.net/adopt` is removed
+
+`docs/02-technical-design-v2.md:975`, the table of keys:
+
+> | cmapi.net/adopt | Label | "true" | Namespace owner or platform | Opt-in for adoption; removed when adoption completes |
+
+This contradicts the owner's decision 1 (#26, 15:09Z) and the same document's line 1690 ("`cmapi.net/adopt` stays").
+**Change to:**
+
+> | cmapi.net/adopt | Label | "true" | Namespace owner or platform | Opt-in for adoption. It stays on the namespace afterwards and is ignored: `cmapi.net/managed` means adopted |
+
+Two smaller lines of docs/02 in the same pass:
+
+- Line 1696: "the owner's decision on #234". The decision is on #215 (comment of 14:25Z). Change `#234` to `#215`.
+- Line 1166: "Removing a key from Git removes it from the cluster." D3a and D18 now say when that is not true. **Change
+  to:** "Removing a key from Git removes it from the cluster when Argo CD is the key's only field manager; the plan says
+  which case holds (Adoption plugin)."
+
+### R2 (must). D17 would call `cpu` and `memory` uninterpreted, and they are the same keys as `requests.cpu` and `requests.memory`
+
+D17 interprets "`requests.cpu`, `requests.memory`, `pods`, `persistentvolumeclaims`, `requests.storage`,
+`services.loadbalancers` or `services.nodeports`", and every other name is "excluded from the maths". Kubernetes,
+"Resource Quotas", the compute table: `cpu`: "Same as `requests.cpu`"; `memory`: "Same as `requests.memory`". An adopted
+quota written `hard: {cpu: "40", memory: 64Gi}` is a common shape. With D17 as written its derived CPU and memory are
+null, capacity counts nothing for the namespace, and the plan reports two false `uninterpreted-key` findings.
+
+**Change D17's third bullet to:**
+
+> A key is read by its meaning, not its spelling: `cpu` is `requests.cpu` and `memory` is `requests.memory` ("Same as
+> `requests.cpu`", Kubernetes, "Resource Quotas"). The derived number of a key is the smallest `hard` over both
+> spellings. The values are compared as quantities, so `1500m` is smaller than `2`. The raw object keeps the spelling it
+> has. Any other name (an extended resource, an object count, `limits.*`, a storage class's key) is kept and shown raw,
+> left out of the maths, listed in `uninterpreted`, and reported as `uninterpreted-key`.
+
+**Add to B11's test:** "a quota with `cpu: '40'` and another with `requests.cpu: 30` give a derived CPU of 30; `1500m`
+against `2` gives `1500m`".
+
+### R3 (should). D17: a key that only scoped quotas hold has no derived number, and the design does not say what that means
+
+**Is "the smallest hard among the unscoped quotas" right?** Yes. Each quota is checked on its own, and a request that
+"violates a quota constraint" is refused with 403, so the tightest quota that measures every pod is the namespace's
+limit, and a sum would overstate it. A scoped quota measures only the pods that match, so leaving it out of the
+namespace's number is also right. `scopes` and `scopeSelector` are both named, and both are kept raw (D9).
+
+**The gap.** A namespace whose only quotas are scoped has a derived value of null. That is common where a namespace has
+one quota for `NotTerminating` pods and one for `Terminating` ones. Null must not read as zero or as "no limit" in
+capacity and the KPIs.
+
+**Add to D17, after the scoped-quota bullet:**
+
+> When only scoped quotas hold a key, its derived number is null, which means "not known", never zero and never
+> unlimited. The adoption plan reports a finding `scoped-only` with the key and the quotas. Capacity does not count the
+> namespace for that key and says so in its answer, and the KPIs count it under "not known". A quota with an empty
+> `scopes` list and no `scopeSelector` expression is unscoped.
+
+Also add `"scopeSelector"` to the JSON example's quota object, beside `"scopes"`: the text holds it and the view does
+not show it.
+
+### R4 (should). D18: the two commits are right by the documentation; four limits are missing
+
+**Is it correct?** By the documents, yes. The first sync applies the same value, which is shared ownership ("When two
+or more appliers set a field to the same value, they share ownership of that field"). A changed value is then a
+conflict, Argo CD's apply is forced, and a forced apply "changes the value of the field, and removes the field from all
+other managers' entries in `managedFields`". The second commit leaves the key out, and a sole owner's omission removes
+it. This is not measured, and B12 is the proof.
+
+**Is the brief value acceptable?** For `company.net/provisioner`, yes: a marker that is about to go. The steps in
+between are "another value" and then "absent", and a selector on the old value stops matching one sync early, which is
+what the request asks for anyway. It is not acceptable for "any adopted label", which D18's first paragraph promises.
+`cmapi-removing` on a key with an `enum` or `pattern` is refused by cmapi's own check and, in `enforce`, by the policy
+at admission, because a changed value is checked. On a key that a selector or a webhook reads (pod security, mesh
+injection, a NetworkPolicy's namespace selector) it changes behaviour for the time between the two syncs.
+
+**Change D18's two-commit item to:**
+
+> When another manager co-owns the label, the removal request takes two merges, never two commits in one merge: Argo CD
+> applies only the last revision it sees.
+> 1. The first sets the label to `cmapi-removing`. The worker waits for `Synced`, reads `managedFields`, and goes on only
+>    when Argo CD's manager is the label's only owner. If it is not, the request fails with `removal-not-owned`, and the
+>    label keeps `cmapi-removing` in Git and on the cluster until `:retry` or a request that sets a value.
+> 2. The second leaves the label out. The worker checks that it is gone from the live object.
+>
+> The two-merge removal is offered only when all of these hold; otherwise the plan says "removed from Git; stays on the
+> cluster" (D3a), and an operator removes the label on the cluster by hand after the merge:
+> - the co-owner is not a controller that still writes the label (it would write it back, and Argo CD and the controller
+>   would then fight);
+> - `cmapi-removing` is a valid value for the key by the instance's rules and policies, so no rule is switched off for
+>   it;
+> - the key is not under a prefix that #215 reserves (D7).
+>
+> The plan of the removal shows the value in between and how long it will be there.
+
+**A way with no value in between, to measure in B12 before the choice is fixed.** Argo CD's migration can take over the
+fields of a manager that the annotation `argocd.argoproj.io/client-side-apply-migration-manager` names ("Sync Options",
+"Client-Side Apply Migration"). Naming `oc label`'s manager on the Namespace for one sync would move the label to Argo
+CD with its value unchanged, and the next commit removes it. Its cost: every field of that manager moves, so each of
+them must already be in Git (D3a's rule), and I have not seen it run. If kind shows that it works, it is the safer
+mechanism and D18 should prefer it.
+
+**Add to B12's test:** "after the first merge, `managedFields` shows Argo CD as the label's only manager; a label with
+an `enum` rule is not offered the two merges".
+
+### R5 (should). D19 and D9: what is missing around the split
+
+**The split itself is right.** One object for each resource, and no default set twice. The reason given follows the
+page: every LimitRange's minimum, maximum and ratio hold ("defined in any LimitRange present in the namespace"), and
+the defaults are the part that is "not deterministic". That two objects with defaults for different resources both
+apply is a reading of that sentence, not a statement of the page. So it needs a proof.
+
+**Add to D19, under "The rendering":**
+
+> Not measured: that a pod with no resources gets the CPU default from `<ns>-limits-cpu` and the memory default from
+> `<ns>-limits-memory`. The kind test of the split's pull request shows it, with ten pods, before the split is merged.
+
+**The tier hash and the policies.** "The tier hash, which covers the rendered objects" does not say whether one hash
+is on each object. `is_outdated` compares one hash for a namespace (`core/tiers.py:599`). **Change that bullet
+to:** "the tier hash: one hash of the tier's whole rendering, written on the ResourceQuota and on both
+LimitRanges, so `is_outdated` reads the same value from any of them". For the policies, `policygen.py`'s limit checks
+already pass a key that an object does not hold (`{v} == '' || ...`), so a CPU object passes the memory checks. Say so
+in the fourth bullet: "each check passes an object that does not hold its key, as today".
+
+**Adopted namespaces can already break the rule that D19 states.** Two adopted LimitRanges that both set
+`default.cpu` are exactly the case that Kubernetes calls not deterministic. **Add to D17:**
+
+> Two LimitRanges that set a `default` or a `defaultRequest` for the same resource of the same type are adopted as
+> they are, with a finding `duplicate-default` that names both: Kubernetes does not say which one applies.
+
+**A move to a named tier leaves both sets for a time.** D9: the request "replaces the adopted objects with the tier's".
+Each adopted object carries `Prune=confirm` (D4). So after that sync the tier's objects exist, and the adopted ones stay
+until an operator confirms the prune. Until then every quota and every LimitRange of both sets is enforced, and defaults
+can be set twice. **Add to D9's last paragraph:**
+
+> Until the operator confirms the prune of the adopted objects, both sets exist. The tighter value of each key holds,
+> and a default may come from either set. The plan of the move says so and lists the keys where the adopted value is
+> the tighter one.
+
+**For the owner to confirm.** The comment of 15:28Z says "`tiers.yaml`, the renderer, the tier hash ... follow the
+split". D19 keeps the keys of `tiers.yaml` and changes only the renderer. That is the smaller change and I think it is
+right. It is a choice within the owner's sentence, so the PR should name it.
+
+**D19 at `c874e72`, after the owner's "We don't enforce limit ranges for storage".** D19 is two objects,
+`<ns>-limits-cpu` and `<ns>-limits-memory`, and none for storage. I judge it against that decision and ask for no
+storage object. The search `grep -n "limits-storage\|limitRange.pvc\|PersistentVolumeClaim"` over the design finds no
+storage LimitRange that cmapi renders: line 361 says that the `PersistentVolumeClaim` item and
+`limitRange.pvc.max.storage` leave the tiers' values, the `overridable` list, the `custom` bounds, #211's custom limits
+and #212's policies, and that `requests.storage` and `persistentvolumeclaims` govern storage. An adopted storage
+LimitRange stays raw, which is right: the decision is about what cmapi renders and checks, not about what it adopts.
+docs/02 line 1710 says the same. No leftover in the design text.
+
+What is left of it, outside the design text:
+
+- docs/02 lines 1187, 1195, 1202 and 1210 still show `limitRange.pvc.max.storage` and `pvc: {max: {storage: ...}}` in
+  the `tiers.yaml` examples. They are true of the code today (`deploy/helm/cmapi/config/tiers.yaml:33, 46, 71, 93`) and
+  change with D19's own pull request. The PR's body should list them, so that they are not forgotten.
+- #251's comment of 15:31Z still says "`<ns>-limits-storage` for the PVC item". A new comment should name the decision.
+- **Add one sentence to D19's "No LimitRange for storage":** "After that pull request a request with a custom
+  `limitRange.pvc.*` value is refused with a problem that names the key." #211 is merged, so such a request is possible
+  today, and the design should say what happens to it.
+
+### R6 (should). D8: the move from the old layout is safe only in one commit, and three readers name the old files
+
+**Does the rewrite risk a diff or a prune?** Not by itself. Argo CD knows an object by its group, kind, namespace and
+name, not by its file, so the same object in another file is no change. Two conditions make that true:
+
+- The old file goes and the named files come in the same commit. A commit that holds both gives Argo CD the same
+  object twice.
+- Splitting the old file must not write the objects again in another form (D8's string rule covers this).
+
+Three readers find the files by the old names today: `core/sync.py:144` (`p.endswith("resourcequota.yaml")`, which
+`resourcequota-<name>.yaml` does not match), `core/pipeline.py:241-242` and `:398` (`_doc(prev_files,
+"resourcequota.yaml")`), and the renderer's own keys (`core/render/manifests.py:134`).
+
+**Change D8's last two sentences of the first paragraph to:**
+
+> A folder written before this layout (`resourcequota.yaml`, `limitrange.yaml`) is still read, as a stream of documents.
+> The next change of that namespace removes the old file and writes the named files in one commit, each object's text
+> unchanged; no commit holds an object in two files. Argo CD knows an object by its kind and name, so the move changes
+> nothing on the cluster and prunes nothing. Each reader of these files finds them by kind, not by file name
+> (`core/sync.py`, `core/pipeline.py`, `core/render/manifests.py` name the old files today). A name longer than a file
+> name allows is written under a hash of the name, and the plan says so.
+
+**Add to B10's test:** "no commit holds both layouts; the sync check and the quota reader of the worker find the named
+files".
+
+**In D16,** the row "More than one ResourceQuota or LimitRange": change "Each is written, one document each (D8)" to
+"Each is written to its own file (D8)".
+
+### R7 (should). Two places still describe a step about another repository
+
+The owner (15:11Z): "The adoption design, runbook and docs contain **no step about the old repository** at all (not
+'remove it', not 'keep it')."
+
+- **D12's stub:** "The earlier D12 described steps about another tool's repository. The owner's decision (§1, item 8)
+  removes it". **Change to:** "### D12. (Withdrawn by the owner's decision, §1 item 8.)", with no second sentence.
+- **`docs/reviews/2026-11-14-issue-26-adoption/fable-review.md`,** the copy of my first pass that this PR adds. Its A7
+  proposes a runbook ("the operator removes the namespace from the old repository"), and its table row names D12's
+  step. It is a record of a review, not the design, but it is in the repository and it reads as a step. **Add at its
+  top, under the title:**
+
+  > **Superseded in part.** The owner decided on #26 (2026-11-14, 15:09Z and 15:11Z) that this design has no step about
+  > any other repository. A7's proposed text for D12, and each sentence here about an old tool or its repository, are
+  > withdrawn and are not part of the design. The second pass is at the end of this file.
+
+  Then append this second pass to that file, so the record in the repository is whole.
+
+## 4. Smaller notes, no change asked before the merge
+
+- #251's "Done when" names `docs/16-data-model.md`. D17 says that no table changes and that docs/16 gets a section
+  "when it is built". That is a fair reading; the PR's body should say that docs/16 is not changed by this PR, so #251
+  is not closed by it alone.
+- docs/02 lines 960 to 961 and 1247 still show `resourcequota.yaml` and `limitrange.yaml` in the folder tree and the
+  renderer's row. They are true of the code today and change with B10 and D19's pull request.
+- D17's view reads "the live objects from each cluster's watch cache". For a namespace whose live quota differs from
+  Git, the derived numbers are the live ones. Say in the view which source each number has when the two differ.
+
+## 5. Sources, read on 2026-11-14
+
+- Kubernetes, "Resource Quotas": <https://kubernetes.io/docs/concepts/policy/resource-quotas/> (`cpu`: "Same as
+  `requests.cpu`"; `memory`: "Same as `requests.memory`"; the 403 on a violated constraint). The page's sections on
+  scopes were beyond what my fetch returned; R3's statements on scopes rest on the design's own quotation and on how a
+  scope selects pods.
+- Kubernetes, "Limit Ranges": <https://kubernetes.io/docs/concepts/policy/limit-range/> ("it is not deterministic which
+  default value will be applied"; "defined in any LimitRange present in the namespace").
+- Kubernetes, "Server-Side Apply": <https://kubernetes.io/docs/reference/using-api/server-side-apply/> (shared
+  ownership of an equal value; a forced apply "removes the field from all other managers' entries").
+- Argo CD, "Sync Options": <https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/> (server-side apply with
+  `--force-conflicts`; Client-Side Apply Migration and its manager annotation).
+- #26 (comments of 2026-11-14T15:09:54Z and 15:11:08Z); #251 and its comments of 15:28:07Z and 15:31:23Z.
+- cmapi at `c874e72`: `docs/02-technical-design-v2.md:975, 1166, 1696`; `core/sync.py:144`; `core/pipeline.py:241-242,
+  398`; `core/render/manifests.py:134`. At #245's head `584e183`: `core/tiers.py:599`, `core/policygen.py:205-226`.
