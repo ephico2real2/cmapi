@@ -16,7 +16,7 @@ data:
       displayName: "Non-production (CRC)"
       allowedEnvironments: ["rnd","dev"]
       publicUrl: "https://cmapi-api.apps-crc.testing"
-      portalUrl: "https://cmapi-portal.apps-crc.testing"     # its origin is the one browser origin that can call the API (CORS, docs/15)
+      portalUrl: ""
       auth:
         issuer: "https://keycloak.apps-crc.testing/realms/cmapi"
         audience: "cmapi-nonprod"

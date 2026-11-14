@@ -21,8 +21,8 @@ instance:
   displayName: Non-production
   allowedEnvironments: [rnd, dev]
   publicUrl: ""              # https://<api route host>; left empty, the Route's host is used in NOTES only
-  portalUrl: ""              # https://<portal route host>; its origin is the one browser origin that can call the API (CORS, docs/15)
-  cors: {}                   # {allowedOrigins: [https://portal.example.com]} names the origins yourself; [] sends no CORS header
+  portalUrl: ""              # https://<portal route host>
+  cors: {}                   # CORS is off. {allowedOrigins: [http://localhost:5173]} lets a page of another origin call the API (docs/15)
   # Where to send callers for the environments other instances serve
   directory:
     staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
