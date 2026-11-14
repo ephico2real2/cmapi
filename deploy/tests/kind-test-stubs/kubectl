@@ -3,6 +3,12 @@
 echo "kubectl $*" >>"$KT_LOG"
 a=" $* "
 case "$a" in
+  *" exec cmapi-np-check -- python3 "*)
+    [ "${KT_NP_EXEC_RC:-0}" = 0 ] || { echo "Forbidden" >&2; exit "$KT_NP_EXEC_RC"; }
+    case "${!#}" in 10.0.0.1) echo "${KT_NP_API:-dropped}";; *) echo "${KT_NP_FRONT:-dropped}";; esac;;
+  *" exec deploy/cmapi-portal -- wget "*) exit "${KT_NP_ALLOWED_RC:-0}";;
+  *" get pod -l app.kubernetes.io/component=api "*"status.podIP"*) echo 10.0.0.1;;
+  *" get pod -l app.kubernetes.io/component=portal "*"status.podIP"*) echo 10.0.0.2;;
   *" config current-context "*) echo kind-cmapi-test;;
   *" get nodes "*) echo "cmapi-test-control-plane v1.35.8";;
   *" get cluster cmapi-db "*) echo "Cluster in healthy state";;

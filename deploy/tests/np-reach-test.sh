@@ -16,7 +16,7 @@ fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }
 had_policy=$(k -n cmapi get networkpolicy cmapi-metrics cmapi-front-door --ignore-not-found -o name 2>/dev/null)
 had_ns=$(k get ns cmapi --ignore-not-found -o name)
 cleanup() {
-  k -n cmapi delete pod np-api np-front np-same --ignore-not-found --wait=false >/dev/null 2>&1
+  k -n cmapi delete pod np-api np-front np-same np-control --ignore-not-found --wait=false >/dev/null 2>&1
   k delete ns np-other --ignore-not-found --wait=false >/dev/null 2>&1
   if [ -n "$had_ns" ]; then
     k -n cmapi delete networkpolicy cmapi-metrics cmapi-front-door --ignore-not-found >/dev/null 2>&1
@@ -31,16 +31,34 @@ k -n cmapi delete networkpolicy cmapi-metrics cmapi-front-door --ignore-not-foun
 # The labels the policies select: the API's component, and the front door's name and component (components/portal/10-front-door.yaml).
 k -n cmapi run np-api --image="$IMG" --image-pull-policy=IfNotPresent --labels=app.kubernetes.io/component=api >/dev/null
 k -n cmapi run np-front --image="$IMG" --image-pull-policy=IfNotPresent --labels=app.kubernetes.io/name=cmapi-portal,app.kubernetes.io/component=portal >/dev/null
+k -n cmapi run np-control --image="$IMG" --image-pull-policy=IfNotPresent >/dev/null
 k -n cmapi run np-same --image="$IMG" --image-pull-policy=IfNotPresent --labels=app.kubernetes.io/component=probe >/dev/null
 k -n np-other run np-out --image="$IMG" --image-pull-policy=IfNotPresent >/dev/null
-k -n cmapi wait pod/np-api pod/np-front pod/np-same --for=condition=Ready --timeout=180s >/dev/null || { echo "ERROR: the pods did not start" >&2; exit 1; }
+k -n cmapi wait pod/np-api pod/np-front pod/np-same pod/np-control --for=condition=Ready --timeout=180s >/dev/null || { echo "ERROR: the pods did not start" >&2; exit 1; }
 k -n np-other wait pod/np-out --for=condition=Ready --timeout=180s >/dev/null || { echo "ERROR: the other namespace's pod did not start" >&2; exit 1; }
+CONTROL_IP=$(k -n cmapi get pod np-control -o jsonpath='{.status.podIP}')
 API_IP=$(k -n cmapi get pod np-api -o jsonpath='{.status.podIP}'); FRONT_IP=$(k -n cmapi get pod np-front -o jsonpath='{.status.podIP}')
-{ [ -n "$API_IP" ] && [ -n "$FRONT_IP" ]; } || { echo "ERROR: a target pod has no address" >&2; exit 1; }
+{ [ -n "$API_IP" ] && [ -n "$FRONT_IP" ] && [ -n "$CONTROL_IP" ]; } || { echo "ERROR: a target pod has no address" >&2; exit 1; }
 # reach <ns> <pod> <ip>: whether that pod reaches port 8080 of that address.
-reach() { if k -n "$1" exec "$2" -- wget -q -O /dev/null --timeout=4 "http://$3:8080/" 2>/dev/null; then echo reached; else echo blocked; fi; }
+reach() {
+  local why
+  if why=$(k -n "$1" exec "$2" -- wget -q -O /dev/null --timeout=4 "http://$3:8080/" 2>&1); then
+    echo reached
+  else
+    case "$why" in
+      *"wget: download timed out"*)
+        # Verify that exec and cross-pod networking still work from this source.
+        if k -n "$1" exec "$2" -- wget -q -O /dev/null --timeout=4 "http://$CONTROL_IP:8080/" >/dev/null 2>&1; then
+          echo blocked
+        else
+          echo "inconclusive: control unreachable"
+        fi;;
+      *) echo "inconclusive: ${why:0:200}";;
+    esac
+  fi
+}
 # settle <want> <ns> <pod> <ip>: a policy takes a moment to take effect, so the wanted answer has up to 30 s to appear.
-settle() { local got i; for i in 1 2 3 4 5 6; do got=$(reach "$2" "$3" "$4"); [ "$got" = "$1" ] && break; [ "$i" = 6 ] || sleep 5; done; echo "$got"; }
+settle() { local got i; for i in 1 2 3 4 5 6; do got=$(reach "$2" "$3" "$4"); case "$got" in inconclusive:*) break;; esac; [ "$got" = "$1" ] && break; [ "$i" = 6 ] || sleep 5; done; echo "$got"; }
 pf() { # <pod>. kubectl itself, not k: a function in the background is a subshell, so kill $! would leave kubectl holding the port.
   kubectl --kubeconfig="$KC" -n cmapi port-forward "pod/$1" "$PORT:8080" >/dev/null 2>&1 & local p=$!
   sleep 2; curl -s -o /dev/null -m 4 -w '%{http_code}' "http://127.0.0.1:$PORT/"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; }

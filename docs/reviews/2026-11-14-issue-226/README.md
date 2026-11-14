@@ -311,3 +311,15 @@ The rollback guard (`test_crc_rollback_names_every_object_the_run_creates`) ende
 `"route.route.openshift.io cmapi"` and `"service cmapi-api"` taken out of `crc-rollback.sh`, the old guard reported nothing
 missing; the fixed guard reports both. The name now ends at a quote, white space or the end of a line, in `rollback_missing`,
 and `test_the_rollback_guard_tells_a_name_from_a_longer_one` holds it.
+
+## Reviewer 1 on PR-B (Codex `gpt-6.1-sol`, PR #247 head `8ff0352`)
+
+Codex checked seven claims (`reviewer-1-report-pr-b.md`; its fixes are `review-artifacts/pr-b-all-fixes.diff`) and
+confirmed C1 to C6: the two policies, the Routes, the realm's redirect URIs, `render.sh` and the Deployment match the
+chart. It found three defects, each with a stub test that failed before (9 assertions) and passes after:
+
+| # | Finding | Decision |
+|---|---|---|
+| F1 | `kind-test.sh` passed with both NetworkPolicies deleted (the podman-kind DNS workaround), and never tried a forbidden connection | Accepted. An unlabelled pod in `cmapi` must be refused both 8080 ports, and the front door must reach the API. On the DNS failure the run now fails. One change to Codex's fix: `KIND_TEST_WITHOUT_NETPOL=true` keeps the earlier workaround as an explicit choice, so the other checks can still run on podman-kind, and the run then says "NetworkPolicy NOT PROVED". A test in `kind-test-stubbed.sh` covers it |
+| F2 | `np-reach-test.sh` counted an exec failure, a refused connection or an HTTP 503 as a blocked connection | Accepted unchanged: only the BusyBox timeout counts, with a reachable control from the same source after it |
+| F3 | The front door's pod mounts a service account token that nginx never uses | Accepted unchanged, in the chart and the plain manifests: `automountServiceAccountToken: false` |

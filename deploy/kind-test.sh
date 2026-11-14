@@ -8,7 +8,9 @@
 # front door, the mockup on its own host, no restart after the rollout, a changed cmapi-env restarting the api and the worker
 # and a changed cmapi-portal-config the front door, and the secrets cases. Every
 # kubectl call carries an explicit --kubeconfig (KIND_TEST_KUBECONFIG, default ./.cmapi-test.kubeconfig, git-ignored). KIND_TEST_KEEP=true keeps
-# the cluster; otherwise it is deleted by name at the end. Prints what it measured; exits non-zero on the first failure.
+# the cluster; otherwise it is deleted by name at the end. The NetworkPolicies are proved too: an unlabelled pod is refused both
+# 8080 ports. On podman-kind a NetworkPolicy can break DNS; the run then fails, unless KIND_TEST_WITHOUT_NETPOL=true, which
+# deletes the two policies, runs every other check, and reports the policies as not proved (Codex's review of #247, F1). Prints what it measured; exits non-zero on the first failure.
 set -euo pipefail
 IMAGE=${1:-localhost/cmapi:dev}
 PORTAL_IMAGE=${2:-localhost/cmapi-portal:dev}
@@ -89,8 +91,12 @@ if ! k -n cmapi rollout status deploy/cmapi-api --timeout=60s >/dev/null 2>&1; t
     # The control: the database's pod, which no policy here selects (the front door's pod is under cmapi-front-door now). It has
     # been healthy since the wait above, so it has run and can be asked.
     if k -n cmapi exec cmapi-db-1 -c postgres -- getent hosts cmapi-db-rw.cmapi.svc >/dev/null 2>&1; then
+      if [ "${KIND_TEST_WITHOUT_NETPOL:-false}" != true ]; then
+        echo "ERROR: NetworkPolicy breaks DNS on this kind runtime; ingress enforcement cannot be proved (KIND_TEST_WITHOUT_NETPOL=true runs the other checks without the policies)" >&2
+        exit 1
+      fi
       dns_fail=true
-      say "MEASURED: the migrate container (selected by the ingress-only NetworkPolicy cmapi-metrics) cannot resolve cmapi-db-rw while the database pod (not selected) can: the podman-kind DNS failure under a NetworkPolicy. Deleting both policies for this test only; they ship, and the hosted runner and CRC decide"
+      say "MEASURED: the migrate container cannot resolve cmapi-db-rw while the database pod can: the podman-kind DNS failure under a NetworkPolicy. KIND_TEST_WITHOUT_NETPOL=true: deleting both policies; this run proves nothing about them"
       k -n cmapi delete networkpolicy cmapi-metrics cmapi-front-door >/dev/null
       k -n cmapi delete pod -l app.kubernetes.io/component=api >/dev/null; k -n cmapi delete pod -l app.kubernetes.io/component=worker >/dev/null
     fi
@@ -100,6 +106,38 @@ k -n cmapi rollout status deploy/cmapi-api --timeout=600s
 k -n cmapi rollout status deploy/cmapi-worker --timeout=300s
 k -n cmapi rollout status deploy/cmapi-portal --timeout=180s
 say "ready: $(k -n cmapi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount --no-headers | tr '\n' ';')"
+
+
+# A successful proxy request cannot prove that direct requests are blocked.
+# Probe actual pod IPs to exclude DNS/Service failures from a denial result.
+NP_PROBE='import socket,sys
+try:
+    with socket.create_connection((sys.argv[1],8080),timeout=5): pass
+except TimeoutError:
+    print("dropped")
+except OSError as exc:
+    sys.exit("inconclusive: "+str(exc))
+else:
+    print("connected")'
+if [ "$dns_fail" = true ]; then
+  say "NetworkPolicy NOT PROVED: the policies were deleted for the DNS failure (KIND_TEST_WITHOUT_NETPOL=true)"
+else
+k -n cmapi run cmapi-np-check --image="$IMAGE" --restart=Never --command -- python3 -c 'import time; time.sleep(600)' >/dev/null
+k -n cmapi wait pod/cmapi-np-check --for=condition=Ready --timeout=120s >/dev/null
+api_ip=$(k -n cmapi get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].status.podIP}')
+front_ip=$(k -n cmapi get pod -l app.kubernetes.io/component=portal -o jsonpath='{.items[0].status.podIP}')
+[ -n "$api_ip" ] && [ -n "$front_ip" ] || { echo "ERROR: missing network-policy target IP" >&2; exit 1; }
+np_connect() { k -n cmapi exec "$1" -- python3 -c "$NP_PROBE" "$2"; }
+# This same-namespace pod is also outside the router's namespace. The allowed
+# front-door-to-API connection controls for target availability after each denial.
+for target in "$api_ip" "$front_ip"; do
+  got=$(np_connect cmapi-np-check "$target")
+  [ "$got" = dropped ] || { echo "ERROR: unlabelled pod reaches $target:8080 ($got)" >&2; exit 1; }
+  k -n cmapi exec deploy/cmapi-portal -- wget -q -O /dev/null --timeout=5 "http://$api_ip:8080/api/v1/version" || { echo "ERROR: the front door cannot reach the API" >&2; exit 1; }
+done
+k -n cmapi delete pod cmapi-np-check --wait=false >/dev/null
+say "unlabelled cmapi pod is denied both 8080 ports; the front door reaches the API"
+fi
 
 say "what each database connection gets: the api, the worker and both migrate containers"
 # Measured, not assumed: libpq's sslmode=prefer connects to anything and falls back to plaintext without a word. A pod made from each
@@ -202,7 +240,7 @@ sed -i.bak 's/^  CMAPI_LOG_LEVEL: INFO$/  CMAPI_LOG_LEVEL: DEBUG/' "$C/manifests
 sed -i.bak 's/^      "displayName": "Non-production",$/      "displayName": "Non-production (changed)",/' "$C/manifests/environments/kind/40-portal.yaml"; rm -f "$C/manifests/environments/kind/40-portal.yaml.bak"
 grep -q '(changed)' "$C/manifests/environments/kind/40-portal.yaml" || { echo "ERROR: the portal's config.json was not changed for the test" >&2; exit 1; }
 "$C/render.sh" kind "$IMAGE" --portal-image "$PORTAL_IMAGE" "$C/out" --allow-tag >/dev/null
-# Applied with everything else, the policy this run deleted would bring the same DNS failure back to the new pods.
+# Applied with everything else, a policy that this run deleted would bring the same DNS failure back to the new pods.
 [ "$dns_fail" != true ] || rm -f "$C/out/components/cmapi/40-networkpolicy.yaml"
 k apply -f "$C/out/environment/" >/dev/null
 k apply --server-side -R -f "$C/out/components" >/dev/null
@@ -224,4 +262,4 @@ say "replaced: $before; the new pods read CMAPI_LOG_LEVEL=DEBUG, and the front d
 
 say "secrets cases"
 "$HERE/secrets-test.sh" "kubectl --kubeconfig=$KC"
-say "done; NetworkPolicy deleted for DNS: $dns_fail"
+if [ "$dns_fail" = true ]; then say "done; NetworkPolicy NOT PROVED (deleted for the DNS failure)"; else say "done; ingress policies remained installed and passed the denial checks"; fi
