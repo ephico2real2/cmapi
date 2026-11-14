@@ -26,8 +26,10 @@ from conftest import ALL_ENVS, EX, INSTANCES
 
 COMPANY = EX / "cluster-configs/policies/metadata-keys.company.yaml"
 SHIPPED = EX / "cluster-configs/policies/metadata-keys.yaml"
-SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1",
-        "company.net/mnemonic-group-contact": "", "company.net/mnemonic-confluence": ""}
+SENT = {"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1"}
+# The two optional keys are annotations, with their formats (the owner's decision on #234).
+OPTIONAL = {"company.net/mnemonic-group-contact": "abc-team@company.net",
+            "company.net/mnemonic-confluence": "https://wiki.company.net/abc"}
 BASE = "clusters/OCP_GF15/namespaces/abc-rnd/"
 
 
@@ -76,7 +78,7 @@ def owners_sample(catalog, keys, tier="small", **over) -> dict[str, str]:
     renderer = ManifestRenderer(catalog, keys)
     spec = dict(namespace="abc-rnd", cluster_id="OCP_GF15", instance="nonprod", env="rnd", tier=tier,
                 request_id="req-1", requested_by_user="ola", requested_by_email="ola@company.net", labels=SENT,
-                annotations={})
+                annotations=OPTIONAL)
     spec.update(over)
     files = renderer.render(NamespaceSpec(**spec))
     return {k.removeprefix(BASE): v for k, v in files.items() if k.startswith(BASE)}
@@ -204,6 +206,8 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
     ({"name": "aao-rnd"}, {}, "name"),
     ({"company.net/app-environment": "prod"}, {}, "company.net/app-environment"),
     ({}, {"company.net/app-environment": "dev"}, "company.net/app-environment"),
+    ({}, {"company.net/mnemonic-group-contact": "abc-team@other.org"}, "company.net/mnemonic-group-contact"),
+    ({}, {"company.net/mnemonic-confluence": "ftp://wiki.company.net/abc"}, "company.net/mnemonic-confluence"),
 ])
 def test_python_and_kyverno_refuse_the_same_value(kyverno, catalog, company, tmp_path, labels, annotations, key):
     """The agreement of the two checkers: each value that cmapi's own check refuses, the rendered policy refuses too."""
