@@ -37,7 +37,8 @@ the short form of this design.
 11. **`company.net/provisioner` can be kept or removed after adoption** by an approved request, from Git and from the
     live namespace (#251; D18).
 12. **Separate LimitRange objects for CPU and memory are the company standard, in cmapi's own rendering too** (#251,
-    15:28Z; D19).
+    15:28Z; D19). "We don't enforce limit ranges for storage" (#251, later the same day): storage is governed only by
+    the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
 13. Admin operations on an onboarded cluster (filter namespaces by any metadata, bulk changes as approved requests with a
     dry run, KPIs on adopted namespaces) are a later feature, #252 (Wave 8). D18's removal is one of its operations.
 
@@ -338,7 +339,7 @@ manager an owner of it. Whether it is the **only** owner depends on who wrote it
 `--show-managed-fields` after the first sync. Then remove the label by a request, and show that it is gone from the live
 object in both cases.
 
-### D19. cmapi's own LimitRanges: one object for each resource (the owner's decision on #251)
+### D19. cmapi's own LimitRanges: one for CPU, one for memory, none for storage (the owner's decisions on #251)
 
 **What Kubernetes does with several LimitRanges.**
 - Each is enforced: usage must "not exceed resource minimum, maximum and ratio defined in any LimitRange present in the
@@ -348,18 +349,21 @@ object in both cases.
 
 So several LimitRanges are safe only when no two set a default for the same resource of the same type.
 
-**The rendering.** cmapi renders a tier's limits as one LimitRange for each resource, each object owning one resource
-name, so no two set the same default:
+**The rendering.** cmapi renders a tier's limits as two LimitRange objects, each owning one resource name, so no two set
+the same default:
 
-| Object | Holds | Why separate |
-|---|---|---|
-| `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` | The company standard |
-| `<ns>-limits-memory` | the same for `memory` | The company standard |
-| `<ns>-limits-storage` | the `PersistentVolumeClaim` item's `storage` (`limitRange.pvc.*`) | Another type and another resource. With memory it would tie two unrelated limits into one object and one change. Its own object keeps the rule of one resource for each object |
+| Object | Holds |
+|---|---|
+| `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` |
+| `<ns>-limits-memory` | the same for `memory` |
 
-The keys of `tiers.yaml` stay as they are (`limitRange.container.max.cpu`, `limitRange.pvc.max.storage`), so #211's
-custom limits, the approval facts and the bounds do not change. Only the renderer maps each key to its object. What
-follows the split:
+**No LimitRange for storage** (the owner: "We don't enforce limit ranges for storage"). The `PersistentVolumeClaim` item
+and its key `limitRange.pvc.max.storage` leave the tiers' values, `tiers.yaml`'s `overridable` list and `custom` bounds,
+#211's custom limits (merged in #224, so the D19 pull request removes the key there and records it), and #212's generated
+policies. Storage is governed only by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
+
+The container keys of `tiers.yaml` stay as they are (`limitRange.container.max.cpu`, ...), so the approval facts and the
+bounds of CPU and memory do not change. Only the renderer maps each key to its object. What follows the split:
 - the tier hash, which covers the rendered objects;
 - the plan diff and the dry run, which show each object;
 - the quota view, which lists each LimitRange;
@@ -370,7 +374,7 @@ migration. The examples, tests, docs and recorded samples change.
 
 **Where it is built:** its own pull request, after this design is approved and after #245 (the generated policies)
 merges, because it changes `core/tiers.py`, `core/render/manifests.py` and `core/policygen.py` together. Adoption is
-unchanged by it: adopted LimitRanges stay raw, any number, under their own names.
+unchanged by it: adopted LimitRanges stay raw, any number, under their own names, a storage LimitRange too.
 
 ### D10. Who may ask, and the approval
 
@@ -547,4 +551,4 @@ The choices that most need a second reader:
 - D16: the reads before each step.
 - D17: the data model of free-form quotas and LimitRanges, and the derived numbers (the smallest unscoped `hard`).
 - D18: removing an adopted label from the cluster under server-side apply.
-- D19: cmapi's own LimitRanges, one object for each resource.
+- D19: cmapi's own LimitRanges, one object for CPU and one for memory, and none for storage.
