@@ -31,6 +31,15 @@ the short form of this design.
    never followed.
 9. The two contact keys are annotations now (#215, 14:25Z): an existing namespace that carries them as labels keeps those
    labels at adoption, and each is a finding.
+10. **ResourceQuota and LimitRange are adopted free-form** (#251): any number of each, with any content, each kept raw
+    under its own name, one file per object. The database and the API views hold a list of objects, plus derived numbers
+    where a value maps (D17).
+11. **`company.net/provisioner` can be kept or removed after adoption** by an approved request, from Git and from the
+    live namespace (#251; D18).
+12. **Separate LimitRange objects for CPU and memory are the company standard, in cmapi's own rendering too** (#251,
+    15:28Z; D19).
+13. Admin operations on an onboarded cluster (filter namespaces by any metadata, bulk changes as approved requests with a
+    dry run, KPIs on adopted namespaces) are a later feature, #252 (Wave 8). D18's removal is one of its operations.
 
 ## 2. The design in one paragraph
 
@@ -236,9 +245,13 @@ the change:
 
 ### D8. The repository and the folder
 
-The folder is `clusters/<cluster>/namespaces/<namespace>/` in `cmapi-cluster-configs`, with `namespace.yaml`,
-`resourcequota.yaml` (each ResourceQuota, one document each) and `limitrange.yaml` (each LimitRange). The file names are
-the renderer's, so a later request finds them.
+The folder is `clusters/<cluster>/namespaces/<namespace>/` in `cmapi-cluster-configs`, with `namespace.yaml` and **one
+file for each ResourceQuota and each LimitRange, named after the object**: `resourcequota-<name>.yaml` and
+`limitrange-<name>.yaml` (#251). One object in one file means that no reader needs to take several documents, which
+closes #250, and that a request names the object it changes by its file. The same layout serves cmapi's own tier
+namespaces (D19). A folder written before this layout (`resourcequota.yaml`, `limitrange.yaml`) is still read, as a stream of
+documents, and the next change of that namespace writes the named files instead. Argo CD sees the same objects, by kind
+and name, so moving an object from one file to another changes nothing on the cluster.
 
 The YAML writer keeps each string a string: `'1'`, `''` and `"true"` stay quoted, because the API server refuses
 `company.net/cl: 1`. The quantities are what the API server returned, so Argo CD sees no difference after the takeover
@@ -246,16 +259,118 @@ The YAML writer keeps each string a string: `'1'`, `''` and `"true"` stay quoted
 
 ### D9. A later change of an adopted quota or LimitRange
 
-cmapi changes an adopted object in place. It sets the keys that the request names: `spec.hard` of the ResourceQuota, and
-the `Container` and `PersistentVolumeClaim` items of the LimitRange, as #211's `limitRange` does. It keeps each other
-field: scopes, other item types, other keys. The namespace stays on tier `custom`.
+An adopted object stays raw until a request changes it. A request names the object by its kind and name
+(`resourceQuotas: {<name>: {hard: {...}}}`, `limitRanges: {<name>: {...}}`), and cmapi changes that object in place: it sets
+the keys that the request names and keeps each other field (scopes, `scopeSelector`, other item types, other keys). When
+the namespace has exactly one object of the kind, the name may be left out, as today. With several and no name, the plan
+refuses it with a problem that names the objects. A request can also add an object or remove one by name, each shown in
+the plan. Any other request, a change of a label for example, leaves every object unchanged.
 
-A namespace with more than one ResourceQuota (or LimitRange) cannot take such a request, because the request does not
-say which object it changes: the plan refuses it with a problem that names the objects. Any other request of such a
-namespace, a change of a label for example, passes and leaves both documents unchanged. Today every reader of
-`resourcequota.yaml` takes one document only (`core/pipeline.py`, `yaml.safe_load`), so such an update answers 500: that
-is #250 (§4). A change to a named tier replaces the adopted objects with the tier's, and the plan shows each field
-that goes.
+The namespace stays on tier `custom`. It moves to a named tier only when a request asks for it, never automatically:
+that request replaces the adopted objects with the tier's (D19's names), and its plan shows each object and field that
+goes.
+
+### D17. The data model of adopted quotas and LimitRanges (#251)
+
+**What is held.** cmapi does not predict the shape of an adopted object. Each ResourceQuota and LimitRange is kept as the
+raw YAML that the API server returned, minus D3, under its own name, with any content that Kubernetes allows. That
+includes `hard` with any resource name (extended resources, `count/<resource>.<group>` object counts), `scopes`,
+`scopeSelector` ("A quota will only measure usage for a resource if it matches the intersection of enumerated scopes",
+Kubernetes, "Resource Quotas"), and LimitRange items of each `type` with `min`, `max`, `default`, `defaultRequest` and
+`maxLimitRequestRatio`. cmapi checks only that each is a valid Kubernetes object (kubeconform), and the rendered policies
+check the keys they know (#212).
+
+**Where it is held.** Git holds the objects (D8). The database holds no copy of them: the request's plan stores the files
+and the snapshot (D6a), and the API's quota views read the live objects from each cluster's watch cache, as they do today
+(`plugins/quotas`). So nothing in `docs/16-data-model.md`'s tables changes for the objects themselves. What changes is the
+shape that the API returns for a namespace:
+
+```json
+{
+  "resourceQuotas": [
+    {"name": "abc-rnd-quota", "scopes": [], "hard": {"requests.cpu": "40", "count/deployments.apps": "20"},
+     "used": {"requests.cpu": "12"}, "raw": "<the object as YAML>"}
+  ],
+  "limitRanges": [{"name": "abc-rnd-limits-cpu", "raw": "<the object as YAML>"}],
+  "derived": {"cpu": ["12", "40"], "memory": [null, null], "pods": [null, null]},
+  "uninterpreted": ["count/deployments.apps"]
+}
+```
+
+**The derived numbers** that capacity, the quota view and the KPIs use come from the objects by one rule:
+- Every ResourceQuota is enforced on its own: a request that "violates a quota constraint" is refused with 403
+  (Kubernetes, "Resource Quotas"). So the hard limit of a key for the whole namespace is the **smallest** `hard` value of
+  that key among the quotas that have **no scope and no scopeSelector**, not their sum. `used` comes from the same quota.
+- A quota with a scope measures only the matching objects, so it is shown, and it is not counted in the namespace's
+  numbers.
+- A key that cmapi does not interpret (an extended resource, an object count, any name that is not `requests.cpu`,
+  `requests.memory`, `pods`, `persistentvolumeclaims`, `requests.storage`, `services.loadbalancers` or
+  `services.nodeports`) is kept and shown raw. It is excluded from the maths and listed in `uninterpreted`, and the
+  adoption plan reports it as a finding `uninterpreted-key`.
+
+The quota view's `cpu`, `memory` and `pods` columns, and the capacity reservation of a later request, use `derived`. The
+data model doc (docs/16) gets a section on this view when it is built.
+
+### D18. Keep or remove `company.net/provisioner` after the adoption (#251)
+
+The label stays at the adoption (D7). Later, an approved request can remove it from Git and from the live namespace. The
+request is an ordinary metadata change with `null` for the key, for one namespace, or many through #252's bulk
+operation. The same mechanism serves any adopted label that is to go later.
+
+**Why the removal reaches the cluster.** Under server-side apply, a field that a manifest leaves out is removed only when
+no other manager owns it (D3a). The label is in the adopted file (D7), so the first sync makes Argo CD's server-side apply
+manager an owner of it. Whether it is the **only** owner depends on who wrote it:
+- If a client-side `kubectl apply` wrote it, Argo CD's client-side apply migration, on by default, moves that ownership
+  to Argo CD's manager on the first sync (D3a). Argo CD is then the only owner, and the removal from Git removes it from
+  the cluster.
+- If another manager wrote it (`oc label`, a controller), that manager keeps a share, because an apply of the same value
+  is shared ownership, not a conflict. The removal from Git would then leave it on the cluster. So the adoption plan
+  records the label's managers (D2), and the removal plan says which case holds. When another manager co-owns the label,
+  the removal request takes two commits:
+  1. The first sets the label to another value (`cmapi-removing`). Argo CD's forced apply (`--force-conflicts`) then
+     takes it, because a forced apply "removes the field from all other managers' entries" (Kubernetes, "Server-Side
+     Apply").
+  2. After that sync, the second commit leaves it out, and Argo CD, now the only owner, removes it.
+
+  The adoption itself never changes the label (D4).
+
+**Proof** (when #157 allows): on kind, adopt a namespace made with `kubectl apply` and one labelled with `oc label`. Read
+`--show-managed-fields` after the first sync. Then remove the label by a request, and show that it is gone from the live
+object in both cases.
+
+### D19. cmapi's own LimitRanges: one object for each resource (the owner's decision on #251)
+
+**What Kubernetes does with several LimitRanges.**
+- Each is enforced: usage must "not exceed resource minimum, maximum and ratio defined in any LimitRange present in the
+  namespace" (Kubernetes, "Limit Ranges").
+- Their defaults are not merged: "If two or more LimitRange objects exist in the namespace, it is not deterministic which
+  default value will be applied" (the same page).
+
+So several LimitRanges are safe only when no two set a default for the same resource of the same type.
+
+**The rendering.** cmapi renders a tier's limits as one LimitRange for each resource, each object owning one resource
+name, so no two set the same default:
+
+| Object | Holds | Why separate |
+|---|---|---|
+| `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` | The company standard |
+| `<ns>-limits-memory` | the same for `memory` | The company standard |
+| `<ns>-limits-storage` | the `PersistentVolumeClaim` item's `storage` (`limitRange.pvc.*`) | Another type and another resource. With memory it would tie two unrelated limits into one object and one change. Its own object keeps the rule of one resource for each object |
+
+The keys of `tiers.yaml` stay as they are (`limitRange.container.max.cpu`, `limitRange.pvc.max.storage`), so #211's
+custom limits, the approval facts and the bounds do not change. Only the renderer maps each key to its object. What
+follows the split:
+- the tier hash, which covers the rendered objects;
+- the plan diff and the dry run, which show each object;
+- the quota view, which lists each LimitRange;
+- #212's generated policies, which check each object's keys, with the order checks inside the CPU and memory objects.
+
+**No migration.** Nothing of cmapi runs on a cluster yet (#157), so the old single `<ns>-limits` object needs no live
+migration. The examples, tests, docs and recorded samples change.
+
+**Where it is built:** its own pull request, after this design is approved and after #245 (the generated policies)
+merges, because it changes `core/tiers.py`, `core/render/manifests.py` and `core/policygen.py` together. Adoption is
+unchanged by it: adopted LimitRanges stay raw, any number, under their own names.
 
 ### D10. Who may ask, and the approval
 
@@ -337,7 +452,10 @@ each step:
 |---|---|---|
 | B1 | The adoption plugin: D1 to D5, D8, D10, D13, D16 | The plan of the owner's sample: the files equal the live objects minus D3 plus D4; the findings of D6; `'1'`, `''` and `"true"` stay strings |
 | B2 | The renderer keeps keys in Git that it does not own (D7); a merge patch may remove them | An update of an adopted namespace keeps `company.net/provisioner`; a `null` removes it; setting it is refused |
-| B3 | A change of an adopted quota or LimitRange patches the object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; two ResourceQuotas refuse it with a problem; an update of a label on a namespace with two ResourceQuotas passes and both documents are unchanged |
+| B3 | A change of an adopted quota or LimitRange patches the named object in place (D9) | An adopted ResourceQuota with `scopes` keeps them after a quota change; with two ResourceQuotas, a request that names one changes only it, and one with no name is refused with a problem; an update of a label leaves both unchanged |
+| B10 | One file for each object, named after it, and the reader of the earlier layout (D8; closes #250) | A folder with two ResourceQuotas: an update of a label passes; the next change writes `resourcequota-<name>.yaml` files; Argo CD's diff of the rename is empty (kind) |
+| B11 | The derived numbers and `uninterpreted` (D17) | Two unscoped quotas give the smaller `requests.cpu`; a scoped quota is listed and not counted; `count/deployments.apps` is in `uninterpreted` and in the findings |
+| B12 | The removal of an adopted label from the cluster (D18) | On kind, for a label written by `kubectl apply` and one written by `oc label`: removed by a request, gone from the live object |
 | B4 | The worker's check after the sync, `managedFields` included (D11) | A live object with one more changed field fails the request with that field named |
 | B5 | `adoption.yaml` with the skip prefixes of D3, and D3a's rule on managers | A key under each prefix that a server component owns is skipped; one that `kubectl apply` wrote is kept with `skipped-key-kept` |
 | B6 | `FailOnSharedResource=true` on cmapi's Applications (Wave 5's ApplicationSet) | A namespace in another Application fails the sync (kind) |
@@ -347,7 +465,8 @@ each step:
 
 **A bug that this design found, filed apart:** `core/pipeline.py` reads `resourcequota.yaml` with `yaml.safe_load`, which
 raises `ComposerError: expected a single document in the stream` on a file with two documents. A folder with two
-ResourceQuotas then answers 500 on every update (Fable's A4). It is #250 (BUG-61), with a test that fails before the fix.
+ResourceQuotas then answers 500 on every update (Fable's A4). It is #250 (BUG-61). B10's named files close it, and its
+test fails before the fix.
 
 ## 5. The test plan (the owner's, made concrete)
 
@@ -393,7 +512,9 @@ The before-and-after comparison uses `oc get -o yaml --show-managed-fields`.
 | A quota changed after the plan | `adoption-plan-stale`; the live value is not written over |
 | `cmapi.net/adopt` removed after the approval | The request is cancelled; the pull request is closed |
 | A second `:adopt` while the first is open | 409 |
-| No ResourceQuota; two ResourceQuotas | The findings; an update of a label passes with two |
+| No ResourceQuota; two ResourceQuotas, one with a scope and one with `count/deployments.apps` | The findings, with `uninterpreted-key`; one file for each object; the derived CPU comes from the unscoped quota; an update of a label passes |
+| A LimitRange for CPU and another for memory | Both adopted under their names, unchanged |
+| Remove `company.net/provisioner` by a request after the adoption | Gone from Git and from the live namespace (D18) |
 | A failed adoption, then `:revert` | 409; the three live objects are unchanged |
 | An update after the adoption (set the annotation `company.net/mnemonic-group-contact`) | The annotation is set; the label of the same key stays until a request removes it with `null`; `name` stays `aao-rnd` (D6); `company.net/provisioner` stays; the quota's `scopes` stay |
 | A missing required key (remove `company.net/lob` before the plan) | Adopted, with `missing-required-key`; a later quota change passes with the finding listed (D6) |
@@ -424,3 +545,6 @@ The choices that most need a second reader:
 - D6a: the base for the policies.
 - D11 step 4: no revert of an adoption.
 - D16: the reads before each step.
+- D17: the data model of free-form quotas and LimitRanges, and the derived numbers (the smallest unscoped `hard`).
+- D18: removing an adopted label from the cluster under server-side apply.
+- D19: cmapi's own LimitRanges, one object for each resource.
