@@ -6,8 +6,10 @@
 # pinned by digest. Runs as the base image's non-root user (1001, group 0) and fits the restricted SCC.
 FROM registry.access.redhat.com/ubi9/python-312-minimal@sha256:b99faaadaf10de740d60c713a047088df2f46ebdd766e9c6a0957896f44d0ea1 AS tools
 
-ARG KYVERNO_VERSION=v1.16.2
-ARG KYVERNO_SHA256=957fd264f011644394e22877505841fe4ec62a2e4c194075cd4e4b14dd07cf82
+# The Kyverno that the clusters run (the owner's decision on #213): v1.20.0, published 2026-11-12, pinned to the exact patch;
+# a later patch is a reviewed bump. The SHA-256 is the release's checksums.txt for kyverno-cli_v1.20.0_linux_x86_64.tar.gz.
+ARG KYVERNO_VERSION=v1.20.0
+ARG KYVERNO_SHA256=06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2
 ARG KUBECONFORM_VERSION=v0.6.7
 ARG KUBECONFORM_SHA256=95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
 # kubeconform's schemas, by commit and SHA-256: without them every plan depends on raw.githubusercontent.com
@@ -52,13 +54,16 @@ FROM registry.access.redhat.com/ubi9/python-312-minimal@sha256:b99faaadaf10de740
 
 ARG GIT_COMMIT=unknown
 ARG BUILD_VERSION=0.0.0
+ARG KYVERNO_VERSION
 LABEL org.opencontainers.image.title="cmapi" \
       org.opencontainers.image.source="https://github.com/ephico2real2/cmapi" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.version="${BUILD_VERSION}"
 
-# The commit is served by GET /api/v1/version and checked by the release script in the running pod.
+# The commit is served by GET /api/v1/version and checked by the release script in the running pod. The Kyverno version
+# is reported by GET /api/v1/admin/integrations: the least version that the clusters must run (docs/11).
 ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
+    CMAPI_KYVERNO_VERSION=${KYVERNO_VERSION} \
     CMAPI_STATIC_DIR=/opt/app-root/static \
     CMAPI_KUBECONFORM_SCHEMAS="/opt/app-root/schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
     PIP_NO_CACHE_DIR=1 \

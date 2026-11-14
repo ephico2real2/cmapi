@@ -1,5 +1,5 @@
 # Kyverno CEL policy run by the local CI on every rendered Namespace: the governed keys cmapi requires.
-apiVersion: policies.kyverno.io/v1beta1
+apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
   name: require-team-metadata

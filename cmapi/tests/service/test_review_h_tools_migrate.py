@@ -178,10 +178,17 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
     assert all(p.startswith(("/admin/realms/cmapi", "/realms/cmapi")) for _, p, _ in host.calls)
 
 
-def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
-    """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes."""
+def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monkeypatch):
+    """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes.
+    The image holds a kyverno binary, and the chart's policy enforces Kyverno, so the validator's start check (#213) needs
+    one on PATH: a stub stands in for the image's."""
     from cmapi.core.context import build_context
     from cmapi.settings import Settings
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "kyverno").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "kyverno").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -195,6 +202,7 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
     assert ctx.delivery.argocd_namespace == "cmapi-argocd" and ctx.delivery.argocd_root_application == "cluster-configs-{clusterId}"
     assert ctx.issuer == "https://keycloak.apps-crc.testing/realms/cmapi" and ctx.audience == "cmapi-nonprod"
     assert ctx.directory is not None and ctx.registry.policies["CRC"].environment == "dev"
+    assert ctx.pipeline.validator.policy.modes({"dev", "rnd"}) == {"dev": "enforce", "rnd": "enforce"}
 
 
 def test_environment_role_cannot_create_in_another_environment(rnd_only):
