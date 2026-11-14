@@ -392,6 +392,12 @@ def metadata_description(keys: Any, kind: str) -> str:
     return " ".join(parts)
 
 
+def metadata_example(keys: Any, kind: str) -> dict[str, str]:
+    """What a requester sends for one kind: each required key that cmapi does not set, with the example of its rule.
+    A key with no example is left out, so the document never shows a value that the plan would refuse."""
+    return {k: str(r.example) for k, r in keys.rules[kind].items() if r.required and not r.derived and r.example is not None}
+
+
 def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
     """The labels and annotations of NamespaceCreate and NamespacePatch name this instance's keys and rules."""
     schemas = spec.get("components", {}).get("schemas", {})
@@ -400,6 +406,8 @@ def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
         for field, kind in (("labels", "label"), ("annotations", "annotation")):
             if field in props:
                 props[field]["description"] = prefix + metadata_description(keys, kind)
+                if schema == "NamespaceCreate":
+                    props[field]["examples"] = [metadata_example(keys, kind)]
 
 
 def _with_type_base(node: Any, problem_base: str) -> Any:

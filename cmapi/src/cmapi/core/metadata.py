@@ -116,6 +116,10 @@ class MetadataKeys:
                 continue
             if any(key in self.rules[k] for k in KINDS):
                 problems.append(f"adoptionLabels.{key}: a key that a requester can set is not an adoption label")
+            if self._syntax(key, None, "label") or any(v and (len(v) > 63 or not _NAME.fullmatch(v)) for v in values):
+                problems.append(f"adoptionLabels.{key}: not a valid label key and values")
+            if key in self.system or key in self.operator_only:
+                problems.append(f"adoptionLabels.{key}: a system or operator-only key is not an adoption label")
             self.adoption_labels[key] = tuple(values)
         if problems:
             raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems))
@@ -154,9 +158,11 @@ class MetadataKeys:
             problems.append(f"{where}: unknown format {fmt}")
         if fmt == "email-in-domains" and not self.email_domains:
             problems.append(f"{where}: format email-in-domains needs emailDomains")
-        if fmt == "url" and kind == "label":
-            # A label value is at most 63 characters of [A-Za-z0-9_.-]: a URL cannot be one.
-            problems.append(f"{where}: format url is for annotations only; a label value cannot hold a URL")
+        if fmt in FORMATS and kind == "label":
+            # A label value is at most 63 characters of [A-Za-z0-9_.-]: it cannot hold the "@" of an address or the
+            # "://" of a URL, so the key would refuse every value that its own format accepts.
+            holds = "a URL" if fmt == "url" else "an address"
+            problems.append(f"{where}: format {fmt} is for annotations only; a label value cannot hold {holds}")
         pattern = spec.get("pattern")
         if pattern is not None:
             try:
@@ -182,9 +188,16 @@ class MetadataKeys:
         if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
             problems.append(f"{stanza}.allowOther.prefixes must be a list")
             prefixes = []
-        return AllowOther(prefixes=tuple(p.rstrip("/") for p in prefixes), max=int(raw.get("max", 50)),
-                          max_value_bytes=raw.get("maxValueBytes", 4096) if kind == "annotation" else None,
-                          max_bytes_total=raw.get("maxBytesTotal", 65536) if kind == "annotation" else None)
+        limits = {"max": raw.get("max", 50)}
+        if kind == "annotation":
+            limits.update(maxValueBytes=raw.get("maxValueBytes", 4096), maxBytesTotal=raw.get("maxBytesTotal", 65536))
+        for name, value in limits.items():
+            # bool is an int in Python; "max: yes" is not a limit
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                problems.append(f"{stanza}.allowOther.{name} must be a whole number, zero or more")
+                limits[name] = 0
+        return AllowOther(prefixes=tuple(p.rstrip("/") for p in prefixes), max=limits["max"],
+                          max_value_bytes=limits.get("maxValueBytes"), max_bytes_total=limits.get("maxBytesTotal"))
 
     @classmethod
     def load(cls, path: str | Path) -> "MetadataKeys":
@@ -206,6 +219,10 @@ class MetadataKeys:
         if key in self.operator_only:
             return "operatorOnly"
         kinds = KINDS if kind is None else (kind,)
+        if key in self.adoption_labels and "label" in kinds:
+            # Another tool's mark (story #26): reserved even when allowOther admits its prefix, or a requester
+            # could mark a namespace as one that the old way provisioned.
+            return "reserved"
         if any(key in self.rules[k] for k in kinds):
             return "governed"
         prefix = self._prefix(key)

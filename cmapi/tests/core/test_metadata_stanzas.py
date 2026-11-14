@@ -98,7 +98,7 @@ def test_a_key_can_be_a_label_and_an_annotation_with_one_rule_each(keys):
 def test_adoption_labels_are_read_and_a_requester_cannot_set_them(keys):
     assert keys.adoption_labels == {"company.net/provisioner": ("cluster-configs",)}
     assert codes(keys.validate({**SENT, "company.net/provisioner": "cluster-configs"}, {}, operator=False,
-                               sources=SOURCES)) == [("invalid_key", "company.net/provisioner")]
+                               sources=SOURCES)) == [("reserved_key", "company.net/provisioner")]
 
 
 def test_the_old_stanzas_stop_the_start_with_the_new_names():
