@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:61-62`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:121-122`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
@@ -170,7 +170,6 @@ The choices, each with its source:
 **Not built, and known.**
 
 - RFC 10017, section 6.3.4.3, says that a browser-only OAuth client "is not recommended for business applications", and section 6.1.4.3 strongly recommends a backend for frontend. The design of `docs/02` is the browser-only client, and the portal is built to it. The owner decides if a backend for frontend replaces it.
-- The API sends no CORS headers (#206).
 - Two browser tabs do not share one renewal, as `docs/02` says they do (#208).
 - The Content-Security-Policy header comes with the portal's image and its Route, which are not built.
 
@@ -190,6 +189,36 @@ Before #205 the two URIs ended in `/*`, and one was `http://localhost:5173/*`.
 Tests: `test_crc_public_clients_take_exact_redirect_uris_only` reads the realm of the plain manifests, and `test_review_g_chart.py` renders the chart with each bad URI (9 of the new tests failed before the change, and 12 more cases came from the review, `docs/reviews/2026-11-14-issue-205/`). Keycloak's own clients of the realm (`account`, `account-console`, `security-admin-console`) keep their wildcards: #220. Not measured: Keycloak's refusal of a redirect URI that is not in the list, because no container can run now (#157). Realm `cmapi` exists on no cluster yet, so no realm has the old URIs.
 
 Sources, read on 2026-11-14: <https://www.rfc-editor.org/rfc/rfc9700>, <https://www.rfc-editor.org/rfc/rfc10017>, and `keycloak/keycloak` at `a29205c77840`, `docs/documentation/server_admin/topics/clients/oidc/con-basic-settings.adoc`.
+
+## The portal's origin and the API
+
+**The decision: one origin for the portal and the API, through the front door of the instance. CORS is off unless an origin is listed.**
+
+The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx, behind the Route. It sends `/api/`, `/docs`, `/redoc`, `/openapi.*` and `/problems/` to the API, and `/` to the portal. So the portal's page and the API have one origin, and the browser needs no CORS header for the portal's calls. The front door is not built yet (#226). Until then the portal of #204 runs against its stand-in API only.
+
+| Option | For | Against |
+|---|---|---|
+| One origin through the front door (the owner's decision) | No CORS policy to keep correct, and no preflight request before each call. One place for TLS, the security headers and the limits. RFC 10017, section 6.3.3.4: "in the extraordinary scenario where the browser-based OAuth client runs in the same origin as the authorization server or resource server, a CORS policy is not needed" | RFC 10017, section 9.4: "it is considered a best practice to avoid deploying more than one application in a single origin". Swagger UI (`/docs`), ReDoc and the portal then share an origin, so a script error in one page reaches the storage of the other. The portal keeps its tokens in memory, not in storage, and #226 sets a Content-Security-Policy at the front door; these two hold that risk |
+| CORS on the API, two origins | Section 9.4, as above. The CLI and the pipelines already call the API's own host | A list of origins to keep correct on each instance, and a preflight for each call with `Authorization` |
+
+**CORS stays in the API as an exception, off by default.** A second origin can still be needed: a developer's portal on `http://localhost:5173`, or a portal on another host. RFC 10017, section 6.3.3.4, for that case: "The authorization server and the resource server MUST send necessary CORS headers (defined in [Fetch]) to enable the application to make the necessary cross-origin requests." The code is `cmapi/src/cmapi/core/cors.py`, on Starlette's `CORSMiddleware` (`cmapi/src/cmapi/main.py`). In the Helm values the key is `instance.cors`.
+
+| Part | Value | Why |
+|---|---|---|
+| Origins | `cors.allowedOrigins` of `instance.yaml`. No key, or an empty list: the API sends no CORS header at all. `portalUrl` does not turn CORS on | The front door makes the portal same-origin. An origin is listed on purpose |
+| The form of an origin | `https://host` or `https://host:port`, with a lower-case ASCII host (punycode for another script) and no default port. `http` only for `localhost`, `127.0.0.1` and `[::1]`. Each other value stops the start of cmapi, with the value named: `*`, `null`, a path, a query, a user, upper case, a trailing dot, a space | A typing error must not open the API to more pages than the list says. The value is matched as text, not parsed: a URL parser and a browser do not read each URL the same way (review finding F1) |
+| Credentials | `Access-Control-Allow-Credentials` is never sent | The API reads no cookie. The token is in `Authorization`, which a page of another origin does not have |
+| Methods | `GET`, `POST`, `PATCH`, `DELETE` | The methods of the API |
+| Request headers | `Authorization`, `Content-Type`, `Idempotency-Key`, `If-Match`, `If-None-Match`, `X-Request-Id` | The headers that the API reads. Each call with `Authorization` needs a preflight, so a page of an origin that is not listed cannot send the call at all |
+| Response headers a page can read | `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 401, a 429 or a 503, and which log line to find |
+| Preflight cache | `Access-Control-Max-Age: 600` | Ten minutes, which is WebKit's limit |
+| `Vary: Origin` | On each answer when CORS is on, also on an answer with no CORS header | A shared cache must not give the copy for one origin to another (review finding F2) |
+
+A preflight from an origin that is not listed gets 400 and no CORS header, and the browser does not send the call. A problem (401, 403, 422, 429) from a listed origin has the header. An exception that no handler takes is the problem `internal-error` (500), made inside the CORS middleware, so it has the header and `X-Request-Id` too (#216). Starlette's own 500 is sent outside each middleware and has neither. A cancelled request and a client that went away are not failures of the service: they get no 500 and no `unhandled` log line (review finding F3).
+
+**Measured**, on this Mac with the service suite (`cmapi/tests/service/test_cors.py`, 55 tests). Not measured: a browser against a deployed API, because no container can run now (#157). The review is in `docs/reviews/2026-11-14-issue-206/`.
+
+**Sources**, each read on 2026-11-14: RFC 10017 (BCP 212, August 2026), sections 6.3.3.4 and 9.4, <https://www.rfc-editor.org/rfc/rfc10017>. The Fetch standard, "CORS protocol", <https://fetch.spec.whatwg.org/#http-cors-protocol>: "`*` is not allowed when credentials are involved". Starlette 0.41.3, `starlette/middleware/cors.py` and `starlette/middleware/base.py`, read from the installed package.
 
 ## Get a token from a script
 

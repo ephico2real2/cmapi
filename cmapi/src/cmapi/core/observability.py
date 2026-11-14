@@ -16,6 +16,10 @@ import structlog
 from fastapi import FastAPI, Request
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.requests import ClientDisconnect
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 from cmapi import __version__
 
 BUILD_INFO = Gauge("cmapi_build_info", "Which instance and release a series came from", ["instance", "version", "component"])
@@ -69,31 +73,50 @@ def start_metrics(port: int, instance: str, component: str) -> None:
     start_http_server(port)
 
 
-def instrument(app: FastAPI) -> None:
-    @app.middleware("http")
-    async def metrics_and_request_id(request: Request, call_next: Any):
-        rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+class MetricsAndRequestIdMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        rid = Headers(scope=scope).get("x-request-id") or uuid.uuid4().hex[:16]
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=rid)
         started = time.perf_counter()
         method = request.method if request.method in _METHODS else "OTHER"
+        status: int | None = None
 
-        def observe(status: int) -> str:
-            # Only declared routes become label values: a scanner's paths must not mint series.
-            route = getattr(request.scope.get("route"), "path", "unmatched")
-            HTTP_REQUESTS.labels(method, route, str(status)).inc()
-            HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
-            return route
+        async def send_with_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message)["X-Request-Id"] = rid
+            await send(message)
 
         try:
-            response = await call_next(request)
-        except Exception:
-            observe(500)                  # raised past this middleware: the error-rate alert must still count it
+            await self.app(scope, receive, send_with_id)
+        except ClientDisconnect:
             raise
-        route = observe(response.status_code)
-        response.headers["X-Request-Id"] = rid
-        caller = getattr(request.state, "caller", None)
-        log.info("http", method=request.method, route=route, status=response.status_code,
-                 caller_sub=getattr(caller, "sub", None), client=getattr(caller, "client_id", None),
-                 ms=round((time.perf_counter() - started) * 1000, 1))
-        return response
+        except Exception:
+            if status is None:
+                status = 500
+            raise
+        finally:
+            # Cancellation/disconnect before headers has no HTTP status to count.
+            # For a stream/background failure after headers, count the status actually sent.
+            if status is not None:
+                route = getattr(scope.get("route"), "path", "unmatched")
+                HTTP_REQUESTS.labels(method, route, str(status)).inc()
+                HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
+                caller = getattr(request.state, "caller", None)
+                log.info("http", method=request.method, route=route, status=status,
+                         caller_sub=getattr(caller, "sub", None), client=getattr(caller, "client_id", None),
+                         ms=round((time.perf_counter() - started) * 1000, 1))
+            structlog.contextvars.clear_contextvars()
+
+
+def instrument(app: FastAPI) -> None:
+    app.add_middleware(MetricsAndRequestIdMiddleware)
