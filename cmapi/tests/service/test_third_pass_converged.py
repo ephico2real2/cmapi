@@ -207,7 +207,7 @@ def _chart_copy(tmp_path, imp_obj: str, realm_obj: str):
 
 def _render(chart, *sets):
     a = [x for s in sets for x in ("--set", s)]
-    return subprocess.run(["helm", "template", "cmapi", str(chart), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
+    return subprocess.run(["helm", "template", "cmapi", str(chart), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
                           capture_output=True, text=True)
 
 
@@ -244,7 +244,7 @@ def test_the_realm_lookup_uses_the_version_the_realm_cr_uses():
     assert "$r := .Values.keycloak.realmImport" in secrets and "apiVersion: {{ $r.apiVersion }}" in realm
     values = yaml.safe_load((CHART / "values.yaml").read_text())
     assert values["keycloak"]["realmImport"]["apiVersion"] == "k8s.keycloak.org/v2beta1"
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
     cr = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "KeycloakRealmImport")
     assert cr["apiVersion"] == values["keycloak"]["realmImport"]["apiVersion"]
 

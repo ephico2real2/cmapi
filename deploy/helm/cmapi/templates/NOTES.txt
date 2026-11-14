@@ -1,7 +1,6 @@
 cmapi {{ .Chart.AppVersion }}, instance {{ .Values.instance.name }} in {{ .Release.Namespace }}.
 
-  API     {{ if eq .Values.exposure "Route" }}route {{ include "cmapi.name" . }}-api (host in its status){{ else }}https://{{ .Values.ingress.api.host }}{{ end }}
-  Portal  {{ if .Values.portal.enabled }}{{ if eq .Values.exposure "Route" }}route {{ include "cmapi.name" . }}-portal{{ else }}https://{{ .Values.ingress.portal.host }}{{ end }}{{ else }}off{{ end }}
+  Host    {{ if not .Values.portal.enabled }}none: the front door is off, and nothing outside the namespace reaches the API{{ else if eq .Values.exposure "Route" }}route {{ include "cmapi.name" . }} (host in its status): the portal at /, the API at /api/v1, Swagger UI at /docs{{ else }}https://{{ .Values.ingress.host }}: the portal at /, the API at /api/v1, Swagger UI at /docs{{ end }}
   Issuer  {{ .Values.auth.issuer }} (audience {{ .Values.auth.audience }})
   Git     {{ .Values.git.provider }} {{ .Values.git.repository }} at {{ .Values.git.apiUrl }}
   Delivery {{ .Values.delivery.mode }}
@@ -9,7 +8,7 @@ cmapi {{ .Chart.AppVersion }}, instance {{ .Values.instance.name }} in {{ .Relea
 Check it:
   oc get pods -n {{ .Release.Namespace }}
   oc get route -n {{ .Release.Namespace }} -o custom-columns=NAME:.metadata.name,HOST:.status.ingress[0].host
-  curl -s https://$(oc get route {{ include "cmapi.name" . }}-api -n {{ .Release.Namespace }} -o jsonpath='{.status.ingress[0].host}')/healthz
+  curl -s https://$(oc get route {{ include "cmapi.name" . }} -n {{ .Release.Namespace }} -o jsonpath='{.status.ingress[0].host}')/api/v1/version
 {{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) }}
 
 WARNING: argocd.controllerServiceAccount is empty (acknowledged), so no admission policy contains Argo CD's controller: once

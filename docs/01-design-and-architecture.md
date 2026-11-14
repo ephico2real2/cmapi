@@ -761,7 +761,8 @@ Everything an instance runs sits on its zone's hub; the table shows one instance
 
 | Where | Namespace | Object | Notes |
 | --- | --- | --- | --- |
-| Hub | cmapi | Deployment cmapi-api | 2+ replicas behind the instance's Route, for example cmapi-nonprod.ephico2real.com; /metrics on a separate port |
+| Hub | cmapi | Deployment cmapi-portal | The front door, nginx: the instance's one Route, for example cmapi-nonprod.ephico2real.com; the portal at /, the API's paths proxied to the API pods; security headers set once |
+| Hub | cmapi | Deployment cmapi-api | 2+ replicas behind the front door, through the headless Service cmapi-api-pods; only the front door reaches its port; /metrics on a separate port |
 | Hub | cmapi | Deployment cmapi-worker | 2+ replicas; jobs claimed with SKIP LOCKED, discovery under an advisory lock |
 | Hub | cmapi | Deployment cmapi-capacity | 2 replicas, ClusterIP only, NetworkPolicy, service-CA TLS, PDB |
 | Hub | cmapi | Secrets | Git host credentials (GitHub App or deploy key), database credentials, events HMAC |

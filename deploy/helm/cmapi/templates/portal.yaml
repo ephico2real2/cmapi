@@ -1,10 +1,13 @@
 {{- if .Values.portal.enabled }}
 {{- $name := include "cmapi.name" . -}}
 {{/*
-The portal (cmapi-portal-ui, static files behind nginx) and the standalone mockup, one image, two
-hosts: nginx picks the site by server_name. The portal learns the API URL and the OIDC settings
-from config.json, written here, so the same image serves any instance.
+The front door of the instance (docs/02, "The front door"): nginx in the cmapi-portal image serves the portal at /, the
+standalone mockup on its own host, and proxies the API's paths to the API pods, so the browser sees one origin and the
+API needs no CORS. The nginx configuration is in the image (cmapi-portal-ui/nginx/); the values below fill it at start,
+and the image refuses to start with a missing or malformed one. The portal reads config.json, written here, so the same
+image serves any instance.
 */}}
+{{- $issuer := urlParse .Values.auth.issuer }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,7 +17,7 @@ metadata:
 data:
   config.json: |
     {
-      "apiUrl": {{ .Values.instance.publicUrl | quote }},
+      "apiUrl": {{ required "instance.publicUrl is required: https://<the instance's host>, which serves the portal and the API" .Values.instance.publicUrl | quote }},
       "issuer": {{ .Values.auth.issuer | quote }},
       "clientId": {{ .Values.portal.oidcClientId | quote }},
       "audience": {{ .Values.auth.audience | quote }},
@@ -35,36 +38,53 @@ spec:
   replicas: {{ .Values.portal.replicas }}
   selector:
     matchLabels: {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   template:
     metadata:
       labels: {{- include "cmapi.labels" . | nindent 8 }}
         {{- include "cmapi.component" (dict "component" "portal" "Release" .Release) | nindent 8 }}
       annotations:
-        checksum/config: {{ toJson (dict "instance" .Values.instance "auth" .Values.auth "portal" .Values.portal) | sha256sum }}
+        checksum/config: {{ toJson (dict "instance" .Values.instance "auth" .Values.auth "portal" .Values.portal "route" .Values.route "ingress" .Values.ingress) | sha256sum }}
     spec:
       securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
+      # preStop (5 s) plus nginx's worker_shutdown_timeout (20 s) fit inside it, so the kubelet never sends SIGKILL.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: portal
           image: {{ include "cmapi.image" (dict "Values" .Values "key" "cmapi_portal") }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           env:
-            - name: PORTAL_HOST
-              value: {{ include "cmapi.portalHost" . | quote }}
-            - name: MOCKUP_HOST
-              value: {{ include "cmapi.mockupHost" . | quote }}
+            # The headless Service: nginx resolves it to the ready API pods and balances over each one.
+            - name: CMAPI_API_UPSTREAM
+              value: {{ printf "%s-api-pods.%s.svc.%s:8080" $name .Release.Namespace .Values.clusterDomain | quote }}
+            - name: CMAPI_PORTAL_HOST
+              value: {{ include "cmapi.frontDoorServerName" . | quote }}
+            - name: CMAPI_MOCKUP_HOST
+              value: {{ include "cmapi.mockupServerName" . | quote }}
+            - name: CMAPI_OIDC_ORIGIN
+              value: {{ printf "%s://%s" $issuer.scheme $issuer.host | quote }}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
             httpGet: {path: /healthz, port: http}
-            periodSeconds: 10
+            periodSeconds: 5
           livenessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 30
+          lifecycle:
+            # The router and the endpoints take a moment to drop a pod that is stopping. nginx keeps serving for 5 s,
+            # then stops taking new connections and lets the open ones finish ("nginx -s quit", a graceful stop),
+            # whatever stop signal the container runtime sends after this hook.
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5; nginx -s quit; while pgrep -x nginx >/dev/null; do sleep 1; done"]
           securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources: {{- toYaml .Values.portal.resources | nindent 12 }}
           volumeMounts:
             - name: portal-config
-              mountPath: /opt/app-root/src/portal/config.json
+              mountPath: /usr/share/nginx/html/portal/config.json
               subPath: config.json
               readOnly: true
       volumes:

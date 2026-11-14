@@ -189,7 +189,7 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monke
     (bin_dir / "kyverno").write_text("#!/bin/sh\nexit 0\n")
     (bin_dir / "kyverno").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     cm = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "cmapi-config")
