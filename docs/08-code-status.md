@@ -57,7 +57,7 @@ This page summarises what the code tree holds today.
 | Approval channels: portal, email (signed link) | `core/channels.py` | Built; email never sent in a test |
 | Capacity | `core/capacity_backend.py` | **Simulated** from `clusters.yaml`; cmapi-capacity, placement and reservations are not built, and the `cmapi-capacity` entry point was removed until the component exists |
 | Image | `cmapi/Containerfile` | Built locally; not pushed to a cluster |
-| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the mockup, `environments/kind`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
+| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the front door (#226: nginx with the portal, the mockup and the proxy to the API, not yet run on a cluster), `environments/kind`, `environments/crc`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
 | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
 | Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
 
@@ -167,7 +167,9 @@ through Keycloak with Authorization Code and PKCE, and its page frame and its Re
 (`GET /api/v1/me`, `GET /api/v1/requests`), with typed TanStack Query hooks from the OpenAPI document (#204).
 It is proven in a browser against a stand-in issuer and a stand-in API only (`tests/api`). The other eight
 tabs are not on the API. The demo build still runs the mockup's sample logic and must not be deployed as the
-portal. Not built: the portal's image and Route, CORS on the API (#206). The chart's `portal.enabled` is off.
+portal. The portal's image is the front door of the instance (`cmapi-portal-ui/Containerfile`, nginx 1.30.6): the
+portal at `/` and the API's paths proxied to the API pods, on one origin, so CORS stays off (#226, #206). The chart
+deploys it; the plain manifests do not yet. Measured on this Mac with a native nginx and Chromium only, not on a cluster.
 
 **CLI and SDK:** not started.
 

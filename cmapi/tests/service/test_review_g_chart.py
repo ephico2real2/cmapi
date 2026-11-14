@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm")
 
 def render(tmp_path):
     (tmp_path / "ca.crt").write_text(PEM)
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return [d for d in yaml.safe_load_all(r.stdout) if d]
@@ -34,7 +34,7 @@ def docs(tmp_path):
 def deviation(tmp_path):
     """The apply deviation, which CRC's values no longer select: the write identity and its containment policy."""
     (tmp_path / "ca.crt").write_text(PEM)
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}", "--set", "delivery.mode=apply",
                         "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -110,7 +110,8 @@ def test_no_secret_value_in_values_files():
 
 
 def test_placeholder_trust_bundle_does_not_render():
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64],
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+                        "--set", "cmapi_portal.digest=sha256:" + "b" * 64],
                        capture_output=True, text=True)
     assert r.returncode != 0 and "placeholder" in r.stderr, "the rendered ca-bundle.crt holds the placeholder text; httpx.Client(verify=that) raises SSLError at startup"
 
@@ -170,14 +171,14 @@ def test_image_bakes_the_kubeconform_schemas_by_checksum():
 def test_the_chart_gives_the_portal_client_exact_redirect_uris(docs):
     realm = find(docs, "KeycloakRealmImport", "cmapi")[0]["spec"]["realm"]
     portal = next(c for c in realm["clients"] if c["clientId"] == "cmapi-portal")
-    assert portal["redirectUris"] == ["https://cmapi-portal.apps-crc.testing/", "https://cmapi-portal.apps-crc.testing/index.html"]
+    assert portal["redirectUris"] == ["https://cmapi.apps-crc.testing/", "https://cmapi.apps-crc.testing/index.html"]
     assert [u for c in realm["clients"] for u in (c.get("redirectUris") or []) if "*" in u] == []
 
 
 @pytest.mark.parametrize("key,uri,message", [
     ("portalRedirects", "https://cmapi-portal.apps-crc.testing/*", "has a wildcard"),
     ("portalRedirects", "*", "has a wildcard"),
-    ("docsRedirects", "https://cmapi-api.apps-crc.testing/docs/*", "has a wildcard"),
+    ("docsRedirects", "https://cmapi.apps-crc.testing/docs/*", "has a wildcard"),
     ("portalRedirects", "http://cmapi-portal.apps-crc.testing/", "must be an https URI"),
     ("portalRedirects", "http://localhost.evil.example/", "must be an https URI"),
     ("portalRedirects", "cmapi-portal://callback", "must be an https URI"),
@@ -199,7 +200,7 @@ def test_the_chart_gives_the_portal_client_exact_redirect_uris(docs):
 ])
 def test_the_chart_refuses_a_redirect_uri_that_is_not_exact(tmp_path, key, uri, message):
     (tmp_path / "ca.crt").write_text(PEM)
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}", "--set-json",
                         f"keycloak.realm.{key}={__import__('json').dumps([uri])}"], capture_output=True, text=True)
     assert r.returncode != 0 and message in r.stderr and f"keycloak.realm.{key}" in r.stderr, r.stderr[-400:]
@@ -207,7 +208,7 @@ def test_the_chart_refuses_a_redirect_uri_that_is_not_exact(tmp_path, key, uri, 
 
 def test_the_chart_takes_a_localhost_redirect_for_a_local_realm(tmp_path):
     (tmp_path / "ca.crt").write_text(PEM)
-    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set-file", f"trustedCA.certificates={tmp_path / 'ca.crt'}", "--set-json",
                         'keycloak.realm.portalRedirects=["http://localhost:5173/","http://127.0.0.1:5173/index.html","http://[::1]:5173/"]'],
                        capture_output=True, text=True)

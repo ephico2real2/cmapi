@@ -89,6 +89,36 @@ jobs:
         working-directory: cmapi-portal-ui
         run: npm test
 
+  front-door:
+    # The front door (#226): the cmapi-portal image is built, then nginx in it is measured on its own configuration
+    # (deploy/tests/front-door-test.py --image) and the portal, Swagger UI, ReDoc, the problem pages and the mockup are
+    # loaded through it in Chromium with no CSP violation (cmapi-portal-ui/tests/front-door.test.mjs).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install
+        run: |
+          python -m pip install -e cmapi
+          cd cmapi-portal-ui && npm ci && npx playwright install --with-deps chromium
+      - name: Build the image
+        run: docker build -f cmapi-portal-ui/Containerfile --build-arg "GIT_COMMIT=${GITHUB_SHA}" -t cmapi-portal:ci .
+      - name: nginx in the image, on its own configuration
+        run: python deploy/tests/front-door-test.py --image cmapi-portal:ci --engine docker
+      - name: The pages through the front door, in a browser
+        working-directory: cmapi-portal-ui
+        run: |
+          cmapi-tools docs-assets --static-dir "$RUNNER_TEMP/static" --containerfile ../cmapi/Containerfile
+          npm run build
+          FRONT_DOOR_IMAGE=cmapi-portal:ci FRONT_DOOR_ENGINE=docker FRONT_DOOR_PYTHON=python FRONT_DOOR_STATIC="$RUNNER_TEMP/static" node tests/front-door.test.mjs
+
   api-contract:
     # The API contract gates (docs/01 "API documentation"). Gate 1 (#143): Spectral lints cmapi/contract/openapi.json with cmapi's
     # ruleset. Gate 3 (#131): a pull request that breaks the contract of its base branch fails here, by oasdiff. The service job
@@ -178,7 +208,7 @@ jobs:
           # The stubs and the guards read YAML.
           python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
@@ -203,27 +233,25 @@ jobs:
         run: python deploy/tests/oidc-login-test.py
       - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
         run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
-      - name: The mockup ConfigMap is current
-        run: deploy/mockup-configmap.sh --check
       - name: kubeconform on the manifests
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
-      - name: render.sh fills the placeholder and refuses a tag
+      - name: render.sh fills the placeholders and refuses a tag
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: |
-          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered
+          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" --portal-image "ghcr.io/ephico2real2/cmapi-portal@sha256:$(printf 'b%.0s' {1..64})" /tmp/rendered
           # An if, not "! grep": bash -e does not stop on a negated command, so that form could never fail the step.
           if grep -rn 'sha256:DIGEST' /tmp/rendered; then echo "a placeholder was left in the render"; exit 1; fi
           kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
-          if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
-          deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag
+          if deploy/render.sh kind localhost/cmapi:dev --portal-image localhost/cmapi-portal:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
+          deploy/render.sh kind localhost/cmapi:dev --portal-image localhost/cmapi-portal:dev /tmp/rendered-tag --allow-tag
           # Everything the render must do and must not do, on a throwaway copy: exactly the placeholder, nothing else changed.
           deploy/render-test.sh
-          deploy/render.sh crc "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered-crc
+          deploy/render.sh crc "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:$(printf 'a%.0s' {1..64})" --portal-image "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:$(printf 'b%.0s' {1..64})" /tmp/rendered-crc
           kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered-crc
       - name: kind for the secrets cases
         run: |
@@ -233,7 +261,7 @@ jobs:
           kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s
       - name: The secrets cases
         run: deploy/secrets-test.sh "kubectl --kubeconfig=$PWD/.ci.kubeconfig"
-      - name: Who reaches the API port under the NetworkPolicy
+      - name: Who reaches the API port and the front door under the NetworkPolicies
         run: deploy/tests/np-reach-test.sh "$PWD/.ci.kubeconfig"
       - name: Delete the kind cluster
         if: ${{ !cancelled() }}

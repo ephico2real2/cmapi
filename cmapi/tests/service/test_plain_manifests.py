@@ -3,7 +3,10 @@ nothing reads these files until the charts are removed. Ruling 3 of the deployme
 the charts. Static: no cluster, no database."""
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,8 +17,15 @@ COMPONENTS = ROOT / "deploy/manifests/components"
 PLACEHOLDER = "ghcr.io/ephico2real2/cmapi@sha256:DIGEST"
 TRUST = "/etc/cmapi/ca/ca-bundle.crt"
 CHECKSUM_PLACEHOLDER = "CMAPI_CONFIG_CHECKSUM"
+# The front door (#226): nginx in the cmapi-portal image, its own placeholder and its own checksum, both filled by render.sh.
+PORTAL_PLACEHOLDER = "ghcr.io/ephico2real2/cmapi-portal@sha256:DIGEST"
+PORTAL_CHECKSUM_PLACEHOLDER = "CMAPI_PORTAL_CONFIG_CHECKSUM"
 # The only images here that are not cmapi's, by repository. A digest bump changes nothing; a new repository is a decision.
-OTHER_IMAGES = {"docker.io/nginxinc/nginx-unprivileged", "ghcr.io/cloudnative-pg/postgresql:17"}
+OTHER_IMAGES = {"ghcr.io/cloudnative-pg/postgresql:17"}
+# Each of our Deployments runs its placeholder and nothing else, so render.sh decides what it runs.
+OURS = {"cmapi-api": PLACEHOLDER, "cmapi-worker": PLACEHOLDER, "cmapi-portal": PORTAL_PLACEHOLDER}
+# The front door's pods, as its Deployment labels them and as the policies select them.
+FRONT_DOOR = {"app.kubernetes.io/name": "cmapi-portal", "app.kubernetes.io/component": "portal"}
 
 
 def docs():
@@ -56,20 +66,60 @@ def test_the_readme_says_the_configuration_goes_first():
     assert "apply the environment, then the components, in that order" in text
 
 
-def test_the_mockup_reads_none_of_that_configuration():
-    assert "checksum/config" not in pod_annotations("cmapi-mockup")
+def test_the_front_door_restarts_on_its_own_configuration():
+    """nginx reads its hosts once, at start, and config.json is mounted by subPath, which a changed ConfigMap never updates. So the
+    front door's pod template carries the checksum of cmapi-portal-config, and not the api's: deploy/render-test.sh proves the fill."""
+    assert pod_annotations("cmapi-portal")["checksum/config"] == PORTAL_CHECKSUM_PLACEHOLDER
 
 
-def test_api_port_is_not_open_to_every_namespace():
-    policy = next(d for d in docs() if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "cmapi-metrics")
-    api = next(r for r in policy["spec"]["ingress"] if any(p["port"] == 8080 for p in r["ports"]))
+def policy(name):
+    return next(d for d in docs() if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == name)
+
+
+def front_door():
+    return next(d for d in deployments() if d["metadata"]["name"] == "cmapi-portal")
+
+
+def test_only_the_front_door_reaches_the_api_port():
+    """#226: the front door sets the security headers and writes the access log, so no request reaches the API around it: not the
+    router (the API has no Route), and not another pod of the namespace."""
+    api = next(r for r in policy("cmapi-metrics")["spec"]["ingress"] if any(p["port"] == 8080 for p in r["ports"]))
     assert api.get("from"), "a rule with no from: any pod on the shared cluster reaches 8080"
-    # Whole, not "the router's label is among them": an added peer with an empty namespaceSelector would match every namespace
-    # and still hold that label's peer.
-    assert api["from"] == [
-        {"namespaceSelector": {"matchLabels": {"policy-group.network.openshift.io/ingress": ""}}},
-        {"podSelector": {}},
-    ]
+    # Whole, not "the front door's peer is among them": an added peer with an empty selector would match every pod and still hold it.
+    assert api["from"] == [{"podSelector": {"matchLabels": FRONT_DOOR}}]
+    assert FRONT_DOOR.items() <= front_door()["spec"]["template"]["metadata"]["labels"].items(), "the peer selects no front door pod"
+
+
+def test_only_the_router_reaches_the_front_door():
+    spec = policy("cmapi-front-door")["spec"]
+    assert spec["podSelector"] == {"matchLabels": FRONT_DOOR} and spec["policyTypes"] == ["Ingress"]
+    assert FRONT_DOOR.items() <= front_door()["spec"]["template"]["metadata"]["labels"].items()
+    assert spec["ingress"] == [{"from": [{"namespaceSelector": {"matchLabels": {"policy-group.network.openshift.io/ingress": ""}}}],
+                                "ports": [{"port": 8080, "protocol": "TCP"}]}]
+
+
+def test_the_front_door_reaches_the_api_pods_through_the_headless_service():
+    """nginx balances over the pods only if it sees each one: a ClusterIP Service gives it one address, so a failure marks the whole
+    API down and a retry can reach the same pod (docs/reviews/2026-11-14-issue-226)."""
+    services = {d["metadata"]["name"]: d for d in docs() if d["kind"] == "Service"}
+    upstream = env(front_door()["spec"]["template"]["spec"]["containers"][0])["CMAPI_API_UPSTREAM"]["value"]
+    host, _, port = upstream.rpartition(":")
+    name, namespace, rest = host.split(".", 2)
+    assert (namespace, rest) == ("cmapi", "svc.cluster.local"), "nginx's resolver uses no search domain: the name must be whole"
+    pods = services[name]["spec"]
+    assert pods["clusterIP"] == "None" and int(port) in {p["port"] for p in pods["ports"]}
+    api_pod = next(d for d in deployments() if d["metadata"]["name"] == "cmapi-api")["spec"]["template"]["metadata"]["labels"]
+    assert pods["selector"].items() <= api_pod.items() and pods["selector"] == services["cmapi-api"]["spec"]["selector"]
+
+
+def test_no_standalone_mockup_is_left():
+    """The mockup's HTML is in the cmapi-portal image (cmapi-portal-ui/Containerfile), served by the front door on its own host, so
+    the nginx 1.29 Deployment, its 300 KB ConfigMap and the script and CI check that kept the two equal are gone."""
+    assert [d["metadata"]["name"] for d in docs() if "mockup" in d["metadata"]["name"]] == []
+    text = "\n".join(p.read_text() for p in (ROOT / "deploy/manifests").rglob("*.y*ml"))
+    assert "nginx-unprivileged" not in text and "portal.html: |" not in text
+    assert not (ROOT / "deploy/mockup-configmap.sh").exists()
+    assert "mockup-configmap" not in (ROOT / ".github/workflows/ci.yml").read_text()
 
 
 @pytest.mark.parametrize("name", ["cmapi-api", "cmapi-worker"])
@@ -126,17 +176,19 @@ def images(node):
 
 
 def image_problems(objects):
-    """The api and the worker run the placeholder and nothing else, so render.sh decides what they run. Anything else is the
-    placeholder or a known repository pinned by a whole digest. Against a mistake (a digest pinned while debugging, a forgotten
-    tag), not an attacker: whoever can edit the manifests in a pull request can edit this too, and review is what stops them."""
+    """The api and the worker run the cmapi placeholder and the front door the cmapi-portal one, each nothing else, so render.sh
+    decides what they run. Anything else is the cmapi placeholder or a known repository pinned by a whole digest. Against a mistake
+    (a digest pinned while debugging, a forgotten tag), not an attacker: whoever can edit the manifests in a pull request can edit
+    this too, and review is what stops them."""
     problems = []
     for d in objects:
         name = d["metadata"]["name"]
+        ours = OURS.get(name) if d["kind"] == "Deployment" else None
         for image in images(d):
             repository, _, digest = image.partition("@sha256:")
             pinned = repository in OTHER_IMAGES and re.fullmatch(r"[0-9a-f]{64}", digest)
-            ours = d["kind"] == "Deployment" and name in ("cmapi-api", "cmapi-worker")
-            if image != PLACEHOLDER and (ours or not pinned):
+            wrong = image != ours if ours else image != PLACEHOLDER and not pinned
+            if wrong:
                 problems.append(f"{d['kind']}/{name}: {image}")
     return problems
 
@@ -145,6 +197,7 @@ def test_every_image_is_the_placeholder_or_a_known_digest():
     objects = list(docs())
     assert image_problems(objects) == []
     assert sum(1 for d in objects for image in images(d) if image == PLACEHOLDER) == 4, "two Deployments, each a migrate and a main container"
+    assert [d["metadata"]["name"] for d in objects for image in images(d) if image == PORTAL_PLACEHOLDER] == ["cmapi-portal"]
 
 
 EVIL = "ghcr.io/evil/cmapi@sha256:" + "e" * 64
@@ -158,9 +211,15 @@ def _containers(objects, name):
 @pytest.mark.parametrize("change", [
     pytest.param(lambda o: _containers(o, "cmapi-api")[0].update(image=EVIL), id="the api's migrate container"),
     pytest.param(lambda o: _containers(o, "cmapi-worker")[1].update(image=EVIL), id="the worker's main container"),
-    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image=EVIL), id="the mockup, another repository"),
-    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image="docker.io/nginxinc/nginx-unprivileged:latest"), id="the mockup, a tag"),
-    pytest.param(lambda o: _containers(o, "cmapi-mockup")[0].update(image="docker.io/nginxinc/nginx-unprivileged@sha256:abc"), id="the mockup, a short digest"),
+    pytest.param(lambda o: _containers(o, "cmapi-portal")[0].update(image=EVIL), id="the front door, another repository"),
+    pytest.param(lambda o: _containers(o, "cmapi-portal")[0].update(image=PLACEHOLDER), id="the front door, the API's image"),
+    pytest.param(lambda o: _containers(o, "cmapi-portal")[0].update(image="ghcr.io/ephico2real2/cmapi-portal:latest"), id="the front door, a tag"),
+    pytest.param(lambda o: _containers(o, "cmapi-portal")[0].update(
+        image="docker.io/nginxinc/nginx-unprivileged@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6"),
+        id="the front door, the old mockup's nginx 1.29 by digest"),
+    pytest.param(lambda o: _containers(o, "cmapi-api")[1].update(image=PORTAL_PLACEHOLDER), id="the api, the front door's image"),
+    pytest.param(lambda o: o.append({"kind": "Job", "metadata": {"name": "x"}, "spec": {"template": {"spec": {"containers": [{"name": "x", "image": PORTAL_PLACEHOLDER}]}}}}),
+                 id="a Job on the front door's image"),
     pytest.param(lambda o: next(d for d in o if d["kind"] == "Cluster")["spec"].update(imageName="ghcr.io/cloudnative-pg/postgresql:17"), id="the database, a tag"),
     pytest.param(lambda o: o.append({"kind": "Job", "metadata": {"name": "x"}, "spec": {"template": {"spec": {"containers": [{"name": "x", "image": EVIL}]}}}}), id="a Job"),
 ])
@@ -234,23 +293,39 @@ def test_crc_pods_reach_keycloak_by_its_service_and_tokens_carry_the_route():
 
 
 def test_crc_routes():
-    """kubeconform skips Route: the pinned CRDs catalog has no schema for it (404, measured). So its shape is held here."""
-    routes = {d["metadata"]["name"]: d["spec"] for d in crc_docs() if d["kind"] == "Route"}
-    assert set(routes) == {"cmapi-api", "cmapi-mockup"}, "no portal Route: the portal does not run on the API yet"
-    for name, spec in routes.items():
+    """kubeconform skips Route: the pinned CRDs catalog has no schema for it (404, measured). So its shape is held here. #226: two
+    hosts, both on the front door, and no Route to the API: only the front door reaches the API's port."""
+    routes = {d["metadata"]["name"]: d for d in crc_docs() if d["kind"] == "Route"}
+    assert set(routes) == {"cmapi", "cmapi-mockup"}
+    for name, route in routes.items():
+        spec = route["spec"]
         assert set(spec) == {"host", "to", "port", "tls"}
         assert spec["host"] == f"{name}.apps-crc.testing"
-        assert spec["to"] == {"kind": "Service", "name": name}
-        assert spec["port"] == {"targetPort": "http"}, "never the metrics port"
+        assert spec["to"] == {"kind": "Service", "name": "cmapi-portal"}
+        assert spec["port"] == {"targetPort": "http"}
         assert spec["tls"] == {"termination": "edge", "insecureEdgeTerminationPolicy": "Redirect"}
+        # The router's X-Forwarded-* replace the client's, which it otherwise appends to (Codex's F4 on PR #238).
+        assert route["metadata"]["annotations"] == {"haproxy.router.openshift.io/set-forwarded-headers": "replace"}
+
+
+def test_crc_routes_are_the_hosts_nginx_serves():
+    """nginx picks the site by the Host header, and the instance's site is its default_server: a mockup Route whose host the front
+    door does not name would get the portal, and nothing would fail."""
+    hosts = crc("ConfigMap", "cmapi-portal-config")["data"]
+    assert crc("Route", "cmapi")["spec"]["host"] == hosts["CMAPI_PORTAL_HOST"]
+    assert crc("Route", "cmapi-mockup")["spec"]["host"] == hosts["CMAPI_MOCKUP_HOST"]
+
+
+def instance_host():
+    return crc("Route", "cmapi")["spec"]["host"]
 
 
 def test_crc_redirect_uri_is_the_docs_route():
     realm = crc("KeycloakRealmImport", "cmapi")["spec"]["realm"]
     docs_client = next(c for c in realm["clients"] if c["clientId"] == "cmapi-docs")
-    host = crc("Route", "cmapi-api")["spec"]["host"]
-    assert docs_client["redirectUris"] == [f"https://{host}/docs/oauth2-redirect"]
-    assert yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["publicUrl"] == f"https://{host}"
+    assert docs_client["redirectUris"] == [f"https://{instance_host()}/docs/oauth2-redirect"]
+    instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
+    assert instance["publicUrl"] == instance["portalUrl"] == f"https://{instance_host()}", "one origin for the portal and the API"
 
 
 def test_crc_public_clients_take_exact_redirect_uris_only():
@@ -265,7 +340,7 @@ def test_crc_public_clients_take_exact_redirect_uris_only():
         assert uris, f"{client} has no redirect URI"
         for uri in uris:
             assert "*" not in uri and "#" not in uri and uri.startswith("https://"), f"{client}: {uri}"
-    portal = "https://cmapi-portal.apps-crc.testing"          # the portal's Route is not in the plain manifests yet (Wave 6)
+    portal = f"https://{instance_host()}"                        # the front door serves the portal at / of the instance's host
     assert public["cmapi-portal"] == [f"{portal}/", f"{portal}/index.html"]
     wild = [(c["clientId"], u) for c in realm["clients"] for u in (c.get("redirectUris") or []) if "*" in u]
     assert wild == [], "a wildcard redirect URI in the realm"
@@ -274,11 +349,11 @@ def test_crc_public_clients_take_exact_redirect_uris_only():
     assert portal_client["webOrigins"] == ["+"] and portal_client["attributes"]["post.logout.redirect.uris"] == "+"
 
 
-def test_crc_problem_types_resolve_on_the_api_route():
+def test_crc_problem_types_resolve_on_the_instance_route():
     """RFC 9457, section 4: the type URI of a problem "SHOULD resolve to HTML documentation". CRC has one instance, so the base of
-    the types is its own Route, where the API serves /problems/<code> (#182)."""
+    the types is its own host, where the front door passes /problems/<code> to the API (#182, #226)."""
     instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
-    assert instance["problems"] == {"typeBase": f"https://{crc('Route', 'cmapi-api')['spec']['host']}/problems/"}
+    assert instance["problems"] == {"typeBase": f"https://{instance_host()}/problems/"}
     assert instance["problems"]["typeBase"] == instance["publicUrl"] + "/problems/"
 
 
@@ -438,8 +513,7 @@ def test_crc_monitoring_selects_the_services_and_the_policy_lets_it_in():
         assert sm["selector"]["matchLabels"].items() <= svc["metadata"]["labels"].items()
         assert sm["endpoints"][0]["port"] in {p["name"] for p in svc["spec"]["ports"]}
         assert "bearerTokenSecret" not in sm["endpoints"][0] and "authorization" not in sm["endpoints"][0]
-    policy = next(d for d in docs() if d["kind"] == "NetworkPolicy")
-    metrics = next(r for r in policy["spec"]["ingress"] if any(p["port"] == 9090 for p in r["ports"]))
+    metrics = next(r for r in policy("cmapi-metrics")["spec"]["ingress"] if any(p["port"] == 9090 for p in r["ports"]))
     assert metrics["from"] == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-user-workload-monitoring"}}}]
 
 
@@ -481,15 +555,140 @@ def test_crc_realm_sync_runs_on_an_account_and_secrets_that_exist():
     assert 'cmapi-tools = "cmapi.tools:run"' in (ROOT / "cmapi/pyproject.toml").read_text()
 
 
-def test_crc_rollback_names_every_object_the_run_creates():
-    """deploy/crc-rollback.sh deletes by name from a fixed list, so an object added to the manifests and not to the list would stay behind on a shared cluster, with nothing to say so.
-    Objects in cmapi-imports and cmapi-system go with their namespace; namespace cmapi was there before this wave."""
-    text = (ROOT / "deploy/crc-rollback.sh").read_text()
+def rollback_missing(text, objects):
+    """Each object that the rollback's text does not name, kind and whole name. The name ends at a quote, a space or the line's end:
+    with a word boundary, "route.route.openshift.io cmapi-mockup" stood for Route cmapi too, and "service cmapi-api-pods" for Service
+    cmapi-api (BUG-60, #246). Objects in cmapi-imports and cmapi-system go with their namespace; namespace cmapi was there before this wave."""
     missing = []
-    for d in [*docs(), *crc_docs()]:
+    for d in objects:
         kind, name, ns = d["kind"], d["metadata"]["name"], d["metadata"].get("namespace")
         if ns in ("cmapi-imports", "cmapi-system") or (kind == "Namespace" and name == "cmapi"):
             continue
-        if not re.search(rf"\b{kind.lower()}(\.[a-z.]+)? {re.escape(name)}\b", text):
+        if not re.search(rf"\b{kind.lower()}(\.[a-z.]+)? {re.escape(name)}(?=[\s\"]|$)", text, re.M):
             missing.append(f"{kind}/{name}")
-    assert missing == []
+    return missing
+
+
+def test_crc_rollback_names_every_object_the_run_creates():
+    """deploy/crc-rollback.sh deletes by name from a fixed list, so an object added to the manifests and not to the list would stay behind on a shared cluster, with nothing to say so."""
+    assert rollback_missing((ROOT / "deploy/crc-rollback.sh").read_text(), [*docs(), *crc_docs()]) == []
+
+
+@pytest.mark.parametrize("text,missing", [
+    pytest.param('for o in "route.route.openshift.io cmapi-mockup" "service cmapi-api-pods"; do', ["Route/cmapi", "Service/cmapi-api"], id="a longer name only"),
+    pytest.param('for o in "route.route.openshift.io cmapi" "service cmapi-api"; do', [], id="each in quotes"),
+    pytest.param("del route.route.openshift.io cmapi -n cmapi\ndel service cmapi-api", [], id="each before a space or at the end of a line"),
+])
+def test_the_rollback_guard_tells_a_name_from_a_longer_one(text, missing):
+    objects = [{"kind": "Route", "metadata": {"name": "cmapi", "namespace": "cmapi"}}, {"kind": "Service", "metadata": {"name": "cmapi-api", "namespace": "cmapi"}}]
+    assert rollback_missing(text, objects) == missing
+
+
+# ---------------------------------------------------------------- the front door against the chart (#226)
+# The chart is the front door's reviewed design (PR #238): the plain front door must do what it does. Rendered with CRC's values,
+# as deploy/release-crc.sh renders it; CI's service job has helm.
+CHART = ROOT / "deploy/helm/cmapi"
+PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+CHECK_ENV = ROOT / "cmapi-portal-ui/nginx/16-cmapi-check-env.envsh"
+
+
+@pytest.fixture(scope="module")
+def chart(tmp_path_factory):
+    if shutil.which("helm") is None:
+        pytest.skip("helm")
+    ca = tmp_path_factory.mktemp("chart") / "ca.crt"
+    ca.write_text(PEM)
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"),
+                        "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
+                        "--set-file", f"trustedCA.certificates={ca}"], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return [d for d in yaml.safe_load_all(r.stdout) if d]
+
+
+def charts(objects, kind, name):
+    return next(d for d in objects if d["kind"] == kind and d["metadata"]["name"] == name)
+
+
+def test_the_front_door_is_the_charts(chart):
+    """The same Deployment: rollout, grace period, security, and the one container's ports, probes, graceful stop, resources and mount."""
+    plain, ours = front_door()["spec"], charts(chart, "Deployment", "cmapi-portal")["spec"]
+    for key in ("replicas", "selector", "strategy"):
+        assert plain[key] == ours[key], key
+    p, c = plain["template"]["spec"], ours["template"]["spec"]
+    assert p["terminationGracePeriodSeconds"] == c["terminationGracePeriodSeconds"] == 30
+    assert p["securityContext"] == c["securityContext"]
+    assert [v["configMap"]["name"] for v in p["volumes"]] == [v["configMap"]["name"] for v in c["volumes"]] == ["cmapi-portal-config"]
+    (pc,), (cc,) = p["containers"], c["containers"]
+    for key in ("name", "imagePullPolicy", "ports", "readinessProbe", "livenessProbe", "lifecycle", "resources", "volumeMounts"):
+        assert pc[key] == cc[key], key
+    assert {"readOnlyRootFilesystem": False, **pc["securityContext"]} == cc["securityContext"], "false is the default the chart writes out"
+    assert [e["name"] for e in pc["env"]] == [e["name"] for e in cc["env"]]
+    assert pc["lifecycle"]["preStop"]["exec"]["command"][-1].startswith("sleep 5; nginx -s quit;")
+
+
+def test_the_services_and_the_policies_are_the_charts(chart):
+    for kind, name in (("Service", "cmapi-portal"), ("Service", "cmapi-api-pods"), ("NetworkPolicy", "cmapi-metrics"), ("NetworkPolicy", "cmapi-front-door")):
+        plain = next(d for d in docs() if d["kind"] == kind and d["metadata"]["name"] == name)
+        assert plain["spec"] == charts(chart, kind, name)["spec"], f"{kind}/{name}"
+
+
+def test_crc_routes_are_the_charts(chart):
+    for name in ("cmapi", "cmapi-mockup"):
+        plain, ours = crc("Route", name), charts(chart, "Route", name)
+        assert plain["spec"] == ours["spec"] and plain["metadata"]["annotations"] == ours["metadata"]["annotations"], name
+
+
+def test_crc_gives_the_front_door_the_charts_values(chart):
+    """Every value of the front door's environment, and the portal's config.json, are what the chart gives on CRC."""
+    data = crc("ConfigMap", "cmapi-portal-config")["data"]
+    want = {e["name"]: e["value"] for e in charts(chart, "Deployment", "cmapi-portal")["spec"]["template"]["spec"]["containers"][0]["env"]}
+    for e in front_door()["spec"]["template"]["spec"]["containers"][0]["env"]:
+        if "value" in e:
+            got = e["value"]
+        else:
+            ref = e["valueFrom"]["configMapKeyRef"]
+            assert ref["name"] == "cmapi-portal-config", e["name"]
+            got = data[ref["key"]]
+        assert got == want[e["name"]], e["name"]
+    assert json.loads(data["config.json"]) == json.loads(charts(chart, "ConfigMap", "cmapi-portal-config")["data"]["config.json"])
+
+
+ENVIRONMENTS = ROOT / "deploy/manifests/environments"
+
+
+def portal_config(name):
+    f = next(f for f in sorted((ENVIRONMENTS / name).glob("*.yaml")) if re.search(r"^  name: cmapi-portal-config$", f.read_text(), re.M))
+    return yaml.safe_load(f.read_text())["data"]
+
+
+@pytest.mark.parametrize("name", ["kind", "crc"])
+def test_each_environment_passes_the_front_doors_start_check(name):
+    """The image refuses to start with a missing or malformed value (16-cmapi-check-env.envsh): run that check itself, with each
+    environment's values, as the image's entrypoint sources it. A value that fails here is a front door that never starts."""
+    data = portal_config(name)
+    container = front_door()["spec"]["template"]["spec"]["containers"][0]
+    values = {e["name"]: e["value"] if "value" in e else data[e["valueFrom"]["configMapKeyRef"]["key"]] for e in container["env"]}
+    r = subprocess.run(["sh", "-c", '. "$1" && echo passed', "16-cmapi-check-env.envsh", str(CHECK_ENV)], capture_output=True, text=True, timeout=30,
+                       env={"PATH": "/usr/bin:/bin", "NGINX_LOCAL_RESOLVERS": "127.0.0.1", **values})
+    assert (r.returncode, r.stdout.strip()) == (0, "passed"), r.stderr
+
+
+def test_the_start_check_can_fail():
+    data = portal_config("crc")
+    r = subprocess.run(["sh", "-c", '. "$1" && echo passed', "16-cmapi-check-env.envsh", str(CHECK_ENV)], capture_output=True, text=True, timeout=30,
+                       env={"PATH": "/usr/bin:/bin", "NGINX_LOCAL_RESOLVERS": "127.0.0.1", "CMAPI_API_UPSTREAM": "cmapi-api-pods.cmapi.svc.cluster.local:8080",
+                            "CMAPI_PORTAL_HOST": data["CMAPI_PORTAL_HOST"], "CMAPI_MOCKUP_HOST": data["CMAPI_MOCKUP_HOST"], "CMAPI_OIDC_ORIGIN": "https://keycloak.apps-crc.testing/realms/cmapi"})
+    assert r.returncode != 0 and "CMAPI_OIDC_ORIGIN" in r.stderr
+
+
+@pytest.mark.parametrize("name", ["kind", "crc"])
+def test_the_portal_calls_the_api_on_its_own_origin(name):
+    """One origin, so no CORS (#206): the portal's apiUrl is the front door's own host, with no path (config.ts refuses one), and its
+    issuer is on the origin the Content-Security-Policy lets it reach."""
+    data = portal_config(name)
+    config = json.loads(data["config.json"])
+    assert config["apiUrl"] == f"https://{data['CMAPI_PORTAL_HOST']}"
+    assert config["issuer"].startswith(data["CMAPI_OIDC_ORIGIN"] + "/") and config["clientId"] == "cmapi-portal"
+    instance = yaml.safe_load(config_file(name, "instance.yaml"))["instance"]
+    assert (config["issuer"], config["audience"], config["instance"], config["environments"], config["otherInstances"]) == \
+        (instance["auth"]["issuer"], instance["auth"]["audience"], instance["name"], instance["allowedEnvironments"], instance["directory"])

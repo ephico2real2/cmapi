@@ -182,7 +182,7 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
     """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes."""
     from cmapi.core.context import build_context
     from cmapi.settings import Settings
-    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     cm = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "cmapi-config")

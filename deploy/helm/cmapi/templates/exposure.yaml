@@ -1,27 +1,35 @@
 {{/*
-Three hosts: the API, the portal and the standalone mockup.
+Two hosts, both on the front door (templates/portal.yaml): the instance's host, which serves the portal at / and the API
+under /api (one origin, docs/02 "The front door"), and the standalone mockup's. The API has no Route or Ingress of its
+own: every client, the CLI too, comes in through the front door.
 
 Route (OpenShift, the default). With no host set, spec.subdomain lets the router name it
-<release>-api.<apps domain> and report the name in status, so git carries nothing the cluster
+<release>.<apps domain> and report the name in status, so git carries nothing the cluster
 fills in (the lesson recorded in group-sync-dashboard's route.yaml: an empty spec.host is written
-back by the API server and fights GitOps; subdomain is not).
+back by the API server and fights GitOps; subdomain is not). nginx then matches the host by the
+wildcard <subdomain>.*.
 
 Ingress (plain Kubernetes) needs a host at render time; on OpenShift the ingress-to-route
 controller would turn it into a Route as well.
 */}}
-{{- $name := include "cmapi.name" . -}}
-{{- define "cmapi.portalHost" -}}
-{{- if eq .Values.exposure "Ingress" -}}{{ .Values.ingress.portal.host }}{{- else -}}{{ .Values.route.portal.host | default (printf "%s-portal" (include "cmapi.name" .)) }}{{- end -}}
+{{- define "cmapi.frontDoorHost" -}}
+{{- if eq .Values.exposure "Ingress" -}}{{ required "ingress.host is required with Ingress exposure" .Values.ingress.host }}{{- else -}}{{ .Values.route.host }}{{- end -}}
 {{- end -}}
 {{- define "cmapi.mockupHost" -}}
-{{- if eq .Values.exposure "Ingress" -}}{{ .Values.ingress.mockup.host }}{{- else -}}{{ .Values.route.mockup.host | default (printf "%s-mockup" (include "cmapi.name" .)) }}{{- end -}}
+{{- if eq .Values.exposure "Ingress" -}}{{ .Values.ingress.mockup.host }}{{- else -}}{{ .Values.route.mockup.host }}{{- end -}}
 {{- end -}}
-{{- $sites := list (dict "key" "api" "service" (printf "%s-api" $name)) -}}
-{{- if .Values.portal.enabled -}}
-{{- $sites = append $sites (dict "key" "portal" "service" (printf "%s-portal" $name)) -}}
+{{/* The server_name of each site in nginx: the host, or the Route's subdomain with any domain. */}}
+{{- define "cmapi.frontDoorServerName" -}}
+{{- include "cmapi.frontDoorHost" . | default (printf "%s.*" (include "cmapi.name" .)) -}}
+{{- end -}}
+{{- define "cmapi.mockupServerName" -}}
+{{- include "cmapi.mockupHost" . | default (printf "%s-mockup.*" (include "cmapi.name" .)) -}}
+{{- end -}}
+{{- $name := include "cmapi.name" . -}}
+{{- if .Values.portal.enabled }}
+{{- $sites := list (dict "key" "instance" "subdomain" $name "host" (include "cmapi.frontDoorHost" .)) -}}
 {{- if .Values.portal.mockup.enabled -}}
-{{- $sites = append $sites (dict "key" "mockup" "service" (printf "%s-portal" $name)) -}}
-{{- end -}}
+{{- $sites = append $sites (dict "key" "mockup" "subdomain" (printf "%s-mockup" $name) "host" (include "cmapi.mockupHost" .)) -}}
 {{- end -}}
 {{- range $site := $sites }}
 {{- if eq $.Values.exposure "Route" }}
@@ -29,27 +37,30 @@ controller would turn it into a Route as well.
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{ $name }}-{{ $site.key }}
+  name: {{ $site.subdomain }}
   namespace: {{ $.Release.Namespace }}
   labels: {{- include "cmapi.labels" $ | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/set-forwarded-headers: replace
 spec:
-  {{- $host := (index $.Values.route $site.key).host }}
-  {{- if $host }}
-  host: {{ $host }}
+  {{- if $site.host }}
+  host: {{ $site.host }}
   {{- else }}
-  subdomain: {{ $name }}-{{ $site.key }}
+  subdomain: {{ $site.subdomain }}
   {{- end }}
-  to: {kind: Service, name: {{ $site.service }}}
+  to: {kind: Service, name: {{ $name }}-portal}
   port: {targetPort: http}
   tls:
-    termination: {{ (index $.Values.route $site.key).termination | default "edge" }}
+    # Edge: the router terminates TLS and speaks HTTP to the front door. Redirect: plain HTTP goes to HTTPS, so a token
+    # is never sent in the clear.
+    termination: edge
     insecureEdgeTerminationPolicy: Redirect
 {{- else }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ $name }}-{{ $site.key }}
+  name: {{ $site.subdomain }}
   namespace: {{ $.Release.Namespace }}
   labels: {{- include "cmapi.labels" $ | nindent 4 }}
 spec:
@@ -60,14 +71,15 @@ spec:
   tls: {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ required (printf "ingress.%s.host is required with Ingress exposure" $site.key) (index $.Values.ingress $site.key).host }}
+    - host: {{ required (printf "the %s site needs a host with Ingress exposure (ingress.host, ingress.mockup.host)" $site.key) $site.host }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ $site.service }}
+                name: {{ $name }}-portal
                 port: {number: 8080}
+{{- end }}
 {{- end }}
 {{- end }}

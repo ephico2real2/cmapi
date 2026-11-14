@@ -1,15 +1,23 @@
+# Two hosts, both on the front door (components/portal/10-front-door.yaml), as the chart's templates/exposure.yaml: the
+# instance's host, which serves the portal at / and the API's paths (one origin, docs/02 "The front door"), and the standalone
+# mockup's. The API has no Route of its own: every client, the CLI too, comes in through the front door, and only the front
+# door reaches the API's port (components/cmapi/40-networkpolicy.yaml).
 # Edge: the router terminates TLS with the cluster's ingress certificate and speaks HTTP to the pod, which serves no TLS.
 # Redirect: plain HTTP on 80 goes to HTTPS, so a token is never sent in the clear. spec.host is explicit because the realm's
-# redirect URI and instance.yaml's publicUrl name it. targetPort http only: the metrics port is not reachable through a Route.
+# redirect URIs, instance.yaml's publicUrl and 60-portal.yaml name it.
+# set-forwarded-headers replace: the router's X-Forwarded-* replace the client's, which by default it appends to, so a client
+# cannot prefix the values that the front door and the API read (Red Hat's route-specific annotations; Codex's F4 on PR #238).
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: cmapi-api
+  name: cmapi
   namespace: cmapi
   labels: {app.kubernetes.io/part-of: cmapi}
+  annotations:
+    haproxy.router.openshift.io/set-forwarded-headers: replace
 spec:
-  host: cmapi-api.apps-crc.testing
-  to: {kind: Service, name: cmapi-api}
+  host: cmapi.apps-crc.testing
+  to: {kind: Service, name: cmapi-portal}
   port: {targetPort: http}
   tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
 ---
@@ -20,8 +28,10 @@ metadata:
   name: cmapi-mockup
   namespace: cmapi
   labels: {app.kubernetes.io/part-of: cmapi}
+  annotations:
+    haproxy.router.openshift.io/set-forwarded-headers: replace
 spec:
   host: cmapi-mockup.apps-crc.testing
-  to: {kind: Service, name: cmapi-mockup}
+  to: {kind: Service, name: cmapi-portal}
   port: {targetPort: http}
   tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
