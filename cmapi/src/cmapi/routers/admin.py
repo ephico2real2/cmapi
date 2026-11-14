@@ -1,6 +1,7 @@
 """Admin routes: prune confirmation, the auto-approval kill switch, integrations, the plugins, the Git log, KPIs."""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import Depends, Request
@@ -47,6 +48,11 @@ class Integrations(Api):
     operations: dict[str, Any] = Field(description="Operations engine", examples=[{"engine": "builtin"}])
     events: dict[str, Any] = Field(description="Event publisher", examples=[{"publisher": "none"}])
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
+    policy: dict[str, Any] = Field(description="The policy engine (kyverno or none), the mode of each served environment "
+                                               "(enforce, audit or off), and kyvernoVersion: the Kyverno CLI that the image pins, "
+                                               "the least version that the clusters must run (null outside the image)",
+                                   examples=[{"engine": "kyverno", "kyvernoVersion": "v1.20.0",
+                                              "environments": {"dev": "enforce", "rnd": "audit"}}])
 
 
 class PluginRow(Api):
@@ -170,12 +176,15 @@ def _switch(c: AppContext) -> dict:
 
 @router.read("/integrations", summary="Integration modes and health", permission="clusters:read", response_model=Integrations)
 def integrations(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
-    """Each integration's mode (delivery, sync signal, operations engine, event publisher) and the import status per cluster."""
+    """Each integration's mode (delivery, sync signal, operations engine, event publisher, policy engine) and the import
+    status per cluster."""
     i = c.integrations
     return {"delivery": {"mode": c.delivery.mode, "pollSeconds": c.delivery.poll_seconds,
                          "syncTimeoutSeconds": c.delivery.sync_timeout_seconds},
             "syncSignal": i.get("syncSignal") or {"default": "poll"}, "operations": i.get("operations") or {"engine": "builtin"},
-            "events": i.get("events") or {"publisher": "none"}, "clusters": c.registry.status_map()}
+            "events": i.get("events") or {"publisher": "none"}, "clusters": c.registry.status_map(),
+            "policy": {"engine": c.cfg.policy.engine, "kyvernoVersion": os.environ.get("CMAPI_KYVERNO_VERSION") or None,
+                       "environments": c.cfg.policy.modes(c.cfg.allowed_environments)}}
 
 
 @router.read("/plugins", summary="The plugins of this instance", permission="clusters:read", response_model=PluginList)
