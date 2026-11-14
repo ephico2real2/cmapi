@@ -126,10 +126,13 @@ Namespace's keys against the instance's `metadata-keys.yaml` (#215) and reports,
 | `derived-mismatch`: a `value.from` key whose value is not the derived one | `name: aao-rnd` on `abc-rnd` (derived from the namespace name) |
 | `missing-required-key` | none on the sample with the company configuration; `cmapi.net/team` with the shipped one |
 | `invalid-value`: breaks its `pattern`, `enum`, `format` or `namespacePrefix` | none on the sample |
-| `empty-value` | `company.net/mnemonic-group-contact: ''`, `company.net/mnemonic-confluence: ''` |
+| `wrong-kind`: a key that the stanzas declare for the other kind (a label that is now an annotation) | `company.net/mnemonic-group-contact` and `company.net/mnemonic-confluence`, labels on the sample, annotations with their formats since the owner's decision on #234 |
+| `empty-value` | none on the sample with the company configuration |
 | `unknown-key`: a key that no stanza declares and `allowOther` does not admit | none with the company configuration; each `company.net/` key with the shipped one |
 | `adoption-label` | `company.net/provisioner: cluster-configs` (recognised, kept: D7) |
 | `skipped-key`: dropped by a skip prefix | none on the sample |
+
+**A key of the wrong kind stays as it is** (the owner's decision on #234, 2026-11-14). An existing namespace that carries `company.net/mnemonic-group-contact` or `company.net/mnemonic-confluence` as a label keeps that label in Git, unchanged, and the plan reports each one as `wrong-kind`: the key belongs in an annotation now. cmapi never moves it: the first update through cmapi may send the annotation, and the requester removes the label (a request cannot set it as a label, `invalid_key` "... is an annotation").
 
 **A missing required key does not block adoption** (the owner's question a). The reasons: the owner's decision 3 says
 "as-is", and the test plan says "no change to the live object"; blocking would force a change on the live namespace
@@ -260,7 +263,7 @@ that cmapi does not model). The instance uses `metadata-keys.company.yaml`.
 
 | Case | Expected |
 |---|---|
-| Plan (`dryRun`) | Files: the three objects minus D3, plus D4. Findings: `derived-mismatch` (`name`), two `empty-value`, `adoption-label`, `made-by-other-tool`, `beyond-custom-bounds` (the quota key). No change on the cluster |
+| Plan (`dryRun`) | Files: the three objects minus D3, plus D4. Findings: `derived-mismatch` (`name`), two `wrong-kind` (the two labels that are annotations now), `adoption-label`, `made-by-other-tool`, `beyond-custom-bounds` (the quota key). No change on the cluster |
 | The same namespace without `cmapi.net/adopt` | Not a candidate; in the report as "recognised, unlabelled" |
 | A namespace in another Argo CD Application | Skipped, with the Application named |
 | Approve, merge, sync | The live objects differ from the snapshot only by D4 (read with `oc get -o yaml` before and after, diffed); `cmapi.net/adopt` is gone |

@@ -57,7 +57,7 @@ def body():
         ("1  Candidate?", ("opt-in label; not excluded; not managed;", "not tracked by another Argo CD app")),
         ("2  Read the live objects", ("the Namespace, each ResourceQuota", "and LimitRange, from the cluster")),
         ("3  Drop, then add", ("drop server-set fields and skip prefixes;", "add cmapi's system keys, tier custom")),
-        ("4  Findings, never changes", ("name: aao-rnd is not the namespace name;", "two empty values; made by another tool")),
+        ("4  Findings, never changes", ("name: aao-rnd is not the namespace name;", "two labels that are annotations now; made by another tool")),
     ]
     for i, (title, lines) in enumerate(steps):
         y = 40 + 92 * i

@@ -1642,7 +1642,7 @@ Cluster: Namespace abc-rnd (opt-in cmapi.net/adopt), each ResourceQuota and Limi
   1 candidate? opt-in; not excluded; not managed; not tracked by another Argo CD Application
   2 read the live objects from the cluster (never the old cluster-configs repository)
   3 drop server-set fields and skip prefixes; add cmapi's system keys; tier custom
-  4 findings, never changes (name: aao-rnd; two empty values; made by another tool)
+  4 findings, never changes (name: aao-rnd; two labels that are annotations now; made by another tool)
   5 approval (built) -> 6 the bot's pull request to cmapi-cluster-configs (built)
   7 Argo CD applies the folder: ServerSideApply, FailOnSharedResource, Prune=confirm
   8 the worker checks that only cmapi's keys, the adopt label and Argo CD's tracking annotation changed
@@ -1693,7 +1693,7 @@ Patterns are matched with fnmatch on the full name; exclusions from global, envi
 
 Server-set fields (uid, resourceVersion, generation, creationTimestamp, managedFields, status, a Namespace's spec.finalizers) are always stripped. Argo CD adds its `argocd.argoproj.io/tracking-id` annotation on the first sync. Those keys are the only differences on the live objects; the worker checks it after the sync.
 
-**Findings, never changes.** The plan checks the Namespace's keys against metadata-keys.yaml and reports each difference: a derived key with another value (the owner's sample: `name: aao-rnd` on `abc-rnd`), a missing required key, a value that breaks its rule, an empty value, a key that no stanza declares, an adoption label, a skipped key, a value beyond the custom bounds, and a namespace made by another tool (remove it from that tool before approving). A missing required key does not block adoption: the first update through cmapi must add it. cmapi keeps each key in Git that it does not own, such as `company.net/provisioner`, through each later update, and a requester may remove one but not set it.
+**Findings, never changes.** The plan checks the Namespace's keys against metadata-keys.yaml and reports each difference: a derived key with another value (the owner's sample: `name: aao-rnd` on `abc-rnd`), a missing required key, a value that breaks its rule, an empty value, a key that no stanza declares, a key of the wrong kind (a label that the stanzas declare as an annotation: kept as it is; the owner's decision on #234), an adoption label, a skipped key, a value beyond the custom bounds, and a namespace made by another tool (remove it from that tool before approving). A missing required key does not block adoption: the first update through cmapi must add it. cmapi keeps each key in Git that it does not own, such as `company.net/provisioner`, through each later update, and a requester may remove one but not set it.
 
 **Flow.**
 
