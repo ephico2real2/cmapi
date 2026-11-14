@@ -168,10 +168,10 @@ def test_each_operation_has_a_sample_from_a_run(world):
 
     # ---- a namespace: the dry run, the create, then the worker to synced
     # The dry run is of a custom-tier request with values beyond the tier (#211), so the sample shows `beyondTier` and the
-    # approval that it adds. The create below is the small tier, which the baseline policy approves.
+    # approval that it adds. The create below is the small tier, which the baseline policy approves. No pvc value: the
+    # storage switch of the instances' tiers.yaml is off, and the sample is a request that the instance takes (#253).
     sized = {**NS, "tier": "custom", "quota": {"requests.cpu": "4", "requests.memory": "8Gi", "pods": "20", "requests.storage": "500Gi"},
-             "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}},
-                            "pvc": {"max": {"storage": "100Gi"}}}}
+             "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}}}}
     dry = rec.call("namespaces_create_namespace:dryRun", "POST", f"{base}?dryRun=true", ola, json_body=sized)
     assert dry.status_code == 200 and dry.json()["beyondTier"]["approvals"], dry.text
     created = rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS, key=True)
@@ -242,7 +242,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
             break
     view = client.get(f"/api/v1/requests/{frid}", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()
     assert view["pr"], view["status"]
-    path = "clusters/CRC/namespaces/search-dev/resourcequota.yaml"
+    path = "clusters/CRC/namespaces/search-dev/resourcequota-search-dev-quota.yaml"
     git.tamper(view["pr"]["branch"], path, git.branches[view["pr"]["branch"]][path].replace("requests.cpu: '8'", "requests.cpu: '80'"))
     run_jobs(ctx)
     retried = rec.call("requests_retry", "POST", f"/api/v1/requests/{frid}:retry", opal)

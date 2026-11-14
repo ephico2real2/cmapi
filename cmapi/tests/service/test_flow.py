@@ -55,7 +55,8 @@ def test_dry_run_writes_nothing_and_shows_the_plan(world):
     body = r.json()
     assert body["approval"]["auto"] == "auto:baseline-rnd-namespace" and body["capacity"]["status"] == "fits"
     assert set(body["changes"]) == {f"clusters/CRC/namespaces/payments-dev/{f}" for f in
-                                    ("namespace.yaml", "resourcequota.yaml", "limitrange.yaml", "token-issuer-rolebinding.yaml")}
+                                    ("namespace.yaml", "resourcequota-payments-dev-quota.yaml", "limitrange-payments-dev-limits-cpu.yaml",
+                                     "limitrange-payments-dev-limits-memory.yaml", "token-issuer-rolebinding.yaml")}
     assert client.get("/api/v1/requests", headers=auth(keys, "ola", **OLA)).json()["page"]["total"] == 0
     assert git.prs == {}
 
@@ -273,9 +274,9 @@ def test_pr_edited_after_approval_fails_the_cmapi_check(world):
     assert run_jobs(ctx, limit=1) == ["open_pr"]
     view = client.get(f"/api/v1/requests/{rid}", headers=h).json()
     branch = view["pr"]["branch"]
-    before = git.branches[branch]["clusters/CRC/namespaces/payments-dev/resourcequota.yaml"]
+    before = git.branches[branch]["clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml"]
     assert "requests.cpu: '8'" in before
-    git.tamper(branch, "clusters/CRC/namespaces/payments-dev/resourcequota.yaml", before.replace("requests.cpu: '8'", "requests.cpu: '80'"))
+    git.tamper(branch, "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml", before.replace("requests.cpu: '8'", "requests.cpu: '80'"))
     run_jobs(ctx)
     view = client.get(f"/api/v1/requests/{rid}", headers=h).json()
     assert view["status"] == "failed", view["events"]

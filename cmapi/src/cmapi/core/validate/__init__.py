@@ -41,8 +41,9 @@ from cmapi.core.policygen import environment_of, index_of
 from cmapi.core.ports import Finding
 from cmapi.core.tiers import LIMIT_KINDS, limit_key_parts, qty
 
-# The files that the bundle checks, and the kind each one holds.
-CHECKED = {"namespace.yaml": "Namespace", "resourcequota.yaml": "ResourceQuota", "limitrange.yaml": "LimitRange"}
+# The kinds that the bundle checks. A file is checked when it holds one of them: the folder has one file for each object of
+# these kinds (#253, the adoption design's D8), so the file is found by what it holds, never by its name.
+CHECKED = frozenset({"Namespace", "ResourceQuota", "LimitRange"})
 _PLURAL = {"namespaces": "Namespace", "resourcequotas": "ResourceQuota", "limitranges": "LimitRange"}
 
 
@@ -138,10 +139,16 @@ class CliValidator:
 
     def _kyverno(self, paths: Mapping[str, str], files: Mapping[str, str], environment: str,
                  previous: Mapping[str, str | None]) -> list[Finding]:
-        checked = {p: f for p, f in paths.items() if p.rsplit("/", 1)[-1] in CHECKED}
+        loaded = {p: [d for d in yaml.safe_load_all(files[p]) if d] for p in paths}
+        checked = {p: f for p, f in paths.items() if any(isinstance(d, Mapping) and d.get("kind") in CHECKED for d in loaded[p])}
         policies = self.policies_for(environment)
         if not checked or not policies:
             return []
+        several = sorted(p for p in checked if len(loaded[p]) != 1)
+        if several:
+            # Each result names one object, and the ratchet compares it with that object's previous version: a file of these
+            # kinds holds exactly one, as the renderer writes it.
+            return [Finding("cmapi", "validator", p, "a file of a checked kind holds more than one document") for p in several]
         if shutil.which(self.kyverno) is None:
             return [Finding("cmapi", "validator", "", f"{self.kyverno} is not installed in this image")]
         with tempfile.TemporaryDirectory(prefix="cmapi-policies-") as pd:
@@ -161,7 +168,8 @@ class CliValidator:
             tail = [ln for ln in (r.stderr or r.stdout).strip().splitlines() if ln.strip()]
             return [Finding("cmapi", "validator", "", f"kyverno exited {r.returncode} with no report: "
                                                       f"{(tail[0] if tail else '')[:200]}")]
-        docs = {rel: yaml.safe_load(files[rel]) or {} for rel in checked}
+        docs = {rel: loaded[rel][0] for rel in checked}
+        before = _previous_objects(previous)
         by_object = {(d.get("kind"), (d.get("metadata") or {}).get("namespace", ""),
                       (d.get("metadata") or {}).get("name")): rel for rel, d in docs.items()}
         out: list[Finding] = []
@@ -197,7 +205,7 @@ class CliValidator:
                                    f"kyverno returned unexpected result {res.get('result')!r}: {res.get('message') or ''}"[:300]))
                 continue
             check = self.index.get(res.get("policy", ""))
-            if check and check.get("key") and rel and _held(check, docs[rel], _previous_doc(previous, rel)):
+            if check and check.get("key") and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check)):
                 continue
             out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300]))
         for name, kinds in _matched_kinds(policies).items():
@@ -212,9 +220,27 @@ class CliValidator:
         return out
 
 
-def _previous_doc(previous: Mapping[str, str | None], rel: str) -> dict[str, Any] | None:
-    text = previous.get(rel)
-    return (yaml.safe_load(text) or {}) if text else None
+def _previous_objects(previous: Mapping[str, str | None]) -> list[dict[str, Any]]:
+    """Every object of the folder as Git holds it before this change, from any file and any document of it."""
+    return [d for text in previous.values() if text for d in yaml.safe_load_all(text) if isinstance(d, Mapping)]
+
+
+def _previous_version(before: list[dict[str, Any]], doc: Mapping[str, Any],
+                      check: Mapping[str, str | None]) -> dict[str, Any] | None:
+    """The previous version of an object: the one of the same kind and name, from any file of the folder.
+
+    A LimitRange that #253 split out of the single <ns>-limits has a new name. For it, the previous version of a limit key is
+    the one previous LimitRange that held the key: held keys of an approved namespace stay held across the split. Two
+    previous objects with the key give no previous version, so the ratchet keeps nothing on a guess."""
+    kind, name = doc.get("kind"), (doc.get("metadata") or {}).get("name")
+    same = next((d for d in before if d.get("kind") == kind and (d.get("metadata") or {}).get("name") == name), None)
+    if same is not None or kind != "LimitRange" or check.get("kind") != "limit":
+        return same
+    parts = limit_key_parts(str(check.get("key") or ""))
+    if not parts:
+        return None
+    holders = [d for d in before if d.get("kind") == "LimitRange" and _limit(d, *parts) is not None]
+    return holders[0] if len(holders) == 1 else None
 
 
 def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[str, Any] | None) -> bool:
@@ -276,7 +302,7 @@ def _matched_kinds(policies: Mapping[str, str]) -> dict[str, set[str]]:
             rules = (((doc.get("spec") or {}).get("matchConstraints") or {}).get("resourceRules") or [])
             kinds = {_PLURAL[r] for rule in rules for r in (rule.get("resources") or []) if r in _PLURAL}
             if any("*" in (rule.get("resources") or []) for rule in rules):
-                kinds.update(CHECKED.values())
+                kinds.update(CHECKED)
             name = (doc.get("metadata") or {}).get("name")
             if name and kinds:
                 out[name] = kinds

@@ -32,6 +32,13 @@ overridable:
   - limitRange.container.max.memory
   - limitRange.pvc.max.storage
 
+# One LimitRange for each resource: <ns>-limits-cpu, <ns>-limits-memory, and <ns>-limits-storage for the pvc values
+# below. Storage LimitRanges are off by default, in code (#253): the pvc values are checked but not rendered, a custom
+# limitRange.pvc.* value is refused (storage-limits-off), the policies check no storage LimitRange, and storage is
+# governed by requests.storage and persistentvolumeclaims only. To enforce them, set the override, here for every
+# environment or in environments.<env>:
+#   storageLimitRange: {enabled: true}
+
 defaults:                        # every tier gets these unless it overrides them
   quota:
     persistentvolumeclaims: "20"

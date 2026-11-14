@@ -1,8 +1,13 @@
 """The raw manifest renderer: one namespace's desired state in, one folder of plain YAML out.
 
     clusters/<clusterId>/namespaces/<ns>/
-        namespace.yaml  resourcequota.yaml  limitrange.yaml
+        namespace.yaml  resourcequota-<ns>-quota.yaml
+        limitrange-<ns>-limits-cpu.yaml  limitrange-<ns>-limits-memory.yaml  [limitrange-<ns>-limits-storage.yaml]
         serviceaccounts.yaml  rolebindings.yaml  token-issuer-rolebinding.yaml
+
+One file for each ResourceQuota and each LimitRange, named after the object (the adoption design's D8, #253), so no
+reader takes several documents of those kinds. A folder written before that layout (resourcequota.yaml, limitrange.yaml)
+is read as it is, and its next change removes those files and writes the named ones in the same commit.
 
 Nothing on the cluster expands these files, so the plan diff, Kyverno, kubeconform and the plan
 hash all cover exactly what Argo CD applies. Rules:
@@ -54,6 +59,31 @@ class NamespaceSpec:
 
 def folder(cluster_id: str, namespace: str) -> str:
     return f"clusters/{cluster_id}/namespaces/{namespace}/"
+
+
+OBJECT_FILE_STEM = {"ResourceQuota": "resourcequota", "LimitRange": "limitrange"}
+_NAME_MAX = 255                                  # bytes in a file name on the file systems that a Git checkout uses
+
+
+def object_file(kind: str, name: str) -> str:
+    """The file of one ResourceQuota or LimitRange: <kind>-<name>.yaml, or <kind>-<sha256 of the name>.yaml when that is
+    longer than a file name can be. Readers find the objects by kind (objects_of), never by this name."""
+    stem = OBJECT_FILE_STEM[kind]
+    file = f"{stem}-{name}.yaml"
+    if len(file.encode()) <= _NAME_MAX:
+        return file
+    return f"{stem}-{hashlib.sha256(name.encode()).hexdigest()[:32]}.yaml"
+
+
+def objects_of(files: Mapping[str, str | None], kind: str) -> list[dict[str, Any]]:
+    """Every object of one kind in a folder's files, from any file and any document of it, in path order."""
+    out = []
+    for path in sorted(files):
+        text = files[path]
+        if not text or not path.endswith(".yaml"):
+            continue
+        out.extend(d for d in yaml.safe_load_all(text) if isinstance(d, Mapping) and d.get("kind") == kind)
+    return out
 
 
 def plan_hash(files: Mapping[str, str | None]) -> str:
@@ -124,17 +154,16 @@ class ManifestRenderer:
         namespace_doc = {"apiVersion": "v1", "kind": "Namespace",
                          "metadata": meta(spec.namespace, None, labels, ann)}
 
-        # resourcequota.yaml and limitrange.yaml from the tier catalog
-        rq, lr = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
+        # the ResourceQuota and the LimitRanges from the tier catalog, one file each
+        rq, lrs = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
                                      instance=spec.instance, env=spec.env, tier=spec.tier,
                                      request_id=spec.request_id, hard=spec.quota, limits=spec.limit_range,
                                      approved=spec.approved)
-        for d in (rq, lr):
+        files: dict[str, list[dict[str, Any]]] = {"namespace.yaml": [namespace_doc]}
+        for d in (rq, *lrs):
             d["metadata"]["labels"] = self.keys.ordered(d["metadata"]["labels"])
             d["metadata"]["annotations"] = self.keys.ordered(d["metadata"]["annotations"])
-
-        files: dict[str, list[dict[str, Any]]] = {
-            "namespace.yaml": [namespace_doc], "resourcequota.yaml": [rq], "limitrange.yaml": [lr]}
+            files[object_file(d["kind"], d["metadata"]["name"])] = [d]
 
         if spec.service_accounts:
             files["serviceaccounts.yaml"] = [
@@ -159,16 +188,16 @@ class ManifestRenderer:
             "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": TOKEN_ISSUER["role"]},
             "subjects": [{"kind": "ServiceAccount", "name": TOKEN_ISSUER["sa"], "namespace": TOKEN_ISSUER["sa_namespace"]}]}]
 
-        # keep the request ID of every object whose content did not change
-        for name, docs in files.items():
-            old = {_identity(d): d for d in prev.get(name, [])}
+        # keep the request ID of every object whose content did not change, wherever the previous folder held it
+        old = {_identity(d): d for docs in prev.values() for d in docs if isinstance(d, Mapping) and d.get("metadata")}
+        for docs in files.values():
             for d in docs:
                 o = old.get(_identity(d))
                 if o and _without_request_id(o) == _without_request_id(d):
                     d["metadata"]["annotations"]["cmapi.net/request-id"] = \
                         o["metadata"]["annotations"]["cmapi.net/request-id"]
         out: dict[str, str | None] = {base + name: _dump(docs) for name, docs in files.items()}
-        for name in prev:                     # the last SA or grant removed: the file goes (revocation)
+        for name in prev:                     # the last SA or grant removed, or a file of the old layout: the file goes
             if name not in files:
                 out[base + name] = None
         return out

@@ -4,7 +4,8 @@
 
     env/<env>/cmapi-metadata.yaml     Namespace: the required and declared keys of metadata-keys.yaml (#215)
     env/<env>/cmapi-quota.yaml        ResourceQuota: each key at or below the environment's maximum (tiers.yaml)
-    env/<env>/cmapi-limits.yaml       LimitRange: each key at or below its maximum; limits never below requests
+    env/<env>/cmapi-limits.yaml       LimitRange: each key at or below its maximum; limits never below requests. The pvc
+                                      keys only where tiers.yaml's storageLimitRange is on (#253)
     env/prod/deny-expiry-in-prod.yaml Namespace: production never expires (the hand-written policy, rendered)
     env/<env>/index.json              policy name -> the key and rule that the policy checks
 
@@ -29,7 +30,7 @@ import yaml
 
 from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys
 from cmapi.core.policy import PolicySettings
-from cmapi.core.tiers import LIMIT_KINDS, TierCatalog, flatten_limits, limit_key_parts, qty
+from cmapi.core.tiers import LIMIT_KINDS, STORAGE_KIND, TierCatalog, flatten_limits, limit_key_parts, qty
 
 ACTIONS = {"enforce": ["Deny"], "audit": ["Audit", "Warn"]}
 MANAGED = "cmapi.net/managed"
@@ -216,9 +217,12 @@ def _limit_value(kind: str, part: str, res: str, obj: str = "object") -> str:
 def _limits_checks(catalog: TierCatalog, env: str) -> list[Check]:
     b = catalog.bounds(env)
     checks = []
+    storage = catalog.storage_limits(env)
     for key in sorted(k for k in b.max if k.startswith("limitRange.")):
         parts = limit_key_parts(key)
-        if not parts:
+        if not parts or (parts[0] == STORAGE_KIND and not storage):
+            # With the storage switch off cmapi renders no storage LimitRange, so it checks none: an adopted namespace keeps
+            # its own as it is (the adoption design's D19).
             continue
         v, mx = f"({_limit_value(*parts)})", cel(b.max[key])
         was = f"(variables.update && has(oldObject.spec) ? ({_limit_value(*parts, obj='oldObject')}) : '')"

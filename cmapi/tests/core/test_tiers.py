@@ -20,6 +20,18 @@ def raw():
     return yaml.safe_load(COMBINED.read_text())
 
 
+def raw_on():
+    """The example catalog with the storage switch on (#253): the pvc paths of #211 run only then."""
+    r = raw()
+    r["storageLimitRange"] = {"enabled": True}
+    return r
+
+
+@pytest.fixture(scope="module")
+def cat_on() -> TierCatalog:
+    return TierCatalog(raw_on(), {"rnd", "dev", "qa", "uat", "prod"})
+
+
 @pytest.mark.parametrize("instance,envs", INSTANCES.items())
 def test_every_instance_file_loads(instance, envs):
     c = TierCatalog.load(HERE / "instances" / instance / "tiers.yaml", envs)
@@ -122,11 +134,13 @@ def test_compare_gives_approval_facts(cat):
 
 
 def test_render_matches_the_example_namespace_folder(cat):
-    rq, lr = cat.render(namespace="payments-dev", cluster_id="OCP_GF15", instance="nonprod", env="dev",
-                        tier="medium", request_id="req-20261104-2b17")
+    rq, lrs = cat.render(namespace="payments-dev", cluster_id="OCP_GF15", instance="nonprod", env="dev",
+                         tier="medium", request_id="req-20261104-2b17")
     folder = HERE / "cluster-configs/clusters/OCP_GF15/namespaces/payments-dev"
-    assert rq == yaml.safe_load((folder / "resourcequota.yaml").read_text())
-    assert lr == yaml.safe_load((folder / "limitrange.yaml").read_text())
+    assert rq == yaml.safe_load((folder / "resourcequota-payments-dev-quota.yaml").read_text())
+    assert [lr["metadata"]["name"] for lr in lrs] == ["payments-dev-limits-cpu", "payments-dev-limits-memory"]
+    for lr in lrs:
+        assert lr == yaml.safe_load((folder / f"limitrange-{lr['metadata']['name']}.yaml").read_text())
     assert list(rq["spec"]["hard"])[:3] == ["requests.cpu", "requests.memory", "pods"]
 
 
@@ -170,7 +184,8 @@ def test_a_custom_request_can_change_an_overridable_quota_key(cat):
     assert hard["persistentvolumeclaims"] == "20"                 # a key that is left out keeps the tier's value
 
 
-def test_custom_limits_go_over_the_tiers_values(cat):
+def test_custom_limits_go_over_the_tiers_values(cat_on):
+    cat = cat_on
     hard = cat.quota_for("rnd", "custom", SIZES)
     lr = cat.limits_for("rnd", "custom", {"container": {"max": {"cpu": "4", "memory": "8Gi"}}, "pvc": {"max": {"storage": "100Gi"}}}, hard)
     assert lr["container"]["max"] == {"cpu": "4", "memory": "8Gi"} and lr["pvc"]["max"] == {"storage": "100Gi"}
@@ -183,7 +198,7 @@ def test_custom_limits_go_over_the_tiers_values(cat):
     ("custom", {"container": {"min": {"cpu": "10m"}}}, "limit-key-not-overridable"),
     ("custom", {"container": {"maxLimitRequestRatio": {"cpu": "2"}}}, "limit-key-not-overridable"),
     ("custom", {"pod": {"max": {"cpu": "2"}}}, "limit-key-not-overridable"),
-    ("custom", {"pvc": {"max": {"storage": "600Gi"}}}, "custom-out-of-bounds"),                 # the maximum is 500Gi
+    ("custom", {"pvc": {"max": {"storage": "100Gi"}}}, "storage-limits-off"),                   # the example catalog's switch is off
     ("custom", {"container": {"default": {"cpu": "3"}}}, "limit-order-invalid"),                # above the tier's max of 2
     ("custom", {"container": {"defaultRequest": {"memory": "1Gi"}}}, "limit-order-invalid"),    # above the default of 512Mi
     ("custom", {"container": {"max": {"cpu": "12"}}}, "limit-exceeds-quota"),                   # requests.cpu is 8
@@ -196,9 +211,9 @@ def test_limit_refusals(cat, tier, limits, code):
     assert e.value.code == code
 
 
-def test_an_out_of_bounds_limit_names_the_key_and_its_bounds(cat):
+def test_an_out_of_bounds_limit_names_the_key_and_its_bounds(cat_on):
     with pytest.raises(TierError) as e:
-        cat.limits_for("rnd", "custom", {"pvc": {"max": {"storage": "600Gi"}}}, cat.quota_for("rnd", "custom", SIZES))
+        cat_on.limits_for("rnd", "custom", {"pvc": {"max": {"storage": "600Gi"}}}, cat_on.quota_for("rnd", "custom", SIZES))
     assert e.value.data["items"] == [{"key": "limitRange.pvc.max.storage", "value": "600Gi", "min": None, "max": "500Gi", "step": None}]
 
 
@@ -214,21 +229,23 @@ def test_beyond_lists_each_value_that_differs_from_the_tier(cat):
 
 def test_render_names_the_beyond_tier_keys_on_each_object(cat):
     kw = dict(namespace="payments-dev", cluster_id="OCP_GF15", instance="nonprod", env="dev", tier="custom", request_id="req-1")
-    rq, lr = cat.render(**kw, hard={**SIZES, "requests.storage": "500Gi"},
-                        limits={"container": {"max": {"cpu": "4", "memory": "8Gi"}}})
+    rq, (cpu, memory) = cat.render(**kw, hard={**SIZES, "requests.storage": "500Gi"},
+                                   limits={"container": {"max": {"cpu": "4", "memory": "8Gi"}}})
     assert rq["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "requests.storage"
-    assert lr["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.cpu,limitRange.container.max.memory"
-    assert lr["spec"]["limits"][0]["max"] == {"cpu": "4", "memory": "8Gi"} and rq["spec"]["hard"]["requests.storage"] == "500Gi"
-    assert cat.rendered_overrides(rq, lr) == {"requests.storage": "500Gi", "limitRange.container.max.cpu": "4",
-                                              "limitRange.container.max.memory": "8Gi"}
-    plain_rq, plain_lr = cat.render(**kw, hard=SIZES)
+    assert cpu["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.cpu"
+    assert memory["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.memory"
+    assert cpu["spec"]["limits"][0]["max"] == {"cpu": "4"} and memory["spec"]["limits"][0]["max"] == {"memory": "8Gi"}
+    assert rq["spec"]["hard"]["requests.storage"] == "500Gi"
+    assert cat.rendered_overrides(rq, [cpu, memory]) == {"requests.storage": "500Gi", "limitRange.container.max.cpu": "4",
+                                                         "limitRange.container.max.memory": "8Gi"}
+    plain_rq, plain_lrs = cat.render(**kw, hard=SIZES)
     assert "cmapi.net/beyond-tier" not in plain_rq["metadata"]["annotations"]
-    assert "cmapi.net/beyond-tier" not in plain_lr["metadata"]["annotations"]
-    assert cat.rendered_overrides(plain_rq, plain_lr) == {} and cat.rendered_overrides(None, None) == {}
+    assert all("cmapi.net/beyond-tier" not in lr["metadata"]["annotations"] for lr in plain_lrs)
+    assert cat.rendered_overrides(plain_rq, plain_lrs) == {} and cat.rendered_overrides(None, None) == {}
 
 
 def test_a_value_that_git_holds_is_not_checked_against_the_bounds_again():
-    r = raw()
+    r = raw_on()
     r["custom"]["max"]["requests.storage"] = "300Gi"            # the bound went down after 500Gi was approved
     r["custom"]["max"]["limitRange.pvc.max.storage"] = "80Gi"
     c = TierCatalog(r, ALL)
@@ -266,7 +283,7 @@ def test_describe_names_the_overridable_keys_and_their_bounds(cat):
 
 
 def test_an_approved_value_stays_valid_when_the_catalog_no_longer_names_its_key():
-    r = raw()
+    r = raw_on()
     for key in ("requests.storage", "limitRange.pvc.max.storage"):
         r["overridable"].remove(key)
         del r["custom"]["max"][key]
@@ -274,9 +291,10 @@ def test_an_approved_value_stays_valid_when_the_catalog_no_longer_names_its_key(
     quota, limits = {**SIZES, "requests.storage": "500Gi"}, {"pvc": {"max": {"storage": "100Gi"}}}
     approved = {"requests.storage": "500Gi", "limitRange.pvc.max.storage": "100Gi"}
     kw = dict(namespace="payments-dev", cluster_id="OCP_GF15", instance="nonprod", env="dev", tier="custom", request_id="req-1")
-    rq, lr = c.render(**kw, hard=quota, limits=limits, approved=approved)
-    assert rq["spec"]["hard"]["requests.storage"] == "500Gi" and lr["spec"]["limits"][1]["max"] == {"storage": "100Gi"}
-    assert c.rendered_overrides(rq, lr) == approved            # the objects still name them, so the next change keeps them too
+    rq, lrs = c.render(**kw, hard=quota, limits=limits, approved=approved)
+    assert rq["spec"]["hard"]["requests.storage"] == "500Gi"
+    assert lrs[-1]["metadata"]["name"] == "payments-dev-limits-storage" and lrs[-1]["spec"]["limits"][0]["max"] == {"storage": "100Gi"}
+    assert c.rendered_overrides(rq, lrs) == approved            # the objects still name them, so the next change keeps them too
     for call, code in ((lambda: c.quota_for("dev", "custom", {**quota, "requests.storage": "400Gi"}, approved), "quota-key-not-sizable"),
                        (lambda: c.quota_for("dev", "custom", quota), "quota-key-not-sizable"),
                        (lambda: c.limits_for("dev", "custom", {"pvc": {"max": {"storage": "90Gi"}}}, SIZES, approved), "limit-key-not-overridable"),
@@ -287,7 +305,7 @@ def test_an_approved_value_stays_valid_when_the_catalog_no_longer_names_its_key(
 
 
 def test_the_order_check_covers_each_kind_of_limit():
-    r = raw()
+    r = raw_on()
     r["overridable"].append("limitRange.pvc.min.storage")
     r["custom"]["max"]["limitRange.pvc.min.storage"] = "500Gi"
     c = TierCatalog(r, ALL)
@@ -301,9 +319,9 @@ def test_the_order_check_covers_each_kind_of_limit():
 @pytest.mark.parametrize("amount", ["4e0", "4E+0", "4.", "+4", "4.0", "4000m"])
 def test_each_spelling_of_a_quantity_that_kubernetes_takes_is_read_as_its_amount(cat, amount):
     limits = {"container": {"max": {"cpu": amount}}}
-    rq, lr = cat.render(namespace="review-dev", cluster_id="CRC", instance="nonprod", env="dev", tier="custom", request_id="r",
-                        hard=SIZES, limits=limits)
-    assert lr["spec"]["limits"][0]["max"]["cpu"] == amount
+    rq, lrs = cat.render(namespace="review-dev", cluster_id="CRC", instance="nonprod", env="dev", tier="custom", request_id="r",
+                         hard=SIZES, limits=limits)
+    assert lrs[0]["metadata"]["name"] == "review-dev-limits-cpu" and lrs[0]["spec"]["limits"][0]["max"]["cpu"] == amount
     assert cat.beyond("dev", "custom", rq["spec"]["hard"], cat.limits_for("dev", "custom", limits, SIZES)) == {
         "limitRange.container.max.cpu": {"tier": "2", "requested": amount}}
 

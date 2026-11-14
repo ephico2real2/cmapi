@@ -93,7 +93,10 @@ def resources(tmp: Path, docs: dict[str, dict | str]) -> list[Path]:
     return out
 
 
-CHECKED = ("namespace.yaml", "resourcequota.yaml", "limitrange.yaml")
+# The owner's sample's files of the checked kinds: one file for each object (#253).
+RQ, LR_CPU, LR_MEMORY = ("resourcequota-abc-rnd-quota.yaml", "limitrange-abc-rnd-limits-cpu.yaml",
+                         "limitrange-abc-rnd-limits-memory.yaml")
+CHECKED = ("namespace.yaml", RQ, LR_CPU, LR_MEMORY)
 
 
 # ----------------------------------------------------------------------------------------------- without the CLI
@@ -162,22 +165,24 @@ def test_the_owners_sample_passes_its_bundle_in_each_tier(kyverno, catalog, comp
 
 def test_the_example_namespace_passes_the_committed_dev_bundle(kyverno):
     folder = EX / "cluster-configs/clusters/OCP_GF15/namespaces/payments-dev"
-    got = apply(kyverno, EX / "cluster-configs/policies/env/dev", [folder / n for n in CHECKED])
+    checked = ["namespace.yaml", "resourcequota-payments-dev-quota.yaml", "limitrange-payments-dev-limits-cpu.yaml",
+               "limitrange-payments-dev-limits-memory.yaml"]
+    got = apply(kyverno, EX / "cluster-configs/policies/env/dev", [folder / n for n in checked])
     assert set(got) == {"pass"}, got
 
 
 def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyverno, catalog, company, tmp_path):
     bundle = write(tmp_path / "b", render_bundle(catalog, company, PolicySettings(), {"rnd"}, "nonprod"))
     files = owners_sample(catalog, company)
-    ns, rq, lr = (yaml.safe_load(files[n]) for n in CHECKED)
+    ns, rq, cpu, memory = (yaml.safe_load(files[n]) for n in CHECKED)
     labels = ns["metadata"]["labels"]
     labels.update({"name": "aao-rnd", "company.net/lob": "retail", "company.net/cl": "7", "cmapi.net/env": "prod"})
     del labels["company.net/mnemonic"]
     rq["spec"]["hard"].update({"requests.cpu": "40", "services.loadbalancers": "3"})
-    container = next(i for i in lr["spec"]["limits"] if i["type"] == "Container")
-    container["max"]["cpu"] = "20"
-    container["default"]["memory"] = "128Mi"
-    got = dict(apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"ns.yaml": ns, "rq.yaml": rq, "lr.yaml": lr}))["fail"])
+    cpu["spec"]["limits"][0]["max"]["cpu"] = "20"                 # each resource is in its own object (#253)
+    memory["spec"]["limits"][0]["default"]["memory"] = "128Mi"
+    got = dict(apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"ns.yaml": ns, "rq.yaml": rq, "cpu.yaml": cpu,
+                                                                       "memory.yaml": memory}))["fail"])
     assert got == {
         "cmapi-metadata-rnd-label-name-derived": 'the label name is "aao-rnd"; cmapi sets it to the namespace name',
         "cmapi-metadata-rnd-label-company-net-lob-enum": 'the label company.net/lob is "retail"; it must be: required; one of amgsst',
@@ -226,7 +231,7 @@ def test_a_changed_bound_changes_the_policy_and_its_message(kyverno, catalog, co
     raw = copy.deepcopy(catalog.file.model_dump())
     raw["environments"]["rnd"]["custom"]["max"]["requests.cpu"] = "40"
     files = owners_sample(catalog, company)
-    rq = yaml.safe_load(files["resourcequota.yaml"])
+    rq = yaml.safe_load(files[RQ])
     rq["spec"]["hard"]["requests.cpu"] = "36"
     res = resources(tmp_path, {"rq.yaml": rq})
     before = write(tmp_path / "before", render_bundle(catalog, company, PolicySettings(), {"rnd"}, "nonprod"))
@@ -269,20 +274,20 @@ def folder(files: dict[str, str]) -> dict[str, str]:
 
 def test_the_validator_finds_each_failed_key_with_its_file(kyverno, catalog, company, tmp_path):
     files = owners_sample(catalog, company)
-    rq = yaml.safe_load(files["resourcequota.yaml"])
+    rq = yaml.safe_load(files[RQ])
     rq["spec"]["hard"]["requests.cpu"] = "40"
-    files["resourcequota.yaml"] = yaml.safe_dump(rq)
+    files[RQ] = yaml.safe_dump(rq)
     found = validator(catalog, company, tmp_path).validate(folder(files), "OCP_GF15", "rnd")
     assert [(f.source, f.rule, f.path, f.severity) for f in found if f.source != "kubeconform"] == \
-        [("kyverno", "cmapi-quota-rnd-quota-requests-cpu-max", BASE + "resourcequota.yaml", "error")]
+        [("kyverno", "cmapi-quota-rnd-quota-requests-cpu-max", BASE + RQ, "error")]
 
 
 def test_a_value_that_git_already_holds_is_not_refused_and_a_changed_one_is(kyverno, catalog, company, tmp_path):
     """#214 and D9: a later, lower bound does not refuse a namespace whose approved value Git holds."""
     files = owners_sample(catalog, company)
-    rq = yaml.safe_load(files["resourcequota.yaml"])
+    rq = yaml.safe_load(files[RQ])
     rq["spec"]["hard"]["requests.cpu"] = "40"
-    files["resourcequota.yaml"] = yaml.safe_dump(rq)
+    files[RQ] = yaml.safe_dump(rq)
     previous = folder(files)
     v = validator(catalog, company, tmp_path)
     ns = yaml.safe_load(files["namespace.yaml"])
@@ -290,10 +295,10 @@ def test_a_value_that_git_already_holds_is_not_refused_and_a_changed_one_is(kyve
     now = {**previous, BASE + "namespace.yaml": yaml.safe_dump(ns)}
     assert [f for f in v.validate(now, "OCP_GF15", "rnd", previous=previous) if f.source != "kubeconform"] == []
     rq["spec"]["hard"]["requests.cpu"] = "40000m"                        # the same amount, other text
-    now[BASE + "resourcequota.yaml"] = yaml.safe_dump(rq)
+    now[BASE + RQ] = yaml.safe_dump(rq)
     assert [f for f in v.validate(now, "OCP_GF15", "rnd", previous=previous) if f.source != "kubeconform"] == []
     rq["spec"]["hard"]["requests.cpu"] = "41"                            # a change: checked against the bound
-    now[BASE + "resourcequota.yaml"] = yaml.safe_dump(rq)
+    now[BASE + RQ] = yaml.safe_dump(rq)
     assert [f.rule for f in v.validate(now, "OCP_GF15", "rnd", previous=previous) if f.source == "kyverno"] == \
         ["cmapi-quota-rnd-quota-requests-cpu-max"]
 
@@ -302,13 +307,13 @@ def test_audit_warns_on_a_violation_but_keeps_an_evaluation_error_an_error(kyver
     policy = PolicySettings(default_mode="audit")
     v = validator(catalog, company, tmp_path, policy=policy)
     files = owners_sample(catalog, company)
-    rq = yaml.safe_load(files["resourcequota.yaml"])
+    rq = yaml.safe_load(files[RQ])
     rq["spec"]["hard"]["requests.cpu"] = "40"
-    files["resourcequota.yaml"] = yaml.safe_dump(rq)
+    files[RQ] = yaml.safe_dump(rq)
     assert [(f.rule, f.severity) for f in v.validate(folder(files), "OCP_GF15", "rnd") if f.source == "kyverno"] == \
         [("cmapi-quota-rnd-quota-requests-cpu-max", "warning")]
     rq["spec"]["hard"]["requests.cpu"] = "forty"                         # not a quantity: the policy cannot evaluate
-    files["resourcequota.yaml"] = yaml.safe_dump(rq)
+    files[RQ] = yaml.safe_dump(rq)
     errors = [f for f in v.validate(folder(files), "OCP_GF15", "rnd") if f.rule == "cmapi-quota-rnd-quota-requests-cpu-max"]
     assert [(f.source, f.severity) for f in errors] == [("cmapi", "error")]
     assert errors[0].message.startswith("kyverno could not evaluate the policy")

@@ -214,8 +214,8 @@ class DecisionBody(Api):
 # kind (container, pvc) -> part (min, defaultRequest, default, max) -> resource (cpu, memory, storage) -> quantity. The catalog
 # decides which keys a request can send (tiers.yaml, overridable), so the model does not fix them.
 LimitRangeValues = dict[str, dict[str, dict[str, str]]]
-LIMIT_RANGE_EXAMPLE = {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}},
-                       "pvc": {"max": {"storage": "100Gi"}}}
+# No pvc item: storage LimitRanges are off unless tiers.yaml turns them on (#253), so the instances refuse one.
+LIMIT_RANGE_EXAMPLE = {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}}}
 
 
 class BeyondTierKey(Api):
@@ -234,7 +234,7 @@ class NamespaceCreate(Api):
     namespace: DnsLabel = Field(description="Namespace name: DNS-1123, not reserved", examples=["payments-dev"])
     tier: str = Field(default="small", description="A tier from the catalog, or custom", examples=["small"])
     quota: dict[str, str] | None = Field(default=None, description="Custom tier only: each sizable quota key, and any overridable quota key of GET /tiers. An overridable value that differs from the tier needs the beyond-tier approval", examples=[None])
-    limit_range: LimitRangeValues | None = Field(default=None, description="Container and PVC limits that differ from the custom tier, custom tier only. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval", examples=[LIMIT_RANGE_EXAMPLE])
+    limit_range: LimitRangeValues | None = Field(default=None, description="Container and PVC limits that differ from the custom tier, custom tier only. A pvc value is taken only where storageLimitRange.enabled of GET /tiers is true, and is refused with storage-limits-off elsewhere. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval", examples=[LIMIT_RANGE_EXAMPLE])
     labels: dict[str, str] = Field(default_factory=dict, description="Governed and team labels", examples=[{"cmapi.net/team": "payments"}])
     annotations: dict[str, str] = Field(default_factory=dict, description="Governed and team annotations", examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
     expires_at: date | None = Field(default=None, description="Optional expiry; never in prod", examples=["2026-12-15"])
@@ -246,7 +246,7 @@ class NamespaceCreate(Api):
 class NamespacePatch(Api):
     tier: str | None = Field(default=None, description="New tier", examples=["large"])
     quota: dict[str, str] | None = Field(default=None, description="Custom quota values. On a namespace that is already on the custom tier, they are merged over its values in Git, key by key", examples=[None])
-    limit_range: LimitRangeValues | None = Field(default=None, description="Custom container and PVC limits, custom tier only, merged over the namespace's values in Git, key by key. Send the tier's value to remove an override", examples=[LIMIT_RANGE_EXAMPLE])
+    limit_range: LimitRangeValues | None = Field(default=None, description="Custom container and PVC limits, custom tier only (a pvc value only where storageLimitRange.enabled of GET /tiers is true), merged over the namespace's values in Git, key by key. Send the tier's value to remove an override", examples=[LIMIT_RANGE_EXAMPLE])
     labels: dict[str, str | None] | None = Field(default=None, description="Merge patch; null removes a key", examples=[{"cmapi.net/cost-center": "cc-4410"}])
     annotations: dict[str, str | None] | None = Field(default=None, description="Merge patch; null removes a key", examples=[None])
     on_behalf_of: str | None = Field(default=None, description="Username or employee ID, for services and automation", examples=[None])
@@ -360,7 +360,7 @@ class TierCatalogView(BaseModel):
     catalog_hash: str = Field(alias="catalogHash", description="Hash of the catalog", examples=["dec3e603bf8d"])
     sizable: list[str] = Field(description="Quota keys a request may size", examples=[["requests.cpu", "requests.memory", "pods"]])
     overridable: list[str] = Field(default_factory=list, description="More keys that a custom-tier request can change: a quota key, or limitRange.<kind>.<part>.<resource>. A value that differs from the tier needs the beyond-tier approval", examples=[["requests.storage", "limitRange.container.max.cpu"]])
-    environments: dict[str, Any] = Field(description="Per environment: tiers and custom bounds", examples=[{"dev": {"tiers": [], "custom": {}}}])
+    environments: dict[str, Any] = Field(description="Per environment: tiers, custom bounds, and storageLimitRange.enabled: whether cmapi renders the storage LimitRange <ns>-limits-storage and takes limitRange.pvc.* values (off unless tiers.yaml turns it on)", examples=[{"dev": {"tiers": [], "custom": {}, "storageLimitRange": {"enabled": False}}}])
 
 
 class PruneConfirm(Api):

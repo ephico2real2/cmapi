@@ -10,7 +10,7 @@ from cmapi.core.policygen import render_bundle, cel
 from cmapi.core.validate import _held
 from cmapi.tools.policies import main as policies_tool
 from test_policygen import (catalog, company, kyverno, owners_sample, write, resources,
-                            validator, folder, BASE, SHIPPED, COMPANY)
+                            validator, folder, BASE, SHIPPED, COMPANY, RQ, LR_CPU, LR_MEMORY)
 
 
 def checked_cli(kyverno, tmp_path, bundle, ns):
@@ -87,9 +87,9 @@ def test_held_metadata_requires_strings(kind, value):
 def test_limit_order_violation_is_never_held(kyverno, catalog, company, tmp_path):
     files = owners_sample(catalog, company)
     previous = folder(files)
-    lr = yaml.safe_load(files['limitrange.yaml'])
+    lr = yaml.safe_load(files[LR_CPU])
     next(i for i in lr['spec']['limits'] if i['type'] == 'Container')['defaultRequest']['cpu'] = '1'
-    files['limitrange.yaml'] = yaml.safe_dump(lr)
+    files[LR_CPU] = yaml.safe_dump(lr)
     v = validator(catalog, company, tmp_path)
     rule = 'cmapi-limits-rnd-limit-limitrange-container-default-cpu-order'
     assert rule in {f.rule for f in v.validate(folder(files), 'OCP_GF15', 'rnd')}
@@ -101,13 +101,13 @@ def test_non_pass_skip_results_are_errors(catalog, company, tmp_path, monkeypatc
     files = folder(owners_sample(catalog, company))
     v = validator(catalog, company, tmp_path, policy=PolicySettings(default_mode='audit'))
     name = next(p for p in v.index if p.endswith('requests-cpu-max'))
-    meta = yaml.safe_load(files[BASE+'resourcequota.yaml'])['metadata']
+    meta = yaml.safe_load(files[BASE+RQ])['metadata']
     report = {'results': [{'policy': name, 'result': status, 'resources': [
         {'kind': 'ResourceQuota', 'namespace': meta['namespace'], 'name': meta['name']}], 'message': 'probe'}]}
     monkeypatch.setattr(v, '_run', lambda cmd: subprocess.CompletedProcess(cmd, 0, json.dumps(report), ''))
     got = v._kyverno({p:p for p in files}, files, 'rnd', files)
     target = [f for f in got if f.rule == name]
-    assert len(target) == 1 and target[0].source == 'cmapi' and target[0].path == BASE+'resourcequota.yaml', got
+    assert len(target) == 1 and target[0].source == 'cmapi' and target[0].path == BASE+RQ, got
 
 
 @pytest.mark.parametrize('stdout,code', [('{"results":[]}', 2), ('', 2), ('{}', 0),
@@ -121,11 +121,11 @@ def test_cli_faults_fail_closed(catalog, company, tmp_path, monkeypatch, stdout,
 
 
 def test_findings_use_namespace_in_identity(kyverno, catalog, company, tmp_path):
-    a = yaml.safe_load(owners_sample(catalog, company)['resourcequota.yaml'])
+    a = yaml.safe_load(owners_sample(catalog, company)[RQ])
     a['spec']['hard']['requests.cpu'] = '40'
     b = copy.deepcopy(a)
     b['metadata']['namespace'] = 'xyz-rnd'
-    paths = [BASE+'resourcequota.yaml', BASE.replace('abc-rnd', 'xyz-rnd')+'resourcequota.yaml']
+    paths = [BASE+RQ, BASE.replace('abc-rnd', 'xyz-rnd')+RQ]
     files = dict(zip(paths, (yaml.safe_dump(a), yaml.safe_dump(b))))
     got = validator(catalog, company, tmp_path).validate(files, 'OCP_GF15', 'rnd')
     assert sorted(f.path for f in got if f.source == 'kyverno') == sorted(paths), got
@@ -239,7 +239,7 @@ def test_missing_managed_label_is_skip(kyverno, catalog, company, tmp_path, labe
     assert {r['result'] for r in checked_cli(kyverno, tmp_path, bundle, ns)} == {'skip'}
 
 
-@pytest.mark.parametrize('filename', ['namespace.yaml', 'resourcequota.yaml', 'limitrange.yaml'])
+@pytest.mark.parametrize('filename', ['namespace.yaml', RQ, LR_CPU, LR_MEMORY])
 def test_removing_managed_label_still_matches_old_object(kyverno, catalog, company, tmp_path, filename):
     old = yaml.safe_load(owners_sample(catalog, company)[filename])
     new = copy.deepcopy(old)
@@ -254,9 +254,9 @@ def test_removing_managed_label_still_matches_old_object(kyverno, catalog, compa
 @pytest.mark.parametrize('mode', ['enforce', 'audit'])
 def test_cel_error_with_same_previous_value_is_never_held(kyverno, catalog, company, tmp_path, mode):
     files = owners_sample(catalog, company)
-    quota = yaml.safe_load(files['resourcequota.yaml'])
+    quota = yaml.safe_load(files[RQ])
     quota['spec']['hard']['requests.cpu'] = 'invalid'
-    files['resourcequota.yaml'] = yaml.safe_dump(quota)
+    files[RQ] = yaml.safe_dump(quota)
     files = folder(files)
     got = validator(catalog, company, tmp_path, policy=PolicySettings(default_mode=mode)).validate(
         files, 'OCP_GF15', 'rnd', previous=files)

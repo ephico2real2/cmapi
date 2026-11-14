@@ -1,6 +1,8 @@
 """A custom-tier namespace: values beyond the tier (#211), and a change of the namespace after its creation (#214).
 
 Each test runs the API on the fakes of conftest.py: no cluster admits the rendered LimitRange or ResourceQuota here.
+The tests of #211 include the pvc item, so this module turns tiers.yaml's storage switch on (#253);
+test_storage_limits_switch.py tests the switch off, as the instances ship it.
 """
 from __future__ import annotations
 
@@ -19,6 +21,31 @@ ONE = f"{URL}/{NS['namespace']}"
 PLATFORM = ("amy", "pat", "pia")          # three people of approver-platform
 BEYOND = {"group": "approver-platform", "count": 1, "reason": "Value beyond the tier"}
 EXPOSURE = {"group": "approver-platform", "count": 1, "reason": "Network exposure"}
+
+
+RQ = f"resourcequota-{NS['namespace']}-quota.yaml"
+
+
+def LR(resource: str) -> str:
+    """The file of one of cmapi's LimitRanges: one object for each resource (#253)."""
+    return f"limitrange-{NS['namespace']}-limits-{resource}.yaml"
+
+
+def catalog_with(world, mutate=None) -> None:
+    """Load the world's tiers.yaml with the storage switch on, after mutate(raw)."""
+    from pathlib import Path
+    from cmapi.core.tiers import TierCatalog
+    client, ctx, git, kube, validator, keys = world
+    raw = yaml.safe_load((Path(ctx.settings.config_dir) / "tiers.yaml").read_text())
+    raw["storageLimitRange"] = {"enabled": True}
+    if mutate:
+        mutate(raw)
+    ctx.cfg.tiers = ctx.pipeline.renderer.catalog = TierCatalog(raw, set(ctx.cfg.allowed_environments))
+
+
+@pytest.fixture(autouse=True)
+def storage_on(world):
+    catalog_with(world)
 
 
 def custom(**extra) -> dict:
@@ -69,13 +96,16 @@ def test_the_dry_run_names_the_keys_beyond_the_tier_and_the_approval_they_add(wo
     assert plan["beyondTier"]["approvals"] == [BEYOND]
     assert plan["approval"]["slots"][0]["group"] == "approver-platform" and plan["approval"]["slots"][0]["count"] == 2
     assert plan["approval"]["auto"] is None
-    lr = rendered(plan["files"], "limitrange.yaml")
-    assert lr["spec"]["limits"] == [
-        {"type": "Container", "defaultRequest": {"cpu": "100m", "memory": "256Mi"}, "default": {"cpu": "1", "memory": "1Gi"},
-         "max": {"cpu": "4", "memory": "8Gi"}},
-        {"type": "PersistentVolumeClaim", "max": {"storage": "100Gi"}}]
-    assert lr["metadata"]["annotations"]["cmapi.net/beyond-tier"] == ",".join(LIMIT_KEYS)
-    assert "cmapi.net/beyond-tier" not in rendered(plan["files"], "resourcequota.yaml")["metadata"]["annotations"]
+    cpu, memory, storage = (rendered(plan["files"], LR(r)) for r in ("cpu", "memory", "storage"))
+    assert cpu["spec"]["limits"] == [{"type": "Container", "defaultRequest": {"cpu": "100m"}, "default": {"cpu": "1"}, "max": {"cpu": "4"}}]
+    assert memory["spec"]["limits"] == [
+        {"type": "Container", "defaultRequest": {"memory": "256Mi"}, "default": {"memory": "1Gi"}, "max": {"memory": "8Gi"}}]
+    assert storage["spec"]["limits"] == [{"type": "PersistentVolumeClaim", "max": {"storage": "100Gi"}}]
+    # each object names the beyond-tier keys that it holds
+    assert [o["metadata"]["annotations"]["cmapi.net/beyond-tier"] for o in (cpu, memory, storage)] == [
+        "limitRange.container.default.cpu,limitRange.container.max.cpu",
+        "limitRange.container.default.memory,limitRange.container.max.memory", "limitRange.pvc.max.storage"]
+    assert "cmapi.net/beyond-tier" not in rendered(plan["files"], RQ)["metadata"]["annotations"]
 
 
 def test_a_custom_request_with_no_value_beyond_the_tier_has_no_extra_approval(world):
@@ -97,9 +127,10 @@ def test_custom_limits_wait_for_the_extra_approval_and_then_reach_the_cluster(wo
     assert req["approval"]["remaining"] == [{"group": "approver-platform", "needed": 2}]
     assert [k["key"] for k in req["beyondTier"]["keys"]] == LIMIT_KEYS and req["beyondTier"]["approvals"] == [BEYOND]
     approve_and_sync(world, req["requestId"], approvals=2)
-    limits = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits")]
-    assert limits["spec"]["limits"][0]["max"] == {"cpu": "4", "memory": "8Gi"}
-    assert limits["metadata"]["annotations"]["cmapi.net/request-id"] == req["requestId"]
+    cpu = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits-cpu")]
+    memory = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits-memory")]
+    assert cpu["spec"]["limits"][0]["max"] == {"cpu": "4"} and memory["spec"]["limits"][0]["max"] == {"memory": "8Gi"}
+    assert cpu["metadata"]["annotations"]["cmapi.net/request-id"] == req["requestId"]
     view = client.get(f"/api/v1/requests/{req['requestId']}", headers=auth(keys, "amy", **AMY)).json()
     assert [k["key"] for k in view["beyondTier"]["keys"]] == LIMIT_KEYS       # the approver's view names them too
 
@@ -137,7 +168,7 @@ def test_storage_beyond_the_tier_is_on_the_quota_object(world):
     assert plan["beyondTier"]["keys"] == [{"key": "persistentvolumeclaims", "tier": "20", "requested": "40"},
                                           {"key": "requests.storage", "tier": "200Gi", "requested": "500Gi"}]
     assert plan["beyondTier"]["approvals"] == [BEYOND]
-    rq = rendered(plan["files"], "resourcequota.yaml")
+    rq = rendered(plan["files"], RQ)
     assert rq["spec"]["hard"]["requests.storage"] == "500Gi" and rq["spec"]["hard"]["services.nodeports"] == "0"
     assert rq["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "persistentvolumeclaims,requests.storage"
 
@@ -176,8 +207,8 @@ def test_a_quota_change_on_a_custom_namespace_is_planned(world):
     etag = synced(world, custom(), approvals=1)
     r = patch(world, etag, {"quota": {"requests.cpu": "6"}})          # one key: merged over the values in Git
     assert r.status_code == 200, r.text
-    assert changed(r.json()) == ["resourcequota.yaml"]
-    hard = rendered(r.json()["files"], "resourcequota.yaml")["spec"]["hard"]
+    assert changed(r.json()) == [RQ]
+    hard = rendered(r.json()["files"], RQ)["spec"]["hard"]
     assert hard["requests.cpu"] == "6" and hard["requests.memory"] == "8Gi" and hard["pods"] == "20"
 
 
@@ -197,9 +228,10 @@ def test_a_new_value_on_an_approved_namespace_is_beyond_the_tier_again(world):
     plan = r.json()
     assert plan["beyondTier"]["keys"] == [{"key": "limitRange.container.max.cpu", "tier": "2", "requested": "3"}]
     assert [(s["group"], s["count"]) for s in plan["approval"]["slots"]] == [("approver-platform", 1)]    # dev change is 0; this is the extra one
-    lr = rendered(plan["files"], "limitrange.yaml")
-    assert lr["spec"]["limits"][0]["max"] == {"cpu": "3", "memory": "8Gi"}          # the other approved values stay
-    assert lr["metadata"]["annotations"]["cmapi.net/beyond-tier"] == ",".join(LIMIT_KEYS)
+    cpu = rendered(plan["files"], LR("cpu"))
+    assert cpu["spec"]["limits"][0]["max"] == {"cpu": "3"} and cpu["spec"]["limits"][0]["default"] == {"cpu": "1"}   # the other approved value stays
+    assert cpu["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.default.cpu,limitRange.container.max.cpu"
+    assert changed(plan) == [LR("cpu")]                               # only the object whose value changed: memory keeps 8Gi
 
 
 def test_the_tiers_value_removes_an_override(world):
@@ -208,8 +240,8 @@ def test_the_tiers_value_removes_an_override(world):
     assert r.status_code == 200, r.text
     plan = r.json()
     assert plan["beyondTier"] is None
-    lr = rendered(plan["files"], "limitrange.yaml")
-    assert lr["spec"]["limits"][1] == {"type": "PersistentVolumeClaim", "max": {"storage": "50Gi"}}
+    lr = rendered(plan["files"], LR("storage"))
+    assert lr["spec"]["limits"] == [{"type": "PersistentVolumeClaim", "max": {"storage": "50Gi"}}]
     assert "cmapi.net/beyond-tier" not in lr["metadata"]["annotations"]
 
 
@@ -219,9 +251,10 @@ def test_a_change_to_a_named_tier_drops_each_override(world):
     assert r.status_code == 200, r.text
     plan = r.json()
     assert plan["beyondTier"] is None
-    lr, rq = rendered(plan["files"], "limitrange.yaml"), rendered(plan["files"], "resourcequota.yaml")
-    assert lr["spec"]["limits"][0]["max"] == {"cpu": "2", "memory": "4Gi"} and rq["spec"]["hard"]["requests.storage"] == "200Gi"
-    assert "cmapi.net/beyond-tier" not in lr["metadata"]["annotations"] and "cmapi.net/beyond-tier" not in rq["metadata"]["annotations"]
+    lrs, rq = [rendered(plan["files"], LR(r)) for r in ("cpu", "memory", "storage")], rendered(plan["files"], RQ)
+    assert [lr["spec"]["limits"][0]["max"] for lr in lrs] == [{"cpu": "2"}, {"memory": "4Gi"}, {"storage": "50Gi"}]
+    assert rq["spec"]["hard"]["requests.storage"] == "200Gi"
+    assert not any("cmapi.net/beyond-tier" in o["metadata"]["annotations"] for o in (*lrs, rq))
 
 
 def test_a_lower_bound_later_does_not_refuse_a_change_of_a_label(world):
@@ -239,22 +272,21 @@ def test_an_approved_change_of_limits_opens_a_pull_request_with_the_planned_file
     r = patch(world, etag, {"limitRange": {"container": {"max": {"cpu": "4", "memory": "8Gi"}}}}, dry_run=False)
     assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
     approve_and_sync(world, r.json()["requestId"], approvals=1)
-    limits = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits")]
-    assert limits["spec"]["limits"][0]["max"] == {"cpu": "4", "memory": "8Gi"}
-    assert limits["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.cpu,limitRange.container.max.memory"
+    cpu = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits-cpu")]
+    memory = kube.objects[("LimitRange", NS["namespace"], f"{NS['namespace']}-limits-memory")]
+    assert cpu["spec"]["limits"][0]["max"] == {"cpu": "4"} and memory["spec"]["limits"][0]["max"] == {"memory": "8Gi"}
+    assert cpu["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.cpu"
+    assert memory["metadata"]["annotations"]["cmapi.net/beyond-tier"] == "limitRange.container.max.memory"
 
 
 # ---- from the review of #211 (Codex, findings F2 and F5)
 
 def with_nodeports_default(world, small: str = "0") -> None:
     """A catalog whose tiers give one NodePort, and `small` the given count."""
-    from pathlib import Path
-    from cmapi.core.tiers import TierCatalog
-    client, ctx, git, kube, validator, keys = world
-    raw = yaml.safe_load((Path(ctx.settings.config_dir) / "tiers.yaml").read_text())
-    raw["defaults"]["quota"]["services.nodeports"] = "1"
-    raw["tiers"]["small"]["quota"]["services.nodeports"] = small
-    ctx.cfg.tiers = ctx.pipeline.renderer.catalog = TierCatalog(raw, set(ctx.cfg.allowed_environments))
+    def mutate(raw):
+        raw["defaults"]["quota"]["services.nodeports"] = "1"
+        raw["tiers"]["small"]["quota"]["services.nodeports"] = small
+    catalog_with(world, mutate)
 
 
 @pytest.mark.parametrize("first,small,change", [
@@ -274,7 +306,7 @@ def test_more_node_ports_than_git_holds_is_network_exposure_also_at_the_tiers_va
     etag = client.get(ONE, headers=auth(keys, "ola", **OLA)).json()["etag"]
     plan = patch(world, etag, change)
     assert plan.status_code == 200, plan.text
-    assert rendered(plan.json()["files"], "resourcequota.yaml")["spec"]["hard"]["services.nodeports"] == "1"
+    assert rendered(plan.json()["files"], RQ)["spec"]["hard"]["services.nodeports"] == "1"
     assert any("networkExposure" in reason for reason in plan.json()["approval"]["reasons"]), plan.json()["approval"]
     assert plan.json()["approval"]["auto"] is None and plan.json()["approval"]["slots"][0]["count"] >= 1
 
