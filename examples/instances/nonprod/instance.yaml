@@ -3,6 +3,8 @@
 instance:
   name: nonprod
   displayName: Non-production
+  # The names are the owner's choice. One has a meaning in code: a namespace in "prod" never expires, and the
+  # policies of policies/env/prod/ run for "prod" only (docs/02, "The names of instances and environments"; #232).
   allowedEnvironments: [rnd, dev]
   publicUrl: https://cmapi-nonprod.ephico2real.com
   portalUrl: https://portal-nonprod.ephico2real.com

@@ -3,6 +3,8 @@
 instance:
   name: staging
   displayName: Staging
+  # The names are the owner's choice. One has a meaning in code: a namespace in "prod" never expires, and the
+  # policies of policies/env/prod/ run for "prod" only (docs/02, "The names of instances and environments"; #232).
   allowedEnvironments: [qa, uat]
   publicUrl: https://cmapi-staging.ephico2real.com
   portalUrl: https://portal-staging.ephico2real.com
