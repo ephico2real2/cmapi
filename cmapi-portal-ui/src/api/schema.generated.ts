@@ -1553,7 +1553,7 @@ export interface components {
         NamespaceCreate: {
             /**
              * Annotations
-             * @description Governed and team annotations
+             * @description Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.
              * @example {
              *       "cmapi.net/team-dl": "payments-team@ephico2real.com"
              *     }
@@ -1575,7 +1575,7 @@ export interface components {
             justification?: string | null;
             /**
              * Labels
-             * @description Governed and team labels
+             * @description Required: `cmapi.net/team` (must match ^[a-z0-9-]{2,40}$). Optional: `cmapi.net/cost-center` (must match ^cc-[0-9]{4}$); `cmapi.net/app` (must match ^[a-z0-9-]{2,40}$); `cmapi.net/rightsizing` (must match ^(auto|manual)$). Any other key with no prefix, `*.ephico2real.com/`, at most 50.
              * @example {
              *       "cmapi.net/team": "payments"
              *     }
@@ -1657,7 +1657,7 @@ export interface components {
         NamespacePatch: {
             /**
              * Annotations
-             * @description Merge patch; null removes a key
+             * @description Merge patch; null removes a key. Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.
              * @example null
              */
             annotations?: {
@@ -1671,7 +1671,7 @@ export interface components {
             justification?: string | null;
             /**
              * Labels
-             * @description Merge patch; null removes a key
+             * @description Merge patch; null removes a key. Required: `cmapi.net/team` (must match ^[a-z0-9-]{2,40}$). Optional: `cmapi.net/cost-center` (must match ^cc-[0-9]{4}$); `cmapi.net/app` (must match ^[a-z0-9-]{2,40}$); `cmapi.net/rightsizing` (must match ^(auto|manual)$). Any other key with no prefix, `*.ephico2real.com/`, at most 50.
              * @example {
              *       "cmapi.net/cost-center": "cc-4410"
              *     }

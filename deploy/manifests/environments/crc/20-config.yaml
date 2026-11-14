@@ -330,18 +330,28 @@ data:
     operatorOnly: [cmapi.net/protected]
     reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                        argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
-    governed:
-      cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; any team, not checked against the caller
-      cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
-      cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
-      cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-      cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
-    team:
-      allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
-      maxLabels: 50
-      maxAnnotations: 50
-      maxAnnotationValueBytes: 4096
-      maxAnnotationBytesTotal: 65536
+    # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+    # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+    # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+    # another value. allowOther admits any other key under a prefix ("" allows unprefixed keys), within the limits.
+    requiredLabels:
+      cmapi.net/team:        {pattern: "^[a-z0-9-]{2,40}$", description: "Ownership and cost; any team, not checked against the caller", example: payments}
+    requiredAnnotations:
+      cmapi.net/team-dl:     {format: email-in-domains, description: "The team's mail list, an address in one of emailDomains", example: payments-team@ephico2real.com}
+    extraLabels:
+      keys:
+        cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", example: cc-4410}
+        cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", description: "Links an app's environments"}
+        cmapi.net/rightsizing: {pattern: "^(auto|manual)$", description: "Opt-in to automatic rnd and qa decreases"}
+      allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50}
+    extraAnnotations:
+      keys: {}
+      allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+    # Read only when an existing namespace is adopted (story #26): a label and the values that mark a namespace that
+    # another tool made. A requester cannot set these keys. The owner's decision (#228): the organisation's own
+    # cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
+    adoptionLabels:
+      company.net/provisioner: {recognise: [cluster-configs]}
     sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
     # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
     # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
