@@ -1,0 +1,19 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-quota-bounds-cm
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [resourcequotas]}
+  variables:
+    - name: cfg
+      expression: "yaml.parse(resource.Get('v1', 'configmaps', 'cmapi-policy', 'bounds').data['dev.yaml'])"
+    - name: hard
+      expression: "has(object.spec.hard) ? object.spec.hard : {}"
+    - name: over
+      expression: "variables.cfg.max.filter(k, k in variables.hard && quantity(variables.hard[k]).compareTo(quantity(variables.cfg.max[k])) > 0)"
+  validations:
+    - expression: "size(variables.over) == 0"
+      messageExpression: "'beyond the dev maximum: ' + variables.over.join(', ')"
