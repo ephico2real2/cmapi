@@ -23,7 +23,7 @@ This change decides which origins and paths reach the API, so it gets a second r
 
 Not in this pull request: the plain manifests (`deploy/manifests/`), `deploy/render.sh` and the Wave 1 scripts still
 use the API's own Route `cmapi-api.apps-crc.testing`. They move to the front door in the next pull request of #226,
-which closes it.
+which closes it: branch `front-door-plain`, recorded in "The plain manifests" below.
 
 ## Decisions, with the options not taken
 
@@ -236,3 +236,78 @@ test natively against nginx 1.30.6, first with only the tests applied, then with
 
 C1 (path confusion), C4, C7, C8 and C9: Codex found them correct, with the qualifications in its report (one release
 per namespace for the NetworkPolicy; a request longer than the 20 s drain can be cut).
+
+## The plain manifests (the second pull request of #226)
+
+OB1 run 6's implementer for this half (Opus 5.5 at high) wrote the code, the tests and this section on 2026-11-14, on
+branch `front-door-plain`, stacked on PR #238. The plain manifests do what the chart does; the tests in
+`cmapi/tests/service/test_plain_manifests.py` render the chart with `deploy/environments/crc.yaml` and compare object by object.
+
+| Part | Where |
+|---|---|
+| The front door's Deployment and Service, the same as the chart's | `deploy/manifests/components/portal/10-front-door.yaml` |
+| The headless `cmapi-api-pods` | `deploy/manifests/components/cmapi/20-api.yaml` |
+| `cmapi-metrics` (only the front door reaches 8080) and `cmapi-front-door` (only the router reaches the front door) | `deploy/manifests/components/cmapi/40-networkpolicy.yaml` |
+| The hosts, the issuer's origin and `config.json` of each environment | `environments/crc/60-portal.yaml`, `environments/kind/40-portal.yaml` |
+| Two Routes to the front door, none to the API | `environments/crc/40-routes.yaml` |
+| The second image and the second checksum | `deploy/render.sh --portal-image`, `deploy/render-test.sh` |
+| The front door's image built and pushed | `deploy/crc-image.sh cmapi-portal` |
+
+### Decisions, with the options not taken
+
+**The environment's values in one ConfigMap, read by name.** `cmapi-portal-config` holds `CMAPI_PORTAL_HOST`,
+`CMAPI_MOCKUP_HOST`, `CMAPI_OIDC_ORIGIN` and `config.json`. The Deployment names each variable with `configMapKeyRef`, so
+its env names are the chart's, line for line, and a test compares them.
+
+| Option | Why not |
+|---|---|
+| `envFrom` on the ConfigMap | Its key `config.json` is no environment variable name. Kubernetes: "If any keys do not meet the rules, those keys are not made available to your container, though the Pod is allowed to start" (kubernetes.io, ConfigMaps, read 2026-11-14). A second ConfigMap only for that would split one environment's front door in two |
+| More placeholders that `render.sh` fills with the hosts | Templating in the render. The render fills images and checksums only |
+
+`CMAPI_API_UPSTREAM` stays in the component: `cmapi-api-pods.cmapi.svc.cluster.local:8080`. Every file here assumes
+namespace `cmapi` and cluster domain `cluster.local`. nginx's resolver does not use the pod's search domains, so the name is whole.
+
+**A checksum of the front door's own.** `render.sh` fills `CMAPI_PORTAL_CONFIG_CHECKSUM` with a SHA-256 over
+`cmapi-portal-config`, by the same method as the api's. nginx reads its hosts once, at start, and `config.json` is mounted
+by `subPath`: "A container using a ConfigMap as a subPath volume mount will not receive ConfigMap updates" (kubernetes.io,
+ConfigMaps, read 2026-11-14). So without it a changed host or `config.json` would change nothing until a restart.
+
+| Option | Why not |
+|---|---|
+| One checksum over the four ConfigMaps | A change to the portal's `config.json` would restart the api and the worker, and a change to `cmapi-config` the front door |
+| Mount the whole ConfigMap as a directory, which Kubernetes updates | nginx's root holds the portal's build; a directory mount over it would hide the build. The env values need a restart anyway |
+
+**`--portal-image` is required.** Every environment runs the front door. A positional third image would move the out dir,
+so an old call `render.sh crc <image> <out dir>` would read the out dir as an image. With a flag the old call fails at once
+and names what is missing. Each image is checked against its own repository: the API's image is refused as the front door's, and the
+other way round.
+
+**The mockup's ConfigMap and `deploy/mockup-configmap.sh` are gone.** The HTML is in the `cmapi-portal` image
+(`cmapi-portal-ui/Containerfile` copies `mockups/portal/dist/portal.html`), built from the same commit as the rest. So
+the script, its CI check, and the server-side apply that the 300 KB ConfigMap needed have no reason left. Server-side apply
+stays, as Argo CD applies.
+
+**The two policies in one file.** `40-networkpolicy.yaml` holds both. docs/13's step 21 applies it before the workloads,
+so the api, the worker and the front door each start under their policy. `kind-test.sh` deletes both on podman-kind's DNS
+fault, which hits every pod that a policy selects. Its control pod for that fault is now the database's (`getent` in
+`cmapi-db-1`), since the front door is selected now. Not measured: no kind cluster (#157).
+
+**The front door runs as the namespace's `default` account, as the chart's does.** docs/13's step 8 now waits for that
+account's pull secret too, since the image is in the internal registry. Suggested, not done here, for the chart and the plain
+manifests together: a `cmapi-portal` account with `automountServiceAccountToken: false`, since nginx needs no API token.
+
+**`crc-proof.sh` through the front door.** `/readyz` and `/metrics` are not the API's paths, so through the Route they
+answer the portal's page; the proof checks `200 text/html` for both, where it checked 404 before. `/healthz` is the front
+door's own. The portal's page must carry the front door's HSTS, `nosniff` and Content-Security-Policy. The policy probe needs
+a control that no policy selects: before, the mockup's pod; now every pod of cmapi's is selected, so the proof starts
+`cmapi-np-target` in `cmapi` and deletes it after (the rollback names it too). The probe is then blocked from both the API's
+port and the front door's. The probe image stays nginx 1.29 by digest: its BusyBox wget's `download timed out` is the measured
+sign of a dropped connection.
+
+### BUG-60 (#246)
+
+The rollback guard (`test_crc_rollback_names_every_object_the_run_creates`) ended each name at `\b`, so
+`route.route.openshift.io cmapi-mockup` counted as Route `cmapi`. With this change's names that became reachable. Measured: with
+`"route.route.openshift.io cmapi"` and `"service cmapi-api"` taken out of `crc-rollback.sh`, the old guard reported nothing
+missing; the fixed guard reports both. The name now ends at a quote, white space or the end of a line, in `rollback_missing`,
+and `test_the_rollback_guard_tells_a_name_from_a_longer_one` holds it.

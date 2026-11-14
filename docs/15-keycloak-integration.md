@@ -22,8 +22,8 @@ Nine clients are in the import. The table is read from the file.
 | Client | Type | Flow | Used by | Note |
 |---|---|---|---|---|
 | `cmapi-nonprod` | Confidential, bearer only | None: it issues no token | The API. It is the audience of each token and holds the eight client roles | The audience name is `cmapi-<instance>` |
-| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi-portal.apps-crc.testing/` and `https://cmapi-portal.apps-crc.testing/index.html`, exact (see "The redirect URIs of the portal"). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
-| `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi-api.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
+| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi.apps-crc.testing/` and `https://cmapi.apps-crc.testing/index.html`, exact, on the instance's one host (#226) (see "The redirect URIs of the portal"). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
+| `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
 | `cmapi-cli` | Public | Device authorization | The `cmapi` CLI | `offline_access` is optional. The CLI is not built |
 | `cmapi-automation` | Confidential | Client credentials | An AI agent or a script, by the client's service account | The service account holds `cmapi-onboarding` only |
 | `svc-payments-ci` | Confidential | Client credentials | A sample pipeline | One client for each pipeline |
@@ -226,7 +226,7 @@ Two clients give a token to a script. Each needs its client secret. The URLs are
 
 ```bash
 export KC=https://keycloak.apps-crc.testing/realms/cmapi/protocol/openid-connect
-export CMAPI=https://cmapi-api.apps-crc.testing/api/v1
+export CMAPI=https://cmapi.apps-crc.testing/api/v1
 ```
 
 A pipeline uses its own service client with the client credentials grant. It gets no refresh token, so it asks again for each job:
@@ -273,7 +273,7 @@ A person's password goes only into Keycloak's sign-in page. The proofs must stil
 
 ```bash
 printf '%s\n' "$PASSWORD" | deploy/oidc-login.py --issuer "$KC_ISSUER" --client-id cmapi-docs \
-  --redirect-uri https://cmapi-api.apps-crc.testing/docs/oauth2-redirect --username cmapi.viewer --cacert "$CMAPI_CRC_CA"
+  --redirect-uri https://cmapi.apps-crc.testing/docs/oauth2-redirect --username cmapi.viewer --cacert "$CMAPI_CRC_CA"
 ```
 
 ## A real token
