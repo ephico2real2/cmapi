@@ -31,6 +31,7 @@ data:
       directory: {{ toJson $inst.directory }}
       docs: {{ toJson $inst.docs }}
       problems: {{ toJson ($inst.problems | default dict) }}
+      cors: {{ toJson ($inst.cors | default dict) }}
   clusters.yaml: |
     clusters: {{ toJson .Values.clusters }}
   integrations.yaml: |
