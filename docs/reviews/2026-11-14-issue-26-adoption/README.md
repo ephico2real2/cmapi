@@ -37,8 +37,9 @@ the short form of this design.
 11. **`company.net/provisioner` can be kept or removed after adoption** by an approved request, from Git and from the
     live namespace (#251; D18).
 12. **Separate LimitRange objects for CPU and memory are the company standard, in cmapi's own rendering too** (#251,
-    15:28Z; D19). "We don't enforce limit ranges for storage" (#251, later the same day): storage is governed only by
-    the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
+    15:28Z; D19). The storage LimitRange is kept behind a configuration switch, off by default (#251, 15:45Z: "Why don't
+    we keep it and turn it off in configuration", which replaces "We don't enforce limit ranges for storage"). With the
+    switch off, storage is governed only by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
 13. Admin operations on an onboarded cluster (filter namespaces by any metadata, bulk changes as approved requests with a
     dry run, KPIs on adopted namespaces) are a later feature, #252 (Wave 8). D18's removal is one of its operations.
 
@@ -371,7 +372,7 @@ The adoption itself never changes the label (D4).
 `--show-managed-fields` after the first sync. Then remove the label by a request, and show that it is gone from the live
 object in both cases.
 
-### D19. cmapi's own LimitRanges: one for CPU, one for memory, none for storage (the owner's decisions on #251)
+### D19. cmapi's own LimitRanges: one for CPU, one for memory, and one for storage behind a switch (the owner's decisions on #251)
 
 **What Kubernetes does with several LimitRanges.**
 - Each is enforced: usage must "not exceed resource minimum, maximum and ratio defined in any LimitRange present in the
@@ -381,42 +382,63 @@ object in both cases.
 
 So several LimitRanges are safe only when no two set a default for the same resource of the same type.
 
-**The rendering.** cmapi renders a tier's limits as two LimitRange objects, each owning one resource name, so no two set
-the same default:
+**The rendering.** cmapi renders a tier's limits as one LimitRange object for each resource name, so no two set the same
+default:
 
-| Object | Holds |
-|---|---|
-| `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` |
-| `<ns>-limits-memory` | the same for `memory` |
+| Object | Holds | Rendered |
+|---|---|---|
+| `<ns>-limits-cpu` | the `Container` item's `min`, `max`, `default`, `defaultRequest` (and `maxLimitRequestRatio`, if set) of `cpu` | Always |
+| `<ns>-limits-memory` | the same for `memory` | Always |
+| `<ns>-limits-storage` | the `PersistentVolumeClaim` item's `max` (and `min`, if set) of `storage` | Only when the storage switch is on |
 
 Not measured: that a pod with no resources gets the CPU default from `<ns>-limits-cpu` and the memory default from
 `<ns>-limits-memory`. The kind test of the split's pull request shows it, with ten pods, before the split is merged;
 until then it is unproven.
 
-**No LimitRange for storage** (the owner: "We don't enforce limit ranges for storage"). The `PersistentVolumeClaim` item
-and its key `limitRange.pvc.max.storage` leave the tiers' values, `tiers.yaml`'s `overridable` list and `custom` bounds,
-#211's custom limits (merged in #224, so the D19 pull request removes the key there and records it), and #212's generated
-policies. Storage is governed only by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`. After that
-pull request a request with a custom `limitRange.pvc.*` value is refused with a problem that names the key.
+**The storage LimitRange is a switch, off by default** (the owner, 15:45Z: "Why don't we keep it and turn it off in
+configuration". This replaces the 15:34Z decision "We don't enforce limit ranges for storage"). cmapi keeps the capability
+and does not remove its code, as the rule "do not block a capability" asks.
+- **The switch.** `tiers.yaml` gets `storageLimitRange: {enabled: false}` at its top level. An environment can set its own
+  value in `environments.<env>.storageLimitRange.enabled`, and `inherit` passes it on, as for the other environment
+  settings. When the key is absent, the switch is off. The owner's three instances (nonprod, staging, prod) set it off.
+- **Why not `limitRange.storage.enabled`.** In `tiers.yaml`, a key that starts with `limitRange.` is a value key of the form
+  `limitRange.<kind>.<part>.<resource>` (`limit_key_parts` in `core/tiers.py`). The `overridable` list, the bounds and the
+  approval facts use these keys. A switch in the same form would look like a value key. So the switch has its own name.
+- **Off.** cmapi renders only `<ns>-limits-cpu` and `<ns>-limits-memory`. A request with a custom `limitRange.pvc.*` value
+  is refused with 422 and the new problem `storage-limits-off`, whose detail names the key and the environment ("Storage
+  limits are off in environment rnd: limitRange.pvc.max.storage cannot be set"). #212's generated policies for that
+  environment have no storage rule. The tiers' `pvc` values stay in `tiers.yaml` and the loader still checks them, so an
+  operator can turn the switch on with no other edit.
+- **On.** cmapi also renders `<ns>-limits-storage` from the tier's `pvc` values. `limitRange.pvc.max.storage` stays
+  overridable on the custom tier, within `custom.max`, and a value beyond the tier is a `beyondTier` fact, as today (#211).
+  The generated policies check the storage object.
+- **Either way,** storage is also governed by the ResourceQuota keys `requests.storage` and `persistentvolumeclaims`.
+- **A change of the switch** changes the rendering, so the tier hash of each tier namespace changes. The namespaces show as
+  `tier-outdated`, and the tiers-rerender operation opens one approved request for each, as for any change of `tiers.yaml`.
+  The switch changes no namespace by itself.
+- **Tests** in the D19 pull request cover both settings: the renderer (two objects or three), the refusal and its problem
+  body, the policies (with and without the storage rule), the hash change, and `inherit`. Each test fails before the
+  change and passes after it.
 
 **The coordinator's choice within the owner's sentence:** the container keys of `tiers.yaml` stay as they are
 (`limitRange.container.max.cpu`, ...), so the approval facts and the bounds of CPU and memory do not change, and only the
 renderer maps each key to its object. What follows the split:
-- the tier hash: one hash of the tier's whole rendering, written on the ResourceQuota and on both LimitRanges, so
-  `is_outdated` reads the same value from any of them;
+- the tier hash: one hash of the tier's whole rendering, with the storage switch's value in its input, written on the
+  ResourceQuota and on each LimitRange, so `is_outdated` reads the same value from any of them;
 - the plan diff and the dry run, which show each object;
 - the quota view, which lists each LimitRange;
 - #212's generated policies, which check each object's keys, with the order checks inside the CPU and memory objects;
   each check passes an object that does not hold its key, as today;
-- docs/02's `tiers.yaml` examples (the lines that show `limitRange.pvc.max.storage` and `pvc: {max: {storage: ...}}`), which
-  are true of the code today and change in that pull request, listed in its body.
+- docs/02's `tiers.yaml` examples, which get the switch (off) and say that the `pvc` values apply only when it is on.
+  They change in that pull request, listed in its body.
 
 **No migration.** Nothing of cmapi runs on a cluster yet (#157), so the old single `<ns>-limits` object needs no live
 migration. The examples, tests, docs and recorded samples change.
 
 **Where it is built:** its own pull request, after this design is approved and after #245 (the generated policies)
 merges, because it changes `core/tiers.py`, `core/render/manifests.py` and `core/policygen.py` together. Adoption is
-unchanged by it: adopted LimitRanges stay raw, any number, under their own names, a storage LimitRange too.
+unchanged by it: adopted LimitRanges stay raw, any number, under their own names, a storage LimitRange too, whatever the
+switch says. The switch governs only cmapi's own rendering.
 
 ### D10. Who may ask, and the approval
 
@@ -590,4 +612,5 @@ The choices that most need a second reader:
 - D16: the reads before each step.
 - D17: the data model of free-form quotas and LimitRanges, and the derived numbers (the smallest unscoped `hard`).
 - D18: removing an adopted label from the cluster under server-side apply.
-- D19: cmapi's own LimitRanges, one object for CPU and one for memory, and none for storage.
+- D19: cmapi's own LimitRanges, one object for CPU and one for memory, and one for storage behind a switch that is off by
+  default.
