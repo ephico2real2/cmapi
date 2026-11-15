@@ -1,5 +1,10 @@
 """open_pr: a request became approved. Re-read the folder, refuse a changed base (superseded),
-re-render from the stored plan, check the plan hash, open the bot PR, then queue pr_checks."""
+re-render from the stored plan, check the plan hash, open the bot PR, then queue pr_checks.
+
+The branch is cmapi/<cluster>/<requestId> (#286). On a provider with the Git layer (GitHub) it is a worktree cut from
+origin/main, one commit whose trailers carry the request ID and the plan hash, and a push of that branch alone. A branch that
+already exists is reused only when its head carries this request's trailers and plan hash; any other fails the request with
+the reason, and the branch is left as it is."""
 from __future__ import annotations
 
 from datetime import date
@@ -11,6 +16,9 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
 from cmapi.core.errors import Problem
+from cmapi.core.git.base import BranchRequest
+from cmapi.core.git.oplog import git_context
+from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchRefused, request_branch
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import log
 from cmapi.core.render.manifests import NamespaceSpec, folder, plan_hash
@@ -24,9 +32,32 @@ def _spec_from(d: dict[str, Any]) -> NamespaceSpec:
     return NamespaceSpec(**d)
 
 
+def _line(value: Any) -> str:
+    """A trailer value: one line, whatever a field holds."""
+    return " ".join(str(value).split())
+
+
+def commit_message(row: Any, title: str, body: str) -> str:
+    """The commit's subject and body, and the trailers that a retry and the history read back: request, plan hash, approval,
+    requester and instance."""
+    req = row.requirement or {}
+    return (f"{title}\n\n{body}\n\n"
+            f"{TRAILER_REQUEST}: {_line(row.request_id)}\n"
+            f"{TRAILER_PLAN_HASH}: {_line(row.plan_hash)}\n"
+            f"Cmapi-Approval: {_line(req.get('auto') or 'approved in cmapi')}\n"
+            f"Cmapi-Requester: {_line(row.requester_username)}\n"
+            f"Cmapi-Instance: {_line(row.instance)}\n")
+
+
 def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
     repo, jobs = RequestRepo(s), JobRepo(s)
     row = repo.get(job.request_id)
+    with git_context(request_id=row.request_id, cluster=row.cluster_id, namespace=row.namespace,
+                     branch=request_branch(row.cluster_id, row.request_id), attempt=job.attempts):
+        _open_pr(ctx, repo, jobs, row, job)
+
+
+def _open_pr(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row: Any, job: JobRow) -> None:
     if row.status != S.APPROVED.value:
         log.info("open_pr_skip", request_id=row.request_id, status=row.status)
         jobs.done(job)
@@ -45,19 +76,28 @@ def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
         files = ctx.pipeline.renderer.render(spec, previous=plan["prev"])
     if plan_hash(files) != row.plan_hash:
         raise RuntimeError(f"plan hash mismatch: stored {row.plan_hash[:12]}, rendered {plan_hash(files)[:12]}")
-    branch = f"cmapi/{row.cluster_id}/{row.namespace}/{row.request_id}"
+    branch = request_branch(row.cluster_id, row.request_id)
     title = f"{row.action} {row.namespace} ({row.request_id})"
     req = row.requirement or {}
     body = (f"Request: {row.request_id}\nPlan hash: {row.plan_hash}\nApproval: {req.get('auto') or 'approved in cmapi'}\n"
             f"Requester: {row.requester_username}\nInstance: {row.instance}")
     jobs.fence()
-    pr = ctx.git.open_pr(branch, files, title, body, base_sha)
+    request = BranchRequest(row.cluster_id, row.request_id, base, row.plan_hash, commit_message(row, title, body))
+    try:
+        pr = ctx.git.open_pr(branch, files, title, body, base_sha, request=request)
+    except BranchRefused as exc:
+        repo.event(row, "branch_refused", "worker", str(exc)[:300], {"branch": branch})
+        repo.move(row, E.PR_FAILED, "worker", str(exc)[:240])
+        ctx.git.cleanup(row.cluster_id, row.request_id)
+        jobs.done(job)
+        return
     try:
         repo.move(row, E.PR_OPENED, "cmapi-bot", f"{pr.branch} #{pr.number}")
     except Problem:
         # Cancelled while the Git calls ran: the state stands, and the PR it no longer owns is closed.
         ctx.git.close(pr, f"cmapi: {row.request_id} is {row.status}; this PR will not merge.")
         repo.event(row, "pr_closed", "worker", f"#{pr.number}: the request became {row.status} while the PR was opening")
+        ctx.git.cleanup(row.cluster_id, row.request_id)
         jobs.done(job)
         return
     row.pr = {"number": pr.number, "url": pr.url, "branch": pr.branch, "head": pr.head_sha}

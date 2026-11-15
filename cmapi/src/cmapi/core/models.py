@@ -16,7 +16,7 @@ ClusterId = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{1,62}$")]
 DnsLabel = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")]
 
 ChangeStatus = Literal["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "rejected",
-                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted"]
+                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted", "merge_failed"]
 
 
 class Api(BaseModel):

@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     git_user: str = Field(default="", description="With git_password: basic auth instead of a token (the Gitea stand-in)")
     git_password: str = Field(default="", description="See git_user")
     git_default_branch: str = "main"
+    git_credentials_dir: Path = Field(default=Path("/etc/cmapi/git-bot"), description="Secret cmapi-git-bot mounted as files: token, the "
+                                      "bot account's API token, and optionally username. Git over HTTPS reads token too (#286)")
+    git_ssh_dir: Path = Field(default=Path("/etc/cmapi/git-bot-ssh"), description="Secret cmapi-git-bot-ssh (kubernetes.io/ssh-auth), "
+                              "worker only: ssh-privatekey and optionally ssh-publickey, for Git over SSH (#286)")
+    git_known_hosts_dir: Path = Field(default=Path("/etc/cmapi/git-bot-known-hosts"), description="ConfigMap "
+                                      "cmapi-git-bot-known-hosts mounted as a folder: known_hosts, the Git host's pinned keys (#286)")
+    git_workdir: Path | None = Field(default=None, description="The Git layer's working storage: the mirror and one worktree per request. "
+                                     "The pods mount an emptyDir with a sizeLimit here; unset, a temporary folder of the process (#286)")
     git_ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for the Git host alone; default: ca_bundle's trust. "
                                        "On CRC the image's system bundle, since cmapi-trust holds only Keycloak's private CA (#97)")
 

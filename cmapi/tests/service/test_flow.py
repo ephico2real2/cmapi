@@ -78,7 +78,7 @@ def test_create_auto_approved_to_synced(world):
     assert r2.status_code == 409 and r2.json()["code"] == "change-pending" and r2.json()["requestId"] == rid
 
     ran = run_jobs(ctx)
-    assert ran[:3] == ["open_pr", "pr_checks", "watch_sync"], ran
+    assert ran[:3] == ["open_pr", "pr_checks", "deliver_pr"], ran       # apply mode: apply, confirm, then merge (#286)
     view = client.get(f"/api/v1/requests/{rid}", headers=h).json()
     assert view["status"] == "synced", view["events"]
     assert view["pr"]["number"] == 1 and git.prs[1]["state"] == "merged"
@@ -87,7 +87,7 @@ def test_create_auto_approved_to_synced(world):
     assert "clusters/CRC/namespaces/payments-dev/namespace.yaml" in git.branches["main"]
     assert "Namespace//payments-dev" in kube.applied and "ResourceQuota/payments-dev/payments-dev-quota" in kube.applied
     events = [e["event"] for e in view["events"]]
-    assert events == ["plan_auto_approved", "pr_opened", "ci", "merged", "applied", "synced"], events
+    assert events == ["plan_auto_approved", "pr_opened", "ci", "deliver_queued", "applied", "merged", "synced"], events
     assert view["links"]["pr"].startswith("https://git.test/pulls/")
     # the quota list sees it from the cache
     ctx.registry.cache("CRC")._list("Namespace")

@@ -24,6 +24,7 @@ class State(str, Enum):
     TIMEOUT = "timeout"
     FAILED = "failed"
     SYNC_FAILED = "sync_failed"
+    MERGE_FAILED = "merge_failed"                 # applied to the cluster, its PR not merged: lock and PR kept until it merges (#286)
     SUPERSEDED = "superseded"
     REVERTED = "reverted"                         # sync_failed, handed over to a :revert request
 
@@ -40,6 +41,7 @@ class Event(str, Enum):
     PR_FAILED = "pr_failed"                       # 5 attempts with backoff, CI failed, PR closed
     BASE_CHANGED = "base_changed"                 # the namespace's files changed in Git after the plan
     MERGED = "merged"
+    MERGE_FAILED = "merge_failed"                 # apply before merge: the merge after a confirmed apply did not happen
     SYNCED = "synced"                             # Argo CD Synced at or after the merge, confirmed by a read
     PRUNE_PENDING = "prune_pending"               # a delete merged; Argo CD waits for confirmation
     PRUNE_CONFIRMED = "prune_confirmed"
@@ -64,6 +66,9 @@ _T: dict[tuple[State | None, Event], State] = {
     (S.PR_OPEN, E.MERGED): S.MERGED,
     (S.PR_OPEN, E.PR_FAILED): S.FAILED,
     (S.PR_OPEN, E.BASE_CHANGED): S.SUPERSEDED,
+    (S.PR_OPEN, E.MERGE_FAILED): S.MERGE_FAILED,
+    (S.MERGE_FAILED, E.MERGED): S.MERGED,
+    (S.MERGE_FAILED, E.RETRY): S.MERGE_FAILED,    # deliver_pr again, pinned to the applied head; never a rollback
     (S.MERGED, E.SYNCED): S.SYNCED,
     (S.MERGED, E.PRUNE_PENDING): S.AWAITING_PRUNE,
     (S.MERGED, E.SYNC_TIMEOUT): S.SYNC_FAILED,
@@ -76,8 +81,8 @@ _T: dict[tuple[State | None, Event], State] = {
 }
 
 TERMINAL = frozenset({S.SYNCED, S.REJECTED, S.CANCELLED, S.TIMEOUT, S.SUPERSEDED, S.REVERTED})
-_LOCK = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED, S.AWAITING_PRUNE, S.SYNC_FAILED})
-_RESERVATION = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED})
+_LOCK = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED, S.AWAITING_PRUNE, S.SYNC_FAILED, S.MERGE_FAILED})
+_RESERVATION = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED, S.MERGE_FAILED})
 
 # Who may cause each externally triggered event (everything else is the worker or the pipeline).
 PERMISSION = {E.APPROVED: "requests:approve", E.REJECTED: "requests:reject",

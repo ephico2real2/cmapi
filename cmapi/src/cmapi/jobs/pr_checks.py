@@ -8,7 +8,12 @@ worker reads those two contexts and never posts them. A context not reported yet
 delivery.pollInterval, spending no attempts and bounded by delivery.syncTimeout from when the job was
 queued; past that the request is failed. A failed one ends the wait at once. The local validators still
 run once CI has finished: CI's green does not excuse what they refuse. On the Gitea stand-in, which has no
-runner, the worker posts ci/* from those validators, as it always has (#60)."""
+runner, the worker posts ci/* from those validators, as it always has (#60). GitHub's host CI is off by default since #286:
+the worker then posts ci/* the same way, and never reads the Checks API.
+
+When every check passes (#286): with delivery.mode apply a create or a change goes to deliver_pr, which applies the branch's
+folder, confirms it by a read, and only then merges the PR, so main records only what succeeded. A delete, and delivery.mode
+argocd, merge here, after the merge check (jobs/merging.py), and watch_sync follows the merge as before."""
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -17,9 +22,11 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
 from cmapi.core.git.base import IncompleteList
+from cmapi.core.git.oplog import git_context
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
 from cmapi.core.render.manifests import folder, plan_hash
+from cmapi.jobs.merging import delivery_mode, merge_after_check
 
 CONTEXT_KUBECONFORM = "ci/kubeconform"
 CONTEXT_KYVERNO = "ci/kyverno"
@@ -34,10 +41,17 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
     if row.status != S.PR_OPEN.value or not row.pr:
         jobs.done(job)
         return
+    with git_context(request_id=row.request_id, cluster=row.cluster_id, namespace=row.namespace, branch=row.pr["branch"],
+                     attempt=job.attempts):
+        _pr_checks(ctx, repo, jobs, row, job)
+
+
+def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> None:
     pr = PrRef(number=row.pr["number"], url=row.pr["url"], branch=row.pr["branch"], head_sha=row.pr["head"])
     status = ctx.git.pr_status(pr)
     if status.state == "closed":
         repo.move(row, E.PR_FAILED, "worker", "the PR was closed")
+        ctx.git.cleanup(row.cluster_id, row.request_id)
         jobs.done(job)
         return
     if status.state == "merged":
@@ -99,11 +113,19 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
         repo.move(row, E.PR_FAILED, "ci", "checks failed")
         jobs.fence()
         ctx.git.close(pr, f"cmapi: checks failed for {row.request_id}; the request is failed and may be retried.")
+        ctx.git.cleanup(row.cluster_id, row.request_id)
         jobs.done(job)
         return
-    jobs.fence()
-    merge_sha = ctx.git.merge(pr, head)
-    row.merge_sha = merge_sha
+    if delivery_mode(ctx, row.cluster_id) == "apply" and row.action != "delete":
+        # Apply before merge (#286): deliver_pr applies the branch, confirms it, then merges. The PR stays open meanwhile.
+        repo.event(row, "deliver_queued", "worker", f"checks passed on {head[:8]}: apply, confirm, then merge")
+        jobs.done(job)
+        jobs.enqueue("deliver_pr", request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": head})
+        return
+    merge_sha = merge_after_check(ctx, repo, jobs, row, pr, head)
+    if merge_sha is None:
+        jobs.done(job)
+        return
     repo.move(row, E.MERGED, "cmapi-bot", f"merged {merge_sha[:8]}")
     jobs.done(job)
     jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
@@ -119,6 +141,7 @@ def _wait_for_ci(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: Jo
         repo.move(row, E.PR_FAILED, "ci", f"{why}: not reported after {waited} s")
         jobs.fence()
         ctx.git.close(pr, f"cmapi: {', '.join(waiting)} not reported for {row.request_id} after {waited} s; the request is failed and may be retried.")
+        ctx.git.cleanup(row.cluster_id, row.request_id)
         jobs.done(job)
         return
     if job.last_error != why:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from cmapi.jobs.approval_timeout import APPROVAL_TIMEOUT_EVERY, approval_timeout
 from cmapi.jobs.channel_notify import channel_notify
+from cmapi.jobs.deliver_pr import deliver_pr
+from cmapi.jobs.git_sweep import GIT_SWEEP_EVERY, git_sweep
 from cmapi.jobs.open_pr import open_pr, open_revert
 from cmapi.jobs.pr_checks import pr_checks
 from cmapi.jobs.watch_sync import prune, watch_sync
@@ -12,10 +14,12 @@ HANDLERS = {
     "open_pr": open_pr,
     "open_revert": open_revert,
     "pr_checks": pr_checks,
+    "deliver_pr": deliver_pr,
     "watch_sync": watch_sync,
     "prune": prune,
     "approval_timeout": approval_timeout,
     "channel_notify": channel_notify,
+    "git_sweep": git_sweep,
 }
 
-RECURRING = {"approval_timeout": APPROVAL_TIMEOUT_EVERY}
+RECURRING = {"approval_timeout": APPROVAL_TIMEOUT_EVERY, "git_sweep": GIT_SWEEP_EVERY}

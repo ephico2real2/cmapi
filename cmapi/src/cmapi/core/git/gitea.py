@@ -49,7 +49,8 @@ class GiteaProvider(HostGitProvider):
                 files[e["path"]] = base64.b64decode(r.json()["content"]).decode()
         return files, head
 
-    def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str, base_sha: str) -> PrRef:
+    def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str, base_sha: str,
+                request=None) -> PrRef:
         existing = self.find_pr(branch)
         if existing is not None:
             return existing

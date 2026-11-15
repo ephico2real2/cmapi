@@ -32,8 +32,10 @@ AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["perm
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
                           ["plugin", "environment"])
-GIT_OPS = Counter("cmapi_git_operations_total", "Git host calls", ["operation", "result"])
-GIT_DURATION = Histogram("cmapi_git_operation_duration_seconds", "Git host call duration", ["operation"])
+# One count per Git or platform operation (core/git/oplog.py, #286): op is fetch, worktree, commit, push, pr_open, pr_state,
+# merge_check, merge, cleanup and the host API calls; result is ok, refused, conflict, skipped or failure.
+GIT_OPS = Counter("cmapi_git_operations_total", "Git and Git host operations", ["op", "result"])
+GIT_DURATION = Histogram("cmapi_git_operation_duration_seconds", "Git and Git host operation duration", ["op"])
 JOBS_PENDING = Gauge("cmapi_jobs_pending", "Jobs waiting to run", ["kind"])
 JOB_FAILURES = Counter("cmapi_job_failures_total", "Jobs that raised", ["kind"])
 LEAD_TIME = Histogram("cmapi_change_lead_time_seconds", "Submit to synced", ["plugin", "action", "approval"],

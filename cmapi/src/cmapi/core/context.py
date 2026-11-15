@@ -55,6 +55,9 @@ class AppContext:
 
     def shutdown(self) -> None:
         self.registry.stop()
+        dispose = getattr(self.git, "dispose", None)
+        if dispose:                                     # the Git layer's workdir lock, and a temporary workdir
+            dispose()
 
 
 def _yaml(path: Path) -> dict[str, Any]:
@@ -91,10 +94,16 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     if start_registry:
         registry.start()
 
-    git = make_provider(settings.git_provider, settings.git_url, inst["git"]["repository"], settings.git_token,
+    g = inst["git"]
+    git = make_provider(settings.git_provider, settings.git_url, g["repository"], settings.git_token,
                         default_branch=settings.git_default_branch, verify=settings.git_verify,
-                        web_url=inst["git"].get("webUrl"),
-                        basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None)
+                        web_url=g.get("webUrl"),
+                        basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None,
+                        # The Git layer (#286): the clone URL, its credential files, its storage and its trust.
+                        git_layer=settings.component == "worker", git_url=g.get("url"), workdir=settings.git_workdir,
+                        credentials_dir=settings.git_credentials_dir, ssh_dir=settings.git_ssh_dir,
+                        known_hosts_dir=settings.git_known_hosts_dir, ca_bundle=settings.git_ca_bundle or settings.ca_bundle,
+                        username=g.get("username"), commit_email=g.get("commitEmail"), host_checks=bool(g.get("hostChecks", False)))
     # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
     bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,

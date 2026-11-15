@@ -14,7 +14,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-OPEN_STATES = ("pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "sync_failed")
+OPEN_STATES = ("pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "sync_failed", "merge_failed")
 
 
 class Base(DeclarativeBase):

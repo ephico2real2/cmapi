@@ -10,7 +10,8 @@ Each file is validated by its own module; this module adds the checks no single 
 - metadata-keys.yaml has emailDomains when any governed key uses email-in-domains;
 - instance.yaml's identity.groupPath can name a group;
 - plugins.yaml, when the instance has one, names only plugins of this build, and its overrides for this instance name
-  only served environments (core/plugins.py).
+  only served environments (core/plugins.py);
+- instance.yaml's git.url is a URL the Git layer may use, git.hostChecks is a boolean, git.username one line (#286).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -25,6 +26,7 @@ import yaml
 
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
+from cmapi.core.git.transport import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
 from cmapi.core.policy import PolicySettings
@@ -109,8 +111,27 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
             problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
     if expiration and "prod" in allowed and expiration.allows("prod"):
         problems.append("expiration.yaml: prod can never expire")
+    problems.extend(_git_problems(me.get("git") or {}))
     policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
     problems.extend(policy_problems)
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy)
+
+
+def _git_problems(git: dict) -> list[str]:
+    problems = []
+    if git.get("url") is not None:
+        try:
+            parse_remote(git["url"])
+        except GitConfigError as exc:
+            problems.append(f"instance.yaml: {exc}")
+    if not isinstance(git.get("hostChecks", False), bool):
+        problems.append("instance.yaml: git.hostChecks is true or false")
+    email = git.get("commitEmail")
+    if email is not None and (not isinstance(email, str) or "@" not in email or any(c.isspace() or c in "<>" for c in email)):
+        problems.append("instance.yaml: git.commitEmail is one address, such as the bot account's no-reply address")
+    user = git.get("username")
+    if user is not None and (not isinstance(user, str) or not user or any(c in user for c in "\r\n")):
+        problems.append("instance.yaml: git.username is one line of text")
+    return problems

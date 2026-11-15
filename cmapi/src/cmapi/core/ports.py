@@ -100,17 +100,20 @@ class Renderer(Protocol):
 
 @runtime_checkable
 class GitProvider(Protocol):
-    """core/git/provider.py: GitHub REST by default; GitLab REST and a GitPython clone mode."""
+    """core/git/: a Git layer for branches, commits and reads (workspace.py) and a thin platform adapter per host for the PR
+    (github.py; gitea.py is REST alone). Every change is a request branch and a PR; nothing pushes to the default branch (#286)."""
     # Whether the host's own CI reports ci/kubeconform and ci/kyverno (#87). The worker reads this to decide who posts those two
     # checks, so a provider must say it: a provider with no answer fails the job, and is never taken for one whose checks the
     # worker may post itself (#60).
     external_ci: bool
     def read_folder(self, path: str, ref: str = "main") -> tuple[dict[str, str], str]: ...  # files, tree sha
     def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str,
-                base_sha: str) -> PrRef: ...
+                base_sha: str, request: Any = None) -> PrRef: ...           # request: core/git/base.py BranchRequest
     def pr_status(self, pr: PrRef) -> PrStatus: ...
+    def merge_check(self, head: str, folder: str, base_files: Mapping[str, str]) -> Any: ...   # core/git/workspace.py MergeCheck
     def merge(self, pr: PrRef, expected_head: str) -> str: ...          # merge sha
     def close(self, pr: PrRef, comment: str) -> None: ...
+    def cleanup(self, cluster_id: str, request_id: str) -> None: ...   # the request's worktree, at the PR's end
 
 
 @runtime_checkable

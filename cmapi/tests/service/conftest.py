@@ -190,7 +190,7 @@ class FakeGit(HostGitProvider):
                 return PrRef(n, p["url"], branch, self.heads[branch])
         return None
 
-    def open_pr(self, branch, files, title, body, base_sha):
+    def open_pr(self, branch, files, title, body, base_sha, request=None):
         self._check()
         if (pr := self.find_pr(branch)) is not None:
             return pr
