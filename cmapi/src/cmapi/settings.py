@@ -6,6 +6,7 @@ deployment-specific (database URL, Git token, CA bundle). Every name is CMAPI_<F
 """
 from __future__ import annotations
 
+import ssl
 from functools import lru_cache
 from pathlib import Path
 
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     git_user: str = Field(default="", description="With git_password: basic auth instead of a token (the Gitea stand-in)")
     git_password: str = Field(default="", description="See git_user")
     git_default_branch: str = "main"
+    git_ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for the Git host alone; default: ca_bundle's trust. "
+                                       "On CRC the image's system bundle, since cmapi-trust holds only Keycloak's private CA (#97)")
 
     cursor_key: str = Field(default="", description="HMAC key signing list cursors; generated per instance")
     link_key: str = Field(default="", description="HMAC key signing email approval links")
@@ -60,6 +63,15 @@ class Settings(BaseSettings):
     def verify(self) -> str | bool:
         """httpx verify= value: the CA bundle when one is mounted, else the system store."""
         return str(self.ca_bundle) if self.ca_bundle else True
+
+    @property
+    def git_verify(self) -> ssl.SSLContext | str | bool:
+        """The Git provider's verify= value. With git_ca_bundle, an SSLContext built from that file alone: httpx honours
+        SSL_CERT_FILE for verify=True (httpx 0.28.1, _config.create_ssl_context), and the pods point it at cmapi-trust, so an
+        explicit context is the only trust no environment variable can change (#97). A missing file raises at start."""
+        if self.git_ca_bundle:
+            return ssl.create_default_context(cafile=str(self.git_ca_bundle))
+        return self.verify
 
 
 @lru_cache
