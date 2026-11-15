@@ -28,9 +28,9 @@ while [ "$1" != -- ]; do shift; done; shift
 [ "$1 $2" = "sh -c" ] || { echo "shim: not sh -c" >&2; exit 3; }
 envs=(); for e in ${SHIM_ENV:-}; do envs+=(-e "$e"); done
 if [ -n "${SHIM_CUT:-}" ] && [[ "$3" == *pg_dump* ]]; then
-  # The stream ends early with a clean status: what --list passes and only a full read catches.
+  # The stream ends early with a clean status: what --list passes and only a full read catches. SHIM_CUT is a byte count, or half.
   t=$(mktemp); $C exec "${envs[@]}" "$N" sh -c "$3" >"$t"; rc=$?
-  python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); sys.stdout.buffer.write(d[:-int(sys.argv[2])])' "$t" "$SHIM_CUT"; rm -f "$t"; exit "$rc"
+  python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); n=len(d)//2 if sys.argv[2]=="half" else int(sys.argv[2]); sys.stdout.buffer.write(d[:-n])' "$t" "$SHIM_CUT"; rm -f "$t"; exit "$rc"
 fi
 # With stdin, as CRI-O's exec does: a command that ends with stdin unread fails the exec ("write |1: broken pipe", measured on CRC, #268). CRI-O fails
 # only past the pipe buffer; this fails on any unread byte, and the dump below is larger than the buffer, so both would fail.
@@ -54,8 +54,10 @@ $C exec -i "$N" sh -c 'psql -q -w -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE
 create table realm(id text primary key, name text); insert into realm select 'id-'||g, E'name\nwith a newline '||g from generate_series(1,6) g;
 insert into realm values (E'tab\there', 'x');
 create table client(id serial primary key, secret text); insert into client(secret) select md5(g::text) from generate_series(1,2000) g;
--- Random hex, which compresses to about half: a dump well past a 64 KiB pipe buffer, as the shared Keycloak's 14 MB database gives (#268).
-create table blob(x text); insert into blob select md5(random()::text)||md5(random()::text)||md5(random()::text)||md5(random()::text) from generate_series(1,8000) g;
+-- Random hex, which compresses to about half: a dump well past a 64 KiB pipe buffer, as the shared Keycloak's 14 MB database gives (#268). Named as Keycloak's
+-- own table, which sorts after realm: pg_dump writes table data in name order, so realm's data is not the archive's last and -t realm stops short of the end,
+-- as on Keycloak's database (realm_attribute ... user_entity ... follow it), and a cut tail is caught only by the full read, not by the realm count.
+create table user_entity(x text); insert into user_entity select md5(random()::text)||md5(random()::text)||md5(random()::text)||md5(random()::text) from generate_series(1,8000) g;
 SQL
 
 # 1. The image as it ships.
@@ -65,6 +67,11 @@ rc=$(B); [ "$rc" = 0 ] && ok "a backup on the image as it ships" || bad "a backu
 tail -1 "$W/out" | grep -q '7 realms, read to its end' && ok "it counted the seven realm rows: $(tail -1 "$W/out" | sed 's/^backup in [^:]*: //')" || bad "its last line: $(tail -1 "$W/out")"
 f=$(find "$W/backup" -type f -name 'keycloak-*.dump'); [ -n "$f" ] && ok "one dump in the directory" || bad "no dump"
 size=$(wc -c <"$f" | tr -d " "); [ "${size:-0}" -gt 65536 ] && ok "the dump is larger than a pipe buffer: $size bytes" || bad "the dump is $size bytes, not past a 64 KiB pipe buffer: the stdin case proves nothing"
+# Each partial reader must leave more than a pipe buffer unread on this dump, or the stand-in's stdin rule proves nothing for that check.
+for r in 'pg_restore --list' 'pg_restore -a -t realm -f -'; do
+  left=$($C exec -i "$N" sh -c "$r >/dev/null; wc -c" <"$f" 2>/dev/null | tr -d ' ')
+  [ "${left:-0}" -gt 65536 ] && ok "$r leaves $left bytes of the dump unread" || bad "$r leaves ${left:-no} bytes unread, not past a 64 KiB pipe buffer: its drain is not tested"
+done
 # The GNU form first: GNU's -f writes the file system's details on stdout before it fails, while BSD's stat refuses -c with nothing on stdout (#90).
 m() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }; [ "$(m "$W/backup")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$W/backup") $(m "$f")"
 if grep -qF -e "$PW" -e "$f" "$W/out"; then bad "the password or the path reached the output"; else ok "no password and no path in the output"; fi
@@ -77,9 +84,12 @@ want=$(in_c 'psql -w -U postgres -d kcdb -Atc "select (select count(*) from real
 [ -n "$got" ] && [ "$got" = "$want" ] && ok "restored into an empty database, the rows are the same: $got" || bad "restored: $got, not $want"
 rc=$(B --delete); [ ! -e "$W/backup" ] && ok "--delete removes it" || bad "--delete left it: rc $rc"
 
-stops() { # stops <label> [VAR=VALUE...]: the backup must fail, say why, and leave no file.
-  local label=$1 rc; shift; rc=$(env "$@" "$SRC/crc-backup.sh" >"$W/out" 2>&1; echo $?)
-  if [ "$rc" != 0 ]; then ok "stops: $label: $(tail -1 "$W/out" | cut -c1-110)"; else bad "did not stop: $label"; fi
+stops() { # stops <label> [--why <text>] [VAR=VALUE...]: the backup must fail, say why (with --why, that check and no other), and leave no file.
+  local label=$1 why='' rc; shift; if [ "${1:-}" = --why ]; then why=$2; shift 2; fi
+  rc=$(env "$@" "$SRC/crc-backup.sh" >"$W/out" 2>&1; echo $?)
+  if [ "$rc" = 0 ]; then bad "did not stop: $label"
+  elif [ -n "$why" ] && ! grep -qF "$why" "$W/out"; then bad "$label: stopped, but not with \"$why\": $(grep -m1 ERROR "$W/out" | cut -c1-110)"
+  else ok "stops: $label: $({ grep -m1 ERROR "$W/out" || tail -1 "$W/out"; } | cut -c1-110)"; fi
   if find "$W/backup" -type f 2>/dev/null | grep -q .; then bad "$label: left a file"; fi
   if grep -qF "$PW" "$W/out"; then bad "$label: the password in the output"; fi
   rm -rf "$W/backup"
@@ -89,8 +99,8 @@ stops "POSTGRESQL_USER empty" SHIM_ENV=POSTGRESQL_USER=
 stops "POSTGRESQL_DATABASE empty" SHIM_ENV=POSTGRESQL_DATABASE=
 stops "POSTGRESQL_PASSWORD empty" SHIM_ENV=POSTGRESQL_PASSWORD=
 stops "a database that does not exist" SHIM_ENV=POSTGRESQL_DATABASE=nothere
-stops "a stream 100 bytes short with a clean status" SHIM_CUT=100
-stops "a stream half gone with a clean status" SHIM_CUT=20000
+stops "a stream 100 bytes short with a clean status" --why "the archive does not read to its end" SHIM_CUT=100
+stops "a stream half gone with a clean status" --why "the archive does not read to its end" SHIM_CUT=half
 
 # 3. The rules tightened: peer on the socket, password on the loopback. A socket-only backup could not sign in here; this one still can, and a wrong password stops it.
 in_c "sed -i -E 's/^local +all +all +trust/local all all peer/; s#^host +all +all +127.0.0.1/32 +trust#host all all 127.0.0.1/32 md5#; s#^host +all +all +::1/128 +trust#host all all ::1/128 md5#' $HBA && pg_ctl reload -D /var/lib/pgsql/data/userdata >/dev/null" || bad "could not tighten the rules"
