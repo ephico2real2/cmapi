@@ -9,6 +9,7 @@ their state in memory; the tests below drive every lifecycle path through them.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 import time
@@ -47,24 +48,42 @@ AUDIENCE = "cmapi-nonprod"
 # database deletes this one's rows mid-test, and a test fails with a 404 that is not the code's. A session-level advisory
 # lock, held on its own connection until the session ends, turns that into an immediate refusal that names the cause.
 SESSION_LOCK_KEY = 0x636D617069  # "cmapi" in ASCII
-SESSION_LOCK_EXIT = 3
+SESSION_LOCK_EXIT = 75  # EX_TEMPFAIL of sysexits.h, "try again later": pytest's own codes are 0 to 5, and 3 is its internal error
 _SESSION_LOCK = pytest.StashKey[Any]()
+_SESSION_LOCK_TRIED = pytest.StashKey[bool]()
 
 
-def pytest_sessionstart(session: pytest.Session) -> None:
+def _hold_the_database(session: pytest.Session) -> None:
     import psycopg
 
+    if session.config.stash.get(_SESSION_LOCK_TRIED, False):
+        return
+    session.config.stash[_SESSION_LOCK_TRIED] = True
+    # SQLAlchemy's form (postgresql+psycopg://) works for the app's engine; libpq wants the plain scheme.
+    conninfo = re.sub(r"^postgres(?:ql)?\+\w+://", "postgresql://", DB_URL)
     try:
-        conn = psycopg.connect(DB_URL, autocommit=True, connect_timeout=5)
-    except psycopg.OperationalError:
-        return  # no database: the tests that need one fail on their own, and no other session can be using it
+        conn = psycopg.connect(conninfo, autocommit=True, connect_timeout=5)
+    except psycopg.Error:
+        # No database, or a URL libpq cannot read (its message quotes the URL, password and all, so it is not shown): the
+        # tests that need the database fail on their own, as they did before the lock.
+        return
     if not conn.execute("select pg_try_advisory_lock(%s)", (SESSION_LOCK_KEY,)).fetchone()[0]:
+        where = f"{conn.info.host}:{conn.info.port}/{conn.info.dbname}"  # from the connection: never the URL's credentials
         conn.close()
-        where = DB_URL.rsplit("@", 1)[-1]  # host and database, never the credentials
         pytest.exit(f"another service-test session holds the database {where} (advisory lock {SESSION_LOCK_KEY}): its fixtures "
                     "truncate the request tables, so two sessions would delete each other's rows. Wait for it to end, or set "
                     "CMAPI_TEST_DATABASE_URL to a database of your own.", returncode=SESSION_LOCK_EXIT)
     session.config.stash[_SESSION_LOCK] = conn
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    _hold_the_database(session)  # before collection, when this file is an initial conftest (pytest tests/service, ...)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    # pytest calls pytest_sessionstart only for initial conftests. `pytest tests` from cmapi/ loads this file while collecting,
+    # after the session started, so the lock is taken here instead: still before any fixture or test runs.
+    _hold_the_database(session)
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:

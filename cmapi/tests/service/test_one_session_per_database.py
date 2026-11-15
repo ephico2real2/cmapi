@@ -15,7 +15,7 @@ from conftest import DB_URL
 
 HERE = Path(__file__).resolve().parent
 INNER = "CMAPI_TEST_INNER_SESSION"
-REFUSED = 3  # conftest.SESSION_LOCK_EXIT, spelled out so that this test also runs against a conftest without the lock
+REFUSED = 75  # conftest.SESSION_LOCK_EXIT, spelled out so that this test also runs against a conftest without the lock
 
 
 def test_a_second_session_on_the_same_database_is_refused_before_any_test(database):
