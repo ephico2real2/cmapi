@@ -43,6 +43,35 @@ DB_URL = os.environ.get("CMAPI_TEST_DATABASE_URL", "postgresql://cmapi:cmapi@127
 ISSUER = "https://keycloak.test/realms/cmapi"
 AUDIENCE = "cmapi-nonprod"
 
+# One session per database (#271). fresh_db truncates the request tables before each test, so a second session on the same
+# database deletes this one's rows mid-test, and a test fails with a 404 that is not the code's. A session-level advisory
+# lock, held on its own connection until the session ends, turns that into an immediate refusal that names the cause.
+SESSION_LOCK_KEY = 0x636D617069  # "cmapi" in ASCII
+SESSION_LOCK_EXIT = 3
+_SESSION_LOCK = pytest.StashKey[Any]()
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    import psycopg
+
+    try:
+        conn = psycopg.connect(DB_URL, autocommit=True, connect_timeout=5)
+    except psycopg.OperationalError:
+        return  # no database: the tests that need one fail on their own, and no other session can be using it
+    if not conn.execute("select pg_try_advisory_lock(%s)", (SESSION_LOCK_KEY,)).fetchone()[0]:
+        conn.close()
+        where = DB_URL.rsplit("@", 1)[-1]  # host and database, never the credentials
+        pytest.exit(f"another service-test session holds the database {where} (advisory lock {SESSION_LOCK_KEY}): its fixtures "
+                    "truncate the request tables, so two sessions would delete each other's rows. Wait for it to end, or set "
+                    "CMAPI_TEST_DATABASE_URL to a database of your own.", returncode=SESSION_LOCK_EXIT)
+    session.config.stash[_SESSION_LOCK] = conn
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    conn = session.config.stash.get(_SESSION_LOCK, None)
+    if conn is not None:
+        conn.close()  # the advisory lock is the connection's: closing it releases the lock
+
 
 # --------------------------------------------------------------------------- tokens
 
