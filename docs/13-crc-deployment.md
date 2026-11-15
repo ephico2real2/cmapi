@@ -93,7 +93,7 @@ security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Librar
 
 **2. Sign in once as `cmapi.requester`,** in Chrome, with the password from the clipboard, so that it reaches nobody else and no screen. See [The issue's proofs](#the-issues-proofs).
 
-**3. The bot account's credentials, before step 11.** cmapi writes through the Git protocol, and opens and merges the PR through the host's API (#286). The identity on every host is one machine user account, `cmapi-git-bot` (the owner's decision of 2026-11-15): its SSH key does the Git transport, and its API token does the PR. So every push and every PR is authored by `cmapi-git-bot`, and the commits name it, with `instance.git.commitEmail`.
+**3. The bot account's credentials, before step 11.** The step-by-step guide, with rotation and troubleshooting, is [`docs/19`](19-setup-connections-to-git.md). cmapi writes through the Git protocol, and opens and merges the PR through the host's API (#286). The identity on every host is one machine user account, `cmapi-git-bot` (the owner's decision of 2026-11-15): its SSH key does the Git transport, and its API token does the PR. So every push and every PR is authored by `cmapi-git-bot`, and the commits name it, with `instance.git.commitEmail`.
 
 | Object | Kind | Keys | Mounted in | For |
 |---|---|---|---|---|

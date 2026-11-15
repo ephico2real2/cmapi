@@ -45,6 +45,8 @@ One environment name has a meaning in code: `prod`. A namespace in `prod` never 
 
 The file has one key, `instance`. The chart writes it from the values `instance.*`, `auth.*` and `git.*` (`deploy/helm/cmapi/templates/config.yaml`). Examples: `examples/instances/*/instance.yaml`.
 
+How to make the bot account, its token and its SSH key, and how to switch `instance.git.url` to SSH: [`docs/19`](19-setup-connections-to-git.md).
+
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `instance.name` | text | None. Needed | The name of the instance. It is in each log line, in each metric, in each request, and in the links of the email channel (`core/channels.py`) |
