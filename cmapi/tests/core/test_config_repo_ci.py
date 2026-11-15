@@ -18,13 +18,17 @@ import yaml
 from cmapi.core.config import load_instance
 from cmapi.core.policygen import render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
-from cmapi.jobs.pr_checks import CI_CONTEXTS
 from conftest import EX
 
 ROOT = EX.parent
 TEMPLATE = EX / "cluster-configs/.github"
 CHECK = TEMPLATE / "scripts/kyverno_check.py"
 NS = "cmapi-ci-test"
+# The two contexts the worker waits for on a host with its own CI, read from pr_checks.py's source: importing cmapi.jobs needs
+# SQLAlchemy, which the reference-code job's environment (examples/local/requirements.txt) does not install.
+PR_CHECKS = (ROOT / "cmapi/src/cmapi/jobs/pr_checks.py").read_text()
+CI_CONTEXTS = [re.search(rf'^{name} = "([^"]+)"$', PR_CHECKS, re.M)[1] for name in ("CONTEXT_KUBECONFORM", "CONTEXT_KYVERNO")]
+assert re.search(r"^CI_CONTEXTS = \[CONTEXT_KUBECONFORM, CONTEXT_KYVERNO\]$", PR_CHECKS, re.M), "pr_checks.py's CI_CONTEXTS changed"
 
 
 @pytest.fixture(scope="module")
