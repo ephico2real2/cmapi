@@ -214,7 +214,6 @@ A request is from the caller of the token. A tool can also name the person that 
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/rbac-identity/rbac-identity.dark.png">
   <source srcset="diagrams/rbac-identity/rbac-identity.light.png">
   <img alt="A person gets the right to request through LDAP group membership. Keycloak's LDAP federation, with the users filter (uid=cmapi.*), maps the group to the client role cmapi-requester in the token, and the role grants namespaces:create. cmapi records the request under the token's sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A tool signs in as the client cmapi-automation and sends onBehalfOf. cmapi looks the person up in the directory and records the person as requester and the tool as caller, automated. The directory does not prove that the person signed in: token exchange, RFC 8693, is proposed. A shared submitter is not in the design." src="diagrams/rbac-identity/rbac-identity.light.png">
 </picture>
