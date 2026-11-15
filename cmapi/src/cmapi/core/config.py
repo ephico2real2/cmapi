@@ -26,7 +26,7 @@ import yaml
 
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
-from cmapi.core.git.transport import GitConfigError, parse_remote
+from cmapi.core.giturl import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
 from cmapi.core.policy import PolicySettings

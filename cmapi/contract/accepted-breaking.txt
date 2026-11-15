@@ -150,3 +150,34 @@ GET /api/v1/admin/plugins removed the media type `application/json` for the resp
 # #179 (BUG-48), accepted on 2026-11-13, before the first release: the export documented `application/json` beside `text/csv`.
 # The route answers CSV only.
 GET /api/v1/quotas:export removed the media type `application/json` for the response with the status `200`
+
+# #286, accepted on 2026-11-15, before the first release: two new request states, applied and merge_failed (apply before
+# merge). A client that switches on status must handle them; the portal does (cmapi-portal-ui/src/portal/format.ts).
+POST /api/v1/admin/prune:confirm added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/admin/prune:confirm added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new `applied` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new `merge_failed` enum value to the `status` response property for the response status `202`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `applied` enum value to the `status` response property for the response status `202`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `merge_failed` enum value to the `status` response property for the response status `202`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `applied` enum value to the `status` response property for the response status `202`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `merge_failed` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend added the new `applied` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend added the new `merge_failed` enum value to the `status` response property for the response status `202`
+GET /api/v1/requests added the new `applied` enum value to the `items/items/status` response property for the response status `200`
+GET /api/v1/requests added the new `merge_failed` enum value to the `items/items/status` response property for the response status `200`
+GET /api/v1/requests/{request_id} added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id} added the new `merge_failed` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/approval-status added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/approval-status added the new `merge_failed` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/events added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/events added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:approve added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:approve added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:cancel added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:cancel added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:reject added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:reject added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:retry added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:retry added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:revert added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:revert added the new `merge_failed` enum value to the `status` response property for the response status `200`
