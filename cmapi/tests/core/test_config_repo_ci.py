@@ -91,13 +91,30 @@ def test_the_workflows_job_names_are_the_check_runs_the_worker_waits_for():
     assert wf["permissions"] == {"contents": "read"}
 
 
+def test_each_job_posts_its_outcome_as_a_commit_status_of_its_own_name():
+    """With git.ciSource statuses (#279) the worker reads ci/* as commit statuses that Actions posted: each job posts one on the
+    pull request's head, whatever the outcome, with the workflow's token, which may write statuses and nothing else."""
+    wf = yaml.safe_load((TEMPLATE / "workflows/ci.yml").read_text())
+    assert wf["permissions"] == {"contents": "read"}
+    for job in wf["jobs"].values():
+        assert job["permissions"] == {"contents": "read", "statuses": "write"}, job["name"]
+        last = job["steps"][-1]
+        assert last["if"] == "always() && github.event_name == 'pull_request'", job["name"]
+        assert last["env"]["GH_TOKEN"] == "${{ github.token }}" and last["env"]["SHA"] == "${{ github.event.pull_request.head.sha }}"
+        assert last["env"]["STATE"] == "${{ job.status == 'success' && 'success' || 'failure' }}"
+        assert f"-f context={job['name']} " in last["run"] and 'statuses/$SHA' in last["run"], last["run"]
+        # Only env values reach the shell: a ${{ }} inside run would be expanded into the script.
+        assert "${{" not in last["run"], last["run"]
+
+
 def test_the_workflow_pins_the_clis_the_image_pins():
     text = (TEMPLATE / "workflows/ci.yml").read_text()
     containerfile = (ROOT / "cmapi/Containerfile").read_text()
     for arg in ("KYVERNO_VERSION", "KYVERNO_SHA256", "KUBECONFORM_VERSION", "KUBECONFORM_SHA256"):
         value = re.search(rf"^ARG {arg}=(\S+)$", containerfile, re.M)[1]
         assert value in text, f"{arg} {value} is not the workflow's"
-    for uses in re.findall(r"uses: (\S+)", text):
+    # The key alone, at the start of a step's line: "statuses: write" (#279) also ends in "uses:".
+    for uses in re.findall(r"^\s*(?:-\s+)?uses: (\S+)", text, re.M):
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), f"{uses} is not pinned by commit"
 
 

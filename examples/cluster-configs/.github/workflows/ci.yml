@@ -2,6 +2,9 @@
 # name before it merges a bot pull request (cmapi/src/cmapi/jobs/pr_checks.py, GitHubProvider.external_ci): ci/kubeconform and
 # ci/kyverno. A check run of a workflow job takes the job's name, so the names below are the contract; renaming one makes every
 # request wait until delivery.syncTimeout and fail. cmapi posts the third, cmapi/check, as a commit status.
+# Each job also posts its outcome as a commit status of the same name on the pull request's head (#279), with the workflow's own
+# GITHUB_TOKEN, so its creator is github-actions[bot]. An instance with git.ciSource statuses reads those, and only those: a
+# fine-grained personal access token cannot call the Checks API, and a ci/* status from any other creator does not count.
 # Actions are pinned by the commit of their release tag; the two CLIs by version and SHA-256, the ones cmapi's image pins.
 name: ci
 
@@ -18,6 +21,9 @@ jobs:
   kubeconform:
     name: ci/kubeconform
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      statuses: write     # the commit status below, and nothing else
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: kubeconform v0.6.7
@@ -30,10 +36,23 @@ jobs:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" clusters/
+      - name: Report ci/kubeconform as a commit status
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=ci/kubeconform -f description="ci/kubeconform $STATE" -f target_url="$RUN_URL"
 
   kyverno:
     name: ci/kyverno
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      statuses: write     # the commit status below, and nothing else
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -48,3 +67,13 @@ jobs:
           kyverno version
       - name: Each namespace folder through its environment's bundle
         run: python .github/scripts/kyverno_check.py .
+      - name: Report ci/kyverno as a commit status
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=ci/kyverno -f description="ci/kyverno $STATE" -f target_url="$RUN_URL"

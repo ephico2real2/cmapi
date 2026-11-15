@@ -93,7 +93,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
 
     git = make_provider(settings.git_provider, settings.git_url, inst["git"]["repository"], settings.git_token,
                         default_branch=settings.git_default_branch, verify=settings.git_verify,
-                        web_url=inst["git"].get("webUrl"),
+                        web_url=inst["git"].get("webUrl"), ci_source=inst["git"].get("ciSource", "checks"),
                         basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None)
     # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
     bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)

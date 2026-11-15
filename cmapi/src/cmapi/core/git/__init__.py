@@ -21,9 +21,14 @@ PROVIDERS = {"gitea": GiteaProvider, "github": GitHubProvider}
 
 def make_provider(kind: str, api_url: str, repository: str, token: str, *, default_branch: str = "main",
                   verify: ssl.SSLContext | str | bool = True, web_url: str | None = None,
-                  basic_auth: tuple[str, str] | None = None) -> HostGitProvider:
+                  basic_auth: tuple[str, str] | None = None, ci_source: str = "checks") -> HostGitProvider:
     if kind not in PROVIDERS:
         raise ValueError(f"unknown git provider {kind}; one of {sorted(PROVIDERS)}")
+    if kind == "github":
+        return GitHubProvider(api_url, repository, token, default_branch=default_branch, verify=verify, web_url=web_url,
+                              basic_auth=basic_auth, ci_source=ci_source)
+    if ci_source != "checks":      # the Gitea stand-in has no CI runner: the worker posts ci/* itself (#60)
+        raise ValueError(f"git.ciSource {ci_source!r} is for GitHub; the {kind} provider takes no ciSource")
     return PROVIDERS[kind](api_url, repository, token, default_branch=default_branch, verify=verify, web_url=web_url,
                            basic_auth=basic_auth)
 

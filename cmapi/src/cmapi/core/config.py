@@ -28,6 +28,7 @@ from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
 from cmapi.core.policy import PolicySettings
+from cmapi.core.ports import CI_SOURCES
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
 
@@ -111,6 +112,9 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
         problems.append("expiration.yaml: prod can never expire")
     policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
     problems.extend(policy_problems)
+    ci_source = (me.get("git") or {}).get("ciSource", "checks")
+    if ci_source not in CI_SOURCES:
+        problems.append(f"instance.yaml: git.ciSource must be one of {list(CI_SOURCES)}, not {ci_source!r}")
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy)

@@ -15,6 +15,15 @@ from typing import Any, Literal, Mapping, Protocol, runtime_checkable
 from cmapi.core.identity.claims import Identity
 from cmapi.core.identity.directory import DirectoryProvider  # noqa: F401  (re-exported)
 
+# Where the config repository's CI outcome is read from (instance.yaml git.ciSource, #279).
+#   checks    the check runs of its Actions (Checks API): a GitHub App or a classic token can read them
+#   statuses  commit statuses the workflow posts itself with its GITHUB_TOKEN. A fine-grained personal access token cannot
+#             call the Checks API at all (GitHub, "Managing your personal access tokens", the limitations of fine-grained
+#             tokens), and it holds Commit statuses read and write, so it could post a ci/* status itself. A ci/* status
+#             therefore counts only when Actions posted it.
+CI_SOURCES = ("checks", "statuses")
+CI_STATUS_CREATOR = "github-actions[bot]"   # the login of a workflow's GITHUB_TOKEN
+
 # --------------------------------------------------------------------------- shared value types
 
 

@@ -28,6 +28,9 @@ data:
       git:
         repository: "ephico2real2/cmapi-cluster-configs"
         webUrl: "https://github.com"
+        # The bot's token is a fine-grained personal access token, which cannot call the Checks API (#279): the repository's
+        # workflow posts ci/kubeconform and ci/kyverno as commit statuses too, and only those Actions posted count.
+        ciSource: statuses
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
       docs: {"enabled":true}
       problems: {"typeBase":"https://cmapi.apps-crc.testing/problems/"}

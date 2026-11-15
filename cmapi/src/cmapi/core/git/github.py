@@ -14,7 +14,11 @@ read. Endpoints as documented by GitHub (2026-11):
     POST /repos/{o}/{r}/statuses/{sha}          PUT  /repos/{o}/{r}/pulls/{n}/merge {sha}
     PATCH /repos/{o}/{r}/pulls/{n}              POST /repos/{o}/{r}/issues/{n}/comments
 
-pr_status and the calls pr_checks makes are tested on a MockTransport (tests/service/test_github_check_runs.py).
+With git.ciSource statuses (#279) pr_status reads GET /repos/{o}/{r}/commits/{sha}/statuses instead of the combined status and
+the check runs: a fine-grained personal access token cannot call the Checks API, and the list names each status's creator, which
+the combined status does not, so a ci/* status counts only when Actions posted it (ports.CI_STATUS_CREATOR).
+
+pr_status and the calls pr_checks makes are tested on a MockTransport (tests/service/test_github_check_runs.py, test_github_ci_statuses.py).
 CRC's plain manifests use it against GitHub itself since #157; the first run there is its proof (#61).
 """
 from __future__ import annotations
@@ -23,7 +27,7 @@ import base64
 from typing import Any, Mapping
 
 from cmapi.core.git.base import CheckState, GitUnavailable, HostGitProvider, IncompleteList
-from cmapi.core.ports import PrRef, PrStatus
+from cmapi.core.ports import CI_SOURCES, CI_STATUS_CREATOR, PrRef, PrStatus
 
 
 def _worse(a: CheckState | None, b: CheckState) -> CheckState:
@@ -47,6 +51,12 @@ class GitHubProvider(HostGitProvider):
     # GitHub, "Compare two commits": the list of changed files "includes up to 300 changed files for the entire comparison".
     COMPARE_FILES_LIMIT = 300
     MAX_PAGES = 100      # 10,000 entries on one commit: past this a host is not answering a list, and a partial list must not read as complete
+
+    def __init__(self, *args: Any, ci_source: str = "checks", **kwargs: Any):
+        if ci_source not in CI_SOURCES:
+            raise ValueError(f"git.ciSource must be one of {list(CI_SOURCES)}, not {ci_source!r}")
+        super().__init__(*args, **kwargs)
+        self.ci_source = ci_source
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
@@ -137,7 +147,7 @@ class GitHubProvider(HostGitProvider):
         prs = r.json()
         return self._pr_ref(prs[0]) if prs else None
 
-    def _pages(self, operation: str, path: str, key: str, **params: Any) -> list[Mapping[str, Any]]:
+    def _pages(self, operation: str, path: str, key: str | None, **params: Any) -> list[Mapping[str, Any]]:
         """Every entry of a paginated list, or GitUnavailable: an unread page could hold the failure. The Link header says only
         whether there is a next page. Its URL is not called, because this client sends the token with every request."""
         entries: list[Mapping[str, Any]] = []
@@ -145,7 +155,8 @@ class GitHubProvider(HostGitProvider):
             r = self._call(operation, "GET", path, params={**params, "per_page": 100, "page": page}, ok=(200,))
             if r.status_code != 200:
                 raise GitUnavailable(f"{operation}: GET {path} page {page}: {r.status_code} {r.text[:200]}")
-            entries.extend(r.json().get(key) or [])
+            body = r.json()
+            entries.extend((body if key is None else body.get(key)) or [])
             if "next" not in r.links:
                 return entries
         raise GitUnavailable(f"{operation}: GET {path} has more than {self.MAX_PAGES} pages")
@@ -171,6 +182,20 @@ class GitHubProvider(HostGitProvider):
                 latest[key] = run
         return list(latest.values())
 
+    def _statuses_by_creator(self, head: str) -> dict[str, CheckState]:
+        """The latest commit status of each context, from the list of a commit's statuses, which names each one's creator (the
+        combined status does not). The list is newest first. A ci/* context counts only as posted by Actions: one posted by
+        any other creator, cmapi's own token included, is skipped, so it can neither pass nor hide an Actions failure."""
+        checks: dict[str, CheckState] = {}
+        for st in self._pages("pr_statuses", f"{self._repo()}/commits/{head}/statuses", None):
+            context = st["context"]
+            if context in checks:
+                continue                     # an older status of a context already decided
+            if context.startswith("ci/") and (st.get("creator") or {}).get("login") != CI_STATUS_CREATOR:
+                continue
+            checks[context] = {"success": "success", "pending": "pending"}.get(st["state"], "failure")
+        return checks
+
     def pr_status(self, pr: PrRef) -> PrStatus:
         r = self._call("pr_status", "GET", f"{self._repo()}/pulls/{pr.number}", ok=(200,))
         if r.status_code != 200:
@@ -181,6 +206,8 @@ class GitHubProvider(HostGitProvider):
             return PrStatus(state="merged" if merged else "closed", checks={}, merge_sha=p.get("merge_commit_sha") if merged else None)
         head = p["head"]["sha"]
         checks: dict[str, CheckState] = {}
+        if self.ci_source == "statuses":
+            return PrStatus(state="open", checks=self._statuses_by_creator(head))
         for st in self._pages("pr_checks", f"{self._repo()}/commits/{head}/status", "statuses"):
             reported: CheckState = {"success": "success", "pending": "pending"}.get(st["state"], "failure")
             checks[st["context"]] = _worse(checks.get(st["context"]), reported)
