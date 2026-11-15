@@ -56,7 +56,7 @@ These indexes and constraints carry correctness. The code relies on each of them
 | A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:258`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
-The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The six open states are `pending_approval`, `approved`, `pr_open`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:17`).
+The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:17`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
 
 ## The models and the migrations agree
 
@@ -138,7 +138,7 @@ One row is one event of one request. `idx_request_events_request` serves the rea
 
 | Column | What it holds |
 |---|---|
-| `event` | The name of the event: a lifecycle event (`plan_needs_approval`, `plan_auto_approved`, `approved`, `rejected`, `cancel`, `approval_timeout`, `pr_opened`, `pr_failed`, `base_changed`, `merged`, `synced`, `prune_pending`, `prune_confirmed`, `sync_timeout`, `retry`, `revert`) or a note that a handler wrote: `approval`, `error`, `prune_confirm`, `revert_requested`, `revert_opened`, `revert_noop`, `pr_closed`, `ci`, `ci_wait`, `head_moved`, `sync_wait`, `argocd`, `applied`, `refused`, `prune_waiting`, `pruned` |
+| `event` | The name of the event: a lifecycle event (`plan_needs_approval`, `plan_auto_approved`, `approved`, `rejected`, `cancel`, `approval_timeout`, `pr_opened`, `pr_failed`, `base_changed`, `applied`, `merge_failed`, `merged`, `synced`, `prune_pending`, `prune_confirmed`, `sync_timeout`, `retry`, `revert`) or a note that a handler wrote: `approval`, `error`, `prune_confirm`, `revert_requested`, `revert_opened`, `revert_noop`, `pr_closed`, `ci`, `ci_wait`, `head_moved`, and since #286 `branch_pushed`, `branch_refused`, `branch_kept`, `branch_deleted`, `merge_check`, `apply_started`, `merge_verified`, `merge_failed` (the note), `merge_retries_spent`, `pr_reopened`, `sync_wait`, `argocd`, `applied`, `refused`, `prune_waiting`, `pruned` |
 | `status` | The status of the request after the event |
 | `by` | A username, or `worker`, `ci`, `cmapi-bot`, `argocd` or `cmapi-deliverer` |
 | `note`, `detail` | A text, and optional JSON |
@@ -164,7 +164,7 @@ One row is one unit of work. The worker claims a due row with `FOR UPDATE SKIP L
 
 | Column | What it holds |
 |---|---|
-| `kind` | One of `open_pr`, `open_revert`, `pr_checks`, `watch_sync`, `prune`, `approval_timeout`, `channel_notify` (`HANDLERS`, `cmapi/src/cmapi/jobs/__init__.py`) |
+| `kind` | One of `push_branch`, `open_pr`, `open_revert`, `pr_checks`, `apply`, `merge`, `git_cleanup`, `git_reconcile` (#286), `watch_sync`, `prune`, `approval_timeout`, `channel_notify` (`HANDLERS`, `cmapi/src/cmapi/jobs/__init__.py`) |
 | `request_id`, `cluster_id` | The request, and its cluster. `approval_timeout` has no request and no cluster. It runs again every hour and queues itself (`RECURRING`) |
 | `payload` | Optional JSON. `channel_notify` has `kind`: `pending`, `approved`, `rejected` or `timeout`. `watch_sync` has `since` when `:retry` queued it. `open_revert` has `by`. `approval_timeout` has `every` |
 | `run_after` | The earliest time that a worker can claim the job. A retry moves it |
@@ -247,7 +247,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0004`. Tables: 9.
+Migration head: `0005`. Tables: 9.
 
 ### `admin_switches`
 
@@ -363,7 +363,7 @@ Migration head: `0004`. Tables: 9.
 | `idx_cr_namespace` | Index | `btree (cluster_id, namespace, created_at)` |
 | `idx_cr_status` | Index | `btree (status, created_at)` |
 | `uq_cr_idempotency` | Unique index | `btree (requester_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)` |
-| `uq_cr_open_namespace` | Unique index | `btree (cluster_id, namespace) WHERE ((status)::text = ANY ((ARRAY['pending_approval'::character varying, 'approved'::character varying, 'pr_open'::character varying, 'merged'::character varying, 'awaiting_prune'::character varying, 'sync_failed'::character varying])::text[]))` |
+| `uq_cr_open_namespace` | Unique index | `btree (cluster_id, namespace) WHERE ((status)::text = ANY ((ARRAY['pending_approval'::character varying, 'approved'::character varying, 'pr_open'::character varying, 'applied'::character varying, 'merge_failed'::character varying, 'merged'::character varying, 'awaiting_prune'::character varying, 'sync_failed'::character varying])::text[]))` |
 
 ### `expiration_notices`
 

@@ -1,8 +1,43 @@
 # #286: Git delivery through the Git protocol, and a thin PR adapter for each host
 
-OB1 run 10 (Opus 5.5 at `high`) wrote this record on 2026-11-15. It is OB1's own design, written without Fable's
-design. It covers the issue as rewritten on 2026-11-15, its comments, and the coordinator's decisions sent to OB1 that day.
-The coordinator arbitrates between this record and Fable's; the code then follows the result.
+OB1 run 10 (Opus 5.5 at `high`) wrote this record on 2026-11-15. Sections 1 to 7 are OB1's own design, written without
+Fable's design. Section 0 is what was built: the coordinator's arbitration of the two designs, folded in after it.
+
+## 0. The arbitration, and who designed what
+
+Two designs, each written without the other: Fable 5.2 (`workbench/cmapi/design-286-fable/DESIGN.md`) and OB1 (sections 1 to 7
+below, commit `db0738e`). The coordinator (Opus 5.5) arbitrated them (`workbench/cmapi/design-286-arbitration.md`); PR-A
+builds the result. Who designed each part:
+
+| Part | Designed by | Where it is built |
+|---|---|---|
+| The two layers, the bare mirror with one refspec, the worktree path and branch name, the empty lease on the first push, the fence before each effect, the credential objects, the SSH options, nss_wrapper with `/etc/passwd` at 0644 | Both | `core/git/workspace.py`, `transport.py`, `components/cmapi/30-worker.yaml`, `cmapi/Containerfile` |
+| The `applied` state and the `apply_started` event in its own transaction; `merge_failed` | Fable (row 1) | `core/lifecycle.py`, `jobs/apply.py`, `jobs/delivery.py`, migration `0005` |
+| One external effect per job: push_branch, open_pr, pr_checks, apply, merge, git_cleanup, git_reconcile | Fable (rows 2, 9) | `jobs/` |
+| The adoption test; replacement with a lease only for this request's own trailers; a foreign head refused | Fable, with OB1's refusal (row 3) | `GitWorkspace.push_branch`, `_adoptable` |
+| Deletes merge first in apply mode | OB1 (row 4) | `jobs/pr_checks.py` |
+| The reproducible commit (both dates the approval's) | Fable (row 5) | `GitWorkspace._build` |
+| The sweeper per pod, in the worker loop between jobs | Fable's scope, OB1's place (row 6) | `worker.py` `Worker.sweep`, `GitWorkspace.sweep` |
+| One Git lock per process, and a process-ownership `flock` | OB1 (row 7) | `GitWorkspace._lock`, `.lock` |
+| The branch deleted by a push with a lease, for every adapter | Fable (row 8) | `GitWorkspace.delete_branch`, `jobs/git_cleanup.py` |
+| `merge-tree`: exit 1 is a conflict only with a tree OID | OB1, measured (row 10) | `GitWorkspace.merge_check` |
+| No status posted while host CI is off | Fable (row 11) | `HostGitProvider.post_statuses`, `jobs/pr_checks.py` |
+| Plan-time reads in the API through the host API, for PR-A | OB1 (row 12); the owner decides before PR-B | `GitHubProvider` with no Git layer in the API process |
+| Git over HTTPS with the API token on CRC, an interim | OB1 (row 13) | `environments/crc/20-config.yaml` |
+| A merge the host already made is adopted | Fable (row 16) | `jobs/merge.py` |
+| Log fields and metrics; `redact()` of registered secrets | Fable's set, OB1's mechanism (row 17) | `core/git/oplog.py`, `core/observability.py` |
+| `:revert` before a merge, and from `merge_failed` | The owner decides (row 15); PR-A refuses `:revert` with no merge sha | `routers/requests.py` |
+| The test plan | Fable, sections 7.1 to 7.6 | `tests/service/test_git_layer.py` |
+
+What changed from OB1's sections below: there is no `deliver_pr` job; the apply and the merge are two jobs, and a request
+whose apply started can reach only `applied` or `sync_failed`. The trailer is `Cmapi-Request-Id`. The workdir's repository is
+`repo.git`. The worker sweeps between jobs, not as a database job. Section 2.5's per-host table is now verified at each
+host's documentation where it says so (docs/13, docs/18). OB1's section 2.3 on deletes stands.
+
+The coordinator's instruction of 2026-11-15 to make `/etc/passwd` group-writable "so CRI-O adds the entry" was retracted by
+the coordinator after the CRI-O source was checked (section 3, D3): CRI-O's `GeneratePasswd` returns early at line 222 when
+`checkFilePermissions` is true, which is `stat.Mode&0o022 != 0` at line 314. `deploy/tests/image-git-test.sh` refuses an image
+whose `/etc/passwd` group or others can write, and the Containerfile's build checks it too.
 
 "Measured" means OB1 ran the command and the log is in `workbench/cmapi/ob1-run10/`. "Read" means a primary source, read on
 2026-11-15. "Inferred" means neither.

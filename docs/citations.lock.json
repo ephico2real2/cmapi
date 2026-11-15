@@ -398,13 +398,13 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|157-157": [
   "        c.cfg.roles.require(who, \"requests:reject\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|171-171": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|172-172": [
   "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|187-187": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|192-192": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|211-211": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|221-221": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|28-28": [
@@ -742,7 +742,7 @@
   "    def __init__(self, issuer: str, url: str, *, verify: str | bool = True, lifespan: float = 600.0,"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|17-17": [
-  "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
+  "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"applied\", \"merge_failed\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|117-117": [
   "    def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:"

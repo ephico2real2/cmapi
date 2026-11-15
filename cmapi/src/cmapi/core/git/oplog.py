@@ -21,7 +21,9 @@ from cmapi.core.observability import GIT_DURATION, GIT_OPS, log
 _CONTEXT: ContextVar[dict[str, Any]] = ContextVar("cmapi_git_context", default={})
 _SECRETS: set[str] = set()
 _SECRETS_LOCK = threading.Lock()
-CONTEXT_KEYS = ("request_id", "cluster", "namespace", "branch", "attempt")
+# Present on every event, from git_context: the job (set by the worker) and the request (set by the job).
+CONTEXT_KEYS = ("request_id", "cluster", "namespace", "branch", "attempt", "job_id", "job_kind", "worker", "lease_generation",
+                "platform", "pr_number")
 
 
 def register_secret(value: str | None) -> None:
@@ -56,8 +58,8 @@ def current_context() -> dict[str, Any]:
 class Op:
     """with Op("merge_check", head_sha=h) as op: ...; op.set(main_sha=m, conflicts=[...]); op.outcome = "conflict".
 
-    The outcome is ok when the block ends normally, failure when it raises, or what the block set (refused, conflict,
-    skipped). An exception is logged and re-raised, never swallowed."""
+    The outcome is ok when the block ends normally, error when it raises, or what the block set (retry, refused, skipped).
+    An exception is logged and re-raised, never swallowed."""
 
     def __init__(self, op: str, **fields: Any):
         self.op, self.fields, self.outcome = op, dict(fields), None
@@ -72,12 +74,15 @@ class Op:
 
     def __exit__(self, kind, exc, tb) -> bool:
         duration = time.perf_counter() - self.started
-        outcome = self.outcome or ("ok" if exc is None else "failure")
+        outcome = self.outcome or ("ok" if exc is None else "error")
         GIT_OPS.labels(self.op, outcome).inc()
         GIT_DURATION.labels(self.op).observe(duration)
-        event = {**current_context(), **self.fields, "op": self.op, "outcome": outcome, "duration_ms": round(duration * 1000, 1)}
+        event = {**{k: None for k in CONTEXT_KEYS}, **current_context(), **self.fields, "op": self.op, "outcome": outcome,
+                 "duration_ms": round(duration * 1000, 1)}
         if exc is not None:
             event["error"] = f"{type(exc).__name__}: {exc}"
         event = {k: redact(v) if not isinstance(v, list) else [redact(x) for x in v] for k, v in event.items()}
+        if "stderr" in event and isinstance(event["stderr"], str):
+            event["stderr"] = event["stderr"][-2000:]
         (log.info if outcome in ("ok", "skipped") else log.warning)("git_op", **event)
         return False

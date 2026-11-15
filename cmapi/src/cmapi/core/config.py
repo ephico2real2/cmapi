@@ -126,8 +126,9 @@ def _git_problems(git: dict) -> list[str]:
             parse_remote(git["url"])
         except GitConfigError as exc:
             problems.append(f"instance.yaml: {exc}")
-    if not isinstance(git.get("hostChecks", False), bool):
-        problems.append("instance.yaml: git.hostChecks is true or false")
+    for key in ("hostChecks", "postStatus"):
+        if not isinstance(git.get(key, False), bool):
+            problems.append(f"instance.yaml: git.{key} is true or false")
     email = git.get("commitEmail")
     if email is not None and (not isinstance(email, str) or "@" not in email or any(c.isspace() or c in "<>" for c in email)):
         problems.append("instance.yaml: git.commitEmail is one address, such as the bot account's no-reply address")

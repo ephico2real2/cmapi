@@ -1,8 +1,9 @@
 # The instance files the api and the worker read from /etc/cmapi/config (CMAPI_CONFIG_DIR) on CRC. From approval-rules.yaml on,
 # every file is byte for byte environments/kind's (test_crc_policy_files_are_the_kind_files).
 # The full request flow on CRC (#157, the owner's decision of 2026-11-15): the bot writes to the GitHub repository
-# ephico2real2/cmapi-cluster-configs, the one cluster takes writes, and delivery.mode apply has the worker server-side apply the
-# merged folder, contained by environments/crc/deliverer/ (docs/13). CRC has no Argo CD, which is why it is apply, a deployment's
+# ephico2real2/cmapi-cluster-configs, a branch and a PR for each request through the Git layer over HTTPS with the bot account's
+# token, host CI off (#286), the one cluster takes writes, and delivery.mode apply has the worker server-side apply the PR
+# branch's folder, confirm it, and then merge the PR (apply before merge), contained by environments/crc/deliverer/ (docs/13). CRC has no Argo CD, which is why it is apply, a deployment's
 # choice that docs/02 names; the design's own mode stays argocd (Wave 5).
 apiVersion: v1
 kind: ConfigMap
@@ -28,6 +29,9 @@ data:
       git:
         repository: "ephico2real2/cmapi-cluster-configs"
         webUrl: "https://github.com"
+        url: "https://github.com/ephico2real2/cmapi-cluster-configs.git"
+        username: "cmapi-git-bot"
+        hostChecks: false
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
       docs: {"enabled":true}
       problems: {"typeBase":"https://cmapi.apps-crc.testing/problems/"}

@@ -27,7 +27,7 @@ spec:
       annotations: {summary: "Callers are getting idp-unavailable (Keycloak unreachable)"}
     - alert: CmapiGitUnavailable
       expr: |
-        sum(rate(cmapi_git_operations_total{result="failure"}[5m]))
+        sum(rate(cmapi_git_operations_total{result=~"error|retry"}[5m]))
           / sum(rate(cmapi_git_operations_total[5m])) > 0.20
       for: 5m
       labels: {severity: critical}
@@ -64,6 +64,22 @@ spec:
       for: 1h
       labels: {severity: warning}
       annotations: {summary: "{{ $labels.resource }} commitment critical on {{ $labels.cluster_id }} for 1 hour"}
+    # #286: the cluster holds a change that main does not. merge_failed waits for :retry with the PR and branch kept;
+    # applied for long means the merge job is stuck; a branch refused or kept is a person's head on a cmapi branch.
+    - alert: CmapiMergeFailed
+      expr: max(cmapi_requests_in_state{state="merge_failed"}) > 0
+      for: 5m
+      labels: {severity: critical}
+      annotations: {summary: "A request is applied on its cluster and its PR did not merge: :retry merges it"}
+    - alert: CmapiAppliedNotMerged
+      expr: max(cmapi_requests_in_state{state="applied"}) > 0
+      for: 15m
+      labels: {severity: warning}
+      annotations: {summary: "A request has been applied and not merged for 15 minutes"}
+    - alert: CmapiGitForeignBranch
+      expr: sum(increase(cmapi_git_orphans_total{kind="foreign_branch"}[15m])) > 0
+      labels: {severity: warning}
+      annotations: {summary: "A cmapi/ branch holds a head that is not cmapi's: the request failed and the branch was left alone"}
     - alert: CmapiSyncStuck
       # Age of the oldest request in a state (worker gauge), not "something is open".
       # A request moves to sync_failed when it is merged but not synced within the sync timeout (30 min).

@@ -32,7 +32,8 @@ def test_refusals():
         transition(S.APPROVED, E.APPROVED)
     assert e.value.code == "not-pending"
     with pytest.raises(Problem):
-        transition(S.PR_OPEN, E.CANCEL)                 # too late to cancel
+        transition(S.APPLIED, E.CANCEL)                 # too late to cancel: the cluster holds the change (#286). From pr_open
+                                                        # the endpoint refuses once an apply has started (routers/requests.py)
     with pytest.raises(Problem) as e:
         transition(S.PENDING_APPROVAL, E.CANCEL, actor_is_requester=False)
     assert e.value.code == "forbidden"
@@ -43,7 +44,8 @@ def test_retry_and_sync_failed():
     assert t.after == S.APPROVED and holds_lock(t.after)
     t = transition(S.MERGED, E.SYNC_TIMEOUT)
     assert t.after == S.SYNC_FAILED and holds_lock(S.SYNC_FAILED) and t.releases_reservation
-    assert set(allowed_events(S.SYNC_FAILED)) == {E.RETRY, E.SYNCED, E.REVERT}
+    # APPLIED: a :retry of an apply that had not finished, before any merge (#286)
+    assert set(allowed_events(S.SYNC_FAILED)) == {E.RETRY, E.SYNCED, E.REVERT, E.APPLIED}
 
 
 def test_a_prune_that_cannot_be_confirmed_ends_in_sync_failed():

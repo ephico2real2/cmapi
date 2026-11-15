@@ -24,7 +24,8 @@ class State(str, Enum):
     TIMEOUT = "timeout"
     FAILED = "failed"
     SYNC_FAILED = "sync_failed"
-    MERGE_FAILED = "merge_failed"                 # applied to the cluster, its PR not merged: lock and PR kept until it merges (#286)
+    APPLIED = "applied"                           # apply mode: the cluster holds the PR's head, main does not yet (#286)
+    MERGE_FAILED = "merge_failed"                 # applied, and the merge did not happen: lock, PR and branch kept until it merges
     SUPERSEDED = "superseded"
     REVERTED = "reverted"                         # sync_failed, handed over to a :revert request
 
@@ -35,13 +36,14 @@ class Event(str, Enum):
     PLAN_FAILED = "plan_failed"                   # policy, capacity or validation refusal
     APPROVED = "approved"                         # the count is met and capacity still fits
     REJECTED = "rejected"                         # an approver rejected, with a comment
-    CANCEL = "cancel"                             # the requester, before pr_open
+    CANCEL = "cancel"                             # the requester or an operator, before an apply starts
     APPROVAL_TIMEOUT = "approval_timeout"
     PR_OPENED = "pr_opened"
     PR_FAILED = "pr_failed"                       # 5 attempts with backoff, CI failed, PR closed
     BASE_CHANGED = "base_changed"                 # the namespace's files changed in Git after the plan
     MERGED = "merged"
-    MERGE_FAILED = "merge_failed"                 # apply before merge: the merge after a confirmed apply did not happen
+    APPLIED = "applied"                           # apply before merge: the PR's head applied and confirmed by a read
+    MERGE_FAILED = "merge_failed"                 # the merge after the apply did not happen: attempts spent, or a check refused it
     SYNCED = "synced"                             # Argo CD Synced at or after the merge, confirmed by a read
     PRUNE_PENDING = "prune_pending"               # a delete merged; Argo CD waits for confirmation
     PRUNE_CONFIRMED = "prune_confirmed"
@@ -63,12 +65,19 @@ _T: dict[tuple[State | None, Event], State] = {
     (S.APPROVED, E.CANCEL): S.CANCELLED,
     (S.APPROVED, E.PR_FAILED): S.FAILED,
     (S.APPROVED, E.BASE_CHANGED): S.SUPERSEDED,
-    (S.PR_OPEN, E.MERGED): S.MERGED,
-    (S.PR_OPEN, E.PR_FAILED): S.FAILED,
-    (S.PR_OPEN, E.BASE_CHANGED): S.SUPERSEDED,
-    (S.PR_OPEN, E.MERGE_FAILED): S.MERGE_FAILED,
+    (S.PR_OPEN, E.MERGED): S.MERGED,              # cmapi merged (argocd, a delete), or a person did: adopted
+    (S.PR_OPEN, E.PR_FAILED): S.FAILED,           # only while no apply_started event exists (jobs/apply.py)
+    (S.PR_OPEN, E.BASE_CHANGED): S.SUPERSEDED,    # the same
+    (S.PR_OPEN, E.CANCEL): S.CANCELLED,           # refused once an apply_started event exists (routers/requests.py)
+    # Apply before merge (#286; Fable's design 1.3, the arbitration's row 1). From applied and merge_failed the cluster is ahead
+    # of main: no CANCEL, PR_FAILED or BASE_CHANGED there, so no code path can release the lock while it is.
+    (S.PR_OPEN, E.APPLIED): S.APPLIED,
+    (S.PR_OPEN, E.SYNC_TIMEOUT): S.SYNC_FAILED,   # an apply started and did not finish: PR and branch kept
+    (S.APPLIED, E.MERGED): S.MERGED,
+    (S.APPLIED, E.MERGE_FAILED): S.MERGE_FAILED,
     (S.MERGE_FAILED, E.MERGED): S.MERGED,
-    (S.MERGE_FAILED, E.RETRY): S.MERGE_FAILED,    # deliver_pr again, pinned to the applied head; never a rollback
+    (S.MERGE_FAILED, E.RETRY): S.MERGE_FAILED,    # the merge job again, pinned to the applied head; never a rollback
+    (S.SYNC_FAILED, E.APPLIED): S.APPLIED,        # a :retry of an apply that had not finished (merge_sha null)
     (S.MERGED, E.SYNCED): S.SYNCED,
     (S.MERGED, E.PRUNE_PENDING): S.AWAITING_PRUNE,
     (S.MERGED, E.SYNC_TIMEOUT): S.SYNC_FAILED,
@@ -81,8 +90,8 @@ _T: dict[tuple[State | None, Event], State] = {
 }
 
 TERMINAL = frozenset({S.SYNCED, S.REJECTED, S.CANCELLED, S.TIMEOUT, S.SUPERSEDED, S.REVERTED})
-_LOCK = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED, S.AWAITING_PRUNE, S.SYNC_FAILED, S.MERGE_FAILED})
-_RESERVATION = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.MERGED, S.MERGE_FAILED})
+_LOCK = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.APPLIED, S.MERGE_FAILED, S.MERGED, S.AWAITING_PRUNE, S.SYNC_FAILED})
+_RESERVATION = frozenset({S.PENDING_APPROVAL, S.APPROVED, S.PR_OPEN, S.APPLIED, S.MERGE_FAILED, S.MERGED})
 
 # Who may cause each externally triggered event (everything else is the worker or the pipeline).
 PERMISSION = {E.APPROVED: "requests:approve", E.REJECTED: "requests:reject",

@@ -125,7 +125,7 @@ def test_retry_after_a_smuggled_branch_does_not_merge_it(world):
     git.tamper(branch, where, "kind: RoleBinding\n")
     real_open = git.open_pr
 
-    def keeps_branch(br, files, title, body, base_sha):         # what a host does when no one deletes the branch
+    def keeps_branch(br, head, title, body):                    # what a host does when no one deletes the branch
         n = len(git.prs) + 1
         git.prs[n] = {"branch": br, "state": "open", "title": title, "body": body, "url": f"https://git.test/pulls/{n}", "merge_sha": None}
         from cmapi.core.ports import PrRef

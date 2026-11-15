@@ -32,10 +32,20 @@ AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["perm
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
                           ["plugin", "environment"])
-# One count per Git or platform operation (core/git/oplog.py, #286): op is fetch, worktree, commit, push, pr_open, pr_state,
-# merge_check, merge, cleanup and the host API calls; result is ok, refused, conflict, skipped or failure.
+# The Git layer and the platform adapters (#286; the fields and metrics of Fable's design, 6.2). One count per operation
+# (core/git/oplog.py): op is clone, fetch, ls_remote, worktree, commit, push, merge_check, branch_delete, cleanup, and the host
+# calls pr_open, pr_find, pr_state, pr_list, merge, pr_comment, pr_close, status_read, status_write; result is ok, retry,
+# refused, skipped or error. No metric carries a request ID.
 GIT_OPS = Counter("cmapi_git_operations_total", "Git and Git host operations", ["op", "result"])
-GIT_DURATION = Histogram("cmapi_git_operation_duration_seconds", "Git and Git host operation duration", ["op"])
+GIT_DURATION = Histogram("cmapi_git_operation_seconds", "Git and Git host operation duration", ["op"])
+PLATFORM_REQUESTS = Counter("cmapi_git_platform_requests_total", "Git host API calls", ["platform", "op", "code"])
+MERGE_CONFLICTS = Counter("cmapi_git_merge_conflicts_total", "Merge checks that refused: a conflict or a folder that moved", ["caller"])
+REQUESTS_IN_STATE = Gauge("cmapi_requests_in_state", "Requests in a state the alerts watch", ["state"])
+GIT_WORKDIR_BYTES = Gauge("cmapi_git_workdir_bytes", "Size of this pod's Git workdir")
+GIT_WORKTREES = Gauge("cmapi_git_worktrees", "Request worktrees in this pod's Git workdir")
+SWEEPER_RUNS = Counter("cmapi_git_sweeper_runs_total", "Passes of the Git workdir sweeper", ["result"])
+GIT_ORPHANS = Counter("cmapi_git_orphans_total", "Branches and PRs that git_reconcile or a job found and acted on", ["kind", "action"])
+REQUESTS_STALLED = Gauge("cmapi_requests_stalled", "pr_open requests with no PR and no job, older than syncTimeout")
 JOBS_PENDING = Gauge("cmapi_jobs_pending", "Jobs waiting to run", ["kind"])
 JOB_FAILURES = Counter("cmapi_job_failures_total", "Jobs that raised", ["kind"])
 LEAD_TIME = Histogram("cmapi_change_lead_time_seconds", "Submit to synced", ["plugin", "action", "approval"],

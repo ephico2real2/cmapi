@@ -36,7 +36,7 @@ def test_prune_read_outage_does_not_exhaust_the_only_job(world):
         s.execute(text("update change_requests set status='awaiting_prune', action='delete'"))
         rid = s.execute(text("select request_id from change_requests")).scalar()
         JobRepo(s).enqueue("prune", request_id=rid, cluster_id="CRC")
-        s.execute(text("delete from jobs where kind='open_pr'"))
+        s.execute(text("delete from jobs where kind in ('push_branch', 'open_pr')"))
     real = kube.get_object
     kube.get_object = lambda *_a, **_k: (_ for _ in ()).throw(ClusterUnreachable("the API server is down"))
     try:

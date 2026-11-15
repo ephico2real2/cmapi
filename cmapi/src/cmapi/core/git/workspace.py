@@ -1,23 +1,27 @@
 """The Git layer (#286): the Git protocol only, the same for every host. A platform adapter (core/git/github.py) adds the PR.
 
-Working storage, in CMAPI_GIT_WORKDIR (an emptyDir with a sizeLimit in the pod; the decision and its measurements are in
+Working storage, in CMAPI_GIT_WORKDIR (an emptyDir with a sizeLimit in the worker pod; the decision and its measurements are in
 docs/reviews/2026-11-15-issue-286):
 
-    <workdir>/mirror.git                 one bare partial clone (--filter=blob:none) per process; blobs come when a read needs them
-    <workdir>/<cluster>/<requestId>      one git worktree per request, on branch cmapi/<cluster>/<requestId>, cut from origin/main
+    <workdir>/repo.git                   one bare partial clone per process: git init --bare, one fetch refspec
+                                         +refs/heads/main:refs/remotes/origin/main, --filter=blob:none. Not clone --mirror
+                                         (+refs/*:refs/*) and not clone --bare (every branch as a local one): measured, both
+                                         write refs/heads/cmapi/* on fetch, the branches the worktrees hold
+    <workdir>/<cluster>/<requestId>      one git worktree per request, on branch cmapi/<cluster>/<requestId>
+    <workdir>/.lock                      flock: one process owns the workdir
 
-A request's flow: fetch origin main; worktree add -b <branch> <dir> origin/main (never a local main, never git pull); write the
-files of its folder; one commit whose trailers carry the request ID and the plan hash; push that branch alone, with a lease that
-says it must not exist yet. Nothing here ever pushes to the default branch: the PR's merge happens on the host. Before that
-merge, merge_check fetches main, runs git merge-tree --write-tree, and compares the request's folder on main with the plan's base.
+A request's branch: fetch origin main; worktree add -b <branch> <dir> <origin/main's sha> (never a local main, never git pull);
+the folder's files; one commit whose dates are the approval's, so the same plan on the same main gives the same sha on any
+replica (reproducible); a push of that branch alone with a lease. Nothing here pushes to the default branch: the PR merges on
+the host. A branch that exists on the remote is adopted when it passes the adoption test, replaced with a lease when it is this
+request's own stale attempt, and refused when its head is anyone else's (the arbitration of #286, rows 3 and 5).
 
-One process owns a workdir (a lock file says so). Its calls are serialised by one lock, which the sweeper also takes: it runs
-only when no other Git operation of this process does.
+One process, one lock (the arbitration, row 7): the worker runs one job at a time, so a single lock serialises every Git
+operation of the process, and the sweeper takes it without waiting.
 """
 from __future__ import annotations
 
 import fcntl
-import os
 import re
 import shutil
 import subprocess
@@ -26,24 +30,30 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Iterable, Literal, Mapping
 
-from cmapi.core.git.base import GitUnavailable
+from cmapi.core.git.base import BranchRequest, GitUnavailable, MergeCheck, PushResult
 from cmapi.core.git.oplog import Op, redact, register_secret
-from cmapi.core.observability import log
-from cmapi.core.git.transport import (Credentials, GitConfigError, Remote, check_path, git_environment, load_credentials,
-                                      parse_remote)
+from cmapi.core.git.transport import Credentials, GitConfigError, Remote, check_path, git_environment, load_credentials, parse_remote
+from cmapi.core.observability import GIT_WORKDIR_BYTES, GIT_WORKTREES, SWEEPER_RUNS, log
 
-TRAILER_REQUEST = "Cmapi-Request"
+TRAILER_REQUEST = "Cmapi-Request-Id"
 TRAILER_PLAN_HASH = "Cmapi-Plan-Hash"
 BRANCH_PREFIX = "cmapi/"
-MIRROR = "mirror.git"
-_SHA = re.compile(r"[0-9a-f]{40}")
+REPO = "repo.git"
+FETCHED = "refs/cmapi-fetched/"
+BOT_NAME = "cmapi-git-bot"
+BOT_EMAIL = "cmapi-git-bot@noreply.invalid"      # RFC 2606 .invalid: never delivered. instance.git.commitEmail names the real one
+_OID = re.compile(r"[0-9a-f]{40}([0-9a-f]{24})?")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 class BranchRefused(GitUnavailable):
-    """The request's branch exists and was not written for this request and this plan: it is never adopted or overwritten."""
+    """The request's branch exists and its head is not cmapi's for this request: it is never adopted or overwritten."""
+
+
+class BranchMoved(GitUnavailable):
+    """A lease was refused: someone wrote the ref between the read and the push. The job reads again (a retry)."""
 
 
 class GitFailed(GitUnavailable):
@@ -52,22 +62,9 @@ class GitFailed(GitUnavailable):
         self.exit_code, self.stderr = exit_code, stderr
 
 
-@dataclass(frozen=True)
-class MergeCheck:
-    main_sha: str
-    head_sha: str
-    conflicts: tuple[str, ...] = ()
-    folder_moved: bool = False
-    tree: str | None = None                  # the merged tree, when clean
-
-    @property
-    def ok(self) -> bool:
-        return not self.conflicts and not self.folder_moved
-
-
 @dataclass
 class SweepResult:
-    skipped: bool = False
+    result: Literal["ok", "skipped", "recloned", "error"] = "ok"
     removed: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
 
@@ -78,22 +75,21 @@ def request_branch(cluster_id: str, request_id: str) -> str:
     return f"{BRANCH_PREFIX}{cluster_id}/{request_id}"
 
 
-BOT_NAME = "cmapi-git-bot"
-BOT_EMAIL = "cmapi-git-bot@noreply.invalid"      # RFC 2606 .invalid: never delivered. instance.git.commitEmail names the real one
+def _under(path: Path) -> int:
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file() and not p.is_symlink())
 
 
 class GitWorkspace:
-    """The bot's identity on every host is a machine user account, cmapi-git-bot (the owner, 2026-11-15): its SSH key and its
-    API token. Commits name it as author and committer, with instance.git.commitEmail; the request, plan hash, approval and
-    requester are in the trailers."""
+    """The bot's identity on every host is a machine user account, cmapi-git-bot (the owner, 2026-11-15): commits name it as
+    author and committer, with instance.git.commitEmail; the request, plan hash, approval and requester are in the trailers."""
 
     def __init__(self, url: str, *, default_branch: str = "main", workdir: Path | str | None = None,
                  credentials_dir: Path | str = "/etc/cmapi/git-bot", ssh_dir: Path | str | None = None,
                  known_hosts_dir: Path | str | None = None, ca_bundle: Path | str | None = None,
                  username: str | None = None, commit_email: str | None = None, timeout: float = 120.0,
-                 git_binary: str | None = None):
+                 size_limit: int = 1 << 30, git_binary: str | None = None):
         self.remote: Remote = parse_remote(url)
-        self.default_branch, self.timeout = default_branch, timeout
+        self.default_branch, self.timeout, self.size_limit = default_branch, timeout, size_limit
         self._binary = git_binary or shutil.which("git")
         if not self._binary:
             raise GitConfigError("the Git layer needs the git binary on PATH (the image installs git-core)")
@@ -114,33 +110,36 @@ class GitWorkspace:
         try:
             fcntl.flock(self._lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
+            self._lockfile.close()
             raise GitConfigError(f"{self.root} is the Git workdir of another process: each process has its own") from exc
-        self.mirror = self.root / MIRROR
+        self.mirror = self.root / REPO
         self._home = self.root / ".home"
         self._home.mkdir(exist_ok=True)
         self._lock = threading.RLock()
         self._env = git_environment(self.remote, self._creds, self._home, self._ca, self.author)
         self._tracking = f"refs/remotes/origin/{default_branch}"
+        self._refspec = f"+refs/heads/{default_branch}:{self._tracking}"
         if self._run("check-ref-format", "--branch", default_branch, ok=(0, 1, 128)).returncode != 0:
             raise GitConfigError(f"{default_branch!r} is not a branch name")
-        self._finalizer = weakref.finalize(self, _cleanup, self._lockfile, str(self.root) if owned else None)
+        self._finalizer = weakref.finalize(self, _release, self._lockfile, str(self.root) if owned else None)
+        self._repair()
         log.info("git_layer", url=self.remote.url, transport=self.remote.transport, workdir=str(self.root),
                  ssh_key_fingerprint=self._creds.fingerprint, author=f"{self.author[0]} <{self.author[1]}>")
 
     # ---- running git
     def _run(self, *args: str, cwd: Path | None = None, input: bytes | None = None, ok: tuple[int, ...] = (0,),
-             git_dir: bool = False) -> subprocess.CompletedProcess[bytes]:
+             git_dir: bool = False, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[bytes]:
         argv = [self._binary, *((f"--git-dir={self.mirror}",) if git_dir else ()), *args]
         try:
-            p = subprocess.run(argv, input=input, capture_output=True, env=self._env, cwd=cwd or self._home,
+            p = subprocess.run(argv, input=input, capture_output=True, env=dict(env or self._env), cwd=cwd or self._home,
                                timeout=self.timeout, check=False)
         except subprocess.TimeoutExpired as exc:
             raise GitFailed(f"git {args[0]} did not finish in {self.timeout:.0f} s") from exc
         except OSError as exc:
             raise GitFailed(f"git {args[0]}: {type(exc).__name__}: {exc}") from exc
         if p.returncode not in ok:
-            err = redact(p.stderr.decode(errors="replace").strip())[-600:]
-            raise GitFailed(f"git {args[0]} exited {p.returncode}: {err}", p.returncode, err)
+            err = redact(p.stderr.decode(errors="replace").strip())[-2000:]
+            raise GitFailed(f"git {args[0]} exited {p.returncode}: {err[-400:]}", p.returncode, err)
         return p
 
     def _out(self, *args: str, **kw) -> str:
@@ -153,84 +152,126 @@ class GitWorkspace:
     def _failed(op: Op, exc: GitFailed) -> None:
         op.set(exit_code=exc.exit_code, stderr=exc.stderr)
 
-    # ---- the mirror
+    # ---- the repository
+    def _repair(self) -> None:
+        """At start (a container restart keeps an emptyDir): stale lock files go, worktrees are pruned, and a repository whose
+        remote or refspec is not this one's is removed, to be fetched again. This process owns the workdir (flock), so no git
+        process can own those lock files."""
+        if not (self.mirror / "HEAD").exists():
+            return
+        with Op("cleanup", scope="startup") as op:
+            ok = self._m("rev-parse", "--git-dir", ok=(0, 128)).returncode == 0
+            if ok:
+                url = self._m("config", "--get", "remote.origin.url", ok=(0, 1)).stdout.decode().strip()
+                spec = self._m("config", "--get-all", "remote.origin.fetch", ok=(0, 1)).stdout.decode().split()
+                ok = url == self.remote.url and spec == [self._refspec]
+            if not ok:
+                shutil.rmtree(self.mirror)
+                op.set(reason="not this remote or refspec: fetched again", removed=[REPO])
+                return
+            removed = []
+            for stale in list(self.mirror.rglob("*.lock")) + list(self.mirror.glob("gc.pid")):
+                stale.unlink(missing_ok=True)
+                removed.append(str(stale.relative_to(self.root)))
+            self._m("worktree", "prune")
+            op.set(removed=removed)
+
     def _ensure_mirror(self) -> None:
         if (self.mirror / "HEAD").exists():
-            if self._run("rev-parse", "--git-dir", git_dir=True, ok=(0, 128)).returncode == 0:
-                for stale in self.mirror.rglob("*.lock"):            # a process that stopped mid-operation; this one owns the dir
-                    stale.unlink(missing_ok=True)
-                return
-            shutil.rmtree(self.mirror)                              # not a repository any more: the remote is the source of truth
-        # Not clone --mirror (+refs/*:refs/*, no origin/main) and not clone --bare (every branch as a local one): an empty bare
-        # repository whose one fetch refspec is main's, as a partial clone. A fetch never writes the cmapi/* branches that the
-        # worktrees hold (the review's measurement, #286).
-        with Op("clone", url=self.remote.url) as op:
+            return
+        with Op("clone", url=self.remote.url, refspec=self._refspec) as op:
             try:
                 self._run("init", "--quiet", "--bare", str(self.mirror))
-                for key, value in (("remote.origin.url", self.remote.url),
-                                   ("remote.origin.fetch", f"+refs/heads/{self.default_branch}:{self._tracking}"),
+                for key, value in (("remote.origin.url", self.remote.url), ("remote.origin.fetch", self._refspec),
                                    ("remote.origin.promisor", "true"), ("remote.origin.partialclonefilter", "blob:none"),
-                                   ("remote.origin.tagOpt", "--no-tags")):
+                                   ("remote.origin.tagOpt", "--no-tags"), ("gc.auto", "0"), ("maintenance.auto", "false")):
                     self._m("config", key, value)
-                self._fetch(self.default_branch, ensure=False)
+                self._fetch_into(self.default_branch, self._tracking)
             except GitFailed as exc:
                 self._failed(op, exc)
                 shutil.rmtree(self.mirror, ignore_errors=True)
                 raise
 
-    def _fetch(self, branch: str, ensure: bool = True) -> str | None:
-        """The remote branch's head, fetched to refs/remotes/origin/<branch>; None when the remote has no such branch."""
-        if ensure:
-            self._ensure_mirror()
-        tracking = f"refs/remotes/origin/{branch}"
-        with Op("fetch", ref=branch) as op:
+    def _fetch_into(self, branch: str, target: str) -> str | None:
+        """refs/heads/<branch> of origin into target; None when the remote has no such branch."""
+        with Op("fetch", ref=branch, refspec=f"+refs/heads/{branch}:{target}") as op:
             try:
-                p = self._m("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--filter=blob:none", "origin",
-                            f"+refs/heads/{branch}:{tracking}", ok=(0, 128))
+                p = self._m("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "--filter=blob:none",
+                            "origin", f"+refs/heads/{branch}:{target}", ok=(0, 128))
             except GitFailed as exc:
                 self._failed(op, exc)
                 raise
             if p.returncode != 0:
                 err = redact(p.stderr.decode(errors="replace").strip())
                 if "couldn't find remote ref" in err:
-                    self._m("update-ref", "-d", tracking, ok=(0, 1))
-                    op.outcome = "absent"
+                    self._m("update-ref", "-d", target, ok=(0, 1))
+                    op.set(absent=True)
                     return None
-                op.set(exit_code=p.returncode, stderr=err[-600:])
-                raise GitFailed(f"fetch {branch}: {err[-400:]}", p.returncode, err[-600:])
-            head = self._out("rev-parse", "--verify", f"{tracking}^{{commit}}", git_dir=True)
+                op.set(exit_code=p.returncode, stderr=err[-2000:])
+                raise GitFailed(f"fetch {branch}: {err[-400:]}", p.returncode, err[-2000:])
+            head = self._out("rev-parse", "--verify", f"{target}^{{commit}}", git_dir=True)
             op.set(**({"main_sha": head} if branch == self.default_branch else {"head_sha": head}))
             return head
 
     def fetch_main(self) -> str:
-        head = self._fetch(self.default_branch)
+        with self._lock:
+            self._ensure_mirror()
+            head = self._fetch_into(self.default_branch, self._tracking)
         if head is None:
             raise GitUnavailable(f"branch {self.default_branch} does not exist in the repository")
         return head
+
+    def fetch_branch(self, branch: str) -> str | None:
+        """A request branch, into refs/cmapi-fetched/<cluster>/<requestId>: never into a worktree's branch."""
+        with self._lock:
+            self._ensure_mirror()
+            return self._fetch_into(branch, FETCHED + branch[len(BRANCH_PREFIX):])
+
+    def ls_remote(self, pattern: str) -> dict[str, str]:
+        """{branch: sha} of the remote's branches that match refs/heads/<pattern>."""
+        with self._lock, Op("ls_remote", pattern=pattern) as op:
+            self._ensure_mirror()
+            try:
+                out = self._m("ls-remote", "--heads", "origin", f"refs/heads/{pattern}").stdout.decode()
+            except GitFailed as exc:
+                self._failed(op, exc)
+                raise
+            heads = {ref[len("refs/heads/"):]: sha for sha, ref in (line.split("\t", 1) for line in out.splitlines() if "\t" in line)}
+            op.set(found=len(heads))
+            return heads
 
     # ---- reads
     def _has_commit(self, sha: str) -> bool:
         return self._m("cat-file", "-e", f"{sha}^{{commit}}", ok=(0, 1, 128)).returncode == 0
 
+    def _need(self, sha: str) -> None:
+        """A commit by sha: the hosts serve a fetch by sha (uploadpack.allowAnySHA1InWant on a plain server)."""
+        if not _OID.fullmatch(sha or ""):
+            raise GitUnavailable(f"{sha!r} is not a commit sha")
+        if self._has_commit(sha):
+            return
+        self._ensure_mirror()
+        self._m("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "--filter=blob:none", "origin", sha,
+                ok=(0, 1, 128))
+        if not self._has_commit(sha):
+            raise GitUnavailable(f"commit {sha[:8]} is not in the repository")
+
     def _resolve(self, ref: str | None) -> str:
         if ref is None or ref == self.default_branch:
             return self.fetch_main()
-        if _SHA.fullmatch(ref):
-            if not self._has_commit(ref):
-                self.fetch_main()
-            if not self._has_commit(ref):
-                raise GitUnavailable(f"commit {ref[:8]} is not in the repository")
+        if _OID.fullmatch(ref):
+            self._need(ref)
             return ref
         if self._m("check-ref-format", "--branch", ref, ok=(0, 1, 128)).returncode != 0:
             raise GitUnavailable(f"{ref!r} is not a branch name")
-        head = self._fetch(ref)
+        head = self.fetch_branch(ref)
         if head is None:
             raise GitUnavailable(f"branch {ref} does not exist")
         return head
 
-    def _folder(self, commit: str, path: str) -> dict[str, str]:
+    def _folder(self, treeish: str, path: str) -> dict[str, str]:
         path = path.strip("/")
-        listing = self._m("ls-tree", "-z", commit, "--", f"{path}/" if path else ".").stdout.decode()
+        listing = self._m("ls-tree", "-z", treeish, "--", f"{path}/" if path else ".").stdout.decode()
         blobs: list[tuple[str, str]] = []
         for entry in filter(None, listing.split("\0")):
             meta, name = entry.split("\t", 1)
@@ -257,26 +298,27 @@ class GitWorkspace:
             return self._folder(head, path), head
 
     def branch_head(self, branch: str) -> str | None:
-        with self._lock:
-            return self._fetch(branch)
+        """The remote branch's head, fetched. The default branch, or a request branch."""
+        if branch == self.default_branch:
+            return self.fetch_main()
+        return self.fetch_branch(branch)
 
     def contains(self, revision: str, sha: str) -> bool:
         """Whether sha is revision or one of its ancestors. A revision this repository does not hold is False."""
         if revision == sha:
             return True
-        if not (_SHA.fullmatch(revision or "") and _SHA.fullmatch(sha or "")):
+        if not (_OID.fullmatch(revision or "") and _OID.fullmatch(sha or "")):
             return False
         with self._lock:
             self.fetch_main()
             return self._m("merge-base", "--is-ancestor", sha, revision, ok=(0, 1, 128)).returncode == 0
 
     def changed_paths(self, head: str) -> set[str]:
-        """Every path that head changes since it left the default branch: git diff main...head. Git lists each one; no host
+        """Every path that head changes since it left the default branch: git diff main...head. Git lists each one: no host
         limit applies (GitHub's compare stops at 300, #199)."""
         with self._lock:
             main = self.fetch_main()
-            if not self._has_commit(head):
-                raise GitUnavailable(f"commit {head[:8]} is not in the repository")
+            self._need(head)
             out = self._m("diff", "--name-only", "--no-renames", "-z", f"{main}...{head}").stdout.decode()
         return {p for p in out.split("\0") if p}
 
@@ -286,12 +328,16 @@ class GitWorkspace:
             out = self._out("log", f"-n{int(n)}", "--format=%H%x00%s", head, git_dir=True)
         return [f"{h[:8]} {s}" for h, s in (line.split("\0", 1) for line in out.splitlines() if line)]
 
-    def carries(self, sha: str, request_id: str, plan_hash: str) -> bool:
-        """Whether the commit's trailers name this request and this plan."""
+    def trailers(self, sha: str) -> dict[str, list[str]]:
         out = self._out("log", "-1", f"--format=%(trailers:key={TRAILER_REQUEST},valueonly,separator=%x1f)%x00"
                                      f"%(trailers:key={TRAILER_PLAN_HASH},valueonly,separator=%x1f)", sha, git_dir=True)
         requests, _, hashes = out.partition("\0")
-        return request_id in requests.split("\x1f") and plan_hash in hashes.split("\x1f")
+        return {TRAILER_REQUEST: [v for v in requests.split("\x1f") if v], TRAILER_PLAN_HASH: [v for v in hashes.split("\x1f") if v]}
+
+    def commit_time(self, sha: str) -> int:
+        with self._lock:
+            self._need(sha)
+            return int(self._out("log", "-1", "--format=%ct", sha, git_dir=True))
 
     # ---- the request's branch
     def worktree_path(self, cluster_id: str, request_id: str) -> Path:
@@ -300,172 +346,274 @@ class GitWorkspace:
                 raise ValueError(f"{part!r} cannot name a folder")
         return self.root / cluster_id / request_id
 
-    def prepare(self, cluster_id: str, request_id: str, folder: str, files: Mapping[str, str | None], message: str,
-                plan_hash: str) -> tuple[str, bool]:
-        """The request's branch on the remote, holding one commit of files on origin/main: (its head, whether it already
-        existed). A branch that exists is reused only if its head carries this request's trailers and plan hash; any other is
-        refused (BranchRefused) and left alone."""
-        folder = folder.strip("/")
-        for path in files:
+    def _check_files(self, req: BranchRequest) -> str:
+        folder = req.folder.strip("/")
+        for path in req.files:
             check_path(path)
             if not path.startswith(folder + "/"):
                 raise ValueError(f"{path} is outside the request's folder {folder}")
-        branch = request_branch(cluster_id, request_id)
-        with self._lock:
-            main = self.fetch_main()
-            existing = self._fetch(branch)
-            if existing is not None:
-                with Op("worktree", branch=branch, main_sha=main, head_sha=existing) as op:
-                    if self.carries(existing, request_id, plan_hash):
-                        op.set(reused=True)
-                        return existing, True
-                    op.outcome = "refused"
-                    op.set(reason="the branch's head does not carry this request's trailers and plan hash")
-                raise BranchRefused(f"branch {branch} exists at {existing[:8]}, and its head was not written for {request_id} "
-                                    f"with plan {plan_hash[:12]}: it is not reused or overwritten")
-            path = self.worktree_path(cluster_id, request_id)
-            with Op("worktree", branch=branch, main_sha=main, base_sha=main, path=str(path)) as op:
-                try:
-                    self._drop(path, branch)
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    self._m("worktree", "add", "--quiet", "--no-checkout", "-b", branch, str(path), self._tracking)
-                    # Only the request's folder is checked out, so a repository of thousands of namespaces costs one folder.
-                    self._run("sparse-checkout", "set", "--cone", folder, cwd=path)
-                    self._run("checkout", "--quiet", branch, cwd=path)
-                except GitFailed as exc:
-                    self._failed(op, exc)
-                    raise
-            with Op("commit", branch=branch, base_sha=main) as op:
-                try:
-                    for rel, text in files.items():
-                        target = path / rel
-                        if text is None:
-                            target.unlink(missing_ok=True)
-                        else:
-                            target.parent.mkdir(parents=True, exist_ok=True)
-                            target.write_text(text)
-                    self._run("add", "--all", "--", folder, cwd=path)
-                    if self._run("diff", "--cached", "--quiet", cwd=path, ok=(0, 1)).returncode == 0:
-                        raise GitFailed(f"the plan changes nothing on {main[:8]}: nothing to commit")
-                    self._run("commit", "--quiet", "--no-verify", "-F", "-", cwd=path, input=message.encode())
-                    head = self._out("rev-parse", "HEAD", cwd=path)
-                    op.set(head_sha=head)
-                except GitFailed as exc:
-                    self._failed(op, exc)
-                    raise
-            with Op("push", branch=branch, base_sha=main, head_sha=head) as op:
-                ref = f"refs/heads/{branch}"
-                # An empty lease: the branch must not exist. A branch made between the fetch above and this push is refused.
-                p = self._run("push", "--porcelain", "--no-verify", f"--force-with-lease={ref}:", "origin", f"{branch}:{ref}",
-                              cwd=path, ok=(0, 1, 128))
-                if p.returncode != 0:
-                    report = redact((p.stdout + p.stderr).decode(errors="replace"))
-                    status = next((line for line in report.splitlines() if line.startswith("!\t")), report.strip()[-400:])
-                    op.outcome = "refused" if p.returncode == 1 and "stale info" in status else "failure"
-                    op.set(exit_code=p.returncode, stderr=status[-600:])
-                    if op.outcome == "refused":
-                        raise BranchRefused(f"branch {branch} appeared on the remote while pushing: {status.strip()}")
-                    raise GitFailed(f"push {branch}: {status.strip()}", p.returncode, status)
-            return head, False
+        return folder
 
-    def merge_check(self, head: str, folder: str, base_files: Mapping[str, str]) -> MergeCheck:
-        """Before a merge: fetch main, git merge-tree --write-tree main head (exit 0 clean, 1 conflicts, anything else an error:
-        git-merge-tree(1), EXIT STATUS), and the request's folder on main compared with the plan's base."""
-        with self._lock:
-            main = self.fetch_main()
-            if not self._has_commit(head):
-                self._fetch_commit(head)
-            with Op("merge_check", main_sha=main, head_sha=head) as op:
-                try:
-                    p = self._m("merge-tree", "--write-tree", "--name-only", "-z", main, head, ok=(0, 1))
-                except GitFailed as exc:
-                    self._failed(op, exc)
-                    raise
-                parts = p.stdout.decode().split("\0")
-                tree = parts[0].strip()
-                conflicts: tuple[str, ...] = ()
-                if p.returncode == 1:
-                    # -z --name-only: the tree, then one NUL-ended name per conflicted file, then an empty field, then messages.
-                    names = []
-                    for item in parts[1:]:
-                        if not item:
-                            break
-                        names.append(item)
-                    conflicts = tuple(sorted(set(names)))
-                moved = self._folder(main, folder) != dict(base_files)
-                check = MergeCheck(main, head, conflicts, moved, tree if p.returncode == 0 else None)
-                op.set(conflicts=list(conflicts), folder_moved=moved)
-                if not check.ok:
-                    op.outcome = "conflict"
-                return check
+    def _adoptable(self, head: str, req: BranchRequest, folder: str) -> str | None:
+        """Fable 2.2: one commit on its parent, the parent an ancestor of origin/main, this request's and plan's trailers, the
+        changed paths inside the plan's, the folder at the head the plan's files, and at the parent the plan's prev. The reason it
+        fails, or None."""
+        parents = self._out("rev-list", "--parents", "-n1", head, git_dir=True).split()[1:]
+        if len(parents) != 1:
+            return f"{len(parents)} parents"
+        parent = parents[0]
+        if self._m("merge-base", "--is-ancestor", parent, self._tracking, ok=(0, 1, 128)).returncode != 0:
+            return f"its parent {parent[:8]} is not on {self.default_branch}"
+        t = self.trailers(head)
+        if t[TRAILER_REQUEST] != [req.request_id] or t[TRAILER_PLAN_HASH] != [req.plan_hash]:
+            return "its trailers are not this request's and plan's"
+        changed = {p for p in self._m("diff", "--name-only", "--no-renames", "-z", parent, head).stdout.decode().split("\0") if p}
+        if not changed <= set(req.files):
+            return f"it changes {sorted(changed - set(req.files))[:3]}, outside the plan"
+        if self._folder(head, folder) != {p: t for p, t in req.files.items() if t is not None}:
+            return "its folder is not the plan's files"
+        if self._folder(parent, folder) != dict(req.prev):
+            return "the folder at its parent is not the plan's base"
+        return None
 
-    def _fetch_commit(self, sha: str) -> None:
-        """A PR head that is not on any branch fetched yet: GitHub and the others serve a commit by sha to a fetch."""
-        self._m("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", sha, ok=(0, 128))
-        if not self._has_commit(sha):
-            raise GitUnavailable(f"commit {sha[:8]} is not in the repository")
-
-    # ---- cleanup
-    def _drop(self, path: Path, branch: str) -> None:
-        """This process's worktree and local branch of a request, gone: a retry starts again from origin/main."""
-        if path.exists():
-            self._m("worktree", "remove", "--force", "--force", str(path), ok=(0, 128))
-            if path.exists():
-                shutil.rmtree(path)
-        self._m("worktree", "prune", ok=(0,))
-        if self._m("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", ok=(0, 1)).returncode == 0:
-            self._m("branch", "--quiet", "-D", branch)
-
-    def remove(self, cluster_id: str, request_id: str) -> None:
-        """git worktree remove, when the request reaches a final state. The remote branch stays: the host deletes it on merge."""
-        if not (self.mirror / "HEAD").exists():
-            return
-        branch = request_branch(cluster_id, request_id)
-        with self._lock, Op("cleanup", branch=branch, scope="request") as op:
+    def _build(self, req: BranchRequest, folder: str, base: str) -> str:
+        """One commit of the plan on base, in the request's worktree. Both dates are the approval's: the same plan on the same
+        base gives the same sha on any replica and on any retry (Fable 2.1)."""
+        branch = request_branch(req.cluster_id, req.request_id)
+        path = self.worktree_path(req.cluster_id, req.request_id)
+        with Op("worktree", action="add", path=str(path), base_sha=base) as op:
             try:
-                self._drop(self.worktree_path(cluster_id, request_id), branch)
+                self._drop(path, branch)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._m("worktree", "add", "--quiet", "--no-checkout", "-b", branch, str(path), base)
+                # Only the request's folder is checked out: a repository of thousands of namespaces costs one folder.
+                self._run("sparse-checkout", "set", "--cone", folder, cwd=path)
+                self._run("checkout", "--quiet", branch, cwd=path)
+            except GitFailed as exc:
+                self._failed(op, exc)
+                raise
+        with Op("commit", base_sha=base, plan_hash=req.plan_hash) as op:
+            try:
+                for rel, text in req.files.items():
+                    target = path / rel
+                    if text is None:
+                        target.unlink(missing_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(text)
+                self._run("add", "--all", "--", folder, cwd=path)
+                staged = {p for p in self._run("diff", "--cached", "--name-only", "-z", cwd=path).stdout.decode().split("\0") if p}
+                if not staged:
+                    raise GitFailed(f"the plan changes nothing on {base[:8]}: nothing to commit")
+                if not staged <= set(req.files):
+                    raise GitFailed(f"the worktree stages {sorted(staged - set(req.files))[:3]}, outside the plan")
+                when = f"{int(req.approved_at.timestamp())} +0000"
+                env = {**self._env, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+                self._run("commit", "--quiet", "--no-verify", "-F", "-", cwd=path, input=req.message.encode(), env=env)
+                head = self._out("rev-parse", "HEAD", cwd=path)
+                op.set(head_sha=head, files_changed=len(staged), adopted=False)
+                return head
             except GitFailed as exc:
                 self._failed(op, exc)
                 raise
 
-    def sweep(self, in_flight: Iterable[tuple[str, str]]) -> SweepResult:
-        """When no Git operation of this process runs: prune worktrees, remove the folder and branch of each request not in
-        flight, and gc --auto. In flight is approved or pr_open, where a request's worktree may still be needed."""
+    def _push(self, path: Path, branch: str, head: str, lease: str, result: str) -> None:
+        ref = f"refs/heads/{branch}"
+        with Op("push", head_sha=head, lease_sha=lease or None, forced=bool(lease)) as op:
+            # From the repository itself: a worktree shares its objects, and a pod that never had this worktree can push too.
+            p = self._m("push", "--porcelain", "--no-verify", f"--force-with-lease={ref}:{lease}", "origin", f"{head}:{ref}",
+                        ok=(0, 1, 128))
+            if p.returncode == 0:
+                op.set(result=result)
+                return
+            report = redact((p.stdout + p.stderr).decode(errors="replace"))
+            status = next((line for line in report.splitlines() if line.startswith("!\t")), report.strip()[-400:])
+            op.set(exit_code=p.returncode, stderr=status[-2000:])
+            if p.returncode == 1 and "stale info" in status:
+                op.set(result="lease_rejected")
+                op.outcome = "retry"
+                raise BranchMoved(f"push {branch}: the lease on {(lease or 'no branch')[:8]} was refused: {status.strip()}")
+            raise GitFailed(f"push {branch}: {status.strip()}", p.returncode, status)
+
+    def push_branch(self, req: BranchRequest) -> PushResult:
+        """The request's branch on the remote, one commit of the plan on origin/main. The caller checked, on the same fetch,
+        that the folder on main is the plan's prev."""
+        folder = self._check_files(req)
+        branch = request_branch(req.cluster_id, req.request_id)
+        with self._lock:
+            main = self.fetch_main()
+            existing = self.fetch_branch(branch)
+            if existing is not None:
+                why = self._adoptable(existing, req, folder)
+                if why is None:
+                    with Op("commit", head_sha=existing, adopted=True, plan_hash=req.plan_hash):
+                        pass
+                    return PushResult(existing, self._out("rev-parse", f"{existing}^", git_dir=True), "adopted")
+                if self.trailers(existing)[TRAILER_REQUEST] != [req.request_id]:
+                    with Op("push", head_sha=existing, result="foreign") as op:
+                        op.outcome = "refused"
+                        op.set(reason=f"the head is not cmapi's for this request: {why}")
+                    raise BranchRefused(f"branch {branch} exists at {existing[:8]} and its head is not cmapi's commit for "
+                                        f"{req.request_id}: it is not adopted or overwritten")
+                head = self._build(req, folder, main)       # this request's own stale attempt: replaced, with a lease on it
+                self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, existing, "replaced")
+                return PushResult(head, main, "replaced")
+            head = self._build(req, folder, main)
+            self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, "", "created")
+            return PushResult(head, main, "created")
+
+    def recreate(self, req: BranchRequest, base: str, expected: str) -> str:
+        """The branch again, from its recorded base: the reproducible commit gives the same sha, so a PR that a person closed
+        can be opened again on exactly the applied head (Fable 1.3). Raises when the sha differs."""
+        folder = self._check_files(req)
+        branch = request_branch(req.cluster_id, req.request_id)
+        with self._lock:
+            self._need(base)
+            head = self._build(req, folder, base)
+            if head != expected:
+                raise GitUnavailable(f"the re-created commit is {head[:8]}, not the applied head {expected[:8]}")
+            current = self.ls_remote(branch).get(branch, "")
+            if current != head:
+                self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, current, "created")
+            return head
+
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
+        """Fable 2.3 with the measured exit rule (OB1, the arbitration's row 10): git merge-tree --write-tree exits 0 on a clean
+        merge, and 1 on a conflict, but also 1 on "not something we can merge" (measured on git 2.52.0 and 2.55.0). So a conflict
+        is exit 1 with a tree OID as the first field; any other result is an error, raised and retried, never read as clean."""
+        expected = {p: t for p, t in files.items() if t is not None}
+        with self._lock:
+            main = self.fetch_main()
+            self._need(head)
+            with Op("merge_check", main_sha=main, head_sha=head) as op:
+                p = self._m("merge-tree", "--write-tree", "--name-only", "-z", main, head, ok=(0, 1, 2, 128, 129))
+                fields = p.stdout.decode(errors="replace").split("\0")
+                tree = fields[0].strip()
+                op.set(exit_code=p.returncode)
+                if p.returncode not in (0, 1) or not _OID.fullmatch(tree):
+                    err = redact(p.stderr.decode(errors="replace").strip())[-2000:]
+                    op.set(stderr=err)
+                    op.outcome = "error"
+                    raise GitFailed(f"merge-tree exited {p.returncode} with no tree: {err[-300:]}", p.returncode, err)
+                conflicts: tuple[str, ...] = ()
+                if p.returncode == 1:
+                    names = []
+                    for item in fields[1:]:      # -z --name-only: the tree, one NUL-ended name per conflicted file, an empty field
+                        if not item:
+                            break
+                        names.append(item)
+                    conflicts = tuple(sorted(set(names)))
+                base_ok = self._folder(main, folder) == dict(prev)
+                result_ok = not conflicts and self._folder(tree, folder) == expected
+                check = MergeCheck(main, head, conflicts, base_ok, result_ok, tree if not conflicts else None)
+                op.set(conflict_paths=list(conflicts), base_matches=base_ok, result_matches=result_ok, tree=check.tree,
+                       reason=check.reason(self.default_branch))
+                if not check.ok:
+                    op.outcome = "refused"
+                return check
+
+    def delete_branch(self, branch: str, expected: str) -> bool:
+        """Conditional delete: git push --force-with-lease=refs/heads/<b>:<expected> origin :refs/heads/<b>. A missing branch is
+        success; a branch at another sha is left alone (False). No host's REST delete is conditional (Fable 3.2)."""
+        ref = f"refs/heads/{branch}"
+        with self._lock:
+            current = self.ls_remote(branch).get(branch)
+            with Op("branch_delete", head_sha=expected) as op:
+                if current is None:
+                    op.set(result="absent")
+                    return True
+                if current != expected:
+                    op.outcome = "refused"
+                    op.set(result="moved", remote_sha=current)
+                    return False
+                p = self._m("push", "--porcelain", "--no-verify", f"--force-with-lease={ref}:{expected}", "origin", f":{ref}",
+                            ok=(0, 1, 128))
+                if p.returncode != 0:
+                    err = redact((p.stdout + p.stderr).decode(errors="replace"))[-2000:]
+                    op.set(exit_code=p.returncode, stderr=err)
+                    if p.returncode == 1 and "stale info" in err:
+                        op.outcome = "refused"
+                        return False
+                    raise GitFailed(f"delete {branch}: {err[-300:]}", p.returncode, err)
+                op.set(result="deleted")
+                return True
+
+    # ---- cleanup
+    def _drop(self, path: Path, branch: str) -> None:
+        """This process's worktree and local branch of a request, gone: a retry starts again from the remote."""
+        if path.exists():
+            self._m("worktree", "remove", "--force", "--force", str(path), ok=(0, 128))
+            if path.exists():
+                shutil.rmtree(path)
+        self._m("worktree", "prune")
+        if self._m("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", ok=(0, 1)).returncode == 0:
+            self._m("branch", "--quiet", "-D", branch)
+
+    def remove(self, cluster_id: str, request_id: str) -> None:
+        """git worktree remove, when the request's PR ends on this pod. The sweeper is what guarantees it on every pod."""
+        if not (self.mirror / "HEAD").exists():
+            return
+        branch = request_branch(cluster_id, request_id)
+        with self._lock, Op("worktree", action="remove", scope="request") as op:
+            try:
+                self._drop(self.worktree_path(cluster_id, request_id), branch)
+                self._m("update-ref", "-d", FETCHED + branch[len(BRANCH_PREFIX):], ok=(0, 1))
+            except GitFailed as exc:
+                self._failed(op, exc)
+                raise
+
+    def worktrees(self) -> list[tuple[str, str]]:
+        return sorted((c.name, w.name) for c in self.root.iterdir() if c.is_dir() and c.name not in (REPO, ".home")
+                      for w in c.iterdir() if w.is_dir())
+
+    def sweep(self, open_requests: Iterable[tuple[str, str]]) -> SweepResult:
+        """Fable 5.1, in the worker loop between jobs: the lock without waiting (busy: a Git job runs, skip); remove the worktree,
+        local branch and fetched ref of each request that is not open; worktree prune; gc --auto; above 80 % of the sizeLimit,
+        everything goes and the repository is fetched again at the next use."""
         result = SweepResult()
         if not self._lock.acquire(blocking=False):
-            result.skipped = True
-            with Op("cleanup", scope="sweep") as op:
+            result.result = "skipped"
+            with Op("cleanup", scope="sweeper") as op:
                 op.outcome = "skipped"
+            SWEEPER_RUNS.labels("skipped").inc()
             return result
         try:
-            with Op("cleanup", scope="sweep") as op:
-                if not (self.mirror / "HEAD").exists():
-                    op.outcome = "skipped"
-                    return result
-                keep = {(c, r) for c, r in in_flight}
-                try:
-                    self._m("worktree", "prune")
-                    for cluster_dir in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name not in (MIRROR, ".home")):
-                        for wt in sorted(p for p in cluster_dir.iterdir() if p.is_dir()):
-                            name = f"{cluster_dir.name}/{wt.name}"
-                            if (cluster_dir.name, wt.name) in keep:
-                                result.kept.append(name)
-                                continue
-                            self._drop(wt, request_branch(cluster_dir.name, wt.name))
-                            result.removed.append(name)
-                        if not any(cluster_dir.iterdir()):
-                            cluster_dir.rmdir()
-                    # A local request branch whose worktree is already gone (a folder removed by hand): it goes too.
-                    for ref in self._out("for-each-ref", "--format=%(refname:short)", f"refs/heads/{BRANCH_PREFIX}", git_dir=True).splitlines():
-                        cluster, _, rid = ref[len(BRANCH_PREFIX):].partition("/")
+            with Op("cleanup", scope="sweeper") as op:
+                op.set(bytes_before=_under(self.root))
+                if (self.mirror / "HEAD").exists():
+                    keep = set(open_requests)
+                    for cluster, rid in self.worktrees():
+                        if (cluster, rid) in keep:
+                            result.kept.append(f"{cluster}/{rid}")
+                            continue
+                        self._drop(self.root / cluster / rid, request_branch(cluster, rid))
+                        result.removed.append(f"{cluster}/{rid}")
+                    for c in [p for p in self.root.iterdir() if p.is_dir() and p.name not in (REPO, ".home")]:
+                        if not any(c.iterdir()):
+                            c.rmdir()
+                    for ref in self._out("for-each-ref", "--format=%(refname)", f"refs/heads/{BRANCH_PREFIX}", FETCHED,
+                                         git_dir=True).splitlines():
+                        rest = ref[len(FETCHED):] if ref.startswith(FETCHED) else ref[len("refs/heads/" + BRANCH_PREFIX):]
+                        cluster, _, rid = rest.partition("/")
                         if (cluster, rid) not in keep and not (self.root / cluster / rid).exists():
-                            self._m("branch", "--quiet", "-D", ref)
+                            self._m("update-ref", "-d", ref)
+                    self._m("worktree", "prune")
                     self._m("gc", "--auto", "--quiet")
-                except GitFailed as exc:
-                    self._failed(op, exc)
-                    raise
-                op.set(removed=result.removed, kept=len(result.kept))
+                after = _under(self.root)
+                if after > 0.8 * self.size_limit:
+                    for cluster, rid in self.worktrees():
+                        shutil.rmtree(self.root / cluster / rid, ignore_errors=True)
+                    shutil.rmtree(self.mirror, ignore_errors=True)
+                    result.result = "recloned"
+                    after = _under(self.root)
+                op.set(removed=result.removed, kept=len(result.kept), bytes_after=after, result=result.result)
+                GIT_WORKDIR_BYTES.set(after)
+                GIT_WORKTREES.set(len(self.worktrees()))
+            SWEEPER_RUNS.labels(result.result).inc()
             return result
+        except Exception:
+            SWEEPER_RUNS.labels("error").inc()
+            raise
         finally:
             self._lock.release()
 
@@ -474,7 +622,7 @@ class GitWorkspace:
         self._finalizer()
 
 
-def _cleanup(lockfile, root: str | None) -> None:
+def _release(lockfile, root: str | None) -> None:
     try:
         lockfile.close()
     finally:

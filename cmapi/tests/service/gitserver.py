@@ -274,6 +274,10 @@ class StubGitHub:
         self.comments: list[tuple[int, str]] = []
         self.requests: list[tuple[str, str]] = []
         self.merge_hook = None
+        # A named call fails: "once", "always", or "after" (it does the work, then answers 502). Keys: pr_open, merge, pr_state.
+        self.fail: dict[str, str] = {}
+        self.opened = 0
+        self.merges: list[str] = []
         self._numbers = itertools.count(1)
 
     def _git(self, *args: str, ok=(0,)) -> subprocess.CompletedProcess:
@@ -291,11 +295,22 @@ class StubGitHub:
         return {"number": n, "html_url": f"https://github.test/{self.repo[7:]}/pull/{n}", "state": p["state"], "merged": p["merged"],
                 "merge_commit_sha": p.get("merge_sha"), "head": {"ref": p["ref"], "sha": head}, "base": {"ref": "main"}}
 
-    def __call__(self, request):
+    def _failing(self, name: str):
         import httpx
+
+        mode = self.fail.get(name)
+        if mode == "once":
+            del self.fail[name]
+        if mode in ("once", "always"):
+            return httpx.Response(502, json={"message": f"stub: {name} fails"})
+        return None
+
+    def __call__(self, request):
         import json as _json
         import re as _re
         from urllib.parse import unquote
+
+        import httpx
 
         path = unquote(request.url.path)
         self.requests.append((request.method, path))
@@ -305,14 +320,22 @@ class StubGitHub:
         if "check-runs" in path or "check-suites" in path:
             raise AssertionError("the adapter must never call the Checks API (BUG-69)")
         if path == "/pulls" and request.method == "GET":
-            want = request.url.params.get("head", "")
+            want = request.url.params.get("head")
             return httpx.Response(200, json=[self._pr(n) for n, p in self.prs.items()
-                                             if p["state"] == "open" and f"{self.owner}:{p['ref']}" == want])
+                                             if p["state"] == "open" and (want is None or f"{self.owner}:{p['ref']}" == want)])
         if path == "/pulls" and request.method == "POST":
+            if (failed := self._failing("pr_open")) is not None:
+                return failed
             if self.head(body["head"]) is None:
                 return httpx.Response(422, json={"message": "Validation Failed", "errors": [{"field": "head", "code": "invalid"}]})
+            if any(p["state"] == "open" and p["ref"] == body["head"] for p in self.prs.values()):
+                return httpx.Response(422, json={"message": "A pull request already exists"})
             n = next(self._numbers)
+            self.opened += 1
             self.prs[n] = {"ref": body["head"], "state": "open", "merged": False, "sha": self.head(body["head"]), "title": body["title"]}
+            if self.fail.get("pr_open") == "after":
+                del self.fail["pr_open"]
+                return httpx.Response(502, json={"message": "stub: opened, then failed"})
             return httpx.Response(201, json=self._pr(n))
         m = _re.fullmatch(r"/pulls/(\d+)", path)
         if m and request.method == "GET":
@@ -322,6 +345,8 @@ class StubGitHub:
             return httpx.Response(200, json=self._pr(int(m[1])))
         m = _re.fullmatch(r"/pulls/(\d+)/merge", path)
         if m and request.method == "PUT":
+            if (failed := self._failing("merge")) is not None:
+                return failed
             n = int(m[1])
             pr = self.prs[n]
             head = self.head(pr["ref"])
@@ -339,6 +364,10 @@ class StubGitHub:
                                     env=_env(self.bare.parent)).stdout.decode().strip()
             self._git("update-ref", "refs/heads/main", commit, main)
             pr.update(state="closed", merged=True, merge_sha=commit)
+            self.merges.append(commit)
+            if self.fail.get("merge") == "after":
+                del self.fail["merge"]
+                return httpx.Response(502, json={"message": "stub: merged, then failed"})
             return httpx.Response(200, json={"sha": commit, "merged": True, "message": "Pull Request successfully merged"})
         if path.startswith("/git/refs/heads/") and request.method == "DELETE":
             branch = path[len("/git/refs/heads/"):]

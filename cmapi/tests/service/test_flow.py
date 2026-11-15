@@ -78,7 +78,8 @@ def test_create_auto_approved_to_synced(world):
     assert r2.status_code == 409 and r2.json()["code"] == "change-pending" and r2.json()["requestId"] == rid
 
     ran = run_jobs(ctx)
-    assert ran[:3] == ["open_pr", "pr_checks", "deliver_pr"], ran       # apply mode: apply, confirm, then merge (#286)
+    # #286: one external effect per job, and in apply mode apply, confirm, then merge.
+    assert ran == ["push_branch", "open_pr", "pr_checks", "apply", "merge", "git_cleanup"], ran
     view = client.get(f"/api/v1/requests/{rid}", headers=h).json()
     assert view["status"] == "synced", view["events"]
     assert view["pr"]["number"] == 1 and git.prs[1]["state"] == "merged"
@@ -87,7 +88,8 @@ def test_create_auto_approved_to_synced(world):
     assert "clusters/CRC/namespaces/payments-dev/namespace.yaml" in git.branches["main"]
     assert "Namespace//payments-dev" in kube.applied and "ResourceQuota/payments-dev/payments-dev-quota" in kube.applied
     events = [e["event"] for e in view["events"]]
-    assert events == ["plan_auto_approved", "pr_opened", "ci", "deliver_queued", "applied", "merged", "synced"], events
+    assert events == ["plan_auto_approved", "branch_pushed", "pr_opened", "ci", "apply_started", "applied",
+                      "merge_verified", "merged", "synced"], events
     assert view["links"]["pr"].startswith("https://git.test/pulls/")
     # the quota list sees it from the cache
     ctx.registry.cache("CRC")._list("Namespace")
@@ -271,7 +273,7 @@ def test_pr_edited_after_approval_fails_the_cmapi_check(world):
     client, ctx, git, kube, validator, keys = world
     h = auth(keys, "ola", **OLA)
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h).json()["requestId"]
-    assert run_jobs(ctx, limit=1) == ["open_pr"]
+    assert run_jobs(ctx, limit=2) == ["push_branch", "open_pr"]
     view = client.get(f"/api/v1/requests/{rid}", headers=h).json()
     branch = view["pr"]["branch"]
     before = git.branches[branch]["clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml"]
@@ -336,7 +338,7 @@ def test_git_outage_retries_then_fails_after_five_attempts(world):
     for _ in range(5):
         assert w.run_one()
         with ctx.db.session() as s:
-            job = JobRepo(s).pending("open_pr", rid)
+            job = JobRepo(s).pending("push_branch", rid)
             if job is not None:
                 job.run_after = utcnow()
                 job.locked_until = None

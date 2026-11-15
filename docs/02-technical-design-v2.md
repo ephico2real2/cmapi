@@ -102,7 +102,7 @@ The file is optional: without it, each plugin of the build is enabled. The list 
 | Extension point | Default | Alternatives |
 | --- | --- | --- |
 | Renderer (desired state to files) | Raw manifest renderer (one folder per namespace) | project-meta.yml renderer, Kustomize overlay renderer |
-| Git provider | GitHub REST (rest mode) | GitLab REST, GitPython clone with HTTPS or SSH |
+| Git provider | A Git layer (the git CLI: mirror, worktree per request, pushes with a lease) and GitHub's REST API for the PR (#286) | Gitea REST; GitLab Merge Requests and Bitbucket Cloud and Data Center adapters on the same Git layer (#286, PR-B and PR-C) |
 | Notifier | Email | Slack, Teams |
 
 The first plugins are core-maintained; each later offering (capacity, NetworkPolicy baselines, PVC classes) is a new package with its own version, tests and RBAC declaration.
@@ -831,7 +831,7 @@ class ClusterScoped(Api):
     cluster_id: ClusterId
 
 ChangeStatus = Literal["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "rejected",
-                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted"]
+                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted", "applied", "merge_failed"]
 
 class ApprovalSlot(Api):
     group: str                    # approving group, e.g. "approver-prod" (token path /cmapi/app-cmapi-rbac-approver-prod)
@@ -2096,7 +2096,7 @@ cmapi/
 │   │   ├── pipeline.py               # authorize -> idempotency -> lock -> plan -> decide; approve -> commit
 │   │   ├── render/                   # manifests.py (default), project_meta.py; plan hash
 │   │   ├── validate/                 # Kyverno bundle and kubeconform on the rendered files
-│   │   ├── git/                      # provider.py (GitHub, GitLab REST), clone.py (GitPython)
+│   │   ├── git/                      # workspace.py, transport.py (the Git layer), github.py, gitea.py (PR adapters), oplog.py
 │   │   ├── clients/                  # kube.py (watch cache), argocd.py, policyreports.py (all read-only)
 │   │   ├── listquery.py              # paging, search, suggest, export
 │   │   ├── ratelimit.py              # token buckets, active placements per team
@@ -2172,7 +2172,7 @@ Every module cmapi needs for the features agreed so far: approval-first lifecycl
 | core/render/manifests.py | Raw manifest renderer: the namespace folder, ordered keys, request ID kept on unchanged objects, folder delete, plan hash, file diff | ManifestRenderer, plan\_hash, diff\_files | tiers, metadata | 2 | Reference code |
 | core/render/project\_meta.py | Alternative renderer for the old project-meta format | Renderer | — | Later | Specified |
 | core/validate/ | Runs the Kyverno CLI bundle and kubeconform on the rendered files | Validator | kyverno, kubeconform binaries | 2 | Protocol |
-| core/git/ | GitHub REST (default), GitLab REST, GitPython clone; bot PRs and merges with an expected head | GitProvider | Git host | 2 | Protocol |
+| core/git/ | The Git layer (git CLI and OpenSSH) and a thin PR adapter per host: GitHub REST, Gitea REST; bot PRs, merges pinned to a sha | GitProvider | Git host | 2 | Protocol |
 | core/clients/ | kube.py watch cache, argocd.py Applications, policyreports.py Kyverno reports; all through the read-only cmapi-reader | KubeReader, SyncSignal, PolicyReportReader | clusters | 1 (kube, argocd), 5 (reports) | Protocol |
 | core/listquery.py | One paging, search, suggest and export contract: keyset cursor signed and bound to filters, letter jump, CSV export | Lister, ListQuery | — | 2 | Reference code |
 | core/ratelimit.py | Token buckets per caller and team, separate buckets for :place, :suggest, :export, active placements per team | RateLimiter | — | 2 | Reference code |
@@ -2213,8 +2213,13 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 
 | Job | Trigger | Does | Phase |
 | --- | --- | --- | --- |
-| open\_pr | A request becomes approved | Renders from the stored plan, checks the plan hash, opens the bot PR; 5 attempts with backoff, then failed | 2 |
-| pr\_checks | Every PR open | Reads CI and the cmapi check; merges with the expected head when green; failed on a CI failure or a closed PR | 2 |
+| push\_branch | A request becomes approved | Fetches main, refuses a moved folder, renders and checks the plan hash, pushes `cmapi/<cluster>/<requestId>` with a lease: adopts its own earlier push, replaces its own stale one, refuses anyone else's (#286) | 2 |
+| open\_pr | The branch is pushed | Opens the PR, or adopts the open one | 2 |
+| pr\_checks | Every PR open | Runs the validators and the cmapi check, then the merge check; queues apply (apply mode) or merge; failed or superseded otherwise | 2 |
+| apply | Apply mode, a create or a change | `apply_started`, server-side apply of the branch's folder, a confirming read; then applied | 2 |
+| merge | argocd mode, a delete, or applied | The merge check, then the host's merge pinned to a sha; adopts a merge the host already made; merge\_failed after an apply | 2 |
+| git\_cleanup | A final state, or merged | Closes a PR left open, deletes the branch with a lease, removes the worktree | 2 |
+| git\_reconcile | Every 15 minutes | PRs and branches a crashed worker left | 2 |
 | watch\_sync | Requests in merged | SyncSignal plus a direct read; synced, awaiting\_prune, or sync\_failed after 30 minutes | 2 |
 | prune\_watch | Requests in awaiting\_prune | Synced once the operator confirms the prune; CmapiPruneAwaiting after 24 hours | 5 |
 | approval\_timeout | Hourly | pending\_approval past timeoutHours becomes timeout | 2 |

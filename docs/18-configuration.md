@@ -65,6 +65,11 @@ The file has one key, `instance`. The chart writes it from the values `instance.
 | `instance.identity.groupPath` | text | `/cmapi/app-cmapi-rbac-{name}` | The path of the Keycloak group that an approving group of `approval-rules.yaml` names. It starts with `/` and holds `{name}` one time. A bad value stops the start (`core/authz.py`, `check_group_path`) |
 | `instance.git.repository` | text | None. Needed | The cluster-configs repository of the instance, as `owner/name` |
 | `instance.git.webUrl` | text (URL) | The API URL of the Git host | The address of the repository for people |
+| `instance.git.url` | text (URL) | `<webUrl>/<repository>.git` | The URL the worker's Git layer clones and pushes (#286): `https://host/path`, `ssh://git@host[:port]/path` or `git@host:path`. cmapi refuses `http://` and `git://` (no TLS), and a user or a token in an `https` URL (`core/git/transport.py`, `parse_remote`) |
+| `instance.git.username` | text | `x-access-token` | For Git over HTTPS: the username sent with the token. The bot account's name, `cmapi-git-bot`, on GitHub |
+| `instance.git.commitEmail` | text | `cmapi-git-bot@noreply.invalid` | The email of the commits' author and committer, `cmapi-git-bot`. Set it to the bot account's no-reply address on its host |
+| `instance.git.hostChecks` | boolean | `false` | Host CI: when `true`, the worker waits for `ci/kubeconform` and `ci/kyverno` as commit statuses of the host, and posts its own. Never GitHub's Checks API |
+| `instance.git.postStatus` | boolean | `false` | Post the worker's checks as commit statuses even with host CI off. Needs Commit statuses write |
 | `instance.directory` | mapping | none | Where to send a caller for the other environments. Each entry has `url`, `environments` and an optional `portalUrl`. cmapi puts them in the 422 answer `environment-not-served` (`core/pipeline.py`) |
 | `instance.cors.allowedOrigins` | list of origins | `[]` | The origins of other hosts that can call the API from a browser. With no key or an empty list, CORS is off. An origin is `https://host[:port]`, in lower case, or `http://localhost`, `http://127.0.0.1` or `http://[::1]`, with no path and no default port. A wildcard stops the start (`core/cors.py`) |
 | `instance.problems.typeBase` | text (URL) | `https://cmapi.ephico2real.com/problems/` | The base of each problem `type` URI (RFC 9457). It is an absolute http or https URL with no query and no fragment (`core/errors.py`) |
@@ -534,9 +539,14 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `CMAPI_DIRECTORY_CLIENT_SECRET` | `""` | The secret of the `cmapi-directory` client. A secret |
 | `CMAPI_GIT_PROVIDER` | `gitea` | `gitea` or `github` |
 | `CMAPI_GIT_URL` | `""` | The API URL of the Git host |
-| `CMAPI_GIT_TOKEN` | `""` | The token of the bot. A secret |
+| `CMAPI_GIT_TOKEN` | `""` | The bot account's API token, from Secret `cmapi-git-bot`, for the host's API. A secret. No git process gets it from the environment |
 | `CMAPI_GIT_USER`, `CMAPI_GIT_PASSWORD` | `""` | Basic authentication instead of a token. A secret |
-| `CMAPI_GIT_DEFAULT_BRANCH` | `main` | The branch that the bot merges to |
+| `CMAPI_GIT_DEFAULT_BRANCH` | `main` | The branch that the bot's PRs merge into. Nothing is ever pushed to it |
+| `CMAPI_GIT_CREDENTIALS_DIR` | `/etc/cmapi/git-bot` | Secret `cmapi-git-bot` as files: `token`. Git over HTTPS reads it through a credential helper (#286) |
+| `CMAPI_GIT_SSH_DIR` | `/etc/cmapi/git-bot-ssh` | Secret `cmapi-git-bot-ssh` (`kubernetes.io/ssh-auth`): `ssh-privatekey`, an ed25519 key with no passphrase, and optionally `ssh-publickey`. Worker only |
+| `CMAPI_GIT_KNOWN_HOSTS_DIR` | `/etc/cmapi/git-bot-known-hosts` | ConfigMap `cmapi-git-bot-known-hosts`: `known_hosts`, every key type the host publishes. Worker only |
+| `CMAPI_GIT_WORKDIR` | A temporary folder | The worker's Git workdir: the mirror `repo.git` and one worktree per request. The plain manifests mount an emptyDir with `sizeLimit: 1Gi` |
+| `CMAPI_GIT_WORKDIR_LIMIT_BYTES` | `1073741824` | The emptyDir's `sizeLimit`: above 80 % the sweeper removes the workdir, to be fetched again |
 | `CMAPI_GIT_CA_BUNDLE` | None: the trust of `CMAPI_CA_BUNDLE` | The PEM bundle the Git provider alone trusts, as an explicit TLS context that `SSL_CERT_FILE` cannot change. A file that is not there stops the process at start. CRC sets the image's system bundle, `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, since its `CMAPI_CA_BUNDLE` holds Keycloak's private CA alone (#97) |
 | `CMAPI_CURSOR_KEY` | `""` | The key that signs list cursors. Empty: cmapi signs with the fixed text `unset-cursor-key` (`core/context.py`), the same on each instance. A secret |
 | `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. Empty: cmapi signs with the fixed text `unset-link-key` (`core/channels.py`). A secret |
@@ -577,7 +587,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `git.apiUrl`, `git.webUrl` | text | The Gitea Service | `CMAPI_GIT_URL`, `instance.git.webUrl` |
 | `git.repository` | text | `cmapi/cluster-configs-nonprod` | `instance.git.repository` |
 | `git.defaultBranch` | text | `main` | `CMAPI_GIT_DEFAULT_BRANCH` |
-| `git.credentialSecret` | text | `cmapi-git` | The Secret with `token`, or `username` and `password` |
+| `git.credentialSecret` | text | `cmapi-git-bot` | The Secret with `token`, or `username` and `password`. The chart does not mount the Git layer's files yet; the plain manifests do (#286) |
 | `git.bootstrap.enabled`, `.clusterIds` | | `false`, `[CRC]` | On CRC and kind: creates the organisation, the repository, its seed and the branch protection |
 | `clusters` | mapping | One entry, `CRC` | `clusters.yaml` |
 | `imports.namespace`, `imports.createNamespace` | | `cmapi-imports`, `true` | `CMAPI_IMPORTS_NAMESPACE`, and whether the chart creates it |
@@ -612,3 +622,16 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | Custom limits, values beyond the tier, approval as the gate | `docs/reviews/2026-11-14-issue-211/README.md` |
 | The names of instances and environments, and `prod` | `docs/02`, "The names of instances and environments" (#232) |
 | The links of the email channel name the instance | `docs/reviews/2026-11-14-issue-222/README.md` |
+| Git delivery: a Git layer and a thin PR adapter, apply before merge | `docs/reviews/2026-11-15-issue-286/README.md` |
+
+## The bot account on each host
+
+The identity is one machine user account, `cmapi-git-bot`, on each host (the owner's decision of 2026-11-15, #286): its SSH key for Git, its token for the PR. A deploy key is the alternative where the host allows writes with one. Read on 2026-11-15; a row marked *not verified* is not yet checked at its host's documentation.
+
+| Host | Bot account: SSH | Bot account: API | Alternative | Source |
+|---|---|---|---|---|
+| GitHub | the machine user's SSH key | its fine-grained token: Contents and Pull requests read and write | a deploy key with write access, for SSH | [GitHub, deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) |
+| GitLab | the service account's SSH key | its token | a read-write deploy key made by the service account; a project access token for the API | [GitLab, deploy keys](https://docs.gitlab.com/user/project/deploy_keys/) |
+| Bitbucket Cloud | the bot account's own SSH key | its API token, or a repository access token | none for writes: repository and project access keys are read-only | [Atlassian, access keys](https://support.atlassian.com/bitbucket-cloud/kb/difference-between-repository-project-and-workspace-access-keys/) |
+| Bitbucket Data Center | the bot user's SSH key | its HTTP access token | an access key with write access | *not verified* |
+| Gitea | the bot user's SSH key | its token | a deploy key with write access | *not verified* |

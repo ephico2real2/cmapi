@@ -103,7 +103,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                         git_layer=settings.component == "worker", git_url=g.get("url"), workdir=settings.git_workdir,
                         credentials_dir=settings.git_credentials_dir, ssh_dir=settings.git_ssh_dir,
                         known_hosts_dir=settings.git_known_hosts_dir, ca_bundle=settings.git_ca_bundle or settings.ca_bundle,
-                        username=g.get("username"), commit_email=g.get("commitEmail"), host_checks=bool(g.get("hostChecks", False)))
+                        username=g.get("username"), commit_email=g.get("commitEmail"), host_checks=bool(g.get("hostChecks", False)),
+                        post_status=bool(g.get("postStatus", False)), size_limit=settings.git_workdir_limit_bytes)
     # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
     bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,

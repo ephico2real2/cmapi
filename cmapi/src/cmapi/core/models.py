@@ -16,7 +16,7 @@ ClusterId = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{1,62}$")]
 DnsLabel = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")]
 
 ChangeStatus = Literal["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "rejected",
-                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted", "merge_failed"]
+                       "synced", "failed", "sync_failed", "superseded", "cancelled", "timeout", "reverted", "applied", "merge_failed"]
 
 
 class Api(BaseModel):
@@ -134,7 +134,7 @@ class CapacityView(Api):
 class PrView(Api):
     number: int = Field(description="PR number", examples=[12])
     url: str = Field(description="PR URL", examples=["https://git.example/cmapi/cluster-configs-nonprod/pulls/12"])
-    branch: str = Field(description="Bot branch", examples=["cmapi/CRC/payments-dev/req-20261105-0001"])
+    branch: str = Field(description="Bot branch", examples=["cmapi/CRC/req-20261105-0001"])
     head: str = Field(description="PR head commit", examples=["0a1b2c3d"])
 
 
@@ -143,7 +143,7 @@ class RequestEvent(Api):
     event: str = Field(description="Lifecycle event or note", examples=["pr_opened"])
     status: str | None = Field(description="Status after the event", examples=["pr_open"])
     by: str = Field(description="Actor", examples=["cmapi-bot"])
-    note: str = Field(default="", description="Detail", examples=["cmapi/CRC/payments-dev/req-20261105-0001"])
+    note: str = Field(default="", description="Detail", examples=["cmapi/CRC/req-20261105-0001"])
 
 
 class RequesterView(Api):

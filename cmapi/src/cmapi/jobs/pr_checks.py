@@ -11,9 +11,11 @@ run once CI has finished: CI's green does not excuse what they refuse. On the Gi
 runner, the worker posts ci/* from those validators, as it always has (#60). GitHub's host CI is off by default since #286:
 the worker then posts ci/* the same way, and never reads the Checks API.
 
-When every check passes (#286): with delivery.mode apply a create or a change goes to deliver_pr, which applies the branch's
-folder, confirms it by a read, and only then merges the PR, so main records only what succeeded. A delete, and delivery.mode
-argocd, merge here, after the merge check (jobs/merging.py), and watch_sync follows the merge as before."""
+Since #286 the checks are one job and the merge another (Fable's design, 2). When every check passes, the merge check runs
+(git merge-tree and the plan's base; a refusal before any apply is superseded), then: with delivery.mode apply a create or a
+change goes to the apply job, which applies the branch, confirms it, and only then lets merge run, so main records only what
+succeeded. A delete, and delivery.mode argocd, go to merge at once (the arbitration, row 4). The worker posts its checks as
+commit statuses only when the provider asks for them (post_statuses: the Gitea stand-in, or GitHub with host CI or postStatus)."""
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -22,11 +24,11 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
 from cmapi.core.git.base import IncompleteList
-from cmapi.core.git.oplog import git_context
+from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
 from cmapi.core.render.manifests import folder, plan_hash
-from cmapi.jobs.merging import delivery_mode, merge_after_check
+from cmapi.jobs.delivery import end_pr, mode_of, request_context
 
 CONTEXT_KUBECONFORM = "ci/kubeconform"
 CONTEXT_KYVERNO = "ci/kyverno"
@@ -41,8 +43,7 @@ def pr_checks(ctx: AppContext, s: Session, job: JobRow) -> None:
     if row.status != S.PR_OPEN.value or not row.pr:
         jobs.done(job)
         return
-    with git_context(request_id=row.request_id, cluster=row.cluster_id, namespace=row.namespace, branch=row.pr["branch"],
-                     attempt=job.attempts):
+    with request_context(ctx, row, job):
         _pr_checks(ctx, repo, jobs, row, job)
 
 
@@ -51,14 +52,16 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
     status = ctx.git.pr_status(pr)
     if status.state == "closed":
         repo.move(row, E.PR_FAILED, "worker", "the PR was closed")
-        ctx.git.cleanup(row.cluster_id, row.request_id)
         jobs.done(job)
+        jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
         return
     if status.state == "merged":
+        # A person merged it before any apply: adopted. In apply mode watch_sync then applies from main (Fable 1.1).
         row.merge_sha = status.merge_sha
-        repo.move(row, E.MERGED, "cmapi-bot", f"merged {(status.merge_sha or '')[:8]}")
+        repo.move(row, E.MERGED, "cmapi-bot", f"merged {(status.merge_sha or '')[:8]} on the host")
         jobs.done(job)
         jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
+        jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
         return
     # A context nobody has reported yet is pending: the workflow may not have started.
     ci = {c: status.checks.get(c, "pending") for c in CI_CONTEXTS} if ctx.git.external_ci else {}
@@ -94,15 +97,16 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
     ky_text = "; ".join(f"{f.rule}: {f.message}" for f in ky) or \
         ("audit, not refused: " + "; ".join(f"{f.rule}: {f.message}" for f in audited) if audited else "policies ok")
     link = f"{ctx.cfg.raw_instance['instance'].get('publicUrl', '')}/api/v1/requests/{row.request_id}"
-    jobs.fence()                       # the statuses are external writes: a worker whose lease was claimed posts none
-    if not ctx.git.external_ci:
-        ctx.git.set_check(head, CONTEXT_KUBECONFORM, "failure" if kc else "success",
-                          "; ".join(f.message for f in kc)[:200] or "schema ok", link)
-        ctx.git.set_check(head, CONTEXT_KYVERNO, "failure" if ky else "success",
-                          ky_text[:200], link)
-    ctx.git.set_check(head, CONTEXT_CMAPI, "success" if cmapi_ok else "failure",
-                      f"request {row.request_id} approved, head == plan {row.plan_hash[:12]}" if cmapi_ok
-                      else f"head differs from the approved plan {row.plan_hash[:12]}, moved after it was opened, or touches {outside[:3]}", link)
+    if ctx.git.post_statuses:
+        jobs.fence()                   # the statuses are external writes: a worker whose lease was claimed posts none
+        if not ctx.git.external_ci:
+            ctx.git.set_check(head, CONTEXT_KUBECONFORM, "failure" if kc else "success",
+                              "; ".join(f.message for f in kc)[:200] or "schema ok", link)
+            ctx.git.set_check(head, CONTEXT_KYVERNO, "failure" if ky else "success",
+                              ky_text[:200], link)
+        ctx.git.set_check(head, CONTEXT_CMAPI, "success" if cmapi_ok else "failure",
+                          f"request {row.request_id} approved, head == plan {row.plan_hash[:12]}" if cmapi_ok
+                          else f"head differs from the approved plan {row.plan_hash[:12]}, moved after it was opened, or touches {outside[:3]}", link)
     host_ci = "".join(f"; {c}: {state}" for c, state in ci.items())
     repo.event(row, "ci", "ci", f"kubeconform: {'pass' if not kc else 'fail'}; kyverno: {'fail' if ky else 'audit' if audited else 'pass'}; "
                                 f"cmapi check: {'pass' if cmapi_ok else 'fail'}{host_ci}",
@@ -111,24 +115,22 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         if head != pr.head_sha:
             repo.event(row, "head_moved", "ci", f"PR head moved from {pr.head_sha[:8]} to {head[:8]} after approval")
         repo.move(row, E.PR_FAILED, "ci", "checks failed")
-        jobs.fence()
-        ctx.git.close(pr, f"cmapi: checks failed for {row.request_id}; the request is failed and may be retried.")
-        ctx.git.cleanup(row.cluster_id, row.request_id)
+        end_pr(ctx, repo, jobs, row, "its checks failed; the request is failed and may be retried")
         jobs.done(job)
         return
-    if delivery_mode(ctx, row.cluster_id) == "apply" and row.action != "delete":
-        # Apply before merge (#286): deliver_pr applies the branch, confirms it, then merges. The PR stays open meanwhile.
-        repo.event(row, "deliver_queued", "worker", f"checks passed on {head[:8]}: apply, confirm, then merge")
+    check = ctx.git.merge_check(head, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"])
+    if not check.ok:
+        MERGE_CONFLICTS.labels("pr_checks").inc()
+        why = check.reason(ctx.git.default_branch)
+        repo.event(row, "merge_check", "worker", why[:300], {"caller": "pr_checks", "main": check.main_sha, "head": head,
+                                                             "conflict_paths": list(check.conflicts)})
+        repo.move(row, E.BASE_CHANGED, "worker", why[:240])
+        end_pr(ctx, repo, jobs, row, why)
         jobs.done(job)
-        jobs.enqueue("deliver_pr", request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": head})
         return
-    merge_sha = merge_after_check(ctx, repo, jobs, row, pr, head)
-    if merge_sha is None:
-        jobs.done(job)
-        return
-    repo.move(row, E.MERGED, "cmapi-bot", f"merged {merge_sha[:8]}")
     jobs.done(job)
-    jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
+    nxt = "apply" if mode_of(ctx, row.cluster_id) == "apply" and row.action != "delete" else "merge"
+    jobs.enqueue(nxt, request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": head})
 
 
 def _wait_for_ci(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, pr: PrRef, waiting: list[str]) -> None:
@@ -139,9 +141,7 @@ def _wait_for_ci(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: Jo
     waited = int((utcnow() - job.created_at).total_seconds())
     if waited >= ctx.delivery.sync_timeout_seconds:
         repo.move(row, E.PR_FAILED, "ci", f"{why}: not reported after {waited} s")
-        jobs.fence()
-        ctx.git.close(pr, f"cmapi: {', '.join(waiting)} not reported for {row.request_id} after {waited} s; the request is failed and may be retried.")
-        ctx.git.cleanup(row.cluster_id, row.request_id)
+        end_pr(ctx, repo, jobs, row, f"{', '.join(waiting)} not reported after {waited} s; the request may be retried")
         jobs.done(job)
         return
     if job.last_error != why:

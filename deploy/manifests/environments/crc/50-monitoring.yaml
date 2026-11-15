@@ -52,7 +52,7 @@ spec:
           annotations: {summary: "Callers are getting idp-unavailable (Keycloak signing keys unreachable)"}
         - alert: CmapiGitUnavailable
           expr: |
-            sum(rate(cmapi_git_operations_total{result="failure", namespace="cmapi"}[5m]))
+            sum(rate(cmapi_git_operations_total{result=~"error|retry", namespace="cmapi"}[5m]))
               / sum(rate(cmapi_git_operations_total{namespace="cmapi"}[5m])) > 0.20
           for: 5m
           labels: {severity: critical}
@@ -72,6 +72,22 @@ spec:
           for: 10m
           labels: {severity: warning}
           annotations: {summary: "Cluster {{ $labels.cluster_id }} unreachable for 10 minutes"}
+        # #286: the cluster holds a change that main does not. merge_failed waits for :retry with the PR and branch kept;
+        # applied for long means the merge job is stuck; a branch refused or kept is a person's head on a cmapi branch.
+        - alert: CmapiMergeFailed
+          expr: max(cmapi_requests_in_state{state="merge_failed", namespace="cmapi"}) > 0
+          for: 5m
+          labels: {severity: critical}
+          annotations: {summary: "A request is applied on its cluster and its PR did not merge: :retry merges it"}
+        - alert: CmapiAppliedNotMerged
+          expr: max(cmapi_requests_in_state{state="applied", namespace="cmapi"}) > 0
+          for: 15m
+          labels: {severity: warning}
+          annotations: {summary: "A request has been applied and not merged for 15 minutes"}
+        - alert: CmapiGitForeignBranch
+          expr: sum(increase(cmapi_git_orphans_total{kind="foreign_branch", namespace="cmapi"}[15m])) > 0
+          labels: {severity: warning}
+          annotations: {summary: "A cmapi/ branch holds a head that is not cmapi's: the request failed and the branch was left alone"}
         - alert: CmapiSyncStuck
           expr: cmapi_open_change_requests_oldest_age_seconds{status="sync_failed", namespace="cmapi"} > 0
           for: 5m
