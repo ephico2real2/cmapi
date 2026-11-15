@@ -10,6 +10,59 @@ Read this first to continue the build from a new session, with nothing else in h
 
 **The cache reference, 2026-11-13.** The owner: "check my inkcaskhq/kvpg". That is `github.com/inkcasthq/kvpg`, read by the coordinator at `f654a121820f`. It is the reference for a cmapi cache in PostgreSQL, not a dependency: cmapi keeps its contract v1 in a small Python store, on a logged table, only if a shared cache is needed. Never change kvpg and file nothing there. The owner then widened it: "ob1 is free the python equiavlanet to add a similar or use an existing public one as well". So OB1 can build the store or use a public Python library that passes the checks in the prompt. No choice is made yet, because no shared cache is needed yet. The detail is in the prompt, under "The database: CloudNativePG".
 
+## State on 2026-11-15, 05:00Z: read this first
+
+This section supersedes the older sections below where they differ. In particular, "Local CI is the merge gate" and the #157 stop are no longer in force.
+
+**The current rules** (the owner, 2026-11-14):
+
+| Rule | The owner's decision |
+|---|---|
+| CI | GitHub Actions is the only CI and the merge gate ("Ok great dont use it", "Use github"). Local CI is not used. PR #165 was closed for this reason |
+| Who codes | Opus 5.5 at `high` codes and designs. Fable is stopped |
+| Review | One adversarial review per PR, by Codex `gpt-6.1-sol` or a separate Opus 5.5 at `high`. The two are interchangeable. The reviewer writes the full fix and a test for each finding |
+| Applying the review | The coordinator applies the review's fixes, validates them with a before run and an after run, and merges ("You do the change yourself after 1st review and validate it") |
+| Docs | Sonnet 5.5 writes the docs |
+
+**Keycloak (#157).** With the owner's approval, the shared Keycloak CR now has a 1000m cpu request and a liveness `failureThreshold` of 10. Before that, the liveness probe killed Keycloak when CPU starved it. The patch restarted Keycloak once for every realm. Since then, keycloak-0 has had 0 restarts through OB1 run 9's steps 0 to 10, measured before and after each step. Add these CR values to any repository that manages that CR.
+
+**Merged since the table below:**
+
+| PR | Commit | What |
+|---|---|---|
+| #234 | `72b5094` | #215: configurable metadata |
+| #240 | `20500db` | #213: Kyverno engine and mode for each environment, CLI v1.20.0 |
+| #245 | `6f8ec6d` | #212: Kyverno policies rendered from the configuration |
+| #239 | `62cbffd` | The adoption design for story #26 (D1 to D19), docs/02 "Adoption", the figure |
+| #238 | `7ddfd10` | #226 PR-A: the nginx front door. Closes #206 |
+| #247 | `f11d2b4` | #226 PR-B: the front door in the plain manifests. The Route has `haproxy.router.openshift.io/timeout: 130s`, because nginx's worst case is 2 tries × (2 s + 60 s) = 124 s |
+| #255 | `1e67e64` | #253: separate CPU and memory LimitRanges (`<ns>-limits-cpu`, `<ns>-limits-memory`). The storage LimitRange is off by default and turned on by `storageLimitRange.enabled: true`. The review's F1 to F5 are applied, with tests |
+| #254 | `9407d8e` | Docs pass: `docs/18-configuration.md`, data-model columns. The gaps it found are filed as #256 to #260 and #263 to #266 |
+| #270 | `379dea8` | BUG-64 #268: the backup's checks read the dump to its end, so `oc exec` ends cleanly on CRI-O |
+| #269 | `a91ffdc` | #267, #97: the full request flow on CRC (GitHub, `writes: true`, `delivery.mode: apply`), a least-privilege `cmapi-deliverer`, and a separate CA trust for the Git provider. The review's F1 is applied by the coordinator: its test went from 1 failed to 1 passed, and the full service suite passed 897 |
+| #272 | `08f7fe5` | BUG-65 #271: one service-test session per database, by an advisory lock. A second session exits with 75. The review's five fixes are applied by the coordinator: its test went from 5 failed to 7 passed. The proof rows were run again and their logs saved in `workbench/cmapi/ob1-run8/logs/` |
+| cmapi-cluster-configs#1 | (merged) | The config repository's CI posts `ci/kubeconform` and `ci/kyverno` |
+
+**CRC: OB1 run 9, on `main` 08f7fe5** (`workbench/cmapi/ob1-run9/resume.md`, run from the worktree `workbench/cmapi/crc-run9`):
+- **Rollback.** Run 8's objects stopped step 3. The coordinator ruled for a clean slate, so OB1 ran `deploy/crc-rollback.sh --yes` (exit 0). It removed only cmapi's objects, plus the 13 test users, the 10 groups and their Secret from LDAP. The digest of the rest of the directory, `e924078d4c39`, was the same before and after. The other realms showed no difference.
+- **Steps 0 to 10** of docs/13 then passed on the empty slate, with images `cmapi@sha256:ef422cd1…` and `cmapi-portal@sha256:0bc6a847…`.
+- **Step 11 waits for the owner** to load Secret `cmapi/cmapi-git` (key `token`). The token is fine-grained, for `ephico2real2/cmapi-cluster-configs` only, with an expiry. Its permissions are Contents RW, Pull requests RW, Commit statuses RW, Checks R and Metadata R. OB1 checks for the Secret every 5 min until 06:35Z.
+- **Not run yet:** steps 11 to 25 and all the live tests.
+
+**Filed this round:** #273 BUG-66 (low, Backlog): `deploy/environments/crc.yaml` still names the Gitea stand-in and `delivery.mode: argocd`. Only the Helm path reads it.
+
+**Next:**
+1. The CRC run completes, then the live tests: sign-in, Requests, the namespace flows ending in a bot PR and an apply, the LimitRanges with the D19 pod-defaults proof, metadata, Kyverno, KPIs, ReDoc and Swagger, the Route timeout. Each gets a screenshot through the Route.
+2. Then the queue: D17 (#250), #228, #225, #236, #237, #220, #248, #249, #256 to #260, #263 to #266, #273, Wave 6, #207 to #209, #200.
+
+**The owner's open items:**
+- diagram-kit PR 64 (merge)
+- #227 branch protection (needs GitHub Pro)
+- the KPI targets
+- #149, #150 and #167
+- 409 or 422 for an idempotency replay with another body
+- the host for the problem type base
+
 ## Where these files are
 
 This file and `build-tracker.md` are at the root of the repository, on `main` from PR #89. Keep them current on the working branch. The auto-memory note `project-cmapi-resume-point` points here.

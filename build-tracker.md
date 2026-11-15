@@ -3,6 +3,18 @@
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
 [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
+**2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
+
+| Item | State | Proof |
+|---|---|---|
+| The full request flow (#267, #97) | Merged in #269 | CI. Not yet run on CRC |
+| LimitRanges (#253) | Merged in #255 | CI. Not yet run on CRC |
+| Metadata (#215) | Merged in #234 | CI. Not yet run on CRC |
+| Kyverno (#212, #213) | Merged in #240 and #245 | CI and the Kyverno CLI on this Mac |
+| The front door (#226) | Merged in #238 and #247 | CI. Not yet run on CRC |
+| CRC, docs/13 | Steps 0 to 10 pass on a clean slate | CRC, OB1 run 9 |
+| CRC, docs/13 | Steps 11 to 25 wait for the owner's Secret `cmapi-git` | None |
+
 **Proof** says where a result came from: **CI** is GitHub Actions on the named run, **kind** is a throwaway cluster on the
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
