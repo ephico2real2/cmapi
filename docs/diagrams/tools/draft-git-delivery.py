@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Draft generator for the Git delivery figures (#286; docs/reviews/2026-11-15-issue-286/). The committed source.html is
-the source; this script writes it, and diagram-kit renders it:
+the source; this script writes it, then runs diagram-kit's renderer, which writes the PNGs only when its checks pass:
 
-    python docs/diagrams/tools/draft-git-delivery.py
-    diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence
+    DIAGRAM_RENDER=<diagram-kit venv>/bin/diagram-render python docs/diagrams/tools/draft-git-delivery.py
 
 Each label is what the code of PR-A does; the file names say where.
 """
 import html
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -70,7 +73,7 @@ def architecture():
     out += box(510, 36, 250, 50, "host", "Secret cmapi-git-bot-ssh", ("ssh-auth: ssh-privatekey; worker only",))
     out += box(510, 92, 250, 48, "host", "ConfigMap cmapi-git-bot-known-hosts", ("known_hosts, pinned; worker only",))
 
-    out += frame(20, 172, 740, 430, "cmapi-worker  (one job at a time: worker.py)")
+    out += frame(20, 172, 740, 450, "cmapi-worker  (one job at a time: worker.py)")
     out += box(36, 206, 200, 266, "none", "Jobs (jobs/)", (
         "push_branch", "open_pr", "pr_checks", "apply (apply mode)", "merge", "git_cleanup", "git_reconcile, every 15 min",
         "watch_sync, prune", "", "one external effect each"))
@@ -81,10 +84,10 @@ def architecture():
         "one lock per process; .lock: one process per workdir"))
     out += box(256, 394, 488, 78, "remote", "PR adapter (thin): core/git/github.py, gitea.py", (
         "open, state, merge pinned to a sha, comment, close, list", "no Checks API; host CI off by default (hostChecks)"))
-    out += box(36, 492, 340, 94, "none", "Sweeper (worker.py, Worker.sweep)", (
+    out += box(36, 512, 340, 94, "none", "Sweeper (worker.py, Worker.sweep)", (
         "between jobs, every 300 s; skips when the Git lock is held", "removes worktrees of requests that are not open",
         "worktree prune, gc --auto; above 80 %: fetch again"))
-    out += box(396, 492, 348, 94, "none", "git_reconcile (jobs/git_reconcile.py)", (
+    out += box(396, 512, 348, 94, "none", "git_reconcile (jobs/git_reconcile.py)", (
         "lists cmapi/<cluster>/ PRs and branches on the host", "closes and deletes orphans, with a lease",
         "hands off applied, merge_failed, sync_failed"))
     out += line(236, 290, 252, 290) + line(236, 432, 252, 432)
@@ -92,15 +95,15 @@ def architecture():
     out += box(800, 206, 270, 120, "remote", "Any Git host: the Git protocol", (
         "fetch main; push cmapi/<cluster>/<requestId>", "with a lease; delete it with a lease", "SSH: the bot's key, known_hosts pinned",
         "HTTPS: the token through a helper", "never a push to main"))
-    out += box(800, 346, 270, 126, "remote", "The host's PR API", (
-        "GitHub REST: built (PR-A)", "Gitea REST: the chart's stand-in", "GitLab, Bitbucket: PR-B, PR-C"))
-    out += box(800, 492, 125, 94, "none", "The cluster", ("apply mode:", "server-side apply", "by the worker"))
-    out += box(945, 492, 125, 94, "none", "Argo CD", ("argocd mode:", "applies main", "after the merge"))
-    out += line(744, 300, 796, 300) + line(744, 432, 796, 432)
+    out += box(800, 346, 270, 70, "remote", "The host's PR API", ("GitHub REST (github.py)", "Gitea REST (gitea.py): the chart's stand-in"))
+    out += box(800, 426, 270, 46, "host", "Proposed: GitLab, Bitbucket", ("adapters of PR-B and PR-C; not built",), dashed=True)
+    out += box(800, 512, 125, 94, "none", "The cluster", ("apply mode:", "server-side apply", "by the worker"))
+    out += box(945, 512, 125, 94, "none", "Argo CD", ("argocd mode:", "applies main", "after the merge"))
+    out += line(744, 300, 796, 300) + line(744, 405, 796, 405)
     out += path("M 150,140 L 150,156 L 776,156 L 776,370 L 796,370", "REST reads by the api, at plan time", 470, 151)
-    out += line(760, 560, 796, 560)
-    out += path("M 1070,520 L 1078,520 L 1078,300 L 1072,300", "reads main", 1074, 484, anchor="end", dashed=True)
-    return "\n".join(out), 612
+    out += path("M 130,472 L 130,494 L 790,494 L 790,555 L 796,555", "apply job: server-side apply, then read back", 272, 489, anchor="start")
+    out += path("M 1070,540 L 1078,540 L 1078,300 L 1072,300", "reads main", 1074, 504, anchor="end", dashed=True)
+    return "\n".join(out), 632
 
 
 # --------------------------------------------------------------------------- figure 2: the request states
@@ -201,13 +204,16 @@ def sequence():
     return "\n".join(out), 700
 
 
+BUILT = "Built in PR #288 (#286 PR-A); not merged, not deployed"
+RENDERER = os.environ.get("DIAGRAM_RENDER") or shutil.which("diagram-render")
+
 FIGURES = [
     ("The architecture", architecture, 1090,
      "Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin "
      "PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the "
      "worker. Git goes to any host over SSH or HTTPS; the PR goes to GitHub, and to GitLab and Bitbucket in later pull requests. "
      "The worker applies in apply mode; Argo CD applies main in argocd mode. A sweeper between jobs and git_reconcile clean up.",
-     "Solid: a call or traffic. Dashed: a relationship, no traffic. Every box is built in PR-A, except GitLab and Bitbucket (PR-B, PR-C)."),
+     "Solid: a call or traffic. Dashed arrow: a relationship, no traffic. Dashed box: proposed, not built (GitLab and Bitbucket, PR-B and PR-C)."),
     ("The request states, both modes", states, 1080,
      "From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd "
      "mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes "
@@ -226,13 +232,16 @@ def main():
     sections = []
     for i, (title, fn, width, aria, caption) in enumerate(FIGURES):
         svg, height = fn()
+        # /visual §1.2: true today, or marked. All three show PR #288's behaviour, not main's or CRC's.
+        svg += f'\n<text x="20" y="{height + 18}" font-size="11.5" font-weight="600" fill="var(--host)">{e(BUILT)}</text>'
+        height += 30
         mid = f"gd{i}"
         svg = svg.replace("url(#gd)", f"url(#{mid})")
         sections += ["  <section>", f"    <h2>{e(title)}</h2>", "    <figure>", '      <div class="fig-scroll">',
                      f'        <svg viewBox="0 0 {width} {height}" role="img" aria-label="{e(aria)}">',
                      f'          <defs><marker id="{mid}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>',
                      f"          <g {SANS}>", svg, "          </g>", "        </svg>", "      </div>",
-                     f"      <figcaption>{e(caption)}</figcaption>", "    </figure>", "  </section>"]
+                     f"      <figcaption>{e(BUILT)}. {e(caption)}</figcaption>", "    </figure>", "  </section>"]
     page = "\n".join([
         "<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->",
         "<title>cmapi: Git delivery</title>", FONTS, STYLE, "", '<div class="page">', "  <header>",
@@ -244,6 +253,10 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page)
     print(f"wrote {out.relative_to(ROOT)}")
+    # The kit's renderer writes the PNGs only when every check passes (diagram-kit STANDARD.md §5).
+    if not RENDERER:
+        sys.exit("diagram-render not found: set DIAGRAM_RENDER, or install diagram-kit (its README)")
+    subprocess.run([RENDERER, str(out), str(out.parent), "architecture,states,apply-sequence"], check=True)
 
 
 if __name__ == "__main__":

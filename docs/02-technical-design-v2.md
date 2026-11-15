@@ -2227,38 +2227,72 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/architecture.dark.png">
   <source srcset="diagrams/git-delivery/architecture.light.png">
-  <img alt="Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the worker." src="diagrams/git-delivery/architecture.light.png">
+  <img alt="Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the worker. GitLab and Bitbucket are proposed. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/architecture.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*The architecture: the Git layer and the thin PR adapter in the worker, the credentials, and the hosts.*
+*Built in PR #288 (#286 PR-A); not merged, not deployed. The architecture: the Git layer and the thin PR adapter in the worker, the bot account's credentials, and the hosts. Dashed box: proposed, not built.*
+
+```text
+cmapi-api: plan-time reads through the host's API (github.py with no workspace)
+Secret cmapi-git-bot (token): api and worker. Secret cmapi-git-bot-ssh, ConfigMap cmapi-git-bot-known-hosts: worker only
+cmapi-worker, one job at a time:
+  jobs: push_branch, open_pr, pr_checks, apply, merge, git_cleanup, git_reconcile, watch_sync, prune
+  Git layer (workspace.py, transport.py), emptyDir /var/cache/cmapi/git, sizeLimit 1Gi:
+    repo.git, git init --bare, --filter=blob:none, refspec +refs/heads/main:refs/remotes/origin/main only
+    <workdir>/<cluster>/<requestId>: one worktree per request, branch cmapi/<cluster>/<requestId>
+  PR adapter (github.py, gitea.py): open, state, merge pinned to a sha, comment, close, list; no Checks API
+  sweeper between jobs; git_reconcile every 15 minutes
+worker -> any Git host (SSH or HTTPS): fetch main, push and delete the request branch with a lease; never main
+worker -> the host's PR API: GitHub REST, Gitea REST; proposed: GitLab, Bitbucket (PR-B, PR-C)
+apply job -> the cluster: server-side apply, then read back (apply mode). Argo CD reads main (argocd mode)
+Built in PR #288 (#286 PR-A); not merged, not deployed
+```
 
 <!-- markdownlint-disable MD033 -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
   <source srcset="diagrams/git-delivery/states.light.png">
-  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it." src="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*The request states, both modes.*
+*Built in PR #288 (#286 PR-A); not merged, not deployed. The request states from approved to the end, in both delivery modes. `lock`: the state holds the namespace's lock.*
+
+```text
+approved (lock) --push_branch, open_pr--> pr_open (lock)
+  before any apply: failed | superseded | cancelled            (no lock)
+argocd mode, and every delete: pr_open --merge--> merged (lock)
+  --> watch_sync --> synced, or sync_failed after syncTimeout (lock)
+  a delete: merged --> awaiting_prune (lock) --prune:confirm, read--> synced
+apply mode, create or change: pr_open --apply job--> apply_started (event, own transaction)
+  --> applied (lock) --merge, pinned to the applied head--> merged --> synced (one transaction)
+  apply or read not finished --> sync_failed (lock); :retry applies again
+  merge refused, or 5 attempts --> merge_failed (lock); :retry merges
+  no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+Built in PR #288 (#286 PR-A); not merged, not deployed
+```
 
 <!-- markdownlint-disable MD033 -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/apply-sequence.dark.png">
   <source srcset="diagrams/git-delivery/apply-sequence.light.png">
-  <img alt="One request in apply mode: fetch, worktree, commit, push of the branch with a lease, the PR, the checks, the merge check, apply_started, the apply and its read, the merge check again, the merge pinned to the applied head, the cleanup; merge_failed when refused after the apply." src="diagrams/git-delivery/apply-sequence.light.png">
+  <img alt="One request in apply mode: fetch, worktree, commit, push of the branch with a lease, the PR, the checks, the merge check, apply_started, the apply and its read, the merge check again, the merge pinned to the applied head, the cleanup; merge_failed when refused after the apply. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/apply-sequence.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*One request in apply mode.*
+*Built in PR #288 (#286 PR-A); not merged, not deployed. One request in apply mode, each numbered step one Git or host operation.*
 
 ```text
-worker: jobs -> Git layer (repo.git, refspec main -> origin/main only; worktree <workdir>/<cluster>/<requestId>) -> any Git host, SSH or HTTPS
-worker: jobs -> PR adapter (github.py, gitea.py; GitLab, Bitbucket in PR-B, PR-C) -> the host's PR API
-api: plan-time reads through the host's API; Secret cmapi-git-bot in both pods; cmapi-git-bot-ssh and cmapi-git-bot-known-hosts in the worker only
-apply mode: 1 fetch, 2 worktree, 3 commit, 4 push branch, 5 PR, 6 checks, 7 merge-tree and plan base, 8 apply_started,
-            9 apply, 10 confirm, 11 check again, 12 merge pinned to the applied head, 13 cleanup; refused after 8: merge_failed
+push_branch  1 fetch origin main   2 worktree add -b cmapi/<cluster>/<requestId> at origin/main
+             3 commit (trailers; dates = approved_at)   4 push the branch, lease: must not exist
+open_pr      5 open the PR, or adopt it
+pr_checks    6 kubeconform, Kyverno, cmapi check   7 fetch main, merge-tree --write-tree, folder = plan's prev
+apply        8 check again, apply_started   9 server-side apply   10 confirmed_by_read
+merge        11 check again   12 merge pinned to the applied head
+git_cleanup  13 delete the branch with a lease, worktree remove
+refused at 11 or 12, or 5 attempts: merge_failed, PR and branch kept, lock held, :retry
+Built in PR #288 (#286 PR-A); not merged, not deployed
 ```
 | watch\_sync | Requests in merged | SyncSignal plus a direct read; synced, awaiting\_prune, or sync\_failed after 30 minutes | 2 |
 | prune\_watch | Requests in awaiting\_prune | Synced once the operator confirms the prune; CmapiPruneAwaiting after 24 hours | 5 |
@@ -2550,3 +2584,7 @@ Superseded by the resequenced plan in Design and Architecture; kept here for ref
 
 - **Phase 6, first quarter after launch.** The rightsizing loop and the weekly rebalance report. Exit: the first rightsizing PRs are merged, and the placement backtest shows zero overcommit breaches over 30 days.
 - **Backlog, in any order.** Change sets and promote, temporary quota bursts, capacity forecasting, showback, ownership attestation, outbound events, tamper-evident audit. SA token guardrails are deferred.
+
+## Diagram sources
+
+The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.

@@ -210,11 +210,11 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
   <source srcset="diagrams/git-delivery/states.light.png">
-  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it." src="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*Steps 8 and 9 since #286: the request's states from approved to its end, in both delivery modes. `lock`: the state holds the namespace's lock. Steps 1 to 7 are unchanged and listed below.*
+*Built in PR #288 (#286 PR-A); not merged, not deployed. The request states from approved to the end, in both delivery modes. `lock`: the state holds the namespace's lock.*
 
 ```text
 approved (lock) --push_branch, open_pr--> pr_open (lock)
@@ -227,7 +227,10 @@ apply mode, create or change: pr_open --apply job--> apply_started (event, own t
   apply or read not finished --> sync_failed (lock); :retry applies again
   merge refused, or 5 attempts --> merge_failed (lock); :retry merges
   no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+Built in PR #288 (#286 PR-A); not merged, not deployed
 ```
+
+The figure is steps 8 and 9 as they are since #286. The nine steps:
 
 1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi-\<instance>, expiry.
 2. **Authorize.** The route's permission must come from a Keycloak role in the token (config/authz-roles.yaml maps roles to permissions), and a role limited to some environments must cover the request's environment. Names are checked, not owned: anyone holding namespaces:create may ask for any valid name that is not reserved and not an unmanaged namespace on the cluster.
@@ -906,4 +909,4 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 
 ## Diagram sources
 
-The Git delivery figures are `docs/diagrams/git-delivery/source.html`, written by `docs/diagrams/tools/draft-git-delivery.py` and rendered with diagram-kit's `diagram-render` to the light and dark PNGs beside it. The picture, its text twin and the page change together.
+The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.
