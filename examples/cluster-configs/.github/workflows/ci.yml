@@ -1,0 +1,50 @@
+# The checks of a cmapi cluster-configs repository, on each pull request to main. cmapi's worker waits for two check runs by
+# name before it merges a bot pull request (cmapi/src/cmapi/jobs/pr_checks.py, GitHubProvider.external_ci): ci/kubeconform and
+# ci/kyverno. A check run of a workflow job takes the job's name, so the names below are the contract; renaming one makes every
+# request wait until delivery.syncTimeout and fail. cmapi posts the third, cmapi/check, as a commit status.
+# Actions are pinned by the commit of their release tag; the two CLIs by version and SHA-256, the ones cmapi's image pins.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  kubeconform:
+    name: ci/kubeconform
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: kubeconform v0.6.7
+        run: |
+          curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
+      - name: Every object under clusters/
+        env:
+          SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+          CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        run: kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" clusters/
+
+  kyverno:
+    name: ci/kyverno
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: PyYAML and the Kyverno CLI v1.20.0
+        run: |
+          python -m pip install pyyaml==6.0.2
+          curl -sSfL -o kyverno.tgz https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz
+          echo "06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2  kyverno.tgz" | sha256sum -c -
+          tar xzf kyverno.tgz kyverno && sudo mv kyverno /usr/local/bin/
+          kyverno version
+      - name: Each namespace folder through its environment's bundle
+        run: python .github/scripts/kyverno_check.py .
