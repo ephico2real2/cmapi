@@ -210,13 +210,13 @@ A write that makes a request also checks who the requester is (`cmapi/src/cmapi/
 
 ## Who a request is from
 
-A request is always from the caller of the token. This section says how a person gets the right to request, what cmapi records about the caller, and what is not in the design.
+A request is from the caller of the token. A tool can also name the person that it asks for. This section says how a person gets the right to request, what cmapi records, how a tool acts for a person, and what is not in the design.
 
 <!-- markdownlint-disable MD033 -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/rbac-identity/rbac-identity.dark.png">
   <source srcset="diagrams/rbac-identity/rbac-identity.light.png">
-  <img alt="A person gets the right to request through LDAP group membership. Keycloak's LDAP federation, with the users filter (uid=cmapi.*), maps the group to the client role cmapi-requester in the token, and the role grants namespaces:create. cmapi records the request under the token's sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A system acts through the client cmapi-automation and is recorded as automated. Token exchange is proposed. A shared submitter is not in the design." src="diagrams/rbac-identity/rbac-identity.light.png">
+  <img alt="A person gets the right to request through LDAP group membership. Keycloak's LDAP federation, with the users filter (uid=cmapi.*), maps the group to the client role cmapi-requester in the token, and the role grants namespaces:create. cmapi records the request under the token's sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A tool signs in as the client cmapi-automation and sends onBehalfOf. cmapi looks the person up in the directory and records the person as requester and the tool as caller, automated. The directory does not prove that the person signed in: token exchange, RFC 8693, is proposed. A shared submitter is not in the design." src="diagrams/rbac-identity/rbac-identity.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
@@ -237,11 +237,14 @@ person
                                                                                                       email, employee_id
                                                                                                       Git: the plan only
 
-system (a script, an AI agent)
+tool (a script, an AI agent)
         client cmapi-automation, client credentials
-        role cmapi-onboarding                                  -->  request, recorded as automated ->  PostgreSQL
+        role cmapi-onboarding, sends onBehalfOf=<id>
+                                                               -->  directory lookup: an enabled person, or 422
+                                                                    request ----------------------->  PostgreSQL: requester = the person,
+                                                                                                      caller = the tool, automated
 
-proposed (not built):  OAuth 2.0 Token Exchange, RFC 8693, so that a system acts with the person's identity
+proposed (not built):  OAuth 2.0 Token Exchange, RFC 8693: proof that the person signed in. With onBehalfOf, cmapi trusts the tool to name the person
 not in the design:     one shared submitter account: loses attribution and the self-approval check
 ```
 
@@ -262,7 +265,7 @@ The role `cmapi-requester` has these permissions (from the table "The roles and 
 
 ### Who the request is recorded under
 
-cmapi records the request under the caller of the token. It never reads the requester from the payload (`claims.py:3-6`).
+When a person calls, cmapi records the request under the caller of the token. The identity of a person comes from the token and not from the payload (`claims.py:3-6`). A tool is the one exception: see "Tools that act for people".
 
 | Value | Where it comes from | Where it is kept |
 |---|---|---|
@@ -278,11 +281,13 @@ A person calls as themselves. If a person sends `onBehalfOf`, cmapi refuses with
 
 ### No shared submitter
 
-A shared account, for example `cmapi.requester`, that submits for many people is not in the design. It would have three effects:
+A shared human account, for example `cmapi.requester`, that submits for many people is not in the design. A person cannot use `onBehalfOf` (`checks.py:74-78`), so a shared account would be recorded as the requester. It would have three effects:
 
 - Attribution is lost. Each request would carry the `sub` and the username of the shared account, and not those of the person.
 - The self-approval check fails. The check compares `sub` values (`approvals.py:325-326`). The requester would carry the `sub` of the shared account. A person who submits through it and then approves with their own account has another `sub`, so the check would not refuse.
 - The employee ID record is lost. The token of the shared account has one `employee_id`, or none, and a person's write needs one when the instance requires it (`checks.py:79-81`).
+
+A tool that must act for people has its own path: see the next section.
 
 ### The test user cmapi.requester
 
@@ -292,12 +297,23 @@ A shared account, for example `cmapi.requester`, that submits for many people is
 
 The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP federation"; `realm_sync.py:228-229`). So only the 13 test users can sign in today. To allow real people, the filter must change to the scope of the organisation's directory. That is a deployment decision for each environment. It is not made yet.
 
-### Systems that act for people
+### Tools that act for people
+
+A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:183`):
+
+| Case | What cmapi does | Source |
+|---|---|---|
+| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:52` |
+| The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
+| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:51` |
+
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:374`, `approvals.py:325-326`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:208-210`, `approvals.py:323-324`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+
+With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 
 | Part | State | Source |
 |---|---|---|
-| The client `cmapi-automation`, with the client credentials grant and the role `cmapi-onboarding`. Its requests are recorded as automated, under the identity of the system | Built | `docs/15`, "The clients"; `checks.py:73`; `pipeline.py:285` |
-| A system that acts for a person and keeps the identity of the person: OAuth 2.0 Token Exchange, RFC 8693 | Not built. Realm `cmapi` has token exchange off | `docs/15`, "The type of an access token" |
+| OAuth 2.0 Token Exchange, RFC 8693: a tool that holds a token of the person, so that cmapi has proof that the person signed in | Not built. Realm `cmapi` has token exchange off | `docs/15`, "The type of an access token" |
 
 ### The 13 test users
 

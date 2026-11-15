@@ -62,14 +62,14 @@ a { color: var(--remote); }
   <header>
     <div class="eyebrow">cmapi · authorization · 2026-11-15</div>
     <h1>Who a request is from</h1>
-    <p class="lede">A request is from the caller of the token. A person gets the right to request through an LDAP group. A system acts through its own client. A shared submitter is not in the design. <code>docs/14-authorization.md</code> gives the source of each claim.</p>
+    <p class="lede">A request is from the caller of the token. A person gets the right to request through an LDAP group. A tool acts for a person with onBehalfOf. A shared submitter is not in the design. <code>docs/14-authorization.md</code> gives the source of each claim.</p>
     <p class="muted">Read from <code>docs/11</code>, <code>docs/15</code>, <code>cmapi/src/cmapi/core/identity/claims.py</code> and <code>checks.py</code>, and <code>examples/cmapi-sso/ldap/test-identities.tsv</code>.</p>
   </header>
   <section>
     <h2>The path from a person to a recorded request</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1120 1048" role="img" aria-label="A person&#x27;s LDAP account, cmapi.requester, joins the group app-cmapi-rbac-requester. Keycloak&#x27;s LDAP federation, with the users filter (uid=cmapi.*), puts the group in the token and maps it to the client role cmapi-requester, which grants namespaces:create. cmapi records the request under the token&#x27;s sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A system acts through the client cmapi-automation and is recorded as automated. Token exchange is proposed. A shared submitter is not in the design: it loses attribution and the self-approval check.">
+        <svg viewBox="0 0 1120 1048" role="img" aria-label="A person&#x27;s LDAP account, cmapi.requester, joins the group app-cmapi-rbac-requester. Keycloak&#x27;s LDAP federation, with the users filter (uid=cmapi.*), puts the group in the token and maps it to the client role cmapi-requester, which grants namespaces:create. cmapi records the request under the token&#x27;s sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A tool signs in as the client cmapi-automation and sends onBehalfOf. cmapi looks the person up in the directory and records the person as requester and the tool as caller, automated. The directory does not prove that the person signed in: token exchange, RFC 8693, is proposed. A shared submitter is not in the design: it loses attribution and the self-approval check.">
           <defs><marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
 <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
 <rect x="20" y="16" width="220" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/><text x="130.0" y="36" text-anchor="middle" fill="var(--none)">LDAP · ldap-testing</text>
@@ -130,21 +130,21 @@ a { color: var(--remote); }
 <text x="934" y="610" fill="var(--muted)">no identity record</text>
 <polyline points="860,512 890,512 890,585 916,585" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ahr)"/>
 <text x="884" y="546" font-size="11" fill="var(--muted)" text-anchor="end">plan only</text>
-<text x="20" y="656" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">PATH 2 · A SYSTEM · BUILT</text>
+<text x="20" y="656" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">PATH 2 · A TOOL FOR A PERSON · BUILT</text>
 <rect x="350" y="672" width="250" height="62" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.3"/>
 <text x="364" y="693" font-weight="600" fill="currentColor">Client cmapi-automation</text>
 <text x="364" y="711">client credentials grant</text>
 <text x="364" y="728" fill="var(--muted)">role cmapi-onboarding</text>
 <rect x="660" y="672" width="200" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.3"/>
-<text x="674" y="693" font-weight="600" fill="var(--remote)">Recorded as automated</text>
-<text x="674" y="711">caller: the system</text>
-<text x="674" y="728" fill="var(--muted)">no person&#x27;s identity</text>
+<text x="674" y="693" font-weight="600" fill="var(--remote)">onBehalfOf, then lookup</text>
+<text x="674" y="711">onBehalfOf=&lt;id&gt;</text>
+<text x="674" y="728" fill="var(--muted)">enabled person, or 422</text>
 <polyline points="600,703 656,703" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ahr)"/>
 <text x="628" y="694" font-size="11" fill="var(--muted)" text-anchor="middle">the token</text>
 <rect x="920" y="672" width="180" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.3"/>
 <text x="934" y="693" font-weight="600" fill="var(--remote)">PostgreSQL</text>
-<text x="934" y="711">automated: true</text>
-<text x="934" y="728" fill="var(--muted)">caller: the system</text>
+<text x="934" y="711">requester: the person</text>
+<text x="934" y="728" fill="var(--muted)">caller: the tool, automated</text>
 <polyline points="860,703 916,703" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ahr)"/>
 <text x="888" y="694" font-size="11" fill="var(--muted)" text-anchor="middle">recorded</text>
 <text x="20" y="760" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">PROPOSED · NOT BUILT</text>
@@ -153,9 +153,9 @@ a { color: var(--remote); }
 <text x="364" y="813">RFC 8693 · proposed</text>
 <text x="364" y="830" fill="var(--muted)">realm cmapi has it off</text>
 <rect x="660" y="774" width="200" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.3" stroke-dasharray="5 4"/>
-<text x="674" y="795" font-weight="600" fill="var(--host)">Request as the person</text>
+<text x="674" y="795" font-weight="600" fill="var(--host)">Proof of sign-in</text>
 <text x="674" y="813">proposed: the person&#x27;s</text>
-<text x="674" y="830" fill="var(--muted)">identity is kept</text>
+<text x="674" y="830" fill="var(--muted)">token, not only a name</text>
 <polyline points="600,805 656,805" fill="none" stroke="var(--host)" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#ahr)"/>
 <text x="628" y="796" font-size="11" fill="var(--host)" text-anchor="middle">proposed</text>
 <text x="20" y="878" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">REFUSED · NOT IN THE DESIGN</text>
@@ -170,7 +170,7 @@ a { color: var(--remote); }
 <polyline points="240,923 656,923" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ahr)"/>
 <text x="448" y="914" font-size="11" fill="var(--gap)" text-anchor="middle">not in the design: loses attribution and the self-approval check</text>
 <text x="20" y="988">Solid boxes are built. Dashed boxes are proposed. The red path is not in the design.</text>
-<text x="20" y="1007">Keycloak decides who is in a group and who holds a role. cmapi reads the token and records its caller.</text>
+<text x="20" y="1007">Keycloak decides who is in a group and who holds a role. cmapi reads the token. A tool with no onBehalfOf is the requester itself.</text>
 <text x="20" y="1026" fill="var(--host)" font-weight="600">Measured with the realm test on Keycloak 26.6.4. Not yet run on CRC: realm cmapi is not there yet.</text>
 </g>
         </svg>

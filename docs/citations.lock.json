@@ -35,6 +35,10 @@
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|323-324": [
+  "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
+  "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|325-326": [
   "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
   "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")"
@@ -292,6 +296,11 @@
   "any namespace name (outside the reserved ones) in the environments that role covers; approval rules decide what needs approval,",
   "and approving groups (Keycloak groups) decide who may approve."
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/db/repo.py|208-210": [
+  "        submitter = (row.requester or {}).get(\"submittedBySub\")",
+  "        ledger = ApprovalLedger(req, requester_sub=row.requester_sub,",
+  "                                operation_starter_sub=None if req.self_approval else submitter)"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/db/repo.py|36-44": [
   "    return {\"rule\": r.rule, \"slots\": [asdict(s) for s in r.slots], \"selfApproval\": r.self_approval,",
   "            \"timeoutHours\": r.timeout_hours, \"reasons\": list(r.reasons), \"auto\": r.auto,",
@@ -311,8 +320,65 @@
   "            x: dict[str, Any] = {\"x-cmapi-permission\": permission, \"x-cmapi-plugin\": self.plugin,",
   "                                 \"x-plugin-version\": self.version, **extra}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|73-73": [
-  "    automated = caller.kind == \"service\" or bool(set(automation_roles) & set(caller.roles))"
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|1-15": [
+  "\"\"\"Request-time identity checks: who the request is for, and the email-domain rule.",
+  "",
+  "- A person calling with their own token is the requester; sending onBehalfOf is refused.",
+  "- A service client (a bot: a Keycloak service-account client such as svc-payments-ci) may request",
+  "  in its own name; it is then the requester. It may instead send onBehalfOf, a username or an",
+  "  employee ID resolved through the directory to an enabled person, and both identities are",
+  "  recorded. identity.requireOnBehalfOf: true makes onBehalfOf mandatory for services again.",
+  "- A user token without the employee_id claim is refused (identity-incomplete) when the instance",
+  "  requires it (identity.requireEmployeeId), unless the account holds an automation role",
+  "  (identity.automationRoles, default [cmapi-onboarding]). An AI agent or a script signs in as the service",
+  "  client cmapi-automation, with client credentials. An automation caller may also send onBehalfOf.",
+  "- Every request records whether it was automated (a service client or an automation account).",
+  "- Email-valued governed keys (cmapi.net/team-dl) must be an address in one of emailDomains from",
+  "  metadata-keys.yaml. Format only: DLs are never looked up.",
+  "\"\"\""
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|49-53": [
+  "    def sub(self) -> str:",
+  "        \"\"\"The person's Keycloak user ID: the requester_sub the approval ledger refuses as approver.\"\"\"",
+  "        if not self.person.sub:",
+  "            raise Problem.unprocessable(\"unknown-user\", f\"No user ID for {self.person.username}\")",
+  "        return self.person.sub"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|59-64": [
+  "    def record(self) -> dict:",
+  "        rec = {\"requester\": self.person.record(), \"automated\": self.automated}",
+  "        if self.person is not self.caller:",
+  "            rec[\"submittedBy\"] = self.caller.username",
+  "            rec[\"submittedBySub\"] = self.caller.sub",
+  "            if self.caller.kind == \"service\":"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|70-95": [
+  "                      directory: DirectoryProvider | CachedDirectory | None,",
+  "                      require_employee_id: bool = True, require_on_behalf_of: bool = False,",
+  "                      automation_roles: Iterable[str] = (\"cmapi-onboarding\",)) -> Requester:",
+  "    automated = caller.kind == \"service\" or bool(set(automation_roles) & set(caller.roles))",
+  "    if not automated:",
+  "        if on_behalf_of:",
+  "            raise Problem.unprocessable(\"on-behalf-of-not-allowed\",",
+  "                                        \"A person calls as themselves; onBehalfOf is for service clients \"",
+  "                                        \"and automation accounts\")",
+  "        if require_employee_id and not caller.employee_id:",
+  "            raise Problem.unprocessable(\"identity-incomplete\",",
+  "                                        \"The token has no employee_id claim; check the cmapi-identity client scope\")",
+  "        return Requester(person=caller, caller=caller)",
+  "    if not on_behalf_of:",
+  "        if require_on_behalf_of:",
+  "            raise Problem.unprocessable(\"on-behalf-of-required\",",
+  "                                        \"A service client or automation account must name the person the \"",
+  "                                        \"request is for\")",
+  "        return Requester(person=caller, caller=caller, automated=True)    # the bot is the requester",
+  "    if directory is None:",
+  "        raise Problem.unprocessable(\"unknown-user\", \"No directory is configured\")",
+  "    person = directory.get_user(on_behalf_of) or directory.find_by_employee_id(on_behalf_of)",
+  "    if person is None or not person.enabled:",
+  "        raise Problem.unprocessable(\"unknown-user\", f\"{on_behalf_of} is not an enabled user\",",
+  "                                    onBehalfOf=on_behalf_of)",
+  "    return Requester(person=person, caller=caller, automated=True)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|74-78": [
   "    if not automated:",
@@ -325,6 +391,23 @@
   "        if require_employee_id and not caller.employee_id:",
   "            raise Problem.unprocessable(\"identity-incomplete\",",
   "                                        \"The token has no employee_id claim; check the cmapi-identity client scope\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|83-88": [
+  "    if not on_behalf_of:",
+  "        if require_on_behalf_of:",
+  "            raise Problem.unprocessable(\"on-behalf-of-required\",",
+  "                                        \"A service client or automation account must name the person the \"",
+  "                                        \"request is for\")",
+  "        return Requester(person=caller, caller=caller, automated=True)    # the bot is the requester"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|89-95": [
+  "    if directory is None:",
+  "        raise Problem.unprocessable(\"unknown-user\", \"No directory is configured\")",
+  "    person = directory.get_user(on_behalf_of) or directory.find_by_employee_id(on_behalf_of)",
+  "    if person is None or not person.enabled:",
+  "        raise Problem.unprocessable(\"unknown-user\", f\"{on_behalf_of} is not an enabled user\",",
+  "                                    onBehalfOf=on_behalf_of)",
+  "    return Requester(person=person, caller=caller, automated=True)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|3-5": [
   "The requester's identity is never taken from a request body: username and email go on the",
@@ -393,11 +476,25 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|285-285": [
-  "                 \"automated\": requester.automated, \"requesterClient\": who.client_id if who.kind == \"service\" else None,"
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|183-183": [
+  "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|321-321": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|374-374": [
+  "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|51-51": [
+  "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|52-52": [
+  "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
+  "        # submittedBySub is a stable identifier the ledger needs (self-approval through onBehalfOf); it is not",
+  "        # part of the public contract, so it stays in the row and out of the response.",
+  "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|142-144": [
   "    @app.exception_handler(Problem)",
