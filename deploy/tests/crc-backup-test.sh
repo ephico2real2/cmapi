@@ -32,7 +32,12 @@ if [ -n "${SHIM_CUT:-}" ] && [[ "$3" == *pg_dump* ]]; then
   t=$(mktemp); $C exec "${envs[@]}" "$N" sh -c "$3" >"$t"; rc=$?
   python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); sys.stdout.buffer.write(d[:-int(sys.argv[2])])' "$t" "$SHIM_CUT"; rm -f "$t"; exit "$rc"
 fi
-exec $C exec $i "${envs[@]}" "$N" sh -c "$3"
+# With stdin, as CRI-O's exec does: a command that ends with stdin unread fails the exec ("write |1: broken pipe", measured on CRC, #268). CRI-O fails
+# only past the pipe buffer; this fails on any unread byte, and the dump below is larger than the buffer, so both would fail.
+if [ -n "$i" ]; then
+  exec $C exec -i "${envs[@]}" "$N" sh -c 'sh -c "$1"; rc=$?; left=$(wc -c | tr -d " "); [ "$left" = 0 ] || { echo "error executing command in container: write |1: broken pipe ($left bytes of stdin unread)" >&2; exit 1; }; exit $rc' sh "$3"
+fi
+exec $C exec "${envs[@]}" "$N" sh -c "$3"
 OC
 printf '#!/bin/sh\nexit 0\n' >"$W/bin/tmutil"; chmod +x "$W/bin/"*
 export PATH="$W/bin:$PATH" CMAPI_BACKUP_DIR=$W/backup
@@ -49,6 +54,8 @@ $C exec -i "$N" sh -c 'psql -q -w -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE
 create table realm(id text primary key, name text); insert into realm select 'id-'||g, E'name\nwith a newline '||g from generate_series(1,6) g;
 insert into realm values (E'tab\there', 'x');
 create table client(id serial primary key, secret text); insert into client(secret) select md5(g::text) from generate_series(1,2000) g;
+-- Random hex, which compresses to about half: a dump well past a 64 KiB pipe buffer, as the shared Keycloak's 14 MB database gives (#268).
+create table blob(x text); insert into blob select md5(random()::text)||md5(random()::text)||md5(random()::text)||md5(random()::text) from generate_series(1,8000) g;
 SQL
 
 # 1. The image as it ships.
@@ -57,6 +64,7 @@ echo "the image's rules: $(in_c "grep -E '^(local|host) +all' $HBA | tr -s ' ' |
 rc=$(B); [ "$rc" = 0 ] && ok "a backup on the image as it ships" || bad "a backup on the image as it ships: rc $rc: $(tail -2 "$W/out")"
 tail -1 "$W/out" | grep -q '7 realms, read to its end' && ok "it counted the seven realm rows: $(tail -1 "$W/out" | sed 's/^backup in [^:]*: //')" || bad "its last line: $(tail -1 "$W/out")"
 f=$(find "$W/backup" -type f -name 'keycloak-*.dump'); [ -n "$f" ] && ok "one dump in the directory" || bad "no dump"
+size=$(wc -c <"$f" | tr -d " "); [ "${size:-0}" -gt 65536 ] && ok "the dump is larger than a pipe buffer: $size bytes" || bad "the dump is $size bytes, not past a 64 KiB pipe buffer: the stdin case proves nothing"
 # The GNU form first: GNU's -f writes the file system's details on stdout before it fails, while BSD's stat refuses -c with nothing on stdout (#90).
 m() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }; [ "$(m "$W/backup")" = 700 ] && [ "$(m "$f")" = 600 ] && ok "directory 0700, file 0600" || bad "modes $(m "$W/backup") $(m "$f")"
 if grep -qF -e "$PW" -e "$f" "$W/out"; then bad "the password or the path reached the output"; else ok "no password and no path in the output"; fi
