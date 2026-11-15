@@ -380,7 +380,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 | Token checks, the roles table and the environment limit | The service suite on macOS, PostgreSQL 16 on `127.0.0.1:55432`, 2026-11-13: `tests/service/test_auth.py` and `tests/service/test_review_c_authz.py` | 23 passed |
 | The 13 test users through LDAP federation, each with the groups and roles of the table | CRC: `deploy/crc-proof.sh` on CRC, 2026-11-15, main 21a7f47 (run 11, step 23), and on main 08f7fe5 with the proof of PR #277 (run 9, step 23) | Passed. The proof lines: "13 LDAP test users signed in through the federation; each token holds the table's groups, roles and employee_id", and "cmapi.noaccess gets 403 on /api/v1/clusters, where cmapi.viewer gets 200" |
 | `cmapi-automation` signs in with client credentials, and the password grant is refused | Same runs | Passed: "cmapi-automation signs in with client credentials, and the password grant is refused (unauthorized_client)" |
-| A tool files for a person with `onBehalfOf` | The service suite: `test_the_submitter_sub_is_stored_but_never_served` (`tests/service/test_pr40_convergence.py`) and `test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone` (`tests/service/test_review_c_authz.py`) | The tests cover it. Not run on CRC |
+| A tool files for a person with `onBehalfOf` | The service suite: `test_the_submitter_sub_is_stored_but_never_served` (`tests/service/test_pr40_convergence.py`) and `test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone` (`tests/service/test_review_c_authz.py`) | Passed: 2 passed on main feb1dca (2026-11-15, the service suite's PostgreSQL). Not run on CRC |
 
 ## Diagram sources
 
