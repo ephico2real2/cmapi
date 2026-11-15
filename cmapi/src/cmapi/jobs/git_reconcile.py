@@ -4,6 +4,8 @@ reads the request ID from the last segment, and compares with the request's row.
 its head's commit time, is left alone: a job may be writing it.
 
     PR or branch, no row, or a final state     close the PR, delete the branch with a lease    orphan
+                                               when its head is cmapi's for the request;
+                                               any other head is kept and counted               foreign_branch
     an open PR that is not row.pr.number       close it, keep the row's                         duplicate
     a branch, no PR, approved, no job pending  queue open_pr (it adopts, replaces or refuses)   stalled
     applied, merge_failed, sync_failed,        nothing, ever: the merge job reopens a closed PR
@@ -41,11 +43,14 @@ def git_reconcile(ctx: AppContext, s: Session, job: JobRow) -> None:
         with Op("cleanup", scope="reconcile", cluster=cluster_id) as op:
             prs = ctx.git.list_open(prefix)
             branches = ctx.git.list_branches(prefix)
-            ids = {p.branch[len(prefix):] for p in prs} | {b[len(prefix):] for b in branches}
-            rows = {r.request_id: r for r in s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.request_id.in_(ids)))}
+            names = {p.branch[len(prefix):] for p in prs} | {b[len(prefix):] for b in branches}
+            # The request ID is the branch's last segment (Fable 5.3), so a branch of the layout before #286,
+            # cmapi/<cluster>/<namespace>/<requestId>, still finds its request.
+            rid_of = {name: name.rsplit("/", 1)[-1] for name in names}
+            rows = {r.request_id: r for r in s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.request_id.in_(set(rid_of.values()))))}
             actions = []
-            for rid in sorted(ids):
-                branch = prefix + rid
+            for name in sorted(names):
+                rid, branch = rid_of[name], prefix + name
                 head = branches.get(branch)
                 young = head is not None and now - ctx.git.branch_time(head) < GRACE_SECONDS
                 if young:
@@ -59,11 +64,18 @@ def git_reconcile(ctx: AppContext, s: Session, job: JobRow) -> None:
                         ctx.git.close(p, f"cmapi: {rid} is {'unknown' if row is None else row.status}; this PR will not merge.")
                         GIT_ORPHANS.labels(kind, "closed").inc()
                         actions.append(f"closed #{p.number}")
-                    if head is not None and (row is not None or ctx.git.request_of(head) == rid):
-                        jobs.fence()
-                        if ctx.git.delete_branch(branch, head):
-                            GIT_ORPHANS.labels(kind, "deleted").inc()
-                            actions.append(f"deleted {branch}")
+                    if head is not None:
+                        # As git_cleanup: only a head that is cmapi's for this request. Anyone else's is left alone (the
+                        # arbitration, row 3), such as the head push_branch refused.
+                        ours = {(row.pr or {}).get("head"), (row.pr or {}).get("applied_head")} - {None} if row is not None else set()
+                        if head in ours or ctx.git.request_of(head) == rid:
+                            jobs.fence()
+                            if ctx.git.delete_branch(branch, head):
+                                GIT_ORPHANS.labels(kind, "deleted").inc()
+                                actions.append(f"deleted {branch}")
+                        else:
+                            GIT_ORPHANS.labels("foreign_branch", "kept").inc()
+                            actions.append(f"kept {branch}: its head {head[:8]} is not cmapi's for {rid}")
                     continue
                 if row.status in HANDS_OFF:
                     continue

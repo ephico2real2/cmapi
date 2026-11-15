@@ -392,19 +392,19 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|110-110": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|128-128": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|129-129": [
   "        c.cfg.roles.require(who, \"requests:approve\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|157-157": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|158-158": [
   "        c.cfg.roles.require(who, \"requests:reject\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|172-172": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|173-173": [
   "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|192-192": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|193-193": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|221-221": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|222-222": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|28-28": [

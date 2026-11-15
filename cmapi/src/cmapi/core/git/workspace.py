@@ -464,17 +464,24 @@ class GitWorkspace:
 
     def recreate(self, req: BranchRequest, base: str, expected: str) -> str:
         """The branch again, from its recorded base: the reproducible commit gives the same sha, so a PR that a person closed
-        can be opened again on exactly the applied head (Fable 1.3). Raises when the sha differs."""
+        can be opened again on exactly the applied head (Fable 1.3). Raises when the sha differs. A branch whose head is not
+        cmapi's for this request is a person's work: BranchRefused, and it is left as it is (the arbitration, row 3)."""
         folder = self._check_files(req)
         branch = request_branch(req.cluster_id, req.request_id)
         with self._lock:
+            current = self.fetch_branch(branch)
+            if current is not None and current != expected and self.trailers(current)[TRAILER_REQUEST] != [req.request_id]:
+                with Op("push", head_sha=current, result="foreign") as op:
+                    op.outcome = "refused"
+                    op.set(reason="re-create: the head is not cmapi's for this request")
+                raise BranchRefused(f"branch {branch} is at {current[:8]}, which is not cmapi's commit for {req.request_id}: "
+                                    "it is not overwritten")
             self._need(base)
             head = self._build(req, folder, base)
             if head != expected:
                 raise GitUnavailable(f"the re-created commit is {head[:8]}, not the applied head {expected[:8]}")
-            current = self.ls_remote(branch).get(branch, "")
             if current != head:
-                self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, current, "created")
+                self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, current or "", "created")
             return head
 
     def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:

@@ -108,7 +108,8 @@ def approval_status(request_id: RequestId, who: Identity = Depends(require("requ
     with c.db.session() as s:
         row = RequestRepo(s).get(request_id)
         c.cfg.roles.require(who, "requests:read", row.env)
-        approved = row.status in ("approved", "pr_open", "merged", "awaiting_prune", "synced")
+        # applied and merge_failed (#286) are past pr_open and before merged: a check CI runs on the PR then must read approved.
+        approved = row.status in ("approved", "pr_open", "applied", "merge_failed", "merged", "awaiting_prune", "synced")
         return {"requestId": row.request_id, "approved": approved, "status": row.status, "planHash": row.plan_hash}
 
 

@@ -23,7 +23,8 @@ from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
 from cmapi.core.git.base import HeadMoved, NotMergeable, PlatformRefused
 from cmapi.core.lifecycle import Event as E, State as S
-from cmapi.core.observability import LEAD_TIME, MERGE_CONFLICTS
+from cmapi.core.git.workspace import BranchRefused
+from cmapi.core.observability import GIT_ORPHANS, LEAD_TIME, MERGE_CONFLICTS
 from cmapi.core.ports import PrRef
 from cmapi.core.render.manifests import folder
 from cmapi.jobs.delivery import body_of, branch_request, end_pr, mode_of, planned, pr_of, request_context, title_of
@@ -65,7 +66,13 @@ def _merge(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
             jobs.done(job)
             jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
             return
-        pr = _reopen(ctx, repo, jobs, row, pinned)
+        try:
+            pr = _reopen(ctx, repo, jobs, row, pinned)
+        except BranchRefused as exc:
+            GIT_ORPHANS.labels("foreign_branch", "refused").inc()
+            merge_failed(ctx, repo, jobs, row, f"the PR was closed and it cannot open again: {exc}", {"branch": row.pr["branch"]})
+            jobs.done(job)
+            return
     check = ctx.git.merge_check(pinned, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"])
     if not check.ok:
         MERGE_CONFLICTS.labels("merge").inc()
@@ -77,6 +84,13 @@ def _merge(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
         else:
             repo.move(row, E.BASE_CHANGED, "worker", why[:240])
             end_pr(ctx, repo, jobs, row, why)
+        jobs.done(job)
+        return
+    # The request row, locked until this job commits (Fable's design, 2): a :cancel takes the same lock, so it waits for the
+    # merge and is then refused, and one that came first is seen here and nothing merges.
+    before = row.status
+    repo.s.refresh(row, attribute_names=["status"], with_for_update=True)
+    if row.status != before:
         jobs.done(job)
         return
     jobs.fence()
@@ -107,9 +121,9 @@ def _merge(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
 def _reopen(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, pinned: str) -> PrRef:
     """A person closed the PR after the apply: a new PR from the same branch, never failed (Fable 1.3)."""
     branch = row.pr["branch"]
+    jobs.fence()                                # both the push of a re-created branch and the new PR are external effects
     if ctx.git.branch_head(branch) != pinned:
         ctx.git.recreate_branch(branch_request(ctx, row), row.pr.get("base") or "", pinned)
-    jobs.fence()
     new = ctx.git.open_pr(branch, pinned, title_of(row), body_of(row))
     repo.event(row, "pr_reopened", "cmapi-bot", f"#{row.pr['number']} was closed; #{new.number} opened from the same branch",
                {"old": row.pr["number"], "new": new.number})
