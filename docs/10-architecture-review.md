@@ -36,7 +36,7 @@ incubating projects only).
 | PostgreSQL via CloudNativePG | operator 1.30.1 on CRC (`oc get csv -n openshift-operators`) | PostgreSQL / Apache-2.0 | yes | CloudNativePG: incubating | Crunchy, Zalando operator, a managed PostgreSQL |
 | Keycloak (Red Hat build) | RHBK operator on CRC, CR `keycloak` in namespace `keycloak` | Apache-2.0 | yes | incubating | any OIDC issuer (the Authenticator extension point) |
 | Gitea (Git host stand-in on CRC) | 1.25 rootless (`deploy/helm/cmapi-git`) | MIT | yes | none | GitHub, GitLab (GitProvider adapters) |
-| Kyverno CLI + kubeconform | 1.16.2 + 0.6.7, baked into the image | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
+| Kyverno CLI + kubeconform | 1.20.0 + 0.6.7, baked into the image (`cmapi/Containerfile`, `KYVERNO_VERSION` and `KUBECONFORM_VERSION`; the Kyverno pin moved from 1.16.2 in #213) | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
 | Prometheus (user workload monitoring on CRC) | OpenShift 4.22.14 stack | Apache-2.0 | yes | graduated | any OpenMetrics scraper |
 | Perses (Cluster Observability Operator 1.5.3 on CRC) | COO 1.5.3 | Apache-2.0 | yes | not on the CNCF page read; status not verified here | Grafana (chart value `dashboards.provider`) |
 | Argo CD | not installed on CRC; the OpenShift GitOps operator in the catalog (default channel `latest`, CSV `openshift-gitops-operator.v1.22.3`, `AllNamespaces` install mode only, measured 2026-11-05) | Apache-2.0 | yes | graduated | `apply` delivery, a deviation a site must acknowledge (see §5); CRC runs `argocd` (#63) |
