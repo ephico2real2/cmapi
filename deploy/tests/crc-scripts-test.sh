@@ -79,7 +79,10 @@ print(json.dumps({"items":items}))'; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
-  "exec cmapi-db-1"*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  # CNPG's peer map on OpenShift: the pod's arbitrary UID signs in as a mapped role, never one named after itself. The read needs
+  # pg_monitor, not a superuser, so only the monitoring role answers here (#278).
+  "exec cmapi-db-1"*"psql -U cnpg_metrics_exporter "*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  "exec cmapi-db-1"*) echo 'psql: error: FATAL:  Peer authentication failed for user "1000720000"' >&2; exit 2;;
   "exec deploy/cmapi-"*) echo "${STUB_SSLMODE:-verify-full}"; exit "${STUB_SSLMODE_RC:-0}";;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
@@ -117,8 +120,15 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
     */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
-    */namespaces*) printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
-    */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
+    # STUB_PLAN_SECONDS: how long the plan takes. curl's own -m decides, as the real one does: past it, curl's exit 28 (#275).
+    */namespaces*) m=; prev=; for a in "$@"; do [ "$prev" = -m ] && m=$a; prev=$a; done
+      if [ -n "${STUB_PLAN_SECONDS:-}" ] && [ -n "$m" ] && [ "$STUB_PLAN_SECONDS" -gt "$m" ]; then
+        echo "curl: (28) Operation timed out after ${m}000 milliseconds with 0 bytes received" >&2; exit 28
+      fi
+      printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
+    # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
+    */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'
+      case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -260,6 +270,15 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+# The plan, the slowest call, may take as long as the front door gives it: CRC's first answered 200 after 27.7 s (#275).
+want "proof passes when the plan takes 28 s" 0 "$(: >"$ARGV_LOG"; STUB_PLAN_SECONDS=28 "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?)"
+# Each call's own bound, read from what curl was given: the plan the Route's timeout, every other call 15 s. A grep for one
+# call that some other line also matches (crc-proof.sh's plain-HTTP curl names /healthz with -m 15 too) could not fail.
+route_s=$(sed -n 's/^ *haproxy.router.openshift.io\/timeout: \([0-9][0-9]*\)s$/\1/p' "$D/manifests/environments/crc/40-routes.yaml")
+plan_m=$(grep -- '/namespaces?dryRun=true' "$ARGV_LOG" | sed -n 's/^curl -sS -m \([^ ]*\) .*/\1/p')
+[ -n "$route_s" ] && [ "$plan_m" = "$route_s" ] && ok "the plan waits as long as the Route: -m $plan_m" || bad "the plan's bound is -m ${plan_m:-none}, the Route's timeout ${route_s:-unread} s"
+others=$(grep '^curl ' "$ARGV_LOG" | grep -v -- '/namespaces?dryRun=true')
+[ "$(printf '%s\n' "$others" | grep -c .)" -ge 10 ] && ! printf '%s\n' "$others" | grep -qv '^curl -sS -m 15 ' && ok "every other call keeps its 15 s bound" || bad "a call other than the plan lost its 15 s bound: $(printf '%s\n' "$others" | grep -v '^curl -sS -m 15 ' | head -1 | cut -c1-120)"
 no_secret "$W/out" "proof"
 pstop() { local label=$1; shift; local got; rm -f "$ARGV_LOG.probed"; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
 pstop "a pod under another SCC" STUB_SCC=anyuid
@@ -302,13 +321,22 @@ pstop "a reader reading Secrets" STUB_READER_WIDE=yes
 pstop "a plan refused" STUB_PLAN=422
 pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
 pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
+pstop "a plan that outlasts the Route" STUB_PLAN_SECONDS=200
+# Stopped by the proof, which names the step, not by set -e on curl's exit with only curl's own line.
+grep -q '^FAIL: the dry-run namespace plan got no answer: curl exit 28' "$W/out" && ok "a plan with no answer says which step stopped" || bad "a plan with no answer stopped without naming the step: $(tail -1 "$W/out")"
+for v in abc 0 -5 1.5; do pstop "a plan bound of '$v'" CMAPI_PROOF_PLAN_SECONDS=$v
+  ! grep -q '^oc ' "$ARGV_LOG" && grep -q '^FAIL: CMAPI_PROOF_PLAN_SECONDS' "$W/out" && ok "a plan bound of '$v' stops before the cluster is touched" || bad "a plan bound of '$v' was not refused first: $(tail -1 "$W/out")"; done
 pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
+pstop "two api targets up and no worker" 'STUB_UP={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
-pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
+pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]},{"value":[0,"0"]}'
+pstop "one target's series missing" 'STUB_CONNECTED={"value":[0,"1"]}'
+pstop "one of the two targets not connected" 'STUB_CONNECTED={"value":[0,"1"]},{"value":[0,"0"]}'
+pstop "two api series and no worker's" 'STUB_CONNECTED={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "a test user who cannot sign in" STUB_NO_SIGN_IN=cmapi.auditor
 pstop "a realm where cmapi-automation still takes the password grant" STUB_PASSWORD_GRANT=1
 pstop "the automation token is of another caller" STUB_ME=bot-user

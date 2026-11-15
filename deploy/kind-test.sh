@@ -194,7 +194,8 @@ k -n cmapi delete pod -l cmapi.net/kind-test=db-check >/dev/null
 # And from the server's side, the processes themselves: what the running api and worker hold, by pod address.
 for c in api worker; do
   ip=$(k -n cmapi get pod -l "app.kubernetes.io/component=$c" -o jsonpath='{.items[0].status.podIP}')
-  row=$(k -n cmapi exec cmapi-db-1 -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi' and a.client_addr='$ip'")
+  # As crc-proof.sh: role cnpg_metrics_exporter, pg_monitor and no superuser, peer-mapped from the instance's OS user (#278).
+  row=$(k -n cmapi exec cmapi-db-1 -c postgres -- psql -U cnpg_metrics_exporter -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi' and a.client_addr='$ip'")
   say "pg_stat_ssl for the $c pod's connections, on TLS|not: $row"
   case "$row" in *"|0") [ "${row%%|*}" -gt 0 ] || { echo "ERROR: the $c pod holds no connection to read: $row" >&2; db_bad=1; };; *) echo "ERROR: the $c pod holds a plaintext connection: $row" >&2; db_bad=1;; esac
 done

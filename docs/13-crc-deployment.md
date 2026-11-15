@@ -471,7 +471,8 @@ The two policies go first by themselves: `-R` applies files in name order, `20-a
 ); stopped $? 23
 ```
 
-Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure.
+Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure. Each call has 15 s, except the
+dry-run namespace plan, the API's slowest call, which has as long as the Route gives it: 130 s, `CMAPI_PROOF_PLAN_SECONDS` (#275).
 
 ### Step 24: the end of the watch
 
