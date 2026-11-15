@@ -1,5 +1,6 @@
-# Environment variables the components read through envFrom on CRC. The Git host is GitHub (#157): the bot's token is Secret
-# cmapi-git, key token, which the api and the worker read through secretKeyRef (docs/13 creates it from stdin; it is not in Git).
+# Environment variables the components read through envFrom on CRC. The Git host is GitHub (#157), through the Git layer and a
+# thin PR adapter (#286): the bot account's token is Secret cmapi-git-bot, key token, which the api and the worker read through
+# secretKeyRef, and the worker's Git over HTTPS as a file (docs/13 creates it from stdin; it is not in Git).
 # CMAPI_GIT_CA_BUNDLE is the image's system trust (RHEL's shared system certificates, the ca-certificates package of the UBI base):
 # cmapi-trust and SSL_CERT_FILE hold Keycloak's private CA alone, so the Git provider gets a trust of its own (#97).
 # The pods reach Keycloak through its Service: its certificate names keycloak-service.keycloak.svc. Tokens still carry the

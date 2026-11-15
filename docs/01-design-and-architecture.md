@@ -204,9 +204,33 @@ With no core or portal change, it then has routes in the spec, Swagger and ReDoc
 
 ## Request lifecycle
 
-Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once CI passes. The caller follows the request, not the PR.
+Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once cmapi's checks pass: after the apply, in apply mode, so that `main` records only what succeeded. The caller follows the request, not the PR.
 
-![request lifecycle · 9 steps, one approval branch](diagrams/request-lifecycle.png)
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
+  <source srcset="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*Built in PR #288 (#286 PR-A); not merged, not deployed. The request states from approved to the end, in both delivery modes. `lock`: the state holds the namespace's lock.*
+
+```text
+approved (lock) --push_branch, open_pr--> pr_open (lock)
+  before any apply: failed | superseded | cancelled            (no lock)
+argocd mode, and every delete: pr_open --merge--> merged (lock)
+  --> watch_sync --> synced, or sync_failed after syncTimeout (lock)
+  a delete: merged --> awaiting_prune (lock) --prune:confirm, read--> synced
+apply mode, create or change: pr_open --apply job--> apply_started (event, own transaction)
+  --> applied (lock) --merge, pinned to the applied head--> merged --> synced (one transaction)
+  apply or read not finished --> sync_failed (lock); :retry applies again
+  merge refused, or 5 attempts --> merge_failed (lock); :retry merges
+  no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+Built in PR #288 (#286 PR-A); not merged, not deployed
+```
+
+The figure is steps 8 and 9 as they are since #286. The nine steps:
 
 1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi-\<instance>, expiry.
 2. **Authorize.** The route's permission must come from a Keycloak role in the token (config/authz-roles.yaml maps roles to permissions), and a role limited to some environments must cover the request's environment. Names are checked, not owned: anyone holding namespaces:create may ask for any valid name that is not reserved and not an unmanaged namespace on the cluster.
@@ -215,14 +239,16 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 5. **Plan.** The plugin validates, renders the YAML and diffs it against the live object. The Kyverno bundle and kubeconform run on the rendered files, and the plan stores a hash of them. For a new namespace, the request carries the placementId from POST /api/v1/capacity:place and that reservation becomes the request's own. For a quota increase, the delta is reserved the same way and cmapi-capacity reads the namespace's last 14 days from Thanos.
 6. **Decide.** The rules engine turns the plan's facts into an ApprovalRequirement. A matching auto-approval policy approves at once (approver auto:\<policy>); otherwise the request waits in pending\_approval and the approval channels tell the eligible approvers.
 7. **Approve.** An eligible approver calls POST /api/v1/requests/{id}:approve, or :reject with a comment, with their own token: from the portal, the CLI, or a channel such as an email link or ServiceNow. When the count is met, capacity is checked again and the request becomes approved.
-8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git.
+8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git. Since #286 the worker does this through Git itself and a thin PR adapter per host: one bare mirror per worker pod, a worktree per request on branch `cmapi/<cluster>/<requestId>` cut from `origin/main`, one commit by the machine user `cmapi-git-bot` whose trailers carry the request ID and the plan hash, a push of that branch alone, then the PR. Host CI is optional and off by default: cmapi's own checks are the gate. Before every apply and every merge, `git merge-tree` and the plan's base are checked; the merge is pinned to a sha. Nothing is ever pushed to `main`.
 9. **Sync.** Argo CD on the target cluster applies the folder. The worker learns the result by polling or from Argo CD Notifications and confirms it with a direct read; then the request is synced and its reservation ends. A delete stops in awaiting\_prune until an operator confirms the prune in Argo CD.
 
 | State | Entered when | Moves to | Lock | Reservation |
 | --- | --- | --- | --- | --- |
 | pending\_approval | The plan passed and approvals are required | approved, rejected, cancelled, timeout | Held | Held |
 | approved | The count is met (auto or :approve) and capacity still fits | pr\_open, cancelled, failed, superseded | Held | Held |
-| pr\_open | The bot PR is open | merged, failed, superseded | Held | Held |
+| pr\_open | The bot PR is open | applied (apply mode), merged, failed, superseded, cancelled (until an apply starts), sync\_failed (an apply that did not finish) | Held | Held |
+| applied | Apply mode: the PR's head is applied and confirmed by a read, not yet merged (#286) | merged, merge\_failed | Held | Held |
+| merge\_failed | Applied, and the merge did not happen. The PR and the branch are kept; `CmapiMergeFailed` fires | merged (:retry merges it) | Held | Held |
 | merged | CI passed and the bot merged | synced, awaiting\_prune, sync\_failed | Held | Held |
 | awaiting\_prune | A delete merged; Argo CD shows the namespace waiting for prune confirmation | synced | Held | None |
 | synced | Argo CD Synced at or after the merge commit, confirmed by a read | End | Released | Released |
@@ -236,7 +262,7 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 
 Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the capacity check and the approval that would apply; it skips the idempotency and lock steps, reserves nothing, writes no row and opens no PR. POST /api/v1/requests/{id}:cancel lets the requester or an operator withdraw before pr\_open; :retry and :revert need requests:retry; a revert is a new request through the same approval rules.
 
-**Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by approver-platform and need two of them.
+**Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Once a change is applied and not yet merged (applied, merge\_failed), no event can cancel, fail or supersede the request, so the namespace's lock holds while the cluster is ahead of `main`. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by approver-platform and need two of them.
 
 **What cmapi writes to Git.** Plain Kubernetes manifests, one folder per namespace inside the cluster's folder. No project-meta file, CRD or operator turns them into objects: what a reviewer sees in the PR diff is exactly what Argo CD applies, and Kyverno, kubeconform and the plan hash all run on those same files. The raw manifest renderer is the default; project-meta and Kustomize stay available behind the Renderer extension point.
 
@@ -840,6 +866,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | Expiry opens a delete request after a 7-day grace; Kyverno only reports | Kyverno cleanup TTL | A Kyverno delete leaves the folder in Git and Argo CD recreates the namespace |
 | Expiration optional; never in prod | A TTL on every namespace | Production namespaces must not carry anything that could remove them on a date |
 | Namespace deletes wait for an operator to confirm the prune | Argo CD prunes on merge | A bad commit or renderer bug cannot remove namespaces and their data |
+| Git through Git itself, and a thin PR adapter per host; apply before merge in apply mode (#286) | The host's Contents and Checks APIs; a direct commit to main | Any Git host with a token or an SSH key; main records only what succeeded; a fine-grained token needs no Checks permission |
 | dev small and medium creates auto-approved, like rnd | A person approves every dev create | dev and rnd carry the same risk |
 | cmapi writes plain Kubernetes manifests, one folder per namespace; tiers in config/tiers.yaml; namespace-configuration-operator's quota and LimitRange configs retired | project-meta.yml expanded on the cluster by an operator | No extra renderer or CRD to maintain; the PR diff, CI checks and plan hash cover exactly what Argo CD applies |
 | Requester identity from the token; employee ID and names in the database only; required team DL, format-checked | Individual owner email in the request body; employee ID on the namespace; DL lookup in the directory | Callers cannot misstate who asked; personal data stays out of Git; DLs are not reliably in Keycloak |
@@ -879,3 +906,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [cmapi request flow mockup](../mockups/cmapi-flow.html) | Clickable walk through placement, auto-approval, quota change, policy reject, cluster import, expiry to delete, a wrong-instance request, and an AI agent onboarding a namespace as bot-user with the cmapi-onboarding role (create only; change and delete refused) |
 | [API examples](04-api-examples.md) | Calling the API with Keycloak tokens: which instance to call, curl, device flow, Swagger and ReDoc, Python |
 | [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow (including the AI agent onboarding scenario), New namespace (any team, any name that is not reserved), Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals (approve or reject before anything reaches Git), Expiration (extend, set, make permanent), Policies (Kyverno results), Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
+
+## Diagram sources
+
+The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.

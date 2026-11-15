@@ -22,7 +22,7 @@ case "$key" in
   "crc-guard.py issuer") exit "$STUB_ISSUER";;
   "git status"*) printf '%s' "${STUB_DIRTY:-}";;
   "oc get sa "*) echo x;;
-  "oc get secret cmapi-git "*) echo present;;
+  "oc get secret cmapi-git-bot "*) echo present;;
   "oc get ns cmapi-imports"*|"oc get clusterrole,"*) printf '%s' "${STUB_LISTED:-}";;
 esac
 exit 0

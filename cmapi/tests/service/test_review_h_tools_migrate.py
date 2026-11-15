@@ -16,7 +16,7 @@ import yaml
 from conftest import DB_URL
 from test_flow import AMY, NS, OLA, auth, run_jobs
 from test_review_c_authz import rnd_only
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SECRET = "s3cr3t-value-that-must-not-print"
@@ -227,7 +227,7 @@ def test_a_plan_changed_in_the_database_is_refused_before_the_pr(world):
 def test_synced_only_after_a_read_confirms(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     ctx.delivery = type(ctx.delivery)(mode="apply", poll_seconds=0, sync_timeout_seconds=1800)
     real = kube.apply
     kube.apply = lambda doc, field_manager="x": None if doc["kind"] == "ResourceQuota" else real(doc, field_manager)

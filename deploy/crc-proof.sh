@@ -179,7 +179,7 @@ say "the worker creates a namespace only with cmapi.net/managed=true, and may no
 for pair in "list namespaces" "list resourcequotas"; do [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = yes ] || fail "the reader may not $pair"; done
 for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = no ] || fail "the reader may $pair"; done
 say "the reader lists what it needs, and reads no Secret and writes nothing"
-# A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git, and dryRun writes nothing: no request,
+# A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git-bot, and dryRun writes nothing: no request,
 # no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
 resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true") \
   || fail "the dry-run namespace plan got no answer: curl exit $? (28 is no answer within CMAPI_PROOF_PLAN_SECONDS, $PLAN_SECONDS s)"

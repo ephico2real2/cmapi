@@ -20,7 +20,7 @@ from cmapi.core.clients.kube import KubeError
 from cmapi.core.db import REQUIRED_REVISION, older_than_required
 from cmapi.worker import MAX_ATTEMPTS, Worker
 from test_flow import NS, OLA, OPAL, auth
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 from test_review_e_recovery import lease_expired
 from test_second_pass import BASE, _awaiting, _pending, _stubs, app, argo_applied, argocd, helm, migrate, schema  # noqa: F401
 
@@ -32,7 +32,7 @@ APPLY = ("--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled
 
 def _merged(client, ctx, git, kube, keys):
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx, sync_timeout_seconds=0)
     return rid, argo_applied(git, kube)
 
@@ -72,7 +72,7 @@ def test_argocd_an_older_revision_than_the_merge_keeps_waiting(world):
     """Argo CD still at the revision before the merge: the folder is Synced for the old content, so nothing is confirmed."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     res = argo_applied(git, kube)
     before_merge = git.main_history[-2]
@@ -193,6 +193,8 @@ def test_readiness_refuses_garbage_and_a_divergent_revision(world, monkeypatch):
     r = client.get("/readyz")
     assert r.status_code == 503 and "unknown schema revision" in r.json()["schema"], r.text
     monkeypatch.setattr(ctx.db, "schema_version", lambda: "0004")
+    assert client.get("/readyz").status_code == 503, "0004 has no lock for applied and merge_failed (#286)"
+    monkeypatch.setattr(ctx.db, "schema_version", lambda: "0005")
     assert client.get("/readyz").status_code == 200
 
 

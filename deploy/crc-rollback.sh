@@ -60,7 +60,7 @@ for o in "service cmapi-api" "service cmapi-api-pods" "service cmapi-worker" "se
          "route.route.openshift.io cmapi" "route.route.openshift.io cmapi-mockup" \
          "servicemonitor.monitoring.coreos.com cmapi-api" "servicemonitor.monitoring.coreos.com cmapi-worker" "prometheusrule.monitoring.coreos.com cmapi" \
          "configmap cmapi-env" "configmap cmapi-config" "configmap cmapi-trust" "configmap cmapi-portal-config" \
-         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "secret cmapi-git" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" \
+         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "secret cmapi-git" "secret cmapi-git-bot" "secret cmapi-git-bot-ssh" "configmap cmapi-git-bot-known-hosts" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" \
          "imagestream.image.openshift.io cmapi" "imagestream.image.openshift.io cmapi-portal"; do
   # shellcheck disable=SC2086  # "kind name"
   del $o -n cmapi

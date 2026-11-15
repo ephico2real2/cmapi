@@ -270,6 +270,10 @@ def test_each_operation_has_a_sample_from_a_run(world):
     lrid = lost.json()["requestId"]
     if lost.json()["status"] == "pending_approval":
         client.post(f"/api/v1/requests/{lrid}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})
+    # Since #286 apply mode applies before the merge, and a refusal there fails the request with nothing in Git to revert:
+    # the sample takes the merge-first path (a PR merged on the host), where watch_sync refuses and the request is sync_failed.
+    from test_review_d_delivery import run_until_merged
+    run_until_merged(ctx)
     kube.add_unmanaged_namespace("orders-dev")
     run_jobs(ctx)
     state = client.get(f"/api/v1/requests/{lrid}", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()

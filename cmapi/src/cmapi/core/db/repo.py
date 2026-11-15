@@ -246,7 +246,7 @@ class JobRepo:
         now = utcnow()
         due = select(JobRow.job_id).where(JobRow.done_at.is_(None), JobRow.run_after <= now,
                                           or_(JobRow.locked_until.is_(None), JobRow.locked_until < now)) \
-            .order_by(JobRow.run_after).limit(1).with_for_update(skip_locked=True)
+            .order_by(JobRow.run_after, JobRow.job_id).limit(1).with_for_update(skip_locked=True)  # a tie: first queued, first claimed (BUG-74)
         job_id = self.s.scalar(due)
         if job_id is None:
             return None

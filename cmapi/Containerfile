@@ -72,6 +72,12 @@ ENV CMAPI_GIT_COMMIT=${GIT_COMMIT} \
     HOME=/opt/app-root/src
 
 USER 0
+# The Git layer (#286) runs the git CLI and OpenSSH: Red Hat's signed UBI packages, updated with RHEL errata, not a PyPI library.
+# nss_wrapper-libs gives ssh a passwd entry under a UID that has none, outside CRI-O; /etc/passwd stays 0644 (CRI-O adds the
+# pod's UID only to a file that group and others cannot write). Measured: git-core 2.52.0, openssh-clients 9.9p1, 61.9 MB.
+RUN microdnf install -y --nodocs --setopt=install_weak_deps=0 git-core openssh-clients nss_wrapper-libs >/dev/null && \
+    microdnf clean all && git --version && ssh -V && test -e /usr/lib64/libnss_wrapper.so && \
+    test "$(stat -c %a /etc/passwd)" = 644
 COPY --from=tools /tmp/tools/bin/kyverno /tmp/tools/bin/kubeconform /usr/local/bin/
 COPY --from=tools /tmp/tools/static /opt/app-root/static
 COPY --from=tools /tmp/tools/schemas /opt/app-root/schemas

@@ -36,7 +36,7 @@ def list_requests(
                                    description="Only the requests in this lifecycle state."),
         state: str | None = Query(default=None, examples=["open"],
                                   description="`open` gives the requests that are not finished: pending_approval, approved, "
-                                              "pr_open, merged, awaiting_prune and sync_failed. `closed` gives all the others. "
+                                              "pr_open, applied, merge_failed, merged, awaiting_prune and sync_failed. `closed` gives all the others. "
                                               "Another value returns 422 `validation-failed`."),
         approver: str | None = Query(default=None, examples=["me"],
                                      description="With `me`, only the pending requests that still need an approval from one of "
@@ -108,7 +108,8 @@ def approval_status(request_id: RequestId, who: Identity = Depends(require("requ
     with c.db.session() as s:
         row = RequestRepo(s).get(request_id)
         c.cfg.roles.require(who, "requests:read", row.env)
-        approved = row.status in ("approved", "pr_open", "merged", "awaiting_prune", "synced")
+        # applied and merge_failed (#286) are past pr_open and before merged: a check CI runs on the PR then must read approved.
+        approved = row.status in ("approved", "pr_open", "applied", "merge_failed", "merged", "awaiting_prune", "synced")
         return {"requestId": row.request_id, "approved": approved, "status": row.status, "planHash": row.plan_hash}
 
 
@@ -138,7 +139,7 @@ def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identi
             repo.move(row, E.APPROVED, who.username, "approval count met")
             if row.approved_at and row.created_at and row.requirement:
                 APPROVAL_WAIT.labels(row.requirement.get("rule", "")).observe((row.approved_at - row.created_at).total_seconds())
-            jobs.enqueue("open_pr", request_id=request_id, cluster_id=row.cluster_id)
+            jobs.enqueue("push_branch", request_id=request_id, cluster_id=row.cluster_id)
             jobs.enqueue("channel_notify", request_id=request_id, cluster_id=row.cluster_id, payload={"kind": "approved"})
         return request_view(repo, row)
 
@@ -164,14 +165,19 @@ def reject(request_id: RequestId, body: DecisionBody, who: Identity = Depends(re
 @router.write("/requests/{request_id}:cancel", summary="Cancel a request", permission="requests:cancel",
               response_model=ChangeRequest, status_code=200, problems=["object-not-found", "invalid-transition"])
 def cancel(request_id: RequestId, who: Identity = Depends(require("requests:cancel")), c: AppContext = Depends(ctx)) -> dict:
-    """The requester, or an operator, withdraws a request before its PR is open."""
+    """The requester, or an operator, withdraws a request before an apply starts. Its PR is closed and its branch deleted."""
     with c.db.session() as s:
-        repo = RequestRepo(s)
-        row = repo.get(request_id)
+        repo, jobs = RequestRepo(s), JobRepo(s)
+        # Locked first: the apply job writes apply_started under the same lock, so the two cannot interleave (#286).
+        row = repo.get_for_update(request_id)
         c.cfg.roles.require(who, "requests:cancel", row.env)
+        if row.status == S.PR_OPEN.value and any(e.event == "apply_started" for e in repo.events(request_id)):
+            raise Problem.conflict("invalid-transition", f"{request_id}: an apply has started, so the cluster may be ahead of "
+                                                         "main; it can no longer be cancelled", state=row.status)
         repo.move(row, E.CANCEL, who.username, actor_is_requester=row.requester_username == who.username,
                   actor_is_operator=bool({"cmapi-operator", "cmapi-admin"} & who.roles))
         AuditRepo(s).record(who, "request.cancel", request_id, None)
+        jobs.enqueue("git_cleanup", request_id=request_id, cluster_id=row.cluster_id)
         return request_view(repo, row)
 
 
@@ -189,10 +195,15 @@ def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry
         after = repo.move(row, E.RETRY, who.username, "retry requested")
         row.attempts = 0
         AuditRepo(s).record(who, "request.retry", request_id, {"from": before})
+        # Which job :retry runs (#286; Fable's design 2.5).
         if after is S.APPROVED:
-            jobs.enqueue("open_pr", request_id=request_id, cluster_id=row.cluster_id)
+            jobs.enqueue("push_branch", request_id=request_id, cluster_id=row.cluster_id)
+        elif after is S.MERGE_FAILED:
+            jobs.enqueue("merge", request_id=request_id, cluster_id=row.cluster_id)
         elif row.action == "delete":                       # sync_failed after a prune that could not be confirmed
             jobs.enqueue("prune", request_id=request_id, cluster_id=row.cluster_id)
+        elif not row.merge_sha and row.pr:                 # apply mode: an apply that had not finished, before any merge
+            jobs.enqueue("apply", request_id=request_id, cluster_id=row.cluster_id, payload={"since": utcnow().isoformat()})
         else:
             jobs.enqueue("watch_sync", request_id=request_id, cluster_id=row.cluster_id, payload={"since": utcnow().isoformat()})
         return request_view(repo, row)
@@ -210,6 +221,11 @@ def revert(request_id: RequestId, who: Identity = Depends(require("requests:retr
         row = repo.get(request_id)
         c.cfg.roles.require(who, "requests:retry", row.env)
         transition(S(row.status), E.REVERT)                    # 409 invalid-transition unless sync_failed
+        if not row.merge_sha:
+            # Before any merge Git holds nothing to revert, while the cluster may hold part of the plan: the owner decides how
+            # that is undone (#286, the arbitration's row 15). Until then, :retry.
+            raise Problem.conflict("invalid-transition", f"{request_id} was never merged: there is nothing in Git to revert; "
+                                                         ":retry applies it again", state=row.status)
         repo.event(row, "revert_requested", who.username, "")
         AuditRepo(s).record(who, "request.revert", request_id, None)
         jobs.enqueue("open_revert", request_id=request_id, cluster_id=row.cluster_id, payload={"by": who.username})

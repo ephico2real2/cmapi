@@ -280,11 +280,25 @@ def test_crc_writes_through_github_and_apply_delivery():
     instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
     assert integrations["delivery"]["mode"] == "apply"
     assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
-    assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com"}
+    # The Git layer over HTTPS with the bot account's token, host CI off (#286).
+    assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com",
+                               "url": "https://github.com/ephico2real2/cmapi-cluster-configs.git", "username": "cmapi-git-bot",
+                               "hostChecks": False}
     env = crc("ConfigMap", "cmapi-env")["data"]
     assert (env["CMAPI_GIT_PROVIDER"], env["CMAPI_GIT_URL"]) == ("github", "https://api.github.com")
     assert env["CMAPI_GIT_CA_BUNDLE"] == "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "the image's system trust, not cmapi-trust (#97)"
-    assert not [d for d in crc_docs() if d["kind"] == "Secret" and d["metadata"]["name"] == "cmapi-git"], "the token is not YAML"
+    assert not [d for d in crc_docs() if d["kind"] == "Secret" and d["metadata"]["name"].startswith("cmapi-git")], "the token is not YAML"
+    worker = next(d for p in (ROOT / "deploy/manifests/components/cmapi").glob("*.yaml") for d in yaml.safe_load_all(p.read_text())
+                  if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "cmapi-worker")["spec"]["template"]["spec"]
+    volumes = {v["name"]: v for v in worker["volumes"]}
+    assert volumes["git-workdir"]["emptyDir"] == {"sizeLimit": "1Gi"}, "an emptyDir, not a PVC (#286)"
+    assert volumes["git-bot-ssh"]["secret"]["secretName"] == "cmapi-git-bot-ssh" and volumes["git-bot-ssh"]["secret"]["defaultMode"] == 0o440
+    assert volumes["git-bot-known-hosts"]["configMap"]["name"] == "cmapi-git-bot-known-hosts"
+    mounts = {m["name"]: m for m in worker["containers"][0]["volumeMounts"]}
+    assert all(mounts[n].get("readOnly") for n in ("git-bot", "git-bot-ssh", "git-bot-known-hosts")) and "subPath" not in str(mounts)
+    api = next(d for p in (ROOT / "deploy/manifests/components/cmapi").glob("*.yaml") for d in yaml.safe_load_all(p.read_text())
+               if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "cmapi-api")["spec"]["template"]["spec"]
+    assert not {v["name"] for v in api["volumes"]} & {"git-bot-ssh", "git-bot-known-hosts", "git-workdir"}, "the SSH key: worker only (F2)"
     text = "\n".join(p.read_text() for p in CRC.rglob("*.yaml")).lower()
     assert "gitea" not in text
 

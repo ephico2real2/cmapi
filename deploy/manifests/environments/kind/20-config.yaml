@@ -24,6 +24,9 @@ data:
       git:
         repository: "ephico2real2/cluster-configs-nonprod"
         webUrl: "https://github.com"
+        # kind has no Git host (10-env.yaml). A file:// URL needs no credential, so the worker's Git layer starts, and the first
+        # request fails at its first fetch, as it fails at the host's API before #286.
+        url: "file:///var/cache/cmapi/git/no-git-host-on-kind.git"
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
       docs: {"enabled":true}
   clusters.yaml: |

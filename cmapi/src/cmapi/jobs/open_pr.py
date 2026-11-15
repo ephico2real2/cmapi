@@ -1,9 +1,11 @@
-"""open_pr: a request became approved. Re-read the folder, refuse a changed base (superseded),
-re-render from the stored plan, check the plan hash, open the bot PR, then queue pr_checks."""
-from __future__ import annotations
+"""open_pr: the request branch is on the host (push_branch); open its PR, or adopt the one that exists, then queue pr_checks.
 
-from datetime import date
-from typing import Any
+One external effect (Fable's design, section 2): the PR. The branch's head must be the one push_branch recorded; if it is not,
+push_branch runs again, and its adoption test decides. A job queued before #286, with no head, also starts at push_branch.
+
+open_revert: a :revert on a sync_failed request whose change is on main: a new request that restores the folder as it was
+before the plan."""
+from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
@@ -11,17 +13,11 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
 from cmapi.core.errors import Problem
+from cmapi.core.git.workspace import request_branch
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import log
-from cmapi.core.render.manifests import NamespaceSpec, folder, plan_hash
-
-
-def _spec_from(d: dict[str, Any]) -> NamespaceSpec:
-    d = dict(d)
-    d["expires_at"] = date.fromisoformat(d["expires_at"]) if d.get("expires_at") else None
-    d["grants"] = [tuple(x) for x in d.get("grants", [])]
-    d["scc_grants"] = [tuple(x) for x in d.get("scc_grants", [])]
-    return NamespaceSpec(**d)
+from cmapi.core.render.manifests import folder
+from cmapi.jobs.delivery import body_of, request_context, title_of
 
 
 def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -31,36 +27,31 @@ def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
         log.info("open_pr_skip", request_id=row.request_id, status=row.status)
         jobs.done(job)
         return
-    plan = row.plan
-    base = folder(row.cluster_id, row.namespace)
-    current, base_sha = ctx.git.read_folder(base)
-    if current != plan["prev"]:
-        repo.move(row, E.BASE_CHANGED, "worker", "folder changed in Git since the plan")
+    with request_context(ctx, row, job):
+        _open_pr(ctx, repo, jobs, row, job)
+
+
+def _open_pr(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> None:
+    branch = request_branch(row.cluster_id, row.request_id)
+    head, base = (job.payload or {}).get("head"), (job.payload or {}).get("base")
+    if not head or ctx.git.branch_head(branch) != head:
+        # No recorded push, or the branch is not at it: push_branch adopts, replaces or refuses (Fable 2.2).
         jobs.done(job)
+        jobs.enqueue("push_branch", request_id=row.request_id, cluster_id=row.cluster_id)
         return
-    files = plan["files"]
-    if plan.get("spec"):
-        spec = _spec_from(plan["spec"])
-        spec.request_id = row.request_id
-        files = ctx.pipeline.renderer.render(spec, previous=plan["prev"])
-    if plan_hash(files) != row.plan_hash:
-        raise RuntimeError(f"plan hash mismatch: stored {row.plan_hash[:12]}, rendered {plan_hash(files)[:12]}")
-    branch = f"cmapi/{row.cluster_id}/{row.namespace}/{row.request_id}"
-    title = f"{row.action} {row.namespace} ({row.request_id})"
-    req = row.requirement or {}
-    body = (f"Request: {row.request_id}\nPlan hash: {row.plan_hash}\nApproval: {req.get('auto') or 'approved in cmapi'}\n"
-            f"Requester: {row.requester_username}\nInstance: {row.instance}")
     jobs.fence()
-    pr = ctx.git.open_pr(branch, files, title, body, base_sha)
+    pr = ctx.git.open_pr(branch, head, title_of(row), body_of(row))
     try:
         repo.move(row, E.PR_OPENED, "cmapi-bot", f"{pr.branch} #{pr.number}")
     except Problem:
-        # Cancelled while the Git calls ran: the state stands, and the PR it no longer owns is closed.
-        ctx.git.close(pr, f"cmapi: {row.request_id} is {row.status}; this PR will not merge.")
+        # Cancelled while the host call ran: the state stands, and the PR it no longer owns is closed by git_cleanup.
         repo.event(row, "pr_closed", "worker", f"#{pr.number}: the request became {row.status} while the PR was opening")
+        jobs.fence()
+        ctx.git.close(pr, f"cmapi: {row.request_id} is {row.status}; this PR will not merge.")
         jobs.done(job)
+        jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
         return
-    row.pr = {"number": pr.number, "url": pr.url, "branch": pr.branch, "head": pr.head_sha}
+    row.pr = {"number": pr.number, "url": pr.url, "branch": pr.branch, "head": pr.head_sha, "base": base}
     jobs.done(job)
     jobs.enqueue("pr_checks", request_id=row.request_id, cluster_id=row.cluster_id)
 

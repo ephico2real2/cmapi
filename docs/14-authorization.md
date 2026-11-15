@@ -174,7 +174,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Create, change, delete or extend a namespace | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:177`, `:321` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:98`, `:114` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:87`, `:98`, `:110` |
-| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:128`, `:157`, `:171`, `:187`, `:211` |
+| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:129`, `:158`, `:173`, `:193`, `:222` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:136` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
@@ -189,7 +189,7 @@ An approval has more checks than the permission (`approvals.py:307-334`). They a
 
 | Check | Refusal |
 |---|---|
-| The caller has `requests:approve` in the environment of the request (`requests.py:128`) | 403 `environment-forbidden` |
+| The caller has `requests:approve` in the environment of the request (`requests.py:129`) | 403 `environment-forbidden` |
 | The caller has not approved this request before | 409 `already-approved` |
 | The caller did not file the request for another person, and does not own the client that filed it | 409 `self-approval`, "The operation starter or client owner cannot approve" |
 | The caller is not the requester, unless the rule has `selfApproval: true` | 409 `self-approval`, "Requesters cannot approve their own request here" |

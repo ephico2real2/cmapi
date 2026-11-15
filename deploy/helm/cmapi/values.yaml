@@ -115,7 +115,7 @@ git:
   repository: cmapi/cluster-configs-nonprod
   defaultBranch: main
   # Secret with the bot credential: token (GitHub, Gitea token) or username+password (Gitea basic auth)
-  credentialSecret: cmapi-git
+  credentialSecret: cmapi-git-bot
   bootstrap:
     enabled: false                 # CRC and kind: create the org, the repository, its seed and the branch protection
     clusterIds: [CRC]

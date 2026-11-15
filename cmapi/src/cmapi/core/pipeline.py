@@ -381,7 +381,7 @@ class Pipeline:
         if auto:
             if req.auto and req.auto.startswith("auto:"):
                 AUTO_APPROVALS.labels(req.auto.removeprefix("auto:"), plan.env).inc()
-            jobs.enqueue("open_pr", request_id=rid, cluster_id=plan.cluster_id)
+            jobs.enqueue("push_branch", request_id=rid, cluster_id=plan.cluster_id)
         else:
             jobs.enqueue("channel_notify", request_id=rid, cluster_id=plan.cluster_id, payload={"kind": "pending"})
         return row

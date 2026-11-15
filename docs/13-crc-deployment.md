@@ -10,7 +10,7 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 
 | Where | What |
 |---|---|
-| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the front door, the database, Routes `cmapi` and `cmapi-mockup`, the monitoring objects, image streams `cmapi` and `cmapi-portal`, Secret `cmapi-ldap-test-users` (one password per test user). Secret `cmapi-git`, the bot's GitHub token, is the owner's: [step 3 below](#steps-only-the-owner-can-take) |
+| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the front door, the database, Routes `cmapi` and `cmapi-mockup`, the monitoring objects, image streams `cmapi` and `cmapi-portal`, Secret `cmapi-ldap-test-users` (one password per test user). Secrets `cmapi-git-bot` and `cmapi-git-bot-ssh`, and ConfigMap `cmapi-git-bot-known-hosts`, the bot account's credentials, are the owner's: [step 3 below](#steps-only-the-owner-can-take) |
 | Namespace `cmapi-imports` (new) | The imports reader Role, Secret `cmapi-cluster-crc` |
 | Namespace `cmapi-system` (new) | ServiceAccount `cmapi-reader` and its token Secret |
 | Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `list` on pods and persistentvolumeclaims. ClusterRole and ClusterRoleBinding `cmapi-deliverer` for the worker's ServiceAccount, and ValidatingAdmissionPolicy and binding `cmapi-deliverer-managed-only`, which contain it (step 7) |
@@ -93,40 +93,68 @@ security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Librar
 
 **2. Sign in once as `cmapi.requester`,** in Chrome, with the password from the clipboard, so that it reaches nobody else and no screen. See [The issue's proofs](#the-issues-proofs).
 
-**3. The bot's GitHub token, before step 11.** A fine-grained personal access token: resource owner `ephico2real2`, repository access **only** `ephico2real2/cmapi-cluster-configs`, and these repository permissions, each what `cmapi/src/cmapi/core/git/github.py` calls:
+**3. The bot account's credentials, before step 11.** cmapi writes through the Git protocol, and opens and merges the PR through the host's API (#286). The identity on every host is one machine user account, `cmapi-git-bot` (the owner's decision of 2026-11-15): its SSH key does the Git transport, and its API token does the PR. So every push and every PR is authored by `cmapi-git-bot`, and the commits name it, with `instance.git.commitEmail`.
+
+| Object | Kind | Keys | Mounted in | For |
+|---|---|---|---|---|
+| `cmapi-git-bot` | Secret, Opaque | `token` | api and worker | The host API: the PR, its state, the merge, and the API process's reads. Git over HTTPS too, on CRC for now |
+| `cmapi-git-bot-ssh` | Secret, `kubernetes.io/ssh-auth` | `ssh-privatekey`, optional `ssh-publickey` | worker only | Git over SSH. An ed25519 key with no passphrase; cmapi refuses an encrypted or unparseable key, or an `ssh-publickey` that is not its own, at start, and logs the key's fingerprint |
+| `cmapi-git-bot-known-hosts` | ConfigMap | `known_hosts` | worker only | The Git host's keys, every type it publishes. An SSH host not listed is refused, and nothing is ever added |
+
+The mounts are folders (`components/cmapi/30-worker.yaml`), so a rotation reaches the pod with no restart: to rotate a host key, add the new one, then remove the old one. The SSH user is `git` (`git@github.com`): the key selects the account.
+
+**CRC for now: the token alone.** No SSH key exists yet, so CRC's `instance.git.url` is `https://github.com/ephico2real2/cmapi-cluster-configs.git` and Git over HTTPS reads the same `token`, with username `cmapi-git-bot` (`environments/crc/20-config.yaml`). The token reaches Git through a credential helper that holds only its file's path: it is in no URL, command line, log or Git config file. When the owner adds the bot's SSH key, `instance.git.url` becomes `git@github.com:ephico2real2/cmapi-cluster-configs.git`, and Git no longer sees the API token.
+
+**The token, on GitHub.** The machine user `cmapi-git-bot` with write access to `ephico2real2/cmapi-cluster-configs`, and its fine-grained personal access token: repository access **only** that repository, and these repository permissions:
 
 | Permission | Access | For |
 |---|---|---|
-| Contents | Read and write | Reading a folder, the branch, its blobs, tree and commit, the ref's update and delete, the compare, the merge |
-| Pull requests | Read and write | Opening, reading, finding, merging and closing a pull request, and the comment on a closed one |
-| Commit statuses | Read and write | Posting `cmapi/check`, and reading the combined status |
+| Contents | Read and write | `git fetch` and `git push` over HTTPS, and the API process's reads of a folder |
+| Pull requests | Read and write | Opening, reading, merging and closing the PR, and its comments |
 | Metadata | Read | Every call (GitHub sets it) |
 
-To make it:
+No Checks permission, and no Commit statuses permission while host CI is off (`instance.git.hostChecks: false`, CRC's setting): cmapi reads no check and posts no status then. GitHub allows one machine user for automation ([Managing deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys), "Machine users", read on 2026-11-15).
 
-1. Open <https://github.com/settings/personal-access-tokens/new>. You can also get there from your avatar: **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
-2. Fill in the top of the form:
-   - **Token name:** `cmapi-crc`
-   - **Resource owner:** `ephico2real2`
-   - **Expiration:** 30 days, or whatever you prefer.
+To make the token, signed in as `cmapi-git-bot`:
+
+1. Open <https://github.com/settings/personal-access-tokens/new>.
+2. **Token name:** `cmapi-crc`. **Resource owner:** `ephico2real2`. **Expiration:** 30 days, or whatever you prefer.
 3. Under **Repository access**, choose **Only select repositories**, then pick `ephico2real2/cmapi-cluster-configs`.
-4. Under **Permissions** → **Repository permissions**, set:
-   - **Contents** → Read and write
-   - **Pull requests** → Read and write
-   - **Commit statuses** → Read and write
-   - **Metadata** → Read-only. GitHub sets this one by itself.
+4. Under **Repository permissions**, set **Contents** and **Pull requests** to Read and write. **Metadata** → Read-only is set by GitHub.
 5. Click **Generate token** and copy it. GitHub shows it only once.
 
-The form on 2026-11-15 offered no Checks permission, so the token has none. The repository's Actions post `ci/kubeconform` and `ci/kyverno` as check runs, and cmapi reads them (`core/git/github.py`, `_check_runs`). GitHub's reference lists Checks (read) for that call on a fine-grained token ([check runs](https://docs.github.com/en/rest/checks/runs), [permissions for fine-grained tokens](https://docs.github.com/en/rest/overview/permissions-required-for-fine-grained-personal-access-tokens)). Whether the call works without it is measured on CRC, not assumed.
-
-Give it an expiry, and put a new one in before then: an expired token makes every request fail at the Git step, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. It is a static token on purpose: the code sends one Bearer token, and a GitHub App's installation token lasts an hour and the code has no way to mint the next one. The token goes from the clipboard to the Secret on stdin, so it is on no command line, in no shell history and on no screen:
+The token goes from the clipboard to the Secret on stdin, so it is on no command line, in no shell history and on no screen:
 
 ```bash
-pbpaste | tr -d '\r\n' | oc create secret generic cmapi-git -n cmapi --from-file=token=/dev/stdin
+pbpaste | tr -d '\r\n' | oc create secret generic cmapi-git-bot -n cmapi --from-file=token=/dev/stdin
 pbcopy </dev/null
 ```
 
-The api and the worker read key `token` through `secretKeyRef` (`components/cmapi/20-api.yaml`, `30-worker.yaml`). Step 11 checks that it is there, and reads no value. A new token: `oc delete secret cmapi-git -n cmapi`, the same two lines, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since each process reads it at start.
+**The SSH key, when it is added.** An ed25519 key with no passphrase, its public key added to the `cmapi-git-bot` account's SSH keys, and GitHub's host keys checked against the fingerprints GitHub publishes (<https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints>):
+
+```bash
+ssh-keygen -t ed25519 -N '' -C cmapi-git-bot -f ./cmapi-git-bot
+oc create secret generic cmapi-git-bot-ssh -n cmapi --type=kubernetes.io/ssh-auth \
+  --from-file=ssh-privatekey=./cmapi-git-bot --from-file=ssh-publickey=./cmapi-git-bot.pub
+ssh-keyscan -t ed25519,ecdsa,rsa github.com >./known_hosts    # then compare: ssh-keygen -lf ./known_hosts
+oc create configmap cmapi-git-bot-known-hosts -n cmapi --from-file=known_hosts=./known_hosts
+rm ./cmapi-git-bot
+```
+
+**On each host.** The bot account is the default; a deploy key is the alternative where the host allows writes with one. Read on 2026-11-15 at each source; a row marked *not verified* is not yet checked at its host's documentation:
+
+| Host | Bot account (default): SSH | Bot account: API | Alternative | Source |
+|---|---|---|---|---|
+| GitHub | the machine user's SSH key | the machine user's fine-grained token: Contents and Pull requests read and write | a deploy key with write access, for SSH ("read-only by default, but you can give them write access"); the API still needs a token | [GitHub, deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) |
+| GitLab | the service account's SSH key | the service account's token | a read-write deploy key, made by the service account ("You should use a service account, and create the deploy key with the service account"); or a project access token for the API | [GitLab, deploy keys](https://docs.gitlab.com/user/project/deploy_keys/) |
+| Bitbucket Cloud | the bot account's own SSH key | the bot's API token, or a repository access token | none for writes: repository and project access keys are read-only, and workspace keys write to every repository of the workspace | [Atlassian, access keys](https://support.atlassian.com/bitbucket-cloud/kb/difference-between-repository-project-and-workspace-access-keys/) |
+| Bitbucket Data Center | the bot user's SSH key | the bot user's HTTP access token | a repository access key with write access | Atlassian's Data Center pages, *not verified* |
+
+On every host `main` is protected, so that only a merged PR changes it: the host enforces "cmapi never pushes to `main`" too. CRC's repository cannot: it is private on GitHub's free plan, which refuses branch protection (#227).
+
+**Upgrading from `cmapi-git`.** Before #286 the token was Secret `cmapi-git`. Nothing migrates it: the owner loads the bot account's new token into `cmapi-git-bot` with the two lines above, and the rollback removes the old `cmapi-git` by name (`deploy/crc-rollback.sh`).
+
+Give the token an expiry, and put a new one in before then: an expired token makes every request fail at the host, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. A new token: `oc delete secret cmapi-git-bot -n cmapi`, the same two lines, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since the API client reads the token at start. Git over HTTPS reads the file at each call. Step 11 checks that the token is there, and reads no value.
 
 ## The run
 
@@ -290,11 +318,11 @@ Each by its full `dn`, from a list in the script: no filter, no `-r`, and it tak
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/secrets.sh --issuer https://keycloak.apps-crc.testing/realms/cmapi --ca-file "$CMAPI_CRC_CA" --test-users
-  [ "$(oc get secret cmapi-git -n cmapi -o 'go-template={{if .data.token}}present{{end}}')" = present ] || { echo "STOP: Secret cmapi-git has no token: the owner's step 3"; exit 1; }
+  [ "$(oc get secret cmapi-git-bot -n cmapi -o 'go-template={{if .data.token}}present{{end}}')" = present ] || { echo "STOP: Secret cmapi-git-bot has no token: the owner's step 3"; exit 1; }
 ); stopped $? 11
 ```
 
-This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`, and checks that the owner's `cmapi-git` holds a token, reading no value out. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
+This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`, and checks that the owner's `cmapi-git-bot` holds a token, reading no value out. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
 
 ### Step 12: the snapshot, and the watch from here to the end
 
@@ -521,7 +549,7 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 | Prometheus scraping | Thanos Querier's Route, the session's token on stdin: `up` for both targets, and `cmapi_cluster_status` connected. No exec into someone else's pod | `crc-proof.sh` |
 | `oc adm top node` before and after | Steps 2 and 24 | Files |
 | Only the worker writes, and only inside its policy | The api may not create or patch namespaces or create rolebindings (`oc auth can-i`). Server dry runs as the worker: a namespace labelled `cmapi.net/managed=false` is refused with the policy's own message, one labelled `true` is admitted, and a label on namespace `default` is refused with the same message. A dry run persists nothing | `crc-proof.sh` |
-| A plan reads GitHub and writes nothing | `?dryRun=true` for `cmapi-proof-plan` answers 200 with its files, through the GitHub adapter, the token in `cmapi-git` and the Git trust of `CMAPI_GIT_CA_BUNDLE` (#97); afterwards no namespace `cmapi-proof-plan` | `crc-proof.sh` |
+| A plan reads GitHub and writes nothing | `?dryRun=true` for `cmapi-proof-plan` answers 200 with its files, through the GitHub adapter (the API process reads through GitHub's API, #286), the token in `cmapi-git-bot` and the Git trust of `CMAPI_GIT_CA_BUNDLE` (#97); afterwards no namespace `cmapi-proof-plan` | `crc-proof.sh` |
 | A request delivered | [The full request flow](#the-full-request-flow), in the portal and on the API | Chrome and `oc` |
 
 ## The full request flow
@@ -532,15 +560,25 @@ Since #157, the owner's decision of 2026-11-15. What changes from Wave 1, all in
 |---|---|---|
 | `20-config.yaml` | `clusters.yaml`: CRC `writes: true` | The one cluster takes requests |
 | `20-config.yaml` | `instance.git.repository: ephico2real2/cmapi-cluster-configs` | cmapi's own repository. It is not the organisation's `cluster-configs`, which stays as it is |
-| `20-config.yaml` | `integrations.yaml`: `delivery.mode: apply` | CRC has no Argo CD. The worker server-side applies a merged folder once Git main's folder equals the approved plan, confirms it with a read, and holds a delete until an operator's `POST /api/v1/admin/prune:confirm` (`core/sync.py`). The design's mode stays `argocd` (Wave 5) |
+| `20-config.yaml` | `instance.git`: `url: https://github.com/ephico2real2/cmapi-cluster-configs.git`, `username: cmapi-git-bot`, `hostChecks: false` | The Git layer over HTTPS with the bot account's token, until its SSH key exists; no host CI is read and no status is posted (#286) |
+| `20-config.yaml` | `integrations.yaml`: `delivery.mode: apply` | CRC has no Argo CD. The worker server-side applies the PR branch's folder, confirms it with a read, and only then merges the PR (apply before merge, #286). A delete merges first and is held until an operator's `POST /api/v1/admin/prune:confirm` (`core/sync.py`). The design's mode stays `argocd` (Wave 5) |
 | `10-env.yaml` | `CMAPI_GIT_URL: https://api.github.com`, `CMAPI_GIT_CA_BUNDLE: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` | GitHub, verified against the image's system trust. `cmapi-trust` and `SSL_CERT_FILE` hold Keycloak's private CA alone, and httpx 0.28.1 honours `SSL_CERT_FILE` for `verify=True`, so without a trust of its own the Git provider could not verify github.com (#97) |
 | `deliverer/00-cmapi-deliverer.yaml` | The worker's write, and its containment | Step 7 |
 
-**The path of one request.** A plan reads the namespace's folder on `main`. On submit, the auto-approval policy `baseline-rnd-namespace` approves a `small` or `medium` namespace in `dev`, and anything else waits for its approvers. The worker opens a branch and a pull request as the bot, waits for the repository's own Actions to report the check runs `ci/kubeconform` and `ci/kyverno` (`core/git/github.py` reads them as check runs, and the worker posts only `cmapi/check`), runs its own validators, posts `cmapi/check` (the request is approved and the head holds exactly the approved plan), merges with the expected head, and applies the folder. The request is `synced` when a read shows the namespace and its quota as planned.
+**The path of one request.** A plan reads the namespace's folder on `main` through GitHub's API. On submit, the auto-approval policy `baseline-rnd-namespace` approves a `small` or `medium` namespace in `dev`, and anything else waits for its approvers. Then the worker's jobs, one external effect each (`cmapi/src/cmapi/jobs/delivery.py`):
 
-**The repository's checks.** `examples/cluster-configs/.github/workflows/ci.yml` is the workflow, with the job names `ci/kubeconform` and `ci/kyverno`, which GitHub gives the check runs. It runs kubeconform on `clusters/`, and the Kyverno CLI on the bundle that `cmapi-tools policies render` writes from this instance's configuration into `policies/env/<env>/`, each environment in its mode. A request whose checks are never reported fails at `syncTimeout` (10 minutes) and closes its pull request.
+1. `push_branch`: `git fetch origin main` into the pod's mirror; the folder on `main` must still be the plan's base (else `superseded`); `git worktree add -b cmapi/CRC/<requestId> <workdir>/CRC/<requestId>` from `origin/main`; one commit by `cmapi-git-bot` with the trailers `Cmapi-Request-Id`, `Cmapi-Plan-Hash`, `Cmapi-Approval`, `Cmapi-Requester` and `Cmapi-Instance`; a push of that branch alone.
+2. `open_pr`: the PR, as `cmapi-git-bot`.
+3. `pr_checks`: kubeconform and the Kyverno bundle on the PR head, the cmapi check, and the merge check (`git merge-tree`, and the folder on `main` against the plan's base).
+4. `apply`: `apply_started`, then server-side apply of the branch's folder, confirmed by a read. The request is `applied`.
+5. `merge`: the merge check again, then GitHub's merge pinned to the applied head. The request is `synced`.
+6. `git_cleanup`: the branch deleted with a lease, and the worktree removed.
 
-**No branch protection (#227).** The repository is private on GitHub's free plan, which refuses branch protection (HTTP 403, "Upgrade to GitHub Pro or make this repository public"). So nothing on GitHub stops a person with write access from pushing to `main` or merging by hand. What holds instead is cmapi's own: the bot alone opens and merges, `cmapi/check` fails a head that is not the approved plan's hash or that touches a path outside it, the worker applies only when Git main's folder equals the approved plan, and the admission policy keeps the worker out of every namespace not labelled `cmapi.net/managed=true`. A hand edit of a folder on `main` is refused at the next delivery, not prevented.
+Nothing is ever pushed to `main`. A merge that fails after the apply leaves the request in `merge_failed`, with its PR, its branch and the namespace's lock kept, and `CmapiMergeFailed` fires; `:retry` merges it.
+
+**No host checks.** `instance.git.hostChecks` is `false`: cmapi reads no check of GitHub, posts no commit status, and needs no Checks or Commit statuses permission. cmapi's own checks are the gate. `examples/cluster-configs/.github/workflows/ci.yml` can still run on each PR, as a record; cmapi does not wait for it.
+
+**No branch protection (#227).** The repository is private on GitHub's free plan, which refuses branch protection (HTTP 403, "Upgrade to GitHub Pro or make this repository public"). So nothing on GitHub stops a person with write access from pushing to `main` or merging by hand. What holds instead is cmapi's own: the bot pushes only its request branches, each with a lease; the merge check refuses a folder on `main` that is not the plan's base; the merge is pinned to the applied head; and the admission policy keeps the worker out of every namespace not labelled `cmapi.net/managed=true`. A hand edit of a folder on `main` is refused at the next request, not prevented. A hand merge of a cmapi PR is adopted.
 
 **Which test namespaces.** Only cmapi's own: names that start `cmapi-` and are not reserved. Each one is removed by a delete request, approved, then `prune:confirm`.
 
@@ -600,7 +638,7 @@ It first checks LDAP ownership and measurements without writing or deleting anyt
 
 **In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
 
-**A namespace a request delivered** is a team's, with its workloads, and the rollback names no namespace it did not make. So it stops first, deleting nothing, while any namespace labelled `cmapi.net/managed=true` is there: remove each through a cmapi delete request, approved, then `POST /api/v1/admin/prune:confirm`. It then removes the worker's write before its containment (the ClusterRoleBinding and ClusterRole `cmapi-deliverer`, then the policy's binding and the policy), and Secret `cmapi-git` by name. The bot's branches and merges in `ephico2real2/cmapi-cluster-configs` stay: the repository is the record.
+**A namespace a request delivered** is a team's, with its workloads, and the rollback names no namespace it did not make. So it stops first, deleting nothing, while any namespace labelled `cmapi.net/managed=true` is there: remove each through a cmapi delete request, approved, then `POST /api/v1/admin/prune:confirm`. It then removes the worker's write before its containment (the ClusterRoleBinding and ClusterRole `cmapi-deliverer`, then the policy's binding and the policy), and Secret `cmapi-git` by name, the name before #286, and `cmapi-git-bot`, `cmapi-git-bot-ssh` and ConfigMap `cmapi-git-bot-known-hosts` by name. The bot's branches and merges in `ephico2real2/cmapi-cluster-configs` stay: the repository is the record.
 
 **Stays, because it was there before Wave 1:** namespace `cmapi` and the Secrets the cluster generated in it, `cmapi-ldap-bind` in both namespaces, every other LDAP entry. Only the label the apply added is removed.
 

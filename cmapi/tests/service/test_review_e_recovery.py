@@ -16,7 +16,7 @@ from cmapi.core.db.repo import JobRepo, utcnow
 from cmapi.core.git.base import GitUnavailable
 from cmapi.worker import Worker
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 
 
 class Killed(BaseException):
@@ -151,7 +151,7 @@ def test_a_job_outliving_its_lease_is_not_run_twice(world, monkeypatch):
     with ctx.db.session() as s:
         s.execute(text("update jobs set locked_until = now() + interval '1 hour' where kind = 'approval_timeout'"))
     calls = []
-    real = git.open_pr
+    real = git.push_request_branch                # the first Git effect of an approved request since #286
     started = threading.Event()
 
     def slow(*a, **k):
@@ -159,7 +159,7 @@ def test_a_job_outliving_its_lease_is_not_run_twice(world, monkeypatch):
         started.set()
         time.sleep(2.5)
         return real(*a, **k)
-    git.open_pr = slow
+    git.push_request_branch = slow
     t1 = threading.Thread(target=Worker(ctx, "w1").run_one, name="w1")
     t1.start()
     started.wait(5)
@@ -173,7 +173,7 @@ def test_a_job_outliving_its_lease_is_not_run_twice(world, monkeypatch):
             pass
         time.sleep(0.1)
     t1.join()
-    assert len(calls) == 1, f"open_pr entered by {calls}"
+    assert len(calls) == 1, f"push_request_branch entered by {calls}"
 
 
 def test_pruned_confirmation_needs_a_successful_read(world):
@@ -188,7 +188,7 @@ def test_pruned_confirmation_needs_a_successful_read(world):
         s.execute(text("update change_requests set status='awaiting_prune', action='delete', plan = jsonb_set(plan,'{spec}','null')"))
         rid = s.execute(text("select request_id from change_requests")).scalar()
         JobRepo(s).enqueue("prune", request_id=rid, cluster_id="CRC")
-        s.execute(text("delete from jobs where kind='open_pr'"))
+        s.execute(text("delete from jobs where kind in ('push_branch', 'open_pr')"))
     real = kube.get_object
 
     def boom(*a, **k):
@@ -206,7 +206,7 @@ def test_reader_cluster_down_waits_out_the_sync_timeout(world):
     """registry.cache() raises Problem(503) when the import is not connected; watch_sync only treats kube errors as waiting."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     st = ctx.registry.clusters["CRC"]
     saved = st.cache
     st.cache = None
@@ -224,7 +224,7 @@ def test_reader_cluster_down_waits_out_the_sync_timeout(world):
 def test_retry_from_sync_failed_really_watches_again(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     ctx.delivery = type(ctx.delivery)(mode="apply", poll_seconds=0, sync_timeout_seconds=60)
     with ctx.db.session() as s:
         s.execute(text("update change_requests set status='sync_failed', merged_at = now() - interval '1 hour' where request_id=:r"), {"r": rid})
@@ -249,7 +249,7 @@ def test_retry_from_sync_failed_really_watches_again(world):
 def test_git_outage_during_open_revert_loses_nothing(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     with ctx.db.session() as s:
         s.execute(text("update change_requests set status='sync_failed' where request_id=:r"), {"r": rid})
         s.execute(text("delete from jobs where kind='watch_sync'"))

@@ -4,9 +4,9 @@ import type { ChangeRequest } from "../api/hooks";
 /** The mockup's REQ_TONE for the states it has, and the same rule for the others: a failure is bad, an end is neutral. */
 const TONE: Record<ChangeRequest["status"], string> = {
   pending_approval: "warn", awaiting_prune: "warn",
-  approved: "info", pr_open: "info", merged: "info",
+  approved: "info", pr_open: "info", applied: "info", merged: "info",
   synced: "ok",
-  rejected: "bad", failed: "bad", sync_failed: "bad",
+  rejected: "bad", failed: "bad", sync_failed: "bad", merge_failed: "bad",
   superseded: "", cancelled: "", timeout: "", reverted: ""
 };
 export const toneOf = (status: ChangeRequest["status"]): string => TONE[status] ?? "";

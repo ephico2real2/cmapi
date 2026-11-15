@@ -165,14 +165,16 @@ def test_stale_channel_notify_sends_no_message(world, monkeypatch):
 
 
 # ------------------------------------------------------------------ Codex 1 and 6: the adapters and the gap tests
-@pytest.mark.parametrize("provider", [GiteaProvider, GitHubProvider])
+# GitHub answers contains() with its Git layer since #286 (test_git_layer.py, test_contains_*).
+@pytest.mark.parametrize("provider", [GiteaProvider])
 def test_contains_treats_an_unknown_other_source_revision_as_not_contained(provider):
     git = provider("https://git.test/api/v1", "owner/repo", "token")
     git._client = httpx.Client(base_url="https://git.test/api/v1", transport=httpx.MockTransport(lambda r: httpx.Response(404, json={"message": "not found"})))
     assert git.contains("f" * 40, "a" * 40) is False
 
 
-@pytest.mark.parametrize("provider", [GiteaProvider, GitHubProvider])
+# GitHub answers contains() with its Git layer since #286 (test_git_layer.py, test_contains_*).
+@pytest.mark.parametrize("provider", [GiteaProvider])
 def test_contains_keeps_a_git_5xx_retryable(provider):
     git = provider("https://git.test/api/v1", "owner/repo", "token")
     git._client = httpx.Client(base_url="https://git.test/api/v1", transport=httpx.MockTransport(lambda r: httpx.Response(503, text="unavailable")))

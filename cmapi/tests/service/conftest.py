@@ -143,6 +143,9 @@ class FakeGit(HostGitProvider):
         self.default_branch = "main"
         self.web_url = "https://git.test"
         self.down = False
+        self.owners: dict[str, tuple[str, str]] = {}
+        self.based_on_sha: dict[str, str] = {}
+        self.pushes: list[str] = []
 
     def _check(self):
         if self.down:
@@ -190,23 +193,68 @@ class FakeGit(HostGitProvider):
                 return PrRef(n, p["url"], branch, self.heads[branch])
         return None
 
-    def open_pr(self, branch, files, title, body, base_sha):
+    def push_request_branch(self, req):
+        """The Git layer's contract (#286), in memory: the branch from main with the plan's files. A branch that exists is
+        adopted when it is this request's with these files, replaced when it is this request's stale attempt, refused otherwise."""
+        from cmapi.core.git.base import PushResult
+        from cmapi.core.git.workspace import BranchRefused, request_branch
+
+        self._check()
+        branch = request_branch(req.cluster_id, req.request_id)
+        base = self.heads["main"]
+        want = dict(self.branches["main"])
+        for p, t in req.files.items():
+            if t is None:
+                want.pop(p, None)
+            else:
+                want[p] = t
+        if branch in self.branches:
+            owner = self.owners.get(branch)
+            if owner == (req.request_id, req.plan_hash) and self.branches[branch] == want:
+                return PushResult(self.heads[branch], self.based_on_sha.get(branch, base), "adopted")
+            if not owner or owner[0] != req.request_id:
+                raise BranchRefused(f"branch {branch} exists and its head is not cmapi's commit for {req.request_id}")
+        self.branches[branch] = want
+        self.based_on[branch] = dict(self.branches["main"])
+        self.based_on_sha[branch] = base
+        self.owners[branch] = (req.request_id, req.plan_hash)
+        self.pushes.append(branch)
+        return PushResult(self._sha(branch), base, "created")
+
+    def open_pr(self, branch, head, title, body):
         self._check()
         if (pr := self.find_pr(branch)) is not None:
             return pr
-        assert base_sha == self.heads["main"], "PR opened against a stale base"
-        self.branches[branch] = dict(self.branches["main"])
-        self.based_on[branch] = dict(self.branches["main"])
-        for p, t in files.items():
-            if t is None:
-                self.branches[branch].pop(p, None)
-            else:
-                self.branches[branch][p] = t
-        head = self._sha(branch)
+        assert branch in self.branches and self.heads[branch] == head, "PR opened on a head that is not the pushed one"
         n = len(self.prs) + 1
         self.prs[n] = {"branch": branch, "state": "open", "title": title, "body": body, "url": f"https://git.test/pulls/{n}",
                        "merge_sha": None}
         return PrRef(n, self.prs[n]["url"], branch, head)
+
+    def comment(self, pr, text):
+        self.prs[pr.number].setdefault("comments", []).append(text)
+
+    def delete_branch(self, branch, expected):
+        if branch not in self.branches:
+            return True
+        if self.heads.get(branch) != expected:
+            return False
+        del self.branches[branch]
+        return True
+
+    def list_open(self, prefix):
+        return [PrRef(n, p["url"], p["branch"], self.heads.get(p["branch"], "")) for n, p in self.prs.items()
+                if p["state"] == "open" and p["branch"].startswith(prefix)]
+
+    def list_branches(self, prefix):
+        return {b: self.heads[b] for b in self.branches if b.startswith(prefix)}
+
+    def branch_time(self, sha):
+        return 0
+
+    def request_of(self, sha):
+        branch = next((b for b, h in self.heads.items() if h == sha and b in self.branches), None)
+        return (self.owners.get(branch) or (None,))[0]
 
     def pr_status(self, pr):
         self._check()
@@ -214,7 +262,7 @@ class FakeGit(HostGitProvider):
         head = self.heads[pr.branch] if pr.branch in self.heads else pr.head_sha
         checks = {k: ("success" if v == "success" else "pending" if v == "pending" else "failure")
                   for k, v in self.statuses.get(head, {}).items()}
-        return PrStatus(state=p["state"], checks=checks, merge_sha=p["merge_sha"])
+        return PrStatus(state=p["state"], checks=checks, merge_sha=p["merge_sha"], head_sha=head)
 
     def set_check(self, sha, context, state, description, target_url=None):
         self._check()
