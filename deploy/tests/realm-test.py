@@ -136,7 +136,7 @@ userPassword: {TEST_PW[uid]}
     def login(u, p):
         """The access token, or None with the reason in login.why."""
         try:
-            login.why = ""; return ol.login(PUBLIC, "cmapi-docs", "https://cmapi-api.apps-crc.testing/docs/oauth2-redirect", u, p, base=B)["access_token"]
+            login.why = ""; return ol.login(PUBLIC, "cmapi-docs", "https://cmapi.apps-crc.testing/docs/oauth2-redirect", u, p, base=B)["access_token"]
         except ol.LoginError as e:
             login.why = str(e); return None
     part = lambda t, n: json.loads(base64.urlsafe_b64decode(t.split(".")[n] + "=" * (-len(t.split(".")[n]) % 4)))

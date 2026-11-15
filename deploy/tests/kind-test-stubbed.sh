@@ -30,7 +30,7 @@ one() { # label, must-exit (0|nonzero), then VAR=VALUE...
   local killed=no; grep -q 'kind delete cluster' "$log" && killed=yes
   case "$want:$rc" in 0:0|nonzero:[1-9]*) v=ok;; *) v=WRONG; fails=$((fails+1));; esac
   printf '%-5s rc=%-3s policy-deleted=%-3s cluster-deleted=%-3s %s\n' "$v" "$rc" "$deleted" "$killed" "$label"
-  LAST_DELETED=$deleted; LAST_REAPPLIED=$reapplied; LAST_KILLED=$killed; LAST_OUT=$(cat "$W/out")
+  LAST_DELETED=$deleted; LAST_REAPPLIED=$reapplied; LAST_KILLED=$killed; LAST_OUT=$(cat "$W/out"); LAST_LOG=$(cat "$log")
 }
 want_field() { [ "$2" = "$3" ] || { echo "WRONG $1: expected $2, got $3"; fails=$((fails+1)); }; }
 one "all good"                                         0
@@ -39,12 +39,20 @@ one "/readyz is 503"                                   nonzero KT_READY=503
 one "/readyz refuses the connection"                   nonzero KT_READY_RC=7
 one "the port-forward died"                            nonzero KT_PF_DIE=true
 one "the mockup is 404"                                nonzero KT_MOCK=404
+one "the front door's /healthz is 503"                 nonzero KT_FRONT_HEALTH=503
+one "the API does not answer through the front door"   nonzero 'KT_FRONT_VERSION=<html>502 Bad Gateway</html>'
+one "the front door reaches another commit"            nonzero 'KT_FRONT_VERSION={"commit":"0000000000"}'
 one "the secrets cases fail"                           nonzero KT_SECRETS_RC=1
 one "api never rolls out"                              nonzero KT_API_NEVER=true
-one "DNS proven: migrate cannot resolve, mockup can"   0       KT_API_SLOW=true 'KT_PROBE=socket.gaierror: [Errno -2] Name or service not known'
-want_field "the policy goes on the proven pair" yes "$LAST_DELETED"; case "$LAST_OUT" in *"NetworkPolicy deleted for DNS: true"*) ;; *) echo "WRONG: the deletion is not reported"; fails=$((fails+1));; esac
+one "DNS proven: migrate cannot resolve, the database pod can" nonzero KT_API_SLOW=true 'KT_PROBE=socket.gaierror: [Errno -2] Name or service not known'
+want_field "DNS failure never removes the policy" no "$LAST_DELETED"
+case "$LAST_OUT" in *"ingress enforcement cannot be proved"*) ;; *) echo "WRONG: inconclusive ingress enforcement was not reported"; fails=$((fails+1));; esac
+
+one "DNS proven, the operator runs without the policies" 0 KIND_TEST_WITHOUT_NETPOL=true KT_API_SLOW=true 'KT_PROBE=socket.gaierror: [Errno -2] Name or service not known'
+want_field "the policy goes only on the operator's flag" yes "$LAST_DELETED"
+case "$LAST_OUT" in *"NetworkPolicy NOT PROVED (deleted for the DNS failure)"*) ;; *) echo "WRONG: the run without policies does not say they were not proved"; fails=$((fails+1));; esac
 want_field "the changed render does not bring the deleted policy back" no "$LAST_REAPPLIED"
-one "DNS not proven: the mockup cannot resolve either" nonzero KT_API_SLOW=true KT_API_NEVER=true 'KT_PROBE=Name or service not known' KT_MOCK_RC=2
+one "DNS not proven: the database pod cannot resolve either" nonzero KT_API_SLOW=true KT_API_NEVER=true 'KT_PROBE=Name or service not known' KT_CONTROL_RC=2
 want_field "the policy stays" no "$LAST_DELETED"
 one "slow, no DNS failure"                             0       KT_API_SLOW=true
 want_field "the policy stays" no "$LAST_DELETED"
@@ -72,8 +80,8 @@ one "a kubeconfig that was already there"              0
 rm -f "$W/kc"
 one "probe resolves now, old previous log says failed" 0       KT_API_SLOW=true 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.wrong'
 want_field "the policy stays: the container resolves the Service now" no "$LAST_DELETED"
-one "the probe could not run, the previous log says it"  0       KT_API_SLOW=true 'KT_PROBE=error: container not running' 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.cmapi'
-want_field "the policy goes on the previous log when the probe could not run" yes "$LAST_DELETED"
+one "the probe could not run, the previous log says it"  nonzero       KT_API_SLOW=true 'KT_PROBE=error: container not running' 'KT_PREVIOUS=failed to resolve host cmapi-db-rw.cmapi'
+want_field "the policy stays when DNS enforcement cannot be proved" no "$LAST_DELETED"
 one "a container reaches the database in plaintext"    nonzero 'KT_SSL=connected False None prefer'
 one "a container is on TLS and does not verify"        nonzero 'KT_SSL=connected True TLSv1.3 prefer'
 one "only the worker does not verify"                  nonzero 'KT_SSL_WORKER=connected True TLSv1.3 prefer'
@@ -88,6 +96,13 @@ one "a pod holds no connection to read"                nonzero 'KT_PG_SSL=0|0'
 one "the database check never finishes"                nonzero KT_SSL_WAIT_RC=1
 one "a changed cmapi-env leaves the old pods"          nonzero KT_NOT_REPLACED_RC=1
 one "the new pods still read the old value"            nonzero KT_LEVEL=INFO
+one "the new front door serves the old config.json"    nonzero 'KT_PORTAL_CONFIG=  "displayName": "Non-production",'
+one "direct API access is open"                       nonzero KT_NP_API=connected
+one "direct front door access is open"                nonzero KT_NP_FRONT=connected
+one "exec fails instead of probing"                   nonzero KT_NP_EXEC_RC=1
+one "the allowed front-door to API connection fails"  nonzero KT_NP_ALLOWED_RC=1
+one "all good, and both images loaded and rendered"    0
+case "$LAST_LOG" in *"podman save -o "*"localhost/cmapi:dev"*"podman save -o "*"localhost/cmapi-portal:dev"*) ;; *) echo "WRONG: the two images were not both loaded"; fails=$((fails+1));; esac
 "$KT_REAL_SLEEP" 0.5
 pf_left=$(pgrep -f "sleep $KT_PF_SLEEP" | wc -l | tr -d ' ')
 echo "port-forward processes left behind by the runs above: $pf_left"; [ "$pf_left" = 0 ] || { echo "WRONG: the kill misses the port-forward"; fails=$((fails+1)); }

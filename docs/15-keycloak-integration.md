@@ -22,7 +22,7 @@ Nine clients are in the import. The table is read from the file.
 | Client | Type | Flow | Used by | Note |
 |---|---|---|---|---|
 | `cmapi-nonprod` | Confidential, bearer only | None: it issues no token | The API. It is the audience of each token and holds the eight client roles | The audience name is `cmapi-<instance>` |
-| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi.apps-crc.testing/` and `https://cmapi.apps-crc.testing/index.html`, exact (see "The redirect URIs of the portal"). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
+| `cmapi-portal` | Public | Authorization Code with PKCE (`S256`) | The portal | Redirects: `https://cmapi.apps-crc.testing/` and `https://cmapi.apps-crc.testing/index.html`, exact, on the instance's one host (#226) (see "The redirect URIs of the portal"). The portal's sign-in is built and not yet run on a real Keycloak: see "The portal's sign-in" |
 | `cmapi-docs` | Public | Authorization Code with PKCE (`S256`) | Swagger UI at `/docs` | Redirect: `https://cmapi.apps-crc.testing/docs/oauth2-redirect`. Session: 1 hour idle, 8 hours at most |
 | `cmapi-cli` | Public | Device authorization | The `cmapi` CLI | `offline_access` is optional. The CLI is not built |
 | `cmapi-automation` | Confidential | Client credentials | An AI agent or a script, by the client's service account | The service account holds `cmapi-onboarding` only |

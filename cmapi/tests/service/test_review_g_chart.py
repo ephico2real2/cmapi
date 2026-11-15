@@ -178,7 +178,7 @@ def test_the_chart_gives_the_portal_client_exact_redirect_uris(docs):
 @pytest.mark.parametrize("key,uri,message", [
     ("portalRedirects", "https://cmapi-portal.apps-crc.testing/*", "has a wildcard"),
     ("portalRedirects", "*", "has a wildcard"),
-    ("docsRedirects", "https://cmapi-api.apps-crc.testing/docs/*", "has a wildcard"),
+    ("docsRedirects", "https://cmapi.apps-crc.testing/docs/*", "has a wildcard"),
     ("portalRedirects", "http://cmapi-portal.apps-crc.testing/", "must be an https URI"),
     ("portalRedirects", "http://localhost.evil.example/", "must be an https URI"),
     ("portalRedirects", "cmapi-portal://callback", "must be an https URI"),

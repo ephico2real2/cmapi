@@ -10,6 +10,21 @@ spec:
     - {name: http, port: 8080, targetPort: http}
     - {name: metrics, port: 9090, targetPort: metrics}
 ---
+# Headless: its DNS name answers with the address of each ready API pod, so the front door's nginx ("server ... resolve")
+# balances over the pods itself, retries an idempotent request on another pod, and stops sending to a pod that fails. A pod
+# that is not ready is not in the answer. No metrics port: the front door proxies the API's port alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmapi-api-pods
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-api, app.kubernetes.io/component: api}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: cmapi-api, app.kubernetes.io/component: api}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

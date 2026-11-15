@@ -48,6 +48,7 @@ spec:
       annotations:
         checksum/config: {{ toJson (dict "instance" .Values.instance "auth" .Values.auth "portal" .Values.portal "route" .Values.route "ingress" .Values.ingress) | sha256sum }}
     spec:
+      automountServiceAccountToken: false
       securityContext: {{- include "cmapi.podSecurityContext" . | nindent 8 }}
       # preStop (5 s) plus nginx's worker_shutdown_timeout (20 s) fit inside it, so the kubelet never sends SIGKILL.
       terminationGracePeriodSeconds: 30

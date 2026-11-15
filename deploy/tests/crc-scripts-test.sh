@@ -21,8 +21,8 @@ s="$*"
 case "$s" in
   "get secret keycloak-tls -n keycloak -o jsonpath={.data.ca\.crt}") base64 <"$STUB_CA"; exit 0;;
   "get cm default-ingress-cert"*) cat "$STUB_INGRESS"; exit 0;;
-  "get istag cmapi:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
-  "get istag cmapi:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
+  "get istag cmapi:"*"--ignore-not-found"*|"get istag cmapi-portal:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
+  "get istag cmapi:"*|"get istag cmapi-portal:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
   "get route default-route"*) printf 'registry.stub'; exit 0;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
@@ -43,14 +43,17 @@ J
   "get secret cmapi-keycloak -n cmapi -o jsonpath"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pvc cmapi-db-1"*) printf 'pv-1'; exit 0;;
   "get pv pv-1"*) printf '%s' "${STUB_PV_WHO:-cmapi/cmapi-db-1/Released}"; exit 0;;
-  delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*) exit 0;;
+  delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*|"run cmapi-np-target -n cmapi "*|"wait pod/cmapi-np-target -n cmapi "*) exit 0;;
   "get pods -n cmapi -o json") python3 -c 'import json,os
-img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
-pod=lambda n,c:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":{"phase":"Running","startTime":start,"containerStatuses":[{"restartCount":r,"imageID":"x@"+img}]}}
-print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]}))'; exit 0;;
-  "get networkpolicy cmapi-metrics"*) printf '2026-11-06T09:00:00Z'; exit 0;;
-  "exec np-probe"*"cmapi-mockup"*) exit "${STUB_CONTROL_RC:-0}";;
-  "exec np-probe"*"cmapi-api"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
+img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); portal=os.environ.get("STUB_PORTAL_IMAGE_ID","sha256:pppp"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
+pod=lambda n,c,i,t=start:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":{"phase":"Running","startTime":t,"containerStatuses":[{"restartCount":r,"imageID":"x@"+i}]}}
+items=[pod("a","api",img),pod("w","worker",img)]+([] if os.environ.get("STUB_NO_PORTAL") else [pod("p","portal",portal,os.environ.get("STUB_PORTAL_START",start))])
+print(json.dumps({"items":items}))'; exit 0;;
+  "get networkpolicy cmapi-metrics"*|"get networkpolicy cmapi-front-door"*) printf '2026-11-06T09:00:00Z'; exit 0;;
+  "get pod cmapi-np-target -n cmapi -o jsonpath"*) printf '%s' "${STUB_TARGET_IP-10.0.0.9}"; exit 0;;
+  "exec np-probe"*"http://10.0.0.9:8080/"*) exit "${STUB_CONTROL_RC:-0}";;
+  "exec np-probe"*"cmapi-api.cmapi.svc"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
+  "exec np-probe"*"cmapi-portal.cmapi.svc"*) : >"$ARGV_LOG.probed"; echo "${STUB_FRONT_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_FRONT_BLOCK_RC:-1}";;
   "get secret cmapi-test-users"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get secret cmapi-ldap-test-users"*) case "$s" in *"${STUB_NO_PASSWORD:-none}"*) exit 0;; esac; printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
@@ -89,9 +92,17 @@ if [ -n "${STUB_PROOF:-}" ]; then
   url=; code=; for a in "$@"; do case "$a" in http*) url=$a;; esac; done; case "$*" in *-w*) wants=1;; *) wants=;; esac
   STDIN_SEEN=; [ ! -p /dev/stdin ] || STDIN_SEEN=$(cat); export STDIN_SEEN
   case "$url" in
-    */readyz) code=${STUB_READYZ:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_READYZ_AFTER:-$code}; case "$url" in http://*) code=302;; esac;;
-    */api/v1/version) printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0;;
-    */metrics) code=${STUB_METRICS:-404};;
+    # The front door: its own health, the API's paths through it, and the portal's page for any other path.
+    */healthz) code=${STUB_HEALTHZ:-200}; case "$url" in http://*) code=302;; esac;;
+    */api/v1/version) [ -n "$wants" ] || { printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0; }
+      code=${STUB_VERSION_CODE:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_AFTER:-$code};;
+    */metrics) code=${STUB_METRICS:-200 text/html};;
+    */readyz) code=${STUB_READYZ_PAGE:-200 text/html};;
+    */) case "$*" in *"-D -"*) printf '%s' "${STUB_HEADERS-HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; script-src 'self'
+}"; exit 0;; esac;;
     */api/v1/me) case "$*" in *--config*) printf '{"username":"%s","roles":["cmapi-onboarding"]}' "${STUB_ME:-cmapi-automation}"; exit 0;; *) code=401;; esac;;
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
@@ -196,6 +207,11 @@ want "image: pushes and prints" 0 "$(run "$D/crc-image.sh")"; tail -1 "$W/out" |
 no_secret "$W/out" "image"; [ "$(cat "$ARGV_LOG.mode")" = 600 ] && ok "the auth file is 0600" || bad "the auth file's mode"
 grep -qF "$(printf 'unused:%s' "$TOKEN" | base64)" "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
 grep -q -- '--dest-cert-dir' "$ARGV_LOG" && ok "skopeo verifies against the ingress CA" || bad "no --dest-cert-dir"
+want "image cmapi-portal: pushes and prints" 0 "$(run "$D/crc-image.sh" cmapi-portal)"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi-portal@sha256:' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
+grep -qE '^podman build .* -t localhost/cmapi-portal:sha-[0-9a-f]{10} -f cmapi-portal-ui/Containerfile \.$' "$ARGV_LOG" && ok "the front door is built from its Containerfile at the root" || bad "the portal build: $(grep '^podman build' "$ARGV_LOG")"
+grep -qE '^skopeo copy .* docker://registry\.stub/cmapi/cmapi-portal:sha-' "$ARGV_LOG" && ok "and pushed to its own image stream" || bad "the portal push: $(grep '^skopeo' "$ARGV_LOG")"
+no_secret "$W/out" "image cmapi-portal"
+want "image: an unknown name stops" 2 "$(run "$D/crc-image.sh" cmapi-other)"; if grep -qE '^(podman|skopeo)' "$ARGV_LOG"; then bad "an unknown name built or pushed"; else ok "and builds and pushes nothing"; fi
 want "image: a pushed digest the image stream does not know stops" 1 "$(STUB_REGISTRY_DIGEST=sha256:bbbb run "$D/crc-image.sh")"
 want "image: a wrong label stops" 1 "$(STUB_LABEL=other run "$D/crc-image.sh")"
 want "image: a failed push stops" 1 "$(STUB_SKOPEO_RC=1 run "$D/crc-image.sh")"
@@ -232,7 +248,7 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 "$D/crc-backup.sh" >/dev/null 2>&1; want "backup --delete" 0 "$(run "$D/crc-backup.sh" --delete)"; [ ! -e "$B" ] && ok "the backup is gone" || bad "the backup is still there"
 
 # crc-proof.sh
-export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"
+export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
 no_secret "$W/out" "proof"
 pstop() { local label=$1; shift; local got; rm -f "$ARGV_LOG.probed"; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
@@ -240,17 +256,32 @@ pstop "a pod under another SCC" STUB_SCC=anyuid
 pstop "a restart" STUB_RESTARTS=1
 pstop "another image running" STUB_IMAGE_ID=sha256:bbbb
 pstop "a pod started before the policy" STUB_START=2026-11-06T08:00:00Z
-pstop "/readyz not 200" STUB_READYZ=503
+pstop "the front door on another image" STUB_PORTAL_IMAGE_ID=sha256:bbbb
+pstop "no front door pod" STUB_NO_PORTAL=1
+pstop "the front door started before its policy" STUB_PORTAL_START=2026-11-06T08:00:00Z
+pstop "the front door's /healthz not 200" STUB_HEALTHZ=503
 pstop "another commit" STUB_COMMIT=other
-pstop "/metrics on the Route" STUB_METRICS=200
+pstop "/metrics reaching the API through the Route" 'STUB_METRICS=200 text/plain; version=0.0.4'
+pstop "/readyz reaching the API through the Route" 'STUB_READYZ_PAGE=200 application/json'
+pstop "the portal's page without HSTS" 'STUB_HEADERS=HTTP/1.1 200 OK
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src '"'self'"'
+'
+pstop "the portal's page without a Content-Security-Policy" 'STUB_HEADERS=HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+X-Content-Type-Options: nosniff
+'
 pstop "the probe reaching the api: the policy not enforced" STUB_BLOCK_RC=0
+pstop "the probe reaching the front door: its policy not enforced" STUB_FRONT_BLOCK_RC=0
+pstop "the front door refusing the probe: broken, not blocked" "STUB_FRONT_BLOCK_ERR=wget: can't connect to remote host (10.0.0.2): Connection refused"
 pstop "the control failing: the block would prove nothing" STUB_CONTROL_RC=1
+pstop "the control pod with no address" STUB_TARGET_IP=
 pstop "the api's name not resolving: broken, not blocked" "STUB_BLOCK_ERR=wget: bad address 'cmapi-api.cmapi.svc:8080'"
 pstop "a refused connection: broken, not blocked" "STUB_BLOCK_ERR=wget: can't connect to remote host (10.0.0.1): Connection refused"
 pstop "the api answering 503: not blocked" "STUB_BLOCK_ERR=wget: server returned error: HTTP/1.0 503 down"
 pstop "oc exec failing: nothing was probed" "STUB_BLOCK_ERR=Error from server: error dialing backend: EOF"
 pstop "no reason at all" STUB_BLOCK_ERR=
-pstop "a timeout from an api that then does not answer the router" STUB_READYZ_AFTER=503
+pstop "a timeout from an instance that then does not answer the router" STUB_AFTER=503
 pstop "a worker that may write" STUB_WRITER=yes
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
 pstop "a plan that passes" STUB_PLAN=200
@@ -283,7 +314,7 @@ want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" 
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
 ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
-ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-mockup"),("service","cmapi-api"),("service","cmapi-worker"),("service","cmapi-mockup"),("networkpolicy","cmapi-metrics"),("route.route.openshift.io","cmapi-api"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-mockup"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi")]}
+ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
 bad=[]
 for line in open(sys.argv[1]):
     if not line.startswith("oc delete "): continue

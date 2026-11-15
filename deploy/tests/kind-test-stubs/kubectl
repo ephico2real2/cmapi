@@ -3,6 +3,12 @@
 echo "kubectl $*" >>"$KT_LOG"
 a=" $* "
 case "$a" in
+  *" exec cmapi-np-check -- python3 "*)
+    [ "${KT_NP_EXEC_RC:-0}" = 0 ] || { echo "Forbidden" >&2; exit "$KT_NP_EXEC_RC"; }
+    case "${!#}" in 10.0.0.1) echo "${KT_NP_API:-dropped}";; *) echo "${KT_NP_FRONT:-dropped}";; esac;;
+  *" exec deploy/cmapi-portal -- wget "*) exit "${KT_NP_ALLOWED_RC:-0}";;
+  *" get pod -l app.kubernetes.io/component=api "*"status.podIP"*) echo 10.0.0.1;;
+  *" get pod -l app.kubernetes.io/component=portal "*"status.podIP"*) echo 10.0.0.2;;
   *" config current-context "*) echo kind-cmapi-test;;
   *" get nodes "*) echo "cmapi-test-control-plane v1.35.8";;
   *" get cluster cmapi-db "*) echo "Cluster in healthy state";;
@@ -14,18 +20,20 @@ case "$a" in
   *" logs pg-ssl-"*) echo "${KT_SSL-connected True TLSv1.3 verify-full}";;
   *" logs pg-ca-api-migrate "*) echo "${KT_CA_MIGRATE-refused connection to server at \"10.0.0.1\", port 5432 failed: SSL error: certificate verify failed}";;
   *" logs pg-ca-"*) echo "${KT_CA-refused connection to server at \"10.0.0.1\", port 5432 failed: SSL error: certificate verify failed}";;
+  # The DNS control: the database's pod, which no policy selects.
+  *" exec cmapi-db-1 -c postgres -- getent hosts "*) exit "${KT_CONTROL_RC:-0}";;
   *" exec cmapi-db-1 "*) echo "${KT_PG_SSL-2|0}";;
-  *" get pods -l "*) echo pod/cmapi-api-1; echo pod/cmapi-worker-1;;
+  *" get pods -l "*) echo pod/cmapi-api-1; echo pod/cmapi-worker-1; echo pod/cmapi-portal-1;;
   *" wait --for=delete "*) exit "${KT_NOT_REPLACED_RC:-0}";;
   *" get pod -l app.kubernetes.io/component=api "*) printf cmapi-api-1;;
   *" get pod -l app.kubernetes.io/component=worker "*) printf cmapi-worker-1;;
-  *" get pod -l app.kubernetes.io/component=mockup "*) printf cmapi-mockup-1;;
+  *" get pod -l app.kubernetes.io/component=portal "*) printf cmapi-portal-1;;
   *" exec cmapi-api-1 -c migrate "*) if [ -n "${KT_PROBE:-}" ]; then echo "$KT_PROBE"; exit 1; fi;;
   *" logs cmapi-api-1 -c migrate --previous "*) echo "${KT_PREVIOUS:-}";;
   *" exec cmapi-api-1 -c api "*|*" exec cmapi-worker-1 -c worker "*) echo "${KT_LEVEL-DEBUG}";;
-  *" exec cmapi-mockup-1 "*) exit "${KT_MOCK_RC:-0}";;
+  *" exec cmapi-portal-1 -c portal -- cat /usr/share/nginx/html/portal/config.json "*) echo "${KT_PORTAL_CONFIG-  \"displayName\": \"Non-production (changed)\",}";;
   *" get pods -o custom-columns"*) echo "cmapi-worker-1 true ${KT_WORKER_RESTARTS:-0};";;
-  *" get pods -o jsonpath"*) echo "cmapi-api-1=0 cmapi-worker-1=${KT_WORKER_RESTARTS:-0} cmapi-mockup-1=0";;
+  *" get pods -o jsonpath"*) echo "cmapi-api-1=0 cmapi-worker-1=${KT_WORKER_RESTARTS:-0} cmapi-portal-1=0";;
   *" port-forward "*) if [ "${KT_PF_DIE:-false}" = true ]; then exit 1; fi; exec sleep "$KT_PF_SLEEP";;
   *" delete networkpolicy "*) echo "POLICY-DELETED" >>"$KT_LOG";;
   *" apply "*)
