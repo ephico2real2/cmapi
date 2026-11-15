@@ -171,7 +171,7 @@ a { color: var(--remote); }
 <text x="448" y="914" font-size="11" fill="var(--gap)" text-anchor="middle">not in the design: loses attribution and the self-approval check</text>
 <text x="20" y="988">Solid boxes are built. Dashed boxes are proposed. The red path is not in the design.</text>
 <text x="20" y="1007">Keycloak decides who is in a group and who holds a role. cmapi reads the token. A tool with no onBehalfOf is the requester itself.</text>
-<text x="20" y="1026" fill="var(--host)" font-weight="600">Measured with the realm test on Keycloak 26.6.4. Not yet run on CRC: realm cmapi is not there yet.</text>
+<text x="20" y="1026" fill="var(--host)" font-weight="600">Path 1: proven on CRC (crc-proof.sh, 2026-11-15, main 21a7f47). Path 2 (onBehalfOf): covered by the service tests, not yet run on CRC.</text>
 </g>
         </svg>
       </div>
