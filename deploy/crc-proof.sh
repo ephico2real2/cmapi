@@ -186,7 +186,9 @@ printf '%s' "${resp%$'\n'*}" | python3 -c 'import json,sys; sys.exit(0 if json.l
 say "a dry-run namespace plan reads Git and answers 200 with its files, and writes nothing to the cluster"
 
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
-db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
+# As role postgres: on OpenShift the pod runs as the namespace's arbitrary UID, and CNPG's pg_ident.conf maps that OS user to postgres
+# alone ("local <uid> postgres", under "local all all peer map=local"). With no -U, psql asks for a role named after the UID (#278).
+db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -U postgres -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
 case "$db" in *"|0") [ "${db%%|*}" -gt 0 ] || fail "no application connections"; say "pg_stat_ssl: application connections on TLS|not: $db";; *) fail "pg_stat_ssl: $db";; esac
 # The server cannot see whether a client verified it. Each container's own libpq says which sslmode its URI and environment come to.
 for c in api worker; do

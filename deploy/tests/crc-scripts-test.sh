@@ -79,7 +79,9 @@ print(json.dumps({"items":items}))'; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
-  "exec cmapi-db-1"*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  # CNPG's peer map on OpenShift: the pod's arbitrary UID signs in as role postgres, and as no role named after itself (#278).
+  "exec cmapi-db-1"*"psql -U postgres "*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  "exec cmapi-db-1"*) echo 'psql: error: FATAL:  Peer authentication failed for user "1000720000"' >&2; exit 2;;
   "exec deploy/cmapi-"*) echo "${STUB_SSLMODE:-verify-full}"; exit "${STUB_SSLMODE_RC:-0}";;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
