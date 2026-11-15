@@ -208,6 +208,133 @@ A write that makes a request also checks who the requester is (`cmapi/src/cmapi/
 | `on-behalf-of-required` | A service client names no person, and the instance requires one |
 | `unknown-user` | The named person is not an enabled user in the directory |
 
+## Who a request is from
+
+A request is from the caller of the token. A tool can also name the person that it asks for. This section says how a person gets the right to request, what cmapi records, how a tool acts for a person, and what is not in the design.
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/rbac-identity/rbac-identity.dark.png">
+  <source srcset="diagrams/rbac-identity/rbac-identity.light.png">
+  <img alt="A person gets the right to request through LDAP group membership. Keycloak's LDAP federation, with the users filter (uid=cmapi.*), maps the group to the client role cmapi-requester in the token, and the role grants namespaces:create. cmapi records the request under the token's sub, username, email and employee_id in PostgreSQL, and only the plan in Git. A tool signs in as the client cmapi-automation and sends onBehalfOf. cmapi looks the person up in the directory and records the person as requester and the tool as caller, automated. The directory does not prove that the person signed in: token exchange, RFC 8693, is proposed. A shared submitter is not in the design." src="diagrams/rbac-identity/rbac-identity.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The solid path is built. The dashed box is proposed. The red box is not in the design. The example user `cmapi.requester` is a generic LDAP test user.*
+
+```text
+LDAP (ldap-testing)      Keycloak (realm cmapi)                     cmapi (api)                 The record
+person                   
+  account cmapi.requester
+  member of group
+  app-cmapi-rbac-requester
+        --(uid=cmapi.*)-->  federation reads the user
+                            group /cmapi/app-cmapi-rbac-requester
+                            client role cmapi-requester
+                            token: sub, preferred_username,
+                                   email, employee_id, groups  -->  permission namespaces:create
+                                                                    request ----------------------->  PostgreSQL: sub, username,
+                                                                                                      email, employee_id
+                                                                                                      Git: the plan only
+
+tool (a script, an AI agent)
+        client cmapi-automation, client credentials
+        role cmapi-onboarding, sends onBehalfOf=<id>
+                                                               -->  directory lookup: an enabled person, or 422
+                                                                    request ----------------------->  PostgreSQL: requester = the person,
+                                                                                                      caller = the tool, automated
+
+proposed (not built):  OAuth 2.0 Token Exchange, RFC 8693: proof that the person signed in. With onBehalfOf, cmapi trusts the tool to name the person
+not in the design:     one shared submitter account: loses attribution and the self-approval check
+```
+
+### How a person gets the right to request
+
+1. The person has an LDAP account. An administrator of the directory puts the account in the group `app-cmapi-rbac-requester` (`docs/11`, "The groups").
+2. The LDAP federation of realm `cmapi` reads the group. It places the group under `/cmapi`, so the token carries the path `/cmapi/app-cmapi-rbac-requester` (`docs/15`, "The LDAP federation"; `docs/14`, "The contract in one table").
+3. Keycloak gives the members of that group the client role `cmapi-requester` on `cmapi-nonprod` (`10-realm-import.yaml:391-445`).
+4. cmapi reads the role from the token (`claims.py:54`). It looks up the permissions of the role (`authz.py:21-41`).
+
+The role `cmapi-requester` has these permissions (from the table "The roles and their permissions" above):
+
+| Role | Permissions |
+|---|---|
+| `cmapi-requester` | `clusters:read`, `objects:read`, `capacity:read`, `requests:read`, `namespaces:create`, `requests:cancel`, `namespaces:write`, `quotas:write`, `serviceaccounts:write`, `grants:write` |
+
+`namespaces:create` is the permission of `POST /api/v1/clusters/{cluster_id}/namespaces`. A person without the role gets 403 `forbidden` (step 3).
+
+### Who the request is recorded under
+
+When a person calls, cmapi records the request under the caller of the token. The identity of a person comes from the token and not from the payload (`claims.py:3-6`). A tool is the one exception: see "Tools that act for people".
+
+| Value | Where it comes from | Where it is kept |
+|---|---|---|
+| `sub` | The claim `sub` (`claims.py:56`) | The database. Self-approval compares it (`approvals.py:325-326`) |
+| Username | The claim `preferred_username` (`claims.py:52`) | The database, and as a label of the namespace (`claims.py:3-5`) |
+| `email` | The claim `email` (`claims.py:60`) | The database |
+| `employee_id` | The claim `employee_id` (`claims.py:64`) | The database |
+| Given, middle and family name | The claims of the same names (`claims.py:61-63`) | The database |
+
+The record is `Identity.record` (`claims.py:43-48`). It is in the database only, and never in Git: the comment of the method says so, and so does step 2 above. Git holds the plan.
+
+A person calls as themselves. If a person sends `onBehalfOf`, cmapi refuses with 422 `on-behalf-of-not-allowed` (`checks.py:74-78`). This is step 6.
+
+### No shared submitter
+
+A shared human account, for example `cmapi.requester`, that submits for many people is not in the design. A person cannot use `onBehalfOf` (`checks.py:74-78`), so a shared account would be recorded as the requester. It would have three effects:
+
+- Attribution is lost. Each request would carry the `sub` and the username of the shared account, and not those of the person.
+- The self-approval check fails. The check compares `sub` values (`approvals.py:325-326`). The requester would carry the `sub` of the shared account. A person who submits through it and then approves with their own account has another `sub`, so the check would not refuse.
+- The employee ID record is lost. The token of the shared account has one `employee_id`, or none, and a person's write needs one when the instance requires it (`checks.py:79-81`).
+
+A tool that must act for people has its own path: see the next section.
+
+### The test user cmapi.requester
+
+`cmapi.requester` is a generic LDAP test user. It is one of the 13 `cmapi.<role>` users in `ou=People` on the shared LDAP (`docs/11`, "Existing LDAP server"). It is a member of `app-cmapi-rbac-requester`, and so is `cmapi.selfapprove` (`docs/11`, "The groups"). Use it for proofs only. It is not a person.
+
+### Real people
+
+The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP federation"; `realm_sync.py:228-229`). So only the 13 test users can sign in today. To allow real people, the filter must change to the scope of the organisation's directory. That is a deployment decision for each environment. It is not made yet.
+
+### Tools that act for people
+
+A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:183`):
+
+| Case | What cmapi does | Source |
+|---|---|---|
+| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:52` |
+| The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
+| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:51` |
+
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:374`, `approvals.py:325-326`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:208-210`, `approvals.py:323-324`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+
+With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
+
+| Part | State | Source |
+|---|---|---|
+| OAuth 2.0 Token Exchange, RFC 8693: a tool that holds a token of the person, so that cmapi has proof that the person signed in | Not built. Realm `cmapi` has token exchange off | `docs/15`, "The type of an access token" |
+
+### The 13 test users
+
+The one source of this table is `examples/cmapi-sso/ldap/test-identities.tsv:5-17`. The last column is from `docs/11`, "The test users", and from the roles and permissions above.
+
+| `uid` | LDAP group | Client roles | What it proves |
+|---|---|---|---|
+| `cmapi.viewer` | `app-cmapi-rbac-viewer` | `cmapi-viewer` | Read permissions only |
+| `cmapi.onboarding` | `app-cmapi-rbac-onboarding` | `cmapi-onboarding` | Read, `namespaces:create` and `requests:cancel`. It is the role of `cmapi-automation` |
+| `cmapi.requester` | `app-cmapi-rbac-requester` | `cmapi-requester` | The permissions of the table above, with no right to approve |
+| `cmapi.operator` | `app-cmapi-rbac-operator` | `cmapi-approver`, `cmapi-operator` | One group gives two roles, so the operator can also approve (`docs/14`, "The roles and their permissions") |
+| `cmapi.admin` | `app-cmapi-rbac-admin` | `cmapi-admin` | The admin permissions, with no `requests:approve` |
+| `cmapi.auditor` | `app-cmapi-rbac-auditor` | `cmapi-auditor` | Read, `events:read` and `audit:export` |
+| `cmapi.approver-prod` | `app-cmapi-rbac-approver-prod` | `cmapi-approver` | The approval rule name `approver-prod` |
+| `cmapi.approver-prod2` | `app-cmapi-rbac-approver-prod` | `cmapi-approver` | A second prod approver, because a prod delete needs two |
+| `cmapi.approver-qa` | `app-cmapi-rbac-approver-qa` | `cmapi-approver` | The approval rule name `approver-qa` |
+| `cmapi.approver-uat` | `app-cmapi-rbac-approver-uat` | `cmapi-approver` | The approval rule name `approver-uat` |
+| `cmapi.approver-platform` | `app-cmapi-rbac-approver-platform` | `cmapi-approver` | The approval rule name `approver-platform` |
+| `cmapi.selfapprove` | `app-cmapi-rbac-approver-prod`, `app-cmapi-rbac-requester` | `cmapi-approver`, `cmapi-requester` | The self-approval rule: it requests and approves prod |
+| `cmapi.noaccess` | none | none | A token with no role. It must get 403 |
+
 ## Each 401 and 403 in one place
 
 Each refusal is an RFC 9457 problem with the media type `application/problem+json`. The `type` is a base and the code: `https://cmapi.ephico2real.com/problems/<code>` by default, and `problems.typeBase` in `instance.yaml` sets another base. Each instance serves the page of a problem type at `/problems/<code>`, with no token (`docs/02`, "Problem type URIs").
@@ -251,11 +378,13 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 | What | Where it ran | Result |
 |---|---|---|
 | Token checks, the roles table and the environment limit | The service suite on macOS, PostgreSQL 16 on `127.0.0.1:55432`, 2026-11-13: `tests/service/test_auth.py` and `tests/service/test_review_c_authz.py` | 23 passed |
-| The 13 test users through LDAP federation, each with the groups and roles of the table | CRC | Not run yet. `deploy/crc-proof.sh` holds the check, and the Wave 1 run is its first use |
+| The 13 test users through LDAP federation, each with the groups and roles of the table | CRC: `deploy/crc-proof.sh` on CRC, 2026-11-15, main 21a7f47 (run 11, step 23), and on main 08f7fe5 with the proof of PR #277 (run 9, step 23) | Passed. The proof lines: "13 LDAP test users signed in through the federation; each token holds the table's groups, roles and employee_id", and "cmapi.noaccess gets 403 on /api/v1/clusters, where cmapi.viewer gets 200" |
+| `cmapi-automation` signs in with client credentials, and the password grant is refused | Same runs | Passed: "cmapi-automation signs in with client credentials, and the password grant is refused (unauthorized_client)" |
+| A tool files for a person with `onBehalfOf` | The service suite: `test_the_submitter_sub_is_stored_but_never_served` (`tests/service/test_pr40_convergence.py`) and `test_submitter_cannot_approve_what_it_filed_on_behalf_of_someone` (`tests/service/test_review_c_authz.py`) | Passed: 2 passed on main feb1dca (2026-11-15, the service suite's PostgreSQL). Not run on CRC |
 
 ## Diagram sources
 
-The figure is `docs/diagrams/authorization-decision/source.html`, drawn to diagram-kit's `/visual` standard. Render it again with `diagram-render docs/diagrams/authorization-decision/source.html docs/diagrams/authorization-decision authorization-decision`. The picture, the text twin above and the page change together. `docs/diagrams/tools/draft-authz-and-data-model.py` wrote the first draft of the page.
+There are two figures, drawn to diagram-kit's `/visual` standard. The first is `docs/diagrams/authorization-decision/source.html`. Render it again with `diagram-render docs/diagrams/authorization-decision/source.html docs/diagrams/authorization-decision authorization-decision`. The second is `docs/diagrams/rbac-identity/source.html`. Render it again with `diagram-render docs/diagrams/rbac-identity/source.html docs/diagrams/rbac-identity rbac-identity`. For each figure, the picture, its text twin and the page change together. `docs/diagrams/tools/draft-authz-and-data-model.py` wrote the first draft of the page.
 
 ## The citations
 
