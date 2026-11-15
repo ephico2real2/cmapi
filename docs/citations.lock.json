@@ -35,6 +35,10 @@
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|325-326": [
+  "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
+  "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/auth.py|127-129": [
   "        IDP_UNAVAILABLE.inc()",
   "        raise Problem(503, \"idp-unavailable\", \"Keycloak signing keys are unreachable and this key is not cached\",",
@@ -307,6 +311,40 @@
   "            x: dict[str, Any] = {\"x-cmapi-permission\": permission, \"x-cmapi-plugin\": self.plugin,",
   "                                 \"x-plugin-version\": self.version, **extra}"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|73-73": [
+  "    automated = caller.kind == \"service\" or bool(set(automation_roles) & set(caller.roles))"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|74-78": [
+  "    if not automated:",
+  "        if on_behalf_of:",
+  "            raise Problem.unprocessable(\"on-behalf-of-not-allowed\",",
+  "                                        \"A person calls as themselves; onBehalfOf is for service clients \"",
+  "                                        \"and automation accounts\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/checks.py|79-81": [
+  "        if require_employee_id and not caller.employee_id:",
+  "            raise Problem.unprocessable(\"identity-incomplete\",",
+  "                                        \"The token has no employee_id claim; check the cmapi-identity client scope\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|3-5": [
+  "The requester's identity is never taken from a request body: username and email go on the",
+  "Namespace (cmapi.net/requested-by-user, cmapi.net/requested-by); names and employee ID stay in the",
+  "database with the request. Claims come from the cmapi-identity client scope (employee_id,"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|3-6": [
+  "The requester's identity is never taken from a request body: username and email go on the",
+  "Namespace (cmapi.net/requested-by-user, cmapi.net/requested-by); names and employee ID stay in the",
+  "database with the request. Claims come from the cmapi-identity client scope (employee_id,",
+  "middle_name) and the standard OIDC claims."
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [
+  "    def record(self) -> dict[str, Any]:",
+  "        \"\"\"What change_requests stores about the requester (database only, never Git).\"\"\"",
+  "        return {\"sub\": self.sub, \"username\": self.username, \"email\": self.email,",
+  "                \"givenName\": self.given_name, \"middleName\": self.middle_name,",
+  "                \"familyName\": self.family_name, \"employeeId\": self.employee_id,",
+  "                \"kind\": self.kind, \"clientId\": self.client_id}"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|50-67": [
   "    @classmethod",
   "    def from_claims(cls, claims: Mapping[str, Any], audience: str) -> \"Identity\":",
@@ -327,6 +365,26 @@
   "            groups=frozenset(claims.get(\"groups\", [])),",
   "        )"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|52-52": [
+  "        username = claims.get(\"preferred_username\", claims[\"sub\"])"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|54-54": [
+  "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|56-56": [
+  "            sub=claims[\"sub\"],"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|60-60": [
+  "            email=claims.get(\"email\"),"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|61-63": [
+  "            given_name=claims.get(\"given_name\"),",
+  "            middle_name=claims.get(\"middle_name\"),",
+  "            family_name=claims.get(\"family_name\"),"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
+  "            employee_id=claims.get(\"employee_id\"),"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|124-126": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
@@ -334,6 +392,9 @@
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|285-285": [
+  "                 \"automated\": requester.automated, \"requesterClient\": who.client_id if who.kind == \"service\" else None,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|321-321": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
@@ -415,6 +476,10 @@
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|98-98": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|228-229": [
+  "    if cfg.get(\"usersFilter\"):",
+  "        body[\"config\"][\"customUserSearchFilter\"] = [cfg[\"usersFilter\"]]"
  ],
  "docs/14-authorization.md|cmapi/tests/service/test_review_c_authz.py|112-175": [
   "def test_environment_role_cannot_read_status_in_another_environment(rnd_only):",
@@ -554,6 +619,21 @@
   "        clientRoles:",
   "          cmapi-nonprod:",
   "          - cmapi-viewer"
+ ],
+ "docs/14-authorization.md|examples/cmapi-sso/ldap/test-identities.tsv|5-17": [
+  "cmapi.viewer\t10100\tapp-cmapi-rbac-viewer\tcmapi-viewer",
+  "cmapi.onboarding\t10101\tapp-cmapi-rbac-onboarding\tcmapi-onboarding",
+  "cmapi.requester\t10102\tapp-cmapi-rbac-requester\tcmapi-requester",
+  "cmapi.operator\t10103\tapp-cmapi-rbac-operator\tcmapi-approver,cmapi-operator",
+  "cmapi.admin\t10104\tapp-cmapi-rbac-admin\tcmapi-admin",
+  "cmapi.auditor\t10105\tapp-cmapi-rbac-auditor\tcmapi-auditor",
+  "cmapi.approver-prod\t10106\tapp-cmapi-rbac-approver-prod\tcmapi-approver",
+  "cmapi.approver-prod2\t10107\tapp-cmapi-rbac-approver-prod\tcmapi-approver",
+  "cmapi.approver-qa\t10108\tapp-cmapi-rbac-approver-qa\tcmapi-approver",
+  "cmapi.approver-uat\t10109\tapp-cmapi-rbac-approver-uat\tcmapi-approver",
+  "cmapi.approver-platform\t10110\tapp-cmapi-rbac-approver-platform\tcmapi-approver",
+  "cmapi.selfapprove\t10111\tapp-cmapi-rbac-approver-prod,app-cmapi-rbac-requester\tcmapi-approver,cmapi-requester",
+  "cmapi.noaccess\t10112\t-\t-"
  ],
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/auth.py|1-8": [
   "\"\"\"Token verification: every bearer token is checked offline against the realm's JWKS.",
