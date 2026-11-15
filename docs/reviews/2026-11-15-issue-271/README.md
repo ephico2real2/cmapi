@@ -6,7 +6,7 @@
 
 | Run on one database, the base commit's conftest | Result |
 |---|---|
-| `test_fable_review_240.py` alone, 3 runs | 4 passed each time |
+| `test_fable_review_240.py` alone, 3 runs on the base commit | 4 passed each time (re-measured by the coordinator: `ob1-run8/logs/271-alone-{1,2,3}.log`) |
 | The same, 12 runs, while a second session loops `test_flow.py` | 12 of 12 runs failed. Two (`271-repro-5`, `271-repro-9`) failed with the same `404 No request req-...`; the others with the other session's rows or their absence: `KeyError: 'events'`, `409 change-pending` on a request the other session created, a `NoneType` request, a deadlock on `change_requests` |
 | With this change, `test_flow.py` running and `test_fable_review_240.py` started 3 s later | The second session exits at once with code 75 and the refusal; the first: 20 passed (re-measured by the coordinator after the review fixes: `ob1-run8/logs/272-concurrent-first.log`, `272-concurrent-second.log`) |
 
