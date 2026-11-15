@@ -248,14 +248,15 @@ cluster-configs-nonprod/
         └── namespaces/
             └── payments-dev/
                 ├── namespace.yaml
-                ├── resourcequota.yaml
-                ├── limitrange.yaml
+                ├── resourcequota-payments-dev-quota.yaml
+                ├── limitrange-payments-dev-limits-cpu.yaml
+                ├── limitrange-payments-dev-limits-memory.yaml   # -limits-storage too, only if storageLimitRange is on
                 ├── serviceaccounts.yaml            # when the namespace has SAs
                 ├── rolebindings.yaml               # SA grants and SCC grants
                 └── token-issuer-rolebinding.yaml   # lets cmapi issue SA tokens here
 ```
 
-- **One file per kind.** Keys are sorted with system labels first, so a quota change is a small diff to one file. An SCC grant is a RoleBinding to the ClusterRole system:openshift:scc:\<name>; cmapi never creates an SCC.
+- **One file per kind, and one per ResourceQuota and LimitRange** (#253): each LimitRange holds one resource, because Kubernetes does not say which default applies when two LimitRanges set one. Keys are sorted with system labels first, so a quota change is a small diff to one file. An SCC grant is a RoleBinding to the ClusterRole system:openshift:scc:\<name>; cmapi never creates an SCC.
 - **Tiers live in cmapi.** config/tiers.yaml holds the ResourceQuota and LimitRange values per tier and environment, and the renderer writes them out, so the diff shows real numbers; a custom tier writes the approved values. A custom-tier request can also change the container limits and the other keys that the catalog names as overridable. cmapi refuses only a value that is not valid; each value beyond the tier needs one more approval, and one more again when it opens network exposure (v2 design, Tiers, "Beyond the tier"). Changing a tier definition changes no namespace by itself: namespaces rendered from an older definition show as tier-outdated (their cmapi.net/tier-hash differs), and the tiers-rerender operation opens one request per affected namespace, in batches, through the normal approval rules. One module, core/tiers.py, is the only reader of the catalog; its schema, validation, API (GET /api/v1/tiers) and the module itself are in the v2 design, Tiers.
 - **Metadata on every object.** Labels cmapi.net/cluster-id and cmapi.net/managed; annotations cmapi.net/request-id and cmapi.net/instance. The Namespace also carries cmapi.net/env, cmapi.net/tier, cmapi.net/team, cmapi.net/requested-by-user, cmapi.net/team-dl, cmapi.net/requested-by, the optional expiry keys (never in prod) and argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true.
 - **Argo CD.** Each cluster's root Application syncs clusters/\<clusterId>/namespaces with directory recurse. Removing a folder makes Argo CD prune its objects, and Prune=confirm holds the Namespace until an operator confirms. One Application per namespace from an ApplicationSet was considered and not used: when a folder disappears, the ApplicationSet deletes that Application and by default its resources with it, which bypasses Prune=confirm.

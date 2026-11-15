@@ -94,7 +94,21 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             jobs.fence()
             n = d.apply_folder(files)
             if removed:
-                d.prune_objects(row.namespace, removed)
+                import yaml
+
+                # A file rename removes a path, not the Kubernetes objects retained in another file.
+                def identity(doc):
+                    meta = doc["metadata"]
+                    return doc["kind"], meta.get("namespace", row.namespace), meta["name"]
+
+                retained = {identity(doc) for text in files.values()
+                            for doc in yaml.safe_load_all(text) if doc}
+                obsolete = {}
+                for path, text in removed.items():
+                    docs = [doc for doc in yaml.safe_load_all(text) if doc and identity(doc) not in retained]
+                    if docs:
+                        obsolete[path] = yaml.safe_dump_all(docs, sort_keys=False)
+                d.prune_objects(row.namespace, obsolete)
             repo.event(row, "applied", "cmapi-deliverer", f"server-side applied {n} objects from Git {row.merge_sha[:8] if row.merge_sha else 'main'}")
         else:
             # Three things must hold before a read can confirm: Git main still carries the approved plan (a later

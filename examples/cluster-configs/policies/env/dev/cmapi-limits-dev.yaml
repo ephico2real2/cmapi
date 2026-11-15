@@ -201,39 +201,6 @@ spec:
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: cmapi-limits-dev-limit-limitrange-pvc-max-storage-max
-  annotations:
-    policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.
-    cmapi.net/generated: 'true'
-spec:
-  validationActions:
-  - Deny
-  matchConstraints:
-    resourceRules:
-    - apiGroups:
-      - ''
-      apiVersions:
-      - v1
-      operations:
-      - CREATE
-      - UPDATE
-      resources:
-      - limitranges
-  matchConditions:
-  - name: cmapi-managed
-    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
-  variables:
-  - name: update
-    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
-  validations:
-  - expression: '(has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') == '''' || ((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') != '''' && (variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') : '''') != '''' && quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max)
-      && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''')).compareTo(quantity((variables.update && has(oldObject.spec) ? (has(oldObject.spec.limits) && (oldObject.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (oldObject.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') : ''''))) == 0) || quantity((has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''')).compareTo(quantity("500Gi")) <= 0'
-    message: limitRange.pvc.max.storage is above the dev maximum of 500Gi; a bound of tiers.yaml, which approval does not lift
-    messageExpression: '"limitRange.pvc.max.storage " + (has(object.spec.limits) && (object.spec.limits).exists(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max) ? (object.spec.limits).filter(i, i.type == "PersistentVolumeClaim" && has(i.max) && "storage" in i.max)[0].max["storage"] : '''') + " is above the dev maximum of 500Gi; a bound of tiers.yaml, which approval does not lift"'
----
-apiVersion: policies.kyverno.io/v1
-kind: ValidatingPolicy
-metadata:
   name: cmapi-limits-dev-limit-limitrange-container-default-cpu-order
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.

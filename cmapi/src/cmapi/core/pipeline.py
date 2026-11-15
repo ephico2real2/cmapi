@@ -33,7 +33,7 @@ from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQU
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
-from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, diff_files, folder, plan_hash
+from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, plan_hash
 from cmapi.core.tiers import EXPOSURE_KEYS, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo
 
@@ -212,7 +212,8 @@ class Pipeline:
 
         old_tier = (prev_ns or {}).get("metadata", {}).get("labels", {}).get("cmapi.net/tier")
         old_exp = (prev_ns or {}).get("metadata", {}).get("annotations", {}).get("cmapi.net/expires-at")
-        old_quota = _old_quota(prev_files)
+        old_rq = _tier_quota(prev_files, ns)
+        old_quota = _hard(old_rq)
         tier = body.get("tier") or old_tier or "small"
         quota, limits = body.get("quota"), body.get("limitRange")
         expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
@@ -241,8 +242,7 @@ class Pipeline:
         approved: dict[str, str] = {}
         if custom_before and old_quota:
             approved = {**{k: v for k, v in old_quota.items() if k in self.cfg.tiers.sizable},
-                        **self.cfg.tiers.rendered_overrides(_doc(prev_files, "resourcequota.yaml"),
-                                                            _doc(prev_files, "limitrange.yaml"))}
+                        **self.cfg.tiers.rendered_overrides(old_rq, objects_of(prev_files, "LimitRange"))}
         if resolved.custom and custom_before:
             quota = {**{k: v for k, v in approved.items() if not k.startswith("limitRange.")}, **(quota or {})}
             limits = _merge_limits(approved, limits)
@@ -391,14 +391,14 @@ def _date(v: Any) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
-def _doc(prev: Mapping[str, str], name: str) -> dict[str, Any] | None:
-    """The one object of a file of the namespace's folder, or None when the folder has no such file."""
-    text = next((t for p, t in prev.items() if p.endswith("/" + name)), None)
-    return yaml.safe_load(text) if text else None
+def _tier_quota(prev: Mapping[str, str], ns: str) -> dict[str, Any] | None:
+    """The namespace's own ResourceQuota in its folder, found by kind (#253): <ns>-quota, or the only one there is."""
+    quotas = objects_of(prev, "ResourceQuota")
+    named = [d for d in quotas if (d.get("metadata") or {}).get("name") == f"{ns}-quota"]
+    return named[0] if named else quotas[0] if len(quotas) == 1 else None
 
 
-def _old_quota(prev: Mapping[str, str]) -> dict[str, str] | None:
-    doc = _doc(prev, "resourcequota.yaml")
+def _hard(doc: Mapping[str, Any] | None) -> dict[str, str] | None:
     if not doc:
         return None
     return {k: str(v) for k, v in (doc.get("spec", {}).get("hard") or {}).items()}

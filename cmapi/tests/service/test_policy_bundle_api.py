@@ -22,7 +22,7 @@ def test_the_plan_and_the_pr_check_give_the_validator_the_folder_git_holds(world
     merged = {p: t for p, t in git.branches["main"].items() if p.startswith(FOLDER)}
     plan_time, pr_check = validator.previous[2], validator.previous[3]
     # The change is checked against the folder that the create merged, small tier and all.
-    assert set(plan_time) == set(pr_check) and FOLDER + "resourcequota.yaml" in plan_time
+    assert set(plan_time) == set(pr_check) and FOLDER + "resourcequota-payments-dev-quota.yaml" in plan_time
     assert "tier: small" in plan_time[FOLDER + "namespace.yaml"]
     assert "tier: medium" in merged[FOLDER + "namespace.yaml"]
 

@@ -181,7 +181,7 @@ def test_main_differing_from_the_plan_is_not_applied(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
     assert run_until(ctx, "watch_sync") == "watch_sync"
-    git.tamper("main", PATH + "resourcequota.yaml", "kind: ResourceQuota\nedited: true\n")
+    git.tamper("main", PATH + "resourcequota-payments-dev-quota.yaml", "kind: ResourceQuota\nedited: true\n")
     run_jobs(ctx)
     assert kube.applied == [], kube.applied
     assert status(client, keys, rid)["status"] == "sync_failed"

@@ -49,11 +49,6 @@
     "kind": "limit",
     "rule": "order"
   },
-  "cmapi-limits-rnd-limit-limitrange-pvc-max-storage-max": {
-    "key": "limitRange.pvc.max.storage",
-    "kind": "limit",
-    "rule": "max"
-  },
   "cmapi-metadata-rnd-annotation-cmapi-net-team-dl-format": {
     "key": "cmapi.net/team-dl",
     "kind": "annotation",

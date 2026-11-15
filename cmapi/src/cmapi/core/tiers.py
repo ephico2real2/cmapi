@@ -10,6 +10,12 @@ same answer comes back at plan time, at commit time and in tests.
 A custom-tier request can also change each key of `overridable` (docs/reviews/2026-11-14-issue-211): a quota key by its
 Kubernetes name, a LimitRange value as limitRange.<kind>.<part>.<resource>. A value that differs from the tier is "beyond
 the tier": beyond() lists it for the approval rules, and render() records it in the annotation cmapi.net/beyond-tier.
+
+render() writes one LimitRange for each resource name (docs/reviews/2026-11-14-issue-253): <ns>-limits-cpu, <ns>-limits-memory,
+and <ns>-limits-storage for the PersistentVolumeClaim item. Kubernetes enforces every LimitRange, but "if two or more LimitRange
+objects exist in the namespace, it is not deterministic which default value will be applied", so no two objects may set a
+default for the same resource. The storage object is behind the switch storageLimitRange.enabled, off by default: with it off,
+the tiers' pvc values are checked at load but never rendered, and a request cannot set them.
 """
 from __future__ import annotations
 
@@ -20,10 +26,10 @@ import re
 from dataclasses import dataclass, field
 from decimal import ROUND_CEILING, Decimal, localcontext
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictBool
 
 # --------------------------------------------------------------------------- quantities
 
@@ -71,6 +77,32 @@ BEYOND_TIER = "cmapi.net/beyond-tier"
 EXPOSURE_KEYS = frozenset({"services.loadbalancers", "services.nodeports"})
 
 LimitRange = dict[str, dict[str, dict[str, str]]]
+STORAGE_KIND = "pvc"                 # the limit kind behind storageLimitRange.enabled
+_FIRST = ("cpu", "memory")           # the container resources whose objects come first
+
+
+def limit_object_suffix(kind: str, res: str) -> str:
+    """The suffix of the LimitRange that holds one resource: <ns>-limits-<suffix>. The pvc item is one object, storage; a
+    container resource gets its own name, made a valid object name (nvidia.com/gpu -> nvidia.com-gpu, hugepages-2Mi ->
+    hugepages-2mi). The catalog refuses two resources that would share an object (_object_collisions)."""
+    if kind == STORAGE_KIND:
+        return "storage"
+    suffix = re.sub(r"[^a-z0-9.-]+", "-", res.lower()).strip("-.")
+    # A namespace can occupy 63 characters and "-limits-" another eight. Qualified resource
+    # names can contain consecutive dots or a dot next to a hyphen, and can exceed the remaining
+    # 182 characters. Keep familiar names where valid; use a stable DNS label otherwise.
+    dns = r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*"
+    if suffix and (len(suffix) > 182 or re.fullmatch(dns, suffix) is None):
+        return "resource-" + hashlib.sha256(res.encode()).hexdigest()
+    return suffix
+
+
+def limit_object_name(namespace: str, kind: str, res: str) -> str:
+    return f"{namespace}-limits-{limit_object_suffix(kind, res)}"
+
+
+def _resource_order(res: str) -> tuple[int, str]:
+    return (_FIRST.index(res), res) if res in _FIRST else (len(_FIRST), res)
 
 
 def is_limit_key(key: str) -> bool:
@@ -149,11 +181,17 @@ class Bounds(_Strict):
     step: dict[str, str] = {}
 
 
+class StorageSwitch(_Strict):
+    # StrictBool: a quoted "false" or "off" is refused at load, not read as a truthy string (the lesson of #240's F3).
+    enabled: StrictBool = False
+
+
 class EnvDef(_Strict):
     inherit: str | None = None
     offered: list[str] | None = None
     tiers: dict[str, dict[str, Any]] = {}      # partial {quota, limitRange} per tier
     custom: dict[str, dict[str, str]] = {}     # partial Bounds
+    storageLimitRange: StorageSwitch | None = None   # None: the parent's, else the catalog's
 
 
 class CatalogFile(_Strict):
@@ -161,6 +199,7 @@ class CatalogFile(_Strict):
     kind: Literal["TierCatalog"]
     sizable: list[str]
     overridable: list[str] = []                # more keys that a custom-tier request can change, each with a custom.max
+    storageLimitRange: StorageSwitch = StorageSwitch()   # the <ns>-limits-storage object; off unless an operator turns it on
     defaults: dict[str, Any] = {}
     tiers: dict[str, TierDef]
     custom: Bounds = Bounds()
@@ -229,6 +268,7 @@ class TierCatalog:
         self._env: dict[str, EnvDef] = {}
         self._resolved: dict[tuple[str, str], ResolvedTier] = {}
         self._bounds: dict[str, Bounds] = {}
+        self._storage: dict[str, bool] = {}       # environment -> storageLimitRange.enabled, after inherit
         problems = self._build()
         if problems:
             raise CatalogError(problems)
@@ -248,7 +288,8 @@ class TierCatalog:
             raise CatalogError([f"environments.{env}: inherits unknown environment {d.inherit}"])
         parent = self._effective_env(d.inherit, seen + (env,))
         return EnvDef(offered=d.offered or parent.offered,
-                      tiers=_merge(parent.tiers, d.tiers), custom=_merge(parent.custom, d.custom))
+                      tiers=_merge(parent.tiers, d.tiers), custom=_merge(parent.custom, d.custom),
+                      storageLimitRange=d.storageLimitRange if d.storageLimitRange is not None else parent.storageLimitRange)
 
     def _build(self) -> list[str]:
         p: list[str] = []
@@ -285,6 +326,7 @@ class TierCatalog:
                 p.extend(exc.problems)
                 continue
             self._env[env] = e
+            self._storage[env] = (e.storageLimitRange or f.storageLimitRange).enabled
             offered = e.offered or list(f.tiers)
             for name in offered:
                 if name not in f.tiers:
@@ -374,10 +416,13 @@ class TierCatalog:
                         p.append(f"{where}: container max {r} {mx} exceeds "
                                  f"{'custom.min' if t.custom else 'quota'} {limit_key} {floor}: "
                                  "one container at its limit would not fit")
+                # The values that render() writes: the pvc item only with the storage switch on. The hash is over these, so
+                # turning the switch on or off makes each tier namespace tier-outdated, and nothing else does.
+                rendered = lr if self._storage[env] else {k: v for k, v in lr.items() if k != STORAGE_KIND}
                 self._resolved[(env, name)] = ResolvedTier(
                     environment=env, name=name, order=t.order, description=t.description,
-                    custom=t.custom, quota=dict(quota), limit_range=lr,
-                    hash=_digest({"quota": quota, "limitRange": lr}))
+                    custom=t.custom, quota=dict(quota), limit_range=rendered,
+                    hash=_digest({"quota": quota, "limitRange": rendered}))
 
             # sizes must grow with order, per sizable key
             ladder = sorted((r for (en, _), r in self._resolved.items() if en == env and not r.custom),
@@ -386,7 +431,21 @@ class TierCatalog:
                 for k in sizable:
                     if qty(hi.quota[k]) <= qty(lo.quota[k]):
                         p.append(f"{env}: {hi.name}.{k} ({hi.quota[k]}) not above {lo.name}.{k} ({lo.quota[k]})")
+        if not p:
+            p.extend(self._object_collisions())
         return p
+
+    def _object_collisions(self) -> list[str]:
+        """Two container resources whose LimitRange would have one name, or one named like the storage object."""
+        resources = {res for r in self._resolved.values()
+                     for vals in r.limit_range.get("container", {}).values() for res in vals}
+        resources |= {parts[2] for k in self.file.overridable if (parts := limit_key_parts(k)) and parts[0] == "container"}
+        by_suffix: dict[str, set[str]] = {}
+        for res in resources:
+            by_suffix.setdefault(limit_object_suffix("container", res), set()).add(res)
+        return [f"limitRange.container resources {sorted(names)} would share the LimitRange <ns>-limits-{suffix}"
+                for suffix, names in sorted(by_suffix.items())
+                if len(names) > 1 or suffix == limit_object_suffix(STORAGE_KIND, "storage") or not suffix]
 
     # ---- lookups
     @property
@@ -410,6 +469,11 @@ class TierCatalog:
     def bounds(self, env: str) -> Bounds:
         self._need_env(env)
         return self._bounds[env]
+
+    def storage_limits(self, env: str) -> bool:
+        """storageLimitRange.enabled for the environment: whether cmapi renders <ns>-limits-storage and takes pvc values."""
+        self._need_env(env)
+        return self._storage[env]
 
     def resolve(self, env: str, tier: str) -> ResolvedTier:
         self._need_env(env)
@@ -486,6 +550,16 @@ class TierCatalog:
                                 f"Tier {tier} fixes its container limits; send tier: custom to set them yourself", tier=tier)
             return copy.deepcopy(r.limit_range)
         approved = approved or {}
+        if not self.storage_limits(env):
+            # A pvc value that Git holds from before the switch went off is dropped, not refused, so a change of a label
+            # still goes through; the plan then removes <ns>-limits-storage. A new pvc value is refused.
+            pvc = {k for k in asked if (limit_key_parts(k) or ("",))[0] == STORAGE_KIND}
+            new = sorted(k for k in pvc if not _same(asked[k], approved.get(k)))
+            if new:
+                raise TierError("storage-limits-off",
+                                f"Storage limits are off in environment {env}: {', '.join(new)} cannot be set",
+                                keys=new, environment=env)
+            asked = {k: v for k, v in asked.items() if k not in pvc}
         not_overridable = sorted(k for k in set(asked) - set(self.overridable_limits)
                                  if limit_key_parts(k) is None or not _same(asked[k], approved.get(k)))
         if not_overridable:
@@ -534,20 +608,24 @@ class TierCatalog:
                 if k in asked and not _same(asked[k], mine.get(k))}
 
     @staticmethod
-    def rendered_overrides(rq: Mapping[str, Any] | None, lr: Mapping[str, Any] | None) -> dict[str, str]:
-        """The approved beyond-tier values of a namespace, from its two rendered objects: each key that the annotation
-        cmapi.net/beyond-tier names, with the value that the object holds. The inverse of render() for those keys."""
+    def rendered_overrides(rq: Mapping[str, Any] | None,
+                           limit_ranges: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None) -> dict[str, str]:
+        """The approved beyond-tier values of a namespace, from its rendered objects: each key that the annotation
+        cmapi.net/beyond-tier of an object names, with the value that object holds. The inverse of render() for those keys.
+        limit_ranges: every LimitRange of the folder, the split objects of today or the single <ns>-limits of before #253."""
         out: dict[str, str] = {}
         hard = ((rq or {}).get("spec") or {}).get("hard") or {}
         for k in _beyond_keys(rq):
             if k in hard:
                 out[k] = str(hard[k])
-        by_kind = {item.get("type"): item for item in ((lr or {}).get("spec") or {}).get("limits") or []}
-        for k in _beyond_keys(lr):
-            parts = limit_key_parts(k)
-            value = parts and by_kind.get(LIMIT_KINDS[parts[0]], {}).get(parts[1], {}).get(parts[2])
-            if value is not None:
-                out[k] = str(value)
+        docs = [limit_ranges] if isinstance(limit_ranges, Mapping) else list(limit_ranges or [])
+        for lr in docs:
+            by_kind = {item.get("type"): item for item in (lr.get("spec") or {}).get("limits") or []}
+            for k in _beyond_keys(lr):
+                parts = limit_key_parts(k)
+                value = parts and by_kind.get(LIMIT_KINDS[parts[0]], {}).get(parts[1], {}).get(parts[2])
+                if value is not None:
+                    out[k] = str(value)
         return out
 
     def match(self, env: str, hard: Mapping[str, str], tolerance: float = 0.0) -> str | None:
@@ -604,9 +682,11 @@ class TierCatalog:
     def render(self, *, namespace: str, cluster_id: str, instance: str, env: str, tier: str,
                request_id: str, hard: Mapping[str, str] | None = None,
                limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
-               approved: Mapping[str, str] | None = None) -> tuple[dict, dict]:
-        """resourcequota.yaml and limitrange.yaml for one namespace, as dicts. Each object names its own beyond-tier keys
-        in the annotation cmapi.net/beyond-tier, so a later change and a policy can tell an approved override from drift."""
+               approved: Mapping[str, str] | None = None) -> tuple[dict, list[dict]]:
+        """The namespace's ResourceQuota and its LimitRanges, as dicts: one LimitRange for each container resource
+        (<ns>-limits-cpu, <ns>-limits-memory, ...) and <ns>-limits-storage for the pvc item when the storage switch is on.
+        Each object carries the tier hash, and names its own beyond-tier keys in the annotation cmapi.net/beyond-tier, so a
+        later change and a policy can tell an approved override from drift."""
         r = self.resolve(env, tier)
         spec_hard = self.quota_for(env, tier, hard, approved)
         limit_range = self.limits_for(env, tier, limits, spec_hard, approved)
@@ -616,22 +696,37 @@ class TierCatalog:
                        "cmapi.net/tier-hash": r.hash}
         rq = {"apiVersion": "v1", "kind": "ResourceQuota",
               "metadata": {"name": f"{namespace}-quota", "namespace": namespace,
-                           "labels": labels, "annotations": annotations},
-              "spec": {"hard": {k: spec_hard[k] for k in sorted(spec_hard, key=_quota_order)}}}
-        items = []
-        for kind, k8s in LIMIT_KINDS.items():
-            parts = limit_range.get(kind)
-            if parts:
-                items.append({"type": k8s, **{p: dict(parts[p]) for p in
-                                               ("defaultRequest", "default", "min", "max") if p in parts}})
-        lr = {"apiVersion": "v1", "kind": "LimitRange",
-              "metadata": {"name": f"{namespace}-limits", "namespace": namespace,
                            "labels": dict(labels), "annotations": dict(annotations)},
-              "spec": {"limits": items}}
-        for doc, keys in ((rq, [k for k in beyond if not is_limit_key(k)]), (lr, [k for k in beyond if is_limit_key(k)])):
-            if keys:
-                doc["metadata"]["annotations"][BEYOND_TIER] = ",".join(keys)
-        return rq, lr
+              "spec": {"hard": {k: spec_hard[k] for k in sorted(spec_hard, key=_quota_order)}}}
+        quota_beyond = [k for k in beyond if not is_limit_key(k)]
+        if quota_beyond:
+            rq["metadata"]["annotations"][BEYOND_TIER] = ",".join(quota_beyond)
+
+        # (kind, resources) of each object, in the order the folder lists them: cpu, memory, other container resources, storage
+        container = limit_range.get("container", {})
+        objects = [("container", [res]) for res in sorted({res for vals in container.values() for res in vals},
+                                                           key=_resource_order)]
+        pvc = limit_range.get(STORAGE_KIND, {})
+        if pvc:                                   # limits_for leaves the pvc item out when the switch is off
+            objects.append((STORAGE_KIND, sorted({res for vals in pvc.values() for res in vals})))
+        lrs = []
+        for kind, resources in objects:
+            parts = limit_range[kind]
+            item = {"type": LIMIT_KINDS[kind]}
+            for p in ("defaultRequest", "default", "min", "max"):
+                vals = {res: parts[p][res] for res in resources if res in parts.get(p, {})}
+                if vals:
+                    item[p] = vals
+            name = limit_object_name(namespace, kind, resources[0])
+            lr = {"apiVersion": "v1", "kind": "LimitRange",
+                  "metadata": {"name": name, "namespace": namespace,
+                               "labels": dict(labels), "annotations": dict(annotations)},
+                  "spec": {"limits": [item]}}
+            mine = [k for k in beyond if (pk := limit_key_parts(k)) and pk[0] == kind and pk[2] in resources]
+            if mine:
+                lr["metadata"]["annotations"][BEYOND_TIER] = ",".join(mine)
+            lrs.append(lr)
+        return rq, lrs
 
     def describe(self, env: str | None = None) -> dict[str, Any]:
         """Body of GET /api/v1/tiers."""
@@ -640,7 +735,8 @@ class TierCatalog:
             self._need_env(e)
         return {"catalogHash": self.catalog_hash, "sizable": self.sizable, "overridable": list(self.file.overridable),
                 "environments": {e: {"tiers": [r.as_dict() for r in self.offered(e)],
-                                     "custom": self.bounds(e).model_dump()} for e in envs}}
+                                     "custom": self.bounds(e).model_dump(),
+                                     "storageLimitRange": {"enabled": self.storage_limits(e)}} for e in envs}}
 
 
 def _beyond_keys(doc: Mapping[str, Any] | None) -> list[str]:

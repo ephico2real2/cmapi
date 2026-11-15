@@ -24,6 +24,7 @@ import yaml
 
 from cmapi.core.clients.kube import KubeClient, KubeError
 from cmapi.core.ports import AppStatus
+from cmapi.core.render.manifests import objects_of
 from cmapi.core.tiers import qty
 
 DeliveryMode = Literal["argocd", "apply"]
@@ -141,14 +142,17 @@ def confirmed_by_read(cache_get: Any, namespace: str, files: Mapping[str, str]) 
     ns = cache_get("Namespace", None, namespace)
     if ns is None:
         return False, "namespace not found"
-    rq_text = next((t for p, t in files.items() if p.endswith("resourcequota.yaml")), None)
-    if rq_text is None:
+    wanted = objects_of(files, "ResourceQuota")     # by kind, from any file of the folder (#253)
+    if not wanted:
         return True, "namespace present"
-    want = yaml.safe_load(rq_text)
-    live = cache_get("ResourceQuota", namespace, want["metadata"]["name"])
-    if live is None:
-        return False, "resourcequota not found"
-    hard = live.get("spec", {}).get("hard", {})
-    # The API server returns quantities canonicalised (5120Mi reads back as 5Gi): compare values, not spellings.
-    missing = {k: v for k, v in want["spec"]["hard"].items() if k not in hard or qty(hard[k]) != qty(v)}
-    return (not missing, "quota matches the plan" if not missing else f"quota differs: {missing}")
+    for want in wanted:
+        name = want["metadata"]["name"]
+        live = cache_get("ResourceQuota", namespace, name)
+        if live is None:
+            return False, f"resourcequota {name} not found"
+        hard = live.get("spec", {}).get("hard", {})
+        # The API server returns quantities canonicalised (5120Mi reads back as 5Gi): compare values, not spellings.
+        missing = {k: v for k, v in want["spec"]["hard"].items() if k not in hard or qty(hard[k]) != qty(v)}
+        if missing:
+            return False, f"quota {name} differs: {missing}"
+    return True, "quota matches the plan"
