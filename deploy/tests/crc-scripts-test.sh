@@ -117,7 +117,12 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
     */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
-    */namespaces*) printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
+    # STUB_PLAN_SECONDS: how long the plan takes. curl's own -m decides, as the real one does: past it, curl's exit 28 (#275).
+    */namespaces*) m=; prev=; for a in "$@"; do [ "$prev" = -m ] && m=$a; prev=$a; done
+      if [ -n "${STUB_PLAN_SECONDS:-}" ] && [ -n "$m" ] && [ "$STUB_PLAN_SECONDS" -gt "$m" ]; then
+        echo "curl: (28) Operation timed out after ${m}000 milliseconds with 0 bytes received" >&2; exit 28
+      fi
+      printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
@@ -260,6 +265,9 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+# The plan, the slowest call, may take as long as the front door gives it: CRC's first answered 200 after 27.7 s (#275).
+want "proof passes when the plan takes 28 s" 0 "$(: >"$ARGV_LOG"; STUB_PLAN_SECONDS=28 "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?)"
+grep -q -- "-m 15 .*/healthz" "$ARGV_LOG" && ok "the other calls keep their 15 s bound" || bad "a call other than the plan lost its 15 s bound"
 no_secret "$W/out" "proof"
 pstop() { local label=$1; shift; local got; rm -f "$ARGV_LOG.probed"; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
 pstop "a pod under another SCC" STUB_SCC=anyuid
@@ -302,6 +310,7 @@ pstop "a reader reading Secrets" STUB_READER_WIDE=yes
 pstop "a plan refused" STUB_PLAN=422
 pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
 pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
+pstop "a plan that outlasts the Route" STUB_PLAN_SECONDS=200
 pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a connection that does not verify the server" STUB_SSLMODE=prefer

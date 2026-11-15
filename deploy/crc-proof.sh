@@ -16,6 +16,11 @@ LOGIN=${CMAPI_OIDC_LOGIN:-python3 $HERE/oidc-login.py}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 c() { curl -sS -m 15 --cacert "$CA" "$@"; }
+# A plan is the API's slowest call: the front door gives it 60 s (cmapi-portal-ui/nginx/cmapi/proxy-api.conf) and the Route 130 s
+# (environments/crc/40-routes.yaml). The proof waits as long as the Route, so a slow plan gets nginx's own answer, never a client
+# timeout first. On CRC a first plan answered 200 after 27.7 s while 15 s stopped the run (#275).
+PLAN_SECONDS=${CMAPI_PROOF_PLAN_SECONDS:-130}
+c_plan() { curl -sS -m "$PLAN_SECONDS" --cacert "$CA" "$@"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 say() { echo "proof: $*"; }
 image=$(cat "$RENDERED/IMAGE"); digest=${image#*@}
@@ -174,7 +179,7 @@ for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --al
 say "the reader lists what it needs, and reads no Secret and writes nothing"
 # A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git, and dryRun writes nothing: no request,
 # no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
-resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true")
+resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true")
 [ "${resp##*$'\n'}" = 200 ] || fail "a dry-run namespace plan answered ${resp##*$'\n'}, not 200: ${resp:0:300}"
 printf '%s' "${resp%$'\n'*}" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("changes") else 1)' || fail "the dry-run plan names no file it would write"
 [ -z "$(oc_ get namespace cmapi-proof-plan --ignore-not-found -o name)" ] || fail "a dry run left namespace cmapi-proof-plan on the cluster"
