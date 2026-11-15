@@ -180,6 +180,8 @@ The rules for the labels and the annotations that a requester sets on a namespac
 | `sensitiveKeys` | list of keys | `[]` | A change of the value of one of these keys adds the fact `sensitiveKeyChanged`. The first time that a key is set is not a change |
 | `emailDomains` | list of domains | `[]` | The mail domains for a key with `format: email-in-domains`. A key of that format needs at least one domain |
 
+Where `emailDomains` is set: in each deployment's metadata configuration. On CRC it is `deploy/manifests/environments/crc/20-config.yaml`, key `emailDomains`; on kind it is the same key in `deploy/manifests/environments/kind/20-config.yaml`. The examples are `examples/cluster-configs/policies/metadata-keys.yaml` (`[ephico2real.com]`, a placeholder) and the company profile `metadata-keys.company.yaml` (`[company.net]`). To change it on CRC, edit that key, apply the ConfigMap, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`. The domain is checked for format only: cmapi never looks a DL up.
+
 The old stanzas `governed` and `team` stop the start. The error names the new stanzas (`MetadataKeys.__init__`). So a file of the old format cannot silently stop requiring a key.
 
 ### The rule of one key

@@ -15,7 +15,7 @@ This document shows each operation of the cmapi API that is built, with a curl s
 |---|---|
 | The instance | Call the instance that serves the environment of the cluster. Another instance answers 422 `environment-not-served` |
 | Writes | A write to a namespace returns 202 with a change request. The change reaches the cluster through a pull request after approval |
-| `Idempotency-Key` | Necessary on each write to a namespace. The same key and caller get the first response again. Without it the answer is 400 `idempotency-key-required` |
+| `Idempotency-Key` | Necessary on each write to a namespace. The same key and caller get the first response again, for 24 hours. Without it the answer is 400 `idempotency-key-required`. The same key with a different request is 409 `idempotency-replay`. Make a new key for each new action (`$(uuidgen)` in a shell), and send the same key again only to retry that same call. The fixed keys in the samples below are examples, not values to copy. Clients that generate the key, so that a person never types one, are #282 |
 | `If-Match` | Necessary on a change, a delete and an extension. Its value is the `etag` of `GET .../namespaces/{ns}`. Without it the answer is 428, and with an old value it is 412 |
 | `?dryRun=true` | On a create or a change, it returns 200 with the plan and writes nothing |
 | Errors | RFC 9457 problems, media type `application/problem+json`, with a `code` field. The last section lists the ones that the run met |
