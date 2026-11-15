@@ -23,6 +23,8 @@ PLAN_SECONDS=${CMAPI_PROOF_PLAN_SECONDS:-130}
 c_plan() { curl -sS -m "$PLAN_SECONDS" --cacert "$CA" "$@"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 say() { echo "proof: $*"; }
+# Checked before anything runs: curl takes -m 0 as no limit at all, and a word only at the plan, after the probes.
+case $PLAN_SECONDS in 0*|*[!0-9]*) fail "CMAPI_PROOF_PLAN_SECONDS is a whole number of seconds above 0, not '$PLAN_SECONDS'";; esac
 image=$(cat "$RENDERED/IMAGE"); digest=${image#*@}
 portal_image=$(cat "$RENDERED/PORTAL_IMAGE"); portal_digest=${portal_image#*@}
 
@@ -179,16 +181,18 @@ for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --al
 say "the reader lists what it needs, and reads no Secret and writes nothing"
 # A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git, and dryRun writes nothing: no request,
 # no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
-resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true")
+resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true") \
+  || fail "the dry-run namespace plan got no answer: curl exit $? (28 is no answer within CMAPI_PROOF_PLAN_SECONDS, $PLAN_SECONDS s)"
 [ "${resp##*$'\n'}" = 200 ] || fail "a dry-run namespace plan answered ${resp##*$'\n'}, not 200: ${resp:0:300}"
 printf '%s' "${resp%$'\n'*}" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("changes") else 1)' || fail "the dry-run plan names no file it would write"
 [ -z "$(oc_ get namespace cmapi-proof-plan --ignore-not-found -o name)" ] || fail "a dry run left namespace cmapi-proof-plan on the cluster"
 say "a dry-run namespace plan reads Git and answers 200 with its files, and writes nothing to the cluster"
 
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
-# As role postgres: on OpenShift the pod runs as the namespace's arbitrary UID, and CNPG's pg_ident.conf maps that OS user to postgres
-# alone ("local <uid> postgres", under "local all all peer map=local"). With no -U, psql asks for a role named after the UID (#278).
-db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -U postgres -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
+# As role cnpg_metrics_exporter, which holds pg_monitor and nothing else: enough to read pg_stat_ssl and pg_stat_activity for every
+# session, and no superuser. CNPG (1.28.3 and later) maps the instance's OS user, the namespace's arbitrary UID on OpenShift, to it
+# ("cnpg_metrics_exporter <uid> cnpg_metrics_exporter") as it does to postgres. With no -U, psql asks for a role named after the UID (#278).
+db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -U cnpg_metrics_exporter -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")
 case "$db" in *"|0") [ "${db%%|*}" -gt 0 ] || fail "no application connections"; say "pg_stat_ssl: application connections on TLS|not: $db";; *) fail "pg_stat_ssl: $db";; esac
 # The server cannot see whether a client verified it. Each container's own libpq says which sslmode its URI and environment come to.
 for c in api worker; do
@@ -199,10 +203,13 @@ say "the api and the worker connect to the database with sslmode=verify-full"
 
 # Prometheus, with no secret on any command line and none in the targets: Thanos Querier's Route, the session's token on stdin.
 thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}')
-query() { printf 'header = "Authorization: Bearer %s"\n' "$(oc_ whoami -t)" | c --config - --get --data-urlencode "query=$1" "https://$thanos/api/v1/query" | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(len(r), sum(float(x["value"][1]) for x in r))'; }
-for attempt in $(seq 1 "${CMAPI_PROOF_SCRAPE_TRIES:-20}"); do up=$(query 'up{namespace="cmapi",job=~"cmapi-api|cmapi-worker"}'); [ "$up" = "2 2.0" ] && break; sleep 15; done
-[ "$up" = "2 2.0" ] || fail "up for the two targets is: $up"; say "Prometheus scrapes both targets: up = $up (try $attempt)"
+prom() { printf 'header = "Authorization: Bearer %s"\n' "$(oc_ whoami -t)" | c --config - --get --data-urlencode "query=$1" "https://$thanos/api/v1/query"; }
+# Each series as job=value, sorted: one series per target, named. A count and a sum alone would read two api series and no
+# worker as both targets (#280 review).
+by_job() { prom "$1" | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(" ".join(sorted(x["metric"].get("job","no-job")+"="+x["value"][1] for x in r)))'; }
+for attempt in $(seq 1 "${CMAPI_PROOF_SCRAPE_TRIES:-20}"); do up=$(by_job 'up{namespace="cmapi",job=~"cmapi-api|cmapi-worker"}'); [ "$up" = "cmapi-api=1 cmapi-worker=1" ] && break; sleep 15; done
+[ "$up" = "cmapi-api=1 cmapi-worker=1" ] || fail "up for the two targets is: $up"; say "Prometheus scrapes both targets: up = $up (try $attempt)"
 # Exactly this: one series with the value 1 for each of the two targets, since the api and the worker each run a registry and
 # export the gauge (#280). A missing series (a target not scraped, a label renamed) or one target not connected must not pass.
-connected=$(query 'cmapi_cluster_status{namespace="cmapi",cluster_id="CRC",status="connected",job=~"cmapi-api|cmapi-worker"}'); [ "$connected" = "2 2.0" ] || fail "the reader is not connected on both targets: $connected"; say "cmapi_cluster_status connected on the api and the worker"
+connected=$(by_job 'cmapi_cluster_status{namespace="cmapi",cluster_id="CRC",status="connected",job=~"cmapi-api|cmapi-worker"}'); [ "$connected" = "cmapi-api=1 cmapi-worker=1" ] || fail "the reader is not connected on both targets: $connected"; say "cmapi_cluster_status connected on the api and the worker"
 say "all passed"

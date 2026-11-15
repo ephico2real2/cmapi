@@ -22,7 +22,9 @@ case "$a" in
   *" logs pg-ca-"*) echo "${KT_CA-refused connection to server at \"10.0.0.1\", port 5432 failed: SSL error: certificate verify failed}";;
   # The DNS control: the database's pod, which no policy selects.
   *" exec cmapi-db-1 -c postgres -- getent hosts "*) exit "${KT_CONTROL_RC:-0}";;
-  *" exec cmapi-db-1 "*) echo "${KT_PG_SSL-2|0}";;
+  # The read needs pg_monitor, not a superuser: only the monitoring role answers here (#278).
+  *" exec cmapi-db-1 -c postgres -- psql -U cnpg_metrics_exporter "*) echo "${KT_PG_SSL-2|0}";;
+  *" exec cmapi-db-1 "*) echo 'psql: error: FATAL:  Peer authentication failed for user "1000720000"' >&2; exit 2;;
   *" get pods -l "*) echo pod/cmapi-api-1; echo pod/cmapi-worker-1; echo pod/cmapi-portal-1;;
   *" wait --for=delete "*) exit "${KT_NOT_REPLACED_RC:-0}";;
   *" get pod -l app.kubernetes.io/component=api "*) printf cmapi-api-1;;
