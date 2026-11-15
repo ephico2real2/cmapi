@@ -206,7 +206,28 @@ With no core or portal change, it then has routes in the spec, Swagger and ReDoc
 
 Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once cmapi's checks pass: after the apply, in apply mode, so that `main` records only what succeeded. The caller follows the request, not the PR.
 
-![request lifecycle · 9 steps, one approval branch](diagrams/request-lifecycle.png)
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
+  <source srcset="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it." src="diagrams/git-delivery/states.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*Steps 8 and 9 since #286: the request's states from approved to its end, in both delivery modes. `lock`: the state holds the namespace's lock. Steps 1 to 7 are unchanged and listed below.*
+
+```text
+approved (lock) --push_branch, open_pr--> pr_open (lock)
+  before any apply: failed | superseded | cancelled            (no lock)
+argocd mode, and every delete: pr_open --merge--> merged (lock)
+  --> watch_sync --> synced, or sync_failed after syncTimeout (lock)
+  a delete: merged --> awaiting_prune (lock) --prune:confirm, read--> synced
+apply mode, create or change: pr_open --apply job--> apply_started (event, own transaction)
+  --> applied (lock) --merge, pinned to the applied head--> merged --> synced (one transaction)
+  apply or read not finished --> sync_failed (lock); :retry applies again
+  merge refused, or 5 attempts --> merge_failed (lock); :retry merges
+  no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+```
 
 1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi-\<instance>, expiry.
 2. **Authorize.** The route's permission must come from a Keycloak role in the token (config/authz-roles.yaml maps roles to permissions), and a role limited to some environments must cover the request's environment. Names are checked, not owned: anyone holding namespaces:create may ask for any valid name that is not reserved and not an unmanaged namespace on the cluster.
@@ -882,3 +903,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [cmapi request flow mockup](../mockups/cmapi-flow.html) | Clickable walk through placement, auto-approval, quota change, policy reject, cluster import, expiry to delete, a wrong-instance request, and an AI agent onboarding a namespace as bot-user with the cmapi-onboarding role (create only; change and delete refused) |
 | [API examples](04-api-examples.md) | Calling the API with Keycloak tokens: which instance to call, curl, device flow, Swagger and ReDoc, Python |
 | [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow (including the AI agent onboarding scenario), New namespace (any team, any name that is not reserved), Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals (approve or reject before anything reaches Git), Expiration (extend, set, make permanent), Policies (Kyverno results), Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
+
+## Diagram sources
+
+The Git delivery figures are `docs/diagrams/git-delivery/source.html`, written by `docs/diagrams/tools/draft-git-delivery.py` and rendered with diagram-kit's `diagram-render` to the light and dark PNGs beside it. The picture, its text twin and the page change together.

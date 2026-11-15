@@ -2220,6 +2220,46 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 | merge | argocd mode, a delete, or applied | The merge check, then the host's merge pinned to a sha; adopts a merge the host already made; merge\_failed after an apply | 2 |
 | git\_cleanup | A final state, or merged | Closes a PR left open, deletes the branch with a lease, removes the worktree | 2 |
 | git\_reconcile | Every 15 minutes | PRs and branches a crashed worker left | 2 |
+
+**Git delivery (#286).** The worker's two layers, the request's states in both modes, and one request in apply mode. The decisions are in `docs/reviews/2026-11-15-issue-286/README.md`.
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/architecture.dark.png">
+  <source srcset="diagrams/git-delivery/architecture.light.png">
+  <img alt="Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the worker." src="diagrams/git-delivery/architecture.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The architecture: the Git layer and the thin PR adapter in the worker, the credentials, and the hosts.*
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
+  <source srcset="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it." src="diagrams/git-delivery/states.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The request states, both modes.*
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/apply-sequence.dark.png">
+  <source srcset="diagrams/git-delivery/apply-sequence.light.png">
+  <img alt="One request in apply mode: fetch, worktree, commit, push of the branch with a lease, the PR, the checks, the merge check, apply_started, the apply and its read, the merge check again, the merge pinned to the applied head, the cleanup; merge_failed when refused after the apply." src="diagrams/git-delivery/apply-sequence.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*One request in apply mode.*
+
+```text
+worker: jobs -> Git layer (repo.git, refspec main -> origin/main only; worktree <workdir>/<cluster>/<requestId>) -> any Git host, SSH or HTTPS
+worker: jobs -> PR adapter (github.py, gitea.py; GitLab, Bitbucket in PR-B, PR-C) -> the host's PR API
+api: plan-time reads through the host's API; Secret cmapi-git-bot in both pods; cmapi-git-bot-ssh and cmapi-git-bot-known-hosts in the worker only
+apply mode: 1 fetch, 2 worktree, 3 commit, 4 push branch, 5 PR, 6 checks, 7 merge-tree and plan base, 8 apply_started,
+            9 apply, 10 confirm, 11 check again, 12 merge pinned to the applied head, 13 cleanup; refused after 8: merge_failed
+```
 | watch\_sync | Requests in merged | SyncSignal plus a direct read; synced, awaiting\_prune, or sync\_failed after 30 minutes | 2 |
 | prune\_watch | Requests in awaiting\_prune | Synced once the operator confirms the prune; CmapiPruneAwaiting after 24 hours | 5 |
 | approval\_timeout | Hourly | pending\_approval past timeoutHours becomes timeout | 2 |

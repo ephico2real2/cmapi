@@ -42,6 +42,53 @@ whose `/etc/passwd` group or others can write, and the Containerfile's build che
 "Measured" means OB1 ran the command and the log is in `workbench/cmapi/ob1-run10/`. "Read" means a primary source, read on
 2026-11-15. "Inferred" means neither.
 
+### The figures
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/git-delivery/architecture.dark.png">
+  <source srcset="../../diagrams/git-delivery/architecture.light.png">
+  <img alt="Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the worker." src="../../diagrams/git-delivery/architecture.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The architecture.*
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/git-delivery/states.dark.png">
+  <source srcset="../../diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first, then syncs or waits for the prune. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it." src="../../diagrams/git-delivery/states.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*The request states, both modes.*
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/git-delivery/apply-sequence.dark.png">
+  <source srcset="../../diagrams/git-delivery/apply-sequence.light.png">
+  <img alt="One request in apply mode: fetch, worktree, commit, push of the branch with a lease, the PR, the checks, the merge check, apply_started, the apply and its read, the merge check again, the merge pinned to the applied head, the cleanup; merge_failed when refused after the apply." src="../../diagrams/git-delivery/apply-sequence.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*One request in apply mode.*
+
+```text
+approved (lock) --push_branch, open_pr--> pr_open (lock)
+  before any apply: failed | superseded | cancelled            (no lock)
+argocd mode, and every delete: pr_open --merge--> merged (lock)
+  --> watch_sync --> synced, or sync_failed after syncTimeout (lock)
+  a delete: merged --> awaiting_prune (lock) --prune:confirm, read--> synced
+apply mode, create or change: pr_open --apply job--> apply_started (event, own transaction)
+  --> applied (lock) --merge, pinned to the applied head--> merged --> synced (one transaction)
+  apply or read not finished --> sync_failed (lock); :retry applies again
+  merge refused, or 5 attempts --> merge_failed (lock); :retry merges
+  no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+```
+
+Source: `docs/diagrams/git-delivery/source.html`, written by `docs/diagrams/tools/draft-git-delivery.py`, rendered with diagram-kit's `diagram-render`; the picture, its twin and the page change together.
+
 ### Measured for PR-A (2026-11-15, this Mac unless it says CI)
 
 | What | Result | Log (`workbench/cmapi/ob1-run10/`) |
