@@ -85,12 +85,19 @@ metadata:
   name: cmapi-deliverer
   labels: {{- include "cmapi.labels" . | nindent 4 }}
 rules:
+  # What the worker's deliverer calls, and nothing else: get on a namespace (watch_sync's live check before an apply), create and
+  # patch (server-side apply, which needs create for a new object), delete (a prune). Reads that confirm a delivery and the watch
+  # cache go through the reader import, so no list or watch here: on a shared cluster they would read every project's ServiceAccounts
+  # and RoleBindings for no caller.
   - apiGroups: [""]
-    resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
-    verbs: [get, list, watch, create, patch, delete]
+    resources: [namespaces]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [""]
+    resources: [resourcequotas, limitranges, serviceaccounts]
+    verbs: [create, patch, delete]
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [rolebindings]
-    verbs: [get, list, watch, create, patch, delete]
+    verbs: [create, patch, delete]
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles]
     resourceNames: [cmapi-token-issuer]   # no route grants view, edit or admin yet; widen when one does

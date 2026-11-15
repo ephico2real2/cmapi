@@ -5,6 +5,7 @@ five attempts, a failed request (502 git-unavailable on the API side).
 """
 from __future__ import annotations
 
+import ssl
 import time
 from typing import Any, Literal, Mapping
 
@@ -35,7 +36,7 @@ class HostGitProvider:
     external_ci = False
 
     def __init__(self, api_url: str, repository: str, token: str, *, default_branch: str = "main",
-                 verify: str | bool = True, web_url: str | None = None, timeout: float = 20.0,
+                 verify: ssl.SSLContext | str | bool = True, web_url: str | None = None, timeout: float = 20.0,
                  basic_auth: tuple[str, str] | None = None):
         self.api_url, self.repository, self.default_branch = api_url.rstrip("/"), repository, default_branch
         self.web_url = (web_url or self.api_url).rstrip("/")

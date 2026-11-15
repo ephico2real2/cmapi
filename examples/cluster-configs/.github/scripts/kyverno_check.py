@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""ci/kyverno of a cmapi cluster-configs repository: each namespace folder under clusters/ through the Kyverno bundle that cmapi
+renders for that namespace's environment (`cmapi-tools policies render` into policies/env/<env>/, #212).
+
+    kyverno_check.py [<repository root>] [--kyverno PATH]
+
+The environment of a folder is its Namespace's label cmapi.net/env, which cmapi derives. The policies of policies/env/<env>/ run on
+the folder's Namespace, ResourceQuota and LimitRange documents, as cmapi's own validator runs them (core/validate). The mode of
+the environment is in the bundle itself: a rendered policy with validationActions [Audit] reports a failure as a warning, and one
+with Deny fails the check, as the cluster's admission would. An environment with no rendered policy runs Kyverno off.
+
+It fails, as cmapi's validator does, when the CLI cannot evaluate a policy (result error), gives no report, or gives no result for
+a file of a kind a policy matches: the 1.16 CLI applied no rule to a policies.kyverno.io/v1 document and said nothing (docs/08).
+Not done here: cmapi's ratchet, which keeps a value the previous version of an object already held. So a folder cmapi adopted with
+a value beyond today's bounds fails here and passes in cmapi; every folder cmapi created holds only values within its bounds.
+
+Exit 0 pass, 1 a finding, 2 usage. Each finding is a GitHub annotation on its file.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+CHECKED = {"namespaces": "Namespace", "resourcequotas": "ResourceQuota", "limitranges": "LimitRange"}
+
+
+def _docs(path: Path) -> list[dict]:
+    return [d for d in yaml.safe_load_all(path.read_text()) if isinstance(d, dict)]
+
+
+def _policies(root: Path, env: str) -> dict[str, tuple[Path, dict]]:
+    """The rendered Kyverno policies of one environment, by name."""
+    out: dict[str, tuple[Path, dict]] = {}
+    for f in sorted((root / "policies" / "env" / env).glob("*.yaml")):
+        for d in _docs(f):
+            if str(d.get("apiVersion", "")).startswith("policies.kyverno.io/"):
+                out[d["metadata"]["name"]] = (f, d)
+    return out
+
+
+def _matched_kinds(policy: dict) -> set[str]:
+    rules = ((policy.get("spec") or {}).get("matchConstraints") or {}).get("resourceRules") or []
+    return {CHECKED[r] for rule in rules for r in rule.get("resources", []) if r in CHECKED}
+
+
+def check_folder(root: Path, folder: Path, kyverno: str) -> tuple[list[str], list[str]]:
+    """(errors, warnings) of one namespace folder, each as a GitHub annotation."""
+    rel = lambda p: p.relative_to(root).as_posix()  # noqa: E731
+    files = {f: _docs(f) for f in sorted(folder.glob("*.yaml"))}
+    namespaces = [d for docs in files.values() for d in docs if d.get("kind") == "Namespace"]
+    if len(namespaces) != 1:
+        return [f"::error file={rel(folder)}::{len(namespaces)} Namespace documents in the folder, not 1"], []
+    env = ((namespaces[0].get("metadata") or {}).get("labels") or {}).get("cmapi.net/env")
+    if not env:
+        return [f"::error file={rel(folder)}::the Namespace has no label cmapi.net/env, so no environment's bundle applies"], []
+    policies = _policies(root, env)
+    if not policies:
+        return [], [f"::warning file={rel(folder)}::no rendered policy under policies/env/{env}: Kyverno is off in {env}"]
+    checked = {f: docs for f, docs in files.items() if any(d.get("kind") in CHECKED.values() for d in docs)}
+    several = [f for f, docs in checked.items() if len(docs) != 1]
+    if several:
+        return [f"::error file={rel(f)}::a file of a checked kind holds more than one document" for f in several], []
+    by_object = {(d["kind"], (d.get("metadata") or {}).get("namespace", ""), d["metadata"]["name"]): f
+                 for f, (d,) in checked.items()}
+    r = subprocess.run([kyverno, "apply", *sorted({str(p) for p, _ in policies.values()}), "--resource",
+                        ",".join(str(f) for f in checked), "-p", "--output-format", "json"],
+                       capture_output=True, text=True, timeout=300)
+    try:
+        results = json.loads(r.stdout)["results"]
+        assert isinstance(results, list)
+    except (ValueError, KeyError, TypeError, AssertionError):
+        tail = [ln for ln in (r.stderr or r.stdout).splitlines() if ln.strip()]
+        return [f"::error file={rel(folder)}::kyverno exited {r.returncode} with no report: {(tail[0] if tail else '')[:200]}"], []
+    errors, warnings, seen = [], [], set()
+    for res in results:
+        objs = res.get("resources") or []
+        name = res.get("policy")
+        if name not in policies or len(objs) != 1:
+            errors.append(f"::error file={rel(folder)}::kyverno result for {name!r} names no single known resource")
+            continue
+        o = objs[0]
+        f = by_object.get((o.get("kind"), o.get("namespace", ""), o.get("name")))
+        if f is None:
+            errors.append(f"::error file={rel(folder)}::kyverno result of {name} refers to an unknown resource")
+            continue
+        seen.add((name, f))
+        result, message = res.get("result"), (res.get("message") or "")[:300]
+        if result in ("pass", "skip"):
+            continue
+        audit = policies[name][1]["spec"].get("validationActions") == ["Audit"]
+        if result == "fail" and audit:
+            warnings.append(f"::warning file={rel(f)}::{name} (audit): {message}")
+        elif result == "fail":
+            errors.append(f"::error file={rel(f)}::{name}: {message}")
+        else:      # error, or a result this script does not know: the policy was not evaluated, in any mode
+            errors.append(f"::error file={rel(f)}::{name} could not be evaluated ({result}): {message}")
+    for name, (_, policy) in policies.items():
+        for f, (doc,) in checked.items():
+            if doc["kind"] in _matched_kinds(policy) and (name, f) not in seen:
+                errors.append(f"::error file={rel(f)}::{name} gave no result for this file: the CLI did not understand the policy")
+    return errors, warnings
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("root", nargs="?", default=".")
+    ap.add_argument("--kyverno", default="kyverno")
+    a = ap.parse_args(argv)
+    root = Path(a.root).resolve()
+    folders = sorted(p for p in root.glob("clusters/*/namespaces/*") if p.is_dir())
+    errors, warnings = [], []
+    for folder in folders:
+        e, w = check_folder(root, folder, a.kyverno)
+        errors += e
+        warnings += w
+    for line in warnings + errors:
+        print(line)
+    print(f"ci/kyverno: {len(folders)} namespace folders, {len(errors)} errors, {len(warnings)} warnings")
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
