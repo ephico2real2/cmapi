@@ -42,6 +42,20 @@ whose `/etc/passwd` group or others can write, and the Containerfile's build che
 "Measured" means OB1 ran the command and the log is in `workbench/cmapi/ob1-run10/`. "Read" means a primary source, read on
 2026-11-15. "Inferred" means neither.
 
+### Measured for PR-A (2026-11-15, this Mac unless it says CI)
+
+| What | Result | Log (`workbench/cmapi/ob1-run10/`) |
+|---|---|---|
+| Service suite, main `77d069e` | 904 passed | `main-wt.log` |
+| Service suite, PR-A's head | 897 passed, 0 skipped (904 - 103 removed + 96 added) | `a6-full.log`, `collect-*.log` |
+| Service suite, CI on GitHub | 897 passed; the runner's sshd, git 2.56.1, `CMAPI_TEST_REQUIRE_SSHD=1` | PR #288's `service` job |
+| Core tests, main and PR-A | 361 and 361 passed | `a-core.log` |
+| The new tests on main | `test_git_layer.py`: collection error (no Git layer); `test_github_statuses.py`: 16 failed | `main-newtests.log`, `main-statuses.log` |
+| `deploy/tests/image-git-test.sh` on PR-A's image | 7 ok: `/etc/passwd` 644; git, ssh, ssh-keygen and libnss_wrapper present; ssh as UID 1001 with no entry "No user exists for uid 1001", then with the Git layer's nss_wrapper environment "Connection refused" | `image-git-test.log` |
+| The same test on a mutant image with `chmod g+w /etc/passwd` | FAIL, exit 1 | `image-git-test-mutant.log` |
+| PR-A's image | 650,601,503 bytes (`podman image inspect`) | |
+| Portal `npm test` | passed | `portal-test.log` |
+
 ## 1. What the owner asked for
 
 From #286, 2026-11-15:
