@@ -147,20 +147,38 @@ say "13 LDAP test users signed in through the federation; each token holds the t
 [ "$(printf 'header = "Authorization: Bearer %s"\n' "$tok_viewer" | c --config - -o /dev/null -w '%{http_code}' "$API/api/v1/clusters")" = 200 ] || fail "cmapi.viewer is not 200 on /api/v1/clusters: the 403 below would prove nothing"
 [ "$(printf 'header = "Authorization: Bearer %s"\n' "$tok_noaccess" | c --config - -o /dev/null -w '%{http_code}' "$API/api/v1/clusters")" = 403 ] || fail "cmapi.noaccess is not 403 on /api/v1/clusters"
 say "cmapi.noaccess gets 403 on /api/v1/clusters, where cmapi.viewer gets 200"
-# The worker must not write: no write right, and a request stops before Git.
+# The api writes nothing. The worker is the one writer (delivery.mode apply, #157), and only inside the admission policy of
+# environments/crc/deliverer/: RBAC cannot scope create to names that do not exist yet, so the policy is what is proven here.
 for pair in "create namespaces" "patch namespaces" "create rolebindings"; do
-  for sa in cmapi-api cmapi-worker; do
-    [ "$(oc_ auth can-i $pair --as="system:serviceaccount:cmapi:$sa" 2>/dev/null || true)" = no ] || fail "$sa may $pair"
-  done
+  [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi:cmapi-api 2>/dev/null || true)" = no ] || fail "cmapi-api may $pair"
 done
-say "api and worker may not create or patch namespaces or create rolebindings"
+say "the api may not create or patch namespaces or create rolebindings"
+# A server-side dry run as the worker: it is authorized and admitted as the real request would be, and persists nothing.
+as_worker=--as=system:serviceaccount:cmapi:cmapi-worker
+ns_doc() { printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s\n  labels: {cmapi.net/managed: "%s"}\n' "$1" "$2"; }
+contained() {   # contained <what> <why>: refused, and by the policy's own message, not by something that says nothing about it
+  case "$2" in *"cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true"*) ;; *) fail "$1 was refused, but not by cmapi-deliverer-managed-only: ${2:0:200}";; esac
+}
+if why=$(ns_doc cmapi-proof-unmanaged false | oc_ apply --server-side --dry-run=server --field-manager=cmapi-wave1 "$as_worker" -f - 2>&1 >/dev/null); then
+  fail "the worker may create a namespace that is not labelled cmapi.net/managed=true: the policy does not contain it"
+fi
+contained "an unmanaged namespace" "$why"
+ns_doc cmapi-proof-managed true | oc_ apply --server-side --dry-run=server --field-manager=cmapi-wave1 "$as_worker" -f - >/dev/null || fail "the worker may not create a namespace labelled cmapi.net/managed=true: no request could be delivered"
+if why=$(oc_ label namespace default cmapi.net/proof=x --dry-run=server "$as_worker" 2>&1 >/dev/null); then
+  fail "the worker may label namespace default: another project's namespace is not contained"
+fi
+contained "a label on namespace default" "$why"
+say "the worker creates a namespace only with cmapi.net/managed=true, and may not touch one without it (cmapi-deliverer-managed-only, server dry runs)"
 for pair in "list namespaces" "list resourcequotas"; do [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = yes ] || fail "the reader may not $pair"; done
 for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = no ] || fail "the reader may $pair"; done
 say "the reader lists what it needs, and reads no Secret and writes nothing"
-resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c --config - -w '\n%{http_code}' -X POST -d '{"namespace":"wave1-proof"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true")
-[ "${resp##*$'\n'}" = 422 ] || fail "a namespace plan answered ${resp##*$'\n'}, not 422"
-case "$resp" in *cluster-not-writable*) ;; *) fail "the 422 is not cluster-not-writable";; esac
-say "a namespace plan stops at 422 cluster-not-writable; dryRun, so nothing could be written even if it passed"
+# A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git, and dryRun writes nothing: no request,
+# no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
+resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true")
+[ "${resp##*$'\n'}" = 200 ] || fail "a dry-run namespace plan answered ${resp##*$'\n'}, not 200: ${resp:0:300}"
+printf '%s' "${resp%$'\n'*}" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("changes") else 1)' || fail "the dry-run plan names no file it would write"
+[ -z "$(oc_ get namespace cmapi-proof-plan --ignore-not-found -o name)" ] || fail "a dry run left namespace cmapi-proof-plan on the cluster"
+say "a dry-run namespace plan reads Git and answers 200 with its files, and writes nothing to the cluster"
 
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
 db=$(oc_ exec cmapi-db-1 -n cmapi -c postgres -- psql -d cmapi -Atc "select count(*) filter (where s.ssl), count(*) filter (where not s.ssl) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='cmapi'")

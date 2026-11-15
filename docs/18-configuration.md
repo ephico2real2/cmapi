@@ -523,7 +523,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `CMAPI_CONFIG_DIR` | `/etc/cmapi/config` | The folder of the files above |
 | `CMAPI_METADATA_KEYS` | `<config dir>/metadata-keys.yaml` | Another path for `metadata-keys.yaml` |
 | `CMAPI_POLICIES_DIR` | `/etc/cmapi/policies` | Hand-written Kyverno policies that run with the rendered ones |
-| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak, Git and the clusters |
+| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak and the clusters, and for Git unless `CMAPI_GIT_CA_BUNDLE` is set |
 | `CMAPI_DATABASE_URL` | `""` | `postgresql://user:password@host:5432/db`. A secret |
 | `CMAPI_DATABASE_POOL_SIZE` | `5` | The pool of connections of one process |
 | `CMAPI_OIDC_JWKS_URL` | `<issuer>/protocol/openid-connect/certs` | Where to read the signing keys |
@@ -535,6 +535,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `CMAPI_GIT_TOKEN` | `""` | The token of the bot. A secret |
 | `CMAPI_GIT_USER`, `CMAPI_GIT_PASSWORD` | `""` | Basic authentication instead of a token. A secret |
 | `CMAPI_GIT_DEFAULT_BRANCH` | `main` | The branch that the bot merges to |
+| `CMAPI_GIT_CA_BUNDLE` | None: the trust of `CMAPI_CA_BUNDLE` | The PEM bundle the Git provider alone trusts, as an explicit TLS context that `SSL_CERT_FILE` cannot change. A file that is not there stops the process at start. CRC sets the image's system bundle, `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, since its `CMAPI_CA_BUNDLE` holds Keycloak's private CA alone (#97) |
 | `CMAPI_CURSOR_KEY` | `""` | The key that signs list cursors. Empty: cmapi signs with the fixed text `unset-cursor-key` (`core/context.py`), the same on each instance. A secret |
 | `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. Empty: cmapi signs with the fixed text `unset-link-key` (`core/channels.py`). A secret |
 | `CMAPI_IMPORTS_NAMESPACE` | `cmapi-imports` | The hub namespace that holds the cluster import Secrets |

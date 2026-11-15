@@ -15,7 +15,7 @@ read. Endpoints as documented by GitHub (2026-11):
     PATCH /repos/{o}/{r}/pulls/{n}              POST /repos/{o}/{r}/issues/{n}/comments
 
 pr_status and the calls pr_checks makes are tested on a MockTransport (tests/service/test_github_check_runs.py).
-Nothing here has run against GitHub itself: this Mac's cluster has no GitHub.
+CRC's plain manifests use it against GitHub itself since #157; the first run there is its proof (#61).
 """
 from __future__ import annotations
 

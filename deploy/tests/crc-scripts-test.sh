@@ -43,6 +43,16 @@ J
   "get secret cmapi-keycloak -n cmapi -o jsonpath"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pvc cmapi-db-1"*) printf 'pv-1'; exit 0;;
   "get pv pv-1"*) printf '%s' "${STUB_PV_WHO:-cmapi/cmapi-db-1/Released}"; exit 0;;
+  # The proof's containment checks (#157): server dry runs as the worker, refused by cmapi-deliverer-managed-only unless labelled managed.
+  "apply --server-side --dry-run=server --field-manager=cmapi-wave1 --as=system:serviceaccount:cmapi:cmapi-worker -f -")
+    case "$(cat)" in
+      *'cmapi.net/managed: "true"'*) exit "${STUB_MANAGED_RC:-0}";;
+      *) echo "${STUB_UNMANAGED_ERR-The namespaces \"cmapi-proof-unmanaged\" is invalid: : ValidatingAdmissionPolicy 'cmapi-deliverer-managed-only' with binding 'cmapi-deliverer-managed-only' denied request: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true}" >&2; exit "${STUB_UNMANAGED_RC:-1}";;
+    esac;;
+  "label namespace default "*"--as=system:serviceaccount:cmapi:cmapi-worker"*)
+    echo "${STUB_DEFAULT_ERR-Error from server (Invalid): namespaces \"default\" is invalid: : ValidatingAdmissionPolicy 'cmapi-deliverer-managed-only' denied request: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true}" >&2; exit "${STUB_DEFAULT_RC:-1}";;
+  "get namespaces -l cmapi.net/managed=true -o name") printf '%s' "${STUB_MANAGED_LEFT:-}"; exit 0;;
+  "get namespace cmapi-proof-plan --ignore-not-found -o name") printf '%s' "${STUB_PLAN_NS:-}"; exit 0;;
   delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*|"run cmapi-np-target -n cmapi "*|"wait pod/cmapi-np-target -n cmapi "*) exit 0;;
   "get pods -n cmapi -o json") python3 -c 'import json,os
 img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); portal=os.environ.get("STUB_PORTAL_IMAGE_ID","sha256:pppp"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
@@ -107,7 +117,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
     */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
-    */namespaces*) printf '{"code":"%s"}\n%s' "${STUB_PLAN_CODE:-cluster-not-writable}" "${STUB_PLAN:-422}"; exit 0;;
+    */namespaces*) printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
@@ -282,10 +292,16 @@ pstop "the api answering 503: not blocked" "STUB_BLOCK_ERR=wget: server returned
 pstop "oc exec failing: nothing was probed" "STUB_BLOCK_ERR=Error from server: error dialing backend: EOF"
 pstop "no reason at all" STUB_BLOCK_ERR=
 pstop "a timeout from an instance that then does not answer the router" STUB_AFTER=503
-pstop "a worker that may write" STUB_WRITER=yes
+pstop "an api that may write" STUB_WRITER=yes
+pstop "the worker creating an unmanaged namespace: not contained" STUB_UNMANAGED_RC=0
+pstop "the worker refused, but not by the policy" "STUB_UNMANAGED_ERR=Error from server (Forbidden): namespaces is forbidden: User cannot create"
+pstop "the worker refused a managed namespace: nothing could be delivered" STUB_MANAGED_RC=1
+pstop "the worker labelling namespace default: not contained" STUB_DEFAULT_RC=0
+pstop "namespace default refused, but not by the policy" "STUB_DEFAULT_ERR=error: unable to connect"
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
-pstop "a plan that passes" STUB_PLAN=200
-pstop "a 422 of another kind" STUB_PLAN_CODE=validation-failed
+pstop "a plan refused" STUB_PLAN=422
+pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
+pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
 pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
@@ -313,8 +329,9 @@ want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" 
 : >"$ARGV_LOG.ldap-deleted"; want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
-ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
-ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
+ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak",
+    "clusterrolebinding cmapi-deliverer","clusterrole cmapi-deliverer","validatingadmissionpolicybinding cmapi-deliverer-managed-only","validatingadmissionpolicy cmapi-deliverer-managed-only"}
+ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("secret","cmapi-git"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
 bad=[]
 for line in open(sys.argv[1]):
     if not line.startswith("oc delete "): continue
@@ -330,6 +347,8 @@ sed -n 's/^dn: //p' "$W/repo/examples/cmapi-sso/ldap/cmapi-groups.ldif" >"$W/lda
 if grep -qE 'cmapi-(viewers|requesters|onboarding|prod-approvers)|john\.doe' "$ARGV_LOG.ldap-deleted"; then bad "rollback reached an entry the run did not add"; else ok "rollback reaches no other LDAP entry"; fi
 if grep -qE 'delete .*(namespace cmapi( |$)|cmapi-ldap-bind|realm-secrets)' "$ARGV_LOG"; then bad "rollback touched namespace cmapi, the bind Secret or the realm's Secret"; else ok "namespace cmapi, cmapi-ldap-bind and the realm's Secret stay"; fi
 if grep -qF 'admin/realms' "$ARGV_LOG"; then bad "rollback touched the realm without being asked"; else ok "the realm stays unless asked"; fi
+: >"$ARGV_LOG"; [ "$(STUB_MANAGED_LEFT=namespace/team-a run "$D/crc-rollback.sh" --yes)" != 0 ] && ok "rollback stops while a namespace cmapi delivered is there" || bad "rollback went on with a delivered namespace there"
+if grep -q '^oc delete ' "$ARGV_LOG"; then bad "and it deleted before stopping"; else ok "and deleted nothing"; fi
 want "rollback: --delete-realm alone is refused" 2 "$(run "$D/crc-rollback.sh" --yes --delete-realm)"
 if grep -qE 'delete ' "$ARGV_LOG"; then bad "it deleted something first"; fi
 : >"$ARGV_LOG"; STUB_PV_WHO=inkcast/other/Bound "$D/crc-rollback.sh" --yes >"$W/out" 2>&1; if grep -q 'oc delete pv ' "$ARGV_LOG"; then bad "a PV another claim holds was deleted"; else ok "a PV that is not ours stays"; fi

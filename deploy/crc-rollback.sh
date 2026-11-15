@@ -15,6 +15,10 @@ for a in "$@"; do case "$a" in --yes) YES=true;; --delete-realm) REALM=true;; --
 if [ "$REALM" = true ] && [ "$APPROVED" != true ]; then echo "ERROR: --delete-realm needs --owner-approved" >&2; exit 2; fi
 del() { echo "delete $*"; oc_ delete "$@" --ignore-not-found; }
 
+# A namespace a request delivered (#157) is a team's, with its workloads: the rollback deletes no namespace it cannot name, so each
+# goes first through a cmapi delete request (docs/13, Rollback). A read with a selector, never a delete with one.
+managed=$(oc_ get namespaces -l cmapi.net/managed=true -o name)
+[ -z "$managed" ] || { echo "ERROR: namespaces delivered by cmapi are still there; delete each through a cmapi delete request first:" >&2; echo "$managed" >&2; exit 1; }
 # Check LDAP ownership and measurements before deleting workloads, storage, or a realm.
 # The actual removal below repeats the checks; this is a preflight, not a lock.
 "$HERE/../examples/cmapi-sso/ldap/apply-test-identities.sh" --check-remove-test-identities
@@ -35,6 +39,11 @@ del job cmapi-realm-sync -n cmapi
 del deployment cmapi-api -n cmapi
 del deployment cmapi-worker -n cmapi
 del deployment cmapi-portal -n cmapi
+# The worker's write, then its containment: the binding goes before the policy, so the worker never holds the one without the other.
+del clusterrolebinding cmapi-deliverer
+del clusterrole cmapi-deliverer
+del validatingadmissionpolicybinding cmapi-deliverer-managed-only
+del validatingadmissionpolicy cmapi-deliverer-managed-only
 # The proof's control pod (deploy/crc-proof.sh), in case a run was cut short before its own cleanup.
 del pod cmapi-np-target -n cmapi
 # The database: read the PV's name first. The storage class is Retain, so deleting the claim leaves the PV Released, holding the data.
@@ -51,7 +60,7 @@ for o in "service cmapi-api" "service cmapi-api-pods" "service cmapi-worker" "se
          "route.route.openshift.io cmapi" "route.route.openshift.io cmapi-mockup" \
          "servicemonitor.monitoring.coreos.com cmapi-api" "servicemonitor.monitoring.coreos.com cmapi-worker" "prometheusrule.monitoring.coreos.com cmapi" \
          "configmap cmapi-env" "configmap cmapi-config" "configmap cmapi-trust" "configmap cmapi-portal-config" \
-         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" \
+         "secret cmapi-keys" "secret cmapi-keycloak" "secret cmapi-test-users" "secret cmapi-git" "serviceaccount cmapi-api" "serviceaccount cmapi-worker" "serviceaccount cmapi-jobs" \
          "imagestream.image.openshift.io cmapi" "imagestream.image.openshift.io cmapi-portal"; do
   # shellcheck disable=SC2086  # "kind name"
   del $o -n cmapi

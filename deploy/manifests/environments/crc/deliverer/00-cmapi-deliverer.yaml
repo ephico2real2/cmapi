@@ -1,0 +1,112 @@
+# The one cluster write path on CRC (delivery.mode apply, #157): the worker's own ServiceAccount server-side applies the approved
+# plan once Git main's folder is seen to equal it (cmapi/src/cmapi/jobs/watch_sync.py, _deliverer: on the hub, the worker's own
+# token). The chart's reviewed design, deploy/helm/cmapi/templates/rbac.yaml with delivery.mode=apply and hubDeliverer.enabled,
+# rendered for namespace cmapi and the instance's reservedPatterns (ocp-*, kubernetes-*); test_crc_deliverer_is_the_charts holds
+# the two together. Applied by name in docs/13, before the workloads, so the worker never starts without its containment.
+#
+# RBAC cannot scope create to names that do not exist yet, so the ClusterRole alone would let the worker write any namespace.
+# The ValidatingAdmissionPolicy is what contains it: only namespaces labelled cmapi.net/managed=true (read from oldObject on an
+# update, so another project's namespace cannot be labelled first), never a reserved name, no kubernetes.io, k8s.io or
+# openshift.io key it adds or changes, and the one RoleBinding the renderer writes. create and patch both: a server-side apply
+# that creates an object needs create as well as patch (kubernetes.io, Server-Side Apply, "Access control and permissions").
+#
+# No cmapi-token-issuer ClusterRole here: each rendered folder binds it for the sa-tokens plugin, which cmapi does not have yet, so
+# the binding grants nothing until a later pull request adds the role. bind on its name is what lets the worker write that binding.
+# In this order on purpose: oc apply -f creates them as listed, so the policy is in force before the worker holds the write.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cmapi-deliverer-managed-only
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [rolebindings]
+  matchConditions:
+    - name: only-the-deliverer
+      expression: request.userInfo.username == "system:serviceaccount:cmapi:cmapi-worker"
+  variables:
+    - name: isNamespace
+      expression: request.kind.kind == "Namespace"
+    - name: labels
+      expression: >-
+        variables.isNamespace
+        ? (request.operation == "CREATE" ? object.metadata.labels : (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}))
+        : (has(namespaceObject.metadata.labels) ? namespaceObject.metadata.labels : {})
+    # What the request leaves on a Namespace, and what was there. OpenShift's controllers write reserved keys on
+    # every namespace (pod-security sync, sa.scc ranges), so only a key this request adds or changes is refused.
+    - name: newLabels
+      expression: 'variables.isNamespace && request.operation != "DELETE" && has(object.metadata.labels) ? object.metadata.labels : {}'
+    - name: oldLabels
+      expression: 'variables.isNamespace && request.operation == "UPDATE" && has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}'
+    - name: newAnnotations
+      expression: 'variables.isNamespace && request.operation != "DELETE" && has(object.metadata.annotations) ? object.metadata.annotations : {}'
+    - name: oldAnnotations
+      expression: 'variables.isNamespace && request.operation == "UPDATE" && has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}'
+    - name: reservedKey
+      expression: '"^([a-z0-9.-]+[.])?(kubernetes[.]io|k8s[.]io|openshift[.]io)/"'
+  validations:
+    # Can it label another project's namespace first? No: on UPDATE the label is read from oldObject.
+    - expression: '"cmapi.net/managed" in variables.labels && variables.labels["cmapi.net/managed"] == "true"'
+      message: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true
+    - expression: >-
+        !(variables.isNamespace && request.operation == "CREATE")
+        || !object.metadata.name.matches("^(default|openshift|openshift-.*|kube-.*|cmapi|cmapi-system|cmapi-imports|ocp-.*|kubernetes-.*)$")
+      message: cmapi-deliverer may not create a namespace under a reserved name
+    - expression: >-
+        variables.newLabels.all(k, k == "kubernetes.io/metadata.name" || !k.matches(variables.reservedKey)
+        || (k in variables.oldLabels && variables.oldLabels[k] == variables.newLabels[k]))
+      message: cmapi-deliverer may not set a kubernetes.io, k8s.io or openshift.io label
+    - expression: >-
+        variables.newAnnotations.all(k, !k.matches(variables.reservedKey)
+        || (k in variables.oldAnnotations && variables.oldAnnotations[k] == variables.newAnnotations[k]))
+      message: cmapi-deliverer may not set a kubernetes.io, k8s.io or openshift.io annotation
+    # The only binding the renderer writes today (TOKEN_ISSUER in core/render/manifests.py), to the only subject.
+    - expression: >-
+        request.kind.kind != "RoleBinding" || request.operation == "DELETE"
+        || (object.roleRef.name == "cmapi-token-issuer"
+            && object.subjects.all(s, s.kind == "ServiceAccount" && s.name == "cmapi-reader" && s.namespace == "cmapi-system"))
+      message: cmapi-deliverer may only bind cmapi-token-issuer to cmapi-system/cmapi-reader
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cmapi-deliverer-managed-only
+  labels: {app.kubernetes.io/part-of: cmapi}
+spec:
+  policyName: cmapi-deliverer-managed-only
+  validationActions: [Deny]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cmapi-deliverer
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [cmapi-token-issuer]
+    verbs: [bind]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cmapi-deliverer
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-deliverer}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-worker, namespace: cmapi}

@@ -272,17 +272,57 @@ def test_crc_policy_files_are_the_kind_files(name):
     assert config_file("crc", name) == config_file("kind", name)
 
 
-def test_crc_nothing_can_write_or_reach_a_git_host_in_wave_1():
-    """No GitHub until Wave 3 and no Argo CD until Wave 5: delivery stays argocd, so the worker never writes to a cluster, the one cluster refuses writes, and the Git URL cannot resolve."""
+def test_crc_writes_through_github_and_apply_delivery():
+    """The full flow on CRC (#157): the one cluster takes writes, the bot's repository is ephico2real2/cmapi-cluster-configs on GitHub, and the
+    worker delivers by server-side apply, since CRC has no Argo CD. The token is never in Git: Secret cmapi-git is made from stdin (docs/13)."""
     integrations = yaml.safe_load(config_file("crc", "integrations.yaml"))
     clusters = yaml.safe_load(config_file("crc", "clusters.yaml"))["clusters"]
-    assert integrations["delivery"]["mode"] == "argocd"
-    assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is False and "delivery" not in clusters["CRC"]
+    instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
+    assert integrations["delivery"]["mode"] == "apply"
+    assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
+    assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com"}
     env = crc("ConfigMap", "cmapi-env")["data"]
-    assert env["CMAPI_GIT_PROVIDER"] == "github", "settings.py's default is the provider that is leaving"
-    assert env["CMAPI_GIT_URL"].endswith(".invalid"), "RFC 6761: it can never resolve"
+    assert (env["CMAPI_GIT_PROVIDER"], env["CMAPI_GIT_URL"]) == ("github", "https://api.github.com")
+    assert env["CMAPI_GIT_CA_BUNDLE"] == "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "the image's system trust, not cmapi-trust (#97)"
+    assert not [d for d in crc_docs() if d["kind"] == "Secret" and d["metadata"]["name"] == "cmapi-git"], "the token is not YAML"
     text = "\n".join(p.read_text() for p in CRC.rglob("*.yaml")).lower()
-    assert "gitea" not in text and "cmapi-git" not in text
+    assert "gitea" not in text
+
+
+def test_crc_deliverer_is_the_charts(tmp_path):
+    """The plain deliverer is the chart's reviewed one (deploy/helm/cmapi/templates/rbac.yaml) for apply delivery on the hub: the same rules,
+    the same subject, and the same admission policy, with the worker of namespace cmapi as the one writer. Labels differ, by design."""
+    if shutil.which("helm") is None:
+        pytest.skip("helm")
+    ca = tmp_path / "ca.crt"
+    ca.write_text(PEM)
+    r = subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"),
+                        "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
+                        "--set-file", f"trustedCA.certificates={ca}", "--set", "delivery.mode=apply",
+                        "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true"],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    chart = [d for d in yaml.safe_load_all(r.stdout) if d]
+    plain = list(crc_docs("deliverer/*.yaml"))
+    # The containment first: oc apply -f creates in file order, so the policy is in force before the worker holds the write.
+    assert [(d["kind"], d["metadata"]["name"]) for d in plain] == [
+        ("ValidatingAdmissionPolicy", "cmapi-deliverer-managed-only"), ("ValidatingAdmissionPolicyBinding", "cmapi-deliverer-managed-only"),
+        ("ClusterRole", "cmapi-deliverer"), ("ClusterRoleBinding", "cmapi-deliverer")]
+    for d in plain:
+        ours = charts(chart, d["kind"], d["metadata"]["name"])
+        body = {k: v for k, v in d.items() if k not in ("metadata",)}
+        assert body == {k: v for k, v in ours.items() if k not in ("metadata",)}, f"{d['kind']}/{d['metadata']['name']}"
+    vap = plain[0]["spec"]
+    assert vap["matchConditions"] == [{"name": "only-the-deliverer", "expression": 'request.userInfo.username == "system:serviceaccount:cmapi:cmapi-worker"'}]
+    reserved = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]["namespaces"]["reservedPatterns"]
+    assert all(p.replace("*", ".*") in vap["validations"][1]["expression"] for p in reserved), "the instance's reserved names are refused at admission too"
+
+
+def test_crc_only_the_worker_holds_a_write():
+    """The api's account gets nothing new: the one binding of the deliverer's ClusterRole names the worker."""
+    subjects = [s for d in crc_docs() if d["kind"] in ("ClusterRoleBinding", "RoleBinding") for s in d["subjects"]]
+    assert {"kind": "ServiceAccount", "name": "cmapi-api", "namespace": "cmapi"} not in subjects
+    assert crc("ClusterRoleBinding", "cmapi-deliverer")["subjects"] == [{"kind": "ServiceAccount", "name": "cmapi-worker", "namespace": "cmapi"}]
 
 
 def test_crc_pods_reach_keycloak_by_its_service_and_tokens_carry_the_route():
