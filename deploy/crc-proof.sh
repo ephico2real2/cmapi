@@ -202,6 +202,7 @@ thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spe
 query() { printf 'header = "Authorization: Bearer %s"\n' "$(oc_ whoami -t)" | c --config - --get --data-urlencode "query=$1" "https://$thanos/api/v1/query" | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(len(r), sum(float(x["value"][1]) for x in r))'; }
 for attempt in $(seq 1 "${CMAPI_PROOF_SCRAPE_TRIES:-20}"); do up=$(query 'up{namespace="cmapi",job=~"cmapi-api|cmapi-worker"}'); [ "$up" = "2 2.0" ] && break; sleep 15; done
 [ "$up" = "2 2.0" ] || fail "up for the two targets is: $up"; say "Prometheus scrapes both targets: up = $up (try $attempt)"
-# Exactly this: one series with the value 1. No series at all (a target not scraped, a label renamed) must not read as connected.
-connected=$(query 'cmapi_cluster_status{namespace="cmapi",cluster_id="CRC",status="connected"}'); [ "$connected" = "1 1.0" ] || fail "the reader is not connected: $connected"; say "cmapi_cluster_status connected"
+# Exactly this: one series with the value 1 for each of the two targets, since the api and the worker each run a registry and
+# export the gauge (#280). A missing series (a target not scraped, a label renamed) or one target not connected must not pass.
+connected=$(query 'cmapi_cluster_status{namespace="cmapi",cluster_id="CRC",status="connected",job=~"cmapi-api|cmapi-worker"}'); [ "$connected" = "2 2.0" ] || fail "the reader is not connected on both targets: $connected"; say "cmapi_cluster_status connected on the api and the worker"
 say "all passed"

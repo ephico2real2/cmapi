@@ -125,7 +125,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
         echo "curl: (28) Operation timed out after ${m}000 milliseconds with 0 bytes received" >&2; exit 28
       fi
       printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
-    */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
+    */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -319,7 +319,9 @@ pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
-pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
+pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]},{"value":[0,"0"]}'
+pstop "one target's series missing" 'STUB_CONNECTED={"value":[0,"1"]}'
+pstop "one of the two targets not connected" 'STUB_CONNECTED={"value":[0,"1"]},{"value":[0,"0"]}'
 pstop "a test user who cannot sign in" STUB_NO_SIGN_IN=cmapi.auditor
 pstop "a realm where cmapi-automation still takes the password grant" STUB_PASSWORD_GRANT=1
 pstop "the automation token is of another caller" STUB_ME=bot-user
