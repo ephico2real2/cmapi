@@ -280,7 +280,8 @@ def test_crc_writes_through_github_and_apply_delivery():
     instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
     assert integrations["delivery"]["mode"] == "apply"
     assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
-    assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com"}
+    # ciSource statuses: the bot's fine-grained token cannot call the Checks API (#279)
+    assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com", "ciSource": "statuses"}
     env = crc("ConfigMap", "cmapi-env")["data"]
     assert (env["CMAPI_GIT_PROVIDER"], env["CMAPI_GIT_URL"]) == ("github", "https://api.github.com")
     assert env["CMAPI_GIT_CA_BUNDLE"] == "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "the image's system trust, not cmapi-trust (#97)"
