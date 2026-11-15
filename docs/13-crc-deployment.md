@@ -100,8 +100,24 @@ security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Librar
 | Contents | Read and write | Reading a folder, the branch, its blobs, tree and commit, the ref's update and delete, the compare, the merge |
 | Pull requests | Read and write | Opening, reading, finding, merging and closing a pull request, and the comment on a closed one |
 | Commit statuses | Read and write | Posting `cmapi/check`, and reading the combined status |
-| Checks | Read | Reading `ci/kubeconform` and `ci/kyverno`, the check runs of the repository's Actions |
 | Metadata | Read | Every call (GitHub sets it) |
+
+To make it:
+
+1. Open <https://github.com/settings/personal-access-tokens/new>. You can also get there from your avatar: **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
+2. Fill in the top of the form:
+   - **Token name:** `cmapi-crc`
+   - **Resource owner:** `ephico2real2`
+   - **Expiration:** 30 days, or whatever you prefer.
+3. Under **Repository access**, choose **Only select repositories**, then pick `ephico2real2/cmapi-cluster-configs`.
+4. Under **Permissions** → **Repository permissions**, set:
+   - **Contents** → Read and write
+   - **Pull requests** → Read and write
+   - **Commit statuses** → Read and write
+   - **Metadata** → Read-only. GitHub sets this one by itself.
+5. Click **Generate token** and copy it. GitHub shows it only once.
+
+The form on 2026-11-15 offered no Checks permission, so the token has none. The repository's Actions post `ci/kubeconform` and `ci/kyverno` as check runs, and cmapi reads them (`core/git/github.py`, `_check_runs`). GitHub's reference lists Checks (read) for that call on a fine-grained token ([check runs](https://docs.github.com/en/rest/checks/runs), [permissions for fine-grained tokens](https://docs.github.com/en/rest/overview/permissions-required-for-fine-grained-personal-access-tokens)). Whether the call works without it is measured on CRC, not assumed.
 
 Give it an expiry, and put a new one in before then: an expired token makes every request fail at the Git step, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. It is a static token on purpose: the code sends one Bearer token, and a GitHub App's installation token lasts an hour and the code has no way to mint the next one. The token goes from the clipboard to the Secret on stdin, so it is on no command line, in no shell history and on no screen:
 
