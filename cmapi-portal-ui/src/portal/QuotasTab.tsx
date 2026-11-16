@@ -9,7 +9,7 @@ import { LockIcon } from "@patternfly/react-icons";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { SUGGEST_MIN, useCatalog, useClusters, useExport, useMe, useNamespace, usePatchPlan, useQuotas, useSubmitPatch, useSuggest } from "../api/hooks";
-import type { ChangeRequest, ExportQuery, NamespacePatch, Plan, PlannedChange, QuotaRow, QuotasQuery, TierCatalog } from "../api/hooks";
+import type { ChangeRequest, ExportQuery, NamespacePatch, Outcome, Plan, PlannedChange, QuotaRow, QuotasQuery, TierCatalog } from "../api/hooks";
 import { PERMISSION } from "../api/permissions.generated";
 import { Callout, Checks, Choices, Code, DataTable, Empty, Filter, Head, Hint, Meter, Pager, Panel, Pill, Small } from "../components/ui";
 import type { Check, Choice } from "../components/ui";
@@ -27,6 +27,9 @@ type State = (typeof ATTENTION)[number][0];
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const SEARCH_DELAY_MS = 300;
 const CUSTOM = "custom";
+/** The answers that say the etag of a change is not the folder's now (docs/04, If-Match): read the namespace again. */
+const PRECONDITION = new Set(["precondition-failed", "precondition-required"]);
+const outdated = (o: Outcome<unknown>): boolean => o.state === "refused" && PRECONDITION.has(o.code);
 const PATCH_NAMESPACE = PERMISSION["PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}"];
 
 const keyOf = (r: Pick<QuotaRow, "clusterId" | "name">): string => `${r.clusterId}/${r.name}`;
@@ -436,7 +439,7 @@ function Detail({ row, config, catalog, canChange, onOpen }: DetailProps) {
             ) : etag === null ? (
               ns.state === "loading" ? <span role="status">Loading the namespace…</span> : null
             ) : (
-              <ChangeForm row={row} etag={etag} config={config} catalog={catalog} />
+              <ChangeForm row={row} etag={etag} config={config} catalog={catalog} reread={ns.reload} />
             )}
           </Panel>
         </GridItem>
@@ -469,7 +472,7 @@ function sentOf(r: ChangeRequest): { title: string; text: string } {
   };
 }
 
-function ChangeForm({ row, etag, config, catalog }: { row: QuotaRow; etag: string; config: TabProps["config"]; catalog: TierCatalog | null }) {
+function ChangeForm({ row, etag, config, catalog, reread }: { row: QuotaRow; etag: string; config: TabProps["config"]; catalog: TierCatalog | null; reread: () => void }) {
   const env = row.env ?? "";
   const tiers = tiersOf(catalog, row.env);
   const bounds = boundsOf(catalog, row.env);
@@ -501,8 +504,17 @@ function ChangeForm({ row, etag, config, catalog }: { row: QuotaRow; etag: strin
     ? { tier: CUSTOM, quota: { "requests.cpu": cpuRaw.trim(), "requests.memory": `${memRaw.trim()}Gi` }, justification: why || null }
     : { tier: size, justification: why || null };
   const change: PlannedChange = { clusterId: row.clusterId, ns: row.name, etag, body };
+  // The key's fingerprint is the request: where and the body. If-Match is its precondition, so the same body sent again on
+  // a newer etag keeps its key, as the API's replay compares the body only (cmapi/src/cmapi/plugins/namespaces/router.py).
   const fingerprint = JSON.stringify([row.clusterId, row.name, body]);
-  const planIsOfForm = planned !== null && JSON.stringify([planned.clusterId, planned.ns, planned.body]) === fingerprint;
+  const ofBody = (p: PlannedChange): boolean => JSON.stringify([p.clusterId, p.ns, p.body]) === fingerprint;
+  // A plan is of one body at one etag: a plan made at an etag that the namespace no longer has is not the plan of the form.
+  const planIsOfForm = planned !== null && ofBody(planned) && planned.etag === etag;
+  // A 412 or 428, of the plan or of the submit, reads the namespace again instead of sending its stale etag again (docs/04).
+  const stale = (planned !== null && ofBody(planned) && outdated(plan)) || (submitted === fingerprint && outdated(submit));
+  useEffect(() => { if (stale) reread(); }, [stale]);
+  // The namespace read again with a new etag plans the same change on it, so the next Submit sends a plan of the folder now.
+  useEffect(() => { setPlanned((p) => (p !== null && p.etag !== etag && ofBody(p) ? { ...p, etag } : p)); }, [etag]);
   const [asked, setAsked] = useState(false);
   const edit = <T,>(set: (value: T) => void) => (value: T) => { set(value); setPlanned(null); setAsked(false); };
 

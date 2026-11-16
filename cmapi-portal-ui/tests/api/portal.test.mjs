@@ -1510,6 +1510,45 @@ try {
     await context.close();
   });
 
+  await check("F1 Quotas: a 412 reads the namespace again and plans on its new ETag; Submit never sends the stale ETag again", async () => {
+    const { context, page, errors } = await quotaFresh();
+    expectedStatus = [412];
+    const where = `${target.clusterId}/${target.name}`;
+    const reads = () => api.state.seen.filter((c) => c.method === "GET" && c.path === `/api/v1/clusters/${where.replace("/", "/namespaces/")}`).length;
+    const until = async (ok, why) => {
+      const end = Date.now() + 5000;
+      while (!ok()) {
+        if (Date.now() > end) assert.fail(why());
+        await page.waitForTimeout(50);
+      }
+    };
+    await manage(page, target);
+    const old = api.state.etags.get(where);
+    await planOf(page, "medium");
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    // Another change reaches the folder in Git after the plan, so its etag moves on.
+    const now = "0123456789abcdef";
+    api.state.etags.set(where, now);
+    const readsBefore = reads();
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "412 precondition-failed · nothing written" }).waitFor();
+    const writes = () => patches().filter((c) => c.query.dryRun !== "true");
+    // docs/04 and problem_docs.py: "Read the object again, and send the change with the new ETag in If-Match".
+    await until(() => reads() > readsBefore, () => `the namespace was not read again after the 412 (GETs: ${reads()})`);
+    await until(() => patches().some((c) => c.query.dryRun === "true" && c.ifMatch === `"${now}"`),
+      () => `the change was not planned again on the new etag; the PATCHes were ${JSON.stringify(patches().map((c) => [c.query.dryRun ?? "write", c.ifMatch]))}`);
+    await changeCard(page).locator("li").filter({ hasText: `If-Match matches the current ETag ${now}` }).waitFor();
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    assert.equal(writes().filter((c) => c.ifMatch === `"${old}"`).length, 1, "the stale etag was sent one time, never again");
+    assert.equal(writes().at(-1).ifMatch, `"${now}"`, "the change went with the etag that the page read again");
+    assert.ok(writes().every((c) => c.key === writes()[0].key), "the same body keeps its key across the new etag");
+    assert.deepEqual(writes().at(-1).body, { tier: "medium", justification: null });
+    assert.equal(api.state.created, 1);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   await check("R6 a double click on Submit change sends one write", async () => {
     const { context, page, errors } = await quotaFresh();
     await manage(page, target);
