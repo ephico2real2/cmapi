@@ -15,13 +15,15 @@ came from. Where two documents show the same file, the copy in
 | `local/` | The reference modules behind a FastAPI app, run end to end against a real Keycloak, a local Git repository and k3s, kind or an existing cluster: `run.sh`, `demo.py` (14 scenarios), `transcript.txt`, screenshots. Setup guide: [local/INSTALL.md](local/INSTALL.md) | Runnable |
 | `instances/<instance>/instance.yaml`, `expiration.yaml` | Each instance's identity file and expiry limits (prod: none) | Derived |
 | `config/clusters.yaml` | Policy, metadata and placement per cluster (connections come from imports) | Verbatim |
-| `config/plugins.yaml` | Which plugins load, keyed by instance | Verbatim |
+| `config/plugins.yaml` | Which plugins load, keyed by instance. It lists the plugins of the full design, so the service of today refuses it | From the design |
+| `instances/<instance>/plugins.yaml` | Each instance's file: the plugins that the service has today (`docs/08`, "The plugin switch") | Derived |
 | `config/authz-roles.yaml` | Keycloak roles to permissions, optional per-role environments; no team or namespace-name scoping (shape reference) | Verbatim |
 | `config/capacity.yaml` | Snapshot interval, targets, overcommit per environment | Verbatim |
 | `config/approval-rules.yaml` | Combined reference: environment rules, patterns, thresholds and auto-approval policies (baseline-rnd-namespace for rnd and dev, expired-namespace) | Updated to the approval-first design |
 | `instances/<instance>/approval-rules.yaml`, `authz-roles.yaml` | The real per-instance files: each holds only its own environments and clusters | Derived |
 | `config/expiration.yaml` | Optional expiration: 30-day extensions, 180-day lifetime, notices, 7-day grace; prod has no entry | From the design |
-| `cluster-configs/policies/env/prod/deny-expiry-in-prod.yaml` | Kyverno ValidatingPolicy: prod namespaces never carry expiry metadata | Starter: check the apiVersion against your Kyverno release |
+| `cluster-configs/policies/env/<env>/` | The Kyverno bundle that cmapi renders from each instance's configuration (#212): the metadata keys, the bounds of each environment, and for prod `deny-expiry-in-prod`. Do not edit: run `cmapi-tools policies render` for each instance in `instances/` | Rendered |
+| `cluster-configs/clusters/OCP_GF15/argocd/policies-application.yaml` | The Argo CD Application that syncs only the cluster's own environment's policies, with prune | New |
 | `config/integrations.yaml` | Optional SyncSignal, OperationsEngine and EventPublisher | Verbatim |
 | `config/operations/cluster-onboard.yaml` | Operation template run by the built-in engine or Argo Workflows | Verbatim |
 | `cmapi-sso/realm/ephico2real.yaml` | Keycloak realm as code (keycloak-config-cli), with the employee ID and middle-name mappers, User Profile declarations, the cmapi-identity client scope, the cmapi client roles (including cmapi-onboarding), the /cmapi groups, the cmapi-automation client and the bot-user automation account | Updated: check key names against your keycloak-config-cli release |

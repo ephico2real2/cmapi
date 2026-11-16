@@ -17,11 +17,13 @@ from __future__ import annotations
 import base64
 from typing import Any, Mapping
 
-from cmapi.core.git.base import CheckState, GitUnavailable, HostGitProvider
+from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
 from cmapi.core.ports import PrRef, PrStatus
 
 
 class GiteaProvider(HostGitProvider):
+    name = "gitea"
+
     def _repo(self) -> str:
         return f"/repos/{self.repository}"
 
@@ -49,45 +51,86 @@ class GiteaProvider(HostGitProvider):
                 files[e["path"]] = base64.b64decode(r.json()["content"]).decode()
         return files, head
 
-    def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str, base_sha: str) -> PrRef:
-        existing = self.find_pr(branch)
-        if existing is not None:
-            return existing
+    def push_request_branch(self, req: BranchRequest) -> PushResult:
+        """Through Gitea's REST API, not the Git layer: the chart's stand-in. A branch with no open PR is one the bot left or
+        anyone may have pushed to, so it is deleted and written again from the default branch's head."""
+        from cmapi.core.git.workspace import request_branch
+
+        branch = request_branch(req.cluster_id, req.request_id)
+        base = self.branch_head(self.default_branch)
+        if base is None:
+            raise GitUnavailable(f"branch {self.default_branch} does not exist")
         if self.branch_head(branch) is not None:
-            # No open PR, yet the branch exists: a closed PR, or a crash before the PR. Anyone may have pushed to it,
-            # and a new PR would adopt that head as the bot's own. Start again from the base.
+            existing = self.find_pr(branch)
+            if existing is not None:
+                return PushResult(existing.head_sha, base, "adopted")
             r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204,))
             if r.status_code != 204:
                 raise GitUnavailable(f"delete stale branch {branch}: {r.status_code} {r.text[:200]}")
-        if self.branch_head(branch) is None:
-            r = self._call("create_branch", "POST", f"{self._repo()}/branches",
-                           json={"new_branch_name": branch, "old_ref_name": base_sha}, ok=(201,))
-            if r.status_code != 201:
-                raise GitUnavailable(f"create branch {branch}: {r.status_code} {r.text[:200]}")
-        current, _ = self.read_folder(_common_folder(files), branch)
+        r = self._call("create_branch", "POST", f"{self._repo()}/branches",
+                       json={"new_branch_name": branch, "old_ref_name": base}, ok=(201,))
+        if r.status_code != 201:
+            raise GitUnavailable(f"create branch {branch}: {r.status_code} {r.text[:200]}")
+        current, _ = self.read_folder(req.folder, branch)
         ops = []
-        for path, text in files.items():
+        for path, text in req.files.items():
             if text is None:
                 if path in current:
                     ops.append({"operation": "delete", "path": path, "sha": self._blob_sha(path, branch)})
             elif path in current:
                 if current[path] != text:
-                    ops.append({"operation": "update", "path": path, "sha": self._blob_sha(path, branch),
-                                "content": _b64(text)})
+                    ops.append({"operation": "update", "path": path, "sha": self._blob_sha(path, branch), "content": _b64(text)})
             else:
                 ops.append({"operation": "create", "path": path, "content": _b64(text)})
         if ops:
             r = self._call("commit", "POST", f"{self._repo()}/contents",
-                           json={"branch": branch, "message": f"{title}\n\n{body}", "files": ops,
+                           json={"branch": branch, "message": req.message, "files": ops,
                                  "author": {"name": self.BOT_NAME, "email": self.BOT_EMAIL},
                                  "committer": {"name": self.BOT_NAME, "email": self.BOT_EMAIL}}, ok=(200, 201))
             if r.status_code not in (200, 201):
                 raise GitUnavailable(f"commit on {branch}: {r.status_code} {r.text[:300]}")
-        r = self._call("open_pr", "POST", f"{self._repo()}/pulls",
-                       json={"head": branch, "base": self.default_branch, "title": title, "body": body}, ok=(201,))
-        if r.status_code != 201:
-            raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
-        return self._pr_ref(r.json())
+        head = self.branch_head(branch)
+        return PushResult(head or base, base, "created")
+
+    def recreate_branch(self, req: BranchRequest, base: str, expected: str) -> str:
+        raise GitUnavailable("the Gitea stand-in is not on the Git layer: a closed PR's branch is not re-created")
+
+    def open_pr(self, branch: str, head: str, title: str, body: str) -> PrRef:
+        existing = self.find_pr(branch)
+        if existing is None:
+            r = self._call("open_pr", "POST", f"{self._repo()}/pulls",
+                           json={"head": branch, "base": self.default_branch, "title": title, "body": body}, ok=(201,))
+            if r.status_code != 201:
+                raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
+            existing = self._pr_ref(r.json())
+        return existing
+
+    def comment(self, pr: PrRef, text: str) -> None:
+        self._call("comment", "POST", f"{self._repo()}/issues/{pr.number}/comments", json={"body": text}, ok=(201,))
+
+    def delete_branch(self, branch: str, expected: str) -> bool:
+        """Gitea's REST delete is not conditional: the head is read first, and a race in between is the stand-in's to accept."""
+        head = self.branch_head(branch)
+        if head is None:
+            return True
+        if head != expected:
+            return False
+        r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204, 404))
+        return r.status_code in (204, 404)
+
+    def list_open(self, prefix: str) -> list[PrRef]:
+        r = self._call("find_pr", "GET", f"{self._repo()}/pulls", params={"state": "open", "limit": 50})
+        return [self._pr_ref(p) for p in r.json() if p["head"]["ref"].startswith(prefix)]
+
+    def list_branches(self, prefix: str) -> dict[str, str]:
+        r = self._call("branches", "GET", f"{self._repo()}/branches", params={"limit": 50})
+        return {b["name"]: b["commit"]["id"] for b in r.json() if b["name"].startswith(prefix)}
+
+    def branch_time(self, sha: str) -> int:
+        from datetime import datetime
+
+        r = self._call("commit_read", "GET", f"{self._repo()}/git/commits/{sha}")
+        return int(datetime.fromisoformat(r.json()["created"].replace("Z", "+00:00")).timestamp())
 
     def contains(self, revision: str, sha: str) -> bool:
         if revision == sha:
@@ -132,7 +175,7 @@ class GiteaProvider(HostGitProvider):
             for st in s.json().get("statuses") or []:
                 checks[st["context"]] = {"success": "success", "pending": "pending"}.get(st["status"], "failure")
         state = "merged" if p.get("merged") else ("open" if p["state"] == "open" else "closed")
-        return PrStatus(state=state, checks=checks, merge_sha=p.get("merge_commit_sha") if p.get("merged") else None)
+        return PrStatus(state=state, checks=checks, merge_sha=p.get("merge_commit_sha") if p.get("merged") else None, head_sha=head)
 
     def set_check(self, sha: str, context: str, state: CheckState, description: str, target_url: str | None = None) -> None:
         body = {"context": context, "state": state, "description": description[:255]}
@@ -144,7 +187,7 @@ class GiteaProvider(HostGitProvider):
 
     def merge(self, pr: PrRef, expected_head: str) -> str:
         r = self._call("merge", "POST", f"{self._repo()}/pulls/{pr.number}/merge",
-                       json={"Do": "merge", "head_commit_id": expected_head, "delete_branch_after_merge": True,
+                       json={"Do": "merge", "head_commit_id": expected_head, "delete_branch_after_merge": False,
                              "MergeTitleField": f"Merge {pr.branch}"}, ok=(200,))
         if r.status_code != 200:
             raise GitUnavailable(f"merge PR {pr.number}: {r.status_code} {r.text[:300]}")

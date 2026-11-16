@@ -1,6 +1,6 @@
 # Deploying cmapi on CRC (Wave 1)
 
-This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), issue #94. Follow it from the top, in order, in one bash. It is interim: `oc apply` by hand, with the image in CRC's internal registry by digest. Argo CD adopts these objects in Wave 5. There is no real namespace request in this wave, since that needs GitHub (Wave 3) and Argo CD (Wave 5).
+This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), issue #94. Follow it from the top, in order, in one bash. It is interim: `oc apply` by hand, with the image in CRC's internal registry by digest. Argo CD adopts these objects in Wave 5. Since #157 a namespace request runs the whole way: the bot writes to the GitHub repository `ephico2real2/cmapi-cluster-configs`, and the worker delivers the merged folder by server-side apply (`delivery.mode: apply`), because CRC has no Argo CD. See [The full request flow](#the-full-request-flow).
 
 **CRC is shared.** Other projects' realms live on the same Keycloak, which has one instance. The owner's requirement (2026-11-06): the other realms must not be affected, `inkcast` and `corp` must not be deleted, and a restart must not bleed long. So each step below has a stop. A stop means stop and report: no retry and no workaround.
 
@@ -10,15 +10,19 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 
 | Where | What |
 |---|---|
-| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the database, Routes `cmapi-api` and `cmapi-mockup`, the monitoring objects, image stream `cmapi`, Secret `cmapi-ldap-test-users` (one password per test user) |
+| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the front door, the database, Routes `cmapi` and `cmapi-mockup`, the monitoring objects, image streams `cmapi` and `cmapi-portal`, Secret `cmapi-ldap-test-users` (one password per test user). Secrets `cmapi-git-bot` and `cmapi-git-bot-ssh`, and ConfigMap `cmapi-git-bot-known-hosts`, the bot account's credentials, are the owner's: [step 3 below](#steps-only-the-owner-can-take) |
 | Namespace `cmapi-imports` (new) | The imports reader Role, Secret `cmapi-cluster-crc` |
 | Namespace `cmapi-system` (new) | ServiceAccount `cmapi-reader` and its token Secret |
-| Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `list` on pods and persistentvolumeclaims |
+| Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `list` on pods and persistentvolumeclaims. ClusterRole and ClusterRoleBinding `cmapi-deliverer` for the worker's ServiceAccount, and ValidatingAdmissionPolicy and binding `cmapi-deliverer-managed-only`, which contain it (step 7) |
+| Cluster, per request | Each namespace a request delivers, labelled `cmapi.net/managed=true`, with its ResourceQuota, its two LimitRanges `<ns>-limits-cpu` and `<ns>-limits-memory`, and RoleBinding `cmapi-token-issuer`. A delete request removes it, after an operator's `POST /api/v1/admin/prune:confirm` |
+| GitHub `ephico2real2/cmapi-cluster-configs` | The bot's branches, pull requests, commit statuses `cmapi/check` and merges under `clusters/CRC/namespaces/`. The repository's own Actions report `ci/kubeconform` and `ci/kyverno` |
 | Namespace `keycloak` | Secret `cmapi-realm-secrets`, and `KeycloakRealmImport cmapi`, deleted once Done |
 | Keycloak | Realm `cmapi`, with guesses limited (a temporary lockout, in this realm alone) and its default `admin-cli` client off, so no client takes a person's password without a secret. Creating any realm also adds a client `cmapi-realm` to `master` (measured). That is the one known change outside realm `cmapi` |
 | LDAP (namespace `ldap-testing`) | The ten `app-cmapi-rbac-*` groups and 13 `cmapi.<role>` test users. It removes the ten old `cmapi-*` groups, each by its full `dn`. No other entry changes: steps 9 and 10 fail if one does |
 
 The realm reads LDAP through the read-only `cmapi-ldap-bind`, and only the test users. See [`docs/11`](11-existing-identity-services.md).
+
+**One host for the instance (#226).** `https://cmapi.apps-crc.testing` is the front door: nginx in the `cmapi-portal` image serves the portal at `/` and passes `/api/v1`, `/docs`, `/redoc`, the OpenAPI document and the problem pages to the API pods. The API has no Route of its own, and only the front door's pods reach its port. The CLI, the SDK and `/docs` use the same host. The standalone mockup stays on `https://cmapi-mockup.apps-crc.testing`, served by the same front door. The decisions are in [`docs/reviews/2026-11-14-issue-226/README.md`](reviews/2026-11-14-issue-226/README.md).
 
 ## Before the run
 
@@ -48,7 +52,7 @@ The coordinator read these from CRC. Read them again if much time has passed.
 
 ### Steps only the owner can take
 
-Both are for the Chrome proofs of step 23, and neither blocks the steps before it.
+The first two are for the Chrome proofs of step 23, and neither blocks the steps before it. The third comes before step 11.
 
 **1. Trust the two CAs in the login keychain.** Chrome refuses these sites otherwise, and clicking through a warning would be TLS verification off. Neither `LDAP Enterprise Root CA` nor `ingress-operator` is on this Mac (measured with `security find-certificate -c`), and macOS asks for a password to add one, which is why this is the owner's step.
 
@@ -88,6 +92,69 @@ security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Librar
 **What the trust may not fix.** Measured on 2026-11-06: Keycloak's site certificate has no Extended Key Usage, so macOS's own `security verify-cert -p ssl` refuses it (`Invalid Extended Key Usage for policy`), while the ingress site certificate has `TLS Web Server Authentication` and passes. Chrome's result is not yet measured, so whether Chrome accepts Keycloak's sign-in page is the first thing this step shows. If it refuses, report it: the Chrome proofs that sign in are then not done, and clicking through is still not an answer. Not measured: this Mac's trust has not been changed.
 
 **2. Sign in once as `cmapi.requester`,** in Chrome, with the password from the clipboard, so that it reaches nobody else and no screen. See [The issue's proofs](#the-issues-proofs).
+
+**3. The bot account's credentials, before step 11.** The step-by-step guide, with rotation and troubleshooting, is [`docs/19`](19-setup-connections-to-git.md). cmapi writes through the Git protocol, and opens and merges the PR through the host's API (#286). The identity on every host is one machine user account, `cmapi-git-bot` (the owner's decision of 2026-11-15): its SSH key does the Git transport, and its API token does the PR. So every push and every PR is authored by `cmapi-git-bot`, and the commits name it, with `instance.git.commitEmail`.
+
+| Object | Kind | Keys | Mounted in | For |
+|---|---|---|---|---|
+| `cmapi-git-bot` | Secret, Opaque | `token` | api and worker | The host API: the PR, its state, the merge, and the API process's reads. Git over HTTPS too, on CRC for now |
+| `cmapi-git-bot-ssh` | Secret, `kubernetes.io/ssh-auth` | `ssh-privatekey`, optional `ssh-publickey` | worker only | Git over SSH. An ed25519 key with no passphrase; cmapi refuses an encrypted or unparseable key, or an `ssh-publickey` that is not its own, at start, and logs the key's fingerprint |
+| `cmapi-git-bot-known-hosts` | ConfigMap | `known_hosts` | worker only | The Git host's keys, every type it publishes. An SSH host not listed is refused, and nothing is ever added |
+
+The mounts are folders (`components/cmapi/30-worker.yaml`), so a rotation reaches the pod with no restart: to rotate a host key, add the new one, then remove the old one. The SSH user is `git` (`git@github.com`): the key selects the account.
+
+**CRC: SSH since 2026-11-15.** The owner added the bot's SSH key, so CRC's `instance.git.url` is `git@github.com:ephico2real2/cmapi-cluster-configs.git` (`environments/crc/20-config.yaml`). Git uses Secret `cmapi-git-bot-ssh` and ConfigMap `cmapi-git-bot-known-hosts`, and no longer sees the API token, which stays for the PR. How to make the key and switch: [`docs/19`](19-setup-connections-to-git.md), sections 3 to 5.
+
+**The token, on GitHub.** The machine user `cmapi-git-bot` with write access to `ephico2real2/cmapi-cluster-configs`, and its fine-grained personal access token: repository access **only** that repository, and these repository permissions:
+
+| Permission | Access | For |
+|---|---|---|
+| Contents | Read and write | `git fetch` and `git push` over HTTPS, and the API process's reads of a folder |
+| Pull requests | Read and write | Opening, reading, merging and closing the PR, and its comments |
+| Metadata | Read | Every call (GitHub sets it) |
+
+No Checks permission, and no Commit statuses permission while host CI is off (`instance.git.hostChecks: false`, CRC's setting): cmapi reads no check and posts no status then. GitHub allows one machine user for automation ([Managing deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys), "Machine users", read on 2026-11-15).
+
+To make the token, signed in as `cmapi-git-bot`:
+
+1. Open <https://github.com/settings/personal-access-tokens/new>.
+2. **Token name:** `cmapi-crc`. **Resource owner:** `ephico2real2`. **Expiration:** 30 days, or whatever you prefer.
+3. Under **Repository access**, choose **Only select repositories**, then pick `ephico2real2/cmapi-cluster-configs`.
+4. Under **Repository permissions**, set **Contents** and **Pull requests** to Read and write. **Metadata** → Read-only is set by GitHub.
+5. Click **Generate token** and copy it. GitHub shows it only once.
+
+The token goes from the clipboard to the Secret on stdin, so it is on no command line, in no shell history and on no screen:
+
+```bash
+pbpaste | tr -d '\r\n' | oc create secret generic cmapi-git-bot -n cmapi --from-file=token=/dev/stdin
+pbcopy </dev/null
+```
+
+**The SSH key, when it is added.** An ed25519 key with no passphrase, its public key added to the `cmapi-git-bot` account's SSH keys, and GitHub's host keys checked against the fingerprints GitHub publishes (<https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints>):
+
+```bash
+ssh-keygen -t ed25519 -N '' -C cmapi-git-bot -f ./cmapi-git-bot
+oc create secret generic cmapi-git-bot-ssh -n cmapi --type=kubernetes.io/ssh-auth \
+  --from-file=ssh-privatekey=./cmapi-git-bot --from-file=ssh-publickey=./cmapi-git-bot.pub
+ssh-keyscan -t ed25519,ecdsa,rsa github.com >./known_hosts    # then compare: ssh-keygen -lf ./known_hosts
+oc create configmap cmapi-git-bot-known-hosts -n cmapi --from-file=known_hosts=./known_hosts
+rm ./cmapi-git-bot
+```
+
+**On each host.** The bot account is the default; a deploy key is the alternative where the host allows writes with one. Read on 2026-11-15 at each source; a row marked *not verified* is not yet checked at its host's documentation:
+
+| Host | Bot account (default): SSH | Bot account: API | Alternative | Source |
+|---|---|---|---|---|
+| GitHub | the machine user's SSH key | the machine user's fine-grained token: Contents and Pull requests read and write | a deploy key with write access, for SSH ("read-only by default, but you can give them write access"); the API still needs a token | [GitHub, deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) |
+| GitLab | the service account's SSH key | the service account's token | a read-write deploy key, made by the service account ("You should use a service account, and create the deploy key with the service account"); or a project access token for the API | [GitLab, deploy keys](https://docs.gitlab.com/user/project/deploy_keys/) |
+| Bitbucket Cloud | the bot account's own SSH key | the bot's API token, or a repository access token | none for writes: repository and project access keys are read-only, and workspace keys write to every repository of the workspace | [Atlassian, access keys](https://support.atlassian.com/bitbucket-cloud/kb/difference-between-repository-project-and-workspace-access-keys/) |
+| Bitbucket Data Center | the bot user's SSH key | the bot user's HTTP access token | a repository access key with write access | Atlassian's Data Center pages, *not verified* |
+
+On every host `main` is protected, so that only a merged PR changes it: the host enforces "cmapi never pushes to `main`" too. CRC's repository cannot: it is private on GitHub's free plan, which refuses branch protection (#227).
+
+**Upgrading from `cmapi-git`.** Before #286 the token was Secret `cmapi-git`. Nothing migrates it: the owner loads the bot account's new token into `cmapi-git-bot` with the two lines above, and the rollback removes the old `cmapi-git` by name (`deploy/crc-rollback.sh`).
+
+Give the token an expiry, and put a new one in before then: an expired token makes every request fail at the host, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. A new token: `oc delete secret cmapi-git-bot -n cmapi`, the same two lines, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since the API client reads the token at start. Git over HTTPS reads the file at each call. Step 11 checks that the token is there, and reads no value.
 
 ## The run
 
@@ -158,22 +225,24 @@ stopped() { [ "$1" = 0 ] && return 0; echo "STOP at step $2 (rc $1): report it. 
 
 **Stops on** anything but Keycloak's own 404. A timeout, a certificate failure or a router's 503 is not "absent".
 
-### Step 5: the image, before anything touches Keycloak
+### Step 5: the images, before anything touches Keycloak
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   IMAGE=$(deploy/crc-image.sh | tail -1)
-  deploy/render.sh crc "$IMAGE"
+  PORTAL_IMAGE=$(deploy/crc-image.sh cmapi-portal | tail -1)
+  deploy/render.sh crc "$IMAGE" --portal-image "$PORTAL_IMAGE"
   echo "$IMAGE" | tee "$RUN/image.txt"
+  echo "$PORTAL_IMAGE" | tee "$RUN/portal-image.txt"
 ); stopped $? 5
 ```
 
-**Stops on** a failure of any check in either script. It is finished before any Keycloak step, so its load is never beside an import. `podman push --cert-dir` is not honoured on this Mac (measured), so `crc-image.sh` pushes with `skopeo`, TLS verified against the ingress CA, with the session's token in a 0600 file and never on an argument.
+**Stops on** a failure of any check in either script. It is finished before any Keycloak step, so its load is never beside an import. Two images, each built from this commit and labelled with it, each in its own image stream: `cmapi` (the api, the worker and the realm sync) and `cmapi-portal` (the front door: nginx with the portal's build and the mockup, `cmapi-portal-ui/Containerfile`). `render.sh` takes each by digest only, each from its own repository. `podman push --cert-dir` is not honoured on this Mac (measured), so `crc-image.sh` pushes with `skopeo`, TLS verified against the ingress CA, with the session's token in a 0600 file and never on an argument.
 
 ### Step 6: the environment
 
-Top-level files only. Never `-R` here: `reader/` and `realm/` are applied by name, in their own steps.
+Top-level files only. Never `-R` here: `reader/`, `deliverer/` and `realm/` are applied by name, in their own steps.
 
 ```bash
 ( set -euo pipefail
@@ -184,27 +253,30 @@ Top-level files only. Never `-R` here: `reader/` and `realm/` are applied by nam
 
 Writes only to `cmapi` and `cmapi-imports`.
 
-### Step 7: the reader
+### Step 7: the reader, and the worker's one write with its containment
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/reader/00-cmapi-reader.yaml"
   deploy/crc-reader-import.sh
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/deliverer/00-cmapi-deliverer.yaml"
 ); stopped $? 7
 ```
 
-**Stops when** the token Secret is not filled in 30 tries.
+**Stops when** the token Secret is not filled in 30 tries, or the API refuses the admission policy.
+
+`deliverer/` is the chart's reviewed design for apply delivery on the hub (`deploy/helm/cmapi/templates/rbac.yaml`), held to it by `test_crc_deliverer_is_the_charts`. ClusterRole `cmapi-deliverer` gives the worker's own ServiceAccount `create`, `patch` and `delete` on the kinds cmapi renders, and `bind` on `cmapi-token-issuer` alone: a server-side apply that creates an object needs `create` as well as `patch` ([Kubernetes, Server-Side Apply, "Access control and permissions"](https://kubernetes.io/docs/reference/using-api/server-side-apply/#rbac-and-permissions)). RBAC cannot scope `create` to names that do not exist yet, so ValidatingAdmissionPolicy `cmapi-deliverer-managed-only` is what keeps the worker out of every other project: it may touch only a namespace labelled `cmapi.net/managed=true` (read from the old object on an update, so it cannot label one first), never create a reserved name (`default`, `openshift*`, `kube-*`, `cmapi`, `cmapi-system`, `cmapi-imports`, `ocp-*`, `kubernetes-*`), add or change no `kubernetes.io`, `k8s.io` or `openshift.io` key, and write only the one RoleBinding the renderer writes. The file creates the policy and its binding before the ClusterRole and its binding, so the worker never holds the write without the containment. The api's ServiceAccount gets nothing. Step 23 proves the containment with server dry runs as the worker.
 
 ### Step 8: the ServiceAccounts first, with their pull secrets
 
-Admission copies an account's `imagePullSecrets` into a pod when the pod is created, so a pod made before the controller has filled them would never get them (inferred). So wait.
+Admission copies an account's `imagePullSecrets` into a pod when the pod is created, so a pod made before the controller has filled them would never get them (inferred). So wait. The front door runs as the namespace's `default` account, as the chart's does, and pulls `cmapi-portal` from the same registry, so `default` is checked too.
 
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/00-serviceaccounts.yaml"
-  for sa in cmapi-api cmapi-worker cmapi-jobs; do
+  for sa in cmapi-api cmapi-worker cmapi-jobs default; do
     for _ in $(seq 1 60); do [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] && break; sleep 1; done
     [ -n "$(oc get sa "$sa" -n cmapi -o 'jsonpath={.imagePullSecrets}')" ] || { echo "STOP: $sa has no pull secret"; exit 1; }
     echo "$sa: pull secret there"
@@ -246,10 +318,11 @@ Each by its full `dn`, from a list in the script: no filter, no `-r`, and it tak
 ( set -euo pipefail
   $G gate "$STOP"
   deploy/secrets.sh --issuer https://keycloak.apps-crc.testing/realms/cmapi --ca-file "$CMAPI_CRC_CA" --test-users
+  [ "$(oc get secret cmapi-git-bot -n cmapi -o 'go-template={{if .data.token}}present{{end}}')" = present ] || { echo "STOP: Secret cmapi-git-bot has no token: the owner's step 3"; exit 1; }
 ); stopped $? 11
 ```
 
-This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
+This writes `cmapi-realm-secrets` in `keycloak`, by name, and `cmapi-keycloak`, `cmapi-keys` and `cmapi-test-users` in `cmapi`, and checks that the owner's `cmapi-git-bot` holds a token, reading no value out. Before minting it asks the realm: a 200 stops it, since a realm exists whose client secrets nobody here knows, and anything but Keycloak's own 404 stops it too. A later run mints nothing, so it does not ask.
 
 ### Step 12: the snapshot, and the watch from here to the end
 
@@ -373,24 +446,11 @@ The operator's guide says to delete it once the realm is imported. It removes th
 
 **Stops when** the run is stopped, headroom is under the line, or the database is not healthy.
 
-### Step 20: the workloads, the policy first
-
-The policy goes first by itself: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment.
-
-```bash
-( set -euo pipefail
-  $G gate "$STOP"
-  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
-  oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
-  for d in cmapi-api cmapi-worker cmapi-mockup; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
-); stopped $? 20
-```
-
-**Stops when** a rollout is not done.
-
-### Step 21: the realm's mutable parts
+### Step 20: the realm's mutable parts
 
 The user profile, group mappings, read-only LDAP federation and local test users. Without it `employee_id` never reaches a token. One try and no retries: `requireSync` fails the Job when federation read nobody (#96), and `expectUsers` when it read anything but the 13 test users, which is what `usersFilter` lets it read (#110).
+
+The sync runs before the workloads, so the API never serves a realm that is not complete. The Job needs no API and no database. Its trust file is from step 6, its ServiceAccount from step 8 and its Secrets from step 11. On a realm that was imported before #184 the sync also sets the client attribute for the header `typ: at+jwt`. This run imports a new realm, which has the attribute from the import. [`docs/15`](15-keycloak-integration.md#the-type-of-an-access-token) gives the order of an upgrade.
 
 ```bash
 ( set -euo pipefail
@@ -400,10 +460,25 @@ The user profile, group mappings, read-only LDAP federation and local test users
   rc=0; oc wait job/cmapi-realm-sync -n cmapi --for=condition=Complete --timeout=600s || rc=$?
   oc logs job/cmapi-realm-sync -n cmapi | tee "$RUN/realm-sync.txt"      # whichever way it ended: the log says why
   [ "$rc" = 0 ]
-); stopped $? 21
+); stopped $? 20
 ```
 
 **Stops when** the Job fails, which includes a federation that read nobody, or read anyone but the 13. A failed Job is not Complete, so the wait runs out its 600 s; read the log.
+
+### Step 21: the workloads, the policies first
+
+The two policies go first by themselves: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment. `cmapi-metrics` lets only the front door reach the API's port, and `cmapi-front-door` lets only the router reach the front door.
+
+```bash
+( set -euo pipefail
+  $G gate "$STOP"
+  oc apply --server-side --field-manager=cmapi-wave1 -f "$R/components/cmapi/40-networkpolicy.yaml"
+  oc apply --server-side --field-manager=cmapi-wave1 -R -f "$R/components/cmapi" -f "$R/components/portal"
+  for d in cmapi-api cmapi-worker cmapi-portal; do oc rollout status "deploy/$d" -n cmapi --timeout=600s; done
+); stopped $? 21
+```
+
+**Stops when** a rollout is not done.
 
 ### Step 22: nothing else changed
 
@@ -424,7 +499,8 @@ The user profile, group mappings, read-only LDAP federation and local test users
 ); stopped $? 23
 ```
 
-Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure.
+Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure. Each call has 15 s, except the
+dry-run namespace plan, the API's slowest call, which has as long as the Route gives it: 130 s, `CMAPI_PROOF_PLAN_SECONDS` (#275).
 
 ### Step 24: the end of the watch
 
@@ -458,18 +534,53 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 
 | Proof | How | Where |
 |---|---|---|
-| Admitted under `restricted-v2` and started under the policy | Each pod's `openshift.io/scc`, 0 restarts, `status.startTime` after the policy's `creationTimestamp` | `crc-proof.sh` |
-| `/readyz` 200 | `curl --cacert` through the Route | `crc-proof.sh` |
-| `/api/v1/version` names the built commit | Equals `git rev-parse --short=10 HEAD`; the api's and worker's `imageID` hold the digest | `crc-proof.sh` |
-| The Route through the policy | A Route that answers proves nothing unless something was blocked. A throwaway namespace's pod must reach the mockup (the control), and must be blocked from the api: wget's own `download timed out`, what a dropped connection gives on the probe's image (measured), with the api answering the router straight after. A bad address, a refused connection or a failed `oc exec` fails the proof, since none of them says anything about the policy. OVN-Kubernetes's documentation describes a drop, not a reset; the first run measures it, and a reset would stop here to be read. `/metrics` is 404 through the Route. Plain HTTP is redirected | `crc-proof.sh` |
-| `/docs` signed in, `GET /api/v1/me` | Open `https://cmapi-api.apps-crc.testing/docs`, Authorize, sign in as local user `ola`, Try it out on `/api/v1/me`, screenshot. Her password goes to the clipboard, never the screen: `oc get secret cmapi-test-users -n cmapi -o 'jsonpath={.data.ola}' \| base64 -d \| pbcopy`. `crc-proof.sh` signs in `bot-user` by password grant | Chrome and `crc-proof.sh` |
-| Each test user's token through LDAP federation | Signs in each of the 13 by the password grant, its password from the Secret on stdin, and holds its token against `test-identities.tsv`: exactly those groups and roles, and `employee_id` equal to `uidNumber`. `cmapi.noaccess` gets 403 on `/api/v1/clusters`, where `cmapi.viewer` gets 200. Before it, `LDAP full sync: 200` with `added` 13 in the Job's log | `crc-proof.sh` |
+| Admitted under `restricted-v2` and started under the policy | Each pod's `openshift.io/scc`, 0 restarts, `status.startTime` after its policy's `creationTimestamp`: the api and the worker after `cmapi-metrics`, the front door after `cmapi-front-door` | `crc-proof.sh` |
+| The front door answers | `/healthz` 200 through the Route, `curl --cacert`; the front door's `imageID` holds the `cmapi-portal` digest | `crc-proof.sh` |
+| `/api/v1/version` names the built commit | Through the front door; equals `git rev-parse --short=10 HEAD`; the api's and worker's `imageID` hold the digest | `crc-proof.sh` |
+| Only the API's paths reach the API | `/metrics` and `/readyz` through the Route answer the portal's page (`200 text/html`), never the API's metrics or probe | `crc-proof.sh` |
+| The headers are the front door's | The portal's page carries `Strict-Transport-Security`, `X-Content-Type-Options: nosniff` and the portal's `Content-Security-Policy` | `crc-proof.sh` |
+| The Route through the policies | A Route that answers proves nothing unless something was blocked. A throwaway namespace's pod must reach a control pod in `cmapi` that no policy selects (made for the proof and deleted after), and must be blocked from the api's port and from the front door's: wget's own `download timed out`, what a dropped connection gives on the probe's image (measured), with the instance answering the router straight after each. A bad address, a refused connection or a failed `oc exec` fails the proof, since none of them says anything about the policy. OVN-Kubernetes's documentation describes a drop, not a reset; the first run measures it, and a reset would stop here to be read. Plain HTTP is redirected | `crc-proof.sh` |
+| `/docs` signed in, `GET /api/v1/me` | Open `https://cmapi.apps-crc.testing/docs`, Authorize, sign in as local user `ola`, Try it out on `/api/v1/me`, screenshot. Her password goes to the clipboard, never the screen: `oc get secret cmapi-test-users -n cmapi -o 'jsonpath={.data.ola}' \| base64 -d \| pbcopy`. `crc-proof.sh` signs in the client `cmapi-automation` with client credentials, and holds the password grant to `unauthorized_client` | Chrome and `crc-proof.sh` |
+| Each test user's token through LDAP federation | Signs in each of the 13 as a browser does (`deploy/oidc-login.py`: the authorization code grant with PKCE through `cmapi-docs`), its password from the Secret on stdin and only to Keycloak's login form, and holds its token against `test-identities.tsv`: exactly those groups and roles, and `employee_id` equal to `uidNumber`. `cmapi.noaccess` gets 403 on `/api/v1/clusters`, where `cmapi.viewer` gets 200. Before it, `LDAP full sync: 200` with `added` 13 in the Job's log | `crc-proof.sh` |
 | A login through LDAP federation in a browser | The owner signs in to `/docs` as `cmapi.requester`, Try it out on `/api/v1/me`, screenshot: `/cmapi/app-cmapi-rbac-requester` and `employeeId` 10102. The password goes to the clipboard, never the screen: `oc get secret cmapi-ldap-test-users -n cmapi -o 'jsonpath={.data.cmapi\.requester}' \| base64 -d \| pbcopy` | Chrome |
+| The portal on the API, one origin | Open `https://cmapi.apps-crc.testing/`, sign in as `cmapi.requester` (the password as above), screenshot of the requests list. DevTools shows the portal's calls to `/api/v1` on the same origin, with no `Origin` preflight and no CSP violation in the console | Chrome |
 | The mockup, captioned as static | `https://cmapi-mockup.apps-crc.testing/portal.html`, screenshot captioned "static mockup, no API behind it" | Chrome |
 | The database connections | From the server's side, `pg_stat_ssl`: every `cmapi` connection on TLS. From each container's side: the api and the worker connect with `sslmode=verify-full` (#91). The server cannot see whether a client verified it, so both are read. The migrate containers' proof is `kind-test.sh`'s, on kind | `crc-proof.sh` |
 | Prometheus scraping | Thanos Querier's Route, the session's token on stdin: `up` for both targets, and `cmapi_cluster_status` connected. No exec into someone else's pod | `crc-proof.sh` |
 | `oc adm top node` before and after | Steps 2 and 24 | Files |
-| Nothing can write | `oc auth can-i` both ways, and a namespace plan with `?dryRun=true` stops at 422 `cluster-not-writable` | `crc-proof.sh` |
+| Only the worker writes, and only inside its policy | The api may not create or patch namespaces or create rolebindings (`oc auth can-i`). Server dry runs as the worker: a namespace labelled `cmapi.net/managed=false` is refused with the policy's own message, one labelled `true` is admitted, and a label on namespace `default` is refused with the same message. A dry run persists nothing | `crc-proof.sh` |
+| A plan reads GitHub and writes nothing | `?dryRun=true` for `cmapi-proof-plan` answers 200 with its files, through the GitHub adapter (the API process reads through GitHub's API, #286), the token in `cmapi-git-bot` and the Git trust of `CMAPI_GIT_CA_BUNDLE` (#97); afterwards no namespace `cmapi-proof-plan` | `crc-proof.sh` |
+| A request delivered | [The full request flow](#the-full-request-flow), in the portal and on the API | Chrome and `oc` |
+
+## The full request flow
+
+Since #157, the owner's decision of 2026-11-15. What changes from Wave 1, all in `deploy/manifests/environments/crc/`:
+
+| File | Setting | Why |
+|---|---|---|
+| `20-config.yaml` | `clusters.yaml`: CRC `writes: true` | The one cluster takes requests |
+| `20-config.yaml` | `instance.git.repository: ephico2real2/cmapi-cluster-configs` | cmapi's own repository. It is not the organisation's `cluster-configs`, which stays as it is |
+| `20-config.yaml` | `instance.git`: `url: git@github.com:ephico2real2/cmapi-cluster-configs.git`, `username: cmapi-git-bot`, `hostChecks: false` | The Git layer over SSH with the bot account's key; the token is for the PR alone; no host CI is read and no status is posted (#286, docs/19) |
+| `20-config.yaml` | `integrations.yaml`: `delivery.mode: apply` | CRC has no Argo CD. The worker server-side applies the PR branch's folder, confirms it with a read, and only then merges the PR (apply before merge, #286). A delete merges first and is held until an operator's `POST /api/v1/admin/prune:confirm` (`core/sync.py`). The design's mode stays `argocd` (Wave 5) |
+| `10-env.yaml` | `CMAPI_GIT_URL: https://api.github.com`, `CMAPI_GIT_CA_BUNDLE: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` | GitHub, verified against the image's system trust. `cmapi-trust` and `SSL_CERT_FILE` hold Keycloak's private CA alone, and httpx 0.28.1 honours `SSL_CERT_FILE` for `verify=True`, so without a trust of its own the Git provider could not verify github.com (#97) |
+| `deliverer/00-cmapi-deliverer.yaml` | The worker's write, and its containment | Step 7 |
+
+**The path of one request.** A plan reads the namespace's folder on `main` through GitHub's API. On submit, the auto-approval policy `baseline-rnd-namespace` approves a `small` or `medium` namespace in `dev`, and anything else waits for its approvers. Then the worker's jobs, one external effect each (`cmapi/src/cmapi/jobs/delivery.py`):
+
+1. `push_branch`: `git fetch origin main` into the pod's mirror; the folder on `main` must still be the plan's base (else `superseded`); `git worktree add -b cmapi/CRC/<requestId> <workdir>/CRC/<requestId>` from `origin/main`; one commit by `cmapi-git-bot` with the trailers `Cmapi-Request-Id`, `Cmapi-Plan-Hash`, `Cmapi-Approval`, `Cmapi-Requester` and `Cmapi-Instance`; a push of that branch alone.
+2. `open_pr`: the PR, as `cmapi-git-bot`.
+3. `pr_checks`: kubeconform and the Kyverno bundle on the PR head, the cmapi check, and the merge check (`git merge-tree`, and the folder on `main` against the plan's base).
+4. `apply`: `apply_started`, then server-side apply of the branch's folder, confirmed by a read. The request is `applied`.
+5. `merge`: the merge check again, then GitHub's merge pinned to the applied head. The request is `synced`.
+6. `git_cleanup`: the branch deleted with a lease, and the worktree removed.
+
+Nothing is ever pushed to `main`. A merge that fails after the apply leaves the request in `merge_failed`, with its PR, its branch and the namespace's lock kept, and `CmapiMergeFailed` fires; `:retry` merges it.
+
+**No host checks.** `instance.git.hostChecks` is `false`: cmapi reads no check of GitHub, posts no commit status, and needs no Checks or Commit statuses permission. cmapi's own checks are the gate. `examples/cluster-configs/.github/workflows/ci.yml` can still run on each PR, as a record; cmapi does not wait for it.
+
+**No branch protection (#227).** The repository is private on GitHub's free plan, which refuses branch protection (HTTP 403, "Upgrade to GitHub Pro or make this repository public"). So nothing on GitHub stops a person with write access from pushing to `main` or merging by hand. What holds instead is cmapi's own: the bot pushes only its request branches, each with a lease; the merge check refuses a folder on `main` that is not the plan's base; the merge is pinned to the applied head; and the admission policy keeps the worker out of every namespace not labelled `cmapi.net/managed=true`. A hand edit of a folder on `main` is refused at the next request, not prevented. A hand merge of a cmapi PR is adopted.
+
+**Which test namespaces.** Only cmapi's own: names that start `cmapi-` and are not reserved. Each one is removed by a delete request, approved, then `prune:confirm`.
 
 ## Other realms unaffected
 
@@ -499,10 +610,10 @@ Approved by the owner on 2026-11-06, as the step immediately before the import. 
 
 - **Sign-in.** `pg_dump` runs in the pod, over TCP to the pod's own loopback, as `POSTGRESQL_USER` with `POSTGRESQL_PASSWORD`, each read by the pod's own shell, so it is on no argument list on the Mac or in the pod. Measured on `registry.redhat.io/rhel9/postgresql-16` (PostgreSQL 16.15): the image as it ships trusts both its socket and 127.0.0.1, and with those rules tightened to `peer` and `md5` the socket refuses this user while the password on the loopback still works. A wrong password, an empty variable or another image's variable names stop the backup and leave no file. Whether `postgres-0`'s own rules match the image's is the first run's check: if it cannot sign in, the run stops at this step.
 - **Load.** It stops with under 128 Mi of room below `postgres-0`'s limit, or under 5 free connections. `pg_dump` takes ACCESS SHARE locks and one snapshot and does not block readers or writers (PostgreSQL's page); `--lock-wait-timeout=30s` fails rather than queueing behind DDL.
-- **The stream.** To stdout, over `oc exec` with no TTY, redirected on the Mac. Nothing is written in the pod.
+- **The stream.** To stdout, over `oc exec` with no TTY, redirected on the Mac. Nothing is written in the pod. Each check that reads the file back over `oc exec -i` drains its stdin after the check: `pg_restore --list` and `-t` stop at what they need, and CRI-O fails the exec when the process leaves stdin unread (`write |1: broken pipe`, the first run's stop at step 13, #268; that it is only past the pipe buffer is inferred).
 - **Storage.** `~/.cmapi-keycloak-backup/`, directory 0700, file 0600, a symbolic link refused, excluded from Time Machine, outside Git. Deleting a file on APFS does not wipe its blocks, and a local snapshot may hold it (inferred).
 - **The proof, before the import.** `pg_restore --list` alone is not enough: a file 100 bytes short lists with rc 0 (measured). So, on the pod's own `pg_restore`, with any failure stopping the run and removing the file: non-empty and starting `PGDMP`; `--list` shows table data; `-f /dev/null` reads to the end; the rows of `realm` in the archive equal `select count(*) from realm`.
-- **Measured short of CRC:** `deploy/tests/crc-backup-test.sh` runs the script on a real PostgreSQL of that image, with the container runtime's exec standing in for `oc exec`, and restores its dump into an empty database, rows the same. `oc` 4.22.18 on a kind cluster, against CloudNativePG's pod: `oc exec` passes the remote status, the dump arrives whole with no TTY, `oc exec -i` reaches EOF on stdin, and a file 100 bytes short fails the full read. The script has not run against `postgres-0`, which is the first run's check.
+- **Measured short of CRC:** `deploy/tests/crc-backup-test.sh` runs the script on a real PostgreSQL of that image, with the container runtime's exec standing in for `oc exec`, fails an `exec -i` that leaves any stdin unread, and restores its dump into an empty database, rows the same. `oc` 4.22.18 on a kind cluster, against CloudNativePG's pod: `oc exec` passes the remote status, the dump arrives whole with no TTY, `oc exec -i` reaches EOF on stdin, and a file 100 bytes short fails the full read. The script has not run against `postgres-0`, which is the first run's check.
 
 ### Restoring
 
@@ -527,6 +638,8 @@ It first checks LDAP ownership and measurements without writing or deleting anyt
 
 **In LDAP** it removes exactly what step 9 added, each by its full `dn`: the 10 `app-cmapi-rbac-*` groups and the 13 test users, then Secret `cmapi-ldap-test-users` by name. It refuses, deleting none, if an entry at one of those names is not what step 9 writes, and it fails if anything else under `ou=People` or `ou=Groups` moved. It restores nothing: the old `cmapi-*` groups stay gone.
 
+**A namespace a request delivered** is a team's, with its workloads, and the rollback names no namespace it did not make. So it stops first, deleting nothing, while any namespace labelled `cmapi.net/managed=true` is there: remove each through a cmapi delete request, approved, then `POST /api/v1/admin/prune:confirm`. It then removes the worker's write before its containment (the ClusterRoleBinding and ClusterRole `cmapi-deliverer`, then the policy's binding and the policy), and Secret `cmapi-git` by name, the name before #286, and `cmapi-git-bot`, `cmapi-git-bot-ssh` and ConfigMap `cmapi-git-bot-known-hosts` by name. The bot's branches and merges in `ephico2real2/cmapi-cluster-configs` stay: the repository is the record.
+
 **Stays, because it was there before Wave 1:** namespace `cmapi` and the Secrets the cluster generated in it, `cmapi-ldap-bind` in both namespaces, every other LDAP entry. Only the label the apply added is removed.
 
 **Stays by design:**
@@ -537,7 +650,7 @@ It first checks LDAP ownership and measurements without writing or deleting anyt
 | `master`'s client `cmapi-realm` | Creating any realm adds it; it goes with the realm | One more client in `master`. No key or other realm changes |
 | `cmapi-realm-secrets` in `keycloak` | The authority for the realm's secrets. A rerun copies from it and never mints | One Secret |
 | The PV's data | The class is Retain. The script deletes the PV object only if its claim was `cmapi/cmapi-db-1` and it is `Released`; the directory stays on the node (inferred), and cmapi does not write to the node | Disk on the node, a 2 Gi claim |
-| The image's blobs | `oc delete imagestream` removes the tags; blobs stay until the registry is pruned (inferred) | Registry storage |
+| The images' blobs | `oc delete imagestream` removes the tags of `cmapi` and `cmapi-portal`; blobs stay until the registry is pruned (inferred) | Registry storage |
 
 **Deleting realm `cmapi` too,** only if the owner asks:
 
@@ -567,7 +680,7 @@ From the manifests, by Kubernetes' rule that a pod's effective request is the la
 | `cmapi-api` | 160 Mi |
 | `cmapi-worker` | 128 Mi |
 | `cmapi-db-1` | 256 Mi |
-| `cmapi-mockup` | 32 Mi |
+| `cmapi-portal` (the front door) | 32 Mi |
 | **Steady** | **576 Mi** |
 
 Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), with a stop line of 2,048 Mi:
@@ -578,7 +691,8 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 | Import alone, if RHBK refuses `resources` | 1,700 Mi | 2,318 Mi | Passes, so the realm goes first in either case |
 | Import plus cmapi, operator default | 2,276 Mi | 1,742 Mi | Under the line. **This order is never run** |
 | Steady | 576 Mi | 3,442 Mi | |
-| Steady plus the realm-sync Job | 672 Mi | 3,346 Mi | The run's peak |
+| The database plus the realm-sync Job | 352 Mi | 3,666 Mi | Step 20. The Job requests 96 Mi, and it ends before the workloads start |
+| Steady plus the realm-sync Job | 672 Mi | 3,346 Mi | What step 19 asks for. It is more than the run uses after the import, because the Job and the workloads do not run together |
 
 ## Trying it without CRC
 
@@ -586,4 +700,4 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 
 ## Not proven before the run
 
-RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; `apply-test-identities.sh` against the real server's rules, memberOf overlay and gate group (`deploy/tests/ldap-identities-test.sh` runs it on the same image, `osixia/openldap:1.5.0`, with rules shaped as the server's and the overlay both ways); what `oc whoami` prints for kubeadmin on this CRC (either form passes). `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.
+RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull, of both images; the `cmapi-portal` image's build on this Mac (CI builds it and runs `deploy/tests/front-door-test.py --image` on it); the front door on a cluster: nginx resolving the headless Service `cmapi-api-pods` through the pod's DNS server, the router's `set-forwarded-headers: replace`, and the portal's sign-in through it; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; `apply-test-identities.sh` against the real server's rules, memberOf overlay and gate group (`deploy/tests/ldap-identities-test.sh` runs it on the same image, `osixia/openldap:1.5.0`, with rules shaped as the server's and the overlay both ways); what `oc whoami` prints for kubeadmin on this CRC (either form passes). The full request flow (#157): the GitHub adapter against GitHub itself (#61; `test_crc_environment.py` runs CRC's configuration end to end on a fake Git host and a fake cluster); `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` in the running image (the image's build stage fetches from github.com with the same base image's system trust, which is inferred evidence); the admission policy on OpenShift, including a server dry run as the worker; a RoleBinding to `cmapi-token-issuer`, which no ClusterRole defines on CRC yet, accepted on the strength of `bind` alone; the repository's Actions reporting `ci/kubeconform` and `ci/kyverno`. `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.

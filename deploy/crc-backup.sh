@@ -19,7 +19,11 @@ MIN_ROOM_MI=${CMAPI_BACKUP_MIN_ROOM_MI:-128}
 # rule were peer this user could not use it, while the password below still works on 127.0.0.1 (deploy/tests/crc-backup-test.sh). -w: fail, never prompt.
 DBENV='U=${POSTGRESQL_USER:-}; D=${POSTGRESQL_DATABASE:-}; P=${POSTGRESQL_PASSWORD:-}; [ -n "$U" ] && [ -n "$D" ] && [ -n "$P" ] || { echo "POSTGRESQL_USER, POSTGRESQL_DATABASE or POSTGRESQL_PASSWORD is not set in this pod" >&2; exit 64; }; export PGPASSWORD="$P"; export PGHOST=127.0.0.1;'
 in_pod() { oc_ exec "$POD" -n "$NS" -c "$CONTAINER" -- sh -c "$DBENV $1"; }
-in_pod_stdin() { oc_ exec -i "$POD" -n "$NS" -c "$CONTAINER" -- sh -c "$1"; }
+# The dump on stdin, and read to its end whatever the command reads: pg_restore --list and -t stop at what they need (2,052 of 2,970,565 bytes, measured),
+# and CRI-O fails the exec when the process leaves stdin unread past the pipe buffer ("write |1: broken pipe", #268). The command's own status is the result,
+# not the drain's. So never `exec` in $1: the drain would not run.
+in_pod_stdin() { oc_ exec -i "$POD" -n "$NS" -c "$CONTAINER" -- sh -c "{ $1
+}; rc=\$?; cat >/dev/null; exit \$rc"; }
 container() { oc_ get pod "$POD" -n "$NS" -o json | python3 -c 'import json,sys
 c=json.load(sys.stdin)["spec"]["containers"]
 if len(c)!=1: sys.exit("postgres-0 has %d containers; say which by hand" % len(c))

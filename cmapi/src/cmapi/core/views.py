@@ -28,6 +28,7 @@ def request_view(repo: RequestRepo, row: ChangeRequestRow, *, with_events: bool 
         "pr": None if not pr else {"number": pr["number"], "url": pr["url"], "branch": pr["branch"], "head": pr["head"][:8]},
         "mergeSha": row.merge_sha and row.merge_sha[:8],
         "files": diff_files(plan.get("prev", {}), plan.get("files", {})),
+        "beyondTier": plan.get("beyondTier"),
         "events": [{"at": e.at, "event": e.event, "status": e.status, "by": e.by, "note": e.note}
                    for e in repo.events(row.request_id)] if with_events else [],
         "createdAt": row.created_at, "updatedAt": row.updated_at, "links": links,

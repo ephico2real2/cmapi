@@ -1,0 +1,9 @@
+# Source: docs/02-technical-design-v2.md, "Plugin architecture"
+# examples/instances/nonprod/plugins.yaml: deployed as config/plugins.yaml on the nonprod instance. allowedEnvironments: [rnd, dev].
+# The file is optional: without it, each built-in plugin is enabled. The names are the plugins of this build (docs/08).
+enabled: [namespaces, tiers, directory, quotas]
+# An override stops the writes of an enabled plugin in one served environment of this instance. The reads stay.
+# overrides:
+#   nonprod:
+#     dev:
+#       disabled: [namespaces]

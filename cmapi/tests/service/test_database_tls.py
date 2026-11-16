@@ -31,7 +31,9 @@ def components(request, tmp_path_factory):
         return objects_in(ROOT / "deploy/manifests/components")
     out = tmp_path_factory.mktemp("render") / "out"
     image = INTERNAL if request.param == "crc" else GHCR
-    subprocess.run([ROOT / "deploy/render.sh", request.param, image, out], check=True, capture_output=True)
+    # The front door's image too: every render needs it (#226), and it changes nothing these tests read.
+    portal = image.replace("/cmapi@", "/cmapi-portal@")
+    subprocess.run([ROOT / "deploy/render.sh", request.param, image, "--portal-image", portal, out], check=True, capture_output=True, timeout=120)
     return objects_in(out / "components")
 
 

@@ -1,2 +1,183 @@
 # Breaking changes that the contract gate lets through (oasdiff --err-ignore).
 # One change for each line, in the words that oasdiff prints, with the reason and the issue number on the line above it.
+
+# #164 (BUG-39), accepted on 2026-11-13, before the first release: a request that FastAPI refused had FastAPI's own 422 body,
+# with `detail` as a list. Each refusal is now the RFC 9457 problem that the design specifies, with `detail` as a text.
+POST /api/v1/admin/auto-approval:pause the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/admin/auto-approval:resume the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/clusters/{cluster_id}/namespaces the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/directory/users the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/directory/users/{username} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas:export the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/quotas:suggest the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id} the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id}/approval-status the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/requests/{request_id}/events the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:approve the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:cancel the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:retry the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+POST /api/v1/requests/{request_id}:revert the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+GET /api/v1/tiers the `detail` response's property `type` changed from `array<object>` to `string` for status `422`
+
+# #164 (BUG-39), accepted on 2026-11-13, before the first release: these six operations documented their 422 problem under two
+# media types. The API never served a problem as `application/json`, only as `application/problem+json`, so the first one is removed.
+POST /api/v1/admin/prune:confirm removed the media type `application/json` for the response with the status `422`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `422`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `422`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `422`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `422`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `422`
+
+# #179 (BUG-48), accepted on 2026-11-13, before the first release: each problem response other than 422 documented two media
+# types. The API never served a problem as `application/json`, only as `application/problem+json` (RFC 9457, section 3), so the
+# first one is removed, as #164 did for the 422 responses.
+GET /api/v1/admin/auto-approval removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/auto-approval removed the media type `application/json` for the response with the status `403`
+POST /api/v1/admin/auto-approval:pause removed the media type `application/json` for the response with the status `401`
+POST /api/v1/admin/auto-approval:pause removed the media type `application/json` for the response with the status `403`
+POST /api/v1/admin/auto-approval:resume removed the media type `application/json` for the response with the status `401`
+POST /api/v1/admin/auto-approval:resume removed the media type `application/json` for the response with the status `403`
+GET /api/v1/admin/git-log removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/git-log removed the media type `application/json` for the response with the status `403`
+GET /api/v1/admin/git-log removed the media type `application/json` for the response with the status `502`
+GET /api/v1/admin/integrations removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/integrations removed the media type `application/json` for the response with the status `403`
+GET /api/v1/admin/kpi removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/kpi removed the media type `application/json` for the response with the status `403`
+POST /api/v1/admin/prune:confirm removed the media type `application/json` for the response with the status `401`
+POST /api/v1/admin/prune:confirm removed the media type `application/json` for the response with the status `403`
+POST /api/v1/admin/prune:confirm removed the media type `application/json` for the response with the status `409`
+GET /api/v1/clusters removed the media type `application/json` for the response with the status `401`
+GET /api/v1/clusters removed the media type `application/json` for the response with the status `403`
+GET /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `401`
+GET /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `403`
+GET /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `404`
+GET /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `503`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `400`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `401`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `403`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `404`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `409`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `502`
+POST /api/v1/clusters/{cluster_id}/namespaces removed the media type `application/json` for the response with the status `503`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `400`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `401`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `403`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `404`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `409`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `412`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `428`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `502`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `503`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `401`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `403`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `404`
+GET /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `502`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `400`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `401`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `403`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `404`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `409`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `412`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `428`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `502`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} removed the media type `application/json` for the response with the status `503`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `400`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `401`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `403`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `404`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `409`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `412`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `428`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `502`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend removed the media type `application/json` for the response with the status `503`
+GET /api/v1/directory/users removed the media type `application/json` for the response with the status `401`
+GET /api/v1/directory/users removed the media type `application/json` for the response with the status `403`
+GET /api/v1/directory/users removed the media type `application/json` for the response with the status `503`
+GET /api/v1/directory/users/{username} removed the media type `application/json` for the response with the status `401`
+GET /api/v1/directory/users/{username} removed the media type `application/json` for the response with the status `403`
+GET /api/v1/directory/users/{username} removed the media type `application/json` for the response with the status `404`
+GET /api/v1/directory/users/{username} removed the media type `application/json` for the response with the status `503`
+GET /api/v1/me removed the media type `application/json` for the response with the status `401`
+GET /api/v1/me removed the media type `application/json` for the response with the status `503`
+GET /api/v1/quotas removed the media type `application/json` for the response with the status `400`
+GET /api/v1/quotas removed the media type `application/json` for the response with the status `401`
+GET /api/v1/quotas removed the media type `application/json` for the response with the status `403`
+GET /api/v1/quotas:export removed the media type `application/json` for the response with the status `401`
+GET /api/v1/quotas:export removed the media type `application/json` for the response with the status `403`
+GET /api/v1/quotas:suggest removed the media type `application/json` for the response with the status `401`
+GET /api/v1/quotas:suggest removed the media type `application/json` for the response with the status `403`
+GET /api/v1/requests removed the media type `application/json` for the response with the status `400`
+GET /api/v1/requests removed the media type `application/json` for the response with the status `401`
+GET /api/v1/requests removed the media type `application/json` for the response with the status `403`
+GET /api/v1/requests/{request_id} removed the media type `application/json` for the response with the status `401`
+GET /api/v1/requests/{request_id} removed the media type `application/json` for the response with the status `403`
+GET /api/v1/requests/{request_id} removed the media type `application/json` for the response with the status `404`
+GET /api/v1/requests/{request_id}/approval-status removed the media type `application/json` for the response with the status `401`
+GET /api/v1/requests/{request_id}/approval-status removed the media type `application/json` for the response with the status `403`
+GET /api/v1/requests/{request_id}/approval-status removed the media type `application/json` for the response with the status `404`
+GET /api/v1/requests/{request_id}/events removed the media type `application/json` for the response with the status `401`
+GET /api/v1/requests/{request_id}/events removed the media type `application/json` for the response with the status `403`
+GET /api/v1/requests/{request_id}/events removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:approve removed the media type `application/json` for the response with the status `401`
+POST /api/v1/requests/{request_id}:approve removed the media type `application/json` for the response with the status `403`
+POST /api/v1/requests/{request_id}:approve removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:approve removed the media type `application/json` for the response with the status `409`
+POST /api/v1/requests/{request_id}:cancel removed the media type `application/json` for the response with the status `401`
+POST /api/v1/requests/{request_id}:cancel removed the media type `application/json` for the response with the status `403`
+POST /api/v1/requests/{request_id}:cancel removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:cancel removed the media type `application/json` for the response with the status `409`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `401`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `403`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:reject removed the media type `application/json` for the response with the status `409`
+POST /api/v1/requests/{request_id}:retry removed the media type `application/json` for the response with the status `401`
+POST /api/v1/requests/{request_id}:retry removed the media type `application/json` for the response with the status `403`
+POST /api/v1/requests/{request_id}:retry removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:retry removed the media type `application/json` for the response with the status `409`
+POST /api/v1/requests/{request_id}:revert removed the media type `application/json` for the response with the status `401`
+POST /api/v1/requests/{request_id}:revert removed the media type `application/json` for the response with the status `403`
+POST /api/v1/requests/{request_id}:revert removed the media type `application/json` for the response with the status `404`
+POST /api/v1/requests/{request_id}:revert removed the media type `application/json` for the response with the status `409`
+GET /api/v1/tiers removed the media type `application/json` for the response with the status `401`
+GET /api/v1/tiers removed the media type `application/json` for the response with the status `403`
+GET /api/v1/admin/plugins removed the media type `application/json` for the response with the status `401`
+GET /api/v1/admin/plugins removed the media type `application/json` for the response with the status `403`
+
+# #179 (BUG-48), accepted on 2026-11-13, before the first release: the export documented `application/json` beside `text/csv`.
+# The route answers CSV only.
+GET /api/v1/quotas:export removed the media type `application/json` for the response with the status `200`
+
+# #286, accepted on 2026-11-15, before the first release: two new request states, applied and merge_failed (apply before
+# merge). A client that switches on status must handle them; the portal does (cmapi-portal-ui/src/portal/format.ts).
+POST /api/v1/admin/prune:confirm added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/admin/prune:confirm added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new `applied` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new `merge_failed` enum value to the `status` response property for the response status `202`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `applied` enum value to the `status` response property for the response status `202`
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `merge_failed` enum value to the `status` response property for the response status `202`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `applied` enum value to the `status` response property for the response status `202`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the new `merge_failed` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend added the new `applied` enum value to the `status` response property for the response status `202`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend added the new `merge_failed` enum value to the `status` response property for the response status `202`
+GET /api/v1/requests added the new `applied` enum value to the `items/items/status` response property for the response status `200`
+GET /api/v1/requests added the new `merge_failed` enum value to the `items/items/status` response property for the response status `200`
+GET /api/v1/requests/{request_id} added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id} added the new `merge_failed` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/approval-status added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/approval-status added the new `merge_failed` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/events added the new `applied` enum value to the `status` response property for the response status `200`
+GET /api/v1/requests/{request_id}/events added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:approve added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:approve added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:cancel added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:cancel added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:reject added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:reject added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:retry added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:retry added the new `merge_failed` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:revert added the new `applied` enum value to the `status` response property for the response status `200`
+POST /api/v1/requests/{request_id}:revert added the new `merge_failed` enum value to the `status` response property for the response status `200`

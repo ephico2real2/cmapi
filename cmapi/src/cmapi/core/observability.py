@@ -16,6 +16,10 @@ import structlog
 from fastapi import FastAPI, Request
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.requests import ClientDisconnect
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 from cmapi import __version__
 
 BUILD_INFO = Gauge("cmapi_build_info", "Which instance and release a series came from", ["instance", "version", "component"])
@@ -26,8 +30,22 @@ CHANGE_REQUESTS = Counter("cmapi_change_requests_total", "Change requests by out
 VALIDATION_FAILURES = Counter("cmapi_validation_failures_total", "Plans refused by validation", ["source"])
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
-GIT_OPS = Counter("cmapi_git_operations_total", "Git host calls", ["operation", "result"])
-GIT_DURATION = Histogram("cmapi_git_operation_duration_seconds", "Git host call duration", ["operation"])
+PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
+                          ["plugin", "environment"])
+# The Git layer and the platform adapters (#286; the fields and metrics of Fable's design, 6.2). One count per operation
+# (core/git/oplog.py): op is clone, fetch, ls_remote, worktree, commit, push, merge_check, branch_delete, cleanup, and the host
+# calls pr_open, pr_find, pr_state, pr_list, merge, pr_comment, pr_close, status_read, status_write; result is ok, retry,
+# refused, skipped or error. No metric carries a request ID.
+GIT_OPS = Counter("cmapi_git_operations_total", "Git and Git host operations", ["op", "result"])
+GIT_DURATION = Histogram("cmapi_git_operation_seconds", "Git and Git host operation duration", ["op"])
+PLATFORM_REQUESTS = Counter("cmapi_git_platform_requests_total", "Git host API calls", ["platform", "op", "code"])
+MERGE_CONFLICTS = Counter("cmapi_git_merge_conflicts_total", "Merge checks that refused: a conflict or a folder that moved", ["caller"])
+REQUESTS_IN_STATE = Gauge("cmapi_requests_in_state", "Requests in a state the alerts watch", ["state"])
+GIT_WORKDIR_BYTES = Gauge("cmapi_git_workdir_bytes", "Size of this pod's Git workdir")
+GIT_WORKTREES = Gauge("cmapi_git_worktrees", "Request worktrees in this pod's Git workdir")
+SWEEPER_RUNS = Counter("cmapi_git_sweeper_runs_total", "Passes of the Git workdir sweeper", ["result"])
+GIT_ORPHANS = Counter("cmapi_git_orphans_total", "Branches and PRs that git_reconcile or a job found and acted on", ["kind", "action"])
+REQUESTS_STALLED = Gauge("cmapi_requests_stalled", "pr_open requests with no PR and no job, older than syncTimeout")
 JOBS_PENDING = Gauge("cmapi_jobs_pending", "Jobs waiting to run", ["kind"])
 JOB_FAILURES = Counter("cmapi_job_failures_total", "Jobs that raised", ["kind"])
 LEAD_TIME = Histogram("cmapi_change_lead_time_seconds", "Submit to synced", ["plugin", "action", "approval"],
@@ -37,12 +55,14 @@ APPROVAL_WAIT = Histogram("cmapi_approval_wait_seconds", "pending_approval to ap
 AUTO_APPROVALS = Counter("cmapi_auto_approvals_total", "Auto-approved requests", ["policy", "environment"])
 AUTO_FALLBACKS = Counter("cmapi_auto_approval_fallbacks_total", "Matching policies stopped by a guard", ["guard"])
 AUTO_PAUSED = Gauge("cmapi_auto_approval_paused", "1 when the kill switch is on")
+POLICY_MODE = Gauge("cmapi_policy_mode", "1 for the policy mode of each served environment (instance.yaml policy, #213)",
+                    ["environment", "mode"])
 CLUSTER_STATUS = Gauge("cmapi_cluster_status", "1 for the cluster's current import status", ["cluster_id", "status"])
 CLUSTER_CALLS = Counter("cmapi_cluster_api_calls_total", "Cluster API calls", ["cluster_id", "result"])
 OPEN_REQUEST_AGE = Gauge("cmapi_open_change_requests_oldest_age_seconds", "Age of the oldest open request", ["status", "environment"])
 CONFIG_INFO = Gauge("cmapi_config_info", "Hash of the loaded configuration", ["hash"])
-SYNC_DRIFT = Counter("cmapi_sync_drift_total", "OutOfSync seen with no open request", ["cluster_id"])
-NAMESPACES = Gauge("cmapi_namespaces", "Namespaces by management state", ["cluster_id", "state"])
+# cmapi_namespaces is a collector over the watch caches (core/kpi.py). cmapi_sync_drift_total is not declared: no code sees an
+# OutOfSync state with no open request yet, and a counter with no sample reads as "no drift" (#172, docs/17 "Drift events").
 
 
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
@@ -67,31 +87,50 @@ def start_metrics(port: int, instance: str, component: str) -> None:
     start_http_server(port)
 
 
-def instrument(app: FastAPI) -> None:
-    @app.middleware("http")
-    async def metrics_and_request_id(request: Request, call_next: Any):
-        rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+class MetricsAndRequestIdMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        rid = Headers(scope=scope).get("x-request-id") or uuid.uuid4().hex[:16]
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=rid)
         started = time.perf_counter()
         method = request.method if request.method in _METHODS else "OTHER"
+        status: int | None = None
 
-        def observe(status: int) -> str:
-            # Only declared routes become label values: a scanner's paths must not mint series.
-            route = getattr(request.scope.get("route"), "path", "unmatched")
-            HTTP_REQUESTS.labels(method, route, str(status)).inc()
-            HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
-            return route
+        async def send_with_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message)["X-Request-Id"] = rid
+            await send(message)
 
         try:
-            response = await call_next(request)
-        except Exception:
-            observe(500)                  # raised past this middleware: the error-rate alert must still count it
+            await self.app(scope, receive, send_with_id)
+        except ClientDisconnect:
             raise
-        route = observe(response.status_code)
-        response.headers["X-Request-Id"] = rid
-        caller = getattr(request.state, "caller", None)
-        log.info("http", method=request.method, route=route, status=response.status_code,
-                 caller_sub=getattr(caller, "sub", None), client=getattr(caller, "client_id", None),
-                 ms=round((time.perf_counter() - started) * 1000, 1))
-        return response
+        except Exception:
+            if status is None:
+                status = 500
+            raise
+        finally:
+            # Cancellation/disconnect before headers has no HTTP status to count.
+            # For a stream/background failure after headers, count the status actually sent.
+            if status is not None:
+                route = getattr(scope.get("route"), "path", "unmatched")
+                HTTP_REQUESTS.labels(method, route, str(status)).inc()
+                HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
+                caller = getattr(request.state, "caller", None)
+                log.info("http", method=request.method, route=route, status=status,
+                         caller_sub=getattr(caller, "sub", None), client=getattr(caller, "client_id", None),
+                         ms=round((time.perf_counter() - started) * 1000, 1))
+            structlog.contextvars.clear_contextvars()
+
+
+def instrument(app: FastAPI) -> None:
+    app.add_middleware(MetricsAndRequestIdMiddleware)

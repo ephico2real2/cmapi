@@ -78,3 +78,25 @@ def test_every_problem_code_the_code_raises_is_registered():
             raised.setdefault(m.group(1), f.name)
     assert len(raised) > 30, "the scan found too few codes to mean anything"
     assert {c: f for c, f in raised.items() if c not in PROBLEMS} == {}
+
+
+def test_a_request_that_fastapi_refuses_is_an_rfc_9457_problem_like_every_other_refusal(world):
+    """#164: a wrong type in a parameter or a body was FastAPI's own 422 body ({"detail": [...]}), not a problem, and the
+    document described that other shape for 16 operations."""
+    client, ctx, _, _, _, keys = world
+    h = {"Authorization": f"Bearer {keys.token('ola', roles=['cmapi-requester'], groups=[])}"}
+    for r in (client.get("/api/v1/requests?limit=abc", headers=h),
+              client.post("/api/v1/clusters/CRC/namespaces", json={"namespace": 5, "nope": 1}, headers={**h, "Idempotency-Key": "k"}),
+              client.get("/api/v1/directory/users?q=a", headers=h)):
+        assert r.status_code == 422 and r.headers["content-type"] == "application/problem+json", r.text
+        body = r.json()
+        assert body["code"] == "validation-failed" and body["status"] == 422 and isinstance(body["detail"], str)
+        assert body["errors"] and all({"field", "message", "code"} <= set(e) for e in body["errors"]), body
+    spec = client.get("/openapi.json").json()
+    assert "HTTPValidationError" not in spec["components"]["schemas"] and "ValidationError" not in spec["components"]["schemas"]
+    for path, ops in spec["paths"].items():
+        for method, op in ops.items():
+            r422 = op["responses"].get("422")
+            if op.get("parameters") or op.get("requestBody"):
+                assert r422 and "validation-failed" in r422["content"]["application/problem+json"]["examples"], f"{method} {path}"
+                assert "application/json" not in r422["content"], f"{method} {path}"

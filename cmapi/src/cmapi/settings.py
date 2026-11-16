@@ -6,6 +6,7 @@ deployment-specific (database URL, Git token, CA bundle). Every name is CMAPI_<F
 """
 from __future__ import annotations
 
+import ssl
 from functools import lru_cache
 from pathlib import Path
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
 
     config_dir: Path = Field(default=Path("/etc/cmapi/config"), description="instance.yaml and the policy files")
     metadata_keys: Path | None = Field(default=None, description="metadata-keys.yaml; default <config_dir>/metadata-keys.yaml")
-    policies_dir: Path = Field(default=Path("/etc/cmapi/policies"), description="Kyverno bundle the validator runs")
+    policies_dir: Path = Field(default=Path("/etc/cmapi/policies"), description="Hand-written Kyverno policies, run with the bundle that cmapi renders from its configuration (#212)")
     ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for Keycloak, Git and cluster calls")
 
     database_url: str = Field(default="", description="postgresql://user:pass@host:5432/db (any psycopg URL)")
@@ -35,6 +36,18 @@ class Settings(BaseSettings):
     git_user: str = Field(default="", description="With git_password: basic auth instead of a token (the Gitea stand-in)")
     git_password: str = Field(default="", description="See git_user")
     git_default_branch: str = "main"
+    git_credentials_dir: Path = Field(default=Path("/etc/cmapi/git-bot"), description="Secret cmapi-git-bot mounted as files: token, the "
+                                      "bot account's API token, and optionally username. Git over HTTPS reads token too (#286)")
+    git_ssh_dir: Path = Field(default=Path("/etc/cmapi/git-bot-ssh"), description="Secret cmapi-git-bot-ssh (kubernetes.io/ssh-auth), "
+                              "worker only: ssh-privatekey and optionally ssh-publickey, for Git over SSH (#286)")
+    git_workdir_limit_bytes: int = Field(default=1 << 30, description="The emptyDir sizeLimit of CMAPI_GIT_WORKDIR: above 80 % the "
+                                         "sweeper removes the workdir, to be fetched again (#286)")
+    git_known_hosts_dir: Path = Field(default=Path("/etc/cmapi/git-bot-known-hosts"), description="ConfigMap "
+                                      "cmapi-git-bot-known-hosts mounted as a folder: known_hosts, the Git host's pinned keys (#286)")
+    git_workdir: Path | None = Field(default=None, description="The Git layer's working storage: the mirror and one worktree per request. "
+                                     "The pods mount an emptyDir with a sizeLimit here; unset, a temporary folder of the process (#286)")
+    git_ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for the Git host alone; default: ca_bundle's trust. "
+                                       "On CRC the image's system bundle, since cmapi-trust holds only Keycloak's private CA (#97)")
 
     cursor_key: str = Field(default="", description="HMAC key signing list cursors; generated per instance")
     link_key: str = Field(default="", description="HMAC key signing email approval links")
@@ -60,6 +73,15 @@ class Settings(BaseSettings):
     def verify(self) -> str | bool:
         """httpx verify= value: the CA bundle when one is mounted, else the system store."""
         return str(self.ca_bundle) if self.ca_bundle else True
+
+    @property
+    def git_verify(self) -> ssl.SSLContext | str | bool:
+        """The Git provider's verify= value. With git_ca_bundle, an SSLContext built from that file alone: httpx honours
+        SSL_CERT_FILE for verify=True (httpx 0.28.1, _config.create_ssl_context), and the pods point it at cmapi-trust, so an
+        explicit context is the only trust no environment variable can change (#97). A missing file raises at start."""
+        if self.git_ca_bundle:
+            return ssl.create_default_context(cafile=str(self.git_ca_bundle))
+        return self.verify
 
 
 @lru_cache

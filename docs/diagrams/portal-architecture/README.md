@@ -2,9 +2,11 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 31 operations.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 32 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
+
+**After #204 (2026-11-14).** The figures and the sentences below that say "the portal makes no API call" are from before #204. The portal build of `cmapi-portal-ui` now signs a person in and calls `GET /api/v1/me` and `GET /api/v1/requests` (rows 16 to 19, and the page frame). This is proven against a stand-in issuer and a stand-in API only. The arrows of those rows are still dashed in figures 1 and 3: #209 draws them again. The demo build is what the figures show.
 
 ## The counts
 
@@ -123,7 +125,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 
 ## Built endpoints that no mockup action calls
 
-The mockup has no action for these 18 operations of `openapi.json`:
+The mockup has no action for these 19 operations of `openapi.json`:
 
 - `GET /api/v1/me`, `GET /api/v1/version`, `GET /api/v1/clusters`
 - `GET /api/v1/clusters/{cluster_id}/namespaces`, and `GET` and `DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`
@@ -131,7 +133,7 @@ The mockup has no action for these 18 operations of `openapi.json`:
 - `POST /api/v1/requests/{request_id}:cancel`, `:retry` and `:revert`
 - `GET /api/v1/directory/users` and `GET /api/v1/directory/users/{username}`
 - `GET /api/v1/admin/auto-approval`, and `POST /api/v1/admin/auto-approval:pause` and `:resume`
-- `GET /api/v1/admin/git-log`, `GET /api/v1/admin/integrations`, `POST /api/v1/admin/prune:confirm`
+- `GET /api/v1/admin/git-log`, `GET /api/v1/admin/integrations`, `POST /api/v1/admin/prune:confirm`, `GET /api/v1/admin/plugins`
 
 ## Text twins
 

@@ -1,0 +1,28 @@
+# What the front door (components/portal/10-front-door.yaml) needs on CRC, the same values as the chart's
+# deploy/environments/crc.yaml gives templates/portal.yaml. nginx reads the three hosts once, at start, and config.json is
+# mounted by subPath, so deploy/render.sh puts the checksum of this file into the front door's pod template.
+#   CMAPI_PORTAL_HOST   the instance's one host (40-routes.yaml): the portal at /, the API at /api/v1, /docs, /redoc
+#   CMAPI_MOCKUP_HOST   the standalone mockup's host
+#   CMAPI_OIDC_ORIGIN   the issuer's origin, which the Content-Security-Policy lets the portal and Swagger UI reach
+#   config.json         the portal's settings: apiUrl is the same host, so the portal calls the API on its own origin
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-portal-config
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/component: portal}
+data:
+  CMAPI_PORTAL_HOST: cmapi.apps-crc.testing
+  CMAPI_MOCKUP_HOST: cmapi-mockup.apps-crc.testing
+  CMAPI_OIDC_ORIGIN: https://keycloak.apps-crc.testing
+  config.json: |
+    {
+      "apiUrl": "https://cmapi.apps-crc.testing",
+      "issuer": "https://keycloak.apps-crc.testing/realms/cmapi",
+      "clientId": "cmapi-portal",
+      "audience": "cmapi-nonprod",
+      "instance": "nonprod",
+      "displayName": "Non-production (CRC)",
+      "environments": ["rnd","dev"],
+      "otherInstances": {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
+    }

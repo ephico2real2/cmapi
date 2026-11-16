@@ -39,6 +39,14 @@ thresholds:
   add: 1
 - when: quotaBelowRequested
   add: 1
+- when: beyondTier                # a custom-tier value that differs from the tier (docs/reviews/2026-11-14-issue-211)
+  add: 1
+  group: approver-platform
+  reason: Value beyond the tier
+- when: networkExposure           # the request raises services.loadbalancers or services.nodeports
+  add: 1
+  group: approver-platform
+  reason: Network exposure
 - when: sensitiveKeyChanged
   add: 1
   group: approver-platform

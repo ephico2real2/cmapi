@@ -19,9 +19,14 @@ imagePullPolicy: IfNotPresent
 instance:
   name: nonprod
   displayName: Non-production
+  # The names are the owner's choice. One has a meaning in code: a namespace in "prod" never expires, and the
+  # policies of policies/env/prod/ run for "prod" only (docs/02, "The names of instances and environments"; #232).
   allowedEnvironments: [rnd, dev]
-  publicUrl: ""              # https://<api route host>; left empty, the Route's host is used in NOTES only
-  portalUrl: ""              # https://<portal route host>
+  # The instance's one origin, on the front door (templates/portal.yaml): the portal at /, the API under /api/v1,
+  # Swagger UI at /docs. Both are https://<route.host or ingress.host>; the portal's config.json and the email links use them.
+  publicUrl: ""
+  portalUrl: ""
+  cors: {}                   # CORS is off: the front door gives one origin. {allowedOrigins: [http://localhost:5173]} lets a page of another origin call the API (docs/15)
   # Where to send callers for the environments other instances serve
   directory:
     staging: {url: https://cmapi-staging.ephico2real.com, environments: [qa, uat]}
@@ -37,11 +42,21 @@ instance:
     groupPath: /cmapi/app-cmapi-rbac-{name}   # the token's group for an approving group in approval-rules.yaml (docs/11)
   docs:
     enabled: true
+  # The base of each problem type URI (RFC 9457). One base for all the instances of an organisation, on a host that points
+  # at an instance: each instance serves /problems/<code>. Empty: the default, https://cmapi.ephico2real.com/problems/.
+  problems: {}             # {typeBase: https://<host>/problems/}
+  # The policy engine and the mode of each environment (#213; docs/02, "Policy in one place"): engine kyverno or none,
+  # mode enforce, audit or off, and environments: {rnd: {mode: audit}}. Empty: Kyverno enforces in each environment.
+  # Moving an environment away from enforce is a change of this file, reviewed by the platform group (CODEOWNERS).
+  policy: {}
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)
 auth:
   issuer: https://sso.ephico2real.com/realms/ephico2real
   audience: cmapi-nonprod
+  # true only for a Keycloak that cannot write the header typ at+jwt (RFC 9068) on an access token: cmapi then accepts
+  # the header JWT together with the claim typ Bearer also (docs/15, "The type of an access token").
+  acceptLegacyTokenType: false
   # Where the pods fetch the JWKS and call the admin API; default: the issuer. An internal Service
   # URL avoids the Route when the same Keycloak runs on the hub.
   jwksUrl: ""
@@ -61,7 +76,8 @@ keycloak:
     displayName: cmapi
     apiVersion: k8s.keycloak.org/v2beta1
   realm:
-    portalRedirects: []            # https://portal host/*
+    # Exact redirect URIs. The chart refuses a wildcard, a fragment, and http on a host that is not localhost (RFC 9700, section 2.1; #205).
+    portalRedirects: []            # https://<portal host>/ and https://<portal host>/index.html: the portal sends the address of its page
     docsRedirects: []              # https://api host/docs/oauth2-redirect
     # The groups of docs/11, each with the client roles its members get.
     groups:
@@ -79,7 +95,7 @@ keycloak:
   # profile attributes, and LDAP federation when the cmapi-ldap-bind Secret exists.
   sync:
     enabled: false
-    testUsers: true                # ola, amy, opal, bot-user with generated passwords in Secret cmapi-test-users
+    testUsers: true                # ola, amy, opal with generated passwords in Secret cmapi-test-users
     ldap:
       enabled: false               # needs Secret cmapi-ldap-bind (bindDN, password), created by the site
       connectionUrl: ldaps://ldaps-ldap-testing.apps-crc.testing:443
@@ -99,7 +115,7 @@ git:
   repository: cmapi/cluster-configs-nonprod
   defaultBranch: main
   # Secret with the bot credential: token (GitHub, Gitea token) or username+password (Gitea basic auth)
-  credentialSecret: cmapi-git
+  credentialSecret: cmapi-git-bot
   bootstrap:
     enabled: false                 # CRC and kind: create the org, the repository, its seed and the branch protection
     clusterIds: [CRC]
@@ -178,6 +194,8 @@ worker:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {cpu: 500m, memory: 384Mi}
   logLevel: INFO
+# The front door (the cmapi-portal image): nginx with the portal, the mockup and the proxy to the API. Off, the
+# instance has no host: nothing outside the namespace reaches the API.
 portal:
   enabled: true
   replicas: 1
@@ -194,23 +212,25 @@ migrate:                          # the initContainer that migrates the schema b
     limits: {cpu: 500m, memory: 256Mi}
 
 # -------------------------------------------------------------------------- exposure
-# Route (OpenShift, the default: the router names the host after the fact via spec.subdomain) or
+# One host for the instance, on the front door: the portal at / and the API's paths (docs/02, "The front door"). The
+# API has no Route or Ingress of its own. The mockup has its own host while portal.mockup.enabled is on.
+# Route (OpenShift, the default: with no host the router names it <release>.<apps domain> via spec.subdomain) or
 # Ingress (plain Kubernetes, needs a host).
 exposure: Route
 route:
-  api:
-    host: ""                       # empty: subdomain <release>-api
-    termination: edge
-  portal:
-    host: ""                       # empty: subdomain <release>-portal
+  host: ""                         # empty: subdomain <release>
+  # How long the router waits for the front door's answer. Above the front door's worst case for the API: two tries of
+  # 2 s to connect and 60 s to answer (cmapi-portal-ui/nginx/cmapi/proxy.conf and proxy-api.conf), 124 s.
+  timeout: 130s
   mockup:
     host: ""                       # empty: subdomain <release>-mockup
 ingress:
   className: ""
-  api: {host: ""}
-  portal: {host: ""}
+  host: ""
   mockup: {host: ""}
   tls: []
+# The cluster's DNS domain, for the API's headless Service name that the front door resolves.
+clusterDomain: cluster.local
 
 # -------------------------------------------------------------------------- trust
 trustedCA:
@@ -233,6 +253,10 @@ monitoring:
 
 networkPolicy:
   enabled: true
+  # With Ingress exposure: the namespace of the ingress controller, which alone may reach the front door. Empty, the
+  # front door's port is open to every pod of the cluster, and each of them can send X-Forwarded-For and
+  # X-Forwarded-Proto as it likes. With Route exposure the router's namespace is known and this is not used.
+  ingressNamespace: ""
   monitoringNamespace: openshift-user-workload-monitoring
 
 # -------------------------------------------------------------------------- security

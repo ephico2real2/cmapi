@@ -20,10 +20,22 @@ jobs:
           python-version: '3.12'
       - name: Install
         run: python -m pip install -r examples/local/requirements.txt
+      - name: The Kyverno CLI that the image pins
+        # The version and SHA-256 come from cmapi/Containerfile, so the image and this job cannot drift apart. The rendered
+        # policies (#212) are run through it by tests/core/test_policygen.py, which fails here rather than skip.
+        run: |
+          version=$(sed -n 's/^ARG KYVERNO_VERSION=//p' cmapi/Containerfile)
+          sha=$(sed -n 's/^ARG KYVERNO_SHA256=//p' cmapi/Containerfile)
+          curl -sSfL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${version}/kyverno-cli_${version}_linux_x86_64.tar.gz"
+          echo "${sha}  kyverno.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin" && tar xzf kyverno.tgz -C "$RUNNER_TEMP/bin" kyverno
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/kyverno" version
       - name: Test
         working-directory: examples
         env:
           PYTHONPATH: src
+          CMAPI_REQUIRE_KYVERNO: "1"
         run: python -m pytest tests -q
 
   service:
@@ -48,11 +60,18 @@ jobs:
           version: v3.19.0
       - name: Install
         run: python -m pip install -e "cmapi[test]"
+      # The Git layer's SSH tests (#286) run a throwaway sshd as the runner's user; /run/sshd is its privilege separation folder.
+      - name: sshd for the SSH tests
+        run: |
+          [ -x /usr/sbin/sshd ] || { sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends openssh-server; }
+          sudo mkdir -p /run/sshd
+          git --version
       - name: Test
         working-directory: cmapi
         env:
           PYTHONPATH: src:tests/service
           CMAPI_TEST_DATABASE_URL: postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi
+          CMAPI_TEST_REQUIRE_SSHD: "1"
         run: python -m pytest tests/service -q -W ignore::DeprecationWarning -W ignore::pydantic.warnings.UnsupportedFieldAttributeWarning
 
   portal-mockup:
@@ -82,14 +101,47 @@ jobs:
         working-directory: cmapi-portal-ui
         run: |
           npm ci
+          # The generator of the API types has its own lockfile (openapi-typescript needs TypeScript 5).
+          npm ci --ignore-scripts --prefix tools/openapi-types
           npx playwright install --with-deps chromium
       - name: Test
         working-directory: cmapi-portal-ui
         run: npm test
 
+  front-door:
+    # The front door (#226): the cmapi-portal image is built, then nginx in it is measured on its own configuration
+    # (deploy/tests/front-door-test.py --image) and the portal, Swagger UI, ReDoc, the problem pages and the mockup are
+    # loaded through it in Chromium with no CSP violation (cmapi-portal-ui/tests/front-door.test.mjs).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install
+        run: |
+          python -m pip install -e cmapi
+          cd cmapi-portal-ui && npm ci && npx playwright install --with-deps chromium
+      - name: Build the image
+        run: docker build -f cmapi-portal-ui/Containerfile --build-arg "GIT_COMMIT=${GITHUB_SHA}" -t cmapi-portal:ci .
+      - name: nginx in the image, on its own configuration
+        run: python deploy/tests/front-door-test.py --image cmapi-portal:ci --engine docker
+      - name: The pages through the front door, in a browser
+        working-directory: cmapi-portal-ui
+        run: |
+          cmapi-tools docs-assets --static-dir "$RUNNER_TEMP/static" --containerfile ../cmapi/Containerfile
+          npm run build
+          FRONT_DOOR_IMAGE=cmapi-portal:ci FRONT_DOOR_ENGINE=docker FRONT_DOOR_PYTHON=python FRONT_DOOR_STATIC="$RUNNER_TEMP/static" node tests/front-door.test.mjs
+
   api-contract:
-    # The API contract gate (#131, docs/01 "API documentation"): a pull request that breaks the contract of its base branch
-    # fails here. oasdiff compares cmapi/contract/openapi.json, which the service job keeps equal to what the code serves.
+    # The API contract gates (docs/01 "API documentation"). Gate 1 (#143): Spectral lints cmapi/contract/openapi.json with cmapi's
+    # ruleset. Gate 3 (#131): a pull request that breaks the contract of its base branch fails here, by oasdiff. The service job
+    # keeps that file equal to what the code serves.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,6 +157,18 @@ jobs:
           echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  oasdiff.tar.gz" | sha256sum -c -
           tar xzf oasdiff.tar.gz oasdiff && sudo mv oasdiff /usr/local/bin/
           oasdiff --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Spectral, from the lockfile
+        working-directory: cmapi/contract/spectral
+        run: |
+          npm ci --ignore-scripts
+          node_modules/.bin/spectral --version
+      - name: The lint refuses a document that breaks a rule, one case for each rule
+        run: python cmapi/contract/lint-test.py
+      - name: The contract passes the lint
+        run: cmapi/contract/lint.sh
       - name: The gate refuses a breaking change and passes an additive one
         run: cmapi/contract/gate-test.sh
       - name: The changelog that /docs/changelog serves is current
@@ -163,7 +227,7 @@ jobs:
           # The stubs and the guards read YAML.
           python -m pip install pyyaml==6.0.2 httpx==0.28.1
       - name: Shellcheck
-        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/mockup-configmap.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh
+        run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
       - name: docs/12's commands and claims
@@ -184,29 +248,29 @@ jobs:
         run: deploy/tests/crc-backup-test.sh
       - name: The test identities on a real OpenLDAP of the server's image, and mutants of the script
         run: deploy/tests/ldap-identities-test.sh
+      - name: The sign-in script, on a stand-in for Keycloak's authorization code flow
+        run: python deploy/tests/oidc-login-test.py
       - name: The realm on a real Keycloak and LDAP stand-in, beside other realms
         run: python deploy/tests/realm-test.py deploy/manifests/environments/crc/realm/10-realm-import.yaml
-      - name: The mockup ConfigMap is current
-        run: deploy/mockup-configmap.sh --check
       - name: kubeconform on the manifests
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" deploy/manifests/components deploy/manifests/environments
-      - name: render.sh fills the placeholder and refuses a tag
+      - name: render.sh fills the placeholders and refuses a tag
         env:
           SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/102361970337d65537d40141dc29b991b8e95786/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
           CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
         run: |
-          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered
+          deploy/render.sh kind "ghcr.io/ephico2real2/cmapi@sha256:$(printf 'a%.0s' {1..64})" --portal-image "ghcr.io/ephico2real2/cmapi-portal@sha256:$(printf 'b%.0s' {1..64})" /tmp/rendered
           # An if, not "! grep": bash -e does not stop on a negated command, so that form could never fail the step.
           if grep -rn 'sha256:DIGEST' /tmp/rendered; then echo "a placeholder was left in the render"; exit 1; fi
           kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered
-          if deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
-          deploy/render.sh kind localhost/cmapi:dev /tmp/rendered-tag --allow-tag
+          if deploy/render.sh kind localhost/cmapi:dev --portal-image localhost/cmapi-portal:dev /tmp/rendered-tag; then echo "a tag was accepted without --allow-tag"; exit 1; fi
+          deploy/render.sh kind localhost/cmapi:dev --portal-image localhost/cmapi-portal:dev /tmp/rendered-tag --allow-tag
           # Everything the render must do and must not do, on a throwaway copy: exactly the placeholder, nothing else changed.
           deploy/render-test.sh
-          deploy/render.sh crc "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:$(printf 'a%.0s' {1..64})" /tmp/rendered-crc
+          deploy/render.sh crc "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:$(printf 'a%.0s' {1..64})" --portal-image "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:$(printf 'b%.0s' {1..64})" /tmp/rendered-crc
           kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered-crc
       - name: kind for the secrets cases
         run: |
@@ -216,7 +280,7 @@ jobs:
           kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s
       - name: The secrets cases
         run: deploy/secrets-test.sh "kubectl --kubeconfig=$PWD/.ci.kubeconfig"
-      - name: Who reaches the API port under the NetworkPolicy
+      - name: Who reaches the API port and the front door under the NetworkPolicies
         run: deploy/tests/np-reach-test.sh "$PWD/.ci.kubeconfig"
       - name: Delete the kind cluster
         if: ${{ !cancelled() }}

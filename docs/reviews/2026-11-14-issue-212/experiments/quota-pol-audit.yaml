@@ -1,0 +1,19 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-quota-bounds-dev
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [resourcequotas]}
+  variables:
+    - name: hard
+      expression: "has(object.spec.hard) ? object.spec.hard : {}"
+    - name: max
+      expression: "{'requests.cpu': '32', 'requests.memory': '64Gi', 'pods': '300'}"
+    - name: over
+      expression: "variables.max.filter(k, k in variables.hard && quantity(variables.hard[k]).compareTo(quantity(variables.max[k])) > 0)"
+  validations:
+    - expression: "size(variables.over) == 0"
+      messageExpression: "'beyond the dev maximum: ' + variables.over.map(k, k + ' ' + string(variables.hard[k]) + ' > ' + variables.max[k]).join(', ')"

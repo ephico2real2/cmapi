@@ -13,7 +13,7 @@
 roles:
   cmapi-viewer: {}          # clusters:read, objects:read, capacity:read, requests:read
   cmapi-onboarding: {}      # viewer + namespaces:create, requests:cancel. Create only: no change or delete.
-                            # For people and local automation accounts (bot-user, an AI agent)
+                            # For people and automation clients (cmapi-automation, an AI agent)
   cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel
   cmapi-approver: {}        # viewer + requests:approve, requests:reject
   cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run

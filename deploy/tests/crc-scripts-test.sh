@@ -21,8 +21,8 @@ s="$*"
 case "$s" in
   "get secret keycloak-tls -n keycloak -o jsonpath={.data.ca\.crt}") base64 <"$STUB_CA"; exit 0;;
   "get cm default-ingress-cert"*) cat "$STUB_INGRESS"; exit 0;;
-  "get istag cmapi:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
-  "get istag cmapi:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
+  "get istag cmapi:"*"--ignore-not-found"*|"get istag cmapi-portal:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
+  "get istag cmapi:"*|"get istag cmapi-portal:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
   "get route default-route"*) printf 'registry.stub'; exit 0;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
@@ -43,14 +43,27 @@ J
   "get secret cmapi-keycloak -n cmapi -o jsonpath"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pvc cmapi-db-1"*) printf 'pv-1'; exit 0;;
   "get pv pv-1"*) printf '%s' "${STUB_PV_WHO:-cmapi/cmapi-db-1/Released}"; exit 0;;
-  delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*) exit 0;;
+  # The proof's containment checks (#157): server dry runs as the worker, refused by cmapi-deliverer-managed-only unless labelled managed.
+  "apply --server-side --dry-run=server --field-manager=cmapi-wave1 --as=system:serviceaccount:cmapi:cmapi-worker -f -")
+    case "$(cat)" in
+      *'cmapi.net/managed: "true"'*) exit "${STUB_MANAGED_RC:-0}";;
+      *) echo "${STUB_UNMANAGED_ERR-The namespaces \"cmapi-proof-unmanaged\" is invalid: : ValidatingAdmissionPolicy 'cmapi-deliverer-managed-only' with binding 'cmapi-deliverer-managed-only' denied request: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true}" >&2; exit "${STUB_UNMANAGED_RC:-1}";;
+    esac;;
+  "label namespace default "*"--as=system:serviceaccount:cmapi:cmapi-worker"*)
+    echo "${STUB_DEFAULT_ERR-Error from server (Invalid): namespaces \"default\" is invalid: : ValidatingAdmissionPolicy 'cmapi-deliverer-managed-only' denied request: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true}" >&2; exit "${STUB_DEFAULT_RC:-1}";;
+  "get namespaces -l cmapi.net/managed=true -o name") printf '%s' "${STUB_MANAGED_LEFT:-}"; exit 0;;
+  "get namespace cmapi-proof-plan --ignore-not-found -o name") printf '%s' "${STUB_PLAN_NS:-}"; exit 0;;
+  delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*|"run cmapi-np-target -n cmapi "*|"wait pod/cmapi-np-target -n cmapi "*) exit 0;;
   "get pods -n cmapi -o json") python3 -c 'import json,os
-img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
-pod=lambda n,c:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":{"phase":"Running","startTime":start,"containerStatuses":[{"restartCount":r,"imageID":"x@"+img}]}}
-print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]}))'; exit 0;;
-  "get networkpolicy cmapi-metrics"*) printf '2026-11-06T09:00:00Z'; exit 0;;
-  "exec np-probe"*"cmapi-mockup"*) exit "${STUB_CONTROL_RC:-0}";;
-  "exec np-probe"*"cmapi-api"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
+img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); portal=os.environ.get("STUB_PORTAL_IMAGE_ID","sha256:pppp"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
+pod=lambda n,c,i,t=start:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":{"phase":"Running","startTime":t,"containerStatuses":[{"restartCount":r,"imageID":"x@"+i}]}}
+items=[pod("a","api",img),pod("w","worker",img)]+([] if os.environ.get("STUB_NO_PORTAL") else [pod("p","portal",portal,os.environ.get("STUB_PORTAL_START",start))])
+print(json.dumps({"items":items}))'; exit 0;;
+  "get networkpolicy cmapi-metrics"*|"get networkpolicy cmapi-front-door"*) printf '2026-11-06T09:00:00Z'; exit 0;;
+  "get pod cmapi-np-target -n cmapi -o jsonpath"*) printf '%s' "${STUB_TARGET_IP-10.0.0.9}"; exit 0;;
+  "exec np-probe"*"http://10.0.0.9:8080/"*) exit "${STUB_CONTROL_RC:-0}";;
+  "exec np-probe"*"cmapi-api.cmapi.svc"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
+  "exec np-probe"*"cmapi-portal.cmapi.svc"*) : >"$ARGV_LOG.probed"; echo "${STUB_FRONT_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_FRONT_BLOCK_RC:-1}";;
   "get secret cmapi-test-users"*) printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get secret cmapi-ldap-test-users"*) case "$s" in *"${STUB_NO_PASSWORD:-none}"*) exit 0;; esac; printf '%s' "$SECRETVAL" | base64; exit 0;;
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;
@@ -66,7 +79,10 @@ print(json.dumps({"items":[pod("a","api"),pod("w","worker"),pod("m","mockup")]})
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
-  "exec cmapi-db-1"*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  # CNPG's peer map on OpenShift: the pod's arbitrary UID signs in as a mapped role, never one named after itself. The read needs
+  # pg_monitor, not a superuser, so only the monitoring role answers here (#278).
+  "exec cmapi-db-1"*"psql -U cnpg_metrics_exporter "*) echo "${STUB_SSL:-3|0}"; exit 0;;
+  "exec cmapi-db-1"*) echo 'psql: error: FATAL:  Peer authentication failed for user "1000720000"' >&2; exit 2;;
   "exec deploy/cmapi-"*) echo "${STUB_SSLMODE:-verify-full}"; exit "${STUB_SSLMODE_RC:-0}";;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
@@ -89,15 +105,30 @@ if [ -n "${STUB_PROOF:-}" ]; then
   url=; code=; for a in "$@"; do case "$a" in http*) url=$a;; esac; done; case "$*" in *-w*) wants=1;; *) wants=;; esac
   STDIN_SEEN=; [ ! -p /dev/stdin ] || STDIN_SEEN=$(cat); export STDIN_SEEN
   case "$url" in
-    */readyz) code=${STUB_READYZ:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_READYZ_AFTER:-$code}; case "$url" in http://*) code=302;; esac;;
-    */api/v1/version) printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0;;
-    */metrics) code=${STUB_METRICS:-404};;
-    */api/v1/me) case "$*" in *--config*) printf '{"username":"bot-user","roles":["cmapi-onboarding"]}'; exit 0;; *) code=401;; esac;;
+    # The front door: its own health, the API's paths through it, and the portal's page for any other path.
+    */healthz) code=${STUB_HEALTHZ:-200}; case "$url" in http://*) code=302;; esac;;
+    */api/v1/version) [ -n "$wants" ] || { printf '{"commit":"%s"}' "${STUB_COMMIT:-$(git -C "$REPO" rev-parse --short=10 HEAD)}"; exit 0; }
+      code=${STUB_VERSION_CODE:-200}; [ ! -e "$ARGV_LOG.probed" ] || code=${STUB_AFTER:-$code};;
+    */metrics) code=${STUB_METRICS:-200 text/html};;
+    */readyz) code=${STUB_READYZ_PAGE:-200 text/html};;
+    */) case "$*" in *"-D -"*) printf '%s' "${STUB_HEADERS-HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; script-src 'self'
+}"; exit 0;; esac;;
+    */api/v1/me) case "$*" in *--config*) printf '{"username":"%s","roles":["cmapi-onboarding"]}' "${STUB_ME:-cmapi-automation}"; exit 0;; *) code=401;; esac;;
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
     */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
-    */namespaces*) printf '{"code":"%s"}\n%s' "${STUB_PLAN_CODE:-cluster-not-writable}" "${STUB_PLAN:-422}"; exit 0;;
-    */api/v1/query*) case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-{\"value\":[0,\"1\"]\}}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-{\"value\":[0,\"1\"]\},{\"value\":[0,\"1\"]\}}";; esac; exit 0;;
+    # STUB_PLAN_SECONDS: how long the plan takes. curl's own -m decides, as the real one does: past it, curl's exit 28 (#275).
+    */namespaces*) m=; prev=; for a in "$@"; do [ "$prev" = -m ] && m=$a; prev=$a; done
+      if [ -n "${STUB_PLAN_SECONDS:-}" ] && [ -n "$m" ] && [ "$STUB_PLAN_SECONDS" -gt "$m" ]; then
+        echo "curl: (28) Operation timed out after ${m}000 milliseconds with 0 bytes received" >&2; exit 28
+      fi
+      printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
+    # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
+    */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'
+      case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -109,7 +140,12 @@ printf '#!/bin/sh\nexit 0\n' >"$W/bin/tmutil"
 # The token for whoever signed in: claims from the table, and $TOKEN in the signature, so a token on an argument is found. STUB_CLAIMS changes one claim of one user: uid:claim:json.
 cat >"$W/token.py" <<'TOK'
 import base64, json, os, urllib.parse
-form = urllib.parse.parse_qs(os.environ.get("STDIN_SEEN", "")); user = form.get("username", ["bot-user"])[0]
+form = urllib.parse.parse_qs(os.environ.get("STDIN_SEEN", "")); user = form.get("username", ["service-account-cmapi-automation"])[0]
+# The token endpoint takes client credentials. It refuses the password grant, unless STUB_PASSWORD_GRANT says that the realm still has it.
+if form.get("grant_type") == ["password"] and not os.environ.get("STUB_PASSWORD_GRANT"):
+    print('{"error":"unauthorized_client","error_description":"Client not allowed for direct access grants"}'); raise SystemExit
+if form.get("grant_type") == ["password"]:
+    print('{"error":"invalid_grant","error_description":"Invalid user credentials"}'); raise SystemExit
 if user == os.environ.get("STUB_NO_SIGN_IN"):
     print('{"error":"invalid_grant"}'); raise SystemExit
 claims = {"preferred_username": user}
@@ -127,6 +163,15 @@ enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip
 print(json.dumps({"access_token": ".".join([enc({"alg": "none"}), enc(claims), os.environ["TOKEN"] + "-" + user])}))
 TOK
 export STUB_TOKEN_PY=$W/token.py
+# The stand-in for deploy/oidc-login.py: the token of --username, from the same table. The password comes on stdin and is swallowed here.
+cat >"$W/bin/oidc-login-stub" <<'P'
+#!/usr/bin/env bash
+printf 'oidc-login %s\n' "$*" >>"$ARGV_LOG"
+cat >/dev/null
+user=; while [ $# -gt 0 ]; do [ "$1" = --username ] && user=$2; shift; done
+STDIN_SEEN="grant_type=authorization_code&username=$user" python3 "$STUB_TOKEN_PY" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1) if "access_token" not in d else print(d["access_token"])'
+P
+export CMAPI_OIDC_LOGIN=$W/bin/oidc-login-stub
 chmod +x "$W/bin/"*; export PATH="$W/bin:$PATH"
 cd "$W/repo" || exit 1; git init -q .; git -c user.email=t@t -c user.name=t commit -q --allow-empty -m t; export REPO=$W/repo; mkdir -p cmapi; printf 'version = "0.2.0"\n' >cmapi/pyproject.toml
 D=$W/repo/deploy; TRUST=$D/manifests/environments/crc/30-trust.yaml
@@ -182,6 +227,11 @@ want "image: pushes and prints" 0 "$(run "$D/crc-image.sh")"; tail -1 "$W/out" |
 no_secret "$W/out" "image"; [ "$(cat "$ARGV_LOG.mode")" = 600 ] && ok "the auth file is 0600" || bad "the auth file's mode"
 grep -qF "$(printf 'unused:%s' "$TOKEN" | base64)" "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
 grep -q -- '--dest-cert-dir' "$ARGV_LOG" && ok "skopeo verifies against the ingress CA" || bad "no --dest-cert-dir"
+want "image cmapi-portal: pushes and prints" 0 "$(run "$D/crc-image.sh" cmapi-portal)"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi-portal@sha256:' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
+grep -qE '^podman build .* -t localhost/cmapi-portal:sha-[0-9a-f]{10} -f cmapi-portal-ui/Containerfile \.$' "$ARGV_LOG" && ok "the front door is built from its Containerfile at the root" || bad "the portal build: $(grep '^podman build' "$ARGV_LOG")"
+grep -qE '^skopeo copy .* docker://registry\.stub/cmapi/cmapi-portal:sha-' "$ARGV_LOG" && ok "and pushed to its own image stream" || bad "the portal push: $(grep '^skopeo' "$ARGV_LOG")"
+no_secret "$W/out" "image cmapi-portal"
+want "image: an unknown name stops" 2 "$(run "$D/crc-image.sh" cmapi-other)"; if grep -qE '^(podman|skopeo)' "$ARGV_LOG"; then bad "an unknown name built or pushed"; else ok "and builds and pushes nothing"; fi
 want "image: a pushed digest the image stream does not know stops" 1 "$(STUB_REGISTRY_DIGEST=sha256:bbbb run "$D/crc-image.sh")"
 want "image: a wrong label stops" 1 "$(STUB_LABEL=other run "$D/crc-image.sh")"
 want "image: a failed push stops" 1 "$(STUB_SKOPEO_RC=1 run "$D/crc-image.sh")"
@@ -218,37 +268,78 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 "$D/crc-backup.sh" >/dev/null 2>&1; want "backup --delete" 0 "$(run "$D/crc-backup.sh" --delete)"; [ ! -e "$B" ] && ok "the backup is gone" || bad "the backup is still there"
 
 # crc-proof.sh
-export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"
+export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+# The plan, the slowest call, may take as long as the front door gives it: CRC's first answered 200 after 27.7 s (#275).
+want "proof passes when the plan takes 28 s" 0 "$(: >"$ARGV_LOG"; STUB_PLAN_SECONDS=28 "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?)"
+# Each call's own bound, read from what curl was given: the plan the Route's timeout, every other call 15 s. A grep for one
+# call that some other line also matches (crc-proof.sh's plain-HTTP curl names /healthz with -m 15 too) could not fail.
+route_s=$(sed -n 's/^ *haproxy.router.openshift.io\/timeout: \([0-9][0-9]*\)s$/\1/p' "$D/manifests/environments/crc/40-routes.yaml")
+plan_m=$(grep -- '/namespaces?dryRun=true' "$ARGV_LOG" | sed -n 's/^curl -sS -m \([^ ]*\) .*/\1/p')
+[ -n "$route_s" ] && [ "$plan_m" = "$route_s" ] && ok "the plan waits as long as the Route: -m $plan_m" || bad "the plan's bound is -m ${plan_m:-none}, the Route's timeout ${route_s:-unread} s"
+others=$(grep '^curl ' "$ARGV_LOG" | grep -v -- '/namespaces?dryRun=true')
+[ "$(printf '%s\n' "$others" | grep -c .)" -ge 10 ] && ! printf '%s\n' "$others" | grep -qv '^curl -sS -m 15 ' && ok "every other call keeps its 15 s bound" || bad "a call other than the plan lost its 15 s bound: $(printf '%s\n' "$others" | grep -v '^curl -sS -m 15 ' | head -1 | cut -c1-120)"
 no_secret "$W/out" "proof"
 pstop() { local label=$1; shift; local got; rm -f "$ARGV_LOG.probed"; got=$(: >"$ARGV_LOG"; env "$@" "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?); [ "$got" != 0 ] && ok "proof fails: $label" || bad "proof did not fail: $label"; }
 pstop "a pod under another SCC" STUB_SCC=anyuid
 pstop "a restart" STUB_RESTARTS=1
 pstop "another image running" STUB_IMAGE_ID=sha256:bbbb
 pstop "a pod started before the policy" STUB_START=2026-11-06T08:00:00Z
-pstop "/readyz not 200" STUB_READYZ=503
+pstop "the front door on another image" STUB_PORTAL_IMAGE_ID=sha256:bbbb
+pstop "no front door pod" STUB_NO_PORTAL=1
+pstop "the front door started before its policy" STUB_PORTAL_START=2026-11-06T08:00:00Z
+pstop "the front door's /healthz not 200" STUB_HEALTHZ=503
 pstop "another commit" STUB_COMMIT=other
-pstop "/metrics on the Route" STUB_METRICS=200
+pstop "/metrics reaching the API through the Route" 'STUB_METRICS=200 text/plain; version=0.0.4'
+pstop "/readyz reaching the API through the Route" 'STUB_READYZ_PAGE=200 application/json'
+pstop "the portal's page without HSTS" 'STUB_HEADERS=HTTP/1.1 200 OK
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src '"'self'"'
+'
+pstop "the portal's page without a Content-Security-Policy" 'STUB_HEADERS=HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+X-Content-Type-Options: nosniff
+'
 pstop "the probe reaching the api: the policy not enforced" STUB_BLOCK_RC=0
+pstop "the probe reaching the front door: its policy not enforced" STUB_FRONT_BLOCK_RC=0
+pstop "the front door refusing the probe: broken, not blocked" "STUB_FRONT_BLOCK_ERR=wget: can't connect to remote host (10.0.0.2): Connection refused"
 pstop "the control failing: the block would prove nothing" STUB_CONTROL_RC=1
+pstop "the control pod with no address" STUB_TARGET_IP=
 pstop "the api's name not resolving: broken, not blocked" "STUB_BLOCK_ERR=wget: bad address 'cmapi-api.cmapi.svc:8080'"
 pstop "a refused connection: broken, not blocked" "STUB_BLOCK_ERR=wget: can't connect to remote host (10.0.0.1): Connection refused"
 pstop "the api answering 503: not blocked" "STUB_BLOCK_ERR=wget: server returned error: HTTP/1.0 503 down"
 pstop "oc exec failing: nothing was probed" "STUB_BLOCK_ERR=Error from server: error dialing backend: EOF"
 pstop "no reason at all" STUB_BLOCK_ERR=
-pstop "a timeout from an api that then does not answer the router" STUB_READYZ_AFTER=503
-pstop "a worker that may write" STUB_WRITER=yes
+pstop "a timeout from an instance that then does not answer the router" STUB_AFTER=503
+pstop "an api that may write" STUB_WRITER=yes
+pstop "the worker creating an unmanaged namespace: not contained" STUB_UNMANAGED_RC=0
+pstop "the worker refused, but not by the policy" "STUB_UNMANAGED_ERR=Error from server (Forbidden): namespaces is forbidden: User cannot create"
+pstop "the worker refused a managed namespace: nothing could be delivered" STUB_MANAGED_RC=1
+pstop "the worker labelling namespace default: not contained" STUB_DEFAULT_RC=0
+pstop "namespace default refused, but not by the policy" "STUB_DEFAULT_ERR=error: unable to connect"
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
-pstop "a plan that passes" STUB_PLAN=200
-pstop "a 422 of another kind" STUB_PLAN_CODE=validation-failed
+pstop "a plan refused" STUB_PLAN=422
+pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
+pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
+pstop "a plan that outlasts the Route" STUB_PLAN_SECONDS=200
+# Stopped by the proof, which names the step, not by set -e on curl's exit with only curl's own line.
+grep -q '^FAIL: the dry-run namespace plan got no answer: curl exit 28' "$W/out" && ok "a plan with no answer says which step stopped" || bad "a plan with no answer stopped without naming the step: $(tail -1 "$W/out")"
+for v in abc 0 -5 1.5; do pstop "a plan bound of '$v'" CMAPI_PROOF_PLAN_SECONDS=$v
+  ! grep -q '^oc ' "$ARGV_LOG" && grep -q '^FAIL: CMAPI_PROOF_PLAN_SECONDS' "$W/out" && ok "a plan bound of '$v' stops before the cluster is touched" || bad "a plan bound of '$v' was not refused first: $(tail -1 "$W/out")"; done
 pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
+pstop "two api targets up and no worker" 'STUB_UP={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
-pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]}'
+pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]},{"value":[0,"0"]}'
+pstop "one target's series missing" 'STUB_CONNECTED={"value":[0,"1"]}'
+pstop "one of the two targets not connected" 'STUB_CONNECTED={"value":[0,"1"]},{"value":[0,"0"]}'
+pstop "two api series and no worker's" 'STUB_CONNECTED={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "a test user who cannot sign in" STUB_NO_SIGN_IN=cmapi.auditor
+pstop "a realm where cmapi-automation still takes the password grant" STUB_PASSWORD_GRANT=1
+pstop "the automation token is of another caller" STUB_ME=bot-user
 pstop "a test user with no password in the Secret" 'STUB_NO_PASSWORD=cmapi\.auditor'
 pstop "a token with a group the table does not give" 'STUB_CLAIMS=cmapi.viewer:groups:["/cmapi/app-cmapi-rbac-viewer","/cmapi/app-cmapi-rbac-admin"]'
 pstop "a token missing its group" 'STUB_CLAIMS=cmapi.requester:groups:[]'
@@ -266,8 +357,9 @@ want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" 
 : >"$ARGV_LOG.ldap-deleted"; want "rollback" 0 "$(run "$D/crc-rollback.sh" --yes)"
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
-ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak"}
-ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-mockup"),("service","cmapi-api"),("service","cmapi-worker"),("service","cmapi-mockup"),("networkpolicy","cmapi-metrics"),("route.route.openshift.io","cmapi-api"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-mockup"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi")]}
+ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak",
+    "clusterrolebinding cmapi-deliverer","clusterrole cmapi-deliverer","validatingadmissionpolicybinding cmapi-deliverer-managed-only","validatingadmissionpolicy cmapi-deliverer-managed-only"}
+ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("secret","cmapi-git"),("secret","cmapi-git-bot"),("secret","cmapi-git-bot-ssh"),("configmap","cmapi-git-bot-known-hosts"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
 bad=[]
 for line in open(sys.argv[1]):
     if not line.startswith("oc delete "): continue
@@ -283,6 +375,8 @@ sed -n 's/^dn: //p' "$W/repo/examples/cmapi-sso/ldap/cmapi-groups.ldif" >"$W/lda
 if grep -qE 'cmapi-(viewers|requesters|onboarding|prod-approvers)|john\.doe' "$ARGV_LOG.ldap-deleted"; then bad "rollback reached an entry the run did not add"; else ok "rollback reaches no other LDAP entry"; fi
 if grep -qE 'delete .*(namespace cmapi( |$)|cmapi-ldap-bind|realm-secrets)' "$ARGV_LOG"; then bad "rollback touched namespace cmapi, the bind Secret or the realm's Secret"; else ok "namespace cmapi, cmapi-ldap-bind and the realm's Secret stay"; fi
 if grep -qF 'admin/realms' "$ARGV_LOG"; then bad "rollback touched the realm without being asked"; else ok "the realm stays unless asked"; fi
+: >"$ARGV_LOG"; [ "$(STUB_MANAGED_LEFT=namespace/team-a run "$D/crc-rollback.sh" --yes)" != 0 ] && ok "rollback stops while a namespace cmapi delivered is there" || bad "rollback went on with a delivered namespace there"
+if grep -q '^oc delete ' "$ARGV_LOG"; then bad "and it deleted before stopping"; else ok "and deleted nothing"; fi
 want "rollback: --delete-realm alone is refused" 2 "$(run "$D/crc-rollback.sh" --yes --delete-realm)"
 if grep -qE 'delete ' "$ARGV_LOG"; then bad "it deleted something first"; fi
 : >"$ARGV_LOG"; STUB_PV_WHO=inkcast/other/Bound "$D/crc-rollback.sh" --yes >"$W/out" 2>&1; if grep -q 'oc delete pv ' "$ARGV_LOG"; then bad "a PV another claim holds was deleted"; else ok "a PV that is not ours stays"; fi

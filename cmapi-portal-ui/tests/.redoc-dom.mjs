@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+await ctx.addInitScript(() => { window.__csp = []; document.addEventListener("securitypolicyviolation", (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`)); });
+const p = await ctx.newPage();
+await p.goto("http://127.0.0.1:18471/redoc");
+await p.locator(".api-content").first().waitFor({ timeout: 15000 });
+await p.waitForTimeout(3000);
+await p.keyboard.press("Control+k"); await p.waitForTimeout(800);
+await p.keyboard.type("namespace", { delay: 50 }); await p.waitForTimeout(4000);
+const hits = await p.getByText("Create a namespace").count();
+console.log(JSON.stringify({ workers: p.workers().length, createANamespaceShown: hits, violations: await p.evaluate(() => window.__csp) }));
+await b.close();

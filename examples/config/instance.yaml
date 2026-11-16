@@ -6,9 +6,12 @@ instance:
   allowedEnvironments: [rnd, dev]
   publicUrl: https://cmapi-nonprod.ephico2real.com
   portalUrl: https://portal-nonprod.ephico2real.com
+  # cors: {allowedOrigins: [http://localhost:5173]}   # an origin of another host that can call the API from a browser; without it CORS is off (docs/15)
+  # problems: {typeBase: https://cmapi.ephico2real.com/problems/}   # the base of each problem type URI (RFC 9457): one for all instances, on a host that points at an instance
   auth:
     issuer: https://sso.ephico2real.com/realms/ephico2real
     audience: cmapi-nonprod          # a token minted for another instance is refused
+    # acceptLegacyTokenType: true   # only for a Keycloak that cannot write the header typ at+jwt (RFC 9068, docs/15)
   namespaces:
     # Names nobody may ask for, beyond the built-in default, openshift, openshift-*, kube-*,
     # cmapi-system and cmapi-imports. Any other DNS-1123 name is allowed to anyone with namespaces:create.
@@ -19,7 +22,7 @@ instance:
     cacheSeconds: 900                # served from cache when Keycloak is unreachable
     requireEmployeeId: true          # 422 identity-incomplete without the employee_id claim
     requireOnBehalfOf: false         # bots (service-account clients) may request in their own name
-    automationRoles: [cmapi-onboarding]   # accounts with these roles need no employee ID (bot-user)
+    automationRoles: [cmapi-onboarding]   # callers with these roles need no employee ID (cmapi-automation)
     groupPath: /cmapi/app-cmapi-rbac-{name}   # the token's group for an approving group in approval-rules.yaml; a site with its own directory sets its own (docs/11)
     # email domains for the team DL: emailDomains in cluster-configs/policies/metadata-keys.yaml (format only; DLs are not looked up)
   git:

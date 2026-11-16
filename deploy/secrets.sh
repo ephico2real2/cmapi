@@ -19,7 +19,7 @@
 # the only "absent". A 200 stops the run: a realm exists whose client secrets nobody here knows. Anything else (a timeout, a bad
 # certificate, a router's 503 while Keycloak restarts, a 404 that is not Keycloak's) stops it too: "could not tell" is not "no realm".
 # --no-issuer-check is for a cluster with no Keycloak (kind); nothing defaults to it, so CRC cannot skip this by forgetting a flag.
-# --test-users writes cmapi-test-users once (ola, amy, opal, bot-user), for the realm sync; it is never rotated.
+# --test-users writes cmapi-test-users once (ola, amy, opal), for the realm sync; it is never rotated.
 set -euo pipefail
 NS=cmapi; REALM_NS=keycloak; KEY=; APP_ID=; INST_ID=; KUBECTL=oc; LDAP_BIND=true; ISSUER=; CA_FILE=; ISSUER_CHECK=true; TEST_USERS=false
 while [ $# -gt 0 ]; do case "$1" in
@@ -172,7 +172,7 @@ fi
 # Local test users for the realm sync. Generated once: the sync sets these passwords on every run, so they must not change.
 if [ "$TEST_USERS" = true ]; then
   if [ -z "$users_existing" ]; then
-    printf 'ola %s\namy %s\nopal %s\nbot-user %s\n' "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" | apply_secret "$NS" cmapi-test-users
+    printf 'ola %s\namy %s\nopal %s\n' "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" "$(b64 "$(rnd)")" | apply_secret "$NS" cmapi-test-users
   else
     echo "cmapi-test-users: present, kept"
   fi

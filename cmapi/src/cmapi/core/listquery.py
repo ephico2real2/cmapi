@@ -59,6 +59,12 @@ class Sorts:
         return lambda r: (-f(r), r["name"], r["clusterId"])
 
 
+def severity(used: float) -> int:
+    """How urgent a namespace's quota is, from its highest use (used divided by hard): 3 at 95% or more, 2 at 80% or more, else 0.
+    The portal's level 1 (a recommendation, idle or oversized) needs the usage analysis, which is not built."""
+    return 3 if used >= 0.95 else 2 if used >= 0.8 else 0
+
+
 def match_rank(row: Mapping[str, Any], text: str) -> tuple[int, str] | None:
     t = text.lower()
     name = row["name"].lower()

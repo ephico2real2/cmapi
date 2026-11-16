@@ -18,9 +18,10 @@ from cmapi.core.db.repo import DbKeyStore, SwitchRepo
 from cmapi.core.git import HostGitProvider, make_provider
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
-from cmapi.core.listquery import Lister, Sorts
-from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO
+from cmapi.core.listquery import Lister, Sorts, severity
+from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
+from cmapi.core.policygen import render_bundle
 from cmapi.core.registry import ClusterRegistry, DirImportSource, HubImportSource, ImportSource, load_policies
 from cmapi.core.sync import DeliveryConfig
 from cmapi.core.validate import CliValidator
@@ -54,6 +55,9 @@ class AppContext:
 
     def shutdown(self) -> None:
         self.registry.stop()
+        dispose = getattr(self.git, "dispose", None)
+        if dispose:                                     # the Git layer's workdir lock, and a temporary workdir
+            dispose()
 
 
 def _yaml(path: Path) -> dict[str, Any]:
@@ -74,7 +78,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     jwks_url = settings.oidc_jwks_url or f"{issuer}/protocol/openid-connect/certs"
     db = Database(settings.database_url, settings.database_pool_size)
     auth = Authenticator(issuer, audience, Jwks(issuer, jwks_url, verify=settings.verify, store=DbKeyStore(db)),
-                         leeway=settings.oidc_leeway_seconds)
+                         leeway=settings.oidc_leeway_seconds,
+                         legacy_token_type=bool(inst["auth"].get("acceptLegacyTokenType", False)))
     CONFIG_INFO.labels("|".join(f"{k}={v}" for k, v in sorted(cfg.hashes.items()))[:200]).set(1)
 
     policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)
@@ -89,12 +94,24 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     if start_registry:
         registry.start()
 
-    git = make_provider(settings.git_provider, settings.git_url, inst["git"]["repository"], settings.git_token,
-                        default_branch=settings.git_default_branch, verify=settings.verify,
-                        web_url=inst["git"].get("webUrl"),
-                        basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None)
+    g = inst["git"]
+    git = make_provider(settings.git_provider, settings.git_url, g["repository"], settings.git_token,
+                        default_branch=settings.git_default_branch, verify=settings.git_verify,
+                        web_url=g.get("webUrl"),
+                        basic_auth=(settings.git_user, settings.git_password) if settings.git_user else None,
+                        # The Git layer (#286): the clone URL, its credential files, its storage and its trust.
+                        git_layer=settings.component == "worker", git_url=g.get("url"), workdir=settings.git_workdir,
+                        credentials_dir=settings.git_credentials_dir, ssh_dir=settings.git_ssh_dir,
+                        known_hosts_dir=settings.git_known_hosts_dir, ca_bundle=settings.git_ca_bundle or settings.ca_bundle,
+                        username=g.get("username"), commit_email=g.get("commitEmail"), host_checks=bool(g.get("hostChecks", False)),
+                        post_status=bool(g.get("postStatus", False)), size_limit=settings.git_workdir_limit_bytes)
+    # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
+    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,
-                             kubernetes_version=os.environ.get("CMAPI_KUBERNETES_VERSION") or None)
+                             kubernetes_version=os.environ.get("CMAPI_KUBERNETES_VERSION") or None,
+                             policy=cfg.policy, environments=cfg.allowed_environments, bundle=bundle)
+    for env, mode in cfg.policy.modes(cfg.allowed_environments).items():
+        POLICY_MODE.labels(env, mode).set(1)
     capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")
     capacity = SimulatedCapacity(registry, capacity_cfg.get("overcommit") or {}, capacity_cfg.get("targets") or {})
 
@@ -111,7 +128,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     ctx = AppContext(settings=settings, cfg=cfg, db=db, auth=auth, registry=registry, git=git,
                      pipeline=None, directory=directory,  # type: ignore[arg-type]
                      lister=Lister(settings.cursor_key.encode() or b"unset-cursor-key",
-                                   Sorts({"used": lambda r: r["used"], "newest": lambda r: r.get("_created", 0.0)})),
+                                   Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
+                                          "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
                      capacity_cfg=capacity_cfg, issuer=issuer, audience=audience)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []

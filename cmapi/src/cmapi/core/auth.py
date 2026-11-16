@@ -129,11 +129,23 @@ class Jwks:
                       extra={"retryAfter": 30})
 
 
-class Authenticator:
-    """Verifies tokens for one instance: issuer, audience and the roles claim path."""
+# RFC 9068, section 4: the resource server "MUST verify that the "typ" header value is "at+jwt" or "application/at+jwt"".
+ACCESS_TOKEN_TYPES = frozenset({"at+jwt", "application/at+jwt"})
 
-    def __init__(self, issuer: str, audience: str, jwks: Jwks, leeway: int = 30):
+
+class Authenticator:
+    """Verifies tokens for one instance: issuer, audience, the roles claim path, and that the token is an access token.
+
+    An access token has the JOSE header `typ: at+jwt` (RFC 9068). Keycloak writes it for a client with the attribute
+    `access.token.header.type.rfc9068`, which cmapi's realm sets on each client that gets a token for cmapi. Without that
+    attribute Keycloak writes `typ: JWT` in the header of each token, and says what the token is only in its own claim
+    `typ` (Bearer, ID, Refresh). `legacy_token_type` (instance.yaml `auth.acceptLegacyTokenType`) accepts that form for
+    a realm that cannot set the attribute: the header `JWT` and the claim `Bearer`, both, and never a token with no claim.
+    """
+
+    def __init__(self, issuer: str, audience: str, jwks: Jwks, leeway: int = 30, legacy_token_type: bool = False):
         self.issuer, self.audience, self.jwks, self.leeway = issuer, audience, jwks, leeway
+        self.legacy_token_type = legacy_token_type
 
     def authenticate(self, bearer: str) -> Identity:
         try:
@@ -164,8 +176,11 @@ class Authenticator:
         except jwt.PyJWTError as exc:
             AUTH_FAILURES.labels("signature").inc()
             raise Problem(401, "unauthenticated", "Invalid token") from exc
-        # Keycloak marks every token it issues; an ID or refresh token is never a bearer credential here.
-        if claims.get("typ") not in (None, "Bearer"):
+        # An ID token or a refresh token is never a bearer credential here. The header is under the signature that was just verified.
+        header_type, claim_type = str(header.get("typ") or "").lower(), claims.get("typ")
+        rfc9068 = header_type in ACCESS_TOKEN_TYPES and claim_type in (None, "Bearer")
+        legacy = self.legacy_token_type and header_type == "jwt" and claim_type == "Bearer"
+        if not (rfc9068 or legacy):
             AUTH_FAILURES.labels("token-type").inc()
             raise Problem(401, "unauthenticated", "Token is not an access token")
         return Identity.from_claims(claims, self.audience)

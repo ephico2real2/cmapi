@@ -1,19 +1,20 @@
 """ORM models for the cmapi schema (docs/01, Data model; docs/02, Schemas).
 
-Indexes that carry correctness live in the migration, not here: one open request per
-namespace (partial unique index on cluster_id and namespace), one idempotency key per
-requester, and the due-jobs index.
+The migrations make the schema. The models say the same schema, each index included, so that `alembic check`
+finds no difference between them (tests/service/test_models_match_migrations.py, #185). The indexes that carry
+correctness: one open request per namespace (a partial unique index on cluster_id and namespace), one idempotency
+key per requester, one approval per person, and one pending job of a kind per request.
 """
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-OPEN_STATES = ("pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "sync_failed")
+OPEN_STATES = ("pending_approval", "approved", "pr_open", "applied", "merge_failed", "merged", "awaiting_prune", "sync_failed")
 
 
 class Base(DeclarativeBase):
@@ -74,6 +75,9 @@ class ApprovalRow(Base):
     approver_sub: Mapped[str] = mapped_column(String(100), nullable=False)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     groups: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    # The approving group of approval-rules.yaml whose slot this approval fills, from the ledger's assignment. `groups` is
+    # each group of the approver, so it cannot say that. NULL: recorded before migration 0004, and not known (#171).
+    counted_for: Mapped[str | None] = mapped_column(String(100))
     comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
     relayed_by: Mapped[str | None] = mapped_column(String(100))
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -150,6 +154,18 @@ class ExpirationNoticeRow(Base):
     detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+# Each index of the migrations, in the same words, so that autogenerate has nothing to add and nothing to drop.
+Index("uq_cr_open_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, unique=True,
+      postgresql_where=text("status IN ('" + "', '".join(OPEN_STATES) + "')"))
+Index("uq_cr_idempotency", ChangeRequestRow.requester_sub, ChangeRequestRow.idempotency_key, unique=True,
+      postgresql_where=text("idempotency_key IS NOT NULL"))
+Index("idx_cr_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, ChangeRequestRow.created_at)
+Index("uq_approvals_person", ApprovalRow.request_id, ApprovalRow.approver_sub, unique=True)
+Index("idx_jobs_due", JobRow.run_after, postgresql_where=text("done_at IS NULL"))
+Index("uq_jobs_pending", JobRow.kind, text("coalesce(request_id, '')"), text("coalesce(payload->>'kind', '')"), unique=True,
+      postgresql_where=text("done_at IS NULL"))
+Index("idx_audit_at", AuditEventRow.at)
+Index("idx_approval_notifications_request", ApprovalNotificationRow.request_id)
 Index("idx_request_events_request", RequestEventRow.request_id, RequestEventRow.id)
 Index("idx_approvals_request", ApprovalRow.request_id)
 Index("idx_cr_status", ChangeRequestRow.status, ChangeRequestRow.created_at)

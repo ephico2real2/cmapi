@@ -20,7 +20,7 @@ from cmapi.core.ports import AppStatus
 from cmapi.core.sync import not_synced
 from cmapi.worker import MAX_ATTEMPTS, Worker
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 from test_review_e_recovery import lease_expired
 from test_second_pass import _awaiting, _stubs, app, argo_applied, argocd
 
@@ -46,7 +46,7 @@ def test_a_retry_of_an_apply_delete_nobody_confirmed_deletes_nothing(world):
     etag = client.get("/api/v1/clusters/CRC/namespaces/payments-dev", headers=h).json()["etag"]
     rid = client.delete("/api/v1/clusters/CRC/namespaces/payments-dev", headers={**auth(keys, "ola", **OLA), "If-Match": etag}).json()["requestId"]
     client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **AMY))
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     st = ctx.registry.clusters.pop("CRC")
     _run(ctx, MAX_ATTEMPTS + 1)
     ctx.registry.clusters["CRC"] = st
@@ -79,7 +79,7 @@ def test_argocd_a_removed_object_still_live_keeps_the_request_waiting(world):
     rid = r.json()["requestId"]
     if r.json()["status"] == "pending_approval":
         client.post(f"/api/v1/requests/{rid}:approve", json={}, headers=auth(keys, "amy", **AMY))
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     res = argo_applied(git, kube)
     stale = {"kind": "RoleBinding", "name": "old-admin", "namespace": "payments-dev", "status": "OutOfSync", "requiresPruning": True}
@@ -88,7 +88,7 @@ def test_argocd_a_removed_object_still_live_keeps_the_request_waiting(world):
     v = status(client, keys, rid)
     assert v["status"] == "merged" and "old-admin" in v["events"][-1]["note"], (v["status"], v["events"][-1]["note"])
     kube.get = lambda path, params=None: app(git.heads["main"], resources=res)    # pruned: it has left the Application
-    _run(ctx, 1)
+    _run(ctx, 2)                                  # the merge's git_cleanup (#286) is due first, then watch_sync again
     assert status(client, keys, rid)["status"] == "synced"
 
 
@@ -97,7 +97,7 @@ def test_the_application_cmapi_reads_has_a_name_kubernetes_accepts(world):
     cluster-configs-CRC is refused (lowercase RFC 1123), and reading it is 404 for ever, Argo CD installed or not."""
     client, ctx, git, kube, validator, keys = world
     client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA))
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     values = yaml.safe_load(CRC.read_text())
     ctx.delivery = type(ctx.delivery)(mode="argocd", poll_seconds=0, argocd_namespace=values["argocd"]["namespace"],
                                       argocd_root_application=values["argocd"]["rootApplication"])
@@ -121,7 +121,7 @@ def test_argocd_a_neighbour_with_the_same_kind_and_name_does_not_count(world):
     """Mutant survivor at 87d5e1a: dropping the namespace from the key passed every test."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     res = argo_applied(git, kube)
     elsewhere = [{**r, "namespace": "other-team"} if r.get("namespace") else r for r in res]
@@ -157,7 +157,7 @@ def test_a_stale_worker_does_not_delete_the_namespace(world):
 def test_argocd_a_merged_request_with_no_merge_sha_fails_closed(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     res = argo_applied(git, kube)
     with ctx.db.session() as s:
@@ -168,7 +168,8 @@ def test_argocd_a_merged_request_with_no_merge_sha_fails_closed(world):
     assert status(client, keys, rid)["status"] == "merged", "confirmed against a revision nothing compared"
 
 
-@pytest.mark.parametrize("provider", ["gitea", "github"])
+# GitHub answers contains() with its Git layer since #286 (test_git_layer.py, test_contains_*).
+@pytest.mark.parametrize("provider", ["gitea"])
 def test_contains_says_no_for_a_revision_this_repository_does_not_hold(provider):
     """Real Gitea 1.25.5 answers 404 for a chart version or another repository's sha. A multi-source Application reports
     those beside the Git revision, and any() over a frozenset reaches them in hash order: 404 must not read as an outage."""
@@ -248,7 +249,7 @@ def test_each_realm_secret_falls_back_to_the_keycloak_copy(key):
 
 def _render(*sets):
     a = [x for s in sets for x in ("--set", s)]
-    return subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
+    return subprocess.run(["helm", "template", "cmapi", str(CHART), "-n", "cmapi", "-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", *a],
                           capture_output=True, text=True)
 
 

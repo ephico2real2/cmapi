@@ -36,7 +36,7 @@ incubating projects only).
 | PostgreSQL via CloudNativePG | operator 1.30.1 on CRC (`oc get csv -n openshift-operators`) | PostgreSQL / Apache-2.0 | yes | CloudNativePG: incubating | Crunchy, Zalando operator, a managed PostgreSQL |
 | Keycloak (Red Hat build) | RHBK operator on CRC, CR `keycloak` in namespace `keycloak` | Apache-2.0 | yes | incubating | any OIDC issuer (the Authenticator extension point) |
 | Gitea (Git host stand-in on CRC) | 1.25 rootless (`deploy/helm/cmapi-git`) | MIT | yes | none | GitHub, GitLab (GitProvider adapters) |
-| Kyverno CLI + kubeconform | 1.16.2 + 0.6.7, baked into the image | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
+| Kyverno CLI + kubeconform | 1.20.0 + 0.6.7, baked into the image (`cmapi/Containerfile`, `KYVERNO_VERSION` and `KUBECONFORM_VERSION`; the Kyverno pin moved from 1.16.2 in #213) | Apache-2.0 both | yes | Kyverno: graduated | conftest (Validator extension point) |
 | Prometheus (user workload monitoring on CRC) | OpenShift 4.22.14 stack | Apache-2.0 | yes | graduated | any OpenMetrics scraper |
 | Perses (Cluster Observability Operator 1.5.3 on CRC) | COO 1.5.3 | Apache-2.0 | yes | not on the CNCF page read; status not verified here | Grafana (chart value `dashboards.provider`) |
 | Argo CD | not installed on CRC; the OpenShift GitOps operator in the catalog (default channel `latest`, CSV `openshift-gitops-operator.v1.22.3`, `AllNamespaces` install mode only, measured 2026-11-05) | Apache-2.0 | yes | graduated | `apply` delivery, a deviation a site must acknowledge (see §5); CRC runs `argocd` (#63) |
@@ -82,7 +82,7 @@ What exists, by name (every one defined in `core/observability.py` or `worker.py
 | Inbound HTTP (RED, route template as the label, never the path) | `cmapi_http_requests_total`, `cmapi_http_request_duration_seconds` | `tests/service/test_review_f_obs.py` |
 | Authorization and environments | `cmapi_authz_denied_total`, `cmapi_environment_not_served_total` | same |
 | Change requests | `cmapi_change_requests_total`, `cmapi_change_lead_time_seconds`, `cmapi_approval_wait_seconds`, `cmapi_open_change_requests_oldest_age_seconds`, `cmapi_auto_approvals_total`, `cmapi_auto_approval_fallbacks_total`, `cmapi_auto_approval_paused` | same |
-| Git host and clusters | `cmapi_git_operations_total`, `cmapi_git_operation_duration_seconds`, `cmapi_cluster_api_calls_total`, `cmapi_cluster_status`, `cmapi_namespaces`, `cmapi_sync_drift_total`, `cmapi_validation_failures_total` | same |
+| Git host and clusters | `cmapi_git_operations_total{op,result}`, `cmapi_git_operation_seconds`, `cmapi_git_platform_requests_total`, `cmapi_git_merge_conflicts_total`, `cmapi_cluster_api_calls_total`, `cmapi_cluster_status`, `cmapi_namespaces`, `cmapi_validation_failures_total` | same |
 | Worker | `cmapi_jobs_pending`, `cmapi_job_failures_total`, `cmapi_worker_last_loop_timestamp_seconds` (the "healthy but dead loop" lesson from group-sync-dashboard's `GroupSyncDashboardNotPolling`; alert `CmapiWorkerNotLooping` uses `absent()` so a gone worker fires too) | `test_review_g_chart.py`, `test_review_i_crosscheck.py` |
 | Build | `cmapi_build_info`, `cmapi_config_info` | — |
 

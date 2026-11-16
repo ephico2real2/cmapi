@@ -24,6 +24,9 @@ data:
       git:
         repository: "ephico2real2/cluster-configs-nonprod"
         webUrl: "https://github.com"
+        # kind has no Git host (10-env.yaml). A file:// URL needs no credential, so the worker's Git layer starts, and the first
+        # request fails at its first fetch, as it fails at the host's API before #286.
+        url: "file:///var/cache/cmapi/git/no-git-host-on-kind.git"
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
       docs: {"enabled":true}
   clusters.yaml: |
@@ -89,6 +92,14 @@ data:
       add: 1
     - when: quotaBelowRequested
       add: 1
+    - when: beyondTier                # a custom-tier value that differs from the tier (docs/reviews/2026-11-14-issue-211)
+      add: 1
+      group: approver-platform
+      reason: Value beyond the tier
+    - when: networkExposure           # the request raises services.loadbalancers or services.nodeports
+      add: 1
+      group: approver-platform
+      reason: Network exposure
     - when: sensitiveKeyChanged
       add: 1
       group: approver-platform
@@ -178,7 +189,7 @@ data:
     roles:
       cmapi-viewer: {}          # clusters:read, objects:read, capacity:read, requests:read
       cmapi-onboarding: {}      # viewer + namespaces:create, requests:cancel. Create only: no change or delete.
-                                # For people and local automation accounts (bot-user, an AI agent)
+                                # For people and automation clients (cmapi-automation, an AI agent)
       cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel
       cmapi-approver: {}        # viewer + requests:approve, requests:reject
       cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run
@@ -210,6 +221,29 @@ data:
     # The only quota keys a request may size (a custom tier, or PATCH .../quota). Every other
     # quota key comes from the catalog. These are also the three the Quotas view tracks.
     sizable: [requests.cpu, requests.memory, pods]
+
+    # More keys that a custom-tier request can change, each with a maximum under custom. A value that differs from the
+    # tier is beyond the tier: approval-rules.yaml adds an approver for it (beyondTier), and one more when it raises
+    # services.loadbalancers or services.nodeports (networkExposure). docs/reviews/2026-11-14-issue-211 has the reasons.
+    overridable:
+      - persistentvolumeclaims
+      - requests.storage
+      - services.loadbalancers
+      - services.nodeports
+      - limitRange.container.defaultRequest.cpu
+      - limitRange.container.defaultRequest.memory
+      - limitRange.container.default.cpu
+      - limitRange.container.default.memory
+      - limitRange.container.max.cpu
+      - limitRange.container.max.memory
+      - limitRange.pvc.max.storage
+
+    # One LimitRange for each resource: <ns>-limits-cpu, <ns>-limits-memory, and <ns>-limits-storage for the pvc values
+    # below. Storage LimitRanges are off by default, in code (#253): the pvc values are checked but not rendered, a custom
+    # limitRange.pvc.* value is refused (storage-limits-off), the policies check no storage LimitRange, and storage is
+    # governed by requests.storage and persistentvolumeclaims only. To enforce them, set the override, here for every
+    # environment or in environments.<env>:
+    #   storageLimitRange: {enabled: true}
 
     defaults:                        # every tier gets these unless it overrides them
       quota:
@@ -255,7 +289,21 @@ data:
 
     custom:                          # bounds for custom values; min must cover the custom tier's container max
       min:  {requests.cpu: "2",   requests.memory: 4Gi,   pods: "10"}
-      max:  {requests.cpu: "64",  requests.memory: 256Gi, pods: "500"}
+      max:
+        requests.cpu: "64"
+        requests.memory: 256Gi
+        pods: "500"
+        persistentvolumeclaims: "100"
+        requests.storage: 2Ti
+        services.loadbalancers: "2"            # network exposure: low on purpose
+        services.nodeports: "10"               # also counts the node ports of each LoadBalancer Service
+        limitRange.container.defaultRequest.cpu: "16"
+        limitRange.container.defaultRequest.memory: 32Gi
+        limitRange.container.default.cpu: "16"
+        limitRange.container.default.memory: 32Gi
+        limitRange.container.max.cpu: "16"     # and never above the request's own requests.cpu
+        limitRange.container.max.memory: 32Gi
+        limitRange.pvc.max.storage: 500Gi
       step: {requests.cpu: "1",   requests.memory: 1Gi,   pods: "10"}
 
     environments:
@@ -285,22 +333,32 @@ data:
     # Source: docs/02-technical-design-v2.md
     # cluster-configs/policies/metadata-keys.yaml
     system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
-             cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/expiry, cmapi.net/expires-at]
+             cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
     operatorOnly: [cmapi.net/protected]
     reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                        argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
-    governed:
-      cmapi.net/team:        {kind: label,      required: true,  pattern: "^[a-z0-9-]{2,40}$"}   # ownership and cost; any team, not checked against the caller
-      cmapi.net/cost-center: {kind: label,      required: false, pattern: "^cc-[0-9]{4}$"}
-      cmapi.net/app:         {kind: label,      required: false, pattern: "^[a-z0-9-]{2,40}$"}   # links an app's environments
-      cmapi.net/rightsizing: {kind: label,      required: false, pattern: "^(auto|manual)$"}    # opt-in to automatic rnd/qa decreases
-      cmapi.net/team-dl:     {kind: annotation, required: true,  format: email-in-domains}   # an address in one of emailDomains
-    team:
-      allowedPrefixes: ["", "*.ephico2real.com/"]   # "" allows unprefixed keys
-      maxLabels: 50
-      maxAnnotations: 50
-      maxAnnotationValueBytes: 4096
-      maxAnnotationBytesTotal: 65536
+    # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+    # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+    # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+    # another value. allowOther admits any other key under a prefix ("" allows unprefixed keys), within the limits.
+    requiredLabels:
+      cmapi.net/team:        {pattern: "^[a-z0-9-]{2,40}$", description: "Ownership and cost; any team, not checked against the caller", example: payments}
+    requiredAnnotations:
+      cmapi.net/team-dl:     {format: email-in-domains, description: "The team's mail list, an address in one of emailDomains", example: payments-team@ephico2real.com}
+    extraLabels:
+      keys:
+        cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", example: cc-4410}
+        cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", description: "Links an app's environments"}
+        cmapi.net/rightsizing: {pattern: "^(auto|manual)$", description: "Opt-in to automatic rnd and qa decreases"}
+      allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50}
+    extraAnnotations:
+      keys: {}
+      allowOther: {prefixes: ["", "*.ephico2real.com/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+    # Read only when an existing namespace is adopted (story #26): a label and the values that mark a namespace that
+    # another tool made. A requester cannot set these keys. The owner's decision (#228): the organisation's own
+    # cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
+    adoptionLabels:
+      company.net/provisioner: {recognise: [cluster-configs]}
     sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one approver-platform approval
     # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
     # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.

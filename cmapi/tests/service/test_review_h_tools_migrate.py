@@ -16,7 +16,7 @@ import yaml
 from conftest import DB_URL
 from test_flow import AMY, NS, OLA, auth, run_jobs
 from test_review_c_authz import rnd_only
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SECRET = "s3cr3t-value-that-must-not-print"
@@ -71,11 +71,12 @@ class FakeHost:
     """Enough of Gitea or the Keycloak admin API to run a tool; records every request."""
 
     def __init__(self, handler):
-        self.handler, self.calls = handler, []
+        self.handler, self.calls, self.asked = handler, [], []
 
     def transport(self):
         def h(req):
             self.calls.append((req.method, req.url.path, req.content.decode() if req.content else ""))
+            self.asked.append(req.url)
             return self.handler(req)
         return httpx.MockTransport(h)
 
@@ -131,7 +132,11 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
         if p.endswith("/service-account-user"):
             return httpx.Response(200, json={"id": "sa"})
         if p.endswith("/clients"):
-            return httpx.Response(200, json=[{"id": "c"}])
+            # An old realm (#181): the automation client still takes the password grant and has no service account.
+            if int(req.url.params.get("first", 0)) > 0:               # the list is read page by page, to its end
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[{"id": "c", "clientId": req.url.params.get("clientId", "cmapi-automation"), "directAccessGrantsEnabled": True,
+                                              "defaultClientScopes": ["basic", "cmapi-audience"], "attributes": {"kept": "1"}}])
         if "/role-mappings/" in p and m == "GET":
             return httpx.Response(200, json=[])
         if p.endswith("/roles"):
@@ -158,14 +163,33 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
     assert SECRET not in out.out + out.err
     paths = {p for _, p, _ in host.calls if p.startswith("/admin/realms/")}
     assert paths and all(p.startswith("/admin/realms/cmapi") for p in paths), "another realm reached"
+    # #181: the sync turns the password grant off, gives the automation client its service account and its role, and removes bot-user.
+    client_put = next(json.loads(b) for m, p, b in host.calls if m == "PUT" and p.endswith("/clients/c"))
+    assert client_put["directAccessGrantsEnabled"] is False and client_put["serviceAccountsEnabled"] is True
+    granted = [json.loads(b) for m, p, b in host.calls if m == "POST" and p.endswith("/users/sa/role-mappings/clients/c")]
+    assert [{"name": "cmapi-onboarding"}] in granted
+    asked = [str(r) for r in host.asked if "username=bot-user" in str(r)]
+    assert asked and ("DELETE", "/admin/realms/cmapi/users/u", "") in host.calls, "bot-user is not removed"
+    assert "password grant: off on each client (changed: cmapi-automation)" in out.out
+    # #184: the sync makes each client of cmapi write the header typ at+jwt, and keeps the client's other attributes.
+    typed = [json.loads(b) for m, p, b in host.calls if m == "PUT" and p.endswith("/clients/c") and "rfc9068" in b]
+    assert typed and typed[-1]["attributes"] == {"kept": "1", "access.token.header.type.rfc9068": "true"}
+    assert "access token type: at+jwt on each client of cmapi (changed: cmapi-automation)" in out.out
     assert all(p.startswith(("/admin/realms/cmapi", "/realms/cmapi")) for _, p, _ in host.calls)
 
 
-def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
-    """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes."""
+def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monkeypatch):
+    """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes.
+    The image holds a kyverno binary, and the chart's policy enforces Kyverno, so the validator's start check (#213) needs
+    one on PATH: a stub stands in for the image's."""
     from cmapi.core.context import build_context
     from cmapi.settings import Settings
-    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64,
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "kyverno").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "kyverno").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    r = subprocess.run(["helm", "template", "cmapi", str(ROOT / "deploy/helm/cmapi"), "-n", "cmapi", "-f", str(ROOT / "deploy/environments/crc.yaml"), "--set", "cmapi.digest=sha256:" + "a" * 64, "--set", "cmapi_portal.digest=sha256:" + "b" * 64,
                         "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     cm = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "cmapi-config")
@@ -178,6 +202,9 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path):
     assert ctx.delivery.argocd_namespace == "cmapi-argocd" and ctx.delivery.argocd_root_application == "cluster-configs-{clusterId}"
     assert ctx.issuer == "https://keycloak.apps-crc.testing/realms/cmapi" and ctx.audience == "cmapi-nonprod"
     assert ctx.directory is not None and ctx.registry.policies["CRC"].environment == "dev"
+    assert ctx.pipeline.validator.policy.modes({"dev", "rnd"}) == {"dev": "enforce", "rnd": "enforce"}
+    # The Kyverno bundle rendered from the chart's own configuration (#212), for each environment it serves.
+    assert {p.split("/")[1] for p in ctx.pipeline.validator.bundle if p.startswith("env/")} == {"dev", "rnd"}
 
 
 def test_environment_role_cannot_create_in_another_environment(rnd_only):
@@ -200,7 +227,7 @@ def test_a_plan_changed_in_the_database_is_refused_before_the_pr(world):
 def test_synced_only_after_a_read_confirms(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     ctx.delivery = type(ctx.delivery)(mode="apply", poll_seconds=0, sync_timeout_seconds=1800)
     real = kube.apply
     kube.apply = lambda doc, field_manager="x": None if doc["kind"] == "ResourceQuota" else real(doc, field_manager)

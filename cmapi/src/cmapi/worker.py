@@ -3,9 +3,11 @@ runs them, and re-enqueues the recurring ones.
 
 - A job that raises is retried with backoff (5, 15, 45, 135, 405 s); after five attempts a
   request-bound job marks its request failed and the job is done.
-- Idempotent by construction: open_pr finds an existing branch or PR, pr_checks reads the PR
-  state first, watch_sync is a pure read. A lease that expires because a worker died makes
-  the job claimable again.
+- Idempotent by construction: each delivery job has one external effect and finds its own earlier
+  work (push_branch adopts its branch, open_pr its PR, merge a merge the host already made; #286),
+  watch_sync is a pure read. A lease that expires because a worker died makes the job claimable again.
+- Between jobs, every GIT_SWEEP_SECONDS, the Git layer's sweeper cleans this pod's workdir (#286): the
+  worker runs one job at a time, so that idle moment is "when no job is running".
 - cmapi_worker_last_loop_timestamp_seconds is the heartbeat the CmapiWorkerNotLooping alert
   watches: a Running pod with a dead loop would otherwise look healthy.
 - SIGTERM: the loop finishes the current job and exits.
@@ -23,14 +25,17 @@ from datetime import timedelta
 from typing import Any, Callable
 
 from prometheus_client import Gauge
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.db.models import JobRow
+from cmapi.core.db.models import OPEN_STATES, ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, LeaseLost, RequestRepo, oldest_open_ages, utcnow
+from cmapi.core.git.oplog import git_context
 from cmapi.core.kpi import register_collectors
 from cmapi.core.lifecycle import Event as E, State as S
-from cmapi.core.observability import JOB_FAILURES, JOBS_PENDING, OPEN_REQUEST_AGE, configure_logging, log, start_metrics
+from cmapi.core.observability import (JOB_FAILURES, JOBS_PENDING, OPEN_REQUEST_AGE, REQUESTS_IN_STATE, configure_logging, log,
+                                      start_metrics)
 from cmapi.jobs import HANDLERS, RECURRING
 from cmapi.settings import Settings, settings
 
@@ -39,6 +44,8 @@ BACKOFF = (5, 15, 45, 135, 405)
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 300
 MAX_JOB_SECONDS = 1800   # past every timeout a job can add up: a handler still running is wedged, so stop renewing its lease
+GIT_SWEEP_SECONDS = 300  # Fable's git.sweepInterval
+WATCHED_STATES = ("applied", "merge_failed", "sync_failed")
 
 
 class Worker:
@@ -65,6 +72,18 @@ class Worker:
                 JOBS_PENDING.labels(kind).set(counts.get(kind, 0))
             for status, env, age in oldest_open_ages(s):
                 OPEN_REQUEST_AGE.labels(status, env).set(age)
+            counts = dict(s.execute(select(ChangeRequestRow.status, func.count()).where(ChangeRequestRow.status.in_(WATCHED_STATES))
+                                    .group_by(ChangeRequestRow.status)).all())
+            for state in WATCHED_STATES:
+                REQUESTS_IN_STATE.labels(state).set(counts.get(state, 0))
+
+    def sweep(self) -> None:
+        """The Git layer's sweeper for this pod, between jobs (#286; the arbitration, row 6). It keeps the worktree of every open
+        request; the workspace takes its own lock without waiting."""
+        with self.ctx.db.session() as s:
+            open_ids = {(c, r) for c, r in s.execute(select(ChangeRequestRow.cluster_id, ChangeRequestRow.request_id)
+                                                      .where(ChangeRequestRow.status.in_(OPEN_STATES))).all()}
+        self.ctx.git.sweep(open_ids)
 
     def _heartbeat(self, job_id: int, finished: threading.Event) -> None:
         started = time.monotonic()
@@ -95,7 +114,8 @@ class Worker:
         try:
             if handler is None:
                 raise RuntimeError(f"no handler for job kind {kind}")
-            with self.ctx.db.session() as s:
+            with self.ctx.db.session() as s, git_context(job_id=job_id, job_kind=kind, worker=self.worker_id,
+                                                          lease_generation=generation, attempt=attempts, request_id=request_id):
                 job = s.get(type(job), job_id)
                 s.info["lease"] = (job_id, self.worker_id, generation)
                 handler(self.ctx, s, job)
@@ -131,10 +151,20 @@ class Worker:
                 if request_id and kind not in RECURRING:
                     row = repo.get(request_id)
                     repo.event(row, "error", "worker", err[:300])
-                    if row.status in (S.APPROVED.value, S.PR_OPEN.value):
-                        repo.move(row, E.PR_FAILED, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
+                    why = f"{kind} failed after {attempts} attempts: {err[:120]}"
+                    # Once an apply started, the cluster may be ahead of main: never failed, which would release the lock (F1).
+                    started = row.status == S.PR_OPEN.value and any(e.event == "apply_started" for e in repo.events(row.request_id))
+                    if row.status == S.APPROVED.value or (row.status == S.PR_OPEN.value and not started):
+                        repo.move(row, E.PR_FAILED, "worker", why)
+                        jobs.enqueue("git_cleanup", request_id=request_id, cluster_id=row.cluster_id)
+                    elif row.status == S.PR_OPEN.value:
+                        repo.move(row, E.SYNC_TIMEOUT, "worker", why)
+                    elif row.status == S.APPLIED.value:
+                        repo.move(row, E.MERGE_FAILED, "worker", why)          # the PR and the branch stay; :retry merges
+                    elif row.status == S.MERGE_FAILED.value:
+                        repo.event(row, "merge_retries_spent", "worker", f"{why}; waiting for :retry")
                     elif row.status in (S.MERGED.value, S.AWAITING_PRUNE.value):
-                        repo.move(row, E.SYNC_TIMEOUT, "worker", f"{kind} failed after {attempts} attempts: {err[:120]}")
+                        repo.move(row, E.SYNC_TIMEOUT, "worker", why)
                 if kind in RECURRING:
                     jobs.enqueue(kind, delay=RECURRING[kind], payload={"every": RECURRING[kind]})
             else:
@@ -144,6 +174,7 @@ class Worker:
 
     def loop(self) -> None:
         last_gauges = 0.0
+        last_sweep = 0.0
         recurring_ready = False
         while not self._stop.is_set():
             LAST_LOOP.set_to_current_time()
@@ -157,6 +188,12 @@ class Worker:
             except Exception as exc:                                  # noqa: BLE001 - the loop itself must not die
                 log.error("worker_loop_error", error=str(exc)[:300], trace=traceback.format_exc()[-1500:])
                 ran = False
+            if time.time() - last_sweep > GIT_SWEEP_SECONDS:
+                try:
+                    self.sweep()
+                except Exception as exc:                              # noqa: BLE001 - a sweep that fails is logged and counted
+                    log.warning("git_sweep_failed", error=str(exc)[:300])
+                last_sweep = time.time()
             if time.time() - last_gauges > 15:
                 try:
                     self.gauges()
@@ -173,7 +210,7 @@ def run(s: Settings | None = None) -> None:
     configure_logging(s.log_level)
     os.environ.setdefault("CMAPI_COMPONENT", "worker")
     ctx = build_context(s)
-    register_collectors()
+    register_collectors(ctx.registry, ctx.pipeline.reserved)
     if s.metrics_port:
         start_metrics(s.metrics_port, ctx.cfg.name, "worker")
     worker = Worker(ctx, s.worker_id or socket.gethostname(), s.worker_poll_seconds)

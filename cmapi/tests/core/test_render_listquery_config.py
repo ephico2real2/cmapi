@@ -64,7 +64,8 @@ def test_tier_change_touches_only_tier_files(renderer):
     prev = renderer.render(spec(), previous=example_folder())
     got = renderer.render(spec(tier="large", request_id="req-20261105-0002"), previous=prev)
     changed = {p for p, s in diff_files(prev, got).items() if s == "changed"}
-    assert changed == {FOLDER + "namespace.yaml", FOLDER + "resourcequota.yaml", FOLDER + "limitrange.yaml"}
+    assert changed == {FOLDER + "namespace.yaml", FOLDER + "resourcequota-payments-dev-quota.yaml",
+                       FOLDER + "limitrange-payments-dev-limits-cpu.yaml", FOLDER + "limitrange-payments-dev-limits-memory.yaml"}
     assert plan_hash(got) != plan_hash(prev)
 
 

@@ -77,12 +77,19 @@ spec:
               value: /etc/cmapi/policies
             - name: CMAPI_IMPORTS_NAMESPACE
               value: cmapi-imports
+            # The Git layer (#286): its working storage, and the bot account's credentials as files. The token stays in the
+            # environment too, for the host API alone; Git over HTTPS reads the file (the interim transport on CRC).
+            - {name: CMAPI_GIT_WORKDIR, value: /var/cache/cmapi/git}
+            - {name: CMAPI_GIT_WORKDIR_LIMIT_BYTES, value: "1073741824"}
+            - {name: CMAPI_GIT_CREDENTIALS_DIR, value: /etc/cmapi/git-bot}
+            - {name: CMAPI_GIT_SSH_DIR, value: /etc/cmapi/git-bot-ssh}
+            - {name: CMAPI_GIT_KNOWN_HOSTS_DIR, value: /etc/cmapi/git-bot-known-hosts}
             - name: CMAPI_GIT_TOKEN
-              valueFrom: {secretKeyRef: {name: cmapi-git, key: token, optional: true}}
+              valueFrom: {secretKeyRef: {name: cmapi-git-bot, key: token, optional: true}}
             - name: CMAPI_GIT_USER
-              valueFrom: {secretKeyRef: {name: cmapi-git, key: username, optional: true}}
+              valueFrom: {secretKeyRef: {name: cmapi-git-bot, key: username, optional: true}}
             - name: CMAPI_GIT_PASSWORD
-              valueFrom: {secretKeyRef: {name: cmapi-git, key: password, optional: true}}
+              valueFrom: {secretKeyRef: {name: cmapi-git-bot, key: password, optional: true}}
             - name: CMAPI_DATABASE_URL
               valueFrom: {secretKeyRef: {name: cmapi-db-app, key: uri}}
             - {name: PGSSLMODE, value: verify-full}
@@ -120,9 +127,31 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/cmapi/config, readOnly: true}
             - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+            - {name: git-workdir, mountPath: /var/cache/cmapi/git}
+            - {name: git-bot, mountPath: /etc/cmapi/git-bot, readOnly: true}
+            - {name: git-bot-ssh, mountPath: /etc/cmapi/git-bot-ssh, readOnly: true}
+            - {name: git-bot-known-hosts, mountPath: /etc/cmapi/git-bot-known-hosts, readOnly: true}
       volumes:
         - name: config
           configMap: {name: cmapi-config}
+        # The Git layer's mirror and worktrees (#286). An emptyDir, not a PVC: the remote is the source of truth, a lost one costs
+        # one fetch, and an RWO volume cannot serve two replicas (docs/reviews/2026-11-15-issue-286). The sizeLimit is
+        # CMAPI_GIT_WORKDIR_LIMIT_BYTES: past 80 % the sweeper removes the workdir before the kubelet evicts the pod.
+        - name: git-workdir
+          emptyDir: {sizeLimit: 1Gi}
+        # The bot account cmapi-git-bot's credentials (#286, F2 and F4). Directory mounts, not subPath, so a rotation reaches
+        # the pod with no restart; 0440, so the pod's group reads them and ssh accepts a key it does not own. Optional: CRC has
+        # the token alone for now, and the Gitea stand-in reads username and password from the environment.
+        - name: git-bot
+          secret: {secretName: cmapi-git-bot, optional: true, defaultMode: 0440, items: [{key: token, path: token}]}
+        - name: git-bot-ssh
+          secret:
+            secretName: cmapi-git-bot-ssh
+            optional: true
+            defaultMode: 0440
+            items: [{key: ssh-privatekey, path: ssh-privatekey}, {key: ssh-publickey, path: ssh-publickey}]
+        - name: git-bot-known-hosts
+          configMap: {name: cmapi-git-bot-known-hosts, optional: true, defaultMode: 0440, items: [{key: known_hosts, path: known_hosts}]}
         - name: trust
           projected:
             sources:

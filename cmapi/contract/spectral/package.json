@@ -1,0 +1,9 @@
+{
+  "name": "cmapi-contract-lint",
+  "private": true,
+  "description": "Spectral, pinned, for the lint of cmapi/contract/openapi.json (docs/01, API documentation, CI gate 1)",
+  "engines": { "node": "^22.0 || >=24.0" },
+  "devDependencies": {
+    "@stoplight/spectral-cli": "6.17.1"
+  }
+}

@@ -9,6 +9,7 @@ their state in memory; the tests below drive every lifecycle path through them.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 import time
@@ -43,6 +44,53 @@ DB_URL = os.environ.get("CMAPI_TEST_DATABASE_URL", "postgresql://cmapi:cmapi@127
 ISSUER = "https://keycloak.test/realms/cmapi"
 AUDIENCE = "cmapi-nonprod"
 
+# One session per database (#271). fresh_db truncates the request tables before each test, so a second session on the same
+# database deletes this one's rows mid-test, and a test fails with a 404 that is not the code's. A session-level advisory
+# lock, held on its own connection until the session ends, turns that into an immediate refusal that names the cause.
+SESSION_LOCK_KEY = 0x636D617069  # "cmapi" in ASCII
+SESSION_LOCK_EXIT = 75  # EX_TEMPFAIL of sysexits.h, "try again later": pytest's own codes are 0 to 5, and 3 is its internal error
+_SESSION_LOCK = pytest.StashKey[Any]()
+_SESSION_LOCK_TRIED = pytest.StashKey[bool]()
+
+
+def _hold_the_database(session: pytest.Session) -> None:
+    import psycopg
+
+    if session.config.stash.get(_SESSION_LOCK_TRIED, False):
+        return
+    session.config.stash[_SESSION_LOCK_TRIED] = True
+    # SQLAlchemy's form (postgresql+psycopg://) works for the app's engine; libpq wants the plain scheme.
+    conninfo = re.sub(r"^postgres(?:ql)?\+\w+://", "postgresql://", DB_URL)
+    try:
+        conn = psycopg.connect(conninfo, autocommit=True, connect_timeout=5)
+    except psycopg.Error:
+        # No database, or a URL libpq cannot read (its message quotes the URL, password and all, so it is not shown): the
+        # tests that need the database fail on their own, as they did before the lock.
+        return
+    if not conn.execute("select pg_try_advisory_lock(%s)", (SESSION_LOCK_KEY,)).fetchone()[0]:
+        where = f"{conn.info.host}:{conn.info.port}/{conn.info.dbname}"  # from the connection: never the URL's credentials
+        conn.close()
+        pytest.exit(f"another service-test session holds the database {where} (advisory lock {SESSION_LOCK_KEY}): its fixtures "
+                    "truncate the request tables, so two sessions would delete each other's rows. Wait for it to end, or set "
+                    "CMAPI_TEST_DATABASE_URL to a database of your own.", returncode=SESSION_LOCK_EXIT)
+    session.config.stash[_SESSION_LOCK] = conn
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    _hold_the_database(session)  # before collection, when this file is an initial conftest (pytest tests/service, ...)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    # pytest calls pytest_sessionstart only for initial conftests. `pytest tests` from cmapi/ loads this file while collecting,
+    # after the session started, so the lock is taken here instead: still before any fixture or test runs.
+    _hold_the_database(session)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    conn = session.config.stash.get(_SESSION_LOCK, None)
+    if conn is not None:
+        conn.close()  # the advisory lock is the connection's: closing it releases the lock
+
 
 # --------------------------------------------------------------------------- tokens
 
@@ -56,7 +104,9 @@ class Keys:
                                               serialization.NoEncryption())
 
     def token(self, username: str, *, roles=(), groups=(), employee_id="1001", sub=None, aud=AUDIENCE, iss=ISSUER,
-              exp_in=300, client="cmapi-portal", extra: Mapping[str, Any] | None = None, kid=None, alg="RS256") -> str:
+              exp_in=300, client="cmapi-portal", extra: Mapping[str, Any] | None = None, kid=None, alg="RS256",
+              typ: str | None = "at+jwt") -> str:
+        """`typ` is the JOSE header: an access token of cmapi's realm has at+jwt (RFC 9068). None removes the header type."""
         now = int(time.time())
         claims = {"iss": iss, "aud": [aud, "account"], "sub": sub or f"sub-{username}", "azp": client, "iat": now,
                   "exp": now + exp_in, "preferred_username": username, "email": f"{username}@ephico2real.com",
@@ -65,9 +115,10 @@ class Keys:
         if employee_id:
             claims["employee_id"] = employee_id
         claims.update(extra or {})
+        headers = {"kid": kid or self.kid, "typ": typ}      # PyJWT deletes a header typ that is None, and writes JWT when the key is absent
         if alg == "none":
-            return jwt.encode(claims, key=None, algorithm="none", headers={"kid": kid or self.kid})
-        return jwt.encode(claims, self.pem, algorithm=alg, headers={"kid": kid or self.kid})
+            return jwt.encode(claims, key=None, algorithm="none", headers=headers)
+        return jwt.encode(claims, self.pem, algorithm=alg, headers=headers)
 
 
 @pytest.fixture(scope="session")
@@ -92,6 +143,9 @@ class FakeGit(HostGitProvider):
         self.default_branch = "main"
         self.web_url = "https://git.test"
         self.down = False
+        self.owners: dict[str, tuple[str, str]] = {}
+        self.based_on_sha: dict[str, str] = {}
+        self.pushes: list[str] = []
 
     def _check(self):
         if self.down:
@@ -139,23 +193,68 @@ class FakeGit(HostGitProvider):
                 return PrRef(n, p["url"], branch, self.heads[branch])
         return None
 
-    def open_pr(self, branch, files, title, body, base_sha):
+    def push_request_branch(self, req):
+        """The Git layer's contract (#286), in memory: the branch from main with the plan's files. A branch that exists is
+        adopted when it is this request's with these files, replaced when it is this request's stale attempt, refused otherwise."""
+        from cmapi.core.git.base import PushResult
+        from cmapi.core.git.workspace import BranchRefused, request_branch
+
+        self._check()
+        branch = request_branch(req.cluster_id, req.request_id)
+        base = self.heads["main"]
+        want = dict(self.branches["main"])
+        for p, t in req.files.items():
+            if t is None:
+                want.pop(p, None)
+            else:
+                want[p] = t
+        if branch in self.branches:
+            owner = self.owners.get(branch)
+            if owner == (req.request_id, req.plan_hash) and self.branches[branch] == want:
+                return PushResult(self.heads[branch], self.based_on_sha.get(branch, base), "adopted")
+            if not owner or owner[0] != req.request_id:
+                raise BranchRefused(f"branch {branch} exists and its head is not cmapi's commit for {req.request_id}")
+        self.branches[branch] = want
+        self.based_on[branch] = dict(self.branches["main"])
+        self.based_on_sha[branch] = base
+        self.owners[branch] = (req.request_id, req.plan_hash)
+        self.pushes.append(branch)
+        return PushResult(self._sha(branch), base, "created")
+
+    def open_pr(self, branch, head, title, body):
         self._check()
         if (pr := self.find_pr(branch)) is not None:
             return pr
-        assert base_sha == self.heads["main"], "PR opened against a stale base"
-        self.branches[branch] = dict(self.branches["main"])
-        self.based_on[branch] = dict(self.branches["main"])
-        for p, t in files.items():
-            if t is None:
-                self.branches[branch].pop(p, None)
-            else:
-                self.branches[branch][p] = t
-        head = self._sha(branch)
+        assert branch in self.branches and self.heads[branch] == head, "PR opened on a head that is not the pushed one"
         n = len(self.prs) + 1
         self.prs[n] = {"branch": branch, "state": "open", "title": title, "body": body, "url": f"https://git.test/pulls/{n}",
                        "merge_sha": None}
         return PrRef(n, self.prs[n]["url"], branch, head)
+
+    def comment(self, pr, text):
+        self.prs[pr.number].setdefault("comments", []).append(text)
+
+    def delete_branch(self, branch, expected):
+        if branch not in self.branches:
+            return True
+        if self.heads.get(branch) != expected:
+            return False
+        del self.branches[branch]
+        return True
+
+    def list_open(self, prefix):
+        return [PrRef(n, p["url"], p["branch"], self.heads.get(p["branch"], "")) for n, p in self.prs.items()
+                if p["state"] == "open" and p["branch"].startswith(prefix)]
+
+    def list_branches(self, prefix):
+        return {b: self.heads[b] for b in self.branches if b.startswith(prefix)}
+
+    def branch_time(self, sha):
+        return 0
+
+    def request_of(self, sha):
+        branch = next((b for b, h in self.heads.items() if h == sha and b in self.branches), None)
+        return (self.owners.get(branch) or (None,))[0]
 
     def pr_status(self, pr):
         self._check()
@@ -163,7 +262,7 @@ class FakeGit(HostGitProvider):
         head = self.heads[pr.branch] if pr.branch in self.heads else pr.head_sha
         checks = {k: ("success" if v == "success" else "pending" if v == "pending" else "failure")
                   for k, v in self.statuses.get(head, {}).items()}
-        return PrStatus(state=p["state"], checks=checks, merge_sha=p["merge_sha"])
+        return PrStatus(state=p["state"], checks=checks, merge_sha=p["merge_sha"], head_sha=head)
 
     def set_check(self, sha, context, state, description, target_url=None):
         self._check()
@@ -260,9 +359,11 @@ class FakeValidator:
     def __init__(self):
         self.findings: list[Finding] = []
         self.calls = 0
+        self.previous: list = []        # the previous folder that each call gave (#212: a held value is not refused)
 
-    def validate(self, files, cluster_id, environment):
+    def validate(self, files, cluster_id, environment, previous=None):
         self.calls += 1
+        self.previous.append(previous)
         return list(self.findings)
 
 

@@ -1,6 +1,8 @@
-# Environment variables the components read through envFrom on CRC. Wave 1 has no Git host: GitHub arrives in Wave 3. The code
-# needs a provider kind to start (settings.py defaults to one that is leaving, so it is named here) and a URL; .invalid never
-# resolves (RFC 6761), so nothing can leave for a Git host. clusters.yaml has writes: false, so a request stops at 422 first.
+# Environment variables the components read through envFrom on CRC. The Git host is GitHub (#157), through the Git layer and a
+# thin PR adapter (#286): the bot account's token is Secret cmapi-git-bot, key token, which the api and the worker read through
+# secretKeyRef, and the worker's Git over HTTPS as a file (docs/13 creates it from stdin; it is not in Git).
+# CMAPI_GIT_CA_BUNDLE is the image's system trust (RHEL's shared system certificates, the ca-certificates package of the UBI base):
+# cmapi-trust and SSL_CERT_FILE hold Keycloak's private CA alone, so the Git provider gets a trust of its own (#97).
 # The pods reach Keycloak through its Service: its certificate names keycloak-service.keycloak.svc. Tokens still carry the
 # public issuer, in cmapi-config.
 apiVersion: v1
@@ -11,8 +13,9 @@ metadata:
   labels: {app.kubernetes.io/part-of: cmapi}
 data:
   CMAPI_GIT_PROVIDER: github
-  CMAPI_GIT_URL: https://git-not-configured.invalid
+  CMAPI_GIT_URL: https://api.github.com
   CMAPI_GIT_DEFAULT_BRANCH: main
+  CMAPI_GIT_CA_BUNDLE: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
   CMAPI_LOG_LEVEL: INFO
   CMAPI_OIDC_JWKS_URL: https://keycloak-service.keycloak.svc:8443/realms/cmapi/protocol/openid-connect/certs
   CMAPI_KEYCLOAK_ADMIN_URL: https://keycloak-service.keycloak.svc:8443

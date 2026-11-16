@@ -1,0 +1,11 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata: {name: probe-old2}
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [namespaces]}
+  validations:
+    - expression: "false"
+      messageExpression: "'op=' + string(request.operation) + ' oldHasMeta=' + string(has(oldObject.metadata))"

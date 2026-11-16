@@ -204,9 +204,33 @@ With no core or portal change, it then has routes in the spec, Swagger and ReDoc
 
 ## Request lifecycle
 
-Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once CI passes. The caller follows the request, not the PR.
+Every write runs the same pipeline, whatever the plugin. **Approval happens in cmapi, before anything reaches Git.** The API answers 202 with a ChangeRequest in pending\_approval, or already approved when an auto-approval policy matches. Only an approved request is rendered into a pull request, which the cmapi bot merges once cmapi's checks pass: after the apply, in apply mode, so that `main` records only what succeeded. The caller follows the request, not the PR.
 
-![request lifecycle · 9 steps, one approval branch](diagrams/request-lifecycle.png)
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
+  <source srcset="diagrams/git-delivery/states.light.png">
+  <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*Built in PR #288 (#286 PR-A); not merged, not deployed. The request states from approved to the end, in both delivery modes. `lock`: the state holds the namespace's lock.*
+
+```text
+approved (lock) --push_branch, open_pr--> pr_open (lock)
+  before any apply: failed | superseded | cancelled            (no lock)
+argocd mode, and every delete: pr_open --merge--> merged (lock)
+  --> watch_sync --> synced, or sync_failed after syncTimeout (lock)
+  a delete: merged --> awaiting_prune (lock) --prune:confirm, read--> synced
+apply mode, create or change: pr_open --apply job--> apply_started (event, own transaction)
+  --> applied (lock) --merge, pinned to the applied head--> merged --> synced (one transaction)
+  apply or read not finished --> sync_failed (lock); :retry applies again
+  merge refused, or 5 attempts --> merge_failed (lock); :retry merges
+  no CANCEL, PR_FAILED or BASE_CHANGED from applied or merge_failed (core/lifecycle.py)
+Built in PR #288 (#286 PR-A); not merged, not deployed
+```
+
+The figure is steps 8 and 9 as they are since #286. The nine steps:
 
 1. **Authenticate.** Verify the Keycloak JWT offline against the cached JWKS: issuer, audience cmapi-\<instance>, expiry.
 2. **Authorize.** The route's permission must come from a Keycloak role in the token (config/authz-roles.yaml maps roles to permissions), and a role limited to some environments must cover the request's environment. Names are checked, not owned: anyone holding namespaces:create may ask for any valid name that is not reserved and not an unmanaged namespace on the cluster.
@@ -215,14 +239,16 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 5. **Plan.** The plugin validates, renders the YAML and diffs it against the live object. The Kyverno bundle and kubeconform run on the rendered files, and the plan stores a hash of them. For a new namespace, the request carries the placementId from POST /api/v1/capacity:place and that reservation becomes the request's own. For a quota increase, the delta is reserved the same way and cmapi-capacity reads the namespace's last 14 days from Thanos.
 6. **Decide.** The rules engine turns the plan's facts into an ApprovalRequirement. A matching auto-approval policy approves at once (approver auto:\<policy>); otherwise the request waits in pending\_approval and the approval channels tell the eligible approvers.
 7. **Approve.** An eligible approver calls POST /api/v1/requests/{id}:approve, or :reject with a comment, with their own token: from the portal, the CLI, or a channel such as an email link or ServiceNow. When the count is met, capacity is checked again and the request becomes approved.
-8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git.
+8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git. Since #286 the worker does this through Git itself and a thin PR adapter per host: one bare mirror per worker pod, a worktree per request on branch `cmapi/<cluster>/<requestId>` cut from `origin/main`, one commit by the machine user `cmapi-git-bot` whose trailers carry the request ID and the plan hash, a push of that branch alone, then the PR. Host CI is optional and off by default: cmapi's own checks are the gate. Before every apply and every merge, `git merge-tree` and the plan's base are checked; the merge is pinned to a sha. Nothing is ever pushed to `main`.
 9. **Sync.** Argo CD on the target cluster applies the folder. The worker learns the result by polling or from Argo CD Notifications and confirms it with a direct read; then the request is synced and its reservation ends. A delete stops in awaiting\_prune until an operator confirms the prune in Argo CD.
 
 | State | Entered when | Moves to | Lock | Reservation |
 | --- | --- | --- | --- | --- |
 | pending\_approval | The plan passed and approvals are required | approved, rejected, cancelled, timeout | Held | Held |
 | approved | The count is met (auto or :approve) and capacity still fits | pr\_open, cancelled, failed, superseded | Held | Held |
-| pr\_open | The bot PR is open | merged, failed, superseded | Held | Held |
+| pr\_open | The bot PR is open | applied (apply mode), merged, failed, superseded, cancelled (until an apply starts), sync\_failed (an apply that did not finish) | Held | Held |
+| applied | Apply mode: the PR's head is applied and confirmed by a read, not yet merged (#286) | merged, merge\_failed | Held | Held |
+| merge\_failed | Applied, and the merge did not happen. The PR and the branch are kept; `CmapiMergeFailed` fires | merged (:retry merges it) | Held | Held |
 | merged | CI passed and the bot merged | synced, awaiting\_prune, sync\_failed | Held | Held |
 | awaiting\_prune | A delete merged; Argo CD shows the namespace waiting for prune confirmation | synced | Held | None |
 | synced | Argo CD Synced at or after the merge commit, confirmed by a read | End | Released | Released |
@@ -236,7 +262,7 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 
 Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the capacity check and the approval that would apply; it skips the idempotency and lock steps, reserves nothing, writes no row and opens no PR. POST /api/v1/requests/{id}:cancel lets the requester or an operator withdraw before pr\_open; :retry and :revert need requests:retry; a revert is a new request through the same approval rules.
 
-**Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by approver-platform and need two of them.
+**Git cannot bypass cmapi.** The bot is the only account that can merge under clusters/. Once a change is applied and not yet merged (applied, merge\_failed), no event can cancel, fail or supersede the request, so the namespace's lock holds while the cluster is ahead of `main`. Branch protection requires the cmapi check, which fails closed on a PR with no approved request ID or with a head that differs from the approved hash, and dismisses stale results on every push. policies/ and argocd/ are owned by approver-platform and need two of them.
 
 **What cmapi writes to Git.** Plain Kubernetes manifests, one folder per namespace inside the cluster's folder. No project-meta file, CRD or operator turns them into objects: what a reviewer sees in the PR diff is exactly what Argo CD applies, and Kyverno, kubeconform and the plan hash all run on those same files. The raw manifest renderer is the default; project-meta and Kustomize stay available behind the Renderer extension point.
 
@@ -248,15 +274,16 @@ cluster-configs-nonprod/
         └── namespaces/
             └── payments-dev/
                 ├── namespace.yaml
-                ├── resourcequota.yaml
-                ├── limitrange.yaml
+                ├── resourcequota-payments-dev-quota.yaml
+                ├── limitrange-payments-dev-limits-cpu.yaml
+                ├── limitrange-payments-dev-limits-memory.yaml   # -limits-storage too, only if storageLimitRange is on
                 ├── serviceaccounts.yaml            # when the namespace has SAs
                 ├── rolebindings.yaml               # SA grants and SCC grants
                 └── token-issuer-rolebinding.yaml   # lets cmapi issue SA tokens here
 ```
 
-- **One file per kind.** Keys are sorted with system labels first, so a quota change is a small diff to one file. An SCC grant is a RoleBinding to the ClusterRole system:openshift:scc:\<name>; cmapi never creates an SCC.
-- **Tiers live in cmapi.** config/tiers.yaml holds the ResourceQuota and LimitRange values per tier and environment, and the renderer writes them out, so the diff shows real numbers; a custom tier writes the approved values. Changing a tier definition changes no namespace by itself: namespaces rendered from an older definition show as tier-outdated (their cmapi.net/tier-hash differs), and the tiers-rerender operation opens one request per affected namespace, in batches, through the normal approval rules. One module, core/tiers.py, is the only reader of the catalog; its schema, validation, API (GET /api/v1/tiers) and the module itself are in the v2 design, Tiers.
+- **One file per kind, and one per ResourceQuota and LimitRange** (#253): each LimitRange holds one resource, because Kubernetes does not say which default applies when two LimitRanges set one. Keys are sorted with system labels first, so a quota change is a small diff to one file. An SCC grant is a RoleBinding to the ClusterRole system:openshift:scc:\<name>; cmapi never creates an SCC.
+- **Tiers live in cmapi.** config/tiers.yaml holds the ResourceQuota and LimitRange values per tier and environment, and the renderer writes them out, so the diff shows real numbers; a custom tier writes the approved values. A custom-tier request can also change the container limits and the other keys that the catalog names as overridable. cmapi refuses only a value that is not valid; each value beyond the tier needs one more approval, and one more again when it opens network exposure (v2 design, Tiers, "Beyond the tier"). Changing a tier definition changes no namespace by itself: namespaces rendered from an older definition show as tier-outdated (their cmapi.net/tier-hash differs), and the tiers-rerender operation opens one request per affected namespace, in batches, through the normal approval rules. One module, core/tiers.py, is the only reader of the catalog; its schema, validation, API (GET /api/v1/tiers) and the module itself are in the v2 design, Tiers.
 - **Metadata on every object.** Labels cmapi.net/cluster-id and cmapi.net/managed; annotations cmapi.net/request-id and cmapi.net/instance. The Namespace also carries cmapi.net/env, cmapi.net/tier, cmapi.net/team, cmapi.net/requested-by-user, cmapi.net/team-dl, cmapi.net/requested-by, the optional expiry keys (never in prod) and argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true.
 - **Argo CD.** Each cluster's root Application syncs clusters/\<clusterId>/namespaces with directory recurse. Removing a folder makes Argo CD prune its objects, and Prune=confirm holds the Namespace until an operator confirms. One Application per namespace from an ApplicationSet was considered and not used: when a folder disappears, the ApplicationSet deletes that Application and by default its resources with it, which bypasses Prune=confirm.
 - **namespace-configuration-operator.** Its quota and LimitRange NamespaceConfigs are retired, and cmapi owns ResourceQuota and LimitRange for every namespace. Order: adopt existing namespaces first (adoption writes their live quota and LimitRange into their folders), then remove those NamespaceConfigs, after confirming whether the operator deletes the objects it stamped when a NamespaceConfig is removed.
@@ -310,11 +337,11 @@ Keycloak is the only identity provider cmapi trusts. Roles in the token decide w
 
 **Roles.** cmapi-viewer, cmapi-onboarding, cmapi-requester, cmapi-approver, cmapi-operator, cmapi-admin and cmapi-auditor, plus cmapi-approval-relay for channel integrations such as ServiceNow (approvals:relay only; the named person must be eligible). core/authz.py maps each to permissions such as namespaces:create (ask for a new namespace), namespaces:write (change or delete one), capacity:read or operations:run (operator and admin). Approver does not include requester, and self-approval is excluded by the caller's sub unless the environment allows it (rnd, dev).
 
-**Onboarding and automation accounts.** cmapi-onboarding is viewer plus namespaces:create and requests:cancel: it creates namespaces and follows their requests, and cannot change or delete one. cmapi-requester is onboarding plus namespaces:write, quotas:write, serviceaccounts:write and grants:write. Onboarding is assigned to people, directly or through the group /cmapi/app-cmapi-rbac-onboarding, or to a local Keycloak account such as bot-user that an AI agent or a script signs in as. Accounts holding a role in identity.automationRoles (default \[cmapi-onboarding\]) need no employee ID and may send onBehalfOf. Every request records whether it was automated, and approval rules get the facts automated and requesterClient, so agent requests can be routed differently; otherwise they follow the same rules, auto-approval included. Anyone holding namespaces:write may change or delete any managed namespace: approval rules still apply, and a delete still needs its approvals and an operator's prune confirmation.
+**Onboarding and automation accounts.** cmapi-onboarding is viewer plus namespaces:create and requests:cancel: it creates namespaces and follows their requests, and cannot change or delete one. cmapi-requester is onboarding plus namespaces:write, quotas:write, serviceaccounts:write and grants:write. Onboarding is assigned to people, directly or through the group /cmapi/app-cmapi-rbac-onboarding, or to the service account of an automation client such as cmapi-automation, which an AI agent or a script signs in as with the client credentials grant. No client takes the resource owner password grant (RFC 9700, section 2.4). Accounts holding a role in identity.automationRoles (default \[cmapi-onboarding\]) need no employee ID and may send onBehalfOf. Every request records whether it was automated, and approval rules get the facts automated and requesterClient, so agent requests can be routed differently; otherwise they follow the same rules, auto-approval included. Anyone holding namespaces:write may change or delete any managed namespace: approval rules still apply, and a delete still needs its approvals and an operator's prune confirmation.
 
 **Namespace names.** Any caller with namespaces:create picks the name, so the name itself is checked (core/naming.py): a DNS-1123 label of 2 to 63 characters (422 invalid-namespace-name); not reserved, either built in (default, openshift, openshift-\*, kube-\*, cmapi-system, cmapi-imports) or in the instance's namespaces.reservedPatterns in instance.yaml, such as ocp-\* and kubernetes-\* (422 reserved-namespace); and at create, not a namespace that already exists on the cluster without cmapi.net/managed (409 namespace-exists-unmanaged; adoption is the way in). cmapi.net/team stays required as ownership and cost metadata; any valid value is accepted and it is not checked against the caller.
 
-**Role policy.** config/authz-roles.yaml maps each Keycloak client role on the instance's client (cmapi-nonprod, cmapi-staging, cmapi-prod) to permissions. Keycloak decides who holds a role: a person directly or through a group the role is assigned to, a service-account client, or a local account such as bot-user. An entry may replace a role's permissions (permissions), add another role's (inherits) or limit the role to some of the instance's environments (environments), for example cmapi-bot-rnd: inherits cmapi-requester, environments \[rnd\]. Built-in roles not listed keep their built-in permissions in every environment the instance serves. A missing permission is 403 forbidden; a role limited to other environments is 403 environment-forbidden. Retired: scope bindings and config/authz-scopes.yaml (cluster, namespace-pattern and team per caller), cluster-scope-forbidden, team\_not\_bound and mustMatchBinding.
+**Role policy.** config/authz-roles.yaml maps each Keycloak client role on the instance's client (cmapi-nonprod, cmapi-staging, cmapi-prod) to permissions. Keycloak decides who holds a role: a person directly or through a group the role is assigned to, or a service-account client such as cmapi-automation. An entry may replace a role's permissions (permissions), add another role's (inherits) or limit the role to some of the instance's environments (environments), for example cmapi-bot-rnd: inherits cmapi-requester, environments \[rnd\]. Built-in roles not listed keep their built-in permissions in every environment the instance serves. A missing permission is 403 forbidden; a role limited to other environments is 403 environment-forbidden. Retired: scope bindings and config/authz-scopes.yaml (cluster, namespace-pattern and team per caller), cluster-scope-forbidden, team\_not\_bound and mustMatchBinding.
 
 **Sessions.** cmapi keeps no session; every call stands on its own 5-minute access token. Keycloak 26 persists sessions in its database, so restarts sign nobody out.
 
@@ -481,7 +508,7 @@ Approval rules live in config/approval-rules.yaml and are evaluated at plan time
 
 rnd and dev creates need 1 approval, so the baseline-rnd-namespace policy has something to waive: small and medium rnd and dev namespaces on fresh capacity data go straight to Git, and anything larger or flagged waits for a person.
 
-Namespace patterns raise or waive (critical-\* needs 2 from approver-platform; temp-\* waives create and change). Thresholds add approvers from the plan's facts: quota increase over 100%, request-to-peak ratio over 3, capacity warn, a decrease below what pods request, a sensitive key change, an expiry beyond limits, and deletes of old or large namespaces. The engine, the auto-approval guards and the approval ledger are reference code; see the v2 design, Module catalog.
+Namespace patterns raise or waive (critical-\* needs 2 from approver-platform; temp-\* waives create and change). Thresholds add approvers from the plan's facts: quota increase over 100%, request-to-peak ratio over 3, capacity warn, a decrease below what pods request, a custom-tier value beyond the tier, network exposure (a custom-tier request that raises the load balancers or NodePorts), a sensitive key change, an expiry beyond limits, and deletes of old or large namespaces. The engine, the auto-approval guards and the approval ledger are reference code; see the v2 design, Module catalog.
 
 **Approval of record.** cmapi records every approval; Git reviews carry no authority, so no mapping from Git usernames to Keycloak users is needed. POST /api/v1/requests/{id}:approve and :reject (a comment is required) take the approver's own token. cmapi checks the approver role, the approving group from the token, that one of the approver's roles grants requests:approve in the request's environment, and that the approver is not the requester, not the person who started the operation, and not an owner of the svc client that asked (self-approval only where the environment allows it). GET /api/v1/requests?status=pending\_approval&approver=me lists what a person can approve. Each decision is an approvals row and an audit event.
 
@@ -505,7 +532,7 @@ Namespace patterns raise or waive (critical-\* needs 2 from approver-platform; t
 
 Example policies: baseline-rnd-namespace (create, rnd and dev, small or medium tier, optional clusterSelector), team-metadata (team-class label keys in any environment), expired-namespace (the delete that follows an expiry grace period, see Namespace expiration), baseline-sa-grants (written, not yet on). A team gets at most maxPerTeamPerDay auto-approvals (20 by default).
 
-**Guards no policy can switch off.** A matching request still goes to humans when it is a delete (other than expired-namespace, which has its own guards), when a pattern or threshold added approvers, when placement or the capacity check is anything but fits on fresh data, when the plan has warnings, or when the team's daily allowance is used. CI must pass either way.
+**Guards no policy can switch off.** A matching request still goes to humans when it is a delete (other than expired-namespace, which has its own guards), when it has a value beyond its tier and the policy does not say beyondTier: true, when a pattern or threshold added approvers, when placement or the capacity check is anything but fits on fresh data, when the plan has warnings, or when the team's daily allowance is used. CI must pass either way.
 
 An auto-approved request is approved at plan time by approver auto:\<policy>, skips pending\_approval and goes straight to the bot PR; CI must still pass. Widening a policy that reaches prod needs two approver-platform.
 
@@ -647,34 +674,16 @@ Two figures come from the platform rather than from cmapi, and are read by the r
 
 Recording rules precompute the KPI series (for example cmapi:change\_lead\_time\_seconds:p90\_1h by approval, short windows only because user workload monitoring keeps about a day; 7- and 30-day figures come from the monthly KPI export), so dashboards and the monthly report read the same numbers.
 
-**KPIs.** Measured per instance; targets are proposed and need agreement before launch.
+**KPIs.** Measured per instance. [`docs/17-kpis.md`](17-kpis.md) is the one definition of each KPI: its formula, its source and labels, its target, its alert and whether code computes it today. Each target is proposed and needs agreement before launch.
 
-| KPI | Definition | Source | Target |
-| --- | --- | --- | --- |
-| Lead time, auto-approved | Submit to synced, auto-approved requests | cmapi\_change\_lead\_time\_seconds{approval="auto"} p90 | Under 10 min |
-| Lead time, with approval | Submit to synced, human-approved requests | Same, approval="human" | Under 1 business day p90 |
-| Approval turnaround | Submitted (pending\_approval) to approved | cmapi\_approval\_wait\_seconds p50 / p90 | 4 h / 24 h |
-| Auto-approval rate | Auto-approved / requests matching a policy | cmapi\_auto\_approvals\_total, \_fallbacks\_total{guard} | Tracked; fallbacks by guard reviewed weekly |
-| Self-service rate | Requests completed with no platform-team touch | Database | Over 80% |
-| Change failure rate | Failed, sync-failed or reverted / merged | Database, cmapi\_change\_requests\_total | Under 5% |
-| Drift events | OutOfSync with no open request | cmapi\_sync\_drift\_total | 0 a week |
-| Placement accuracy | Overcommit breaches in the 30-day backtest | cmapi\_placement\_backtest\_breaches | 0 |
-| Capacity freshness | Clusters with a snapshot newer than two intervals | cmapi\_capacity\_snapshot\_age\_seconds | 100% |
-| Cluster headroom | Quota headroom per cluster | cmapi\_cluster\_quota\_headroom | Above 20% on every cluster |
-| Quota efficiency | Median used / quota, 14-day peak | namespace\_verdicts | Over 40% |
-| Capacity recovered | Cores freed by applied recommendations, per month | cmapi\_recommendations, recommendations | Tracked |
-| Managed coverage | Managed / (all − excluded) namespaces | cmapi\_namespaces | 90% within two quarters |
-| Import health | Tokens rotated before 90% of their life | cmapi\_cluster\_token\_expiry\_seconds | 100% |
-| API availability | Successful / all requests, excluding 4xx | cmapi\_http\_requests\_total | 99.5% monthly |
-| Docs coverage | Documented routes / routes | Startup and CI check | 100%, enforced |
-| Expired namespaces cleaned | Past the grace period with no delete request, or awaiting prune confirmation for more than 24 h | Expiration report | 0 |
-| Rebuild recovery | Cluster bootstrap to Synced and Healthy | Operation runs | Under 1 h |
-| System headroom | Memory and CPU used / limit per component, p95 over 7 days | cmapi\_process\_memory\_bytes, cmapi\_process\_cpu\_usage\_seconds\_total | Under 80% for every component |
-| CPU saturation | Throttled periods / periods per component | cmapi\_process\_cpu\_throttled\_periods\_total | Under 1% |
-| Stability | Container restarts and OOM kills per component, per week | kube-state-metrics | 0 |
-| Event-loop health | Event-loop lag p99 per component | cmapi\_event\_loop\_lag\_seconds | Under 100 ms |
-| Database headroom | Connections / max\_connections, volume used / size, days until the volume is full | cmapi\_db\_connections, kubelet\_volume\_stats | Under 80%; more than 90 days |
-| Backup freshness | Age of the last successful database backup, and of the last restore test | cmapi\_db\_backup\_last\_success\_timestamp\_seconds, restore runbook record | Under 26 h; a restore tested every month |
+| Group | KPIs |
+| --- | --- |
+| Delivery | Lead time, auto-approved (p90); Lead time, with approval (p90); Approval turnaround (p50 and p90); Auto-approval rate; Self-service rate; Change failure rate |
+| Reliability and state | API availability (30 d); Drift events (7 d); Expired namespaces cleaned; Managed coverage; Import health |
+| Capacity | Placement accuracy; Capacity freshness; Cluster headroom; Quota efficiency (median); Capacity recovered |
+| System | System headroom (p95, 7 d); CPU saturation; Database headroom; Backup freshness |
+
+The KPI review of 2026-11-13 removed four entries from this list, each with its reason in `docs/17`. **Rebuild recovery** (cluster bootstrap to Synced and Healthy, under 1 h) is removed by the owner's decision: "i don't think we should be measuring rebuilding a cluster in under 1 hour. this is not our place." A cluster rebuild is the platform team's work, not cmapi's. Docs coverage is a startup gate and not a measurement. Stability and Event-loop health are alerts (CmapiPodRestarting, CmapiEventLoopBlocked) and not KPIs.
 
 **Dashboards.** Eight dashboards per instance, each showing only that instance's clusters:
 
@@ -779,7 +788,8 @@ Everything an instance runs sits on its zone's hub; the table shows one instance
 
 | Where | Namespace | Object | Notes |
 | --- | --- | --- | --- |
-| Hub | cmapi | Deployment cmapi-api | 2+ replicas behind the instance's Route, for example cmapi-nonprod.ephico2real.com; /metrics on a separate port |
+| Hub | cmapi | Deployment cmapi-portal | The front door, nginx: the instance's one Route, for example cmapi-nonprod.ephico2real.com; the portal at /, the API's paths proxied to the API pods; security headers set once |
+| Hub | cmapi | Deployment cmapi-api | 2+ replicas behind the front door, through the headless Service cmapi-api-pods; only the front door reaches its port; /metrics on a separate port |
 | Hub | cmapi | Deployment cmapi-worker | 2+ replicas; jobs claimed with SKIP LOCKED, discovery under an advisory lock |
 | Hub | cmapi | Deployment cmapi-capacity | 2 replicas, ClusterIP only, NetworkPolicy, service-CA TLS, PDB |
 | Hub | cmapi | Secrets | Git host credentials (GitHub App or deploy key), database credentials, events HMAC |
@@ -856,10 +866,11 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | Expiry opens a delete request after a 7-day grace; Kyverno only reports | Kyverno cleanup TTL | A Kyverno delete leaves the folder in Git and Argo CD recreates the namespace |
 | Expiration optional; never in prod | A TTL on every namespace | Production namespaces must not carry anything that could remove them on a date |
 | Namespace deletes wait for an operator to confirm the prune | Argo CD prunes on merge | A bad commit or renderer bug cannot remove namespaces and their data |
+| Git through Git itself, and a thin PR adapter per host; apply before merge in apply mode (#286) | The host's Contents and Checks APIs; a direct commit to main | Any Git host with a token or an SSH key; main records only what succeeded; a fine-grained token needs no Checks permission |
 | dev small and medium creates auto-approved, like rnd | A person approves every dev create | dev and rnd carry the same risk |
 | cmapi writes plain Kubernetes manifests, one folder per namespace; tiers in config/tiers.yaml; namespace-configuration-operator's quota and LimitRange configs retired | project-meta.yml expanded on the cluster by an operator | No extra renderer or CRD to maintain; the PR diff, CI checks and plan hash cover exactly what Argo CD applies |
 | Requester identity from the token; employee ID and names in the database only; required team DL, format-checked | Individual owner email in the request body; employee ID on the namespace; DL lookup in the directory | Callers cannot misstate who asked; personal data stays out of Git; DLs are not reliably in Keycloak |
-| Access by Keycloak role only (authz-roles.yaml, optional per-role environments); any namespace name outside the reserved ones; cmapi-onboarding (create only) for people and local automation accounts such as bot-user | Scope bindings in authz-scopes.yaml (retired): per-team namespace prefixes, cmapi.net/team checked against the caller, and onBehalfOf required of every service | Team-prefix gating did not scale and cannot fit a bot account; Keycloak alone decides who may do what; an AI agent can onboard namespaces with least privilege |
+| Access by Keycloak role only (authz-roles.yaml, optional per-role environments); any namespace name outside the reserved ones; cmapi-onboarding (create only) for people and automation clients such as cmapi-automation | Scope bindings in authz-scopes.yaml (retired): per-team namespace prefixes, cmapi.net/team checked against the caller, and onBehalfOf required of every service | Team-prefix gating did not scale and cannot fit a bot account; Keycloak alone decides who may do what; an AI agent can onboard namespaces with least privilege |
 | The portal (cmapi-portal-ui) is React with TypeScript, built with Vite, using PatternFly as the component library | Preact | PatternFly is Red Hat's design system, built on React, and the OpenShift console is made from it. Users already know its tables, filters, forms and wizards, and it brings accessibility we would otherwise build and test ourselves. It keeps open the option of turning parts of the portal into an OpenShift console plugin later. Preact's advantage is bundle size, which matters little for an internal portal; PatternFly and most of these libraries reach Preact only through its React-compatibility layer, which they do not officially support. |
 
 **Open questions.**
@@ -895,3 +906,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [cmapi request flow mockup](../mockups/cmapi-flow.html) | Clickable walk through placement, auto-approval, quota change, policy reject, cluster import, expiry to delete, a wrong-instance request, and an AI agent onboarding a namespace as bot-user with the cmapi-onboarding role (create only; change and delete refused) |
 | [API examples](04-api-examples.md) | Calling the API with Keycloak tokens: which instance to call, curl, device flow, Swagger and ReDoc, Python |
 | [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow (including the AI agent onboarding scenario), New namespace (any team, any name that is not reserved), Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals (approve or reject before anything reaches Git), Expiration (extend, set, make permanent), Policies (Kyverno results), Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
+
+## Diagram sources
+
+The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.

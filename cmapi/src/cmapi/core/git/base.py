@@ -1,16 +1,21 @@
-"""What the Gitea and GitHub adapters share: one httpx client, metrics, and the error contract.
+"""What the platform adapters share (#286): one httpx client, one structured event per host call, and the error contract.
 
-A Git host failure is GitUnavailable; the worker turns it into a retry with backoff and, after
-five attempts, a failed request (502 git-unavailable on the API side).
+The platform layer is thin: open a PR from the request branch, read its state, merge it pinned to a sha, comment, close. A
+provider with a Git layer (GitHub) writes branches and reads trees through it; one without (the Gitea stand-in) through REST.
+
+A Git host failure is GitUnavailable; the worker turns it into a retry with backoff. HeadMoved and NotMergeable say why a
+merge did not happen; PlatformRefused is a refusal that a retry cannot fix. Each call logs its op, outcome, HTTP status and,
+on a refusal, the host's message (core/git/oplog.py), and counts in cmapi_git_platform_requests_total{platform,op,code}.
 """
 from __future__ import annotations
 
-import time
-from typing import Any, Literal, Mapping
+import ssl
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Iterable, Literal, Mapping
 
 import httpx
 
-from cmapi.core.observability import GIT_DURATION, GIT_OPS
 from cmapi.core.ports import PrRef, PrStatus
 
 CheckState = Literal["pending", "success", "failure"]
@@ -20,68 +25,136 @@ class GitUnavailable(RuntimeError):
     pass
 
 
+class IncompleteList(GitUnavailable):
+    """The host gave a list that it can have cut, so nothing may read it as complete. A caller that does not handle it
+    treats the host as unavailable, which is the safe reading."""
+
+
+class PlatformRefused(GitUnavailable):
+    """401, 403, 404, 422 and the like: the host said no, and saying it again will not change that."""
+
+    def __init__(self, message: str, status: int | None = None, host_message: str = ""):
+        super().__init__(message)
+        self.status, self.host_message = status, host_message
+
+
+class HeadMoved(PlatformRefused):
+    """The PR's head is not the pinned sha: nothing was merged."""
+
+
+class NotMergeable(GitUnavailable):
+    """The host will not merge now. transient: it is still computing, or a required check is pending."""
+
+    def __init__(self, message: str, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
+
+
+@dataclass(frozen=True)
+class BranchRequest:
+    """What a provider needs to write a request's branch."""
+    cluster_id: str
+    request_id: str
+    folder: str
+    plan_hash: str
+    message: str
+    files: Mapping[str, str | None]              # the plan's files: text, or None for a path the plan removes
+    prev: Mapping[str, str]                      # the folder before the plan (plan.prev)
+    approved_at: datetime                        # both commit dates: the reproducible commit
+
+
+@dataclass(frozen=True)
+class PushResult:
+    head: str
+    base: str
+    result: Literal["created", "adopted", "replaced"]
+
+
+@dataclass(frozen=True)
+class MergeCheck:
+    """git merge-tree --write-tree <main> <head>, and the folder's two comparisons (Fable 2.3)."""
+    main_sha: str
+    head_sha: str
+    conflicts: tuple[str, ...] = ()
+    base_matches: bool = True                    # the folder on main is the plan's prev
+    result_matches: bool = True                  # the folder in the merged tree is the plan's files
+    tree: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.conflicts and self.base_matches and self.result_matches
+
+    def reason(self, branch: str = "main") -> str:
+        if self.conflicts:
+            return f"conflicts with {branch} at {self.main_sha[:8]} in {', '.join(self.conflicts)}"
+        if not self.base_matches:
+            return f"the folder on {branch} at {self.main_sha[:8]} is no longer the plan's base"
+        if not self.result_matches:
+            return f"the merge of {self.head_sha[:8]} into {branch} at {self.main_sha[:8]} would not leave the folder as planned"
+        return "clean"
+
+
 class HostGitProvider:
     """The contract. Subclasses fill in the host's endpoints."""
 
-    BOT_NAME = "cmapi-bot"
-    BOT_EMAIL = "cmapi-bot@ephico2real.com"
-    # Whether the host's own CI reports ci/kubeconform and ci/kyverno. The worker then reads them there and posts only cmapi/check.
-    # False is the Gitea stand-in, which has no CI runner: the worker runs them and posts them itself (#60) until Wave 3 removes it.
+    name = "host"
+    BOT_NAME = "cmapi-git-bot"
+    BOT_EMAIL = "cmapi-git-bot@noreply.invalid"
+    # Whether the host's own CI reports ci/kubeconform and ci/kyverno, as commit statuses. The worker then waits for them there.
     external_ci = False
+    # Whether the worker posts its checks as commit statuses. The Gitea stand-in protects main with them (protect_default_branch);
+    # GitHub posts nothing unless host CI or git.postStatus is on (the arbitration of #286, row 11).
+    post_statuses = True
 
     def __init__(self, api_url: str, repository: str, token: str, *, default_branch: str = "main",
-                 verify: str | bool = True, web_url: str | None = None, timeout: float = 20.0,
+                 verify: ssl.SSLContext | str | bool = True, web_url: str | None = None, timeout: float = 20.0,
                  basic_auth: tuple[str, str] | None = None):
         self.api_url, self.repository, self.default_branch = api_url.rstrip("/"), repository, default_branch
         self.web_url = (web_url or self.api_url).rstrip("/")
         self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout,
                                     headers=self._headers(token) if token else {"Accept": "application/json"},
                                     auth=basic_auth)
+        from cmapi.core.git.oplog import register_secret
+
+        register_secret(token)
+        register_secret(basic_auth[1] if basic_auth else None)
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"token {token}", "Accept": "application/json"}
 
     def _call(self, operation: str, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204),
-              **kw: Any) -> httpx.Response:
-        started = time.perf_counter()
-        try:
-            r = self._client.request(method, path, **kw)
-        except httpx.HTTPError as exc:
-            GIT_OPS.labels(operation, "failure").inc()
-            raise GitUnavailable(f"{operation}: {type(exc).__name__}: {exc}") from exc
-        finally:
-            GIT_DURATION.labels(operation).observe(time.perf_counter() - started)
-        if r.status_code >= 500:
-            GIT_OPS.labels(operation, "failure").inc()
-            raise GitUnavailable(f"{operation}: the Git host answered {r.status_code}: {r.text[:200]}")
-        GIT_OPS.labels(operation, "ok" if r.status_code in ok else "refused").inc()
-        return r
+              log_fields: Mapping[str, Any] | None = None, **kw: Any) -> httpx.Response:
+        from cmapi.core.git.oplog import Op
+        from cmapi.core.observability import PLATFORM_REQUESTS
 
-    # ---- the GitProvider protocol, plus what the cmapi check needs
+        with Op(operation, method=method, path=path, platform=self.name, **(log_fields or {})) as op:
+            try:
+                r = self._client.request(method, path, **kw)
+            except httpx.HTTPError as exc:
+                PLATFORM_REQUESTS.labels(self.name, operation, "error").inc()
+                op.outcome = "retry"
+                raise GitUnavailable(f"{operation}: {type(exc).__name__}: {exc}") from exc
+            PLATFORM_REQUESTS.labels(self.name, operation, f"{r.status_code // 100}xx").inc()
+            op.set(http_status=r.status_code, host_request_id=r.headers.get("x-github-request-id") or r.headers.get("x-request-id"))
+            if r.status_code >= 500 or r.status_code == 429:
+                op.set(message=r.text[:300])
+                op.outcome = "retry"
+                raise GitUnavailable(f"{operation}: the Git host answered {r.status_code}: {r.text[:200]}")
+            if r.status_code not in ok:
+                op.outcome = "refused"
+                op.set(message=r.text[:300])
+            return r
+
+    # ---- the Git side: a Git layer, or the host's REST API
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         """Files under path at ref (default branch head), keyed by repository path, and the commit sha."""
         raise NotImplementedError
 
-    def open_pr(self, branch: str, files: Mapping[str, str | None], title: str, body: str, base_sha: str) -> PrRef:
-        raise NotImplementedError
-
-    def pr_status(self, pr: PrRef) -> PrStatus:
-        raise NotImplementedError
-
-    def set_check(self, sha: str, context: str, state: CheckState, description: str, target_url: str | None = None) -> None:
-        raise NotImplementedError
-
-    def merge(self, pr: PrRef, expected_head: str) -> str:
-        raise NotImplementedError
-
-    def close(self, pr: PrRef, comment: str) -> None:
-        raise NotImplementedError
+    def tree_files(self, ref: str, folder: str) -> dict[str, str]:
+        files, _ = self.read_folder(folder, ref)
+        return files
 
     def branch_head(self, branch: str) -> str | None:
-        raise NotImplementedError
-
-    def find_pr(self, branch: str) -> PrRef | None:
-        """An open PR from the branch, so a retried open_pr never opens a second one."""
         raise NotImplementedError
 
     def contains(self, revision: str, sha: str) -> bool:
@@ -89,12 +162,86 @@ class HostGitProvider:
         raise NotImplementedError
 
     def changed_paths(self, head: str) -> set[str]:
-        """Every path any commit on head touches since it left the default branch."""
+        """Every path any commit on head touches since it left the default branch. IncompleteList when the host cannot
+        give each one."""
         raise NotImplementedError
-
-    def tree_files(self, ref: str, folder: str) -> dict[str, str]:
-        files, _ = self.read_folder(folder, ref)
-        return files
 
     def log(self, n: int = 20) -> list[str]:
         raise NotImplementedError
+
+    def push_request_branch(self, req: BranchRequest) -> PushResult:
+        """The request's branch, one commit of the plan on the default branch's head."""
+        raise NotImplementedError
+
+    def recreate_branch(self, req: BranchRequest, base: str, expected: str) -> str:
+        """The branch again from its recorded base, the same sha (the reproducible commit)."""
+        raise NotImplementedError
+
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
+        """Before an apply and a merge. With no Git layer (the Gitea stand-in): the folder on the default branch compared with the
+        plan's base; the host's own merge refuses a conflict. A provider with the Git layer runs git merge-tree."""
+        from cmapi.core.git.oplog import Op
+
+        with Op("merge_check", head_sha=head) as op:
+            on_main, main = self.read_folder(folder)
+            check = MergeCheck(main, head, (), on_main == dict(prev), True)
+            op.set(main_sha=main, base_matches=check.base_matches)
+            if not check.ok:
+                op.outcome = "refused"
+            return check
+
+    def delete_branch(self, branch: str, expected: str) -> bool:
+        """Delete the host's branch only when it is at expected. Missing is success."""
+        raise NotImplementedError
+
+    def list_branches(self, prefix: str) -> dict[str, str]:
+        """{branch: sha} of the host's branches under prefix, for git_reconcile."""
+        raise NotImplementedError
+
+    def request_of(self, sha: str) -> str | None:
+        """The Cmapi-Request-Id trailer of a commit: whose branch head this is. None: not cmapi's, or not known."""
+        return None
+
+    def branch_time(self, sha: str) -> int:
+        """The commit time of a branch head, for git_reconcile's grace period."""
+        raise NotImplementedError
+
+    # ---- the PR: the host's API
+    def find_pr(self, branch: str) -> PrRef | None:
+        """The open PR from the branch into the default branch."""
+        raise NotImplementedError
+
+    def open_pr(self, branch: str, head: str, title: str, body: str) -> PrRef:
+        """Open it, or return the one that exists for the branch. Its head must be head."""
+        raise NotImplementedError
+
+    def pr_status(self, pr: PrRef) -> PrStatus:
+        raise NotImplementedError
+
+    def merge(self, pr: PrRef, expected_head: str) -> str:
+        """Merge only if the PR head is expected_head: the merge sha. HeadMoved, NotMergeable, PlatformRefused, GitUnavailable."""
+        raise NotImplementedError
+
+    def comment(self, pr: PrRef, text: str) -> None:
+        raise NotImplementedError
+
+    def close(self, pr: PrRef, comment: str) -> None:
+        raise NotImplementedError
+
+    def list_open(self, prefix: str) -> list[PrRef]:
+        """Every open PR whose source branch starts with prefix, all pages, or it raises."""
+        raise NotImplementedError
+
+    def set_check(self, sha: str, context: str, state: CheckState, description: str, target_url: str | None = None) -> None:
+        raise NotImplementedError
+
+    # ---- this pod's working storage
+    def cleanup(self, cluster_id: str, request_id: str) -> None:
+        """The request's worktree on this pod. A provider with no Git layer keeps none."""
+
+    def sweep(self, open_requests: Iterable[tuple[str, str]]):
+        """The sweeper's pass, in the worker loop between jobs. A provider with no Git layer has nothing to sweep."""
+        return None
+
+    def dispose(self) -> None:
+        """Release what the provider holds at shutdown. Not close(), which closes a PR."""

@@ -1,0 +1,25 @@
+# What the front door (components/portal/10-front-door.yaml) needs on kind. kind has no router and no Keycloak, so the hosts
+# are stand-ins under .invalid, which never resolves (RFC 6761), as in 20-config.yaml: deploy/kind-test.sh reaches the front
+# door through kubectl port-forward and names the host in the Host header. nginx reads the three hosts once, at start, and
+# config.json is mounted by subPath, so deploy/render.sh puts the checksum of this file into the front door's pod template.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmapi-portal-config
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/component: portal}
+data:
+  CMAPI_PORTAL_HOST: cmapi.kind.invalid
+  CMAPI_MOCKUP_HOST: cmapi-mockup.kind.invalid
+  CMAPI_OIDC_ORIGIN: https://keycloak.kind.invalid
+  config.json: |
+    {
+      "apiUrl": "https://cmapi.kind.invalid",
+      "issuer": "https://keycloak.kind.invalid/realms/cmapi",
+      "clientId": "cmapi-portal",
+      "audience": "cmapi-nonprod",
+      "instance": "nonprod",
+      "displayName": "Non-production",
+      "environments": ["rnd","dev"],
+      "otherInstances": {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}
+    }

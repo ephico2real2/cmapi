@@ -23,6 +23,7 @@ if [ -n "${LT_CLUSTER:-}" ]; then case "$*" in
   "delete secret cmapi-ldap-test-users "*) ;;
   "delete "*) printf '%s\n' "$*" >>"$LT_CLUSTER"; exit 0;;
   "get pvc "*|"label namespace "*) exit 0;;
+  "get namespaces -l cmapi.net/managed=true -o name") exit 0;;   # no namespace a request delivered (#267)
 esac; fi
 case "$*" in
   "get pods -n ldap-testing --no-headers") echo "openldap-server-1 1/1 Running 0 1d"; exit 0;;

@@ -21,7 +21,7 @@ import shlex
 from importlib import resources
 from typing import Any, Callable, Sequence
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Response
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
@@ -52,6 +52,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "capacity-exceeded": (422, "memory would exceed the cluster"),
     "environment-not-served": (422, "qa is served by the staging instance"),
     "cluster-not-writable": (422, "CRC is imported but has no clusters.yaml entry"),
+    "plugin-disabled": (422, "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there"),
     "reserved-namespace": (422, "kube-tools is reserved"),
     "invalid-namespace-name": (422, "Not a DNS-1123 label"),
     "no-change": (422, "The request changes nothing"),
@@ -79,6 +80,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
     "validator-unavailable": (503, "kubeconform did not start"),
+    "internal-error": (500, "The service failed. Give the X-Request-Id of this answer to the platform team"),
     "docs-assets-missing": (503, "The Swagger UI bundle is not in /opt/app-root/static"),
 }
 
@@ -88,15 +90,23 @@ def problem_example(code: str) -> dict[str, Any]:
     return Problem(status, code, detail).body()
 
 
+PROBLEM_SCHEMA: dict[str, str] = {"$ref": "#/components/schemas/ProblemDetail"}
+
+
 def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
+    """One response for each status, with the one media type that cmapi answers a problem with (RFC 9457, section 3).
+
+    The schema is written here as a reference and not passed as FastAPI's `model`: FastAPI puts a model under the media type
+    of the route's response class, application/json, which no problem of cmapi has (#179).
+    """
     by_status: dict[int, list[str]] = {}
     for c in codes:
         by_status.setdefault(PROBLEMS[c][0], []).append(c)
     out: dict[int | str, dict[str, Any]] = {}
     for status, names in sorted(by_status.items()):
-        out[status] = {"model": ProblemDetail, "description": ", ".join(names),
+        out[status] = {"description": ", ".join(names),
                        "content": {"application/problem+json": {
-                           "examples": {n: {"value": problem_example(n)} for n in names}}}}
+                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n)} for n in names}}}}
     return out
 
 
@@ -128,7 +138,8 @@ class DocumentedRouter(APIRouter):
         self.group = group
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
-                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None) -> Callable:
+                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None,
+                  dry_run_model: Any = None) -> Callable:
         unknown = [p for p in problems if p not in PROBLEMS]
         if unknown:
             raise RuntimeError(f"{self.plugin} {method} {path}: unregistered problems {unknown}")
@@ -146,14 +157,19 @@ class DocumentedRouter(APIRouter):
             responses = problem_responses(codes)
             x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
                                  "x-plugin-version": self.version, **extra}
-            if media_type:
-                # a streamed body (CSV): declared by media type, since it has no JSON model
-                responses[status_code] = {"description": f"The body as {media_type}",
-                                          "content": {media_type: {"schema": {"type": "string"}}}}
-                x["x-cmapi-media-type"] = media_type
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
                                           status_code=status_code, operation_id=op_id, responses=responses,
                                           openapi_extra=x)
+            if media_type:
+                # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
+                # type of its own stops FastAPI from adding application/json beside it (#179).
+                responses[status_code] = {"description": f"The body as {media_type}",
+                                          "content": {media_type: {"schema": {"type": "string"}}}}
+                x["x-cmapi-media-type"] = media_type
+                kwargs["response_class"] = Response
+            if dry_run_model is not None:
+                responses[200] = {"model": dry_run_model,
+                                  "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."}
             return self.api_route(path, methods=[method], **kwargs)(fn)
 
         return deco
@@ -166,9 +182,12 @@ class DocumentedRouter(APIRouter):
                               response_model=response_model, status_code=200, extra=extra, media_type=media_type)
 
     def write(self, path: str, *, summary: str, permission: str, problems: Sequence[str] = (),
-              response_model: Any, method: str = "POST", status_code: int = 202, **extra: Any) -> Callable:
+              response_model: Any, method: str = "POST", status_code: int = 202, dry_run_model: Any = None,
+              **extra: Any) -> Callable:
+        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs")."""
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=status_code, extra=extra)
+                              response_model=response_model, status_code=status_code, extra=extra,
+                              dry_run_model=dry_run_model)
 
 
 def _undocumented_fields(model: type[BaseModel], seen: set[type]) -> list[str]:
@@ -220,6 +239,9 @@ def check_documented(app: FastAPI) -> None:
                 problems.extend(_undocumented_fields(m, seen))
         if route.body_field is not None:
             for m in _models_in(route.body_field.type_):
+                problems.extend(_undocumented_fields(m, seen))
+        for response in route.responses.values():            # the 200 of a dry run
+            for m in _models_in(response.get("model")):
                 problems.extend(_undocumented_fields(m, seen))
         problems.extend(_undocumented_parameters(route))
     if problems:
@@ -326,8 +348,13 @@ def curl_sample(request: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str) -> dict[str, Any]:
-    """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation."""
+def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE,
+                  metadata: Any = None) -> dict[str, Any]:
+    """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation.
+
+    The routes declare their problem examples at import, with the default type base. `problem_base` is the base of this
+    instance (instance.yaml `problems.typeBase`), so each example shows the type that this instance answers. `metadata`
+    (core/metadata.py) is this instance's metadata-keys.yaml: the labels and annotations of a namespace say its keys."""
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
@@ -341,8 +368,89 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                 continue
             op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
+    _document_validation_problem(spec)
+    if metadata is not None:
+        _document_metadata(spec, metadata)
     add_recorded_examples(spec, load_samples())
-    return spec
+    return spec if problem_base == BASE else _with_type_base(spec, problem_base)
+
+
+def metadata_description(keys: Any, kind: str) -> str:
+    """The keys of one kind, from metadata-keys.yaml (#215): the same rules that the plan checks."""
+    rules = keys.rules[kind]
+    def listed(items):
+        return "; ".join(f"`{k}` ({r.text(keys.email_domains)})" for k, r in items) or "none"
+    required = [(k, r) for k, r in rules.items() if r.required and not r.derived]
+    extra = [(k, r) for k, r in rules.items() if not r.required]
+    derived = [(k, r) for k, r in rules.items() if r.derived]
+    other = keys.allow_other[kind]
+    prefixes = ", ".join(f"`{p}/`" if p else "no prefix" for p in other.prefixes) or "none"
+    parts = [f"Required: {listed(required)}.", f"Optional: {listed(extra)}.",
+             f"Any other key with {prefixes}, at most {other.max}."]
+    if derived:
+        parts.append(f"Set by cmapi, not by the requester: {listed(derived)}. A request may send the same value, never another.")
+    return " ".join(parts)
+
+
+def metadata_example(keys: Any, kind: str) -> dict[str, str]:
+    """What a requester sends for one kind: each required key that cmapi does not set, with the example of its rule.
+    A key with no example is left out, so the document never shows a value that the plan would refuse."""
+    return {k: str(r.example) for k, r in keys.rules[kind].items() if r.required and not r.derived and r.example is not None}
+
+
+def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
+    """The labels and annotations of NamespaceCreate and NamespacePatch name this instance's keys and rules."""
+    schemas = spec.get("components", {}).get("schemas", {})
+    for schema, prefix in (("NamespaceCreate", ""), ("NamespacePatch", "Merge patch; null removes a key. ")):
+        props = (schemas.get(schema) or {}).get("properties") or {}
+        for field, kind in (("labels", "label"), ("annotations", "annotation")):
+            if field in props:
+                props[field]["description"] = prefix + metadata_description(keys, kind)
+                if schema == "NamespaceCreate":
+                    props[field]["examples"] = [metadata_example(keys, kind)]
+
+
+def _with_type_base(node: Any, problem_base: str) -> Any:
+    """A copy of the document with each problem type URI on `problem_base`."""
+    if isinstance(node, dict):
+        return {k: _with_type_base(v, problem_base) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_with_type_base(v, problem_base) for v in node]
+    if isinstance(node, str) and node.startswith(BASE):
+        return problem_base + node[len(BASE):]
+    return node
+
+
+def _document_validation_problem(spec: dict[str, Any]) -> None:
+    """Each operation with a parameter or a body can answer 422 validation-failed (main.py turns FastAPI's own refusal into the
+    problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
+    problem = PROBLEM_SCHEMA
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if not isinstance(op, dict) or not (op.get("parameters") or op.get("requestBody")):
+                continue
+            declared = op["responses"].get("422") or {}
+            examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
+            examples.setdefault("validation-failed", {"value": problem_example("validation-failed")})
+            names = [n for n in (declared.get("description") or "").split(", ") if n in PROBLEMS]
+            if "validation-failed" not in names:
+                names.append("validation-failed")
+            op["responses"]["422"] = {"description": ", ".join(names),
+                                      "content": {"application/problem+json": {"schema": problem, "examples": examples}}}
+    schemas = spec.get("components", {}).get("schemas", {})
+    schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))
+    for name in ("HTTPValidationError", "ValidationError"):
+        schemas.pop(name, None)
+
+
+def _without_none(value: Any) -> Any:
+    """A schema as FastAPI writes each model of the document: it leaves out a key whose value is None (`default: null`).
+    No route passes ProblemDetail to FastAPI as a model (problem_responses), so this function gives it the same form."""
+    if isinstance(value, dict):
+        return {k: _without_none(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_without_none(v) for v in value]
+    return value
 
 
 def load_samples() -> dict[str, Any]:
@@ -364,7 +472,7 @@ def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any]) -> None
             continue
         request, response = sample["request"], sample["response"]
         body_content = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
-        if body_content is not None and "body" in request:
+        if body_content is not None and "body" in request and ":" not in key:    # the body of the write, not of its dry run
             body_content["example"] = request["body"]
         declared = op["responses"].setdefault(str(response["status"]), {"description": "Successful Response"})
         media = declared.setdefault("content", {}).setdefault(response["contentType"] or "application/json", {})

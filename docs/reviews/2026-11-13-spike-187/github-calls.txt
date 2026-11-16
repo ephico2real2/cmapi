@@ -1,0 +1,29 @@
+description: OpenAPI 3.0.3, version 1.1.4, 842 paths
+calls checked: 23; distinct operations: 22
+
+Documented statuses that the adapter does not name (they reach its general error path):
+  branch_head              GET    /repos/{owner}/{repo}/branches/{branch}                      [301]
+  read_folder              GET    /repos/{owner}/{repo}/contents/{path}                        [302, 304, 403]
+  read_file                GET    /repos/{owner}/{repo}/contents/{path}                        [302, 304, 403, 404]
+  delete_branch            DELETE /repos/{owner}/{repo}/git/refs/{ref}                         [409]
+  create_branch            POST   /repos/{owner}/{repo}/git/refs                               [409, 422]
+  blob                     POST   /repos/{owner}/{repo}/git/blobs                              [403, 404, 409, 422]
+  commit_read              GET    /repos/{owner}/{repo}/git/commits/{commit_sha}               [404, 409]
+  tree                     POST   /repos/{owner}/{repo}/git/trees                              [403, 404, 409, 422]
+  commit                   POST   /repos/{owner}/{repo}/git/commits                            [404, 409, 422]
+  update_ref               PATCH  /repos/{owner}/{repo}/git/refs/{ref}                         [409, 422]
+  open_pr                  POST   /repos/{owner}/{repo}/pulls                                  [403, 422]
+  compare                  GET    /repos/{owner}/{repo}/compare/{basehead}                     [422, 500, 503]
+  find_pr                  GET    /repos/{owner}/{repo}/pulls                                  [304, 422]
+  pr_check_suites          GET    /repos/{owner}/{repo}/commits/{ref}/check-suites             []
+  pr_check_runs (suite)    GET    /repos/{owner}/{repo}/check-suites/{check_suite_id}/check-runs []
+  pr_check_runs (commit)   GET    /repos/{owner}/{repo}/commits/{ref}/check-runs               []
+  pr_status                GET    /repos/{owner}/{repo}/pulls/{pull_number}                    [304, 404, 406, 422, 500, 503]
+  pr_checks                GET    /repos/{owner}/{repo}/commits/{ref}/status                   [404]
+  set_check                POST   /repos/{owner}/{repo}/statuses/{sha}                         []
+  merge                    PUT    /repos/{owner}/{repo}/pulls/{pull_number}/merge              [403, 404, 405, 409, 422]
+  comment                  POST   /repos/{owner}/{repo}/issues/{issue_number}/comments         [403, 404, 410, 422]
+  close                    PATCH  /repos/{owner}/{repo}/pulls/{pull_number}                    [403, 422]
+  log                      GET    /repos/{owner}/{repo}/commits                                [400, 404, 409, 422, 429, 500]
+
+differences: 0

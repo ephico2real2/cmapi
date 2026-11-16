@@ -20,7 +20,7 @@ from cmapi.core.clients.kube import KubeError
 from cmapi.core.db import REQUIRED_REVISION, older_than_required
 from cmapi.worker import MAX_ATTEMPTS, Worker
 from test_flow import NS, OLA, OPAL, auth
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 from test_review_e_recovery import lease_expired
 from test_second_pass import BASE, _awaiting, _pending, _stubs, app, argo_applied, argocd, helm, migrate, schema  # noqa: F401
 
@@ -32,7 +32,7 @@ APPLY = ("--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled
 
 def _merged(client, ctx, git, kube, keys):
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx, sync_timeout_seconds=0)
     return rid, argo_applied(git, kube)
 
@@ -72,7 +72,7 @@ def test_argocd_an_older_revision_than_the_merge_keeps_waiting(world):
     """Argo CD still at the revision before the merge: the folder is Synced for the old content, so nothing is confirmed."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     res = argo_applied(git, kube)
     before_merge = git.main_history[-2]
@@ -172,7 +172,9 @@ def test_revision_validation_by_the_history_and_the_convention(tmp_path, monkeyp
     import cmapi.core.db as db
     script = _history(tmp_path, ("0001", None), ("0002", "0001"), ("0003", "0002"), ("0004", "0003"), ("0009_divergent", "0001"))
     monkeypatch.setattr(db, "script_directory", lambda: script)
-    assert REQUIRED_REVISION == "0003"
+    # The cases below are written for a required revision of 0003 in this made-up history. The real value follows the newest
+    # migration (test_pr40_convergence.py::test_required_revision_is_the_newest_migration).
+    monkeypatch.setattr(db, "REQUIRED_REVISION", "0003")
     assert older_than_required("0001") is True and older_than_required("0002") is True
     assert older_than_required("0003") is False
     assert older_than_required("0004") is False, "a known descendant"
@@ -191,6 +193,8 @@ def test_readiness_refuses_garbage_and_a_divergent_revision(world, monkeypatch):
     r = client.get("/readyz")
     assert r.status_code == 503 and "unknown schema revision" in r.json()["schema"], r.text
     monkeypatch.setattr(ctx.db, "schema_version", lambda: "0004")
+    assert client.get("/readyz").status_code == 503, "0004 has no lock for applied and merge_failed (#286)"
+    monkeypatch.setattr(ctx.db, "schema_version", lambda: "0005")
     assert client.get("/readyz").status_code == 200
 
 
@@ -198,7 +202,8 @@ def test_migrate_refuses_a_revision_it_cannot_place(schema):
     """A rolled-back image on a later release's database starts (the convention); on garbage it must not."""
     assert migrate(schema, "head").returncode == 0
     c = psycopg.connect(BASE, autocommit=True)
-    c.execute("update sp.alembic_version set version_num='0004'")
+    later = f"{int(REQUIRED_REVISION) + 1:04d}"                 # the number of the next release's migration, by the convention
+    c.execute("update sp.alembic_version set version_num=%s", (later,))
     r = migrate(schema, "head")
     assert r.returncode == 0 and "later release" in r.stdout, (r.returncode, r.stdout, r.stderr[-200:])
     c.execute("update sp.alembic_version set version_num='deadbeef'")
@@ -209,7 +214,7 @@ def test_migrate_refuses_a_revision_it_cannot_place(schema):
 
 # ------------------------------------------------------------------ chart, values and scripts
 def _docs(*a):
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", *a)
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", *a)
     assert r.returncode == 0, r.stderr
     return [d for d in yaml.safe_load_all(r.stdout) if d]
 
@@ -234,7 +239,7 @@ def test_the_migrate_init_container_trusts_what_the_main_container_trusts():
         mounts = {m["name"]: m["mountPath"] for m in init.get("volumeMounts", [])}
         assert mounts.get("trust") == "/etc/cmapi/ca", f"{name}: the init container verifies an external TLS database against nothing"
         assert any(v["name"] == "trust" for v in spec["volumes"]), name
-    bare = helm("--set", f"cmapi.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
+    bare = helm("--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "portal.enabled=false", "--set", "argocd.controllerServiceAccount=system:serviceaccount:argocd:argocd-application-controller")
     assert bare.returncode == 0, bare.stderr
     for d in yaml.safe_load_all(bare.stdout):
         if d and d["kind"] == "Deployment":

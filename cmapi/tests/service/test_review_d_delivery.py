@@ -30,6 +30,18 @@ def run_until(ctx, kind_stop, limit=10):
     return None
 
 
+def run_until_merged(ctx, limit=12):
+    """A request merged with watch_sync next: the merge-first path (#286). In apply mode that path is a PR merged by a person,
+    or a delete; it is reached here by merging first, as argocd mode does, then restoring the mode, so watch_sync's apply-mode
+    guards (unmanaged namespace, main not the plan, a reader that is down) keep their tests."""
+    before = ctx.delivery
+    ctx.delivery = type(before)(**{**before.__dict__, "mode": "argocd"})
+    try:
+        return run_until(ctx, "watch_sync", limit)
+    finally:
+        ctx.delivery = before
+
+
 def status(client, keys, rid):
     return client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "ola", **OLA)).json()
 
@@ -37,7 +49,7 @@ def status(client, keys, rid):
 def test_namespace_created_by_someone_else_after_the_plan_is_not_taken_over(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     kube.add_unmanaged_namespace("payments-dev")          # another project's namespace appears before delivery
     kube.objects[("Namespace", "", "payments-dev")]["metadata"]["labels"] = {"owner": "other-project"}
     run_jobs(ctx)
@@ -154,7 +166,7 @@ def test_quota_read_back_in_canonical_form_still_confirms(world):
 def test_revert_of_a_create_goes_through_prune_and_leaves_no_orphan(world):
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     with ctx.db.session() as s:
         s.execute(text("update change_requests set status='sync_failed' where request_id=:r"), {"r": rid})
         s.execute(text("delete from jobs where kind='watch_sync'"))
@@ -180,8 +192,8 @@ def test_main_differing_from_the_plan_is_not_applied(world):
     """docs: the worker applies only what Git main holds. A direct push to main after the merge must stop the delivery."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
-    git.tamper("main", PATH + "resourcequota.yaml", "kind: ResourceQuota\nedited: true\n")
+    assert run_until_merged(ctx) == "watch_sync"
+    git.tamper("main", PATH + "resourcequota-payments-dev-quota.yaml", "kind: ResourceQuota\nedited: true\n")
     run_jobs(ctx)
     assert kube.applied == [], kube.applied
     assert status(client, keys, rid)["status"] == "sync_failed"

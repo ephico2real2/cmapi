@@ -9,7 +9,7 @@ as code and tests, and nothing of it runs on a cluster yet.** What exists:
   validator, the cluster registry, the worker, an image and Helm charts (section 2);
 - the local application `examples/local` with its stand-ins (section 3).
 
-Not built: the portal on the API (the React app still runs the mockup's sample logic), the CLI and
+Not built: eight of the portal's nine tabs on the API (sign-in and the Requests tab are built, #204), the CLI and
 SDK, cmapi-capacity, and every plugin after the namespaces one. No cluster has run the service:
 `CRC-BUILD-STATUS.md` records what has been measured and what has not.
 
@@ -43,11 +43,11 @@ This page summarises what the code tree holds today.
 | Piece | Where | Status |
 | --- | --- | --- |
 | App factory, documented routers, `/docs`, `/redoc`, `/openapi.json` and `.yaml` with an ETag, `/docs/changelog`; an undocumented route, model field or parameter stops startup | `main.py`, `core/docs.py`, `core/changelog.py`, `tools/docs_assets.py`, `cmapi/contract/` | Built. Tests in `tests/service/test_api_contract.py` and `tests/service/test_api_docs.py`, and the CI job `api-contract`. See "The API documentation" below |
-| Token verification: RS256, iss and aud pinned, JWKS cached with single-flight refresh, stale-on-error with a persisted key set, `typ` other than `Bearer` refused | `core/auth.py` | Built and tested |
-| PostgreSQL store: change requests (one open request per namespace by a partial unique index), events, approvals (one per person per request), a `SKIP LOCKED` jobs queue with leases and a fencing generation, audit, JWKS cache, admin switches | `core/db/`, migrations `0001` to `0003` | Built; migrations run as an initContainer on every pod, serialised by an advisory lock |
+| Token verification: RS256, iss and aud pinned, JWKS cached with single-flight refresh, stale-on-error with a persisted key set, the JOSE header `typ` must be `at+jwt` (RFC 9068), so an ID token or a refresh token is refused | `core/auth.py` | Built and tested |
+| PostgreSQL store: change requests (one open request per namespace by a partial unique index), events, approvals (one per person per request), a `SKIP LOCKED` jobs queue with leases and a fencing generation, audit, JWKS cache, admin switches | `core/db/`, migrations `0001` to `0004` | Built; migrations run as an initContainer on every pod, serialised by an advisory lock |
 | The write pipeline: authorize, idempotency (key plus body fingerprint), lock, plan, decide; If-Match on changes | `core/pipeline.py`, `plugins/namespaces/router.py` | Built and tested |
 | Requests: list (paged), get, events, approval-status, `:approve`, `:reject`, `:cancel`, `:retry`, `:revert`; decisions serialised by a row lock | `routers/requests.py` | Built and tested |
-| Admin: `prune:confirm`, the auto-approval kill switch, integrations, Git log, KPIs | `routers/admin.py`, `core/kpi.py` | Built; KPIs read the database and the pod's cgroup |
+| Admin: `prune:confirm`, the auto-approval kill switch, integrations, the plugins, Git log, KPIs | `routers/admin.py`, `core/kpi.py` | Built; KPIs read the database and the pod's cgroup |
 | Tiers, directory, quotas (list, suggest, CSV export) | `plugins/tiers`, `plugins/directory`, `plugins/quotas` | Built |
 | Cluster registry: the six import checks, a list-then-watch cache per cluster | `core/registry.py`, `core/clients/kube.py` | Built; the watch proven against a real kube-apiserver in the review, not on CRC |
 | Git host: Gitea (the stand-in on CRC, **being replaced by GitHub, GitHub Actions and GHCR**, #85) and GitHub | `core/git/` | Gitea proven against a real Gitea in the reviews; the provider contract (`contains()`, `changed_paths`, statuses, merge) holds on both adapters by mock, and so do GitHub's check runs (conclusions, pagination, re-runs: `tests/service/test_github_check_runs.py`, #87); **GitHub never exercised against GitHub** (#61) |
@@ -57,7 +57,7 @@ This page summarises what the code tree holds today.
 | Approval channels: portal, email (signed link) | `core/channels.py` | Built; email never sent in a test |
 | Capacity | `core/capacity_backend.py` | **Simulated** from `clusters.yaml`; cmapi-capacity, placement and reservations are not built, and the `cmapi-capacity` entry point was removed until the component exists |
 | Image | `cmapi/Containerfile` | Built locally; not pushed to a cluster |
-| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the mockup, `environments/kind`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
+| Plain manifests | `deploy/manifests/` (`components/database-cnpg`, `components/cmapi`, `components/portal` for the front door (#226: nginx with the portal, the mockup and the proxy to the API, not yet run on a cluster), `environments/kind`, `environments/crc`), `deploy/render.sh`, `deploy/secrets.sh`, `deploy/kind-test.sh`, `deploy/tests/`, `docs/12-existing-postgresql.md` | The deployment path (#88): `deploy/kind-test.sh` exits 0 on a `cmapi-test` kind cluster against CNPG 1.30.1: api and worker Ready, the migrate environment over TLS, `/readyz` 200, `/api/v1/version` naming the built commit, a changed `cmapi-env` restarting both, the secrets cases green. On podman kind the NetworkPolicy is deleted first by the DNS failure, and the job's `np-reach-test.sh` measures it (`docs/reviews/2026-11-05-plain-manifests-test.md`). Not on CRC yet; `environments/crc/`, the bootstrap set and Argo CD are later pull requests |
 | Helm charts | `deploy/helm/cmapi`, `deploy/helm/cmapi-git` | Lint and render; never installed. **Not the deployment path**: the owner decided (2026-11-05) to deploy with plain YAML first (`deploy/manifests/<component>/`, `oc apply`) and to write charts later, one per independently running component under `helm/`, none for Keycloak or LDAP; these charts and their tests stay until the YAML replaces them |
 | Release script (`--atomic --cleanup-on-fail` unless `RELEASE_ATOMIC=false`), setup tools (`cmapi-tools git-bootstrap`, `realm-sync`) | `deploy/release-crc.sh`, `cmapi/src/cmapi/tools` | Setup tools run by the reviews against real Gitea and Keycloak in containers; the release script only with stubs; neither on a cluster |
 
@@ -84,20 +84,59 @@ The design is `docs/01`, section "API documentation: Swagger UI and ReDoc". This
 | The pages | `/docs` is Swagger UI and `/redoc` is ReDoc. Both load only the bundles in the image, from `/static`. No page loads a file from another server | `test_the_pages_load_only_from_this_server` |
 | A source checkout | The bundles are not in a checkout. Then the two pages answer 503 `docs-assets-missing` and name the command. `cmapi-tools docs-assets --static-dir <dir>` fetches the two npm packages at the versions and SHA-256 values of the `ARG` lines in `cmapi/Containerfile`. A wrong hash writes no file | `test_without_the_bundles_the_pages_say_so_and_name_the_command`, `test_docs_assets_fetches_what_the_containerfile_pins_and_refuses_another_hash` |
 | Tags and groups | Each plugin has one tag with a description and `x-plugin-version`. `x-tagGroups` has the six groups of `docs/01`. A router that the app does not include is not in the document | `test_each_tag_has_a_description_and_is_in_exactly_one_of_the_six_groups`, `test_a_plugin_that_is_not_included_is_not_in_the_spec` |
-| curl samples | Each of the 31 operations has one `x-codeSamples` entry. It uses the instance's `publicUrl`, the documented example of each parameter, `Authorization: Bearer $TOKEN`, and `Idempotency-Key` and `If-Match` where the operation takes them. The test sends each sample to the app | `test_each_operation_has_one_curl_sample_that_the_app_accepts` |
+| curl samples | Each of the 32 operations has one `x-codeSamples` entry. It uses the instance's `publicUrl`, the documented example of each parameter, `Authorization: Bearer $TOKEN`, and `Idempotency-Key` and `If-Match` where the operation takes them. The test sends each sample to the app | `test_each_operation_has_one_curl_sample_that_the_app_accepts` |
 | ETag | `/openapi.json` and `/openapi.yaml` each have a strong ETag: the first 32 hexadecimal characters of the SHA-256 of the bytes served. `If-None-Match` with that value returns 304 | `test_each_document_has_a_strong_etag_and_answers_304_to_the_same_one` |
 | Parameters | Each path, query and header parameter has a description and an example. `check_documented` stops startup without one | `test_each_parameter_in_the_spec_has_a_description_and_an_example`, `test_a_parameter_without_a_description_or_an_example_stops_startup` |
 | `docs.public` | With `docs.public: false` in `instance.yaml`, the five paths need a valid bearer token. Without one they answer 401 with `WWW-Authenticate`. `docs.enabled: false` removes all five | `test_docs_public_false_puts_the_five_paths_behind_a_token`, `test_docs_enabled_false_serves_none_of_them` |
 | `/docs/changelog` | The page lists the contract changes of each released version, from `cmapi/src/cmapi/contract/changelog.json`. No version is released yet, and the page says so | `test_the_changelog_page_is_served_and_says_what_is_released` |
 | The contract gate | `cmapi/contract/openapi.json` is the document that the code serves. The CI job `api-contract` compares it with the file on the base branch and with the newest released document. oasdiff 1.37.0 fails the job on a breaking change | `test_the_committed_contract_is_the_document_this_code_serves`; `cmapi/contract/gate-test.sh` in CI |
+| The Spectral lint | The CI job `api-contract` lints `cmapi/contract/openapi.json` with Spectral 6.17.1 and cmapi's ruleset, `cmapi/contract/spectral/.spectral.yaml`. The ruleset has the six groups of `docs/01`: operationId, tags, examples, problem responses, no inline schemas, and `cmapi.net/` keys only in the examples of labels and annotations. An error of the ruleset fails the job, and so does a warning of Spectral's own OpenAPI rules | `cmapi/contract/lint-test.py` in CI: the committed document passes, and 34 documents that each break one rule fail with that rule |
 
 Three decisions differ from the text of `docs/01`, or add to it:
 
 1. **The pages have no sign-in redirect.** With `docs.public: false`, a browser gets 401, because a browser sends no bearer token when it loads a page. cmapi is a resource server and holds no browser session. To show the pages to signed-in people only, put a proxy that signs in with Keycloak before the Route. A client with a token reads all five paths. Source: RFC 6750, section 3, which gives the `WWW-Authenticate: Bearer` answer for a request without a valid token.
 2. **The gate compares with the base branch.** `docs/01` names the last release tag. No release exists yet, so the gate compares each pull request with its base branch, and also with the newest file in `cmapi/contract/released/` when one exists. `cmapi/contract/README.md` gives the steps to change the API, to accept a breaking change and to release a version.
 3. **No CDN fallback.** The earlier code loaded Swagger UI 5.x and ReDoc 2 from a CDN when the bundles were absent. `docs/01` says that a network-limited zone cannot reach a CDN, so the fallback is removed and the Containerfile is the one source of both versions.
+4. **The lint reads rule 6 as a rule for keys.** `docs/01` says "cmapi.net/ keys only in label examples". The ruleset permits a `cmapi.net/` key in an example only inside a `labels` map or an `annotations` map, because `cmapi.net/team-dl` is an annotation. A value that names a key, as in `{"key": "cmapi.net/tier"}`, is permitted.
+5. **"No inline schemas" permits three forms that are not objects.** A body's schema is a reference to a named schema. A scalar (the CSV export is a string), a list of references, and "a reference or null" (the optional body of `:approve`) also pass. An empty schema and an inline object fail.
+6. **Spectral comes from npm with a lockfile, not from a release binary.** `cmapi/contract/spectral/package-lock.json` pins Spectral and its 241 dependencies, each with a SHA-512, and CI installs with `npm ci --ignore-scripts`. The same command works on a developer's machine, where the other pinned tools of CI are Linux binaries. Source: <https://github.com/stoplightio/spectral/releases/tag/v6.17.1>, published on 2026-11-06, read on 2026-11-13.
 
-Not built: the Spectral lint of the document, the `plugins.yaml` switch that disables a plugin, the `Sunset` header for a deprecated field, and the CLI and SDK that a release generates from the document.
+The first run of the ruleset found #179 (BUG-48) in the document: each problem response other than 422 had two media types, the 200 of a dry run had no schema, the export had `application/json` beside `text/csv`, and `:revert` and the dry run of a change had no recorded sample. On the document of `b83391c` the lint reports 334 errors. The fix is in `core/docs.py`, and `cmapi/contract/accepted-breaking.txt` records the 113 removed media types.
+
+Not built: the `Sunset` header for a deprecated field, and the CLI and SDK that a release generates from the document.
+
+### The plugin switch: `plugins.yaml`
+
+`config/plugins.yaml` says which plugins an instance offers (`docs/02`, "Plugin architecture"). `cmapi/src/cmapi/core/plugins.py` reads it, and `core/config.py` checks it with the other files at startup. The tests are in `cmapi/tests/service/test_plugins_switch.py`. They ran on the service suite's test instance on macOS, against PostgreSQL 16, and not on a cluster.
+
+```yaml
+# config/plugins.yaml
+enabled: [namespaces, tiers, directory, quotas]
+overrides:                # keyed by instance, then environment
+  nonprod:
+    dev:
+      disabled: [namespaces]
+```
+
+| Part | What the code does | Test |
+|---|---|---|
+| The file is optional | Without the file, each built-in plugin is enabled. This is what cmapi did before it read the file, so a deployment without the file does not change. The startup log line has `plugins` and `plugins_file` | `test_without_the_file_each_built_in_plugin_is_mounted` |
+| `enabled` | The app mounts the router of each plugin in the list. A plugin that is not in the list has no route (404), no tag, no entry in `x-tagGroups` and no operation in the OpenAPI document. The core parts (`core`, `requests`, `admin`) are always there | `test_a_plugin_that_is_not_enabled_has_no_route_no_tag_and_no_line_in_the_spec`, `test_an_empty_list_leaves_the_core_only` |
+| `overrides` | An override stops the writes of an enabled plugin in one served environment of this instance. The write pipeline answers 422 `plugin-disabled` with `plugin` and `environment` in the body, for a dry run also. The reads stay. The permission check comes first, so a caller without the permission gets the same 403 as before | `test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads`, `test_the_permission_is_checked_before_the_override` |
+| Other instances | The file can be the same on each instance. cmapi checks and applies only the block of its own instance, because an instance does not know the environments of another | `test_an_override_of_another_environment_or_another_instance_changes_nothing_here` |
+| A mistake stops startup | Each of these is a `ConfigError` that names `plugins.yaml`, and one start reports all of them: a name that is not a plugin of this build, a core part, a name given two times, an unknown key, an environment that is not in `allowedEnvironments`, an override that changes nothing (the plugin is not enabled, or it has no write), and a value of another YAML type | `test_a_mistake_in_the_file_stops_startup_and_names_the_file` (23 cases), `test_the_app_does_not_start_on_an_unknown_plugin` |
+| `GET /api/v1/admin/plugins` | Each core part and each built-in plugin with its version, whether it is enabled, and the environments where an override stops its writes. It needs `clusters:read`. `docs/04` has a recorded sample | `test_without_the_file_each_built_in_plugin_is_mounted`, `test_api_samples.py` |
+| The metric | `cmapi_plugin_disabled_total{plugin, environment}` counts each refused write | `test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads` |
+
+The plugins of this build are `namespaces`, `tiers`, `directory` and `quotas`. Only `namespaces` has a write. A test holds both lists to the routers (`test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes`). The sample for each instance is `examples/instances/<instance>/plugins.yaml`. The deployed ConfigMaps of kind and CRC do not have the file yet, so those instances enable each plugin.
+
+Three decisions add to the text of `docs/02`, and `docs/02` now says the first two:
+
+1. **The file is optional, and its default is each plugin of the build.** A deployment from before the switch must keep its routes.
+2. **An override stops writes only.** `docs/02` gives one example, `sa-tokens` in prod, which is a write. The fleet lists (`GET /api/v1/quotas`) read each cluster in one call, and `docs/02` does not say what a list does with a cluster whose environment has an override. So the reads stay, and cmapi refuses an override for a plugin with no write, because it would change nothing.
+3. **A wrong name stops startup.** The sample of `docs/02` named `limitranges`, which the same document says is gone ("The limitranges plugin is gone"). The name is removed from the sample in `docs/02` and in `examples/config/plugins.yaml`. That reference file lists the plugins of the full design, so this build refuses it; deploy the file of the instance.
+
+Not built: plugins from other packages, which `docs/02` finds through the entry-point group `cmapi.plugins`. `core/plugins.py` holds the built-in plugins in the same `module:attribute` form.
 
 ## 3. Built for the local run only (`examples/local`, about 1,300 lines)
 
@@ -123,8 +162,14 @@ registry relists instead), `reconcile`, `kpi_export`, `outbox_publish`, `operati
 
 **cmapi-capacity:** all of it.
 
-**Portal:** `cmapi-portal-ui/` still runs the mockup's sample logic with no sign-in and no API call; it
-must not be deployed as the portal (`MOCKUP-CONTRACT.md`). The chart's `portal.enabled` is off.
+**Portal:** `cmapi-portal-ui/` has two builds (`MOCKUP-CONTRACT.md`). The portal build signs a person in
+through Keycloak with Authorization Code and PKCE, and its page frame and its Requests tab call the API
+(`GET /api/v1/me`, `GET /api/v1/requests`), with typed TanStack Query hooks from the OpenAPI document (#204).
+It is proven in a browser against a stand-in issuer and a stand-in API only (`tests/api`). The other eight
+tabs are not on the API. The demo build still runs the mockup's sample logic and must not be deployed as the
+portal. The portal's image is the front door of the instance (`cmapi-portal-ui/Containerfile`, nginx 1.30.6): the
+portal at `/` and the API's paths proxied to the API pods, on one origin, so CORS stays off (#226, #206). The chart
+deploys it; the plain manifests do not yet. Measured on this Mac with a native nginx and Chromium only, not on a cluster.
 
 **CLI and SDK:** not started.
 

@@ -29,6 +29,7 @@ KNOWN_FACTS = frozenset({
     "quotaBelowRequested", "namespaceAgeDays", "pods", "pvcs", "keyClasses",
     "expirationAction", "expirationBeyondLimits",
     "sensitiveKeyChanged", "warnings", "clusterRoles", "requesterClient", "protected", "automated",
+    "beyondTier", "beyondTierKeys", "networkExposure",
 })
 
 

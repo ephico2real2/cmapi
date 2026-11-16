@@ -84,8 +84,11 @@ class RequestRepo:
                                    .order_by(ApprovalRow.id)))
 
     def list(self, *, status: str | None = None, cluster_id: str | None = None, namespace: str | None = None,
-             requested_by: str | None = None, envs: Iterable[str] | None = None, limit: int = 5000) -> list[ChangeRequestRow]:
+             requested_by: str | None = None, envs: Iterable[str] | None = None, open_: bool | None = None,
+             limit: int = 5000) -> list[ChangeRequestRow]:
         q = select(ChangeRequestRow)
+        if open_ is not None:           # open: a state that still holds the namespace's lock (OPEN_STATES); closed: every other state
+            q = q.where(ChangeRequestRow.status.in_(OPEN_STATES) if open_ else ChangeRequestRow.status.not_in(OPEN_STATES))
         if status:
             q = q.where(ChangeRequestRow.status == status)
         if cluster_id:
@@ -210,9 +213,15 @@ class RequestRepo:
                                    "comment": a.comment, "relayedBy": a.relayed_by, "at": a.at})
         return ledger
 
-    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None) -> None:
+    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None,
+                        counted_for: Mapping[str, str]) -> None:
+        """`counted_for` is ApprovalLedger.counted_for() after this approval: each approval of the request gets its slot's
+        group, because a new approval can move an earlier one to another slot."""
         self.s.add(ApprovalRow(request_id=row.request_id, approver_sub=who.sub, username=who.username,
                                groups=sorted(who.groups), comment=comment, relayed_by=relayed_by))
+        self.s.flush()
+        for a in self.approvals(row.request_id):
+            a.counted_for = counted_for.get(a.approver_sub)
         self.event(row, "approval", who.username, comment)
 
 
@@ -237,7 +246,7 @@ class JobRepo:
         now = utcnow()
         due = select(JobRow.job_id).where(JobRow.done_at.is_(None), JobRow.run_after <= now,
                                           or_(JobRow.locked_until.is_(None), JobRow.locked_until < now)) \
-            .order_by(JobRow.run_after).limit(1).with_for_update(skip_locked=True)
+            .order_by(JobRow.run_after, JobRow.job_id).limit(1).with_for_update(skip_locked=True)  # a tie: first queued, first claimed (BUG-74)
         job_id = self.s.scalar(due)
         if job_id is None:
             return None

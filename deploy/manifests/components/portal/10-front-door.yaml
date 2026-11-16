@@ -1,0 +1,95 @@
+# The front door of the instance (docs/02, "The front door"; #226): nginx in the cmapi-portal image serves the portal at /,
+# the standalone mockup on its own host, and proxies the API's paths to the API pods, so the browser sees one origin and
+# the API needs no CORS. The nginx configuration is in the image (cmapi-portal-ui/nginx/), which refuses to start with a
+# missing or malformed value. The same objects as the chart's templates/portal.yaml; what differs between environments
+# (the two hosts, the issuer's origin and the portal's config.json) is ConfigMap cmapi-portal-config, in
+# environments/<env>/. Only the router reaches this pod, and only this pod reaches the API's port
+# (components/cmapi/40-networkpolicy.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmapi-portal
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-portal, app.kubernetes.io/component: portal}
+spec:
+  selector: {app.kubernetes.io/name: cmapi-portal, app.kubernetes.io/component: portal}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cmapi-portal
+  namespace: cmapi
+  labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-portal, app.kubernetes.io/component: portal}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: cmapi-portal, app.kubernetes.io/component: portal}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/part-of: cmapi, app.kubernetes.io/name: cmapi-portal, app.kubernetes.io/component: portal}
+      annotations:
+        # deploy/render.sh fills this with the checksum of cmapi-portal-config. nginx reads its values once, at start, and
+        # config.json is mounted by subPath, which a changed ConfigMap never updates: so a change must change the pod
+        # template. Quoted: a digest of digits and one "e" is a YAML number.
+        checksum/config: "CMAPI_PORTAL_CONFIG_CHECKSUM"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      # preStop (5 s) plus nginx's worker_shutdown_timeout (20 s) fit inside it, so the kubelet never sends SIGKILL.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: portal
+          image: ghcr.io/ephico2real2/cmapi-portal@sha256:DIGEST
+          imagePullPolicy: IfNotPresent
+          env:
+            # The headless Service (components/cmapi/20-api.yaml): nginx resolves it to the ready API pods and balances
+            # over each one. A full name: nginx's resolver does not use the pod's search domains. Namespace cmapi and the
+            # cluster domain cluster.local are what every file here assumes.
+            - name: CMAPI_API_UPSTREAM
+              value: cmapi-api-pods.cmapi.svc.cluster.local:8080
+            - name: CMAPI_PORTAL_HOST
+              valueFrom: {configMapKeyRef: {name: cmapi-portal-config, key: CMAPI_PORTAL_HOST}}
+            - name: CMAPI_MOCKUP_HOST
+              valueFrom: {configMapKeyRef: {name: cmapi-portal-config, key: CMAPI_MOCKUP_HOST}}
+            - name: CMAPI_OIDC_ORIGIN
+              valueFrom: {configMapKeyRef: {name: cmapi-portal-config, key: CMAPI_OIDC_ORIGIN}}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          lifecycle:
+            # The router and the endpoints take a moment to drop a pod that is stopping. nginx keeps serving for 5 s,
+            # then stops taking new connections and lets the open ones finish ("nginx -s quit", a graceful stop),
+            # whatever stop signal the container runtime sends after this hook.
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5; nginx -s quit; while pgrep -x nginx >/dev/null; do sleep 1; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - name: portal-config
+              mountPath: /usr/share/nginx/html/portal/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: portal-config
+          configMap:
+            name: cmapi-portal-config
+            items: [{key: config.json, path: config.json}]

@@ -2,7 +2,9 @@
 documented routers, refuses to start with an undocumented route, serves /docs, /redoc and the spec."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import html
 import json
 import os
 from contextlib import asynccontextmanager
@@ -11,27 +13,84 @@ from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI, Request
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
+from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import ClientDisconnect
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
-from cmapi.core.docs import build_openapi, check_documented, plugin_routers
-from cmapi.core.errors import Problem
+from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
+from cmapi.core.docs import PROBLEMS, build_openapi, check_documented, plugin_routers
+from cmapi.core.errors import Problem, type_base
 from cmapi.core.kpi import register_collectors
+from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
-from cmapi.plugins.directory import router as directory_router
-from cmapi.plugins.namespaces.router import router as namespaces_router
-from cmapi.plugins.quotas import router as quotas_router
-from cmapi.plugins.tiers import router as tiers_router
 from cmapi.routers import admin, health, me, requests
 from cmapi.settings import Settings, settings
 
 STATIC = Path(os.environ.get("CMAPI_STATIC_DIR", "/opt/app-root/static"))
+
+
+class UnhandledToProblemMiddleware:
+    """An exception that no handler takes becomes the problem internal-error (#216).
+
+    Starlette's own 500 is sent outside each middleware, so it has no CORS header and no X-Request-Id. The answer here has no
+    text of the exception; the log line `unhandled` has it, with the request ID that the answer carries. A plain ASGI
+    middleware, not BaseHTTPMiddleware: that one runs the application in a task group, where a cancelled request or a client
+    that went away turns into RuntimeError("No response returned.") and would be logged as a failure of the service (review
+    finding F3). A cancellation goes on unchanged, a client that went away gets no answer, and an answer that has started
+    is never replaced.
+    """
+
+    def __init__(self, app: ASGIApp, problem_response: Any):
+        self.app = app
+        self.problem_response = problem_response
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+        disconnected = False
+
+        async def receive_checked() -> Message:
+            nonlocal disconnected
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                disconnected = True
+            return message
+
+        async def send_checked(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            try:
+                await send(message)
+            except OSError as exc:
+                # ASGI servers signal a closed connection through send() this way.
+                raise ClientDisconnect() from exc
+
+        try:
+            await self.app(scope, receive_checked, send_checked)
+        except asyncio.CancelledError:
+            raise
+        except ClientDisconnect:
+            return
+        except Exception:
+            if disconnected:
+                return
+            request = Request(scope)
+            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path", "unmatched"))
+            if started:
+                raise  # A stream/background failure cannot replace a status already sent.
+            response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
+            await response(scope, receive, send)
 
 
 def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> FastAPI:
@@ -44,11 +103,12 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        register_collectors()
+        register_collectors(ctx.registry, ctx.pipeline.reserved)
         if s.metrics_port:
             start_metrics(s.metrics_port, ctx.cfg.name, s.component)
         log.info("startup", instance=ctx.cfg.name, issuer=issuer, audience=ctx.audience, version=__version__,
-                 commit=os.environ.get("CMAPI_GIT_COMMIT", "unknown"), clusters=ctx.registry.status_map())
+                 commit=os.environ.get("CMAPI_GIT_COMMIT", "unknown"), clusters=ctx.registry.status_map(),
+                 plugins=list(ctx.cfg.plugins.enabled), plugins_file=ctx.cfg.plugins.configured)
         yield
         ctx.shutdown()
 
@@ -63,45 +123,86 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
                                          "scopes": "openid"})
     app.state.ctx = ctx
     app.state.auth = ctx.auth
+    problem_base = type_base(ctx.cfg.raw_instance["instance"])
+
+    def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
+        return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
+
+    app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
+
     instrument(app)
+    # CORS is added after the request middleware, so it is the outer one: each answer that the application makes has the
+    # headers, a problem and a rate limit refusal too. Without them a browser hides the status and the body from the portal.
+    origins = allowed_origins(ctx.cfg.raw_instance["instance"])
+    if origins:
+        app.add_middleware(OriginVaryCORSMiddleware, allow_origins=origins, allow_methods=METHODS, allow_headers=REQUEST_HEADERS,
+                           expose_headers=EXPOSED_HEADERS, allow_credentials=False, max_age=MAX_AGE)
+    app.state.cors_origins = origins
 
     @app.exception_handler(Problem)
     async def problem_handler(_: Request, exc: Problem) -> Response:
-        return JSONResponse(exc.body(), status_code=exc.status, media_type="application/problem+json",
-                            headers=dict(unauthenticated_headers(exc)))
+        return problem_response(exc, dict(unauthenticated_headers(exc)))
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(_: Request, exc: RequestValidationError) -> Response:
+        # FastAPI's own refusal of a parameter or a body, as the same RFC 9457 problem as every other refusal. The input value is
+        # left out: it can hold what the caller did not mean to send back, and the field names it.
+        errors = [{"field": ".".join(str(part) for part in e.get("loc", ())), "message": e.get("msg", ""), "code": e.get("type", "")}
+                  for e in exc.errors()]
+        p = Problem(422, "validation-failed", "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400],
+                    errors)
+        return problem_response(p)
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
-        p = Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}])
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}]))
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_: Request, exc: ValueError) -> Response:
-        p = Problem.unprocessable("validation-failed", str(exc)[:300])
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
 
     app.include_router(health.router)
     app.include_router(health.version_router)
-    authed_routers = (me.router, requests.router, admin.router, namespaces_router, tiers_router, directory_router, quotas_router)
+    # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py).
+    authed_routers = (me.router, requests.router, admin.router, *ctx.cfg.plugins.routers())
     for r in authed_routers:
         app.include_router(r, dependencies=[Depends(authed)])
     check_documented(app)
     _add_servers(app, ctx)
     plugins = plugin_routers((health.version_router, *authed_routers))
+    app.state.plugins = plugins
     public_url = ctx.cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url)
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, ctx.cfg.metadata)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
+    _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
-        _add_docs(app, ctx, docs_cfg, authed)
+        _add_docs(app, ctx, docs_cfg, authed, problem_response)
     return app
 
 
-def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any) -> None:
+def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:
+    """/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).
+
+    Public always, also with docs.public false or docs.enabled false: a caller with no token gets the problem unauthenticated,
+    and its type must resolve for that caller. The pages hold the registry of core/docs.py and nothing of the instance's data.
+    """
+    @app.get("/problems", include_in_schema=False)
+    def problems_index() -> Response:
+        return HTMLResponse(problems_index_html(problem_base, ctx.cfg.name))
+
+    @app.get("/problems/{code}", include_in_schema=False)
+    def problem_page(code: str) -> Response:
+        if code not in PROBLEMS:
+            raise Problem(404, "object-not-found", "No such problem type. /problems lists each one")
+        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))
+
+
+def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any, problem_response: Any) -> None:
     """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation").
 
     Public unless instance.yaml says docs.public: false; then each of the five needs a valid bearer token and answers
@@ -142,7 +243,7 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def missing(what: str) -> Response:
         p = Problem(503, "docs-assets-missing", f"The {what} bundle is not in {STATIC}. The image holds it; in a source checkout, "
                                                  "run `cmapi-tools docs-assets` once, which fetches the versions the Containerfile pins.")
-        return JSONResponse(p.body(), status_code=p.status, media_type="application/problem+json")
+        return problem_response(p)
 
     @app.get("/docs", include_in_schema=False, dependencies=guard)
     def docs() -> Response:
@@ -162,14 +263,64 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def redoc() -> Response:
         if not redoc_dir.exists():
             return missing("ReDoc")
-        # FastAPI's page with its two outside requests removed: the Google Fonts stylesheet and FastAPI's own favicon.
-        return get_redoc_html(openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - reference",
-                              redoc_js_url="/static/redoc/redoc.standalone.js", with_google_fonts=False,
-                              redoc_favicon_url="/static/swagger/favicon-32x32.png")
+        return HTMLResponse(_redoc_html(f"cmapi ({ctx.cfg.name}) - reference", REDOC_START,
+                                        "/static/swagger/favicon-32x32.png"),
+                            headers={"Content-Security-Policy": REDOC_CSP})
+
+    @app.get(REDOC_START, include_in_schema=False, dependencies=guard)
+    def redoc_start() -> Response:
+        return Response(REDOC_START_JS, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/docs/changelog", include_in_schema=False, dependencies=guard)
     def changelog() -> Response:
         return HTMLResponse(changelog_html(f"cmapi ({ctx.cfg.name})", __version__))
+
+
+# ReDoc 3 starts itself on <redoc spec-url> with no options (init(specUrl, {}, element)), and its telemetry then sends
+# each use of the page to https://otel.cloud.redocly.com/v1/traces, its default collector (#235). cmapi starts it
+# through this module instead, with disableTelemetry, from a file of its own: the docs' CSP allows no inline script.
+REDOC_START = "/docs/redoc-start.js"
+# The ReDoc page fetches from this server only (docs/01: the bundles come from the image, never a CDN), also when the API
+# is reached without the front door (#226). ReDoc 3.1.0 asks two other hosts by itself: the telemetry, which the start
+# module turns off, and the "API docs by Redocly" logo from cdn.redoc.ly, which no option removes; this policy refuses
+# both, and whatever a later bundle adds. 'unsafe-eval' and blob: workers are for the bundle's search index, and
+# 'unsafe-inline' styles for its styled components: without them the search workers do not start (measured in Fable's
+# review of PR #231). The front door's policy for /redoc is the same string ($cmapi_csp_redoc in
+# cmapi-portal-ui/nginx/templates/cmapi.conf.template): a browser enforces both, so two different strings could stop the
+# search workers. tests/service/test_api_docs.py holds them equal.
+REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+             "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; "
+             "form-action 'none'")
+REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
+import { init } from "/static/redoc/redoc.standalone.js";
+init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));
+"""
+
+
+def _redoc_html(title: str, start_url: str, favicon_url: str) -> str:
+    """The ReDoc page. With REDOC_CSP on its response it makes no request to another host.
+
+    ReDoc 3's standalone bundle is an ES module: its 3.0.0 release notes say to load it with a module script and to
+    import init from it, and the bundle reads import.meta.url. A classic script stops at the first import.meta with a SyntaxError, which is what FastAPI's
+    get_redoc_html gave (#229). The page loads cmapi's start module (REDOC_START) as a module script, which imports init;
+    the HTML standard evaluates a module script "when the page has finished parsing", so the element exists then.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<link rel="icon" href="{html.escape(favicon_url)}">
+<style>body {{ margin: 0; padding: 0; }}</style>
+</head>
+<body>
+<noscript>ReDoc needs JavaScript to show the reference.</noscript>
+<div id="redoc"></div>
+<script type="module" src="{html.escape(start_url)}"></script>
+</body>
+</html>
+"""
 
 
 def _etag_matches(if_none_match: str | None, etag: str) -> bool:

@@ -210,7 +210,7 @@ spec:
         - name: cmapi-viewer
           description: clusters:read, objects:read, capacity:read, requests:read
         - name: cmapi-onboarding
-          description: Create namespaces only. For people and local automation accounts
+          description: Create namespaces only. For people and automation clients
         - name: cmapi-requester
           description: Onboarding plus change and delete, quotas, service accounts and grants
         - name: cmapi-approver
@@ -224,7 +224,7 @@ spec:
         - name: cmapi-approval-relay
           description: approvals:relay for channel integrations
     clients:
-    # Every realm gets a public admin-cli that takes a password with no client secret, so cmapi-automation's secret would guard nothing (measured). Nothing here uses it.
+    # Every realm gets a public admin-cli that takes a password with no client secret (measured). No client of this realm takes the password grant (RFC 9700, 2.4; #181), so it is off here also. Nothing here uses it.
     - clientId: admin-cli
       name: Not used in this realm
       enabled: false
@@ -236,6 +236,8 @@ spec:
       enabled: true
       publicClient: false
       bearerOnly: true
+      attributes:
+        access.token.header.type.rfc9068: 'true'
       standardFlowEnabled: false
       directAccessGrantsEnabled: false
       serviceAccountsEnabled: false
@@ -255,9 +257,10 @@ spec:
       attributes:
         pkce.code.challenge.method: S256
         post.logout.redirect.uris: +
+        access.token.header.type.rfc9068: 'true'
       redirectUris:
-      - https://cmapi-portal.apps-crc.testing/*
-      - http://localhost:5173/*
+      - https://cmapi.apps-crc.testing/
+      - https://cmapi.apps-crc.testing/index.html
       webOrigins:
       - +
       defaultClientScopes:
@@ -277,9 +280,10 @@ spec:
       attributes:
         pkce.code.challenge.method: S256
         client.session.idle.timeout: '3600'
+        access.token.header.type.rfc9068: 'true'
         client.session.max.lifespan: '28800'
       redirectUris:
-      - https://cmapi-api.apps-crc.testing/docs/oauth2-redirect
+      - https://cmapi.apps-crc.testing/docs/oauth2-redirect
       webOrigins:
       - +
       defaultClientScopes:
@@ -298,6 +302,7 @@ spec:
       directAccessGrantsEnabled: false
       attributes:
         oauth2.device.authorization.grant.enabled: 'true'
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -308,12 +313,15 @@ spec:
       optionalClientScopes:
       - offline_access
     - clientId: cmapi-automation
-      name: Local automation accounts (bot-user)
+      name: Automation (an AI agent or a script), by its service account
       enabled: true
       publicClient: false
       secret: ${CMAPI_AUTOMATION_SECRET}
       standardFlowEnabled: false
-      directAccessGrantsEnabled: true
+      directAccessGrantsEnabled: false
+      serviceAccountsEnabled: true
+      attributes:
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -329,6 +337,8 @@ spec:
       standardFlowEnabled: false
       directAccessGrantsEnabled: false
       serviceAccountsEnabled: true
+      attributes:
+        access.token.header.type.rfc9068: 'true'
       defaultClientScopes:
       - basic
       - cmapi-identity
@@ -372,6 +382,12 @@ spec:
         realm-management:
         - view-users
         - query-users
+    - username: service-account-cmapi-automation
+      enabled: true
+      serviceAccountClientId: cmapi-automation
+      clientRoles:
+        cmapi-nonprod:
+        - cmapi-onboarding
     groups:
     - name: cmapi
       path: /cmapi

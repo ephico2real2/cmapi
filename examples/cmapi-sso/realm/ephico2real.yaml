@@ -12,19 +12,26 @@ offlineSessionMaxLifespanEnabled: true
 offlineSessionMaxLifespan: 7776000           # 90 days
 revokeRefreshToken: true
 refreshTokenMaxReuse: 0
+# Each client that gets a token for cmapi (the portal and each pipeline client also) has access.token.header.type.rfc9068,
+# so the JOSE header of its access token says typ: at+jwt (RFC 9068, section 2.1). cmapi refuses another type (#184).
 clients:
   - clientId: cmapi-docs
     attributes:
       client.session.idle.timeout: "3600"    # 1 hour
       client.session.max.lifespan: "28800"   # 8 hours
+      access.token.header.type.rfc9068: "true"
   - clientId: cmapi-cli
     optionalClientScopes: [offline_access]
     attributes:
       oauth2.device.authorization.grant.enabled: "true"
-  - clientId: cmapi-automation                 # password grant for local automation accounts (bot-user) only
-    publicClient: true
+      access.token.header.type.rfc9068: "true"
+  - clientId: cmapi-automation                 # an AI agent or a script: client credentials, by its service account
+    publicClient: false                        # no client takes the password grant (RFC 9700, section 2.4; #181)
     standardFlowEnabled: false
-    directAccessGrantsEnabled: true
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    attributes:
+      access.token.header.type.rfc9068: "true"
 
 # Identity additions (docs/02-technical-design-v2.md, "Identity claims")
 components:
@@ -67,7 +74,7 @@ roles:
   client:
     cmapi-nonprod: &cmapi-roles
       - {name: cmapi-viewer}
-      - {name: cmapi-onboarding, description: "Create namespaces only. For people and local automation accounts"}
+      - {name: cmapi-onboarding, description: "Create namespaces only. For people and automation clients"}
       - {name: cmapi-requester}
       - {name: cmapi-approver}
       - {name: cmapi-operator}
@@ -83,13 +90,11 @@ groups:
         clientRoles: {cmapi-nonprod: [cmapi-onboarding], cmapi-staging: [cmapi-onboarding], cmapi-prod: [cmapi-onboarding]}
       - name: app-cmapi-rbac-requester
         clientRoles: {cmapi-nonprod: [cmapi-requester], cmapi-staging: [cmapi-requester], cmapi-prod: [cmapi-requester]}
-# A local automation account (not from LDAP) for an AI agent or script. It needs no employee ID because
-# it holds an automation role (instance.yaml identity.automationRoles). Its password lives in a vault,
-# never in this file. Give it cmapi-onboarding only on the instances where it may onboard.
+# The service account of the automation client, for an AI agent or a script. It needs no employee ID because
+# it is a service client, and it holds an automation role (instance.yaml identity.automationRoles). The client
+# secret lives in a vault, never in this file. Give it cmapi-onboarding only on the instances where it may onboard.
 users:
-  - username: bot-user
+  - username: service-account-cmapi-automation
     enabled: true
-    email: bot-user@ephico2real.com
-    firstName: Onboarding
-    lastName: Bot
+    serviceAccountClientId: cmapi-automation
     clientRoles: {cmapi-nonprod: [cmapi-onboarding]}

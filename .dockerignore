@@ -1,0 +1,15 @@
+# The build context of cmapi-portal-ui/Containerfile is the repository's root (deploy/crc-image.sh cmapi-portal, CI's front-door
+# job). podman reads this file when there is no .containerignore, and docker reads it too. Out of the context: a checkout's own
+# node_modules, which "COPY cmapi-portal-ui/ cmapi-portal-ui/" would copy over the image's npm ci (this Mac's native bindings,
+# and any package installed outside package-lock.json, in an image labelled as one commit), and files that are not source and
+# can hold a credential: git's own directory, the kind test's kubeconfig, renders.
+**/node_modules
+.git
+.kube
+.cmapi-test.kubeconfig
+deploy/rendered
+cmapi-portal-ui/dist
+**/__pycache__
+**/.pytest_cache
+.codegraph
+.tokensave

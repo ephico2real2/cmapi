@@ -92,6 +92,22 @@ spec:
   ports:
     - {name: http, port: 8080, targetPort: http}
     - {name: metrics, port: 9090, targetPort: metrics}
+---
+# Headless: its DNS name answers with the address of each ready API pod, so the front door's nginx ("server ...
+# resolve") balances over the pods itself, retries an idempotent request on another pod, and stops sending to a pod
+# that fails. A pod that is not ready is not in the answer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-api-pods
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "cmapi.labels" . | nindent 4 }}
+    {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 4 }}
+spec:
+  clusterIP: None
+  selector: {{- include "cmapi.component" (dict "component" "api" "Release" .Release) | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
 {{- if .Values.podDisruptionBudget.enabled }}
 ---
 apiVersion: policy/v1

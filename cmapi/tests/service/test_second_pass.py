@@ -18,7 +18,7 @@ from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from cmapi.worker import Worker
 from conftest import DB_URL
 from test_flow import AMY, NS, OLA, auth, run_jobs
-from test_review_d_delivery import run_until, status
+from test_review_d_delivery import run_until, status, run_until_merged
 from test_review_e_recovery import lease_expired
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -52,7 +52,7 @@ def test_argocd_delete_ends_when_the_namespace_is_gone_without_any_cmapi_call(wo
     h = auth(keys, "ola", **OLA)
     client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h)
     argocd(ctx)
-    run_until(ctx, "watch_sync")
+    run_until_merged(ctx)
     res = argo_applied(git, kube)
     kube.get = lambda path, params=None: app(git.heads["main"], resources=res)
     run_jobs(ctx)
@@ -74,7 +74,7 @@ def test_argocd_later_merge_does_not_fail_an_earlier_request(world):
     """status.sync.revision is the head of main: one more merge and it never equals this request's merge sha."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx, sync_timeout_seconds=0)
     res = argo_applied(git, kube)
     git.branches["main"]["README.md"] = "another request merged after this one\n"
@@ -91,7 +91,7 @@ def test_argocd_another_namespaces_pending_prune_does_not_fail_this_request(worl
     """One root Application: a namespace waiting for Prune=confirm leaves the whole Application OutOfSync."""
     client, ctx, git, kube, validator, keys = world
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx, sync_timeout_seconds=0)
     import yaml
     res = [{"kind": "Namespace", "name": "old-team", "status": "OutOfSync", "requiresPruning": True}]
@@ -110,7 +110,7 @@ def test_argocd_another_namespaces_pending_prune_does_not_fail_this_request(worl
 
 def _merged_with_app(client, ctx, git, kube, keys, **k):
     rid = client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).json()["requestId"]
-    assert run_until(ctx, "watch_sync") == "watch_sync"
+    assert run_until_merged(ctx) == "watch_sync"
     argocd(ctx)
     return rid, argo_applied(git, kube)
 
@@ -150,7 +150,11 @@ def test_a_stale_open_pr_does_not_close_the_pr_the_live_worker_owns(world):
     Worker(ctx, "w1").run_one()
     git.read_folder = real
     v = status(client, keys, rid)
-    assert v["status"] == "pr_open" and git.prs[1]["state"] == "open", (v["status"], git.prs[1]["state"])
+    # Since #286 the first job is push_branch: the live worker pushed the branch and queued open_pr; the stale one, resumed,
+    # adopted that push and committed nothing over the new owner's claim.
+    assert v["status"] == "approved" and git.pushes == [f"cmapi/CRC/{rid}"] and not git.prs, (v["status"], git.pushes, git.prs)
+    with ctx.db.session() as s:
+        assert s.execute(text("select count(*) from jobs where kind='open_pr' and done_at is null")).scalar() == 1
 
 
 def test_lease_lost_in_the_failure_path_does_not_escape_run_one(world):
@@ -167,7 +171,7 @@ def test_lease_lost_in_the_failure_path_does_not_escape_run_one(world):
     Worker(ctx, "w1").run_one()                   # must log lease_lost, not raise
     git.read_folder = real
     with ctx.db.session() as s:                   # and record nothing over the new owner's claim
-        row = s.execute(text("select locked_by, locked_until, last_error from jobs where kind='open_pr'")).one()
+        row = s.execute(text("select locked_by, locked_until, last_error from jobs where kind='push_branch'")).one()
     assert row[0] == "w2" and row[1] is not None and row[2] is None, row
 
 
@@ -248,7 +252,7 @@ def _awaiting(ctx, client, keys, mode="argocd"):
         s.execute(text("update change_requests set status='awaiting_prune', action='delete'"))
         rid = s.execute(text("select request_id from change_requests")).scalar()
         JobRepo(s).enqueue("prune", request_id=rid, cluster_id="CRC")
-        s.execute(text("delete from jobs where kind='open_pr'"))
+        s.execute(text("delete from jobs where kind in ('push_branch', 'open_pr')"))
     return rid
 
 
@@ -366,7 +370,7 @@ def helm(*a):
 
 def test_the_policy_can_contain_argo_cds_controller():
     who = "system:serviceaccount:cmapi-argocd:argocd-application-controller"
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=argocd", "--set", "delivery.hubDeliverer.enabled=false",
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=argocd", "--set", "delivery.hubDeliverer.enabled=false",
              "--set", f"argocd.controllerServiceAccount={who}", "--set", "argocd.namespace=cmapi-argocd")
     assert r.returncode == 0, r.stderr
     docs = [d for d in yaml.safe_load_all(r.stdout) if d]
@@ -513,7 +517,7 @@ def test_migrate_waits_for_a_database_that_is_not_up_yet():
 
 # ------------------------------------------------------------------ C11: what the chart tests could not see
 def _vap():
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
     assert r.returncode == 0, r.stderr
     return next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ValidatingAdmissionPolicy")["spec"]
 
@@ -535,16 +539,20 @@ def test_each_rule_of_the_policy_is_really_a_rule():
 def test_the_policy_matches_the_writer_and_denies():
     spec = _vap()
     assert spec["matchConditions"][0]["expression"] == 'request.userInfo.username == "system:serviceaccount:cmapi:cmapi-worker"'
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x", "--set", "delivery.mode=apply", "--set", "delivery.hubDeliverer.enabled=true", "--set", "delivery.hubDeliverer.acknowledgeDirectWrites=true")
     binding = next(d for d in yaml.safe_load_all(r.stdout) if d and d["kind"] == "ValidatingAdmissionPolicyBinding")
     assert binding["spec"]["validationActions"] == ["Deny"] and spec["failurePolicy"] == "Fail"
 
 
 def test_both_workloads_migrate_before_they_start():
-    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", "trustedCA.certificates=x")
+    r = helm("-f", str(CRC), "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}", "--set", "trustedCA.certificates=x")
+    seen = set()
     for d in yaml.safe_load_all(r.stdout):
-        if d and d["kind"] == "Deployment":
+        # The two workloads that use the database; the front door (cmapi-portal, #226) has no schema to migrate.
+        if d and d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker"):
             assert d["spec"]["template"]["spec"]["initContainers"][0]["command"] == ["cmapi-migrate", "head"], d["metadata"]["name"]
+            seen.add(d["metadata"]["name"])
+    assert seen == {"cmapi-api", "cmapi-worker"}
 
 
 def test_docs_do_not_claim_a_span_export_that_does_not_exist():
@@ -579,5 +587,9 @@ def test_gitea_deletes_a_stale_branch_before_reopening():
         return httpx.Response(500)
     g = GiteaProvider("https://g.test/api/v1", "o/r", "t")
     g._client = httpx.Client(base_url="https://g.test/api/v1", transport=httpx.MockTransport(handler))
-    g.open_pr("br", {"clusters/CRC/namespaces/a/namespace.yaml": "x"}, "t", "b", "a" * 40)
-    assert ("DELETE", "/api/v1/repos/o/r/branches/br") in calls, "a closed PR's branch is reused with whatever was pushed to it"
+    from datetime import datetime, timezone
+    from cmapi.core.git.base import BranchRequest
+    g.push_request_branch(BranchRequest("CRC", "br", "clusters/CRC/namespaces/a", "h", "t\n",
+                                        {"clusters/CRC/namespaces/a/namespace.yaml": "x"}, {}, datetime.now(timezone.utc)))
+    branch = "cmapi/CRC/br"
+    assert ("DELETE", f"/api/v1/repos/o/r/branches/{branch}") in calls, "a closed PR's branch is reused with whatever was pushed to it"

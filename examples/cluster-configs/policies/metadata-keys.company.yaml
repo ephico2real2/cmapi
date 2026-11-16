@@ -1,0 +1,45 @@
+# An example of metadata-keys.yaml for a company's own keys (#215): the owner's sample namespace, abc-rnd.
+# company.net stands for the company's domain. Use it instead of metadata-keys.yaml; nothing reads this file by
+# default. cmapi/tests/core/test_metadata_stanzas.py renders the owner's sample from it.
+#
+#   kind: Namespace
+#   metadata:
+#     name: abc-rnd                       # every namespace starts with the team's mnemonic
+#     labels:
+#       name: abc-rnd                     # derived: a copy of the namespace name
+#       company.net/app-environment: rnd  # derived: the environment of the namespace's cluster
+#       company.net/mnemonic: abc         # required: the start of the namespace name
+#       company.net/lob: amgsst           # required: line of business
+#       company.net/cl: '1'               # required: critical level
+#     annotations:
+#       company.net/app-environment: rnd  # derived
+#       company.net/mnemonic-group-contact: abc-team@company.net       # optional: an address in emailDomains
+#       company.net/mnemonic-confluence: https://wiki.company.net/abc  # optional: an http or https URL
+#
+# The owner's decision on #234: the two optional keys are annotations, with their formats. An existing namespace that
+# carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
+system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
+         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+operatorOnly: [cmapi.net/protected]
+reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
+requiredLabels:
+  name:                        {value: {from: namespace}, description: "A copy of the namespace name"}
+  company.net/app-environment: {value: {from: environment}, description: "The environment of the namespace's cluster"}
+  company.net/mnemonic:        {pattern: "^[a-z]{3}$", namespacePrefix: true, description: "The team's mnemonic: the start of the namespace name", example: abc}
+  company.net/lob:             {enum: [amgsst], description: "Line of business", example: amgsst}
+  company.net/cl:              {enum: ["0", "1", "2", "3"], description: "Critical level", example: "1"}
+requiredAnnotations:
+  company.net/app-environment: {value: {from: environment}}
+extraLabels:
+  keys: {}
+  allowOther: {prefixes: ["", "*.company.net/"], max: 50}
+extraAnnotations:
+  keys:
+    company.net/mnemonic-group-contact: {format: email-in-domains, description: "The mnemonic's group contact", example: abc-team@company.net}
+    company.net/mnemonic-confluence:    {format: url, description: "The mnemonic's Confluence space", example: "https://wiki.company.net/abc"}
+  allowOther: {prefixes: ["", "*.company.net/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+adoptionLabels:
+  company.net/provisioner: {recognise: [cluster-configs]}
+sensitiveKeys: [company.net/mnemonic, company.net/lob]
+emailDomains: [company.net]
