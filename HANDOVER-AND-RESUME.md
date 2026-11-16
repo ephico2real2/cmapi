@@ -1,43 +1,176 @@
 # cmapi: handover and resume
 
-Read this first to continue the build from a new session, with nothing else in hand. The tracker is
-[`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated on 2026-11-13, before the owner cleared the session.
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-16 at 19:33Z. It supersedes
+every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
+[`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-**The next run.** The owner plans a run by OB1 (Fable 5.2) with the prompt in [`OB1-PROMPT.md`](OB1-PROMPT.md): build the whole application as designed, deploy and test it on CRC and kind, and fix bugs as they appear, documenting features as they land. That prompt replaces `CLAUDE.md`'s delivery loop for that run only. The owner, 2026-11-13: "change ob1 to use fable 5.2". So the Fable pause is lifted for OB1's run, and OB1 writes the code itself. Start the session with `claude --model claude-fable-5-2` in the worktree, since the prompt cannot set the model. Everywhere else the pause and "Who does what" below still apply. The owner, 2026-11-13: "let ob1 knows that it has full autonomy". The prompt says so in its own section, "You have full autonomy". Then: "do not ask me questions yourself bacsie i might fell asleep - i give you the mandate to make decisions here for ob1". The coordinator's decisions for the points below that say "ask the owner" are in the prompt's "Decided for you": the second pass runs on Codex alone without C8; #91 lands before the CRC run; the hooks are applied without showing the owner the diff; `keycloak-tls` is not reissued; mail stays off. That list wins over this file where they differ. Later the same day the owner added: the `/agile` records for every issue, writing in Simplified Technical English, diagrams with `/visual`, new docs for authorization (docs/14) and the Keycloak integration (docs/15), the data model and API contract with real sample payloads, and every bug filed and fixed at once. OB1 owns all of it end to end, with web search allowed. The prompt's "Records, language and diagrams" and "Authorization, Keycloak, the data model and the API contract" hold the detail. The API-docs defects #127 to #134 are filed under #13. The `/simple` STE skill the owner named is not in diagram-kit, so the prompt gives ASD-STE100's core rules until it appears.
+## Resume here: 2026-11-16, 19:33Z
 
-**Two more owner instructions, 2026-11-13, sent to OB1 through the coordinator after the run began.** First: "also if is important that we have diagrams as well." Diagrams are a required deliverable: the list of figures is in the prompt, under "Records, language and diagrams". Second: "we can use postgress for cache as well if needed so we don't have to use redis or vakkey". cmapi adds no Redis and no Valkey, and a shared cache uses cmapi's PostgreSQL: the detail is in the prompt, under "The database: CloudNativePG".
+### 1. How to start the next session
 
-**The cache reference, 2026-11-13.** The owner: "check my inkcaskhq/kvpg". That is `github.com/inkcasthq/kvpg`, read by the coordinator at `f654a121820f`. It is the reference for a cmapi cache in PostgreSQL, not a dependency: cmapi keeps its contract v1 in a small Python store, on a logged table, only if a shared cache is needed. Never change kvpg and file nothing there. The owner then widened it: "ob1 is free the python equiavlanet to add a similar or use an existing public one as well". So OB1 can build the store or use a public Python library that passes the checks in the prompt. No choice is made yet, because no shared cache is needed yet. The detail is in the prompt, under "The database: CloudNativePG".
+Open Claude Code in `/Users/olasumbo/gitRepos/cmapi-design` and say:
 
-## State on 2026-11-16, 05:00Z: read this first
+> Read `HANDOVER-AND-RESUME.md` and `build-tracker.md` on `main` (section "Resume here"), check the state with the commands
+> in section 9, then continue with the first item of section 5.
 
-This section supersedes the one below it where they differ. `main` is `01a23fe`.
+The coordinator's memory notes in `~/.claude/projects/-Users-olasumbo-gitRepos-cmapi-design/memory/` load by themselves and
+hold the standing rules (section 7).
 
-**Git delivery, redesigned and live (#286).** cmapi now uses plain Git with one credential, an HTTPS token or an SSH key. Branch `cmapi/<cluster>/<requestId>` is cut from `origin/main` in a worktree per request, inside an emptyDir. A thin PR adapter handles each host: GitHub and Gitea are built, GitLab (PR-B) and Bitbucket (PR-C) are proposed. It is always a PR, never a push to main. In apply mode cmapi applies before it merges, with the new states `applied` and `merge_failed`.
-- Fable 5.2 and OB1 each designed it independently; the coordinator arbitrated (comment on #286).
-- Built in PR #288 (`21a7f47`), with the review's seven fixes and BUG-74 #293, the job-claim tie fix.
+### 2. Where it stands
 
-**Identity.** Machine user `cmapi-git-bot`, Secrets `cmapi-git-bot` (token) and `cmapi-git-bot-ssh` (`kubernetes.io/ssh-auth`), ConfigMap `cmapi-git-bot-known-hosts`. The owner loaded the SSH key on 2026-11-16. CRC has run Git over SSH since PR #299 (`0a805b0`); the worker logs key fingerprint `SHA256:R7En1nykzQtx0+6OB46qo+i8B+PK1m3ZaWmkMRPw+gY`. The API token is still a copy of the owner's token, so PRs show `ephico2real2` until the bot's own token is loaded (docs/19 section 2).
+| Item | State |
+|---|---|
+| `main` | `0c0fcb0` (PR #316). No PR open except this records PR, which merges with this update |
+| CRC | cmapi `525ca27` runs on CRC: api, worker, portal and cmapi-db. `crc-proof.sh` passed there. keycloak-0 has had 0 restarts since the CR fix of 2026-11-15 |
+| Git delivery | The Git layer over **SSH** with the bot's key, plus a thin PR adapter for GitHub (#286). Proven with real requests |
+| Portal | 6 of 9 tabs on the API and live on CRC: Requests, New namespace, Approvals, Workflow, Quotas, KPIs. Expiration, Policies and Capacity are next (#302) |
+| Agents | None running |
 
-**Proven live on CRC.**
-- req-0001 → cmapi-cluster-configs PR #5; req-0003 → PR #6, with the D19 pod defaults; over SSH, req-20261116-0001 → PR #7.
-- In the portal through Playwright: req-20261116-0002 → PR #8 (auto-approved); req-20261116-0003 → PR #9, approved in the Approvals tab.
-- crc-proof.sh passes at 21a7f47 and at 130ff6c.
+### 3. What was done (2026-11-14 to 2026-11-16)
 
-**The portal.** Slice 2 (#300, PR #305 `130ff6c`): New namespace, Approvals and Workflow are on the API and live on CRC (screenshots in PR #308). Slice 3 (#301: Quotas and KPIs) is being built by OB1 run 14. Slice 4 (#302: Expiration, Policies, Capacity) needs the API first.
+**The full request flow on CRC.**
+- #269 (full flow, apply mode) and #270 (BUG-64, backup) merged.
+- #272 (BUG-65, one test session per database) merged.
+- #277 (crc-proof fixes: BUG-67, BUG-68, BUG-70) merged.
+- docs/13 was run from a clean start (OB1 run 9), and every proof passed on CRC.
 
-**Docs.** docs/19 (connecting to Git, PR #296). docs/14 "Who a request is from", with the RBAC figure, light theme (PRs #297 and #298). `cmapi.requester` is a generic LDAP test user. A person submits as themselves; a tool can submit for a person with `onBehalfOf`. Realm `cmapi`'s users filter `(uid=cmapi.*)` admits only the 13 test users.
+**Git delivery redesigned (#286).**
+- **Why:** the owner's fine-grained token could not read GitHub's Checks API (BUG-69 #279), so the bot's PRs never merged. The owner then said Git delivery must not depend on GitHub features: "a token or ssh keys", always a PR, never a push to `main`.
+- **Design:** Fable 5.2 and OB1 (Opus 5.5) each designed it alone, and the coordinator arbitrated. The record is the comment on #286 and `docs/reviews/2026-11-15-issue-286/`.
+- **What was built:** PR #288 (`21a7f47`):
+  - a Git layer: a bare partial clone in an emptyDir, a worktree per request at `<workdir>/<cluster>/<requestId>`, and branch `cmapi/<cluster>/<requestId>`;
+  - a thin PR adapter;
+  - apply before merge, with the new states `applied` and `merge_failed`;
+  - the sweeper and `git_reconcile`;
+  - structured `git_op` logs.
+- **Review:** 7 findings fixed, among them a cancel-versus-merge race. BUG-74 #293 (job-claim order) was found and fixed while validating.
+- **Superseded:** #285 (GitHub statuses) and cmapi-cluster-configs#3 are closed.
 
-**Cleanup.** Secret `cmapi-git` deleted (unused). 72 merged branches deleted. The only two not merged (closed PRs #285 and #165) are kept at `refs/pull/<n>/head`. 78 worktrees removed. Closed: #279 (BUG-69), #285, cmapi-cluster-configs #2, #3 and #4.
+**The identity is the machine user `cmapi-git-bot`.**
 
-**Open.**
-- Filed: #290, #291, #292, #294, #295, #303, #304, #306, #307, #309.
-- The owner decides:
-  - before PR-B, the API pod's plan-time read path (Git, or each host's API);
-  - a revert before a merge (#290);
-  - the users filter for real people;
-  - loading the bot's own token.
+| Object | Holds | Mounted in |
+|---|---|---|
+| Secret `cmapi-git-bot` | The API token, for the PR only | api and worker |
+| Secret `cmapi-git-bot-ssh` | `kubernetes.io/ssh-auth`, the private key | worker only |
+| ConfigMap `cmapi-git-bot-known-hosts` | GitHub's ed25519, ecdsa and rsa host keys | worker only |
+
+- The owner made the SSH key on 2026-11-16, and CRC has used SSH since PR #299 (`0a805b0`). Fingerprint: `SHA256:R7En1nykzQtx0+6OB46qo+i8B+PK1m3ZaWmkMRPw+gY`.
+- `/etc/passwd` stays `0644`: CRI-O adds the pod's UID. nss_wrapper is used only where no runtime adds it.
+
+**The portal.**
+- **Slice 2** (#300, PR #305): New namespace, Approvals and Workflow. The review found 4 defects, among them the Idempotency-Key per body and a submit of an unplanned form.
+- **Slice 3** (#301, PR #313): Quotas and KPIs. The review found 1 defect: a 412 did not lead to reading the namespace again.
+- Both are proven live on CRC with Playwright through the real Keycloak sign-in. Screenshots: `cmapi-portal-ui/screenshots/slice-2-crc/` and `slice-3-crc/`.
+
+**Docs.**
+
+| Doc | What it holds |
+|---|---|
+| docs/19 | How to connect cmapi to Git: bot, token, SSH, known_hosts, rotation, troubleshooting |
+| docs/14, "Who a request is from" | The RBAC figure, in its light theme; the test users |
+| docs/04 | How to choose an Idempotency-Key |
+| docs/18 | Where `emailDomains` is set |
+| Figures | `docs/diagrams/git-delivery/` and `docs/diagrams/rbac-identity/` |
+
+**Requests proven live on CRC.**
+
+| Requests | Config repo PRs |
+|---|---|
+| req-20261115-0001, req-20261115-0003 | #5, #6 |
+| req-20261116-0001, over SSH | #7 |
+| req-20261116-0002 to req-20261116-0005, from the portal | #8 to #11 |
+
+Namespaces `cmapi-live-a` to `cmapi-live-e` exist and are the proof; leave them.
+
+**Cleanup.**
+- Secret `cmapi-git` (the owner's token) is deleted; nothing read it.
+- 72 merged branches deleted. The two closed-PR branches are kept at `refs/pull/285/head` and `refs/pull/165/head`.
+- 78 worktrees removed.
+
+### 4. The direction (decided, do not reopen)
+
+**Delivery.**
+- Plain Git with one credential: SSH key or token.
+- A thin PR or MR adapter for each host: GitHub (built), Gitea (built), GitLab and Bitbucket (next).
+- Always a PR; cmapi never pushes to `main`.
+- The gate is cmapi's own plan-time kubeconform and Kyverno checks plus approval. Host CI is off by default; when on, cmapi reads commit statuses only, never GitHub's Checks API.
+- In apply mode: apply, confirm by a read, then merge, pinned to the applied sha. In argocd mode, and for every delete: merge first.
+
+**Storage.** Git stays the store of desired state; PostgreSQL holds the workflow state. The owner's alternatives were weighed and rejected for now: a PVC, PostgreSQL as the store, OCI, SeaweedFS.
+
+**Identity.**
+- A person submits as themselves: the request records the token's `sub`, username and employee_id.
+- A tool submits for a person with `onBehalfOf` (built: `core/identity/checks.py`). A person sending `onBehalfOf` is refused.
+- Token exchange (RFC 8693) is the proposed stronger form.
+
+**Diagrams.** diagram-kit `/visual`, rendered with `~/gitRepos/diagram-kit/.venv/bin/diagram-render`. Both themes are rendered, and **only the light theme is embedded and published** (the owner's choice).
+
+### 5. What is next, in order
+
+1. **Portal slice 4 (#302): API first, then each tab.** Start with **Expiration**: a list endpoint of namespaces by expiry, since `expiresAt` and `:extend` exist. Then **Policies** (Kyverno results and rejections), then **Capacity** (the snapshots). Each endpoint goes through the contract gate: OpenAPI, samples and docs/04.
+2. **Portal fixes:** #309 (the text says Argo CD and host CI in apply mode), #307 (the Workflow scenario button keeps its first status), #306 (ProgressStep warnings).
+3. **Git delivery follow-ups:** #289 (the chart mounts the Git layer), #273 (the chart's CRC values), #294 (BUG-75, event timestamps out of order), #295 (BUG-76), #291 (BUG-72, a mode switch stalls), #292 (BUG-73, the citation tool).
+4. **GitLab (#286 PR-B), then Bitbucket (PR-C).** The owner's read-path decision (section 6, item 1) comes before PR-B.
+5. **The rest of the queue:** #282 (Idempotency-Key in Swagger, CLI and SDK), #283 (Swagger token lifetime), #276 (PERF, the first plan took 27.7 s), #287, #303, #304, #310, #311, #312, #314, #315, #225 (2-3 replicas), #228, #236, #237, #248, #249, #256-#260, #263-#266, #207-#209, #200.
+
+### 6. Decisions only the owner can make
+
+1. **Before PR-B:** how the API pod reads the repository at plan time. Through Git with the bot's credential (host-neutral), or each host's read API (as PR-A does for GitHub).
+2. **#290:** a revert of a change that was applied and never merged. Fable proposed a `restore_apply` job.
+3. **Real people.** Realm `cmapi`'s LDAP users filter `(uid=cmapi.*)` admits only the 13 test users. Widening it to the real directory is a decision for each environment.
+4. **The bot's own token.** Secret `cmapi-git-bot` still holds a copy of the owner's token, so PRs show `ephico2real2` as author; the commits already name `cmapi-git-bot`. To change it, make a fine-grained token as `cmapi-git-bot` (docs/19, section 2) and load it with that section's `oc apply` lines.
+5. **Earlier, still open:** diagram-kit PR 64 (merge), #227 (branch protection needs GitHub Pro), the KPI targets, #149, #150, #167, 409 vs 422 for an idempotency replay, the problem type host.
+
+### 7. Who does what, and how a change ships
+
+| Role | Who |
+|---|---|
+| Implementer | Opus 5.5 at `high`, a fresh background agent per task, briefed with the issue, files and claims |
+| Designs | Two independent designs (two model families when Fable has quota), arbitrated by the coordinator, for anything structural |
+| Review | One adversarial review per PR, by a separate Opus 5.5 or Codex (interchangeable). Every finding has its full fix as a patch and a test that fails before and passes after |
+| Coordinator | Applies the accepted fixes, runs the before and after tests itself, merges when GitHub CI is green on the exact head, deploys to CRC through a briefed agent, and keeps these records |
+| Docs | Sonnet 5.5 |
+
+Fable is paused unless the owner asks; the owner used it on 2026-11-15 with about 6% of its quota left. CI is **GitHub Actions only**; local CI is not used.
+
+**Standing rules, learned this session (also in memory):**
+- Don't idle on an owner input: check what it really gates, and run the rest.
+- Never a "quick fix" on a hypothesis: find the true layer, and run the proof before and after.
+- Before a delete, prove it is merged. A branch from a closed PR is listed, not deleted.
+- Order-dependent tests mean the full suite is not proof: run the failing files alone.
+- Never trust a tool's "fix" hint: read the diff. `doc-citations --write` once recorded the wrong text.
+- Read a figure's PNGs before calling it done, and render with the kit's own renderer.
+- No Co-Authored-By or "Generated with" lines, ever.
+
+### 8. Rules that do not bend
+
+- **CRC is shared.** Change only realm `cmapi` and `cmapi-*` LDAP entries. Test namespaces on CRC use `cmapi-` names only.
+- Never restart the VM or a shared service. Delete only what cmapi created.
+- No secrets in git, logs or command lines: tokens go from the clipboard on stdin, and passwords from the Secret on stdin.
+- TLS verification is always on.
+- A permission refusal stands.
+
+### 9. Check the state before acting
+
+```bash
+git -C /Users/olasumbo/gitRepos/cmapi-design fetch -q && git -C /Users/olasumbo/gitRepos/cmapi-design log --oneline -1 origin/main
+gh pr list --state open
+curl -s https://cmapi.apps-crc.testing/api/v1/version          # expect commit 525ca27 (or newer, if deployed since)
+oc get pods -n cmapi
+oc get pod keycloak-0 -n keycloak -o jsonpath='{.status.containerStatuses[0].restartCount}'   # 0
+oc logs deploy/cmapi-worker -n cmapi | grep -m1 ssh_key_fingerprint
+```
+
+**Where things are.**
+- **The repository:** `/Users/olasumbo/gitRepos/cmapi-design` (`main`).
+- **The records:** these three files, on `main`.
+- **Agent notes and logs:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run*` and `review-*`. The CRC runs are `ob1-run9`, `ob1-run11`, `ob1-run13` and `ob1-run15`; each has a `resume.md`, `run.sh` and `live-ui.mjs`.
+- **The test DB lock:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run5/tools/suite.sh` (one service-suite session at a time).
+- **The diagram renderer:** `~/gitRepos/diagram-kit/.venv/bin/diagram-render`.
+
+---
+
+## History: the states before 2026-11-16 (superseded by "Resume here")
 
 ## State on 2026-11-15, 05:00Z: read this first
 
