@@ -103,6 +103,22 @@ problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted
 | A decision stays on its card, with the mockup's callout, until the tab is left | The mockup's behaviour. The list is read again when the tab opens next |
 | "Approved by you · N of M" says "Your approval is recorded: N of M. Nothing is in Git yet." | The mockup's sentence names its sample groups |
 
+### On CRC
+
+Deployed on CRC from main 130ff6c on 2026-11-16 (OB1 run 13) and walked through `https://cmapi.apps-crc.testing` with TLS
+verified, signed in through Keycloak's own form. Screenshots: `screenshots/slice-2-crc/`; measured results:
+`docs/09-portal-ui-testing.md`, "Live on CRC".
+
+| Tab | What ran on CRC | Result |
+|---|---|---|
+| New namespace | Two creates as `cmapi.requester`: `cmapi-live-d` (small) and `cmapi-live-e` (large) | Each dry run showed the plan's checks and the approval that applies (auto by baseline-rnd-namespace; 1 from approver-platform). Each Submit sent one create with one Idempotency-Key, got 202 and opened the Workflow tab |
+| Approvals | `cmapi.approver-platform` approved `req-20261116-0003` | "Approved · 1 of 1"; the request went on to `synced` |
+| Workflow | Followed both requests with the 5 s re-read | `applied` (info) then `synced`, finished at the last event |
+| Requests | Both requests listed; "Open at current step" | Opened the Workflow tab on the request |
+| Permissions | `cmapi.viewer`, `cmapi.noaccess` | No New namespace or Approvals for the viewer; no data tab for noaccess |
+
+Open from that walk: #306 (`ProgressStep` with no `id`) and #307 (the scenario button's stale status).
+
 The demo build has none of these differences. The sections below describe it.
 
 ## The demo build: the mockup's logic stands in for the API

@@ -90,8 +90,41 @@ Measured on 2026-11-16 on this Mac, against the built portal (`dist/`), a stand-
 
 **Found while testing.** Chrome sends a POST again by itself when a reused connection closes with no answer. The
 stand-in's lost-answer case had to hold until the test cleared it; the retry carried the same Idempotency-Key, so the API
-answered with the first request. **Not proven:** a sign-in and a submit on CRC (the steps are in the PR for #300),
-keyboard use beyond PatternFly and axe.
+answered with the first request. **Not proven here:** keyboard use beyond PatternFly and axe. The sign-in and the submit on
+CRC are in the next section.
+
+### Live on CRC (#300)
+
+Measured on 2026-11-16 by OB1 run 13, on CRC, against main 130ff6c deployed by docs/13 steps 5 and 21 (images
+`cmapi@sha256:4a0b0b34…` and `cmapi-portal@sha256:669cf3d2…`, both labelled `130ff6c98e`; `/api/v1/version` answered
+`130ff6c98e`). Stage: deployed. Playwright drove Chromium 156.0.8078.4, and installed Chrome 157.0.8103.51 for the read-only
+walks, at 1440 px in the light theme, through `https://cmapi.apps-crc.testing` with HTTPS errors not ignored. The browser
+trusts the two CRC CAs from the login keychain, whose SHA-256 fingerprints equal `ingress-ca.pem` and `keycloak-ca.pem` of
+docs/13 step 1. Each person signed in on Keycloak's own login form, with the password piped from Secret
+`cmapi-ldap-test-users` to the script's stdin. Screenshots: `cmapi-portal-ui/screenshots/slice-2-crc/`.
+
+| Check | Who | Result |
+|---|---|---|
+| New namespace, auto-approved | `cmapi.requester` | `cmapi-live-d`, small, team platform. The dry run showed four checks, the last "Approval dev-create · 0 of 0 (auto)", and the card "Auto-approved by baseline-rnd-namespace". Submit: one create POST, 202, `req-20261116-0002`, with one `Idempotency-Key` (a UUID). The Workflow tab opened on it and, reading every 5 s, showed `approved`, `pr_open`, `applied` and `synced`; it finished at step 10 of 10, `branch_deleted`, lead time 26 s |
+| New namespace that needs a person | `cmapi.requester` | `cmapi-live-e`, large. The dry run showed "! Approval dev-create · 1 of approver-platform" and the card "1 approval in cmapi from approver-platform". Submit: 202, `req-20261116-0003`, `pending_approval` |
+| Approvals | `cmapi.approver-platform` | The card for `req-20261116-0003`, "0 of 1 approvals", eligibility "Role cmapi-approver" and "Not the requester". Approve: "Approved · 1 of 1". The requester's open Workflow tab then showed `approved`, `pr_open`, `applied` and `synced` (04:16:45 to 04:17:05Z) |
+| Requests, and "Open at current step" | `cmapi.requester` | Both requests listed with status, last event, approval and PR. The button opened `#workflow?request=<id>` at its last step |
+| Tabs by permission | `cmapi.viewer` | Workflow, Quotas, Expiration, Requests, Policies, Capacity: no New namespace, no Approvals |
+| Tabs by permission | `cmapi.noaccess` | Expiration, Policies, Capacity, each "This tab is not on the API yet."; the only API call was `GET /api/v1/me` |
+| The cluster and Git | `oc`, `gh` | Both namespaces exist with `cmapi.net/managed=true` and both LimitRanges (`-limits-cpu`, `-limits-memory`) and the quota of the tier. PRs #8 and #9 on `cmapi-cluster-configs` are merged, five files each, commits by `cmapi-git-bot` with the five `Cmapi-` trailers, branches deleted |
+| Same origin, CSP | every walk | Every request went to `cmapi.apps-crc.testing` or `keycloak.apps-crc.testing`; no CSP violation; no page error |
+| Chrome | the read-only walks | The same tabs per person, a dry run of `cmapi-live-f` (auto-approved, not submitted), and the same Requests and Workflow views |
+
+**Found on CRC.** PatternFly warns once per Workflow step on every render because `ProgressStep` has no `id` (#306). The
+Workflow tab's scenario button keeps the status it was first read with while the page follows the request to `synced`
+(#307). Bundled Chromium 156 warns on the `web-share` feature of the portal's `Permissions-Policy` header; Chrome 157 does
+not. The Approvals callout says "Argo CD applies it", the mockup's sentence; CRC applies with the worker (delivery mode
+`apply`, docs/13).
+
+**Not proven on CRC.** Reject, a refused write, the 401 renewal, the 390 and 820 px widths, the dark theme and axe: these
+ran built-mocked only (above). The first screenshots of `cmapi-live-d` stopped at the viewport, because the page frame
+scrolls an inner element; the New namespace pictures in the folder are a dry run of the same large-tier form
+(`cmapi-live-g`, never submitted), and the auto-approved plan is the Chrome dry run of `cmapi-live-f`, never submitted.
 
 ## What testing found
 
