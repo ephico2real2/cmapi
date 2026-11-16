@@ -280,9 +280,9 @@ def test_crc_writes_through_github_and_apply_delivery():
     instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
     assert integrations["delivery"]["mode"] == "apply"
     assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
-    # The Git layer over HTTPS with the bot account's token, host CI off (#286).
+    # The Git layer over SSH with the bot account's key (docs/19), the token for the PR alone, host CI off (#286).
     assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com",
-                               "url": "https://github.com/ephico2real2/cmapi-cluster-configs.git", "username": "cmapi-git-bot",
+                               "url": "git@github.com:ephico2real2/cmapi-cluster-configs.git", "username": "cmapi-git-bot",
                                "hostChecks": False}
     env = crc("ConfigMap", "cmapi-env")["data"]
     assert (env["CMAPI_GIT_PROVIDER"], env["CMAPI_GIT_URL"]) == ("github", "https://api.github.com")
