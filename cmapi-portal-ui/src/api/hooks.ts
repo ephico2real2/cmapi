@@ -16,6 +16,14 @@ export type Plan = components["schemas"]["PlanView"];
 export type NamespaceCreate = components["schemas"]["NamespaceCreate"];
 export type RequestEvents = components["schemas"]["RequestEvents"];
 export type RequestEvent = components["schemas"]["RequestEvent"];
+export type QuotaPage = components["schemas"]["QuotaPage"];
+export type QuotaRow = components["schemas"]["QuotaRow"];
+export type QuotasQuery = NonNullable<operations["quotas_quotas"]["parameters"]["query"]>;
+export type ExportQuery = NonNullable<operations["quotas_export"]["parameters"]["query"]>;
+export type Suggestion = components["schemas"]["Suggestion"];
+export type NamespaceView = components["schemas"]["NamespaceView"];
+export type NamespacePatch = components["schemas"]["NamespacePatch"];
+export type KpiView = components["schemas"]["KpiView"];
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -258,4 +266,174 @@ export function useReject(): Outcome<ChangeRequest> & { reject: (requestId: stri
   });
   const send = useOneAtATime(mutation.mutateAsync);
   return { ...outcomeOf(mutation), reject: (requestId, comment) => send({ requestId, comment }) };
+}
+
+/** GET /api/v1/quotas: one query for each page, with its filters, its sort and its cursor as the key. */
+export function useQuotas(params: QuotasQuery): Result<QuotaPage> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["quotas", params],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/quotas", { params: { query: params }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    },
+    // The rows of the last page stay while the next page loads.
+    placeholderData: keepPreviousData
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** The API answers fewer than two characters with no match (GET /api/v1/quotas:suggest), so the portal does not ask. */
+export const SUGGEST_MIN = 2;
+
+/**
+ * GET /api/v1/quotas:suggest: the type-ahead's matches for one text. A new text is a new query; Query cancels the call that
+ * it replaces through the signal, so a slow answer for an old text never shows.
+ */
+export function useSuggest(text: string): Result<Suggestion[]> {
+  const api = useApi();
+  const q = text.trim();
+  const query = useQuery({
+    queryKey: ["quotas:suggest", q],
+    enabled: q.length >= SUGGEST_MIN,
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/quotas:suggest", { params: { query: { q } }, signal });
+      if (!data) throw problemOf(response, error);
+      return data.items;
+    }
+  });
+  if (q.length < SUGGEST_MIN) return { state: "ok", data: [], refreshing: false };
+  return resultOf(query);
+}
+
+/** A problem from a body that was read as text: the export answers text/csv, and a refusal application/problem+json. */
+function problemOfText(response: Response, text: unknown): ApiProblem {
+  try {
+    return problemOf(response, typeof text === "string" ? JSON.parse(text) : text);
+  } catch {
+    return problemOf(response, null);
+  }
+}
+
+/**
+ * GET /api/v1/quotas:export: every row of the filters, as CSV. The API records each export in the audit log, so it is an
+ * action of the person, sent once for each click, not a read that Query caches and sends again by itself.
+ */
+export function useExport(): Outcome<string> & { run: (params: ExportQuery) => Promise<string>; reset: () => void } {
+  const api = useApi();
+  const mutation = useMutation({
+    mutationFn: async (params: ExportQuery) => {
+      const { data, error, response } = await api.GET("/api/v1/quotas:export", { params: { query: params }, parseAs: "text" });
+      if (!response.ok || typeof data !== "string") throw problemOfText(response, error);
+      return data;
+    }
+  });
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), run: (params) => send(params), reset: mutation.reset };
+}
+
+/** GET /api/v1/clusters/{cluster_id}/namespaces/{ns}: the namespace and its etag, the If-Match of a change. */
+export function useNamespace(clusterId: string, ns: string): Result<NamespaceView> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["namespace", clusterId, ns],
+    enabled: clusterId !== "" && ns !== "",
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/clusters/{cluster_id}/namespaces/{ns}", { params: { path: { cluster_id: clusterId, ns } }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** One change of a namespace as the person planned it: where, the etag it was read at, and the body. */
+export interface PlannedChange {
+  clusterId: string;
+  ns: string;
+  etag: string;
+  body: NamespacePatch;
+}
+
+/** An etag as If-Match sends it: a quoted entity tag (RFC 9110, section 8.8.3). The API gives it unquoted in the body. */
+const ifMatchOf = (etag: string): string => (etag.startsWith("\"") ? etag : `"${etag}"`);
+
+/**
+ * PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}?dryRun=true: the plan of a change, its capacity check and the
+ * approval that would apply. It writes nothing and needs no Idempotency-Key, so it is a read for Query, keyed on the change.
+ */
+export function usePatchPlan(change: PlannedChange | null): Outcome<Plan> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["patch-plan", change],
+    enabled: change !== null,
+    queryFn: async ({ signal }) => {
+      const { clusterId, ns, etag, body } = change!;
+      const { data, error, response } = await api.PATCH("/api/v1/clusters/{cluster_id}/namespaces/{ns}", {
+        params: { path: { cluster_id: clusterId, ns }, query: { dryRun: true }, header: { "If-Match": ifMatchOf(etag) } }, body, signal
+      });
+      if (!data) throw problemOf(response, error);
+      // The dry run answers 200 with a plan. A 202 here would be a written request: the API broke its contract.
+      if (response.status !== 200) throw new ApiProblem({ status: 500, code: "not-a-plan", detail: `The dry run answered ${response.status}, not 200.` });
+      return data as Plan;
+    }
+  });
+  if (change === null) return { state: "idle", reload: () => undefined };
+  return { ...outcomeOf({ isPending: query.isFetching, isIdle: false, error: query.error, data: query.data }), reload: () => void query.refetch() };
+}
+
+/**
+ * PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}: submits the change that was planned, with the etag that it was planned
+ * at as If-Match and the caller's Idempotency-Key. The namespace and the quota list are stale after it.
+ */
+export function useSubmitPatch(): Outcome<ChangeRequest> & { submit: (change: PlannedChange, key: string) => Promise<ChangeRequest> } {
+  const api = useApi();
+  const client = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ change, key }: { change: PlannedChange; key: string }) => {
+      const { clusterId, ns, etag, body } = change;
+      const { data, error, response } = await api.PATCH("/api/v1/clusters/{cluster_id}/namespaces/{ns}", {
+        params: { path: { cluster_id: clusterId, ns }, header: { "Idempotency-Key": key, "If-Match": ifMatchOf(etag) } }, body
+      });
+      if (!data) throw problemOf(response, error);
+      return data as ChangeRequest;
+    },
+    // Read again when shown next, not now: the form keeps its answer on the page, as the mockup's does.
+    onSuccess: (_, { change }) => {
+      void client.invalidateQueries({ queryKey: ["requests"], refetchType: "none" });
+      void client.invalidateQueries({ queryKey: ["quotas"], refetchType: "none" });
+      void client.invalidateQueries({ queryKey: ["namespace", change.clusterId, change.ns], refetchType: "none" });
+    }
+  });
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), submit: (change, key) => send({ change, key }) };
+}
+
+/** GET /api/v1/tiers with no environment: the catalog of each environment that the instance serves. */
+export function useCatalog(): Result<TierCatalog> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["tiers", ""],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/tiers", { signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** GET /api/v1/admin/kpi: the answering process's cgroup figures, the database and the live KPIs (docs/17-kpis.md). */
+export function useKpi(): Result<KpiView> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["kpi"],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/admin/kpi", { signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
 }
