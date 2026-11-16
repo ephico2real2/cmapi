@@ -1,14 +1,266 @@
 # cmapi: handover and resume
 
-Read this first to continue the build from a new session, with nothing else in hand. The tracker is
-[`build-tracker.md`](build-tracker.md), the rules are [`CLAUDE.md`](CLAUDE.md), and the measured log is
-[`CRC-BUILD-STATUS.md`](CRC-BUILD-STATUS.md). Updated on 2026-11-13, before the owner cleared the session.
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-16 at 19:33Z. It supersedes
+every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
+[`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-**The next run.** The owner plans a run by OB1 (Fable 5.2) with the prompt in [`OB1-PROMPT.md`](OB1-PROMPT.md): build the whole application as designed, deploy and test it on CRC and kind, and fix bugs as they appear, documenting features as they land. That prompt replaces `CLAUDE.md`'s delivery loop for that run only. The owner, 2026-11-13: "change ob1 to use fable 5.2". So the Fable pause is lifted for OB1's run, and OB1 writes the code itself. Start the session with `claude --model claude-fable-5-2` in the worktree, since the prompt cannot set the model. Everywhere else the pause and "Who does what" below still apply. The owner, 2026-11-13: "let ob1 knows that it has full autonomy". The prompt says so in its own section, "You have full autonomy". Then: "do not ask me questions yourself bacsie i might fell asleep - i give you the mandate to make decisions here for ob1". The coordinator's decisions for the points below that say "ask the owner" are in the prompt's "Decided for you": the second pass runs on Codex alone without C8; #91 lands before the CRC run; the hooks are applied without showing the owner the diff; `keycloak-tls` is not reissued; mail stays off. That list wins over this file where they differ. Later the same day the owner added: the `/agile` records for every issue, writing in Simplified Technical English, diagrams with `/visual`, new docs for authorization (docs/14) and the Keycloak integration (docs/15), the data model and API contract with real sample payloads, and every bug filed and fixed at once. OB1 owns all of it end to end, with web search allowed. The prompt's "Records, language and diagrams" and "Authorization, Keycloak, the data model and the API contract" hold the detail. The API-docs defects #127 to #134 are filed under #13. The `/simple` STE skill the owner named is not in diagram-kit, so the prompt gives ASD-STE100's core rules until it appears.
+## Resume here: 2026-11-16, 19:33Z
 
-**Two more owner instructions, 2026-11-13, sent to OB1 through the coordinator after the run began.** First: "also if is important that we have diagrams as well." Diagrams are a required deliverable: the list of figures is in the prompt, under "Records, language and diagrams". Second: "we can use postgress for cache as well if needed so we don't have to use redis or vakkey". cmapi adds no Redis and no Valkey, and a shared cache uses cmapi's PostgreSQL: the detail is in the prompt, under "The database: CloudNativePG".
+### 1. How to start the next session
 
-**The cache reference, 2026-11-13.** The owner: "check my inkcaskhq/kvpg". That is `github.com/inkcasthq/kvpg`, read by the coordinator at `f654a121820f`. It is the reference for a cmapi cache in PostgreSQL, not a dependency: cmapi keeps its contract v1 in a small Python store, on a logged table, only if a shared cache is needed. Never change kvpg and file nothing there. The owner then widened it: "ob1 is free the python equiavlanet to add a similar or use an existing public one as well". So OB1 can build the store or use a public Python library that passes the checks in the prompt. No choice is made yet, because no shared cache is needed yet. The detail is in the prompt, under "The database: CloudNativePG".
+Open Claude Code in `/Users/olasumbo/gitRepos/cmapi-design` and say:
+
+> Read `HANDOVER-AND-RESUME.md` and `build-tracker.md` on `main` (section "Resume here"), check the state with the commands
+> in section 9, then continue with the first item of section 5.
+
+The coordinator's memory notes in `~/.claude/projects/-Users-olasumbo-gitRepos-cmapi-design/memory/` load by themselves and
+hold the standing rules (section 7).
+
+### 2. Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `0c0fcb0` (PR #316). No PR open except this records PR, which merges with this update |
+| CRC | cmapi `525ca27` runs on CRC: api, worker, portal and cmapi-db. `crc-proof.sh` passed there. keycloak-0 has had 0 restarts since the CR fix of 2026-11-15 |
+| Git delivery | The Git layer over **SSH** with the bot's key, plus a thin PR adapter for GitHub (#286). Proven with real requests |
+| Portal | 6 of 9 tabs on the API and live on CRC: Requests, New namespace, Approvals, Workflow, Quotas, KPIs. Expiration, Policies and Capacity are next (#302) |
+| Agents | None running |
+
+### 3. What was done (2026-11-14 to 2026-11-16)
+
+**The full request flow on CRC.**
+- #269 (full flow, apply mode) and #270 (BUG-64, backup) merged.
+- #272 (BUG-65, one test session per database) merged.
+- #277 (crc-proof fixes: BUG-67, BUG-68, BUG-70) merged.
+- docs/13 was run from a clean start (OB1 run 9), and every proof passed on CRC.
+
+**Git delivery redesigned (#286).**
+- **Why:** the owner's fine-grained token could not read GitHub's Checks API (BUG-69 #279), so the bot's PRs never merged. The owner then said Git delivery must not depend on GitHub features: "a token or ssh keys", always a PR, never a push to `main`.
+- **Design:** Fable 5.2 and OB1 (Opus 5.5) each designed it alone, and the coordinator arbitrated. The record is the comment on #286 and `docs/reviews/2026-11-15-issue-286/`.
+- **What was built:** PR #288 (`21a7f47`):
+  - a Git layer: a bare partial clone in an emptyDir, a worktree per request at `<workdir>/<cluster>/<requestId>`, and branch `cmapi/<cluster>/<requestId>`;
+  - a thin PR adapter;
+  - apply before merge, with the new states `applied` and `merge_failed`;
+  - the sweeper and `git_reconcile`;
+  - structured `git_op` logs.
+- **Review:** 7 findings fixed, among them a cancel-versus-merge race. BUG-74 #293 (job-claim order) was found and fixed while validating.
+- **Superseded:** #285 (GitHub statuses) and cmapi-cluster-configs#3 are closed.
+
+**The identity is the machine user `cmapi-git-bot`.**
+
+| Object | Holds | Mounted in |
+|---|---|---|
+| Secret `cmapi-git-bot` | The API token, for the PR only | api and worker |
+| Secret `cmapi-git-bot-ssh` | `kubernetes.io/ssh-auth`, the private key | worker only |
+| ConfigMap `cmapi-git-bot-known-hosts` | GitHub's ed25519, ecdsa and rsa host keys | worker only |
+
+- The owner made the SSH key on 2026-11-16, and CRC has used SSH since PR #299 (`0a805b0`). Fingerprint: `SHA256:R7En1nykzQtx0+6OB46qo+i8B+PK1m3ZaWmkMRPw+gY`.
+- `/etc/passwd` stays `0644`: CRI-O adds the pod's UID. nss_wrapper is used only where no runtime adds it.
+
+**The portal.**
+- **Slice 2** (#300, PR #305): New namespace, Approvals and Workflow. The review found 4 defects, among them the Idempotency-Key per body and a submit of an unplanned form.
+- **Slice 3** (#301, PR #313): Quotas and KPIs. The review found 1 defect: a 412 did not lead to reading the namespace again.
+- Both are proven live on CRC with Playwright through the real Keycloak sign-in. Screenshots: `cmapi-portal-ui/screenshots/slice-2-crc/` and `slice-3-crc/`.
+
+**Docs.**
+
+| Doc | What it holds |
+|---|---|
+| docs/19 | How to connect cmapi to Git: bot, token, SSH, known_hosts, rotation, troubleshooting |
+| docs/14, "Who a request is from" | The RBAC figure, in its light theme; the test users |
+| docs/04 | How to choose an Idempotency-Key |
+| docs/18 | Where `emailDomains` is set |
+| Figures | `docs/diagrams/git-delivery/` and `docs/diagrams/rbac-identity/` |
+
+**Requests proven live on CRC.**
+
+| Requests | Config repo PRs |
+|---|---|
+| req-20261115-0001, req-20261115-0003 | #5, #6 |
+| req-20261116-0001, over SSH | #7 |
+| req-20261116-0002 to req-20261116-0005, from the portal | #8 to #11 |
+
+Namespaces `cmapi-live-a` to `cmapi-live-e` exist and are the proof; leave them.
+
+**Cleanup.**
+- Secret `cmapi-git` (the owner's token) is deleted; nothing read it.
+- 72 merged branches deleted. The two closed-PR branches are kept at `refs/pull/285/head` and `refs/pull/165/head`.
+- 78 worktrees removed.
+
+### 4. The direction (decided, do not reopen)
+
+**Delivery.**
+- Plain Git with one credential: SSH key or token.
+- A thin PR or MR adapter for each host: GitHub (built), Gitea (built), GitLab and Bitbucket (next).
+- Always a PR; cmapi never pushes to `main`.
+- The gate is cmapi's own plan-time kubeconform and Kyverno checks plus approval. Host CI is off by default; when on, cmapi reads commit statuses only, never GitHub's Checks API.
+- In apply mode: apply, confirm by a read, then merge, pinned to the applied sha. In argocd mode, and for every delete: merge first.
+
+**Storage.** Git stays the store of desired state; PostgreSQL holds the workflow state. The owner's alternatives were weighed and rejected for now: a PVC, PostgreSQL as the store, OCI, SeaweedFS.
+
+**Identity.**
+- A person submits as themselves: the request records the token's `sub`, username and employee_id.
+- A tool submits for a person with `onBehalfOf` (built: `core/identity/checks.py`). A person sending `onBehalfOf` is refused.
+- Token exchange (RFC 8693) is the proposed stronger form.
+
+**Diagrams.** diagram-kit `/visual`, rendered with `~/gitRepos/diagram-kit/.venv/bin/diagram-render`. Both themes are rendered, and **only the light theme is embedded and published** (the owner's choice).
+
+### 5. What is next, in order
+
+1. **Portal slice 4 (#302): API first, then each tab.** Start with **Expiration**: a list endpoint of namespaces by expiry, since `expiresAt` and `:extend` exist. Then **Policies** (Kyverno results and rejections), then **Capacity** (the snapshots). Each endpoint goes through the contract gate: OpenAPI, samples and docs/04.
+2. **Portal fixes:** #309 (the text says Argo CD and host CI in apply mode), #307 (the Workflow scenario button keeps its first status), #306 (ProgressStep warnings).
+3. **Git delivery follow-ups:** #289 (the chart mounts the Git layer), #273 (the chart's CRC values), #294 (BUG-75, event timestamps out of order), #295 (BUG-76), #291 (BUG-72, a mode switch stalls), #292 (BUG-73, the citation tool).
+4. **GitLab (#286 PR-B), then Bitbucket (PR-C).** The owner's read-path decision (section 6, item 1) comes before PR-B.
+5. **The rest of the queue:** #282 (Idempotency-Key in Swagger, CLI and SDK), #283 (Swagger token lifetime), #276 (PERF, the first plan took 27.7 s), #287, #303, #304, #310, #311, #312, #314, #315, #225 (2-3 replicas), #228, #236, #237, #248, #249, #256-#260, #263-#266, #207-#209, #200.
+
+### 6. Decisions only the owner can make
+
+1. **Before PR-B:** how the API pod reads the repository at plan time. Through Git with the bot's credential (host-neutral), or each host's read API (as PR-A does for GitHub).
+2. **#290:** a revert of a change that was applied and never merged. Fable proposed a `restore_apply` job.
+3. **Real people.** Realm `cmapi`'s LDAP users filter `(uid=cmapi.*)` admits only the 13 test users. Widening it to the real directory is a decision for each environment.
+4. **The bot's own token.** Secret `cmapi-git-bot` still holds a copy of the owner's token, so PRs show `ephico2real2` as author; the commits already name `cmapi-git-bot`. To change it, make a fine-grained token as `cmapi-git-bot` (docs/19, section 2) and load it with that section's `oc apply` lines.
+5. **Earlier, still open:** diagram-kit PR 64 (merge), #227 (branch protection needs GitHub Pro), the KPI targets, #149, #150, #167, 409 vs 422 for an idempotency replay, the problem type host.
+
+### 7. Who does what, and how a change ships
+
+| Role | Who |
+|---|---|
+| Implementer | Opus 5.5 at `high`, a fresh background agent per task, briefed with the issue, files and claims |
+| Designs | Two independent designs (two model families when Fable has quota), arbitrated by the coordinator, for anything structural |
+| Review | One adversarial review per PR, by a separate Opus 5.5 or Codex (interchangeable). Every finding has its full fix as a patch and a test that fails before and passes after |
+| Coordinator | Applies the accepted fixes, runs the before and after tests itself, merges when GitHub CI is green on the exact head, deploys to CRC through a briefed agent, and keeps these records |
+| Docs | Sonnet 5.5 |
+
+Fable is paused unless the owner asks; the owner used it on 2026-11-15 with about 6% of its quota left. CI is **GitHub Actions only**; local CI is not used.
+
+**Standing rules, learned this session (also in memory):**
+- Don't idle on an owner input: check what it really gates, and run the rest.
+- Never a "quick fix" on a hypothesis: find the true layer, and run the proof before and after.
+- Before a delete, prove it is merged. A branch from a closed PR is listed, not deleted.
+- Order-dependent tests mean the full suite is not proof: run the failing files alone.
+- Never trust a tool's "fix" hint: read the diff. `doc-citations --write` once recorded the wrong text.
+- Read a figure's PNGs before calling it done, and render with the kit's own renderer.
+- No Co-Authored-By or "Generated with" lines, ever.
+
+### 8. Rules that do not bend
+
+- **CRC is shared.** Change only realm `cmapi` and `cmapi-*` LDAP entries. Test namespaces on CRC use `cmapi-` names only.
+- Never restart the VM or a shared service. Delete only what cmapi created.
+- No secrets in git, logs or command lines: tokens go from the clipboard on stdin, and passwords from the Secret on stdin.
+- TLS verification is always on.
+- A permission refusal stands.
+
+### 9. Check the state before acting
+
+```bash
+git -C /Users/olasumbo/gitRepos/cmapi-design fetch -q && git -C /Users/olasumbo/gitRepos/cmapi-design log --oneline -1 origin/main
+gh pr list --state open
+curl -s https://cmapi.apps-crc.testing/api/v1/version          # expect commit 525ca27 (or newer, if deployed since)
+oc get pods -n cmapi
+oc get pod keycloak-0 -n keycloak -o jsonpath='{.status.containerStatuses[0].restartCount}'   # 0
+oc logs deploy/cmapi-worker -n cmapi | grep -m1 ssh_key_fingerprint
+```
+
+**Where things are.**
+- **The repository:** `/Users/olasumbo/gitRepos/cmapi-design` (`main`).
+- **The records:** these three files, on `main`.
+- **Agent notes and logs:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run*` and `review-*`. The CRC runs are `ob1-run9`, `ob1-run11`, `ob1-run13` and `ob1-run15`; each has a `resume.md`, `run.sh` and `live-ui.mjs`.
+- **The test DB lock:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run5/tools/suite.sh` (one service-suite session at a time).
+- **The diagram renderer:** `~/gitRepos/diagram-kit/.venv/bin/diagram-render`.
+
+### 10. The stories (#13 to #29) and which need a Fable review
+
+A story closes only on the owner's approval, with the proof for each acceptance criterion (CLAUDE.md). None is closed yet. Read from GitHub on 2026-11-16: the sub-issue counts are closed of total.
+
+| Story | Subject | Sub-issues | Built and proven | Left |
+|---|---|---|---|---|
+| #13 | Production service, durable request store | 20 of 23 | Service, PostgreSQL (CNPG), API docs; CRC | 3 open sub-issues |
+| #14 | OIDC identity, directory, roles | 5 of 8 | PKCE, client credentials, `onBehalfOf`, RBAC; 13 LDAP users on CRC | Realm users filter for real people (owner); token exchange (proposed) |
+| #15 | Cluster imports, live read endpoints | 0 of 0 | Not started as a story | Not broken into issues |
+| #16 | Telemetry and KPI baseline | 6 of 7 | `/admin/kpi`, KPIs tab live on CRC | #147 (30-day window), #311; KPI targets (owner) |
+| #17 | Namespace plans, metadata, submission | 2 of 2 | Plans, metadata (#215), LimitRanges; New namespace tab live | Owner approval to close |
+| #18 | Approval decisions, protected Git delivery | 6 of 13 | Approvals; Git delivery #286 live over SSH; #61 closed today | #286 PR-B and PR-C, #289-#291, #59, #60, #200, #227, #228, #249 |
+| #19 | Worker recovery, Argo sync, history | 1 of 2 | Recovery, apply mode on CRC | Argo CD mode not run on CRC (Wave 5) |
+| #20 | Signed-in portal | 12 of 23 | 6 of 9 tabs live on CRC | #302 (slice 4), #304, #306, #307, #309 and older UX items |
+| #21 | Capacity snapshots, safe placement | 0 of 2 | Capacity snapshots in the API | #303 (placement API), the Capacity tab (#302) |
+| #22 | Quota plans, usage, auto-approval | 4 of 7 | Quota plans, custom tier, Kyverno modes; Quotas tab live | #211, #232, #287, #310 |
+| #23 | ServiceAccounts, allowlisted grants | 0 of 0 | Not started | Not broken into issues |
+| #24 | ServiceAccount token issuance | 0 of 0 | Not started | Not broken into issues |
+| #25 | Expiration, controlled deletion | 0 of 0 | `:extend` and prune exist | Expiration list API and tab (#302) |
+| #26 | Adoption, policy visibility, recoverable ops | 0 of 3 | Adoption design (#239, Fable-reviewed) | Build (#250 D17 and on), Policies tab (#302), #290 |
+| #27 | Reports, efficiency, notifications | 0 of 0 | Not started | Not broken into issues |
+| #28 | Releases, SDK, operational readiness | 0 of 7 | Plain manifests and CRC runbook (docs/13) | Chart (#289, #273), CLI and SDK, #225 replicas |
+| #29 | Rightsizing, placement backtests | 0 of 0 | Not started | Not broken into issues |
+
+**Which work needs a Fable review.** CLAUDE.md wants a second model family on each change. Fable reviewed everything up to PR #245 on 2026-11-14, and #286's design (D1, D2 and D4). Since then, Codex reviewed #247 and #255, which counts as a second family. **Opus alone reviewed work that Opus wrote** in the PRs below, so those have had no review from another family. Ranked by risk:
+
+| Rank | Story | PRs (Opus wrote, Opus reviewed) | Why | Size |
+|---|---|---|---|---|
+| 1 | #18 (#286) | #288 Git layer and PR adapter (+5,661 lines), #299 SSH | Delivery to Git and to the cluster: the lock, `applied` and `merge_failed`, leases, secrets handling. Fable reviewed the design, not the code | Large |
+| 2 | #20 and #22 | #305 portal slice 2, #313 portal slice 3 | Writes from the browser: Idempotency-Key, plan then submit, If-Match. The Opus reviews found 4 and 1 real defects, so another family may find more | Medium |
+| 3 | #18 | #269 full flow (deliverer ClusterRole and VAP), #272 test-DB lock | RBAC of the worker on the cluster | Small |
+| 4 | #13 and #94 | #270 backup checks, #277 crc-proof | Scripts; proven on CRC many times | Small, low risk |
+
+No Fable review needed: the docs-only PRs (#274, #284, #296, #297, #298, #308, #316), and #247 and #255 (Codex).
+
+**Brief for Fable,** with the precise-artifact rule (CLAUDE.md): give it the exact PR, the file and line ranges, and the claims to confirm or refute. For #288, reuse the 11 claims of the Opus review (`workbench/cmapi/review-288/`); Fable checks them independently and adds its own. For #305 and #313, reuse C1-C9 and C1-C8 (`review-305/`, `review-313/`). Every finding needs its full fix and a test that fails before and passes after. Fable's quota was about 6% on 2026-11-15: run rank 1 first, narrowly, writing findings to a file as it goes.
+
+---
+
+## History: the states before 2026-11-16 (superseded by "Resume here")
+
+## State on 2026-11-15, 05:00Z: read this first
+
+This section supersedes the older sections below where they differ. In particular, "Local CI is the merge gate" and the #157 stop are no longer in force.
+
+**The current rules** (the owner, 2026-11-14):
+
+| Rule | The owner's decision |
+|---|---|
+| CI | GitHub Actions is the only CI and the merge gate ("Ok great dont use it", "Use github"). Local CI is not used. PR #165 was closed for this reason |
+| Who codes | Opus 5.5 at `high` codes and designs. Fable is stopped |
+| Review | One adversarial review per PR, by Codex `gpt-6.1-sol` or a separate Opus 5.5 at `high`. The two are interchangeable. The reviewer writes the full fix and a test for each finding |
+| Applying the review | The coordinator applies the review's fixes, validates them with a before run and an after run, and merges ("You do the change yourself after 1st review and validate it") |
+| Docs | Sonnet 5.5 writes the docs |
+
+**Keycloak (#157).** With the owner's approval, the shared Keycloak CR now has a 1000m cpu request and a liveness `failureThreshold` of 10. Before that, the liveness probe killed Keycloak when CPU starved it. The patch restarted Keycloak once for every realm. Since then, keycloak-0 has had 0 restarts through OB1 run 9's steps 0 to 10, measured before and after each step. Add these CR values to any repository that manages that CR.
+
+**Merged since the table below:**
+
+| PR | Commit | What |
+|---|---|---|
+| #234 | `72b5094` | #215: configurable metadata |
+| #240 | `20500db` | #213: Kyverno engine and mode for each environment, CLI v1.20.0 |
+| #245 | `6f8ec6d` | #212: Kyverno policies rendered from the configuration |
+| #239 | `62cbffd` | The adoption design for story #26 (D1 to D19), docs/02 "Adoption", the figure |
+| #238 | `7ddfd10` | #226 PR-A: the nginx front door. Closes #206 |
+| #247 | `f11d2b4` | #226 PR-B: the front door in the plain manifests. The Route has `haproxy.router.openshift.io/timeout: 130s`, because nginx's worst case is 2 tries × (2 s + 60 s) = 124 s |
+| #255 | `1e67e64` | #253: separate CPU and memory LimitRanges (`<ns>-limits-cpu`, `<ns>-limits-memory`). The storage LimitRange is off by default and turned on by `storageLimitRange.enabled: true`. The review's F1 to F5 are applied, with tests |
+| #254 | `9407d8e` | Docs pass: `docs/18-configuration.md`, data-model columns. The gaps it found are filed as #256 to #260 and #263 to #266 |
+| #270 | `379dea8` | BUG-64 #268: the backup's checks read the dump to its end, so `oc exec` ends cleanly on CRI-O |
+| #269 | `a91ffdc` | #267, #97: the full request flow on CRC (GitHub, `writes: true`, `delivery.mode: apply`), a least-privilege `cmapi-deliverer`, and a separate CA trust for the Git provider. The review's F1 is applied by the coordinator: its test went from 1 failed to 1 passed, and the full service suite passed 897 |
+| #272 | `08f7fe5` | BUG-65 #271: one service-test session per database, by an advisory lock. A second session exits with 75. The review's five fixes are applied by the coordinator: its test went from 5 failed to 7 passed. The proof rows were run again and their logs saved in `workbench/cmapi/ob1-run8/logs/` |
+| cmapi-cluster-configs#1 | (merged) | The config repository's CI posts `ci/kubeconform` and `ci/kyverno` |
+
+**CRC: OB1 run 9, on `main` 08f7fe5** (`workbench/cmapi/ob1-run9/resume.md`, run from the worktree `workbench/cmapi/crc-run9`):
+- **Rollback.** Run 8's objects stopped step 3. The coordinator ruled for a clean slate, so OB1 ran `deploy/crc-rollback.sh --yes` (exit 0). It removed only cmapi's objects, plus the 13 test users, the 10 groups and their Secret from LDAP. The digest of the rest of the directory, `e924078d4c39`, was the same before and after. The other realms showed no difference.
+- **Steps 0 to 10** of docs/13 then passed on the empty slate, with images `cmapi@sha256:ef422cd1…` and `cmapi-portal@sha256:0bc6a847…`.
+- **Step 11 waits for the owner** to load Secret `cmapi/cmapi-git` (key `token`). The token is fine-grained, for `ephico2real2/cmapi-cluster-configs` only, with an expiry. Its permissions are Contents RW, Pull requests RW, Commit statuses RW, Checks R and Metadata R. OB1 checks for the Secret every 5 min until 06:35Z.
+- **Not run yet:** steps 11 to 25 and all the live tests.
+
+**Filed this round:** #273 BUG-66 (low, Backlog): `deploy/environments/crc.yaml` still names the Gitea stand-in and `delivery.mode: argocd`. Only the Helm path reads it.
+
+**Next:**
+1. The CRC run completes, then the live tests: sign-in, Requests, the namespace flows ending in a bot PR and an apply, the LimitRanges with the D19 pod-defaults proof, metadata, Kyverno, KPIs, ReDoc and Swagger, the Route timeout. Each gets a screenshot through the Route.
+2. Then the queue: D17 (#250), #228, #225, #236, #237, #220, #248, #249, #256 to #260, #263 to #266, #273, Wave 6, #207 to #209, #200.
+
+**The owner's open items:**
+- diagram-kit PR 64 (merge)
+- #227 branch protection (needs GitHub Pro)
+- the KPI targets
+- #149, #150 and #167
+- 409 or 422 for an idempotency replay with another body
+- the host for the problem type base
 
 ## Where these files are
 
@@ -37,6 +289,10 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 1. Whether the CRC run starts after this restart.
 2. How kind proofs run while CRC is up on the same Mac. The options are in #157.
 
+### Local CI is the merge gate, from 14:57 UTC on 2026-11-13
+
+The owner: "use local ci for all work and forget the githiub", and "tell ob1 to use this going forward". The rule is in `OB1-PROMPT.md`, "Local CI is the merge gate". Each pull request that OB1 merged before that time had GitHub Actions green on its exact head. From then on the gate is `act-ci.sh` of `/setup-local-ci`, with each job at exit 0 on the exact head, and the pull request says so.
+
 ### What is done
 
 | Item | State |
@@ -46,12 +302,35 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 | The API documentation of `docs/01` (#127 to #134) | PR #135, merged: tags and groups, curl samples, ETag, `/docs/changelog`, the CI job `api-contract` with oasdiff, `docs.public`, no CDN |
 | `docs/14`, `docs/15`, `docs/16`, #141 (BUG-30) | PR #153, merged. Codex read the fix of #141 and found no defect. The figures of `docs/14` and `docs/16` are drawn |
 | #139 (BUG-29), #142 (BUG-31) | PR #140 and PR #152, merged |
-| `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, open. Two CI runs failed in the `service` job, each for a cause in the pull request itself: the samples test compared value types that differ between macOS and Linux, and the new `docs/04` had dropped the token recipe that `test_docs_sign_in_for_the_bot_carries_the_client_secret` holds. Both are fixed (`c2495fc`): the recipes are now in `docs/15`. Read its checks before the merge |
+| `docs/04` and the OpenAPI examples from a run, #154, #155 | PR #156, merged as `30f29bb`. `test_api_samples.py` records a real request and response for each operation, and `docs/04`, Swagger UI and ReDoc show the same ones. The token recipes of the old `docs/04` are in `docs/15` |
 | #91 (SEC-04) | PR #158, merged as `513ea67`, CI green on its head. Proven on kind; not on CRC |
 | The architecture figures from the mockup | PR #160, merged as `0cd0d57`: five figures, light and dark, in `docs/diagrams/portal-architecture/`, and the system figure in `docs/08`. They say "realm cmapi: not on CRC yet" |
-| #87 (BUG-11) | PR #162, open: `pr_status` reads check runs, with Codex's second pass ruled (`docs/reviews/2026-11-13-issue-87/README.md` on the branch). Proven on a mock of GitHub only. Read its checks before the merge |
-| #151 (BUG-36) | PR #161, open: one document |
-| Filed for later waves | #143, #144, #145 to #150 |
+| #87 (BUG-11) | PR #162, merged as `c66a249`: `pr_status` reads check runs, with Codex's two passes ruled in `docs/reviews/2026-11-13-issue-87/README.md`. Proven on a mock of GitHub only (#61) |
+| #151 (BUG-36) | PR #161, merged |
+| #145, #146, #164 (BUG-32, BUG-33, BUG-39) | PR #163, merged as `48920d5`, GitHub's six jobs green on head `9101c47`. Local CI exit 0 for reference-code, portal-mockup, portal-ui and api-contract (with the #169 fix: "Job succeeded"); service ran natively at `2c628f2` (557 passed); manifests not run locally |
+| #148 (UX-02) | PR #168, merged as `290ac5f`, GitHub's six jobs green on `efd2d2d`, `manifests` among them. No local CI (paused). #149 stays open for the owner's choice of the mockup's sample names |
+| The KPI review (story #16) | PR #177, merged as `b83391c` (#173 to #176 closed): `docs/17-kpis.md` with 21 KPIs (7 live, 3 built, 11 designed after #171; 7, 4, 10 after #172), each with its question, formula, source, proposed target, alert and status; Rebuild recovery removed with the owner's words, and Docs coverage, Stability, Event-loop health, Validation reject rate and the mixed lead time removed with reasons. `GET /admin/kpi` typed in OpenAPI; `test_kpis.py` ties the response to docs/17 (4 of 5 failed before). Service suite 562 passed natively. Live Claude Docs edited: Design and Architecture rev 165, Technical Design v2 rev 294. Filed under #16: #171 (self-service rate not computable), #172 (drift and namespaces metrics never fed), #173 to #176 (close with #177). The null CPU and memory of the macOS sample is not a bug: macOS has no cgroup v2 files |
+| #144 plugins.yaml (OB1 run 2) | PR #180, merged as `8afac6d`, GitHub six jobs green on `bf23abd`; `test_plugins_switch.py` 23 failed on main, 41 pass; service suite 588 passed natively; Codex rulings in `docs/reviews/2026-11-13-issue-144/`. New: `GET /api/v1/admin/plugins`, problem `plugin-disabled`, metric `cmapi_plugin_disabled_total` |
+| #143 Spectral lint | PR #188, merged as `da1dfdf` (GitHub green on `3ddc4a1`); its first lint run found 334 errors in the served document, #179 (BUG-48), fixed in the same PR |
+| #183, #178 | PR #191 (`b07b2fa`): the samples test compares status, media type, method, path and problem fields exactly. PR #192 (`ea955c0`): `scripts/doc-citations.py` and `docs/citations.lock.json`, run by the service suite; 28 of 89 citations were stale on `8afac6d`. A branch that moves a cited line runs `python scripts/doc-citations.py --relocate` |
+| #181 SEC-06, #185, #186 | Merged: PR #190 (`8071d9d`; no client takes the password grant; the realm test passed on a real Keycloak in GitHub's manifests job, run 43511671215), PR #193 (`fc30854`, alembic check), PR #194 (`a29e683`, the UI map test). Codex reviewed #181 (five fixes accepted) |
+| #184 SEC-07, #196 | PR #195, merged as `9a5a9d6`: `typ: at+jwt` in the JOSE header (RFC 9068); the realm test passed on a real Keycloak in GitHub's manifests job (run 43521078691 on `079ecf4`); Codex's five findings applied |
+| Live docs, old group names | Fixed by OB1 run 3: Design and Architecture rev 183 (14 names), Technical Design v2 rev 327 (22 names) and 328 (#182); 0 hits for `-leads` and `-approvers` |
+| #182, #187, #171 | Merged: PR #197 (`c28d504`: `/problems/<code>` pages, `problems.typeBase`, CRC base is the API Route), PR #201 (`f0decd0`: spike #187, decision in `docs/reviews/2026-11-13-spike-187/`, a contract test of the adapters against the providers' descriptions, no mock server now), PR #198 (`ae62d3a`: `approvals.counted_for`, migration 0004, self-service rate is live; docs/17 is 7 live, 3 built, 11 designed). The required database revision is 0004 |
+| #199, #172 | Merged: PR #202 (`188f69c`, GitHub's compare lists at most 300 files; Codex found no defect), PR #203 (`89ecb07`: `cmapi_namespaces` fed by a collector over the watch caches; the unfed `cmapi_sync_drift_total` removed until Argo CD's view exists). docs/17 is 7 live, 4 built, 10 designed. For #198, #202 and #203 main had moved after the green run: OB1 ran the full suite on the merged tree locally and checked the tree hash; GitHub's checks ran on main after the merge |
+| Filed for later | #200 (task, W3: the adapters' contract test in the suite), #204 (task, W6: the first slice of Wave 6, sign-in with OIDC PKCE and the Requests tab on `GET /requests`) |
+| #204, the first slice of Wave 6 (OB1 run 4) | PR #210, merged as `418e934`, GitHub six checks green on `762d7ae`. `cmapi-portal-ui` has two builds (`dist/` on the API, `dist-demo/` the mockup's stand-in); sign-in by Authorization Code with PKCE through `cmapi-portal`, tokens in memory; the frame and the Requests tab run on `GET /me` and `GET /requests` with types from the contract; the other tabs say they are not on the API yet. Proven only on this Mac against a stand-in issuer and API: browser suites in Chromium 156 and Chrome 157, 36 of 36 mutants killed, screenshots at three widths in both themes. Codex: ten findings applied. Not proven on a real Keycloak, kind or CRC. Filed under #20: #205 SEC-09 (wildcard redirect URIs), #206 (no CORS: the portal cannot call a deployed API), #207, #208, #209 |
+| Owner decisions on 2026-11-13, evening | #211 custom LimitRange gated by approval, with extra approval for anything beyond the tier; #212 Kyverno policies generated from the configuration, messages filled from it; #213 Kyverno optional (enforce, audit, off per environment), cmapi works without it; the clusters run the latest Kyverno (v1.20.0) with the `policies.kyverno.io/v1` types, and the CLI pin moves to match. All under story #22 |
+| Owner decisions on 2026-11-14 | #215 configurable metadata (requiredLabels, requiredAnnotations, extraLabels, extraAnnotations, adoptionLabels; keep both `cmapi.net/env` and `company.net/app-environment`); keep **three** instances (nonprod rnd/dev, staging qa/uat, prod); #222 email links hard-code `#nonprod` (bug), and `prod` is the one environment name with meaning in code; #217 Argo CD server-side diff and ignoreDifferences (W2); #225 resilience: 2 or 3 replicas of the API and worker per instance, shared state in PostgreSQL, a native multi-process test; #226 keep **nginx** as the single front door (one origin, settles #206 without CORS), configured to best practice by research |
+| cmapi-cluster-configs | Created 2026-11-14 and renamed by the owner to `ephico2real2/cmapi-cluster-configs` (the organisation's existing `cluster-configs` is left alone; rename everywhere: #228), private, `main` (README, `clusters/`, `policies/metadata-keys.yaml`). Branch protection refused on the free plan (HTTP 403): owner step #227 (GitHub Pro or an organisation recommended). Adoption (story #26): read namespaces labelled `cmapi.net/adopt` from the cluster and import their Namespace, ResourceQuota and LimitRange as raw YAML, as-is, under tier `custom`, not mapped to a named tier; test plan on #26 |
+| OB1 run 5 (Fable), handed back 2026-11-14 when Fable usage ran out | Merged: PR #223 (`073f776`, #221: main was red for `418e934` in portal-ui; the axe check now waits for the theme transition), PR #224 (`a5fe2e6`, #214 and part of #211: custom LimitRange and overridable quota keys on the custom tier, facts `beyondTier`, `beyondTierKeys`, `networkExposure`, decision record `docs/reviews/2026-11-14-issue-211/`, Codex's five defects fixed). Open: PR #218 (#205, exact redirect URIs, head `33a39fa`) and PR #219 (#216 and part of #206: CORS off unless `cors.allowedOrigins` lists an origin, head `968f01f`), both reviewed by Codex, both need main merged in and a new GitHub run; merge #218 then #219. Unfinished: branch `configurable-metadata` holds only #222's fix. Filed #220 (SEC-10, Keycloak's own clients keep wildcard redirects). The Kyverno v1.20.0 CLI is verified on this Mac at `workbench/cmapi/ob1-run5/tools/bin/kyverno` (applies v1, messageExpression and variables work offline, ignores validationActions). `workbench/cmapi/ob1-run5/resume.md` |
+| Who codes, from 2026-11-14 | Opus 5.5 at high (Fable out of usage). Fable reviews that work when it has quota, and designs the adoption strategy (#26) |
+| OB1 run 6 (Opus 5.5 high), task 1 | Merged: PR #218 (`31e1cb3`, #205 exact redirect URIs; GitHub run 43573177299 green on `338143d`), PR #219 (`962d7f8`, #216; CORS off unless listed; GitHub run 43575167086 green on `ea53de1`). Found while building #226 through a native nginx 1.30.6: #229 BUG-57 (/redoc empty: the ReDoc 3.0.1 bundle is an ES module loaded as a classic script) and #230 SEC-11 (ReDoc 3.0.1 bundles DOMPurify 3.4.16, GHSA-cg2g-xh64-v4q7; pin moves to ReDoc 3.1.0), both on branch `redoc-module`. #206 stays open for the front door (#226) |
+| OB1 run 6, later | Merged: PR #233 (`0c70b0e`, #222 email links; Fable approved after one round). Open, green, in Fable review: #231 (ReDoc; #229, #230, #235 telemetry off and a CSP on /redoc), #238 (nginx front door PR-A, closes #206, #241), #239 (adoption design for #26), #240 (#213 Kyverno modes, CLI v1.20.0, v1 policies), #245 (#212 policies rendered from configuration; stacked on #240 and #234). #234 (#215) has Fable's F1 to F4 applied; the owner moved the two optional contact keys to annotations. #247 (#226 PR-B, plain manifests) has a Codex security review to apply. Filed: #236, #237, #242 (owner choice: PolicyException per approved beyond-tier value), #243, #244, #246 |
+| Fable reviews, 2026-11-14 | #231 merged as `f0b143d` after Fable's second pass. Fable found: #240 F1 high (in audit, the worker's PR check failed and closed an approved request's PR), F2, F3 (unquoted `mode: off` read as false); #245 F2, F3; #238 F1 to F7 (gzip on API answers, an auth code in the error log, the Route's 30 s timeout, header size, Ingress exposure, ReDoc CSP directives, old hosts); #239 A1 to A10. All accepted and applied by OB1; short Fable checks follow. Filed: #248 (adoption in enforce mode needs the approved snapshot as base), #249 (audit on the config repo's external CI), #250 (two-document resourcequota.yaml crashes updates). Owner decisions on #26: `cmapi.net/adopt` stays and is ignored; a missing required key is never forced, only reported; adoption reads only the live namespace, and the old `cluster-configs` repository does not exist for cmapi |
+| Contracts findings (diagram-kit PR 64) | Filed by OB1 run 2: #181 SEC-06 password grant (sev:high, W1; in progress: client credentials for cmapi-automation, no client keeps direct access grants, bot-user removed, test users signed in by authorization code with PKCE), #182 to #187. Also #178 (stale file:line citations in docs/14 to 16) |
+| #167 (UX-04) | Filed by OB1, Backlog, W6: a pending request is on the Approvals and Expiration tabs and not in the request list. Not fixed: the new row needs a scenario link |
+| Filed for later waves | #143, #144, #147, #149, #150 |
 
 ### What is not done
 
@@ -63,7 +342,7 @@ As the prompt says for a Keycloak restart, OB1 stopped all CRC work, took no act
 ### Order from here
 
 1. The owner reads #157 and decides.
-2. Read CI on each open pull request of OB1 (`gh pr list`, then `gh pr checks N`): #156, #159 (these records), #161 and #162. Merge each when each job has passed on its head.
+2. Local CI and kind stay paused: keycloak-0 restarted a third time at 15:38:00Z under container load (#157, title widened to container load). The owner decides #157. The first OB1 run handed back after PR #177 (14 PRs merged on 2026-11-13; its report is `workbench/cmapi/ob1-run/resume.md`). OB1 run 2 handed back at 22:40Z (7 PRs merged; main `a29e683`; `workbench/cmapi/ob1-run2/resume.md`). OB1 run 3 handed back (6 PRs merged, main `89ecb07`; `workbench/cmapi/ob1-run3/resume.md`). OB1 run 4 handed back after PR #210 (`workbench/cmapi/ob1-run4/resume.md`). OB1 run 6 (Opus 5.5 high) order: merge #218 then #219; #222 (on branch configurable-metadata); #226 (nginx, closes #206); #215 with #213 and #212; #228 (rename); #225; #220; the portal items of #211; the rest of Wave 6; #207 to #209; #200. Not adoption (Fable designs it). Owner choices also open: the real host for the problem type base. New: #189 SEC-08 (the local demo still uses the password grant; W9). Owner to note: the live Design and Architecture document says group path `/cmapi/cmapi-onboarding` where the export says `/cmapi/app-cmapi-rbac-onboarding`; with no containers on this Mac. diagram-kit PR 64 (/app-architect contracts) waits for the owner's merge. diagram-kit PR 62 is merged (`dc86877`); PR 63 waits for the owner's merge (Claude Code refused the coordinator's). Owner choices also open: the status of an idempotency replay with another body (409 today, the IETF draft says 422) The owner decides each KPI target (all proposed), #149, #150 and #167. diagram-kit PR 62 (#169) and PR 63 (#170) wait for the owner's merge.
 3. The CRC run from `docs/13`, from a clean checkout of `main`.
 
 **A refusal that stands.** Claude Code refused the download of the oasdiff binary to this Mac ("Code from External"). So oasdiff runs in CI only. The exact command is in OB1's `recommendations.md`.
