@@ -150,6 +150,43 @@ Fable is paused unless the owner asks; the owner used it on 2026-11-15 with abou
 - TLS verification is always on.
 - A permission refusal stands.
 
+### 10. The stories (#13 to #29) and which need a Fable review
+
+A story closes only on the owner's approval, with the proof for each acceptance criterion (CLAUDE.md). None is closed yet. Read from GitHub on 2026-11-16: the sub-issue counts are closed of total.
+
+| Story | Subject | Sub-issues | Built and proven | Left |
+|---|---|---|---|---|
+| #13 | Production service, durable request store | 20 of 23 | Service, PostgreSQL (CNPG), API docs; CRC | 3 open sub-issues |
+| #14 | OIDC identity, directory, roles | 5 of 8 | PKCE, client credentials, `onBehalfOf`, RBAC; 13 LDAP users on CRC | Realm users filter for real people (owner); token exchange (proposed) |
+| #15 | Cluster imports, live read endpoints | 0 of 0 | Not started as a story | Not broken into issues |
+| #16 | Telemetry and KPI baseline | 6 of 7 | `/admin/kpi`, KPIs tab live on CRC | #147 (30-day window), #311; KPI targets (owner) |
+| #17 | Namespace plans, metadata, submission | 2 of 2 | Plans, metadata (#215), LimitRanges; New namespace tab live | Owner approval to close |
+| #18 | Approval decisions, protected Git delivery | 5 of 13 | Approvals; Git delivery #286 live over SSH; #61 closed today | #286 PR-B and PR-C, #289-#291, #59, #60, #200, #227, #228, #249 |
+| #19 | Worker recovery, Argo sync, history | 1 of 2 | Recovery, apply mode on CRC | Argo CD mode not run on CRC (Wave 5) |
+| #20 | Signed-in portal | 12 of 23 | 6 of 9 tabs live on CRC | #302 (slice 4), #304, #306, #307, #309 and older UX items |
+| #21 | Capacity snapshots, safe placement | 0 of 2 | Capacity snapshots in the API | #303 (placement API), the Capacity tab (#302) |
+| #22 | Quota plans, usage, auto-approval | 4 of 7 | Quota plans, custom tier, Kyverno modes; Quotas tab live | #211, #232, #287, #310 |
+| #23 | ServiceAccounts, allowlisted grants | 0 of 0 | Not started | Not broken into issues |
+| #24 | ServiceAccount token issuance | 0 of 0 | Not started | Not broken into issues |
+| #25 | Expiration, controlled deletion | 0 of 0 | `:extend` and prune exist | Expiration list API and tab (#302) |
+| #26 | Adoption, policy visibility, recoverable ops | 0 of 3 | Adoption design (#239, Fable-reviewed) | Build (#250 D17 and on), Policies tab (#302), #290 |
+| #27 | Reports, efficiency, notifications | 0 of 0 | Not started | Not broken into issues |
+| #28 | Releases, SDK, operational readiness | 0 of 7 | Plain manifests and CRC runbook (docs/13) | Chart (#289, #273), CLI and SDK, #225 replicas |
+| #29 | Rightsizing, placement backtests | 0 of 0 | Not started | Not broken into issues |
+
+**Which work needs a Fable review.** CLAUDE.md wants a second model family on each change. Fable reviewed everything up to PR #245 on 2026-11-14, and #286's design (D1, D2 and D4). Since then, Codex reviewed #247 and #255, which counts as a second family. **Opus alone reviewed work that Opus wrote** in the PRs below, so those have had no review from another family. Ranked by risk:
+
+| Rank | Story | PRs (Opus wrote, Opus reviewed) | Why | Size |
+|---|---|---|---|---|
+| 1 | #18 (#286) | #288 Git layer and PR adapter (+5,661 lines), #299 SSH | Delivery to Git and to the cluster: the lock, `applied` and `merge_failed`, leases, secrets handling. Fable reviewed the design, not the code | Large |
+| 2 | #20 and #22 | #305 portal slice 2, #313 portal slice 3 | Writes from the browser: Idempotency-Key, plan then submit, If-Match. The Opus reviews found 4 and 1 real defects, so another family may find more | Medium |
+| 3 | #18 | #269 full flow (deliverer ClusterRole and VAP), #272 test-DB lock | RBAC of the worker on the cluster | Small |
+| 4 | #13 and #94 | #270 backup checks, #277 crc-proof | Scripts; proven on CRC many times | Small, low risk |
+
+No Fable review needed: the docs-only PRs (#274, #284, #296, #297, #298, #308, #316), and #247 and #255 (Codex).
+
+**Brief for Fable,** with the precise-artifact rule (CLAUDE.md): give it the exact PR, the file and line ranges, and the claims to confirm or refute. For #288, reuse the 11 claims of the Opus review (`workbench/cmapi/review-288/`); Fable checks them independently and adds its own. For #305 and #313, reuse C1-C9 and C1-C8 (`review-305/`, `review-313/`). Every finding needs its full fix and a test that fails before and passes after. Fable's quota was about 6% on 2026-11-15: run rank 1 first, narrowly, writing findings to a file as it goes.
+
 ### 9. Check the state before acting
 
 ```bash
