@@ -6,7 +6,7 @@ import {
   GridItem, Label, Skeleton, Stack, TextArea, TextInput
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useClusters, useMe, usePlan, useSubmitNamespace, useTiers } from "../api/hooks";
 import type { Cluster, NamespaceCreate, Plan, TierCatalog } from "../api/hooks";
@@ -92,9 +92,16 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const [why, setWhy] = useState("");
   // The body that the last Dry run sent. A change to the form hides its result, as in the mockup.
   const [planned, setPlanned] = useState<{ cluster: string; body: NamespaceCreate } | null>(null);
-  // One key for this opening of the form (#282). Submitting again after a refusal or a lost answer sends the same key,
-  // so the API answers with the first request and never makes two. Leaving the tab ends the form: the next one has a new key.
-  const [key] = useState(() => crypto.randomUUID());
+  // One key for each request that this form sends (#282). Submitting the same form again after a refusal or a lost answer
+  // sends the same key, so the API answers with the first request and never makes two. A changed form is another request:
+  // the API refuses an old key with another body (409 idempotency-replay, docs/04 "Rules for each call"), so it gets a new
+  // key. Leaving the tab ends the form: the next one starts with none.
+  const sent = useRef<{ key: string; request: string } | null>(null);
+  const keyFor = (clusterId: string, value: NamespaceCreate): string => {
+    const request = JSON.stringify([clusterId, value]);
+    if (sent.current?.request !== request) sent.current = { key: crypto.randomUUID(), request };
+    return sent.current.key;
+  };
   const submit = useSubmitNamespace();
   const plan = usePlan(planned?.cluster ?? "", planned?.body ?? null);
 
@@ -148,11 +155,18 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   };
   const planOk = plan.state === "ok" ? plan.data : null;
 
+  // The plan on the page is of this form: same cluster, same body. A refetch of the clusters or tiers can change the form
+  // without an edit, so the bodies are compared, not only reset on each edit.
+  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body);
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!cluster || submit.state === "sending") return;
+    // Nothing is submitted that the person has not seen planned: a form with no plan, or changed since its dry run, is
+    // planned first, and the next Submit sends it. A refused or failed dry run is on the page, and Submit waits for a plan.
+    if (!planned || !planIsOfForm) { setPlanned({ cluster: cluster.clusterId, body }); return; }
+    if (plan.state !== "ok") return;
     // The tab ends on a 202: the Workflow tab follows the new request, as the mockup's Submit opens its workflow.
-    submit.submit(cluster.clusterId, body, key).then((request) => open("workflow", { request: request.requestId }), () => undefined);
+    submit.submit(planned.cluster, planned.body, keyFor(planned.cluster, planned.body)).then((request) => open("workflow", { request: request.requestId }), () => undefined);
   };
 
   const checks: Check[] = planOk ? [

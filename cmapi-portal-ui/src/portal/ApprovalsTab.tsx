@@ -106,7 +106,8 @@ function ApprovalCard({ request: r, decision, me, onDecided, onOpen }: CardProps
     done = { tone: "bad", title: "Rejected", text: `The requester sees your reason: “${decision.comment}”. Nothing was written to Git, and any reservation is released.` };
   }
 
-  const self = who.username === me.username;
+  // The API compares the sub, which a rename in Keycloak does not change (docs/14, "Step 5: who can approve").
+  const self = who.sub === me.identity.sub;
   const elig: Check[] = [
     ...me.access.roles.filter((role) => role.permissions.includes(PERMISSION["POST /api/v1/requests/{request_id}:approve"]))
       .map((role) => ({ s: "pass", mark: MARK.pass, main: `Role ${role.role}`, note: "Keycloak token" })),

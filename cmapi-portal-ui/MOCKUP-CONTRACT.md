@@ -21,7 +21,7 @@ and `tests/parity.test.mjs` fails if a string it shows is missing here.
 - **Sign-in.** Authorization Code with PKCE (`S256`) through `oidc-client-ts` and `react-oidc-context` (`src/portal/auth.ts`). The tokens stay in the memory of the page. `docs/15-keycloak-integration.md` gives the flow and the sources.
 - **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`.
 - **Permissions.** A tab shows only when `GET /api/v1/me` gives its permission in `access.permissions`. The permission of each call comes from the OpenAPI document (`src/api/permissions.generated.ts`). The browser reads no role from the token.
-- **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each opening of the New namespace form, sent again on each retry of that form (#282, docs/04 "Rules for each call"). The API keeps a key only with a request that it made, so a retry after a refusal or a lost answer cannot make a second request. Leaving the tab ends the form, and the next one has a new key. Approve and reject take no key: they are not writes to a namespace.
+- **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each request that the New namespace form sends (#282, docs/04 "Rules for each call"). The same form sent again, after a refusal or a lost answer, carries the same key, so it cannot make a second request. A form changed since its last submit is another request and gets a new key: the API answers an old key with another body with 409 `idempotency-replay`. Leaving the tab ends the form, and the next one starts with no key. Approve and reject take no key: they are not writes to a namespace. Each of the three sends one call at a time: a second click while the first is in flight sends nothing.
 - **On the API today (#204, #300):** the page frame and the Workflow, New namespace, Requests and Approvals tabs. Each other tab says "This tab is not on the API yet."
 
 The states of the Requests tab:
@@ -89,6 +89,7 @@ problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted
 | The links to the other portals come from `otherInstances` of config.json, named "{instance} portal" | The mockup's links are samples |
 | The expiry date's limits are tomorrow and 180 days from today, UTC | The mockup's limits are fixed to its sample day |
 | Submit opens the Workflow tab on the new request | As the mockup's Submit opens its workflow |
+| Submit sends the body of the dry run on the page. A form with no plan, or changed since its dry run, is planned first, and the next Submit sends it | The mockup's Submit sends without a plan. The person sees the approval that will apply before anything is written |
 
 ### Where the portal's Approvals tab differs from the mockup
 

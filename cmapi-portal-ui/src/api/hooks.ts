@@ -1,6 +1,6 @@
 // One typed hook for each endpoint that the portal reads. Server data lives in TanStack Query, not in component state.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useRef } from "react";
 import type { Api } from "./client";
 import { ApiProblem, problemOf } from "./problem";
 import type { components, operations } from "./schema.generated";
@@ -71,6 +71,16 @@ export const OPEN_STATES: ReadonlySet<ChangeRequest["status"]> = new Set([
 ]);
 /** How often an open request is read again, so that the Workflow tab follows it to its end. */
 const FOLLOW_MS = 5000;
+
+/**
+ * One write at a time: a second call while the first is in flight gets the first one's promise and sends nothing. The
+ * hook's "sending" state reaches React only a task after the call (TanStack Query notifies on a timer), so a double click
+ * would otherwise send two writes before any button is disabled.
+ */
+function useOneAtATime<A, T>(run: (args: A) => Promise<T>): (args: A) => Promise<T> {
+  const inFlight = useRef<Promise<T> | null>(null);
+  return (args) => inFlight.current ?? (inFlight.current = run(args).finally(() => { inFlight.current = null; }));
+}
 
 /** GET /api/v1/me: who the caller is and what the roles permit. The portal takes each permission from here. */
 export function useMe(): Result<Me> & { reload: () => void } {
@@ -172,7 +182,8 @@ export function useSubmitNamespace(): Outcome<ChangeRequest> & { submit: (cluste
     // The new request belongs in each list of requests, so each is read again when it is next shown.
     onSuccess: () => client.invalidateQueries({ queryKey: ["requests"] })
   });
-  return { ...outcomeOf(mutation), submit: (clusterId, body, key) => mutation.mutateAsync({ clusterId, body, key }) };
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), submit: (clusterId, body, key) => send({ clusterId, body, key }) };
 }
 
 /** GET /api/v1/requests/{request_id}: the request, its approval ledger and its PR. An open request is read again until it ends. */
@@ -229,7 +240,8 @@ export function useApprove(): Outcome<ChangeRequest> & { approve: (requestId: st
     },
     onSuccess: (_, requestId) => decided(requestId)
   });
-  return { ...outcomeOf(mutation), approve: (requestId) => mutation.mutateAsync(requestId) };
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), approve: (requestId) => send(requestId) };
 }
 
 /** POST /api/v1/requests/{request_id}:reject, with the reason that the requester sees. */
@@ -244,5 +256,6 @@ export function useReject(): Outcome<ChangeRequest> & { reject: (requestId: stri
     },
     onSuccess: (_, { requestId }) => decided(requestId)
   });
-  return { ...outcomeOf(mutation), reject: (requestId, comment) => mutation.mutateAsync({ requestId, comment }) };
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), reject: (requestId, comment) => send({ requestId, comment }) };
 }

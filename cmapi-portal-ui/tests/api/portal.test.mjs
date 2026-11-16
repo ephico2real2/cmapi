@@ -548,6 +548,10 @@ try {
 
     // The first submit meets a failure of the API; Submit again sends the same key. The answer of the second is lost on the
     // way, so the person submits a third time: the API answers with the request it made, and makes no second one.
+    // Submit on the changed form plans it first, and the plan is shown; the next Submit sends it.
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await callout.waitFor();
+    assert.equal(posts().filter((c) => c.query.dryRun !== "true").length, 0, "the changed form was planned, not submitted");
     expectedStatus = [502];
     api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 502, body: { type: "https://cmapi.ephico2real.com/problems/git-unavailable", title: "git-unavailable", status: 502, code: "git-unavailable", detail: "The Git host did not answer." } });
     await panel(page).getByRole("button", { name: "Submit request" }).click();
@@ -575,6 +579,8 @@ try {
     // A new opening of the form is a new action: it has its own key.
     await page.getByRole("tab", { name: "New namespace" }).click();
     await fillForm(page, { team: "ledger" });
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await callout.waitFor();
     await panel(page).getByRole("button", { name: "Submit request" }).click();
     await banner(page).waitFor();
     const last = posts().at(-1);
@@ -640,6 +646,67 @@ try {
       assert.deepEqual(errors, []);
       await context.close();
     }
+  });
+
+  await check("R1 New namespace: a form changed after a lost answer is another request, with its own Idempotency-Key", async () => {
+    const { context, page, errors } = await fresh();
+    expectedStatus = [409];
+    const passed = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
+    await newTab(page);
+    await fillForm(page);
+    await panel(page).getByRole("button", { name: "Dry run" }).click();
+    await passed.waitFor();
+    // The API makes the request, and its answer is lost on the way.
+    api.state.lose.add("POST /api/v1/clusters/CRC/namespaces");
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" }).getByText(/The network did not answer\./).waitFor();
+    api.state.lose.clear();
+    assert.equal(api.state.created, 1, "the lost answer's request was made");
+    const lost = posts().filter((c) => c.query.dryRun !== "true");
+    // The person changes the form, plans it again and submits it: another body, so another request (docs/04, Idempotency-Key).
+    await page.getByLabel("Justification").fill("Payments and ledger dev namespace");
+    await panel(page).getByRole("button", { name: "Dry run" }).click();
+    await passed.waitFor();
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    const replay = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "idempotency-replay" });
+    await Promise.race([banner(page).waitFor(), replay.waitFor()]);
+    const last = posts().at(-1);
+    assert.equal(last.body.justification, "Payments and ledger dev namespace");
+    assert.ok(lost.every((c) => c.key === lost[0].key), "the lost answer's retries share one key");
+    assert.notEqual(last.key, lost[0].key, "a changed body is sent with a new key, not the key of the lost request");
+    assert.equal(await replay.count(), 0, "no 409 idempotency-replay");
+    assert.equal(api.state.created, 2);
+    await banner(page).waitFor();
+    assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE \(http:\/\/127\.0\.0\.1:\d+\/api\/v1\/clusters\/CRC\/namespaces\)$/.test(e)), []);
+    await context.close();
+  });
+
+  await check("R2 New namespace: Submit sends only the plan that the person saw; a form not planned, or changed since its dry run, is planned first", async () => {
+    const { context, page, errors } = await fresh();
+    const passed = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
+    const writes = () => posts().filter((c) => c.query.dryRun !== "true");
+    const dryRuns = () => posts().filter((c) => c.query.dryRun === "true");
+    await newTab(page);
+    await fillForm(page);
+    // No dry run yet: Submit runs it and shows its plan, and writes nothing.
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await Promise.race([passed.waitFor(), banner(page).waitFor()]);
+    assert.equal(writes().length, 0, "no submit of a form that was never planned");
+    await passed.waitFor();
+    // A change after the dry run: the next Submit plans the new form first.
+    await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: /^small/ }).click();
+    assert.equal(await passed.count(), 0, "the plan is of the old form");
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await Promise.race([passed.waitFor(), banner(page).waitFor()]);
+    assert.equal(writes().length, 0, "no submit of a plan that the person did not see");
+    assert.equal(dryRuns().at(-1).body.tier, "small", "the new form was planned");
+    // The plan on the page is of the form: Submit sends exactly the body that was planned.
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await banner(page).waitFor();
+    assert.equal(writes().length, 1);
+    assert.deepEqual(writes()[0].body, dryRuns().at(-1).body, "the submitted body is the dry run's");
+    assert.deepEqual(errors, []);
+    await context.close();
   });
 
   const ola = SAMPLES.operations.requests_list_requests.response.body.items[0];
@@ -742,6 +809,68 @@ try {
       await cardOf(page, ola.requestId).waitFor();
       assert.deepEqual(errors, []);
       await context.close();
+    }
+  });
+
+  await check("R3 a double click on Submit, Approve or Confirm reject sends one write", async () => {
+    const counts = {};
+    {
+      const { context, page, errors } = await fresh();
+      await newTab(page);
+      await fillForm(page);
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" }).waitFor();
+      api.state.delayMs = 300;
+      await panel(page).getByRole("button", { name: "Submit request" }).dblclick();
+      await banner(page).waitFor();
+      counts.submit = posts().filter((c) => c.query.dryRun !== "true").length;
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "approver", items: [ola, second] });
+      expectedStatus = [409];
+      await open(page, "#approvals");
+      const card = cardOf(page, ola.requestId);
+      await card.waitFor();
+      api.state.delayMs = 300;
+      await card.getByRole("button", { name: "Approve" }).dblclick();
+      await card.locator(".pf-v6-c-alert").filter({ hasText: "Approved · 1 of 1" }).waitFor();
+      await page.waitForTimeout(800);
+      counts.approve = api.state.seen.filter((c) => c.path.endsWith(":approve")).length;
+      counts.approveRefusalShown = await card.locator(".pf-v6-c-alert").filter({ hasText: "Refused" }).count();
+      const other = cardOf(page, second.requestId);
+      await other.getByRole("button", { name: "Reject" }).click();
+      await other.getByLabel("Why are you rejecting it? (required, sent to the requester)").fill("Use the medium tier");
+      await other.getByRole("button", { name: "Confirm reject" }).dblclick();
+      await other.locator(".pf-v6-c-alert").filter({ hasText: "Rejected" }).first().waitFor();
+      await page.waitForTimeout(800);
+      counts.reject = api.state.seen.filter((c) => c.path.endsWith(":reject")).length;
+      counts.rejectRefusalShown = await other.locator(".pf-v6-c-alert").filter({ hasText: "Refused" }).count();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    console.log(`  writes on a double click: ${JSON.stringify(counts)}`);
+    assert.deepEqual(counts, { submit: 1, approve: 1, approveRefusalShown: 0, reject: 1, rejectRefusalShown: 0 }, "one write for each double click, and no refusal of the second beside the decision");
+  });
+
+  await check("R4 Approvals: the eligibility's requester check compares the sub, as the API does (docs/14), not the username", async () => {
+    // The requester of the recorded request (sub-ola, "ola") signs in after a rename in Keycloak: a new username, the same sub.
+    USERS.renamed = { ...USERS.requester, username: "ola.renamed", role: "cmapi-approver", groups: USERS.approver.groups };
+    const own = { ...ola, approval: { ...ola.approval, selfApproval: false } };
+    const { context, page, errors } = await fresh({ user: "renamed", items: [own] });
+    expectedStatus = [409];
+    try {
+      await open(page, "#approvals");
+      const card = cardOf(page, own.requestId);
+      await card.waitFor();
+      assert.match((await card.innerText()).replace(/\s+/g, " "), /✕ Not the requester you opened this request/, "the same sub is the requester, whatever the username");
+      await card.getByRole("button", { name: "Approve" }).click();
+      await card.locator(".pf-v6-c-alert").filter({ hasText: "Refused: self-approval" }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+      delete USERS.renamed;
     }
   });
 
