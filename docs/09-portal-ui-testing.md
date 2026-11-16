@@ -148,9 +148,51 @@ and `GET /api/v1/admin/kpi`, and a `cmapi.operator` user. Stage: built-mocked. I
 **Found while testing.** The first parity check of the Quotas tab could not fail on an invented sentence: the letters of the
 A–Z bar were "known" strings, and taking each letter out of a text left nothing. A mutant showed it; the letters are now
 matched whole. A double click did not prove the hook's one-at-a-time guard either, because the page's own "sending" state
-had already reached React; two submits in one task do. **Not proven here:** anything on CRC, keyboard use beyond
-PatternFly and axe, and the custom-size PATCH against the real service (the stand-in follows
-`cmapi/tests/service/test_custom_tier_change.py`).
+had already reached React; two submits in one task do. **Not proven here:** keyboard use beyond PatternFly and axe, and
+the custom-size PATCH against the real service (the stand-in follows `cmapi/tests/service/test_custom_tier_change.py`). The
+Quotas and KPIs tabs on CRC are in the next section.
+
+### Quotas and KPIs live on CRC (#301)
+
+Measured on 2026-11-16 by OB1 run 15, on CRC, against main 525ca27 deployed by docs/13 steps 5 and 21 (images
+`cmapi@sha256:7f48c24b…` and `cmapi-portal@sha256:18c12140…`; `/api/v1/version` answered `525ca27725`). Stage: deployed.
+docs/13 step 23 (`deploy/crc-proof.sh`, unmodified) printed "proof: all passed", and step 24 ended the watch with `rc=0`
+(217 lines, no breach); keycloak-0 had 0 restarts before and after every step. The method is slice 2's (above): Playwright
+at 1440 px in the light theme, through `https://cmapi.apps-crc.testing` with HTTPS errors not ignored, the two CRC CAs
+trusted from the login keychain (fingerprints equal to docs/13 step 1's), each person signed in on Keycloak's own form with
+the password piped from Secret `cmapi-ldap-test-users` to stdin. Every walk ran in bundled Chromium 156.0.8078.4 and in the
+installed Chrome 157.0.8103.51. Screenshots: `cmapi-portal-ui/screenshots/slice-3-crc/`.
+
+| Check | Who | Result |
+|---|---|---|
+| The list | `cmapi.requester` | `GET /api/v1/quotas?limit=50`: 5 rows, `cmapi-live-a` to `cmapi-live-e`, in the API's order; the pill "5 namespaces in scope · 0 near the limit" |
+| Filters | `cmapi.requester` | Tier large: `?tier=large`, 1 row (`cmapi-live-e`), "1–1 of 1 (filtered from 5)". Tier small: 4 rows. Env dev: `?env=dev`, 5. "Show all matches" for `live-d`: `?q=live-d`, 1 row |
+| Sort | `cmapi.requester` | "% used": `?sort=used`, "most used first"; "Needs attention": `?sort=severity`, "most urgent first"; the rows in the API's order each time |
+| A–Z jump | `cmapi.requester` | One letter enabled, "C: 5 namespaces"; the other 25 are disabled. C sent `?startsWith=c` |
+| Paging | `cmapi.requester` | Per page 25: `?limit=25`, Previous and Next disabled (the API gave no cursor). After a pick opened the page at `cmapi-live-e` ("5–5 of 5"), Previous sent the API's cursor and showed 1–4 of 5; Next came back to 5–5 of 5 |
+| Type-ahead | `cmapi.requester` | One `GET /api/v1/quotas:suggest?q=live-e` for the typed text, none for fewer than 2 characters; the list showed "cmapi-live-e · CRC name contains". ArrowDown set `aria-activedescendant` to `q-opt-0`; Enter opened `#quotas?ns=CRC%2Fcmapi-live-e` with `?startsWith=cmapi-live-e` |
+| Export | `cmapi.requester` | `GET /api/v1/quotas:export`: 200, `text/csv; charset=utf-8`. The callout "quotas-nonprod-2026-11-16.csv · 5 rows"; Download saved the file, 5 rows under the header, the same 5 names as the list (total 5), in both browsers |
+| A quota change | `cmapi.requester` (`namespaces:write`) | `cmapi-live-e`, large to medium. The plan: `PATCH ...?dryRun=true` with `If-Match: "9e2464b935262b48"`, the ETag of `GET .../namespaces/cmapi-live-e`; 200, four checks, "No approval needed" (rule `dev-change`: 0 approvals for a change in dev). Submit: `PATCH` with the same `If-Match` and an `Idempotency-Key`, 202, `req-20261116-0004`. It reached `synced`, finished at step 10 of 10, `branch_deleted`; the row then read medium, 16 cores, 32 Gi, 100 pods |
+| The same in Chrome | `cmapi.requester` | `cmapi-live-e`, medium back to large, `If-Match: "66941dd71597b020"`: 202 `req-20261116-0005`, `approved`, then `pr_open`, `applied` and `synced` on the page's 5 s reads (07:56:12 to 07:56:32Z); the row then read large |
+| The cluster and Git | `oc`, `gh` | After `req-20261116-0004`, `oc get resourcequota -n cmapi-live-e`: `requests.cpu 0/16`, `requests.memory 0/32Gi`, `pods 0/100` (from 32, 64Gi and 200), field manager `cmapi-deliverer`; LimitRange max cpu 4, memory 8Gi; PR #10 on `cmapi-cluster-configs` merged, four files. After `req-20261116-0005`: 32, 64Gi, 200 again; PR #11 merged |
+| If-Match | the browser, the API | The browser's PATCH requests carried it (above). The API's access log names the two PATCHes (200 and 202 Accepted) but logs no header, and the request's events do not record it |
+| KPIs | `cmapi.operator` | `GET /api/v1/admin/kpi`: 200. One component, `cmapi-api`: "Memory 28% · 141 MiB of 512 MiB" (147677184 of 536870912 bytes), "Throttled 3.1% of periods (limit 1%)" (36 of 1167), so "watch". Database "Connections 10 of 60", "Pools 0 in use of 5", "Oldest transaction 0 s", "Size 8 MiB". Seven KPI cards with the API's values (for example "4.4 h", "83.3%", "16.7%") |
+| "unavailable" | `cmapi.operator` | The API's only null was `database.walBytes`; the page read "WAL unavailable". CPU, Event-loop lag p99, Volume, Volume trend and Last backup read "unavailable", as the contract lists, because the API has no such figure |
+| No KPIs tab | `cmapi.requester` | Tabs: Workflow, New namespace, Quotas, Expiration, Requests, Policies, Capacity; no call to `/api/v1/admin/kpi`. The API answers the requester 403 `forbidden`, "Missing permission reports:read" |
+| Same origin, CSP | every walk | Every request went to `cmapi.apps-crc.testing` or `keycloak.apps-crc.testing`; no CSP violation; no page error |
+
+**Found on CRC.** The 202 callout of a quota change says "Argo CD re-stamps the quota on CRC", the mockup's sentence; CRC
+applies with the worker before the merge (delivery mode `apply`), as the request's events say. It is the same defect as the
+Approvals and Workflow text, so it was added to #309. The Workflow tab still warns once per `ProgressStep` on each render
+(#306: 42 warnings while one request was followed). The events of a request are stamped with the transaction's start, so
+`applied` reads before `apply_started` (#294; it was so in run 13 too). Chromium 156 warns on `web-share` in the
+`Permissions-Policy` header, as before.
+
+**Not proven on CRC.** A change that needs a person (every change in dev needs 0 approvals), a custom size, a 409
+`change-pending` lock on a row, a 412 or 428 on a stale ETag, the stale-cursor callout, Next on a list of more than one
+page from the first page (5 namespaces fit one page at the smallest size, 25), the 390 and 820 px widths, the dark theme and
+axe: these ran built-mocked only (above). The first Chromium change run stopped at the 202 callout on a script locator,
+after the PATCH was sent; the request was followed in a second run, and its 202 picture is the Chrome one.
 
 ## What testing found
 
