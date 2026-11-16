@@ -29,7 +29,7 @@ data:
       git:
         repository: "ephico2real2/cmapi-cluster-configs"
         webUrl: "https://github.com"
-        url: "https://github.com/ephico2real2/cmapi-cluster-configs.git"
+        url: "git@github.com:ephico2real2/cmapi-cluster-configs.git"   # SSH with the bot's key (docs/19); the token stays for the PR
         username: "cmapi-git-bot"
         hostChecks: false
       directory: {"prod":{"environments":["prod"],"url":"https://cmapi.ephico2real.com"},"staging":{"environments":["qa","uat"],"url":"https://cmapi-staging.ephico2real.com"}}

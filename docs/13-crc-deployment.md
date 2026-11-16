@@ -103,7 +103,7 @@ security delete-certificate -Z C016211CBBB5CD072C3FFAC433221C38D1374E05 ~/Librar
 
 The mounts are folders (`components/cmapi/30-worker.yaml`), so a rotation reaches the pod with no restart: to rotate a host key, add the new one, then remove the old one. The SSH user is `git` (`git@github.com`): the key selects the account.
 
-**CRC for now: the token alone.** No SSH key exists yet, so CRC's `instance.git.url` is `https://github.com/ephico2real2/cmapi-cluster-configs.git` and Git over HTTPS reads the same `token`, with username `cmapi-git-bot` (`environments/crc/20-config.yaml`). The token reaches Git through a credential helper that holds only its file's path: it is in no URL, command line, log or Git config file. When the owner adds the bot's SSH key, `instance.git.url` becomes `git@github.com:ephico2real2/cmapi-cluster-configs.git`, and Git no longer sees the API token.
+**CRC: SSH since 2026-11-15.** The owner added the bot's SSH key, so CRC's `instance.git.url` is `git@github.com:ephico2real2/cmapi-cluster-configs.git` (`environments/crc/20-config.yaml`). Git uses Secret `cmapi-git-bot-ssh` and ConfigMap `cmapi-git-bot-known-hosts`, and no longer sees the API token, which stays for the PR. How to make the key and switch: [`docs/19`](19-setup-connections-to-git.md), sections 3 to 5.
 
 **The token, on GitHub.** The machine user `cmapi-git-bot` with write access to `ephico2real2/cmapi-cluster-configs`, and its fine-grained personal access token: repository access **only** that repository, and these repository permissions:
 
@@ -560,7 +560,7 @@ Since #157, the owner's decision of 2026-11-15. What changes from Wave 1, all in
 |---|---|---|
 | `20-config.yaml` | `clusters.yaml`: CRC `writes: true` | The one cluster takes requests |
 | `20-config.yaml` | `instance.git.repository: ephico2real2/cmapi-cluster-configs` | cmapi's own repository. It is not the organisation's `cluster-configs`, which stays as it is |
-| `20-config.yaml` | `instance.git`: `url: https://github.com/ephico2real2/cmapi-cluster-configs.git`, `username: cmapi-git-bot`, `hostChecks: false` | The Git layer over HTTPS with the bot account's token, until its SSH key exists; no host CI is read and no status is posted (#286) |
+| `20-config.yaml` | `instance.git`: `url: git@github.com:ephico2real2/cmapi-cluster-configs.git`, `username: cmapi-git-bot`, `hostChecks: false` | The Git layer over SSH with the bot account's key; the token is for the PR alone; no host CI is read and no status is posted (#286, docs/19) |
 | `20-config.yaml` | `integrations.yaml`: `delivery.mode: apply` | CRC has no Argo CD. The worker server-side applies the PR branch's folder, confirms it with a read, and only then merges the PR (apply before merge, #286). A delete merges first and is held until an operator's `POST /api/v1/admin/prune:confirm` (`core/sync.py`). The design's mode stays `argocd` (Wave 5) |
 | `10-env.yaml` | `CMAPI_GIT_URL: https://api.github.com`, `CMAPI_GIT_CA_BUNDLE: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` | GitHub, verified against the image's system trust. `cmapi-trust` and `SSL_CERT_FILE` hold Keycloak's private CA alone, and httpx 0.28.1 honours `SSL_CERT_FILE` for `verify=True`, so without a trust of its own the Git provider could not verify github.com (#97) |
 | `deliverer/00-cmapi-deliverer.yaml` | The worker's write, and its containment | Step 7 |
