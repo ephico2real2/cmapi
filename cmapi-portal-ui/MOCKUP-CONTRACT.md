@@ -167,6 +167,18 @@ verified, signed in through Keycloak's own form. Screenshots: `screenshots/slice
 
 Open from that walk: #306 (`ProgressStep` with no `id`) and #307 (the scenario button's stale status).
 
+The Quotas and KPIs tabs were deployed on CRC from main 525ca27 on 2026-11-16 (OB1 run 15) and walked the same way, in
+Chromium 156 and Chrome 157. Screenshots: `screenshots/slice-3-crc/`; measured results: `docs/09-portal-ui-testing.md`,
+"Quotas and KPIs live on CRC".
+
+| Tab | What ran on CRC | Result |
+|---|---|---|
+| Quotas | The list as `cmapi.requester`: filters, sort, A–Z, paging, type-ahead, export | The 5 namespaces `cmapi-live-a` to `cmapi-live-e`; each control sent its API parameter (`tier`, `env`, `q`, `sort`, `startsWith`, `limit`, `cursor`) and showed the API's rows. The type-ahead called `:suggest` and picked by keyboard. The CSV downloaded with 5 rows, the list's total |
+| Quotas, the change | `cmapi-live-e` large to medium (Chromium), then medium to large (Chrome) | The plan and the Submit each sent `If-Match` with the namespace's ETag; "No approval needed" (`dev-change`); 202, then `synced`. The cluster's ResourceQuota changed each time (`requests.cpu` 32 to 16 and back) |
+| KPIs | As `cmapi.operator`; the tabs of `cmapi.requester` | The API's figures, and "unavailable" for its one null (`walBytes`) and for the figures it does not give. The requester has no KPIs tab, and the API answers it 403 |
+
+Open from that walk: the 202 callout's "Argo CD re-stamps the quota" on an `apply` instance, added to #309.
+
 The demo build has none of these differences. The sections below describe it.
 
 ## The demo build: the mockup's logic stands in for the API
