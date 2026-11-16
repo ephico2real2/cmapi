@@ -150,6 +150,24 @@ Fable is paused unless the owner asks; the owner used it on 2026-11-15 with abou
 - TLS verification is always on.
 - A permission refusal stands.
 
+### 9. Check the state before acting
+
+```bash
+git -C /Users/olasumbo/gitRepos/cmapi-design fetch -q && git -C /Users/olasumbo/gitRepos/cmapi-design log --oneline -1 origin/main
+gh pr list --state open
+curl -s https://cmapi.apps-crc.testing/api/v1/version          # expect commit 525ca27 (or newer, if deployed since)
+oc get pods -n cmapi
+oc get pod keycloak-0 -n keycloak -o jsonpath='{.status.containerStatuses[0].restartCount}'   # 0
+oc logs deploy/cmapi-worker -n cmapi | grep -m1 ssh_key_fingerprint
+```
+
+**Where things are.**
+- **The repository:** `/Users/olasumbo/gitRepos/cmapi-design` (`main`).
+- **The records:** these three files, on `main`.
+- **Agent notes and logs:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run*` and `review-*`. The CRC runs are `ob1-run9`, `ob1-run11`, `ob1-run13` and `ob1-run15`; each has a `resume.md`, `run.sh` and `live-ui.mjs`.
+- **The test DB lock:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run5/tools/suite.sh` (one service-suite session at a time).
+- **The diagram renderer:** `~/gitRepos/diagram-kit/.venv/bin/diagram-render`.
+
 ### 10. The stories (#13 to #29) and which need a Fable review
 
 A story closes only on the owner's approval, with the proof for each acceptance criterion (CLAUDE.md). None is closed yet. Read from GitHub on 2026-11-16: the sub-issue counts are closed of total.
@@ -161,7 +179,7 @@ A story closes only on the owner's approval, with the proof for each acceptance 
 | #15 | Cluster imports, live read endpoints | 0 of 0 | Not started as a story | Not broken into issues |
 | #16 | Telemetry and KPI baseline | 6 of 7 | `/admin/kpi`, KPIs tab live on CRC | #147 (30-day window), #311; KPI targets (owner) |
 | #17 | Namespace plans, metadata, submission | 2 of 2 | Plans, metadata (#215), LimitRanges; New namespace tab live | Owner approval to close |
-| #18 | Approval decisions, protected Git delivery | 5 of 13 | Approvals; Git delivery #286 live over SSH; #61 closed today | #286 PR-B and PR-C, #289-#291, #59, #60, #200, #227, #228, #249 |
+| #18 | Approval decisions, protected Git delivery | 6 of 13 | Approvals; Git delivery #286 live over SSH; #61 closed today | #286 PR-B and PR-C, #289-#291, #59, #60, #200, #227, #228, #249 |
 | #19 | Worker recovery, Argo sync, history | 1 of 2 | Recovery, apply mode on CRC | Argo CD mode not run on CRC (Wave 5) |
 | #20 | Signed-in portal | 12 of 23 | 6 of 9 tabs live on CRC | #302 (slice 4), #304, #306, #307, #309 and older UX items |
 | #21 | Capacity snapshots, safe placement | 0 of 2 | Capacity snapshots in the API | #303 (placement API), the Capacity tab (#302) |
@@ -186,24 +204,6 @@ A story closes only on the owner's approval, with the proof for each acceptance 
 No Fable review needed: the docs-only PRs (#274, #284, #296, #297, #298, #308, #316), and #247 and #255 (Codex).
 
 **Brief for Fable,** with the precise-artifact rule (CLAUDE.md): give it the exact PR, the file and line ranges, and the claims to confirm or refute. For #288, reuse the 11 claims of the Opus review (`workbench/cmapi/review-288/`); Fable checks them independently and adds its own. For #305 and #313, reuse C1-C9 and C1-C8 (`review-305/`, `review-313/`). Every finding needs its full fix and a test that fails before and passes after. Fable's quota was about 6% on 2026-11-15: run rank 1 first, narrowly, writing findings to a file as it goes.
-
-### 9. Check the state before acting
-
-```bash
-git -C /Users/olasumbo/gitRepos/cmapi-design fetch -q && git -C /Users/olasumbo/gitRepos/cmapi-design log --oneline -1 origin/main
-gh pr list --state open
-curl -s https://cmapi.apps-crc.testing/api/v1/version          # expect commit 525ca27 (or newer, if deployed since)
-oc get pods -n cmapi
-oc get pod keycloak-0 -n keycloak -o jsonpath='{.status.containerStatuses[0].restartCount}'   # 0
-oc logs deploy/cmapi-worker -n cmapi | grep -m1 ssh_key_fingerprint
-```
-
-**Where things are.**
-- **The repository:** `/Users/olasumbo/gitRepos/cmapi-design` (`main`).
-- **The records:** these three files, on `main`.
-- **Agent notes and logs:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run*` and `review-*`. The CRC runs are `ob1-run9`, `ob1-run11`, `ob1-run13` and `ob1-run15`; each has a `resume.md`, `run.sh` and `live-ui.mjs`.
-- **The test DB lock:** `/Users/olasumbo/gitRepos/workbench/cmapi/ob1-run5/tools/suite.sh` (one service-suite session at a time).
-- **The diagram renderer:** `~/gitRepos/diagram-kit/.venv/bin/diagram-render`.
 
 ---
 
