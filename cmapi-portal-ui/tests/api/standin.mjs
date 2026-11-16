@@ -29,10 +29,11 @@ const ROLE_PERMISSIONS = {
   "cmapi-approver": [...READ, "requests:approve", "requests:reject"],
   "cmapi-requester": SAMPLES.operations.core_me.response.body.access.permissions
 };
+// The groups follow docs/14 ("The groups"): the default path template /cmapi/app-cmapi-rbac-<name>.
 export const USERS = {
-  viewer: { sub: "sub-viewer", username: "cmapi.viewer", role: "cmapi-viewer" },
-  approver: { sub: "sub-approver", username: "cmapi.approver", role: "cmapi-approver" },
-  requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester" }
+  viewer: { sub: "sub-viewer", username: "cmapi.viewer", role: "cmapi-viewer", groups: ["/cmapi/app-cmapi-rbac-viewer"] },
+  approver: { sub: "sub-approver", username: "cmapi.approver", role: "cmapi-approver", groups: ["/cmapi/app-cmapi-rbac-approver-platform"], email: "cmapi.approver@ephico2real.com" },
+  requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" }
 };
 
 /** One realm, `cmapi`, with one public client that must use PKCE with S256. */
@@ -151,7 +152,8 @@ export async function startIssuer({ clientId = "cmapi-portal", redirectUris }) {
   };
 }
 
-const OPEN = new Set(["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "sync_failed"]);
+// The list contract's state=open (cmapi/contract/openapi.json, GET /api/v1/requests, `state`).
+const OPEN = new Set(["pending_approval", "approved", "pr_open", "applied", "merge_failed", "merged", "awaiting_prune", "sync_failed"]);
 const STATUSES = ["pending_approval", "approved", "pr_open", "merged", "awaiting_prune", "synced", "rejected", "failed", "sync_failed", "cancelled"];
 const pad = (n) => String(n).padStart(4, "0");
 
@@ -164,28 +166,69 @@ export function requestsFrom(sample, count, now = Date.now()) {
   });
 }
 
+/** A copy of a recorded request with its own ID, namespace, status and events: what the Workflow tab is shown. */
+export function requestWith(sample, { requestId, namespace = sample.namespace, status, events, pr = sample.pr, mergeSha = sample.mergeSha }) {
+  const at = events.at(-1)?.at ?? sample.updatedAt;
+  return { ...sample, requestId, namespace, status, events, pr, mergeSha, createdAt: events[0]?.at ?? sample.createdAt, updatedAt: at,
+    links: { self: `/api/v1/requests/${requestId}`, events: `/api/v1/requests/${requestId}/events` } };
+}
+
+const NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|ocp-.*)$/;
+// The body's fingerprint, with the keys of each object in order, as the API compares two bodies of one key.
+const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
+const fingerprint = (value) => JSON.stringify(sorted(value));
+const bodyOf = (req) => new Promise((resolve) => {
+  let text = "";
+  req.on("data", (chunk) => { text += chunk; });
+  req.on("end", () => { try { resolve(text ? JSON.parse(text) : null); } catch { resolve(undefined); } });
+});
+
 /**
- * The cmapi API: GET /api/v1/me and GET /api/v1/requests with the list contract (q, state, limit, cursor).
- * `mode` changes one answer, to show what the portal does with it.
+ * The cmapi API: GET /api/v1/me, the requests (list, one, its events, approve, reject), the tiers, the clusters and the
+ * namespace create with its dry run. It keeps the rules that the portal must follow: the list contract (q, state,
+ * limit, cursor), the Idempotency-Key of a write (400 without it, the first answer again for the same key and body, 409
+ * for the same key and another body), the reason that a rejection needs, and the refusal of a self-approval.
+ * `mode` changes one answer, to show what the portal does with it; `answers` overrides the next answers of one route.
  */
 export async function startApi({ issuer, portalOrigin }) {
   const recorded = SAMPLES.operations.requests_list_requests.response.body;
-  const state = { mode: "ok", items: recorded.items, delayMs: 0, seen: [], refuseOnce: new Set() };
+  const created = SAMPLES.operations.namespaces_create_namespace.response.body;
+  const state = {
+    mode: "ok", items: recorded.items, delayMs: 0, seen: [], refuseOnce: new Set(),
+    clusters: SAMPLES.operations.core_clusters.response.body.items,
+    tiers: SAMPLES.operations.tiers_tiers.response.body,
+    plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body,
+    /** The next answers of a route, first one first: [{ route: "POST /api/v1/clusters/CRC/namespaces", status, body }]. */
+    answers: [],
+    /**
+     * Routes whose answers are lost on the way after the API did the work, as when the network fails after a write.
+     * It holds until the test clears it: a browser may send a POST again by itself when a reused connection closes.
+     */
+    lose: new Set(),
+    /** Idempotency-Key and caller → the body's fingerprint and the request that it made. */
+    keys: new Map(),
+    created: 0
+  };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
     res.end(JSON.stringify(body));
   };
+  const refuse = (status, code, detail) => ({ type: `https://cmapi.ephico2real.com/problems/${code}`, title: code, status, code, detail });
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://api");
-    // The API allows the portal's origin and no other, and takes no cookie.
-    const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET", vary: "origin" };
+    // The API allows the portal's origin and no other, and takes no cookie. The headers are cmapi/src/cmapi/core/cors.py's.
+    const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type, idempotency-key", "access-control-allow-methods": "GET, POST", vary: "origin" };
     if (req.method === "OPTIONS") {
       res.writeHead(204, cors);
       return res.end();
     }
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     const user = bearer ? issuer.whoHas(bearer) : null;
-    state.seen.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), user: user?.username ?? null, cookie: req.headers.cookie ?? null, origin: req.headers.origin ?? null });
+    const body = req.method === "POST" ? await bodyOf(req) : null;
+    const call = { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), user: user?.username ?? null, cookie: req.headers.cookie ?? null,
+      origin: req.headers.origin ?? null, key: req.headers["idempotency-key"] ?? null, body };
+    state.seen.push(call);
     if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
     const unauthenticated = SAMPLES.problems.unauthenticated.response.body;
     if (!user || state.mode === "always401") return problem(res, unauthenticated, cors);
@@ -195,25 +238,43 @@ export async function startApi({ issuer, portalOrigin }) {
       state.mode = "ok";
       return problem(res, unauthenticated, cors);
     }
-    const ok = (body) => {
-      res.writeHead(200, { ...cors, "content-type": "application/json" });
-      res.end(JSON.stringify(body));
+    const route = `${req.method} ${url.pathname}`;
+    const next = state.answers.findIndex((a) => a.route === route);
+    const answer = next >= 0 ? state.answers.splice(next, 1)[0] : null;
+    const ok = (value, status = 200) => {
+      if (state.lose.has(route)) return req.socket.destroy();
+      res.writeHead(status, { ...cors, "content-type": "application/json" });
+      res.end(JSON.stringify(value));
+    };
+    if (answer) return answer.status >= 400 ? problem(res, answer.body, cors) : ok(answer.body, answer.status);
+    const permissions = ROLE_PERMISSIONS[user.role];
+    const lacks = (permission) => (permissions.includes(permission) ? null
+      : refuse(403, "forbidden", `Missing permission ${permission}: no role in your token grants it (roles: ['${user.role}'])`));
+    const find = (id) => state.items.find((r) => r.requestId === id);
+    // A decision makes a new copy: the recorded samples are shared by every check and stay as they were recorded.
+    const replace = (r, fields) => {
+      const next = { ...r, ...fields };
+      state.items = state.items.map((x) => (x === r ? next : x));
+      return next;
     };
 
     if (url.pathname === "/api/v1/me") {
       const me = SAMPLES.operations.core_me.response.body;
-      const permissions = ROLE_PERMISSIONS[user.role];
-      return ok({ ...me, username: user.username, roles: [user.role], identity: { ...me.identity, username: user.username, sub: user.sub },
+      return ok({ ...me, username: user.username, roles: [user.role], groups: user.groups, identity: { ...me.identity, username: user.username, sub: user.sub, email: user.email ?? null },
         access: { permissions, roles: [{ role: user.role, permissions, environments: "all" }] } });
     }
     if (url.pathname === "/api/v1/requests") {
       if (state.mode === "forbidden") return problem(res, { ...SAMPLES.problems.forbidden.response.body, detail: "Missing permission requests:read: no role in your token grants it (roles: ['cmapi-none'])" }, cors);
       if (state.mode === "error500") return problem(res, { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The database did not answer." }, cors);
       const q = (url.searchParams.get("q") ?? "").toLowerCase(), group = url.searchParams.get("state"), limit = Number(url.searchParams.get("limit") ?? 50);
+      const status = url.searchParams.get("status"), approver = url.searchParams.get("approver") === "me";
+      // approver=me: the pending requests that still need an approval from one of the caller's groups.
+      const mine = (r) => r.approval?.remaining.some((slot) => user.groups.some((g) => g.endsWith(`-${slot.group}`)));
       const rows = (state.mode === "empty" ? [] : state.items).filter((r) =>
-        (!q || `${r.requestId} ${r.namespace} ${r.clusterId}`.toLowerCase().includes(q)) && (!group || (group === "open") === OPEN.has(r.status)));
+        (!q || `${r.requestId} ${r.namespace} ${r.clusterId}`.toLowerCase().includes(q)) && (!group || (group === "open") === OPEN.has(r.status))
+        && (!status || r.status === status) && (!approver || (r.status === "pending_approval" && mine(r))));
       // The cursor holds the filters that made it. A cursor of other filters is refused, as the list contract says.
-      const filters = JSON.stringify([q, group, limit]);
+      const filters = JSON.stringify([q, group, limit, status, approver]);
       let start = 0;
       const cursor = url.searchParams.get("cursor");
       if (cursor) {
@@ -227,6 +288,68 @@ export async function startApi({ issuer, portalOrigin }) {
       return ok({ items, letters: recorded.letters, page: {
         limit, total: rows.length, from: items.length ? start + 1 : 0, to: start + items.length,
         nextCursor: start + limit < rows.length ? cursorAt(start + limit) : null, prevCursor: start > 0 ? cursorAt(Math.max(0, start - limit)) : null } });
+    }
+    const one = /^\/api\/v1\/requests\/([^/:]+)(\/events|:approve|:reject)?$/.exec(url.pathname);
+    if (one) {
+      const [, id, what = ""] = one;
+      const r = find(id);
+      const denied = lacks(what === ":approve" ? "requests:approve" : what === ":reject" ? "requests:reject" : "requests:read");
+      if (denied) return problem(res, denied, cors);
+      if (!r) return problem(res, refuse(404, "object-not-found", `No request ${id}`), cors);
+      if (req.method === "GET" && what === "") return ok(r);
+      if (req.method === "GET" && what === "/events") return ok({ requestId: r.requestId, status: r.status, events: r.events });
+      if (req.method === "POST" && r.status !== "pending_approval") return problem(res, refuse(409, "not-pending", `Request ${id} is ${r.status}, not pending_approval`), cors);
+      const now = new Date().toISOString();
+      if (req.method === "POST" && what === ":approve") {
+        // cmapi/src/cmapi/core/approvals.py: a requester approves their own request only where the rule allows it.
+        if (r.requester.requester.sub === user.sub && !r.approval.selfApproval) return problem(res, refuse(409, "self-approval", "Requesters cannot approve their own request here"), cors);
+        const remaining = r.approval.remaining.map((slot) => (user.groups.some((g) => g.endsWith(`-${slot.group}`)) ? { ...slot, needed: slot.needed - 1 } : slot)).filter((slot) => slot.needed > 0);
+        const done = remaining.length === 0;
+        return ok(replace(r, { status: done ? "approved" : r.status, updatedAt: now,
+          approval: { ...r.approval, remaining, approvals: [...r.approval.approvals, { username: user.username, sub: user.sub, at: now, comment: body?.comment ?? "", relayedBy: null }] },
+          events: [...r.events, { at: now, by: user.username, event: "approval", note: body?.comment ?? "", status: "pending_approval" },
+            ...(done ? [{ at: now, by: user.username, event: "approved", note: "approval count met", status: "approved" }] : [])] }));
+      }
+      if (req.method === "POST" && what === ":reject") {
+        if (!body?.comment?.trim()) return problem(res, refuse(422, "validation-failed", "A comment is required for a rejection"), cors);
+        return ok(replace(r, { status: "rejected", updatedAt: now, events: [...r.events, { at: now, by: user.username, event: "rejected", note: body.comment, status: "rejected" }] }));
+      }
+    }
+    if (url.pathname === "/api/v1/tiers") {
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const env = url.searchParams.get("environment");
+      return ok({ ...state.tiers, environments: env ? Object.fromEntries(Object.entries(state.tiers.environments).filter(([k]) => k === env)) : state.tiers.environments });
+    }
+    if (url.pathname === "/api/v1/clusters") {
+      const denied = lacks("clusters:read");
+      if (denied) return problem(res, denied, cors);
+      return ok({ items: state.clusters });
+    }
+    const create = /^\/api\/v1\/clusters\/([^/]+)\/namespaces$/.exec(url.pathname);
+    if (create && req.method === "POST") {
+      const denied = lacks("namespaces:create");
+      if (denied) return problem(res, denied, cors);
+      const clusterId = create[1];
+      if (!state.clusters.some((c) => c.clusterId === clusterId)) return problem(res, refuse(404, "cluster-not-found", `Unknown cluster ${clusterId}`), cors);
+      if (!body || typeof body.namespace !== "string" || !NAME.test(body.namespace)) return problem(res, refuse(422, "invalid-namespace-name", `${JSON.stringify(body?.namespace)} is not a DNS-1123 name`), cors);
+      if (RESERVED.test(body.namespace)) return problem(res, refuse(422, "reserved-namespace", `${body.namespace} is reserved`), cors);
+      if (url.searchParams.get("dryRun") === "true") {
+        const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
+        return ok({ ...state.plan, changes, capacity: { ...state.plan.capacity, clusterId } });
+      }
+      const key = call.key;
+      if (!key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const held = state.keys.get(`${user.sub} ${key}`);
+      if (held) return held.fingerprint === fingerprint(body) ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-9${String(++state.created).padStart(3, "0")}`;
+      const request = requestWith(created, { requestId, namespace: body.namespace, status: "approved", pr: null, mergeSha: null,
+        events: [{ at: now, by: user.username, event: "plan_auto_approved", note: created.approval.auto, status: "approved" }] });
+      request.clusterId = clusterId;
+      state.items = [request, ...state.items];
+      state.keys.set(`${user.sub} ${key}`, { fingerprint: fingerprint(body), request });
+      return ok(request, 202);
     }
     return problem(res, { type: "https://cmapi.ephico2real.com/problems/not-found", title: "not-found", status: 404, code: "not-found", detail: "No such route." }, cors);
   });

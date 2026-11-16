@@ -16,7 +16,10 @@ import { oidcSettings } from "./auth";
 import type { ReturnState } from "./auth";
 import { ConfigError, loadConfig } from "./config";
 import type { PortalConfig } from "./config";
+import { ApprovalsTab } from "./ApprovalsTab";
+import { NewNamespaceTab } from "./NewNamespaceTab";
 import { RequestsTab } from "./RequestsTab";
+import { WorkflowTab } from "./WorkflowTab";
 import { useRoute } from "./route";
 import type { TabId, TabProps } from "./route";
 
@@ -32,12 +35,12 @@ const NO_PARAMS = new URLSearchParams();
 
 // The mockup's tabs and their order. A tab shows only when GET /api/v1/me says that the person holds its permission.
 const TABS: TabDef[] = [
-  { id: "workflow", label: "Workflow", needs: PERMISSION["GET /api/v1/requests/{request_id}/events"] },
-  { id: "new", label: "New namespace", needs: PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces"] },
+  { id: "workflow", label: "Workflow", needs: PERMISSION["GET /api/v1/requests/{request_id}/events"], panel: WorkflowTab },
+  { id: "new", label: "New namespace", needs: PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces"], panel: NewNamespaceTab },
   { id: "quotas", label: "Quotas", needs: PERMISSION["GET /api/v1/quotas"] },
   { id: "expiration", label: "Expiration", needs: null },
   { id: "requests", label: "Requests", needs: PERMISSION["GET /api/v1/requests"], panel: RequestsTab },
-  { id: "approvals", label: "Approvals", needs: PERMISSION["POST /api/v1/requests/{request_id}:approve"] },
+  { id: "approvals", label: "Approvals", needs: PERMISSION["POST /api/v1/requests/{request_id}:approve"], panel: ApprovalsTab },
   { id: "policies", label: "Policies", needs: null },
   { id: "capacity", label: "Capacity", needs: null },
   { id: "kpis", label: "KPIs", needs: PERMISSION["GET /api/v1/admin/kpi"] }
@@ -181,7 +184,7 @@ function Portal({ config, onSignOut }: { config: PortalConfig; onSignOut: () => 
               <Tab key={id} eventKey={id} title={<TabTitleText>{label}</TabTitleText>}>
                 <div style={{ paddingBlockStart: "var(--pf-t--global--spacer--md)" }}>
                   {Panel
-                    ? <Panel config={config} params={id === route.tab ? route.params : NO_PARAMS} setParams={(values) => go(id, values)} />
+                    ? <Panel config={config} params={id === route.tab ? route.params : NO_PARAMS} setParams={(values) => go(id, values)} open={go} />
                     : <EmptyState titleText="This tab is not on the API yet." headingLevel="h1"><EmptyStateBody>It shows data when its API calls are built.</EmptyStateBody></EmptyState>}
                 </div>
               </Tab>

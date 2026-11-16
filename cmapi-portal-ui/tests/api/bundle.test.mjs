@@ -31,7 +31,9 @@ const CASES = [
   ["an issuer over plain http", { ...VALID, issuer: "http://sso.example.test/realms/cmapi" }, /issuer must be an https URL/],
   ["an API with a password in its URL", { ...VALID, apiUrl: "https://user:pw@cmapi.example.test" }, /apiUrl must have no user, query or fragment/],
   ["an API with a path", { ...VALID, apiUrl: "https://cmapi.example.test/api/v1" }, /apiUrl must have no path/],
-  ["no client", { ...VALID, clientId: "" }, /config\.json has no clientId/]
+  ["no client", { ...VALID, clientId: "" }, /config\.json has no clientId/],
+  ["another instance's portal over plain http", { ...VALID, otherInstances: { prod: { environments: ["prod"], url: "http://cmapi.example.test" } } }, /otherInstances\.prod\.url must be an https URL/],
+  ["another instance with no environments", { ...VALID, otherInstances: { prod: { url: "https://cmapi.example.test" } } }, /otherInstances\.prod\.environments must be a list of names/]
 ];
 let config = null;
 const portal = await servePortal(join(app, "dist"), () => config);

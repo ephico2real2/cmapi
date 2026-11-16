@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { requestsFrom, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
+import { requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -17,7 +17,8 @@ mkdirSync(out, { recursive: true });
 let portal;
 const issuer = await startIssuer({ redirectUris: () => [portal.page] });
 const api = await startApi({ issuer, portalOrigin: () => portal.origin });
-const CONFIG = { apiUrl: api.url, issuer: issuer.url, clientId: "cmapi-portal", audience: "cmapi-nonprod", instance: "nonprod", displayName: "Non-production", environments: ["rnd", "dev"], otherInstances: [] };
+const CONFIG = { apiUrl: api.url, issuer: issuer.url, clientId: "cmapi-portal", audience: "cmapi-nonprod", instance: "nonprod", displayName: "Non-production", environments: ["rnd", "dev"],
+  otherInstances: { prod: { environments: ["prod"], url: "https://cmapi.example.test" }, staging: { environments: ["qa", "uat"], url: "https://cmapi-staging.example.test" } } };
 portal = await servePortal(join(app, "dist"), () => CONFIG);
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL, headless: !process.env.PW_HEADED });
 
@@ -32,7 +33,8 @@ async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width 
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
-  Object.assign(api.state, { mode, items, delayMs: 0, seen: [] });
+  Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
+    tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -214,10 +216,9 @@ try {
     assert.deepEqual(await rows(page), [expectedRow(recorded)]);
     assert.equal(await range(page), "1–1 of 1 · newest first");
     assert.match(await page.locator("table[aria-label=Requests] tbody tr .pf-v6-c-label").getAttribute("class"), /pf-m-warning/, "pending_approval has the mockup's warn tone");
-    // Open at current step needs the Workflow tab. It is off, and it says why in text that a screen reader links to it.
+    // Open at current step opens the Workflow tab on this request (check 8 follows it there).
     const openButton = page.getByRole("button", { name: "Open at current step" });
-    assert.equal(await openButton.getAttribute("aria-disabled"), "true");
-    assert.match(await page.locator(`#${await openButton.getAttribute("aria-describedby")}`).innerText(), /Workflow tab is not on the API yet/);
+    assert.equal(await openButton.getAttribute("aria-disabled"), null, "the button is on");
     assert.deepEqual(calls("/api/v1/requests")[0].query, { limit: "25" }, "the first page: 25 rows, no filter");
     assert.deepEqual(errors, []);
     await context.close();
@@ -394,12 +395,508 @@ try {
     // What the page adds: the data, PatternFly's own words for a screen reader, and the one line that MOCKUP-CONTRACT.md lists.
     const data = [...expectedRow(recorded), "plan_needs_approval", "by ola", "1–1 of 1 · newest first", "0 requests", "nonprod"];
     const LIBRARY = ["Reset", "Warning alert:"];
-    const ADDED = ["Open at current step is off: the Workflow tab is not on the API yet."];
+    const ADDED = [];
     const known = [...fromMockup, ...data, ...LIBRARY, ...ADDED].sort((x, y) => y.length - x.length);
     const invented = shown.filter((text) => known.reduce((rest, k) => rest.split(k).join(""), text).trim() !== "");
     assert.deepEqual(invented, [], "no string that the mockup does not have");
     assert.deepEqual(errors, []);
     await context.close();
+  });
+
+  // The Workflow tab's requests: the recorded synced request of GET /api/v1/requests/{id}, cut at its applied event
+  // (#286: applied before the merge), and the same cut followed by merge_failed. Written from the samples, not the page.
+  const synced = SAMPLES.operations.requests_get_request.response.body;
+  const upToApplied = synced.events.slice(0, synced.events.findIndex((e) => e.event === "applied") + 1);
+  const applied = requestWith(synced, { requestId: "req-20261115-1002", namespace: "ledger-dev", status: "applied", events: upToApplied, mergeSha: null });
+  const mergeFailed = requestWith(synced, { requestId: "req-20261115-1001", namespace: "billing-dev", status: "merge_failed", mergeSha: null,
+    events: [...upToApplied, { at: "2026-11-15T07:44:10.000000Z", by: "worker", event: "merge_failed", note: "the PR head moved: 9f1c2d3e is not the plan's", status: "merge_failed" }] });
+  const clock = (iso) => iso.slice(11, 19);
+  const eventRows = (events) => events.map((e) => `${clock(e.at)} ${e.event} · ${e.by}${e.note ? ` ${e.note}` : ""}`);
+  const listed = (page) => page.locator("[role=tabpanel] .pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Events" }) }).locator("li")
+    .evaluateAll((lis) => lis.map((li) => li.innerText.replace(/\s+/g, " ").trim()));
+  const banner = (page) => panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Current position." });
+  const statusPill = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Change request" }) }).locator(".pf-v6-c-label").first();
+
+  await check("8 Workflow: Open at current step in Requests shows the request's events as its steps; applied and merge_failed keep their tones; an open request is followed to synced", async () => {
+    const { context, page, errors } = await fresh({ items: [applied, mergeFailed] });
+    await open(page);
+    await page.locator("table[aria-label=Requests] tbody tr").filter({ hasText: applied.requestId }).getByRole("button", { name: "Open at current step" }).click();
+    await banner(page).waitFor();
+    assert.equal(new URL(page.url()).hash, `#workflow?request=${applied.requestId}`, "the address names the request");
+    assert.equal(await page.getByRole("tab", { selected: true }).innerText(), "Workflow");
+    assert.match(await banner(page).innerText(), new RegExp(`${applied.requestId} is at step 6 of 6: applied\\.`));
+    assert.match(await statusPill(page).innerText(), /^applied$/);
+    assert.match(await statusPill(page).getAttribute("class"), /pf-m-info/, "applied has the info tone of an open request");
+    assert.deepEqual(await listed(page), eventRows(upToApplied), "each event, oldest first: time, event, actor and note");
+    assert.deepEqual(await page.getByRole("list", { name: "Steps" }).locator("li").evaluateAll((lis) => lis.map((li) => li.innerText.replace(/\s+/g, " ").trim())),
+      upToApplied.map((e, j) => `${j + 1} ${e.event}${j === upToApplied.length - 1 ? " current position" : ""} ${e.by}`), "one step for each event");
+    assert.ok(calls(`/api/v1/requests/${applied.requestId}/events`).length >= 1 && calls(`/api/v1/requests/${applied.requestId}`).length >= 1, "the events and the request come from the API");
+
+    // Playback, as the mockup's: Reset, Next step, Back, and Back to current step.
+    const counter = () => panel(page).getByRole("group", { name: "Playback" }).locator("[aria-live]").innerText();
+    assert.equal(await counter(), "6 / 6");
+    assert.equal(await panel(page).getByRole("button", { name: "Next step" }).isDisabled(), true, "Next is off at the last step");
+    await panel(page).getByRole("button", { name: "Reset" }).click();
+    assert.equal(await counter(), "1 / 6");
+    assert.equal(await panel(page).getByRole("button", { name: "Back", exact: true }).isDisabled(), true, "Back is off at the first step");
+    await panel(page).getByRole("button", { name: "Next step" }).click();
+    assert.equal(await counter(), "2 / 6");
+    assert.equal(await panel(page).locator("article h2").innerText(), upToApplied[1].event, "the detail shows the step in view");
+    await banner(page).getByRole("button", { name: "Back to current step" }).click();
+    assert.equal(await counter(), "6 / 6");
+
+    // The request moves on. The tab reads its events again while it is open, and follows it to synced.
+    api.state.items = api.state.items.map((r) => (r.requestId === applied.requestId ? { ...synced, requestId: applied.requestId, namespace: applied.namespace } : r));
+    await page.waitForFunction((id) => document.querySelector("[role=tabpanel]")?.innerText.includes(`${id} finished at step 9 of 9: synced.`), applied.requestId, { timeout: 15000 });
+    assert.match(await statusPill(page).getAttribute("class"), /pf-m-success/, "synced has the ok tone");
+    assert.deepEqual(await listed(page), eventRows(synced.events));
+    const prCard = panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Pull request · Git" }) });
+    assert.match(await prCard.innerText(), new RegExp(`merged[\\s\\S]*#${synced.pr.number}[\\s\\S]*${synced.pr.branch} → main`));
+    const polls = calls(`/api/v1/requests/${applied.requestId}/events`).length;
+    await page.waitForTimeout(6000);
+    assert.equal(calls(`/api/v1/requests/${applied.requestId}/events`).length, polls, "a finished request is not read again");
+
+    // The other request ended in merge_failed: an open state with the bad tone.
+    await panel(page).getByRole("group", { name: "Scenarios" }).getByRole("button", { name: new RegExp(mergeFailed.requestId) }).click();
+    await page.waitForFunction((id) => document.querySelector("[role=tabpanel]")?.innerText.includes(`${id} is at step 7 of 7: merge_failed.`), mergeFailed.requestId);
+    assert.match(await statusPill(page).getAttribute("class"), /pf-m-danger/, "merge_failed has the bad tone");
+    assert.equal(new URL(page.url()).hash, `#workflow?request=${mergeFailed.requestId}`);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("8 Workflow states: loading, no request, a 404 with Try again, and a 403 with no action", async () => {
+    {
+      const { context, page, errors } = await fresh({ mode: "empty" });
+      api.state.delayMs = 700;
+      await page.goto(`${portal.page}#workflow`);
+      await page.getByRole("status").filter({ hasText: "Loading the request…" }).waitFor();
+      await panel(page).getByText("No requests on the nonprod instance yet.").waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ items: [applied] });
+      expectedStatus = [404];
+      await open(page, "#workflow?request=req-20261115-0404");
+      const alert = panel(page).locator(".pf-v6-c-alert");
+      await alert.getByText("The request did not load.").waitFor();
+      assert.match(await alert.innerText(), /No request req-20261115-0404/);
+      await panel(page).getByRole("group", { name: "Scenarios" }).getByRole("button", { name: new RegExp(applied.requestId) }).click();
+      await banner(page).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ items: [applied] });
+      expectedStatus = [403];
+      const denied = { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission requests:read: no role in your token grants it (roles: ['cmapi-none'])" };
+      api.state.answers.push({ route: `GET /api/v1/requests/${applied.requestId}/events`, status: 403, body: denied });
+      await open(page, `#workflow?request=${applied.requestId}`);
+      await panel(page).getByRole("heading", { name: "You do not have permission to see this request." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission requests:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0, "no action");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  const newTab = async (page) => {
+    await open(page, "#new");
+    await panel(page).getByRole("button", { name: "Dry run" }).waitFor();
+  };
+  const fillForm = async (page, { team = "payments", dl = "payments-team@ephico2real.com" } = {}) => {
+    await page.getByLabel("Team", { exact: true }).fill(team);
+    await page.getByLabel("Team DL (required)").fill(dl);
+    await page.getByLabel("Justification").fill("Payments service dev namespace");
+  };
+  const posts = () => api.state.seen.filter((c) => c.method === "POST" && c.path === "/api/v1/clusters/CRC/namespaces");
+  const approvalCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Approval that will apply" }) });
+
+  await check("9 New namespace: the tiers and clusters of the API, the dry run's plan and approval, and a submit that opens the new request", async () => {
+    const { context, page, errors } = await fresh();
+    await newTab(page);
+    const env = panel(page).getByRole("group", { name: "Environment" });
+    assert.deepEqual(await env.getByRole("button").allInnerTexts(), ["rnd", "dev"]);
+    assert.equal(await env.getByRole("button", { name: "dev" }).getAttribute("aria-pressed"), "true", "dev: the first environment with a cluster to write to");
+    const tiers = SAMPLES.operations.tiers_tiers.response.body.environments.dev.tiers.filter((t) => !t.custom);
+    assert.deepEqual((await panel(page).getByRole("group", { name: "Tier" }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")),
+      tiers.map((t) => `${t.name} ${t.quota["requests.cpu"]} cores · ${t.quota["requests.memory"]}`), "the tiers of GET /api/v1/tiers?environment=dev");
+    assert.deepEqual(calls("/api/v1/tiers").map((c) => c.query), [{ environment: "dev" }]);
+    assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
+    assert.match(await panel(page).innerText(), /prod → prod portal/, "the other instances' portals, from config.json");
+    assert.match(await panel(page).innerText(), /Requested by ola \(ola@ephico2real\.com\), from your sign-in\./, "the requester comes from /me");
+    await fillForm(page);
+    assert.equal(await page.getByLabel("Namespace name").inputValue(), "payments-dev", "the mockup's name: team and environment");
+
+    await panel(page).getByRole("button", { name: "Dry run" }).click();
+    const callout = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
+    await callout.waitFor();
+    assert.deepEqual((await callout.locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), [
+      "✓ Environment served dev in [rnd, dev]", "✓ Capacity fits on fresh data", "✓ Expiry none: permanent", "! Approval dev-create · 2 of approver-platform"
+    ]);
+    const plan = SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body;
+    assert.match(await approvalCard(page).innerText(), new RegExp(`2 approvals in cmapi from approver-platform\\s+${plan.approval.reasons.join("; ").replace(/[+()]/g, "\\$&")}\\. Self-approval is allowed in dev\\.`));
+    assert.match(await approvalCard(page).innerText(), /Rule\s+dev-create · 2 of approver-platform\s+Quota\s+16 cores · 32Gi · 100 pods\s+Expires\s+never \(permanent\)\s+Lands in Git\s+clusters\/CRC\/namespaces\/payments-dev\//);
+    const dry = posts().filter((c) => c.query.dryRun === "true");
+    assert.equal(dry.length, 1, "one dry run");
+    assert.equal(dry[0].key, null, "a dry run sends no Idempotency-Key");
+    assert.deepEqual(dry[0].body, { namespace: "payments-dev", tier: "medium", labels: { "cmapi.net/team": "payments" }, annotations: { "cmapi.net/team-dl": "payments-team@ephico2real.com" }, justification: "Payments service dev namespace" });
+    // A change to the form hides the plan, as in the mockup.
+    await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: /^small/ }).click();
+    assert.equal(await callout.count(), 0, "the plan is of the old form");
+
+    // The first submit meets a failure of the API; Submit again sends the same key. The answer of the second is lost on the
+    // way, so the person submits a third time: the API answers with the request it made, and makes no second one.
+    expectedStatus = [502];
+    api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 502, body: { type: "https://cmapi.ephico2real.com/problems/git-unavailable", title: "git-unavailable", status: 502, code: "git-unavailable", detail: "The Git host did not answer." } });
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    const notSubmitted = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" });
+    await notSubmitted.getByText(/The Git host did not answer\./).waitFor();
+    // A 5xx is the API failing, not refusing: the page says that the same submit can be sent again.
+    assert.match(await notSubmitted.innerText(), /The Git host did not answer\. Submit again: the same request is sent, and the API makes it at most once\./);
+    // Chrome sends a POST again by itself when a reused connection closes with no answer; that retry is lost as well.
+    api.state.lose.add("POST /api/v1/clusters/CRC/namespaces");
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" }).getByText(/The network did not answer\./).waitFor();
+    assert.equal(api.state.created, 1, "the lost answer's request was made");
+    api.state.lose.clear();
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await banner(page).waitFor();
+    const sent = posts().filter((c) => c.query.dryRun !== "true");
+    assert.ok(sent.length >= 3, `the failure, the lost answer and the retry (${sent.length} calls)`);
+    assert.match(sent[0].key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, "a random UUID");
+    assert.deepEqual(sent.map((c) => c.key), sent.map(() => sent[0].key), "one key for the form, sent again on each retry");
+    assert.equal(api.state.created, 1, "the API made one request");
+    const made = api.state.items[0];
+    assert.equal(new URL(page.url()).hash, `#workflow?request=${made.requestId}`, "the Workflow tab follows the new request");
+    assert.match(await banner(page).innerText(), new RegExp(`${made.requestId} is at step 1 of 1: plan_auto_approved\\.`));
+
+    // A new opening of the form is a new action: it has its own key.
+    await page.getByRole("tab", { name: "New namespace" }).click();
+    await fillForm(page, { team: "ledger" });
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await banner(page).waitFor();
+    const last = posts().at(-1);
+    assert.notEqual(last.key, sent[0].key, "a new form, a new key");
+    assert.equal(last.body.namespace, "ledger-dev");
+    assert.equal(api.state.created, 2);
+    // The lost answer is the one console error that this check causes on purpose.
+    assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE \(http:\/\/127\.0\.0\.1:\d+\/api\/v1\/clusters\/CRC\/namespaces\)$/.test(e)), []);
+    await context.close();
+  });
+
+  await check("9 New namespace refusals and states: a refused dry run, the browser's own checks, a 403, a 5xx and loading", async () => {
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [422];
+      await newTab(page);
+      await fillForm(page);
+      await page.getByLabel("Namespace name").fill("openshift-tools");
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      const refused = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Refused: reserved-namespace" });
+      await refused.waitFor();
+      assert.match(await refused.innerText(), /openshift-tools is reserved/);
+      assert.match(await refused.getAttribute("class"), /pf-m-danger/);
+      // An empty Team DL, then one that is not an address: the browser refuses each, and nothing goes to the API.
+      const before = posts().length;
+      await page.getByLabel("Team DL (required)").fill("");
+      await panel(page).getByRole("button", { name: "Submit request" }).click();
+      await page.getByLabel("Team DL (required)").fill("not-an-address");
+      await panel(page).getByRole("button", { name: "Submit request" }).click();
+      await page.getByLabel("Expires (optional)").fill("2020-01-01");
+      await page.getByLabel("Team DL (required)").fill("payments-team@ephico2real.com");
+      await panel(page).getByRole("button", { name: "Submit request" }).click();
+      await page.waitForTimeout(300);
+      assert.equal(posts().length, before, "no submit while a field is not valid");
+      assert.equal(await page.getByLabel("Team DL (required)").evaluate((el) => el.required), true);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/clusters", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission clusters:read: no role in your token grants it (roles: ['cmapi-requester'])" } });
+      await open(page, "#new");
+      await panel(page).getByRole("heading", { name: "You do not have permission to request a namespace." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission clusters:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [500];
+      api.state.delayMs = 500;
+      api.state.answers.push({ route: "GET /api/v1/tiers", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The database did not answer." } });
+      await page.goto(`${portal.page}#new`);
+      await page.getByRole("status").filter({ hasText: "Loading the form…" }).waitFor();
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The form did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The database did not answer\./);
+      api.state.delayMs = 0;
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await panel(page).getByRole("button", { name: "Dry run" }).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  const ola = SAMPLES.operations.requests_list_requests.response.body.items[0];
+  const second = { ...ola, requestId: "req-20261115-2002", namespace: "ledger-dev" };
+  const cardOf = (page, id) => panel(page).locator(".pf-v6-l-grid").filter({ has: page.getByRole("heading", { name: new RegExp(`^${id} ·`) }) });
+
+  await check("10 Approvals: the requests waiting for me; Approve records one approval; Reject needs a reason; Open at current step", async () => {
+    const { context, page, errors } = await fresh({ user: "approver", items: [ola, second] });
+    await open(page, "#approvals");
+    await cardOf(page, ola.requestId).waitFor();
+    assert.deepEqual(calls("/api/v1/requests")[0].query, { status: "pending_approval", approver: "me", limit: "25" }, "the pending requests that need my groups");
+    const head = () => panel(page).locator(".pf-v6-c-label").first().innerText();
+    assert.equal(await head(), "2 waiting for you");
+    const card = cardOf(page, ola.requestId);
+    const text = (await card.innerText()).replace(/\s+/g, " ");
+    assert.ok(text.startsWith(`0 of 1 approvals ${ola.requestId} · ${ola.namespace} on ${ola.clusterId} update · requested by ola@ephico2real.com · `), text);
+    assert.match(text, new RegExp(`Why it needs approval ${ola.approval.reasons.join(" ").replace(/[+()>]/g, "\\$&")}`));
+    assert.match(text, /Your eligibility ✓ Role cmapi-approver Keycloak token ✓ Not the requester requested by ola Approvals so far Required 1 from approver-platform So far none/);
+
+    await card.getByRole("button", { name: "Approve" }).click();
+    const done = card.locator(".pf-v6-c-alert").filter({ hasText: "Approved · 1 of 1" });
+    await done.waitFor();
+    assert.match(await done.innerText(), /The request is approved\. The worker opens the bot PR now; it merges when CI and the cmapi check pass, and Argo CD applies it\./);
+    assert.match(await card.locator(".pf-v6-c-label").first().getAttribute("class"), /pf-m-success/);
+    assert.equal(await card.locator(".pf-v6-c-label").first().innerText(), "1 of 1 approvals");
+    assert.equal(await card.getByRole("button", { name: "Approve" }).count(), 0, "a decided request has no more actions");
+    assert.equal(await head(), "1 waiting for you");
+    assert.deepEqual(api.state.seen.filter((c) => c.method === "POST").map((c) => c.path), [`/api/v1/requests/${ola.requestId}:approve`]);
+
+    const other = cardOf(page, second.requestId);
+    await other.getByRole("button", { name: "Reject" }).click();
+    const reason = other.getByLabel("Why are you rejecting it? (required, sent to the requester)");
+    await reason.waitFor();
+    assert.match(await other.innerText(), /A reason is required before the request can be rejected\./);
+    await other.getByRole("button", { name: "Confirm reject" }).click();
+    assert.equal(api.state.seen.filter((c) => c.path.endsWith(":reject")).length, 0, "no reason, no call");
+    await reason.fill("Use the medium tier");
+    await other.getByRole("button", { name: "Confirm reject" }).click();
+    const rejected = other.locator(".pf-v6-c-alert").filter({ hasText: "Rejected" });
+    await rejected.waitFor();
+    assert.match(await rejected.innerText(), /The requester sees your reason: “Use the medium tier”\. Nothing was written to Git, and any reservation is released\./);
+    assert.deepEqual(api.state.seen.filter((c) => c.path.endsWith(":reject")).map((c) => c.body), [{ comment: "Use the medium tier" }]);
+    assert.equal(await head(), "nothing waiting for you");
+
+    await other.getByRole("button", { name: "Open at current step" }).click();
+    await banner(page).waitFor();
+    assert.equal(new URL(page.url()).hash, `#workflow?request=${second.requestId}`);
+    assert.match(await banner(page).innerText(), new RegExp(`${second.requestId} finished at step 2 of 2: rejected\\.`));
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("10 Approvals: the API refuses a self-approval and the page shows it; empty, 403 and 5xx", async () => {
+    {
+      // The requester, here with the approver role, approves their own request where the rule allows no self-approval.
+      USERS.owner = { ...USERS.requester, role: "cmapi-approver", groups: USERS.approver.groups };
+      const own = { ...ola, approval: { ...ola.approval, selfApproval: false } };
+      const { context, page, errors } = await fresh({ user: "owner", items: [own] });
+      expectedStatus = [409];
+      await open(page, "#approvals");
+      const card = cardOf(page, own.requestId);
+      await card.waitFor();
+      assert.match((await card.innerText()).replace(/\s+/g, " "), /✕ Not the requester you opened this request/);
+      await card.getByRole("button", { name: "Approve" }).click();
+      const refused = card.locator(".pf-v6-c-alert").filter({ hasText: "Refused: self-approval" });
+      await refused.waitFor();
+      assert.match(await refused.innerText(), /Requesters cannot approve their own request here/);
+      assert.equal(api.state.items[0].status, "pending_approval", "nothing was recorded");
+      assert.equal(await card.getByRole("button", { name: "Approve" }).count(), 1, "the request still waits");
+      assert.deepEqual(errors, []);
+      await context.close();
+      delete USERS.owner;
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "approver", items: [] });
+      await open(page, "#approvals");
+      await panel(page).getByRole("heading", { name: "Nothing waiting for you" }).waitFor();
+      assert.match(await panel(page).innerText(), /Small and medium rnd and dev namespaces are auto-approved by baseline-rnd-namespace, and expired namespaces by expired-namespace\. Anything else waits here\./);
+      assert.equal(await panel(page).locator(".pf-v6-c-label").first().innerText(), "nothing waiting for you");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "approver", mode: "forbidden" });
+      expectedStatus = [403];
+      await open(page, "#approvals");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see approvals." }).waitFor();
+      assert.equal(await panel(page).getByRole("button").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "approver", mode: "error500", items: [ola] });
+      expectedStatus = [500];
+      await open(page, "#approvals");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The approvals did not load." });
+      await alert.waitFor();
+      api.state.mode = "ok";
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await cardOf(page, ola.requestId).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  // The text of one tab's block of the mockup: each tag out, each {{hole}} a break, and its placeholders and aria-labels.
+  const mockupBlock = (from, to) => {
+    const mockup = readFileSync(join(app, "..", "mockups", "portal", "Main.dc.html"), "utf8");
+    const block = mockup.slice(mockup.indexOf(`<sc-if value="{{${from}}}"`), mockup.indexOf(`<sc-if value="{{${to}}}"`));
+    const attrs = [...block.matchAll(/(?:placeholder|aria-label)="([^"{]+)"/g)].map((m) => m[1]);
+    const texts = block.replace(/<[^>]+>/g, "\n").split(/\n|\{\{[^}]+\}\}/).map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean);
+    return [...new Set([...texts, ...attrs])];
+  };
+  const shownText = (page) => panel(page).evaluate((root) => {
+    const found = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.push(walker.currentNode.nodeValue.replace(/\s+/g, " ").trim());
+    root.querySelectorAll("[placeholder]").forEach((el) => found.push(el.getAttribute("placeholder")));
+    root.querySelectorAll("[aria-label]").forEach((el) => found.push(el.getAttribute("aria-label")));
+    root.querySelectorAll("input, textarea, select").forEach((el) => el.value && found.push(el.value));
+    return found;
+  });
+  /** Both directions: each string of the mockup's block is shown (but those listed as mockup only), and each string shown is known. */
+  function compare(tab, fromMockup, shown, known, patterns = []) {
+    const squeeze = (text) => text.replace(/\s+/g, "");
+    const all = squeeze(shown.join(" "));
+    assert.deepEqual(fromMockup.filter((text) => !all.includes(squeeze(text))), [], `${tab}: each string of the mockup's tab is on the page`);
+    const sorted = [...fromMockup, ...known].sort((x, y) => y.length - x.length);
+    // A text that a pattern of the mockup's logic (or of the listed additions) matches whole is known.
+    const invented = [...new Set(shown.filter((text) => !patterns.some((re) => re.test(text))).filter((text) => sorted.reduce((rest, k) => rest.split(k).join(""), text).replace(/[\s·→:;,.()]/g, "") !== ""))];
+    assert.deepEqual(invented, [], `${tab}: no string that the mockup does not have`);
+    return fromMockup.length;
+  }
+  // The approval cell in the mockup's form: "auto: <policy>", or "<rule> · <have> of <need>".
+  const approvalOf = (r) => {
+    if (r.approval.auto) return `auto: ${r.approval.auto.replace(/^auto:/, "")}`;
+    const need = r.approval.slots.reduce((n, x) => n + x.count, 0), left = r.approval.remaining.reduce((n, x) => n + x.needed, 0);
+    return `${r.approval.rule} · ${need - left} of ${need}`;
+  };
+  // PatternFly's own words for a screen reader.
+  const LIBRARY = ["Info alert:", "Success alert:", "Danger alert:", "Warning alert:", "Reset", "Loading..."];
+
+  await check("6 the Workflow, New namespace and Approvals tabs say what the mockup says, and add only what is listed", async () => {
+    const counts = {};
+    {
+      // Workflow: the open request (applied) and the finished one (synced, with its PR), each at its current position and one step back.
+      const done = { ...synced, requestId: "req-20261115-1003", namespace: "orders-dev" };
+      const none = requestWith(synced, { requestId: "req-20261115-1004", namespace: "search-dev", status: "pending_approval", events: [], pr: null, mergeSha: null });
+      const { context, page, errors } = await fresh({ items: [applied, done, none] });
+      await open(page, `#workflow?request=${applied.requestId}`);
+      await banner(page).waitFor();
+      const shown = await shownText(page);
+      await panel(page).getByRole("button", { name: "Back", exact: true }).click();
+      shown.push(...await shownText(page));
+      await panel(page).getByRole("group", { name: "Scenarios" }).getByRole("button", { name: new RegExp(done.requestId) }).click();
+      await page.waitForFunction((id) => document.querySelector("[role=tabpanel]")?.innerText.includes(`${id} finished`), done.requestId);
+      shown.push(...await shownText(page));
+      await panel(page).getByRole("group", { name: "Scenarios" }).getByRole("button", { name: new RegExp(none.requestId) }).click();
+      await panel(page).getByText("No events yet.").first().waitFor();
+      shown.push(...await shownText(page));
+      // The mockup's panels that the API has no data for, and its scenario playback words (MOCKUP-CONTRACT.md, "Workflow").
+      const MOCKUP_ONLY = ["Capacity · cmapi-capacity", "Argo CD ·", "Not reached. The live objects below are unchanged.", "Wave", "Kind", "Name", "Applied by",
+        "Status", "Detail", "Systems involved", "+", "−"];
+      const fromMockup = mockupBlock("isWorkflow", "isNew").filter((t) => !MOCKUP_ONLY.includes(t));
+      const data = [...[applied, done, none].flatMap((r) => [r.requestId, r.namespace, r.clusterId, r.instance, r.action, r.status, approvalOf(r)]),
+        ...synced.events.flatMap((e) => [e.event, e.by, e.note, e.status, clock(e.at)]), `#${synced.pr.number}`, `${synced.pr.branch} → main`, ...Object.entries(synced.files).flat(),
+        "merged", "open", "none", "applied", "synced", "pr_open", "approved"];
+      // The mockup's words that its logic builds (Main.dc.html, workflow()): "Step N of M · lane", "N / M", the banner, Play.
+      const FROM_LOGIC = [/^Step \d+ of \d+ · /, /^\d+ \/ \d+$/, /^req-\d{8}-\d{4} (is|finished) at step \d+ of \d+: /, /^\d+$/, /^\d+ min \d+ s$|^\d+ s$/];
+      // The same logic's fixed words: its request card (reqHead, reqRows), its PR message and its play label.
+      const LOGIC = ["No pull request yet. The worker opens one after the plan and approval are settled.", "Change request", "ID", "Instance", "Cluster", "Namespace",
+        "Action", "Approval", "Pull request", "Lead time", "Play", "Pause", "—"];
+      counts.workflow = compare("Workflow", fromMockup, shown, [...data, ...LOGIC, ...LIBRARY], FROM_LOGIC);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // New namespace: the form with the mockup's own values typed in, then its dry run, then an expiry date; then a prod instance.
+      const { context, page, errors } = await fresh();
+      const shown = [];
+      try {
+        await newTab(page);
+        await page.getByLabel("Team", { exact: true }).fill("payments");
+        await page.getByLabel("Team DL (required)").fill("payments-team@ephico2real.com");
+        await page.getByLabel("Justification").fill("Payments service namespace for the settlement API.");
+        shown.push(...await shownText(page));
+        await panel(page).getByRole("button", { name: "Dry run" }).click();
+        await panel(page).getByText("Dry run passed · nothing written").waitFor();
+        shown.push(...await shownText(page));
+        await page.getByLabel("Expires (optional)").fill(new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10));
+        shown.push(...await shownText(page));
+        // The same portal for a prod instance: prod namespaces never expire.
+        CONFIG.environments = ["prod"];
+        api.state.clusters = [{ ...api.state.clusters[0], clusterId: "PROD_A", environment: "prod" }];
+        api.state.tiers = { ...api.state.tiers, environments: { prod: api.state.tiers.environments.dev } };
+        await page.reload();
+        await panel(page).getByRole("button", { name: "Dry run" }).waitFor();
+        shown.push(...await shownText(page));
+      } finally {
+        CONFIG.environments = ["rnd", "dev"];
+      }
+      const plan = SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body;
+      const tiers = SAMPLES.operations.tiers_tiers.response.body.environments.dev.tiers.filter((t) => !t.custom);
+      const data = ["rnd", "dev", "prod", "CRC", "PROD_A", "us-central", "any", "payments", "payments-dev", "payments-prod", "payments-team@ephico2real.com", "Non-production", "rnd, dev",
+        ...tiers.map((t) => t.name), ...plan.approval.reasons, "prod portal", "staging portal", "qa, uat", "connected", "fits", "fresh data", "1", /^\d{4}-\d{2}-\d{2}$/];
+      // The mockup's logic builds these (Main.dc.html, renderVals(): envOpts, tierOpts, place, appr, nsExp, dry).
+      const FROM_LOGIC = [/^\d+ cores · \d+Gi$/, /^\d+ cores · \d+Gi · \d+ pods$/, /^\d+ approvals? in cmapi from /, /^[a-z]+-create · \d+ of /, /^[a-z]+ in \[[a-z, ]+\]$/,
+        /^Expires in \d+ days\. Notices at 14, 7 and 1 days, then a 7-day grace; extend from the Expiration tab in steps of up to 30 days\.$/, /^[A-Z][a-z]{2} \d{1,2} \(\d+ days\)$/,
+        /^\d{4}-\d{2}-\d{2}, \d+ days \(limit 180\)$/, /^Requested by ola \(ola@ephico2real\.com\), from your sign-in\.$/, /^[✓!✕]$/];
+      const LOGIC = ["Leave empty for a permanent namespace. At most 180 days from today; extend later from the Expiration tab.", "Self-approval is allowed in dev.", "Environment served",
+        "Capacity", "fits on fresh data", "Expiry", "none: permanent", "Approval", "never (permanent)", "never (prod)", "Your team's distribution list, in one of the organisation's email domains (emailDomains); format only."];
+      // The portal's own words, each in MOCKUP-CONTRACT.md: the cluster field until placement is on the API (#303), and the approval before a dry run.
+      const ADDED = ["Cluster", "The dev clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
+        "The prod clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
+        "The cluster is your choice until placement is on the API (#303). The dry run checks its capacity.", "Not planned yet", "Dry run asks the API which approval applies.",
+        /^(dev|prod) · us-central · connected$/, /^cpu \d+% · memory \d+% · binds on (cpu|memory)$/, "clusters/CRC/namespaces/payments-dev/"];
+      const strings = [...data, ...LOGIC, ...ADDED].filter((k) => typeof k === "string");
+      const patterns = [...FROM_LOGIC, ...data, ...ADDED].filter((k) => k instanceof RegExp);
+      const MOCKUP_ONLY = [];
+      const fromMockup = mockupBlock("isNew", "isQuotas").filter((t) => !MOCKUP_ONLY.includes(t));
+      counts.new = compare("New namespace", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // Approvals: two requests waiting; one approved, one with its reason open, then rejected; then nothing waiting.
+      const { context, page, errors } = await fresh({ user: "approver", items: [ola, second] });
+      await open(page, "#approvals");
+      await cardOf(page, ola.requestId).waitFor();
+      const shown = await shownText(page);
+      await cardOf(page, ola.requestId).getByRole("button", { name: "Approve" }).click();
+      await cardOf(page, ola.requestId).locator(".pf-v6-c-alert").filter({ hasText: "Approved · 1 of 1" }).waitFor();
+      await cardOf(page, second.requestId).getByRole("button", { name: "Reject" }).click();
+      shown.push(...await shownText(page));
+      await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").fill("Use the medium tier");
+      await cardOf(page, second.requestId).getByRole("button", { name: "Confirm reject" }).click();
+      await cardOf(page, second.requestId).locator(".pf-v6-c-alert").filter({ hasText: "Rejected" }).waitFor();
+      shown.push(...await shownText(page));
+      api.state.items = [];
+      await page.reload();
+      await panel(page).getByRole("heading", { name: "Nothing waiting for you" }).waitFor();
+      shown.push(...await shownText(page));
+      // The mockup's live usage and its notice channels: the API has neither. Recently decided waits for an API filter (#304).
+      const MOCKUP_ONLY = ["Live usage · last 14 days", "Resource", "Now", "7d avg", "p95", "Peak", "Quota", "How approvers were told", "Recently decided"];
+      const fromMockup = mockupBlock("isApprovals", "isPolicies").filter((t) => !MOCKUP_ONLY.includes(t));
+      const data = [...[ola, second].flatMap((r) => [r.requestId, r.namespace, r.clusterId, ...r.approval.reasons]), USERS.approver.username];
+      // The mockup's logic builds these (Main.dc.html, approvalsView()).
+      const FROM_LOGIC = [/^\d+ waiting for you$/, /^\d+ of \d+ approvals$/, /^req-\d{8}-\d{4} · [a-z-]+ on [A-Z_]+$/, /^update · requested by ola@ephico2real\.com · (\d{2}:\d{2}|[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2})$/,
+        /^Approved · \d+ of \d+$/, /^The requester sees your reason: “Use the medium tier”\. Nothing was written to Git, and any reservation is released\.$/, /^[✓!✕]$/, /^\d+ from approver-platform$/];
+      const LOGIC = ["nothing waiting for you", "The request is approved. The worker opens the bot PR now; it merges when CI and the cmapi check pass, and Argo CD applies it.", "Rejected",
+        "A reason is required before the request can be rejected.", "Reject", "Confirm reject", "Role cmapi-approver", "Keycloak token", "Not the requester", "requested by ola", "Required",
+        "So far", "none", "rejected", "nonprod", "Use the medium tier"];
+      counts.approvals = compare("Approvals", fromMockup, shown, [...data, ...LOGIC, ...LIBRARY], FROM_LOGIC);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    console.log(`  strings of the mockup compared: ${JSON.stringify(counts)}`);
   });
 
   // The theme class starts CSS transitions of PatternFly's colours. A screenshot or an axe scan in the next statement can read a
@@ -436,6 +933,52 @@ try {
       assert.deepEqual(errors, []);
       await context.close();
     }
+  });
+
+  await check("7 the Workflow, New namespace and Approvals tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+    const VIEWS = [
+      ["workflow", "requester", [applied, mergeFailed], async (page) => { await open(page, `#workflow?request=${applied.requestId}`); await banner(page).waitFor(); }],
+      ["new", "requester", undefined, async (page) => {
+        await newTab(page);
+        await fillForm(page);
+        await panel(page).getByRole("button", { name: "Dry run" }).click();
+        await panel(page).getByText("Dry run passed · nothing written").waitFor();
+      }],
+      ["approvals", "approver", [ola, second], async (page) => {
+        await open(page, "#approvals");
+        // The reason field is a state that opens on a click: it is scanned too.
+        await cardOf(page, second.requestId).getByRole("button", { name: "Reject" }).click();
+        await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").waitFor();
+      }]
+    ];
+    let scans = 0;
+    for (const [tab, user, items, reach] of VIEWS) {
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await fresh({ user, items, width });
+        await reach(page);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          // A click before the scan (Reject) starts transitions of its own, which can start after the first wait began.
+          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          assert.equal(await running(page), 0, `${tab} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${tab} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${tab} ${width} ${theme}: no leftover placeholder`);
+          await page.screenshot({ path: join(out, `${tab}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${tab} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log(`  ${VIEWS.length} tabs, 3 widths, 2 themes, ${scans} axe scans`);
   });
 
   await check("sign out ends the session at the issuer", async () => {

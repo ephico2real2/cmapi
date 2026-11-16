@@ -17,11 +17,12 @@ and `tests/parity.test.mjs` fails if a string it shows is missing here.
 
 ## The portal on the API (issue #204)
 
-- **Settings.** `config.json` lies beside `index.html`. It gives `apiUrl`, `issuer`, `clientId`, `instance`, `displayName` and `environments`. `config.example.json` is a sample. With no valid `config.json`, the portal shows "The portal is not configured." and starts nothing.
+- **Settings.** `config.json` lies beside `index.html`. It gives `apiUrl`, `issuer`, `clientId`, `instance`, `displayName`, `environments` and `otherInstances` (the portals of the other instances, each an https URL). `config.example.json` is a sample. With no valid `config.json`, the portal shows "The portal is not configured." and starts nothing.
 - **Sign-in.** Authorization Code with PKCE (`S256`) through `oidc-client-ts` and `react-oidc-context` (`src/portal/auth.ts`). The tokens stay in the memory of the page. `docs/15-keycloak-integration.md` gives the flow and the sources.
-- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe` and `useRequests`.
+- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`.
 - **Permissions.** A tab shows only when `GET /api/v1/me` gives its permission in `access.permissions`. The permission of each call comes from the OpenAPI document (`src/api/permissions.generated.ts`). The browser reads no role from the token.
-- **On the API today:** the page frame and the Requests tab. Each other tab says "This tab is not on the API yet."
+- **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each opening of the New namespace form, sent again on each retry of that form (#282, docs/04 "Rules for each call"). The API keeps a key only with a request that it made, so a retry after a refusal or a lost answer cannot make a second request. Leaving the tab ends the form, and the next one has a new key. Approve and reject take no key: they are not writes to a namespace.
+- **On the API today (#204, #300):** the page frame and the Workflow, New namespace, Requests and Approvals tabs. Each other tab says "This tab is not on the API yet."
 
 The states of the Requests tab:
 
@@ -33,12 +34,26 @@ The states of the Requests tab:
 | Error | 5xx, or no answer from the network | "The requests did not load." with the problem's `detail`, and "Try again" |
 | 401 | The token ended | Nothing: one renewal with the refresh token, then the same call. If Keycloak refuses, or the API answers 401 again, "Sign-in did not complete." with "Sign in again" |
 
+The states of the Workflow, New namespace and Approvals tabs (#300) follow the same rules: a status line and a skeleton
+while loading, `EmptyState` with `LockIcon` and the problem's `detail` for a 403, a danger `Alert` with the `detail` and
+"Try again" for a 5xx or no answer, and the client's renewal for a 401.
+
+| Tab | Loading | Empty | Forbidden | Error |
+|---|---|---|---|---|
+| Workflow | "Loading the request…" | "No requests on the {instance} instance yet." with no request in the address; "No events yet." (the mockup's) for a request with none | "You do not have permission to see this request." | "The request did not load." (a 404 too: its detail names the request) |
+| New namespace | "Loading the form…" | none: the form | "You do not have permission to request a namespace." | "The form did not load." |
+| Approvals | "Loading approvals…" | The mockup's "Nothing waiting for you" card | "You do not have permission to see approvals." | "The approvals did not load." |
+
+A refusal of a write is the API's decision, not an error: it shows as the mockup's "Refused: {code}" callout with the
+problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted" for the create. A 5xx of a write says
+"Not submitted" and that the same submit can be sent again.
+
 ### Where the portal's Requests tab differs from the mockup
 
 | Difference | Why |
 |---|---|
 | "Where it is" shows the last event of the request and who made it | The mockup's step number comes from its sample scenarios. The API has events, and no step count |
-| "Open at current step" is off, with one line that says why | The Workflow tab is not on the API yet |
+| "Open at current step" opens the Workflow tab on that request (`#workflow?request=<id>`) | The mockup opens a sample scenario at its step |
 | No "Replay a policy rejection" and no "Replay a wrong-instance request" | They open sample scenarios of the mockup |
 | No instance buttons | The mockup says "Mockup only": each instance is its own deployment |
 | "Sign out" in the page frame | A signed-in person needs it. The mockup has no session |
@@ -46,6 +61,46 @@ The states of the Requests tab:
 | A tab that the person has no permission for is not shown | `docs/02`: the portal shows only the actions that a person can take |
 | Words for loading, forbidden and error | The mockup's model cannot wait and cannot fail, so it has no words for them |
 | The address is `#requests?q=...&state=...` | One portal serves one instance, so the address has no instance |
+
+### Where the portal's Workflow tab differs from the mockup
+
+| Difference | Why |
+|---|---|
+| A step is one event of `GET /api/v1/requests/{id}/events`: its name, its actor as the lane, its note, its status and its time | The mockup's steps are scripted scenarios. The API records events, the same for every plugin (docs/01, "The workflow is generic") |
+| The current position is always the last event, and no step comes after it | The API knows what happened, not what will happen next |
+| The scenario buttons are the five newest requests, and the one in the address | The mockup's scenarios are samples |
+| No "Systems involved" strip, no "Capacity · cmapi-capacity" panel and no "Argo CD" panel | The API has no per-system state and no capacity or Argo CD data for a request. `docs/diagrams/portal-architecture/README.md`, row 8: "The design names no call for the Capacity, Pull request and Argo CD panels" |
+| The Pull request panel shows the PR number as a link, its branch and each file with added or changed, and no check list or reviewers | `PrView` has the number, URL, branch and head. The files come from the request |
+| "No pull request. Nothing was written to Git." for a finished request with no PR | The mockup's sentence says "rejected at plan time", which is true of its sample only |
+| An open request is read again every 5 seconds until it ends | So that the tab follows a request to `synced` or `merge_failed` (#286) |
+| "No requests on the {instance} instance yet." | The mockup always has a scenario |
+
+### Where the portal's New namespace tab differs from the mockup
+
+| Difference | Why |
+|---|---|
+| A Cluster field: the clusters of the environment and region that take writes, from `GET /api/v1/clusters` | No call ranks clusters or reserves one (#303). The create needs the cluster in its path |
+| The Placement preview shows the chosen cluster and, after the dry run, its capacity check (status, cpu and memory, the binding resource) | The same: nothing is ranked or reserved until #303 |
+| The approval card says "Not planned yet" until the dry run, then shows the plan's rule, reasons and self-approval rule | The approval belongs to the API (docs/02). The mockup computes it in the browser |
+| The dry run's checks are Environment served, Capacity, Expiry and Approval | `PlanView` has no Kyverno bundle or kubeconform result. The mockup's lines for them are samples |
+| The tiers come from `GET /api/v1/tiers` for the environment, and the custom tier is not offered | The form has no fields for custom sizes |
+| Team, Team DL and Justification start empty; Team DL and the name are required | The mockup's values are its sample. `NamespaceCreate` requires the team DL |
+| The default environment is the first one with a cluster that takes writes | So that the form can be sent as it opens |
+| The links to the other portals come from `otherInstances` of config.json, named "{instance} portal" | The mockup's links are samples |
+| The expiry date's limits are tomorrow and 180 days from today, UTC | The mockup's limits are fixed to its sample day |
+| Submit opens the Workflow tab on the new request | As the mockup's Submit opens its workflow |
+
+### Where the portal's Approvals tab differs from the mockup
+
+| Difference | Why |
+|---|---|
+| The list is `GET /api/v1/requests?status=pending_approval&approver=me` | docs/diagrams/portal-architecture/README.md, row 23 |
+| No "Live usage" table and no "How approvers were told" | The API has neither |
+| No "Recently decided" card | The API has no filter for it (#304) |
+| "Your eligibility" shows the person's roles that grant `requests:approve`, and whether they opened the request | Group membership is decided by the API: `approver=me` lists only what the person's groups can approve |
+| Approve stays on for the person's own request, and the API's refusal shows ("Refused: self-approval") | The API decides who may approve (docs/14). The page does not compute a permission |
+| A decision stays on its card, with the mockup's callout, until the tab is left | The mockup's behaviour. The list is read again when the tab opens next |
+| "Approved by you · N of M" says "Your approval is recorded: N of M. Nothing is in Git yet." | The mockup's sentence names its sample groups |
 
 The demo build has none of these differences. The sections below describe it.
 
@@ -98,4 +153,4 @@ Consequences in the demo build:
 Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
 (`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
 check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
-source 36 ways, one at a time, and each must fail the suite.
+source 65 ways, one at a time, and each must fail the suite or the checks named with it.
