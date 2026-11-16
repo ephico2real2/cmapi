@@ -19,10 +19,11 @@ and `tests/parity.test.mjs` fails if a string it shows is missing here.
 
 - **Settings.** `config.json` lies beside `index.html`. It gives `apiUrl`, `issuer`, `clientId`, `instance`, `displayName`, `environments` and `otherInstances` (the portals of the other instances, each an https URL). `config.example.json` is a sample. With no valid `config.json`, the portal shows "The portal is not configured." and starts nothing.
 - **Sign-in.** Authorization Code with PKCE (`S256`) through `oidc-client-ts` and `react-oidc-context` (`src/portal/auth.ts`). The tokens stay in the memory of the page. `docs/15-keycloak-integration.md` gives the flow and the sources.
-- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`.
+- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`; for the Quotas and KPIs tabs (#301) `useQuotas`, `useSuggest`, `useExport`, `useNamespace`, `useCatalog`, `usePatchPlan` (the dry run of a change), `useSubmitPatch` and `useKpi`.
 - **Permissions.** A tab shows only when `GET /api/v1/me` gives its permission in `access.permissions`. The permission of each call comes from the OpenAPI document (`src/api/permissions.generated.ts`). The browser reads no role from the token.
 - **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each request that the New namespace form sends (#282, docs/04 "Rules for each call"). The same form sent again, after a refusal or a lost answer, carries the same key, so it cannot make a second request. A form changed since its last submit is another request and gets a new key: the API answers an old key with another body with 409 `idempotency-replay`. Leaving the tab ends the form, and the next one starts with no key. Approve and reject take no key: they are not writes to a namespace. Each of the three sends one call at a time: a second click while the first is in flight sends nothing.
-- **On the API today (#204, #300):** the page frame and the Workflow, New namespace, Requests and Approvals tabs. Each other tab says "This tab is not on the API yet."
+- **The quota change (#301)** is `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`, with `tier`, or `tier: custom` and `quota`. Its dry run (`?dryRun=true`) and its submit each send `If-Match`: the `etag` of `GET .../namespaces/{ns}`, quoted (RFC 9110, section 8.8.3). Submit sends the plan on the page, with the etag that it was planned at: a form with no plan, or changed since its plan, is planned first. A 412 `precondition-failed` or 428 `precondition-required`, of the dry run or of the submit, reads the namespace again and plans the same change on its new etag (docs/04, If-Match); the stale etag is never sent again, and the next Submit sends the new plan with the same `Idempotency-Key`. Its `Idempotency-Key` belongs to the change (cluster, namespace and body): the same change sent again keeps it, a changed one gets a new one. One submit at a time, as above. The export (`GET /api/v1/quotas:export`) is audited by the API, so it is sent once for each click and not cached.
+- **On the API today (#204, #300, #301):** the page frame and the Workflow, New namespace, Quotas, Requests, Approvals and KPIs tabs. Each other tab says "This tab is not on the API yet."
 
 The states of the Requests tab:
 
@@ -43,10 +44,14 @@ while loading, `EmptyState` with `LockIcon` and the problem's `detail` for a 403
 | Workflow | "Loading the request…" | "No requests on the {instance} instance yet." with no request in the address; "No events yet." (the mockup's) for a request with none | "You do not have permission to see this request." | "The request did not load." (a 404 too: its detail names the request) |
 | New namespace | "Loading the form…" | none: the form | "You do not have permission to request a namespace." | "The form did not load." |
 | Approvals | "Loading approvals…" | The mockup's "Nothing waiting for you" card | "You do not have permission to see approvals." | "The approvals did not load." |
+| Quotas | "Loading quotas…" | The mockup's "No namespace on the {instance} instance matches these filters." | "You do not have permission to see quotas." | "The quotas did not load."; a 400 `invalid-cursor` is the mockup's "This page link is out of date" callout instead |
+| KPIs | "Loading the KPIs…" | none: the API always answers with its figures | "You do not have permission to see the KPIs." | "The KPIs did not load." |
 
 A refusal of a write is the API's decision, not an error: it shows as the mockup's "Refused: {code}" callout with the
-problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted" for the create. A 5xx of a write says
-"Not submitted" and that the same submit can be sent again.
+problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted" for the create. A refused quota change
+shows the mockup's "{status} {code} · nothing written" with "No request was stored and nothing was written to Git." and the
+`detail` (a 412 `precondition-failed`, a 409 `change-pending`). A 5xx of a write says "Not submitted" and that the same
+submit can be sent again.
 
 ### Where the portal's Requests tab differs from the mockup
 
@@ -102,6 +107,49 @@ problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted
 | Approve stays on for the person's own request, and the API's refusal shows ("Refused: self-approval") | The API decides who may approve (docs/14). The page does not compute a permission |
 | A decision stays on its card, with the mockup's callout, until the tab is left | The mockup's behaviour. The list is read again when the tab opens next |
 | "Approved by you · N of M" says "Your approval is recorded: N of M. Nothing is in Git yet." | The mockup's sentence names its sample groups |
+
+### Where the portal's Quotas tab differs from the mockup
+
+The API has no usage analysis yet (#310): no verdict, no recommendation and no live usage. Those parts are left out.
+
+| Difference | Why |
+|---|---|
+| No Verdict column, no "Usage verdict", no "Recommendation" with "Use this size" | `QuotaRow` has no verdict and no recommendation (#310) |
+| The attention chips are All, "Near limit ≥ 80%", "Open request" and "Tier outdated": the API's `facets` and `state`. No "Quota tight", "Recommendation", "Oversized" or "Idle" | Those four need the usage analysis (#310). "Tier outdated" is the API's third facet, which the mockup does not have |
+| An "Attention" column instead of Verdict: the facets that hold for the row (`near-limit` at a use of 80% or more, `open-request`, `tier-outdated`), in the API's words | The row's state the API has. The tests are the API's `FACETS` (`cmapi/src/cmapi/plugins/quotas`) |
+| The heading says "{N} namespaces in scope · {M} near the limit" | "Need attention" counts the severity of the mockup, whose level 1 needs the usage analysis (#310); the API counts near-limit |
+| The lede ends at "not what they consume."; the footnote has no "verdicts from the 02:00 usage sweep" | No Thanos read and no sweep is built (#310) |
+| No "Live usage · last 14 days" in a planned change | `PlanView` has no usage (#310) |
+| The plan's checks are Environment served, If-Match matches the current ETag, Capacity on {cluster} and Approval, as in the New namespace tab | `PlanView` has no Kyverno result and no headroom before and after; the capacity check gives its status, its share of CPU and memory and the binding resource |
+| The size hint says that custom sizes go "in the same PATCH", and the detail's footnote names `GET /api/v1/clusters/{c}/namespaces/{ns}` | `.../namespaces/{ns}/quota` is not built (docs/04, "Designed and not built"); the namespace PATCH takes `quota` with `tier: custom` |
+| The sizes are the catalog's tiers of the namespace's environment (`GET /api/v1/tiers`), the Tier filter the catalog's tier names, and the custom fields take the catalog's `custom` min, max and step | The mockup's sizes and bounds are its sample. The browser refuses a value outside them, and so does the API |
+| The Cluster filter lists `GET /api/v1/clusters` | The mockup lists the clusters of its sample rows |
+| A suggestion shows its cluster and why it matched | `Suggestion` has the name, the cluster and why; no environment, team or tier |
+| The lock says "{request} holds this namespace in cmapi" and "409 change-pending" | The row has the request's ID only, and the API's code for a held namespace is `change-pending` (`cmapi/src/cmapi/core/db/repo.py`) |
+| The 202 shows the request's ID, status, cluster, namespace, approval rule and remaining approvals, and links | The answer of the API, not the mockup's sample body |
+| The export has a Download button: the file of the API's CSV | A person needs the file. The callout and the first rows are the mockup's |
+| A page size change keeps the first namespace in view only when sorted by name; another sort starts at the first page | The API places a page by name only (`startsWith`) |
+| An address that names a namespace (`#quotas?ns={cluster}/{name}`) opens on the page that starts with it | So that a shared link shows the namespace |
+| The change form is shown only to a person with `namespaces:write` | docs/02: the portal shows only the actions that a person can take |
+| "Searching…" in the type-ahead while the matches load, and "The matches did not load." for a failed one | The mockup's model cannot wait and cannot fail |
+
+### Where the portal's KPIs tab differs from the mockup
+
+`GET /api/v1/admin/kpi` gives the figures of the process that answered, the database and the live KPIs of
+`docs/17-kpis.md`. #147 and #311 list what it does not give yet.
+
+| Difference | Why |
+|---|---|
+| One component card, the process that answered (`cmapi-api`), not three | `components` has one entry (#147) |
+| CPU, Event-loop lag p99, Volume, Volume trend and Last backup read "unavailable" | The API gives CPU time since the start, not a rate, and no lag, volume or backup (#311). "unavailable" is the mockup's word for a figure that nothing reports |
+| A component's line is its CPU time since the container started, its CPU limit and when it was measured, not replicas, restarts and OOM kills | The API has no replica, restart or OOM figure (#311) |
+| Throttling is the share of periods since the container started | `cpuThrottledPeriods` and `cpuPeriods` count from the start (#311) |
+| The KPI cards are the API's live KPIs, in its order, with "target proposed" (or "agreed") for the status | `KpiRow` has no result against the target, and the page does not parse the target text (#311) |
+| No "30 days ·" in the heading, and the lede says the KPIs come from cmapi's database | The KPIs have no window (#311) |
+| The database's size is one figure, "Size", with the WAL; "Pools" is the answering process's pool | `sizeBytes` is the whole database, and the pool is the process's own |
+| The database footnote says the figures are measured when the page asks | The API reads them on each call; no worker measures them every 30 s |
+| No Dashboards card | No PersesDashboard ships in `deploy/` yet, and docs/17 says the dashboards are not proven on a cluster |
+| The API's `unavailable` sentence is under the cards | It is how to read a null value |
 
 ### On CRC
 
@@ -170,4 +218,4 @@ Consequences in the demo build:
 Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
 (`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
 check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
-source 65 ways, one at a time, and each must fail the suite or the checks named with it.
+source 119 ways, one at a time, and each must fail the suite or the checks named with it.

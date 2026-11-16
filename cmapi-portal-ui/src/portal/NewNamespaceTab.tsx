@@ -13,9 +13,9 @@ import type { Cluster, NamespaceCreate, Plan, TierCatalog } from "../api/hooks";
 import { Callout, Checks, Choices, Empty, Head, Hint, KV, Panel, Pill, Small } from "../components/ui";
 import type { Check } from "../components/ui";
 import { dayName, daysUntil, isoDay, policyOf } from "./format";
+import { CAPACITY_TONE, capacityCheck, capacityLine, MARK, sentence } from "./plan";
 import type { TabProps } from "./route";
 
-const MARK = { pass: "✓", warn: "!", fail: "✕" } as const;
 /** docs/02: a namespace lives at most 180 days from its creation, and prod never expires. */
 const MAX_LIFETIME_DAYS = 180;
 const ANY_REGION = "any";
@@ -51,9 +51,6 @@ function folderOf(plan: Plan): string {
   for (let k = 0; parts.every((p) => k < p.length && p[k] === parts[0][k]); k++) shared.push(parts[0][k]);
   return `${shared.join("/")}/`;
 }
-
-/** The API's reasons, as one sentence: "dev create: 1 from approver-platform; threshold beyondTier: +1 approver-platform." */
-const sentence = (reasons: string[]): string => (reasons.length ? `${reasons.join("; ")}.` : "");
 
 /** The mockup's approval card, from the plan's approval: who must approve, and why. */
 function approvalCard(plan: Plan, env: string): { tone: string; title: string; detail: string; rule: string } {
@@ -298,20 +295,4 @@ export function NewNamespaceTab({ config, open }: TabProps) {
       </Grid>
     </Stack>
   );
-}
-
-const CAPACITY_TONE = { fits: "ok", warn: "warn", exceeded: "bad", unknown: "" } as const;
-
-function capacityCheck(plan: Plan): Check {
-  const c = plan.capacity;
-  if (c.status === "fits") return { s: "pass", mark: MARK.pass, main: "Capacity", note: c.fresh ? "fits on fresh data" : "fits on stale data" };
-  if (c.status === "exceeded") return { s: "fail", mark: MARK.fail, main: "Capacity", note: "capacity-exceeded" };
-  return { s: "warn", mark: MARK.warn, main: "Capacity", note: c.status };
-}
-
-/** "cpu 3% · memory 3% · binds on cpu", from the capacity check's fields when it has them. */
-function capacityLine(plan: Plan): string {
-  const c = plan.capacity as Plan["capacity"] & { cpu?: unknown; memory?: unknown };
-  const pct = (x: unknown) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "—");
-  return `cpu ${pct(c.cpu)} · memory ${pct(c.memory)}${c.bindingResource ? ` · binds on ${c.bindingResource}` : ""}`;
 }

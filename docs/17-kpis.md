@@ -95,7 +95,7 @@ What cmapi does not measure, on purpose:
 *Solid boxes are built. Dashed boxes are not built or not proven on a cluster.*
 
 ```text
-database (change_requests, approvals) -> GET /api/v1/admin/kpi -> the portal's KPIs tab (the tab is not built on the API)
+database (change_requests, approvals) -> GET /api/v1/admin/kpi -> the portal's KPIs tab (#301; proven on a stand-in, not on a cluster)
     live: lead-time-auto-p90, lead-time-approved-p90, approval-turnaround-p50, approval-turnaround-p90,
           auto-approval-rate, self-service-rate, change-failure-rate
 the process's own cgroup, and pg_stat_activity -> the same response: components, database (figures, not KPIs)

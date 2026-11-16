@@ -6,9 +6,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
+import { quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -29,12 +30,12 @@ const AUTH = `${issuer.url}/protocol/openid-connect/auth`;
 let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
-async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440 } = {}) {
+async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
-    tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body });
+    tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -337,13 +338,15 @@ try {
     await context.close();
   });
 
-  await check("5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester", async () => {
+  await check("5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator", async () => {
     // The stand-in's access token is an opaque string, so the browser cannot read a role from it.
     const base = ["Workflow", "Quotas", "Expiration", "Requests", "Policies", "Capacity"];
     const want = {
       viewer: base,
       approver: ["Workflow", "Quotas", "Expiration", "Requests", "Approvals", "Policies", "Capacity"],
-      requester: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity"]
+      requester: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity"],
+      // KPIs is operator and above: reports:read (docs/14).
+      operator: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity", "KPIs"]
     };
     for (const [user, tabs] of Object.entries(want)) {
       const { context, page, errors } = await fresh({ user });
@@ -1108,6 +1111,716 @@ try {
       }
     }
     console.log(`  ${VIEWS.length} tabs, 3 widths, 2 themes, ${scans} axe scans`);
+  });
+
+  // Portal slice 3 (#301): the Quotas and KPIs tabs. The fleet is 70 namespaces of the stand-in, in dev and rnd, with the
+  // catalog's tiers for both. Each expectation is written from the mockup's forms and the API's contract, not from the page.
+  const fleet = quotasFrom(70);
+  const withRnd = { ...SAMPLES.operations.tiers_tiers.response.body, environments: { ...SAMPLES.operations.tiers_tiers.response.body.environments, rnd: SAMPLES.operations.tiers_tiers.response.body.environments.dev } };
+  const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.clusterId < b.clusterId ? -1 : a.clusterId > b.clusterId ? 1 : 0);
+  const named = [...fleet].sort(byName);
+  const UNIT = { m: 1e-3, Mi: 1 / 1024, Gi: 1, "": 1 };
+  const num = (q) => { const [, n, u = ""] = /^([\d.]+)(m|Mi|Gi)?$/.exec(q); return Number(n) * UNIT[u]; };
+  const one = (n) => String(Math.round(n * 10) / 10);
+  // The mockup's row (quotaView(): list): name, cluster, env, tier, "used / hard cores", "used / hard Gi", "used / hard" pods,
+  // and then the attention counts of the API that hold for the row, and the row's button.
+  const expectedQuota = (r, selected = false) => [r.name, r.clusterId, r.env, r.tier, `${one(num(r.cpu[0]))} / ${one(num(r.cpu[1]))} cores`, `${one(num(r.memory[0]))} / ${one(num(r.memory[1]))} Gi`,
+    `${r.pods[0]} / ${r.pods[1]}`, [r.used >= 0.8 && "near-limit", r.openRequest && "open-request", r.tierOutdated && "tier-outdated"].filter(Boolean).join(" ") || "—", selected ? "Selected" : "Manage"];
+  const quotaRows = (page) => page.locator("table[aria-label=Quotas] tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
+  const quotaCalls = () => calls("/api/v1/quotas");
+  // The tab also reads the counts of its heading and of All: the page's call is one of the calls, not always the last one.
+  const sentQuery = (want, why) => assert.ok(quotaCalls().some((c) => isDeepStrictEqual(c.query, want)), `${why ?? "the page's call"}: ${JSON.stringify(want)} was not sent; the calls were ${JSON.stringify(quotaCalls().map((c) => c.query))}`);
+  const openQuotas = async (page, hash = "#quotas") => {
+    await open(page, hash);
+    await page.locator("table[aria-label=Quotas] tbody tr").first().waitFor();
+  };
+  async function waitQuotaRange(page, want) {
+    try {
+      await page.waitForFunction((text) => document.querySelector("[role=tabpanel]")?.innerText.includes(text), want);
+    } catch {
+      assert.fail(`the Quotas pager never said "${want}"; the last call was ${JSON.stringify(quotaCalls().at(-1))}`);
+    }
+  }
+  const chips = async (page, name) => (await panel(page).getByRole("group", { name }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
+  const quotaFresh = async (options) => {
+    const opened = await fresh({ quotas: fleet, ...options });
+    api.state.tiers = withRnd;
+    return opened;
+  };
+
+  await check("11 Quotas: the rows of GET /api/v1/quotas cell by cell; the page, the sort, the filters, the state chips, the letter jump and the search are API parameters", async () => {
+    const { context, page, errors } = await quotaFresh();
+    await openQuotas(page);
+    assert.deepEqual(quotaCalls()[0].query, { limit: "50" }, "the first page: the mockup's 50 rows, sorted by name");
+    const nearLimit = fleet.filter((r) => r.used >= 0.8).length;
+    assert.match(await panel(page).innerText(), new RegExp(`70 namespaces in scope · ${nearLimit} near the limit`));
+    assert.deepEqual(await quotaRows(page), named.slice(0, 50).map((r, i) => expectedQuota(r, i === 0)), "the first page, cell by cell; the first namespace is shown below");
+    assert.match(await panel(page).innerText(), /1–50 of 70 · A–Z/);
+    assert.deepEqual(await chips(page, "Needs attention"), ["All 70", `Near limit ≥ 80% ${nearLimit}`, `Open request ${fleet.filter((r) => r.openRequest).length}`, `Tier outdated ${fleet.filter((r) => r.tierOutdated).length}`]);
+    const near = page.locator("table[aria-label=Quotas] tbody tr").first().locator("[role=progressbar]").first();
+    assert.equal(await near.getAttribute("aria-valuenow"), String(Math.round(num(named[0].cpu[0]) / num(named[0].cpu[1]) * 100)), "the CPU meter's value is used over hard");
+
+    // Cursor paging: forward to the last page and back.
+    const next = page.getByRole("button", { name: "Next ›" }).first(), prev = page.getByRole("button", { name: "‹ Previous" }).first();
+    assert.equal(await prev.getAttribute("aria-disabled"), "true");
+    await next.click();
+    await waitQuotaRange(page, "51–70 of 70 · A–Z");
+    assert.ok(quotaCalls().at(-1).query.cursor, "the next page sends the API's cursor");
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(50).map((r) => r.name));
+    assert.equal(await next.getAttribute("aria-disabled"), "true", "Next is off on the last page");
+    await prev.click();
+    await waitQuotaRange(page, "1–50 of 70 · A–Z");
+
+    // The page size keeps the first namespace in view: the API places a page by name (startsWith).
+    await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).click();
+    await waitQuotaRange(page, "1–25 of 70 · A–Z");
+    sentQuery({ limit: "25", startsWith: named[0].name });
+    // The sort: the highest use first.
+    await panel(page).getByRole("group", { name: "Sort" }).getByRole("button", { name: "% used" }).click();
+    await waitQuotaRange(page, "1–25 of 70 · most used first");
+    sentQuery({ sort: "used", limit: "25" });
+    const used = [...fleet].sort((a, b) => b.used - a.used || byName(a, b));
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), used.slice(0, 25).map((r) => r.name));
+    // A state chip: the API filters, and the other chips and All keep their counts.
+    await panel(page).getByRole("group", { name: "Needs attention" }).getByRole("button", { name: /^Near limit/ }).click();
+    await waitQuotaRange(page, `1–25 of ${nearLimit} (filtered from 70) · most used first`);
+    assert.deepEqual(quotaCalls().filter((c) => c.query.state).at(-1).query, { state: "near-limit", sort: "used", limit: "25" });
+    assert.ok((await quotaRows(page)).every((r) => r[7].includes("near-limit")));
+    assert.equal((await chips(page, "Needs attention"))[0], "All 70", "All counts the rows of the other filters");
+    await panel(page).getByRole("group", { name: "Needs attention" }).getByRole("button", { name: /^Near limit/ }).click();
+    // The environment and the tier.
+    await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "dev", exact: true }).click();
+    await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: "small", exact: true }).click();
+    const devSmall = fleet.filter((r) => r.env === "dev" && r.tier === "small");
+    await waitQuotaRange(page, `1–${devSmall.length} of ${devSmall.length} (filtered from 70) · most used first`);
+    sentQuery({ env: "dev", tier: "small", sort: "used", limit: "25" });
+    assert.equal(new URL(page.url()).hash, "#quotas?env=dev&tier=small&sort=used&limit=25", "the address holds the view");
+    assert.deepEqual(await chips(page, "Tier"), ["All", "small", "medium", "large", "custom"], "the tiers of the catalog, in its order");
+
+    // The letter jump: sort by name, and the page starts at the first name with the letter.
+    await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "All", exact: true }).click();
+    await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: "All", exact: true }).click();
+    const letters = panel(page).getByRole("group", { name: "Jump to the first namespace starting with a letter" });
+    const ps = fleet.filter((r) => r.name.startsWith("p")).length;
+    const p = letters.getByRole("button", { name: `P: ${ps} namespace${ps === 1 ? "" : "s"}` });
+    await p.click();
+    await page.waitForFunction(() => document.querySelector("table[aria-label=Quotas] tbody tr td")?.innerText.startsWith("p"));
+    sentQuery({ limit: "25", startsWith: "p" });
+    assert.match(await p.getAttribute("class"), /pf-m-primary/, "the letter of the page's first name is marked");
+    assert.equal(await letters.getByRole("button", { name: "Z: 0 namespaces" }).getAttribute("aria-disabled"), "true", "a letter with no namespace is off");
+
+    // Show all matches: the search is the API's q, and its chip clears it.
+    await page.getByRole("combobox", { name: "Find a namespace, team or app" }).fill("LEDGER");
+    await panel(page).getByRole("button", { name: "Show all matches" }).click();
+    const ledger = fleet.filter((r) => r.name.includes("ledger"));
+    await waitQuotaRange(page, `1–${ledger.length} of ${ledger.length} (filtered from 70) · A–Z`);
+    sentQuery({ q: "LEDGER", limit: "25" });
+    await panel(page).getByRole("button", { name: 'matching "LEDGER" ✕' }).click();
+    await waitQuotaRange(page, "1–25 of 70 · A–Z");
+
+    // The same address in a new page keeps the view.
+    await panel(page).getByRole("group", { name: "Sort" }).getByRole("button", { name: "Needs attention" }).click();
+    await waitQuotaRange(page, "1–25 of 70 · most urgent first");
+    const again = await context.newPage();
+    await again.goto(page.url());
+    await again.locator("table[aria-label=Quotas] tbody tr").first().waitFor();
+    assert.equal(await again.getByRole("group", { name: "Sort" }).getByRole("button", { name: "Needs attention" }).getAttribute("aria-pressed"), "true");
+    assert.deepEqual(await quotaRows(again), await quotaRows(page));
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("11 Quotas type-ahead: GET /api/v1/quotas:suggest as one types; the keyboard picks a match, and the page starts at it", async () => {
+    const { context, page, errors } = await quotaFresh();
+    await openQuotas(page);
+    const box = page.getByRole("combobox", { name: "Find a namespace, team or app" });
+    await box.fill("p");
+    await page.waitForTimeout(500);
+    assert.equal(calls("/api/v1/quotas:suggest").length, 0, "one character asks nothing: the API answers fewer than two with no match");
+    assert.equal(await box.getAttribute("aria-expanded"), "false");
+    await box.fill("pay");
+    const options = page.getByRole("listbox").getByRole("option");
+    const want = quotaSuggest(fleet, "pay");
+    await page.waitForFunction((n) => document.querySelectorAll("#q-sug [role=option]:not([aria-disabled=true])").length === n, want.length);
+    assert.deepEqual(calls("/api/v1/quotas:suggest").map((c) => c.query), [{ q: "pay" }], "one call, for the text when the typing stopped");
+    assert.equal(await box.getAttribute("aria-expanded"), "true");
+    assert.deepEqual((await options.allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), want.map((s) => `${s.name} ${s.clusterId} ${s.why}`));
+    await box.press("ArrowDown");
+    await box.press("ArrowDown");
+    assert.equal(await box.getAttribute("aria-activedescendant"), "q-opt-1", "the second match is active");
+    assert.equal(await options.nth(1).getAttribute("aria-selected"), "true");
+    await box.press("Enter");
+    const picked = want[1];
+    await page.waitForFunction((name) => document.querySelector("table[aria-label=Quotas] tbody tr td")?.innerText === name, picked.name);
+    sentQuery({ limit: "50", startsWith: picked.name }, "the filters start again, and the page starts at the match");
+    assert.deepEqual((await quotaRows(page))[0].at(-1), "Selected", "the match is the namespace shown below");
+    assert.equal(new URL(page.url()).hash, `#quotas?ns=${encodeURIComponent(`${picked.clusterId}/${picked.name}`)}`);
+    assert.equal(await box.inputValue(), "");
+    await panel(page).getByRole("heading", { name: `${picked.name} on ${picked.clusterId}` }).waitFor();
+    // No match, and Escape.
+    await box.fill("zzz");
+    await page.getByRole("listbox").getByText('No namespace matches "zzz".').waitFor();
+    await box.press("Escape");
+    assert.equal(await box.getAttribute("aria-expanded"), "false");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("11 Quotas export: GET /api/v1/quotas:export with the list's filters and sort; its rows, its first lines and the file", async () => {
+    const { context, page, errors } = await quotaFresh();
+    await openQuotas(page, "#quotas?env=dev&sort=used");
+    await panel(page).getByRole("button", { name: "Export CSV" }).click();
+    const csv = quotaCsv(fleet, quotaQueryOf(new URLSearchParams("env=dev&sort=used")));
+    const lines = csv.split("\r\n").filter(Boolean);
+    const file = `quotas-nonprod-${new Date().toISOString().slice(0, 10)}.csv`;
+    const callout = panel(page).locator(".pf-v6-c-alert").filter({ hasText: file });
+    await callout.waitFor();
+    assert.deepEqual(calls("/api/v1/quotas:export").map((c) => c.query), [{ env: "dev", sort: "used" }], "one export, of the list's filters, with no page");
+    assert.match(await callout.innerText(), new RegExp(`${file} · ${lines.length - 1} rows`));
+    assert.match(await callout.innerText(), /GET \/api\/v1\/quotas:export\?env=dev&sort=used streams every row matching the current filters, not only this page, in the current sort order\. Capped at 10,000 rows and recorded in the audit log\./);
+    assert.equal(await panel(page).locator(".pf-v6-c-code-block").innerText(), [...lines.slice(0, 5), `… ${lines.length - 5} more rows`].join("\n"));
+    const [download] = await Promise.all([page.waitForEvent("download"), panel(page).getByRole("link", { name: "Download" }).click()]);
+    assert.equal(download.suggestedFilename(), file);
+    assert.equal(readFileSync(await download.path(), "utf8"), csv, "the file is the API's CSV, every row");
+    await panel(page).getByRole("button", { name: "Close" }).click();
+    assert.equal(await callout.count(), 0);
+    assert.equal(calls("/api/v1/quotas:export").length, 1, "the file came from the one export");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  // A dev namespace on the small tier with no open request: its change to medium raises CPU, so the platform group approves.
+  const target = named.find((r) => r.env === "dev" && r.tier === "small" && !r.openRequest);
+  const locked = named.find((r) => r.openRequest);
+  const patches = (r = target) => api.state.seen.filter((c) => c.method === "PATCH" && c.path === `/api/v1/clusters/${r.clusterId}/namespaces/${r.name}`);
+  const changeCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: /^Change quota · / }) });
+  const manage = async (page, r) => {
+    await openQuotas(page, `#quotas?ns=${encodeURIComponent(`${r.clusterId}/${r.name}`)}`);
+    await panel(page).getByRole("heading", { name: `${r.name} on ${r.clusterId}` }).waitFor();
+  };
+  const planOf = async (page, size) => {
+    if (size) await changeCard(page).getByRole("group", { name: "New size" }).getByRole("button", { name: new RegExp(`^${size}`) }).click();
+    await changeCard(page).getByRole("button", { name: "Plan change" }).click();
+  };
+
+  await check("12 Quotas change: the plan's checks and approval, then a submit of exactly the planned body with If-Match and an Idempotency-Key; the same size plans nothing", async () => {
+    const { context, page, errors } = await quotaFresh();
+    await manage(page, target);
+    // The etag that GET /api/v1/clusters/{cluster_id}/namespaces/{ns} gave the page.
+    const etag = api.state.etags.get(`${target.clusterId}/${target.name}`);
+    assert.match(etag, /^[0-9a-f]{16}$/);
+    assert.match(await panel(page).innerText(), new RegExp(`GET /api/v1/clusters/${target.clusterId}/namespaces/${target.name} · ETag ${etag} · ResourceQuota and LimitRange for tier small live in the namespace folder in Git\\.`));
+    const detail = panel(page).locator("table[aria-label=ResourceQuota] tbody tr");
+    assert.deepEqual(await detail.evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim()))), [
+      ["requests.cpu", `${one(num(target.cpu[0]))} cores`, "8 cores", `${Math.round(num(target.cpu[0]) / 8 * 100)}%`],
+      ["requests.memory", `${one(num(target.memory[0]))} Gi`, "16 Gi", `${Math.round(num(target.memory[0]) / 16 * 100)}%`],
+      ["pods", target.pods[0], "50", `${Math.round(Number(target.pods[0]) / 50 * 100)}%`]
+    ]);
+    assert.deepEqual((await changeCard(page).getByRole("group", { name: "New size" }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")),
+      ["small 8 cores · 16Gi · current", "medium 16 cores · 32Gi", "large 32 cores · 64Gi", "custom set cpu and memory"], "the catalog's tiers of the environment");
+
+    // The current size: nothing to plan, and nothing is sent.
+    await planOf(page);
+    await changeCard(page).getByText("The new size equals the current quota; pick another tier or custom values.").waitFor();
+    assert.equal(patches().length, 0);
+
+    // Submit with no plan plans first and writes nothing; the next Submit sends the plan that is on the page.
+    await changeCard(page).getByRole("group", { name: "New size" }).getByRole("button", { name: /^medium/ }).click();
+    await changeCard(page).getByLabel("Justification").fill("Load test next sprint");
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    const approval = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi from approver-platform" });
+    await approval.waitFor();
+    assert.equal(patches().filter((c) => c.query.dryRun !== "true").length, 0, "a change that was not planned is planned first");
+    const [dry] = patches();
+    assert.deepEqual({ query: dry.query, ifMatch: dry.ifMatch, key: dry.key, body: dry.body },
+      { query: { dryRun: "true" }, ifMatch: `"${etag}"`, key: null, body: { tier: "medium", justification: "Load test next sprint" } }, "the dry run: the etag of GET as If-Match, and no key");
+    assert.deepEqual((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), [
+      "✓ Environment served dev in [rnd, dev]", `✓ If-Match matches the current ETag ${etag}`, `✓ Capacity on ${target.clusterId} fits on fresh data · cpu 13% · memory 10% · binds on cpu`, "! Approval dev-change"
+    ]);
+    const update = SAMPLES.operations.namespaces_update_namespace.response.body;
+    assert.match(await approval.innerText(), new RegExp(`${update.approval.reasons.join("; ").replace(/[+()>]/g, "\\$&")}\\. Nothing reaches Git until they approve\\. Self-approval is allowed in dev\\.`));
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    const accepted = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" });
+    await accepted.waitFor();
+    const writes = patches().filter((c) => c.query.dryRun !== "true");
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].body, dry.body, "the submitted body is the planned one");
+    assert.equal(writes[0].ifMatch, `"${etag}"`);
+    assert.match(writes[0].key, /^[0-9a-f-]{36}$/, "an Idempotency-Key that the portal made");
+    assert.match(await accepted.innerText(), /202 Accepted · req-\d{8}-8001 · pending_approval\s+Waiting for 1 approval in cmapi \(approver-platform\)\. The approvers are notified; nothing is written to Git until the count is met\./);
+    assert.match(await changeCard(page).locator(".pf-v6-c-code-block").innerText(), /"requestId": "req-\d{8}-8001",\s+"status": "pending_approval"/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("12 Quotas change: custom sizes within the catalog's bounds; a lock opens its request; a viewer has no change form", async () => {
+    {
+      const { context, page, errors } = await quotaFresh();
+      await manage(page, target);
+      await changeCard(page).getByRole("group", { name: "New size" }).getByRole("button", { name: /^custom/ }).click();
+      const cpu = changeCard(page).getByLabel("requests.cpu (cores)"), mem = changeCard(page).getByLabel("requests.memory (Gi)");
+      assert.deepEqual([await cpu.inputValue(), await mem.inputValue()], ["8", "16"], "custom starts at the current quota");
+      assert.deepEqual(await cpu.evaluate((el) => [el.min, el.max, el.step, el.required]), ["2", "32", "1", true], "the custom tier's bounds of the catalog");
+      // Below the custom tier's minimum: the browser refuses it, and nothing is sent.
+      await cpu.fill("1");
+      await planOf(page);
+      await page.waitForTimeout(300);
+      assert.equal(patches().length, 0, "no plan of a value that the browser refuses");
+      await cpu.fill("12");
+      await mem.fill("24");
+      await planOf(page);
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "approval" }).waitFor();
+      assert.deepEqual(patches().at(-1).body, { tier: "custom", quota: { "requests.cpu": "12", "requests.memory": "24Gi" }, justification: null });
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await quotaFresh();
+      await manage(page, locked);
+      const lock = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: `Change in progress: ${locked.openRequest}` });
+      await lock.waitFor();
+      assert.match(await lock.innerText(), new RegExp(`${locked.openRequest} holds this namespace in cmapi\\. cmapi holds one open request per namespace, so another change is refused with 409 change-pending until this one closes\\.`));
+      assert.equal(await changeCard(page).getByRole("button", { name: "Plan change" }).count(), 0, "no form while a request holds the namespace");
+      await lock.getByRole("button", { name: "Open at current step" }).click();
+      await page.waitForFunction((id) => location.hash === `#workflow?request=${id}`, locked.openRequest);
+      assert.deepEqual(errors.filter((e) => !/status of 404/.test(e)), []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await quotaFresh({ user: "viewer" });
+      await manage(page, target);
+      assert.equal(await changeCard(page).count(), 0, "the viewer holds no namespaces:write, so the change form is not shown");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("12 Quotas refusals and states: loading, empty, a 403, a 5xx with Try again, a stale cursor, a refused plan and a 412", async () => {
+    {
+      const { context, page, errors } = await quotaFresh();
+      api.state.delayMs = 700;
+      await page.goto(`${portal.page}#quotas`);
+      await page.getByRole("status").filter({ hasText: "Loading quotas…" }).waitFor();
+      await page.locator("table[aria-label=Quotas] tbody tr").first().waitFor();
+      assert.equal(await page.getByRole("status").filter({ hasText: "Loading quotas…" }).count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await quotaFresh({ mode: "empty" });
+      await open(page, "#quotas");
+      await panel(page).getByText("No namespace on the nonprod instance matches these filters.").waitFor();
+      assert.match(await panel(page).innerText(), /0 namespaces/);
+      assert.equal(await panel(page).getByRole("heading", { name: /^Change quota/ }).count(), 0, "no namespace, no detail");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await quotaFresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/quotas", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission objects:read: no role in your token grants it (roles: ['cmapi-none'])" } });
+      await open(page, "#quotas");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see quotas." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission objects:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0, "no action");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await quotaFresh();
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/quotas", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The watch cache did not answer." } });
+      await open(page, "#quotas");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The quotas did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The watch cache did not answer\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await page.locator("table[aria-label=Quotas] tbody tr").first().waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // A cursor that the API no longer takes: the mockup's callout, and its way back to the first page.
+      const { context, page, errors } = await quotaFresh();
+      expectedStatus = [400];
+      await openQuotas(page);
+      api.state.answers.push({ route: "GET /api/v1/quotas", status: 400, body: { type: "https://cmapi.ephico2real.com/problems/invalid-cursor", title: "invalid-cursor", status: 400, code: "invalid-cursor", detail: "Filters or sort changed since this cursor was issued" } });
+      await page.getByRole("button", { name: "Next ›" }).first().click();
+      const stale = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "This page link is out of date" });
+      await stale.waitFor();
+      assert.match(await stale.innerText(), /The filters or sort changed after it was made, so the API refused it \(400 invalid-cursor\) rather than show the wrong rows\./);
+      await stale.getByRole("button", { name: "Back to the first page" }).click();
+      await waitQuotaRange(page, "1–50 of 70 · A–Z");
+      assert.equal(await stale.count(), 0, "the first page, with no cursor, is shown again");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // A plan that the API refuses, then a change of the folder after the plan: the submit gets 412 and writes nothing.
+      const { context, page, errors } = await quotaFresh();
+      expectedStatus = [422, 412];
+      await manage(page, target);
+      api.state.answers.push({ route: `PATCH /api/v1/clusters/${target.clusterId}/namespaces/${target.name}`, status: 422, body: { type: "https://cmapi.ephico2real.com/problems/capacity-exceeded", title: "capacity-exceeded", status: 422, code: "capacity-exceeded", detail: "requests.cpu 32 does not fit on CRC" } });
+      await planOf(page, "large");
+      const refused = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Refused: capacity-exceeded" });
+      await refused.waitFor();
+      assert.match(await refused.innerText(), /requests\.cpu 32 does not fit on CRC/);
+      await planOf(page, "medium");
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+      assert.equal(await refused.count(), 0, "the refusal was of the other plan");
+      api.state.etags.set(`${target.clusterId}/${target.name}`, "0123456789abcdef");
+      await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+      const failed = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "412 precondition-failed · nothing written" });
+      await failed.waitFor();
+      assert.match(await failed.innerText(), /No request was stored and nothing was written to Git\. The namespace changed in Git since you read it/);
+      assert.equal(api.state.created, 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("R5 Quotas: the same change sent again after a lost answer keeps its Idempotency-Key; a changed one gets a new key", async () => {
+    const { context, page, errors } = await quotaFresh();
+    expectedStatus = [409];
+    const route = `PATCH /api/v1/clusters/${target.clusterId}/namespaces/${target.name}`;
+    await manage(page, target);
+    await planOf(page, "medium");
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    // The API makes the request, and its answer is lost on the way.
+    api.state.lose.add(route);
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" }).getByText(/The network did not answer\. Submit again: the same request is sent, and the API makes it at most once\./).waitFor();
+    api.state.lose.clear();
+    assert.equal(api.state.created, 1, "the lost answer's request was made");
+    // The same change again: the same key, so the API answers with the request it made.
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    const writes = () => patches().filter((c) => c.query.dryRun !== "true");
+    assert.ok(writes().every((c) => c.key === writes()[0].key), "the retries of one change share one key");
+    assert.equal(api.state.created, 1, "no second request");
+    // A changed form is another change: planned again, then sent with a new key. The namespace is held now, so the API refuses it.
+    await changeCard(page).getByLabel("Justification").fill("Launch week");
+    await planOf(page);
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "409 change-pending · nothing written" }).waitFor();
+    assert.notEqual(writes().at(-1).key, writes()[0].key, "a changed body is sent with a new key");
+    assert.equal(writes().at(-1).body.justification, "Launch week");
+    assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE/.test(e)), []);
+    await context.close();
+  });
+
+  await check("F1 Quotas: a 412 reads the namespace again and plans on its new ETag; Submit never sends the stale ETag again", async () => {
+    const { context, page, errors } = await quotaFresh();
+    expectedStatus = [412];
+    const where = `${target.clusterId}/${target.name}`;
+    const reads = () => api.state.seen.filter((c) => c.method === "GET" && c.path === `/api/v1/clusters/${where.replace("/", "/namespaces/")}`).length;
+    const until = async (ok, why) => {
+      const end = Date.now() + 5000;
+      while (!ok()) {
+        if (Date.now() > end) assert.fail(why());
+        await page.waitForTimeout(50);
+      }
+    };
+    await manage(page, target);
+    const old = api.state.etags.get(where);
+    await planOf(page, "medium");
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    // Another change reaches the folder in Git after the plan, so its etag moves on.
+    const now = "0123456789abcdef";
+    api.state.etags.set(where, now);
+    const readsBefore = reads();
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "412 precondition-failed · nothing written" }).waitFor();
+    const writes = () => patches().filter((c) => c.query.dryRun !== "true");
+    // docs/04 and problem_docs.py: "Read the object again, and send the change with the new ETag in If-Match".
+    await until(() => reads() > readsBefore, () => `the namespace was not read again after the 412 (GETs: ${reads()})`);
+    await until(() => patches().some((c) => c.query.dryRun === "true" && c.ifMatch === `"${now}"`),
+      () => `the change was not planned again on the new etag; the PATCHes were ${JSON.stringify(patches().map((c) => [c.query.dryRun ?? "write", c.ifMatch]))}`);
+    await changeCard(page).locator("li").filter({ hasText: `If-Match matches the current ETag ${now}` }).waitFor();
+    await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    assert.equal(writes().filter((c) => c.ifMatch === `"${old}"`).length, 1, "the stale etag was sent one time, never again");
+    assert.equal(writes().at(-1).ifMatch, `"${now}"`, "the change went with the etag that the page read again");
+    assert.ok(writes().every((c) => c.key === writes()[0].key), "the same body keeps its key across the new etag");
+    assert.deepEqual(writes().at(-1).body, { tier: "medium", justification: null });
+    assert.equal(api.state.created, 1);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("R6 a double click on Submit change sends one write", async () => {
+    const { context, page, errors } = await quotaFresh();
+    await manage(page, target);
+    await planOf(page, "medium");
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    api.state.delayMs = 300;
+    await changeCard(page).getByRole("button", { name: "Submit change" }).dblclick();
+    await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    await page.waitForTimeout(800);
+    const writes = patches().filter((c) => c.query.dryRun !== "true").length;
+    console.log(`  writes on a double click of Submit change: ${writes}`);
+    assert.equal(writes, 1);
+    assert.equal(await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "409" }).count(), 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+    // Two submits in one task: the page's "sending" state cannot have reached React yet, so only the one-at-a-time guard
+    // of the hook (useOneAtATime) stands between them and a second write.
+    const second = await quotaFresh();
+    await manage(second.page, target);
+    await planOf(second.page, "medium");
+    await changeCard(second.page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    api.state.delayMs = 300;
+    await changeCard(second.page).locator("form").evaluate((form) => { form.requestSubmit(); form.requestSubmit(); });
+    await changeCard(second.page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    await second.page.waitForTimeout(800);
+    const together = patches().filter((c) => c.query.dryRun !== "true").length;
+    console.log(`  writes on two submits in one task: ${together}`);
+    assert.equal(together, 1);
+    assert.deepEqual(second.errors, []);
+    await second.context.close();
+  });
+
+  // The KPIs of a pod: the recorded answer with the cgroup figures that a container has (the sample was recorded on macOS).
+  const recordedKpi = SAMPLES.operations.admin_kpi.response.body;
+  const podKpi = { ...recordedKpi, components: [{ ...recordedKpi.components[0], memoryBytes: 612 * 2 ** 20, memoryLimitBytes: 2 ** 30, cpuUsageSeconds: 412.6, cpuLimitCores: 2,
+    cpuPeriods: 1000, cpuThrottledPeriods: 16, cpuThrottledSeconds: 0.8, measuredAt: Date.parse("2026-11-15T17:30:12Z") / 1000 }], database: { ...recordedKpi.database, connections: 90 } };
+  const kpiCards = (page) => panel(page).locator(".pf-v6-l-gallery > .pf-v6-c-card").filter({ has: page.locator("h3") }).evaluateAll((cards) => cards.map((c) => c.innerText.replace(/\s+/g, " ").trim()));
+  // The mockup's forms of a KPI value: "6 min", "9.5 h", "84%", and "unavailable" for one that is not measured.
+  const kpiText = (k) => (k.value === null ? "unavailable" : k.unit === "ratio" ? `${one(k.value * 100)}%` : k.value < 60 ? `${one(k.value)} s` : k.value < 3600 ? `${one(k.value / 60)} min` : `${one(k.value / 3600)} h`);
+
+  await check("13 KPIs: the operator's tab shows GET /api/v1/admin/kpi: the process, the database, each live KPI; a null is unavailable; the thresholds mark a watch", async () => {
+    const { context, page, errors } = await fresh({ user: "operator", kpi: podKpi });
+    await open(page, "#kpis");
+    await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor();
+    assert.equal(calls("/api/v1/admin/kpi").length, 1);
+    const system = panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "System status · each component's own cgroup" }) }).first();
+    const api1 = system.locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "cmapi-api" }) });
+    const text = (await api1.innerText()).replace(/\s+/g, " ");
+    assert.match(text, /^watch cmapi-api 412\.6 s of CPU since the container started · limit 2 cores · measured at 17:30:12/);
+    assert.match(text, /Memory 60% · 612 MiB of 1 GiB CPU unavailable Throttled 1\.6% of periods \(limit 1%\) Event-loop lag p99 unavailable watch: throttled 1\.6% > 1%/);
+    const meters = await api1.locator("[role=progressbar]").evaluateAll((bars) => bars.map((b) => b.getAttribute("aria-valuenow")));
+    assert.deepEqual(meters, ["60", "0", "40", "0"], "memory 60%; throttling at four times its share, as the mockup draws it; nothing for what is not measured");
+    const db = panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Database · PostgreSQL, schemas cmapi and capacity" }) });
+    assert.match((await db.innerText()).replace(/\s+/g, " "), /^watch Database · PostgreSQL, schemas cmapi and capacity Connections 90 of 100 \(max_connections\) Volume unavailable Size 10 MiB · WAL 80 MiB Pools 0 in use of 5 Oldest transaction 0 s Volume trend unavailable Last backup unavailable: no backup tool reports for this database yet \(open question\), so Backup freshness shows unavailable rather than 0 watch: connections 90% > 80%/);
+    assert.match(await system.innerText(), /2 to watch · updated 17:30:12/, "the process and the database are each one to watch");
+    assert.deepEqual(await kpiCards(page), recordedKpi.kpis.map((k) => `${k.name} target ${k.targetStatus} ${kpiText(k)} Target: ${k.target} ${k.source}`), "each live KPI of the API, in its order");
+    assert.ok((await kpiCards(page)).some((c) => c.includes(" unavailable ")), "a KPI with no value reads unavailable, never 0");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("13 KPIs states: loading, a 403 with no action, a 5xx with Try again; the requester has no KPIs tab", async () => {
+    {
+      const { context, page, errors } = await fresh({ user: "operator" });
+      api.state.delayMs = 700;
+      await page.goto(`${portal.page}#kpis`);
+      await page.getByRole("status").filter({ hasText: "Loading the KPIs…" }).waitFor();
+      await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "operator" });
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/admin/kpi", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission reports:read: no role in your token grants it (roles: ['cmapi-operator'])" } });
+      await open(page, "#kpis");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see the KPIs." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission reports:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "operator" });
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/admin/kpi", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The database did not answer." } });
+      await open(page, "#kpis");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The KPIs did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The database did not answer\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "requester" });
+      await page.goto(`${portal.page}#kpis`);
+      await page.locator("[role=tablist]").waitFor();
+      assert.equal(await page.getByRole("tab", { name: "KPIs" }).count(), 0);
+      assert.equal(await page.getByRole("tab", { selected: true }).innerText(), "Workflow");
+      assert.equal(calls("/api/v1/admin/kpi").length, 0, "no call that the person cannot make");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("6 the Quotas and KPIs tabs say what the mockup says, and add only what is listed", async () => {
+    const counts = {};
+    {
+      const { context, page, errors } = await quotaFresh();
+      const shown = [];
+      await manage(page, target);
+      shown.push(...await shownText(page));
+      // The type-ahead, open with its matches, and with none.
+      const box = page.getByRole("combobox", { name: "Find a namespace, team or app" });
+      await box.fill("pay");
+      await page.locator("#q-sug [role=option]:not([aria-disabled=true])").first().waitFor();
+      shown.push(...await shownText(page));
+      await box.fill("zzz");
+      await page.getByRole("listbox").getByText('No namespace matches "zzz".').waitFor();
+      shown.push(...await shownText(page));
+      await box.press("Escape");
+      await box.fill("ledger");
+      await panel(page).getByRole("button", { name: "Show all matches" }).click();
+      await panel(page).getByRole("button", { name: 'matching "ledger" ✕' }).waitFor();
+      shown.push(...await shownText(page));
+      await panel(page).getByRole("button", { name: 'matching "ledger" ✕' }).click();
+      // The export, the plan, a custom size, the same size and the 202.
+      await panel(page).getByRole("button", { name: "Export CSV" }).click();
+      await panel(page).getByRole("link", { name: "Download" }).waitFor();
+      shown.push(...await shownText(page));
+      await panel(page).getByRole("button", { name: "Close" }).click();
+      await manage(page, target);
+      await planOf(page);
+      await changeCard(page).getByText("The new size equals the current quota; pick another tier or custom values.").waitFor();
+      shown.push(...await shownText(page));
+      await changeCard(page).getByRole("group", { name: "New size" }).getByRole("button", { name: /^custom/ }).click();
+      shown.push(...await shownText(page));
+      await planOf(page, "medium");
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+      shown.push(...await shownText(page));
+      await changeCard(page).getByRole("button", { name: "Submit change" }).click();
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+      shown.push(...await shownText(page));
+      // A namespace that a request holds, and a stale cursor.
+      await manage(page, locked);
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Change in progress" }).waitFor();
+      shown.push(...await shownText(page));
+      expectedStatus = [400];
+      api.state.answers.push({ route: "GET /api/v1/quotas", status: 400, body: { type: "https://cmapi.ephico2real.com/problems/invalid-cursor", title: "invalid-cursor", status: 400, code: "invalid-cursor", detail: "Filters or sort changed" } });
+      await page.getByRole("button", { name: "Next ›" }).first().click();
+      await panel(page).getByText("This page link is out of date").waitFor();
+      shown.push(...await shownText(page));
+      // No namespace matches.
+      api.state.mode = "empty";
+      await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "dev", exact: true }).click();
+      await panel(page).getByText("No namespace on the nonprod instance matches these filters.").waitFor();
+      shown.push(...await shownText(page));
+      // The mockup's usage analysis, recommendation and live usage: the API has none (#310). Its footnote, lede and hint name them.
+      const MOCKUP_ONLY = ["Verdict", "Usage verdict", "Recommendation", "Use this size", "/quota · ETag", "Live usage · last 14 days", "Resource", "Now", "7d avg", "p95", "Peak", "Quota", "New / peak",
+        "Read live from", "'s Thanos by cmapi-capacity for this plan; cached 10 minutes and not stored. Cluster headroom comes from the 17:00 snapshot, committed quota and reservations, with no Thanos call.",
+        "instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.",
+        "Quota status from the watch cache, verdicts from the 02:00 usage sweep; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.",
+        "A tier changes one label and the operator re-stamps the quota (PATCH …/namespaces/{ns}). Custom sets requests.cpu and requests.memory directly (PATCH …/namespaces/{ns}/quota)."];
+      const fromMockup = mockupBlock("isQuotas", "isExpiration").filter((t) => !MOCKUP_ONLY.includes(t));
+      const data = [...fleet.flatMap((r) => [r.name, r.clusterId, r.env, r.tier, r.openRequest].filter(Boolean)), "rnd", "dev", "nonprod", "small", "medium", "large", "custom", "CRC", "pay", "zzz", "ledger",
+        ...SAMPLES.operations.namespaces_update_namespace.response.body.approval.reasons, "approver-platform", "dev-change", "pending_approval", locked.openRequest];
+      // The mockup's logic builds these (quotaView()): chips, sizes, range, pager call, detail, change, the 202 and the export.
+      // A letter button is matched whole: as a known text, each letter would erase every other text from the check.
+      const FROM_LOGIC = [/^\d+$/, /^[a-z]$/, /^\d+(\.\d+)? \/ \d+( cores| Gi)?$/, /^\d+(\.\d+)?( cores| Gi)?$/, /^\d+%$/, /^\d+–\d+ of \d+( \(filtered from \d+\))? · (A–Z|most used first|most urgent first)$/, /^GET \/api\/v1\/quotas\?/,
+        /^[A-Z]: \d+ namespaces?$/, /^\d+ cores · \d+Gi( · current)?$/, /^[a-z-]+ on [A-Z_]+$/, /^(dev|rnd) · tier [a-z]+ · ResourceQuota [a-z-]+-quota · read from the watch cache, current to the second$/,
+        /^GET \/api\/v1\/clusters\/[A-Z_]+\/namespaces\/[a-z-]+ · ETag [0-9a-f]{16} · ResourceQuota and LimitRange for tier [a-z]+ live in the namespace folder in Git\.$/, /^Change quota · [a-z-]+$/, /^(dev|rnd) · [A-Z_]+$/,
+        /^202 Accepted · req-\d{8}-\d{4} · pending_approval$/, /^quotas-nonprod-\d{4}-\d{2}-\d{2}\.csv · \d+ rows$/, /^GET \/api\/v1\/quotas:export streams every row matching the current filters, not only this page, in the current sort order\. Capped at 10,000 rows and recorded in the audit log\.$/,
+        /^Change in progress: req-\d{8}-\d+$/, /^[✓!✕]$/, /^[a-z]+ in \[rnd, dev\]$/, /^[0-9a-f]{16}$/, /^\d+ approvals? in cmapi from /, /^No namespace matches "[a-z]+"\.$/, /^matching "[a-z]+" ✕$/];
+      const LOGIC = ["requests.cpu", "requests.memory", "pods", "requests.cpu used of hard", "requests.memory used of hard", "pods used of hard", "Selected", "Manage", "All", "Name A–Z", "% used", "Needs attention", "Near limit ≥ 80%", "Open request", "set cpu and memory", "Environment served", "If-Match matches the current ETag",
+        "Waiting for 1 approval in cmapi (approver-platform). The approvers are notified; nothing is written to Git until the count is met.", "0 namespaces", "Change in progress", "—", "25", "50", "100"];
+      // The portal's own words, each in MOCKUP-CONTRACT.md.
+      const ADDED = ["Attention", "Searching…", "…", "near-limit", "open-request", "tier-outdated", "Tier outdated", "Download", "Matching namespaces", "Planning…", "Approval", "Capacity on CRC", /^fits on fresh data · cpu \d+% · memory \d+% · binds on cpu$/,
+        /^\d+ namespaces in scope · \d+ near the limit$/, "instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume.",
+        "Quota status from the watch cache; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.",
+        "A tier changes one label and the operator re-stamps the quota (PATCH …/namespaces/{ns}). Custom sets requests.cpu and requests.memory directly, in the same PATCH.",
+        /^req-\d{8}-\d+ holds this namespace in cmapi\. cmapi holds one open request per namespace, so another change is refused with 409 change-pending until this one closes\.$/,
+        /^dev change: 0 from approver-platform; threshold quotaIncreasePct > 100: \+1 approver-platform\. Nothing reaches Git until they approve\. Self-approval is allowed in dev\.$/,
+        /^GET \/api\/v1\/quotas:export(\?[a-zA-Z=&-]+)? streams every row/, /^(name,clusterId|[a-z-]+,CRC,|… \d+ more rows)/, /^\{|^"|^\}|^\]|^\[/, "Used of hard", "Action"];
+      const strings = [...data, ...LOGIC, ...ADDED].filter((k) => typeof k === "string");
+      const patterns = [...FROM_LOGIC, ...ADDED].filter((k) => k instanceof RegExp);
+      counts.quotas = compare("Quotas", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+      assert.deepEqual(errors.filter((e) => !/status of 400/.test(e)), []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ user: "operator", kpi: podKpi });
+      await open(page, "#kpis");
+      await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor();
+      const shown = await shownText(page);
+      const mockup = readFileSync(join(app, "..", "mockups", "portal", "Main.dc.html"), "utf8");
+      const block = mockup.slice(mockup.indexOf('<sc-if value="{{isKpis}}"'), mockup.indexOf('<p class="foot">Mockup with example data'));
+      const texts = [...new Set(block.replace(/<[^>]+>/g, "\n").split(/\n|\{\{[^}]+\}\}/).map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean))];
+      // The mockup's 30-day window, its event loop and recording rules, its worker's 30 s measure and its dashboards: the API has none (MOCKUP-CONTRACT.md).
+      const MOCKUP_ONLY = ["instance's KPI board: first whether cmapi itself has room (each component's memory, CPU, throttling and event loop, and the database), then the service KPIs from the recording rules over the last 30 days. The page and /metrics read the same collectors, so they cannot disagree.",
+        "30 days ·", "Measured every 30 s by the worker that holds the discovery lock (pg_monitor role); volume fill from kubelet_volume_stats through the hub's Thanos. A value nothing reports reads unavailable, never 0.",
+        "Dashboards · OpenShift console, Observe › Dashboards (Perses) · eight per instance", "Dashboard", "PersesDashboard", "Shows", "cmapi/",
+        "Shipped by the Helm chart as PersesDashboards in the cmapi namespace, reading the hub's Thanos Querier. Sites that use Grafana set dashboards.provider to grafana or both."];
+      const fromMockup = texts.filter((t) => !MOCKUP_ONLY.includes(t));
+      const data = ["nonprod", "cmapi-api", ...recordedKpi.kpis.flatMap((k) => [k.name, k.target, k.source, kpiText(k)]), recordedKpi.unavailable];
+      // The mockup's logic builds these (systemView(), meterOf(), kpi()).
+      const FROM_LOGIC = [/^\d+ to watch · updated \d{2}:\d{2}:\d{2}$/, /^all healthy · updated \d{2}:\d{2}:\d{2}$/, /^\d+% · \d+ MiB of \d+(\.\d)? GiB$/, /^\d+\.\d% of periods \(limit \d+%\)$/, /^\d+ of \d+ \(max_connections\)$/,
+        /^watch: [a-z ]+ \d+(\.\d)?% > \d+%(, [a-z ]+ \d+(\.\d)?% > \d+%)*$/, /^Target: /];
+      const LOGIC = ["healthy", "watch", "within every threshold", "Memory", "CPU", "Throttled", "Event-loop lag p99", "Connections", "Volume", "unavailable", "Pools", "Oldest transaction", "Volume trend", "Last backup",
+        "unavailable: no backup tool reports for this database yet (open question), so Backup freshness shows unavailable rather than 0", "backup unavailable",
+        "Thresholds from kpi.thresholds: memory and CPU 80% of the limit, throttling 1% of periods (the saturation signal: a pod can be throttled while CPU still reads as headroom). The black tick on each bar is the threshold."];
+      // The portal's own words, each in MOCKUP-CONTRACT.md.
+      const ADDED = ["instance's KPI board: first whether cmapi itself has room (the memory, CPU and throttling of the process that answered, and the database), then the service KPIs that cmapi computes from its database. The page and /metrics read the same collectors, so they cannot disagree.",
+        "Size", /^\d+ MiB · WAL \d+ MiB$/, /^\d+ in use of \d+$/, /^\d+(\.\d)? s$/, /^target (proposed|agreed)$/, /^\d+(\.\d)? s of CPU since the container started · limit \d+ cores · measured at \d{2}:\d{2}:\d{2}$/,
+        "Measured by the process that answered, when the page asked. A value nothing reports reads unavailable, never 0."];
+      const strings = [...data, ...LOGIC, ...ADDED].filter((k) => typeof k === "string");
+      const patterns = [...FROM_LOGIC, ...ADDED].filter((k) => k instanceof RegExp);
+      counts.kpis = compare("KPIs", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    console.log(`  strings of the mockup compared: ${JSON.stringify(counts)}`);
+  });
+
+  await check("7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+    const VIEWS = [
+      ["quotas", "requester", async (page) => {
+        await manage(page, target);
+        await planOf(page, "medium");
+        await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+      }],
+      ["quotas-typeahead", "requester", async (page) => {
+        // The type-ahead's list is a state that opens on typing: it is scanned too.
+        await openQuotas(page);
+        await page.getByRole("combobox", { name: "Find a namespace, team or app" }).fill("pay");
+        await page.locator("#q-sug [role=option]:not([aria-disabled=true])").first().waitFor();
+      }],
+      ["quotas-export", "requester", async (page) => {
+        await openQuotas(page);
+        await panel(page).getByRole("button", { name: "Export CSV" }).click();
+        await panel(page).getByRole("link", { name: "Download" }).waitFor();
+      }],
+      ["kpis", "operator", async (page) => { await open(page, "#kpis"); await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor(); }]
+    ];
+    let scans = 0;
+    for (const [view, user, reach] of VIEWS) {
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await quotaFresh({ user, width, kpi: podKpi });
+        await reach(page);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
+          await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
   });
 
   await check("sign out ends the session at the issuer", async () => {

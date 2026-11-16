@@ -27,13 +27,16 @@ const READ = ["capacity:read", "clusters:read", "objects:read", "requests:read"]
 const ROLE_PERMISSIONS = {
   "cmapi-viewer": READ,
   "cmapi-approver": [...READ, "requests:approve", "requests:reject"],
-  "cmapi-requester": SAMPLES.operations.core_me.response.body.access.permissions
+  "cmapi-requester": SAMPLES.operations.core_me.response.body.access.permissions,
+  "cmapi-operator": [...READ, "namespaces:create", "requests:cancel", "namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write", "requests:retry",
+    "adoption:write", "reports:read", "operations:run"]
 };
 // The groups follow docs/14 ("The groups"): the default path template /cmapi/app-cmapi-rbac-<name>.
 export const USERS = {
   viewer: { sub: "sub-viewer", username: "cmapi.viewer", role: "cmapi-viewer", groups: ["/cmapi/app-cmapi-rbac-viewer"] },
   approver: { sub: "sub-approver", username: "cmapi.approver", role: "cmapi-approver", groups: ["/cmapi/app-cmapi-rbac-approver-platform"], email: "cmapi.approver@ephico2real.com" },
-  requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" }
+  requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" },
+  operator: { sub: "sub-operator", username: "cmapi.operator", role: "cmapi-operator", groups: ["/cmapi/app-cmapi-rbac-operator"], email: "cmapi.operator@ephico2real.com" }
 };
 
 /** One realm, `cmapi`, with one public client that must use PKCE with S256. */
@@ -173,6 +176,102 @@ export function requestWith(sample, { requestId, namespace = sample.namespace, s
     links: { self: `/api/v1/requests/${requestId}`, events: `/api/v1/requests/${requestId}/events` } };
 }
 
+// The quota list of the API (cmapi/src/cmapi/plugins/quotas and cmapi/src/cmapi/core/listquery.py): the same filters, sorts,
+// keyset cursor bound to the filters, startsWith, letters and attention counts, so that the portal is held to its rules.
+const QUOTA_SAMPLE = SAMPLES.operations.quotas_quotas.response.body.items[0];
+const TEAMS = ["accounts", "billing", "catalog", "checkout", "data", "fraud", "gateway", "identity", "ledger", "orders", "payments", "search", "shipping", "tax", "vendor"];
+const APPS = ["api", "worker", "batch", "web", "events"];
+const SHARES = [0.1, 0.45, 0.82, 0.97, 0.3, 0.6, 0.05, 0.88];
+const HARD = { small: [8, 16, 50], medium: [16, 32, 100], large: [32, 64, 200] };
+
+/** `count` quota rows, each a copy of the recorded row with its own name, cluster, environment, tier and use. In name order of creation, not sorted. */
+export function quotasFrom(count, { clusters = ["CRC"], envs = ["dev", "rnd"] } = {}) {
+  return Array.from({ length: count }, (_, i) => {
+    const team = TEAMS[i % TEAMS.length], app = APPS[Math.floor(i / TEAMS.length) % APPS.length], env = envs[i % envs.length];
+    const tier = ["small", "medium", "large"][i % 3], [cpu, mem, pods] = HARD[tier], share = SHARES[i % SHARES.length];
+    const memShare = SHARES[(i + 3) % SHARES.length] * 0.9;
+    const used = { cpu: cpu * share, mem: mem * memShare, pods: Math.round(pods * 0.3) };
+    return { ...QUOTA_SAMPLE, name: `${team}-${app}-${env}`, team, app, env, tier, clusterId: clusters[i % clusters.length],
+      cpu: [`${Math.round(used.cpu * 1000)}m`, String(cpu)], memory: [`${Math.round(used.mem * 1024)}Mi`, `${mem}Gi`], pods: [String(used.pods), String(pods)],
+      used: Math.max(Math.round(used.cpu * 1000) / 1000 / cpu, Math.round(used.mem * 1024) / 1024 / mem, used.pods / pods),
+      tierOutdated: i % 7 === 3, openRequest: i % 11 === 5 ? `req-20261115-${String(5000 + i)}` : null, expiresAt: null };
+  });
+}
+
+const QUOTA_FACETS = { "near-limit": (r) => r.used >= 0.8, "tier-outdated": (r) => r.tierOutdated, "open-request": (r) => Boolean(r.openRequest) };
+const severityOf = (used) => (used >= 0.95 ? 3 : used >= 0.8 ? 2 : 0);
+const QUOTA_SORTS = { name: (r) => ["", r.name, r.clusterId], used: (r) => [-r.used, r.name, r.clusterId], severity: (r) => [-severityOf(r.used), r.name, r.clusterId] };
+const compareKeys = (a, b) => { for (let i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; };
+function matchRank(r, text) {
+  const t = text.toLowerCase(), name = r.name.toLowerCase();
+  if (name.startsWith(t)) return [0, "name starts with"];
+  if (name.includes(t)) return [1, "name contains"];
+  for (const label of ["team", "app"]) {
+    const v = String(r[label] ?? "").toLowerCase();
+    if (v && v.includes(t)) return [2, `${label} ${r[label]}`];
+  }
+  return null;
+}
+/** The rows of the filters and the search, in the order of the sort; `null` when the sort is not one of the API's. */
+function quotaOrder(rows, q) {
+  const key = QUOTA_SORTS[q.sort];
+  if (!key) return null;
+  const filters = [["env", q.env], ["clusterId", q.clusterId], ["team", q.team], ["tier", q.tier]].filter(([, v]) => v);
+  return rows.filter((r) => filters.every(([k, v]) => String(r[k]) === v) && (!q.q || matchRank(r, q.q))).sort((a, b) => compareKeys(key(a), key(b)));
+}
+export function quotaQueryOf(params) {
+  const get = (k) => params.get(k) || "";
+  return { q: get("q"), env: get("env"), clusterId: get("clusterId"), team: get("team"), tier: get("tier"), state: get("state"), sort: get("sort") || "name",
+    limit: Number(params.get("limit") ?? 50), cursor: params.get("cursor"), startsWith: params.get("startsWith") };
+}
+const quotaHash = (q) => JSON.stringify([q.q.toLowerCase(), q.env, q.clusterId, q.team, q.tier, q.state, q.sort]);
+/** GET /api/v1/quotas: a page, or a problem as [status, code, detail]. */
+export function quotaPage(rows, q) {
+  if (q.state && !QUOTA_FACETS[q.state]) return [422, "validation-failed", `state is one of ${Object.keys(QUOTA_FACETS).sort()}, not ${q.state}`];
+  if (![25, 50, 100].includes(q.limit) && !(q.limit > 0 && q.limit <= 200)) return [400, "invalid-limit", "limit is one of (25, 50, 100), at most 200"];
+  const others = quotaOrder(rows, q);
+  if (!others) return [400, "invalid-sort", `Unknown sort ${q.sort}`];
+  const ordered = q.state ? others.filter(QUOTA_FACETS[q.state]) : others;
+  const keys = ordered.map(QUOTA_SORTS[q.sort]), total = ordered.length;
+  let start = 0, end = Math.min(total, q.limit);
+  if (q.cursor) {
+    let c = null;
+    try { c = JSON.parse(Buffer.from(q.cursor, "base64url").toString()); } catch { /* refused below */ }
+    if (!c || c.h !== quotaHash(q)) return [400, "invalid-cursor", "Filters or sort changed since this cursor was issued"];
+    if (c.d === "next") { start = keys.findIndex((k) => compareKeys(k, c.k) > 0); if (start < 0) start = total; end = Math.min(total, start + q.limit); }
+    else { end = keys.findIndex((k) => compareKeys(k, c.k) >= 0); if (end < 0) end = total; start = Math.max(0, end - q.limit); }
+  } else if (q.startsWith && q.sort === "name") {
+    start = ordered.findIndex((r) => r.name.toLowerCase() >= q.startsWith.toLowerCase());
+    if (start < 0) start = total;
+    end = Math.min(total, start + q.limit);
+  }
+  const items = ordered.slice(start, end);
+  const sign = (k, d) => Buffer.from(JSON.stringify({ k, d, h: quotaHash(q) })).toString("base64url");
+  const letters = {};
+  for (const r of ordered) letters[r.name[0].toUpperCase()] = (letters[r.name[0].toUpperCase()] ?? 0) + 1;
+  // The attention counts are over the other filters, not over the chosen state: each chip keeps its number.
+  const facets = Object.fromEntries(Object.entries(QUOTA_FACETS).map(([name, test]) => [name, others.filter(test).length]));
+  return { items, letters, facets, page: { limit: q.limit, total, from: items.length ? start + 1 : 0, to: end,
+    nextCursor: items.length && end < total ? sign(keys[end - 1], "next") : null, prevCursor: items.length && start > 0 ? sign(keys[start], "prev") : null } };
+}
+export function quotaSuggest(rows, text) {
+  if (text.trim().length < 2) return [];
+  return rows.flatMap((r) => { const m = matchRank(r, text.trim()); return m ? [[m[0], r.name, r.clusterId, m[1]]] : []; })
+    .sort((a, b) => compareKeys(a, b)).slice(0, 10).map(([, name, clusterId, why]) => ({ name, clusterId, why }));
+}
+const QUOTA_COLUMNS = ["name", "clusterId", "env", "team", "tier", "cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "used", "expiresAt", "tierOutdated"];
+/** GET /api/v1/quotas:export: the CSV of Python's csv module, with its \r\n and its True and False. */
+export function quotaCsv(rows, q) {
+  const others = quotaOrder(rows, q) ?? [];
+  const ordered = q.state ? others.filter(QUOTA_FACETS[q.state] ?? (() => true)) : others;
+  const cell = (v) => (v === null || v === undefined ? "" : v === true ? "True" : v === false ? "False" : typeof v === "number" && Number.isInteger(v) ? `${v}.0` : String(v));
+  const line = (r) => QUOTA_COLUMNS.map((c) => cell({ ...r, cpuUsed: r.cpu[0], cpuHard: r.cpu[1], memoryUsed: r.memory[0], memoryHard: r.memory[1], podsUsed: r.pods[0], podsHard: r.pods[1] }[c])).join(",");
+  return [QUOTA_COLUMNS.join(","), ...ordered.slice(0, 10_000).map(line)].map((l) => `${l}\r\n`).join("");
+}
+
+const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
+/** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
+const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
 const NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
 const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|ocp-.*)$/;
 // The body's fingerprint, with the keys of each object in order, as the API compares two bodies of one key.
@@ -208,7 +307,13 @@ export async function startApi({ issuer, portalOrigin }) {
     lose: new Set(),
     /** Idempotency-Key and caller → the body's fingerprint and the request that it made. */
     keys: new Map(),
-    created: 0
+    created: 0,
+    /** The namespaces of GET /api/v1/quotas, each with the etag of its folder in Git. */
+    quotas: SAMPLES.operations.quotas_quotas.response.body.items,
+    etags: new Map(),
+    kpi: SAMPLES.operations.admin_kpi.response.body,
+    planUpdate: SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body,
+    updated: SAMPLES.operations.namespaces_update_namespace.response.body
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -218,16 +323,17 @@ export async function startApi({ issuer, portalOrigin }) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://api");
     // The API allows the portal's origin and no other, and takes no cookie. The headers are cmapi/src/cmapi/core/cors.py's.
-    const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type, idempotency-key", "access-control-allow-methods": "GET, POST", vary: "origin" };
+    const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type, idempotency-key, if-match",
+      "access-control-allow-methods": "GET, POST, PATCH", "access-control-expose-headers": "etag", vary: "origin" };
     if (req.method === "OPTIONS") {
       res.writeHead(204, cors);
       return res.end();
     }
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     const user = bearer ? issuer.whoHas(bearer) : null;
-    const body = req.method === "POST" ? await bodyOf(req) : null;
+    const body = req.method === "POST" || req.method === "PATCH" ? await bodyOf(req) : null;
     const call = { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), user: user?.username ?? null, cookie: req.headers.cookie ?? null,
-      origin: req.headers.origin ?? null, key: req.headers["idempotency-key"] ?? null, body };
+      origin: req.headers.origin ?? null, key: req.headers["idempotency-key"] ?? null, ifMatch: req.headers["if-match"] ?? null, body };
     state.seen.push(call);
     if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
     const unauthenticated = SAMPLES.problems.unauthenticated.response.body;
@@ -350,6 +456,80 @@ export async function startApi({ issuer, portalOrigin }) {
       state.items = [request, ...state.items];
       state.keys.set(`${user.sub} ${key}`, { fingerprint: fingerprint(body), request });
       return ok(request, 202);
+    }
+
+    if (url.pathname === "/api/v1/quotas" || url.pathname === "/api/v1/quotas:suggest" || url.pathname === "/api/v1/quotas:export") {
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const rows = state.mode === "empty" ? [] : state.quotas;
+      if (url.pathname === "/api/v1/quotas:suggest") return ok({ items: quotaSuggest(rows, url.searchParams.get("q") ?? "") });
+      const q = quotaQueryOf(url.searchParams);
+      if (url.pathname === "/api/v1/quotas:export") {
+        if (state.lose.has(route)) return req.socket.destroy();
+        res.writeHead(200, { ...cors, "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="quotas.csv"' });
+        return res.end(quotaCsv(rows, q));
+      }
+      const page = quotaPage(rows, q);
+      if (Array.isArray(page)) return problem(res, refuse(...page), cors);
+      return ok(page);
+    }
+    const nsPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)$/.exec(url.pathname);
+    if (nsPath && (req.method === "GET" || req.method === "PATCH")) {
+      const [, clusterId, ns] = nsPath;
+      const denied = lacks(req.method === "GET" ? "objects:read" : "namespaces:write");
+      if (denied) return problem(res, denied, cors);
+      const row = state.quotas.find((r) => r.clusterId === clusterId && r.name === ns);
+      if (!row) return problem(res, refuse(404, "object-not-found", `No managed namespace ${ns} on ${clusterId}`), cors);
+      const etag = state.etags.get(`${clusterId}/${ns}`) ?? createHash("sha256").update(`${clusterId}/${ns}`).digest("hex").slice(0, 16);
+      state.etags.set(`${clusterId}/${ns}`, etag);
+      if (req.method === "GET") {
+        const view = SAMPLES.operations.namespaces_get_namespace.response.body;
+        res.writeHead(200, { ...cors, "content-type": "application/json", etag: `"${etag}"` });
+        return res.end(JSON.stringify({ ...view, name: ns, clusterId, env: row.env, team: row.team, tier: row.tier, etag, openRequest: row.openRequest ?? null,
+          labels: { ...view.labels, "cmapi.net/cluster-id": clusterId, "cmapi.net/env": row.env, "cmapi.net/team": row.team, "cmapi.net/tier": row.tier } }));
+      }
+      // cmapi/src/cmapi/core/pipeline.py: If-Match is required, and it must be the folder's etag now (quotes are taken off).
+      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
+      const tiers = state.tiers.environments[row.env]?.tiers ?? [];
+      const named = tiers.find((t) => t.name === body?.tier);
+      if (!body || (body.tier !== undefined && !named)) return problem(res, refuse(422, "validation-failed", `${JSON.stringify(body?.tier)} is not a tier of ${row.env}`), cors);
+      const bounds = state.tiers.environments[row.env]?.custom;
+      for (const k of ["requests.cpu", "requests.memory"]) {
+        const v = body.quota?.[k];
+        if (v === undefined) continue;
+        const n = quantity(v), lo = quantity(bounds?.min?.[k]), hi = quantity(bounds?.max?.[k]);
+        if (n === null || (lo !== null && n < lo) || (hi !== null && n > hi)) return problem(res, refuse(422, "quota-out-of-bounds", `${k} ${v} is outside ${bounds?.min?.[k]} to ${bounds?.max?.[k]}`), cors);
+      }
+      const newCpu = quantity(body.quota?.["requests.cpu"] ?? named?.quota?.["requests.cpu"]) ?? 0, hardCpu = quantity(row.cpu[1]) ?? 0;
+      // A larger CPU quota waits for the platform group (the recorded change); another change needs no approval (the recorded dry run).
+      const approval = newCpu > hardCpu ? state.updated.approval : state.planUpdate.approval;
+      if (url.searchParams.get("dryRun") === "true") {
+        const changes = Object.fromEntries(Object.entries(state.planUpdate.changes).map(([path, what]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${ns}/`).replaceAll("payments-dev", ns).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), what]));
+        return ok({ ...state.planUpdate, etag, changes, approval, capacity: { ...state.planUpdate.capacity, clusterId } });
+      }
+      const key = call.key;
+      if (!key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const held = state.keys.get(`${user.sub} ${key}`);
+      const print = fingerprint({ ...body, clusterId, namespace: ns });
+      if (held) return held.fingerprint === print ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+      // cmapi/src/cmapi/core/db/repo.py: one open request for each namespace.
+      if (row.openRequest) return problem(res, refuse(409, "change-pending", `${row.openRequest} holds ${ns}`), cors);
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-8${String(++state.created).padStart(3, "0")}`;
+      const pending = approval.slots.length > 0;
+      const request = requestWith(state.updated, { requestId, namespace: ns, status: pending ? "pending_approval" : "approved", pr: null, mergeSha: null,
+        events: [{ at: now, by: user.username, event: pending ? "plan_needs_approval" : "plan_auto_approved", note: "", status: pending ? "pending_approval" : "approved" }] });
+      Object.assign(request, { clusterId, approval, justification: body.justification ?? null });
+      state.items = [request, ...state.items];
+      state.quotas = state.quotas.map((r) => (r === row ? { ...r, openRequest: requestId } : r));
+      state.keys.set(`${user.sub} ${key}`, { fingerprint: print, request });
+      return ok(request, 202);
+    }
+    if (url.pathname === "/api/v1/admin/kpi") {
+      const denied = lacks("reports:read");
+      if (denied) return problem(res, denied, cors);
+      return ok(state.kpi);
     }
     return problem(res, { type: "https://cmapi.ephico2real.com/problems/not-found", title: "not-found", status: 404, code: "not-found", detail: "No such route." }, cors);
   });

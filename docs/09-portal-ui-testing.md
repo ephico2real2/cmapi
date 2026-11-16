@@ -126,6 +126,32 @@ ran built-mocked only (above). The first screenshots of `cmapi-live-d` stopped a
 scrolls an inner element; the New namespace pictures in the folder are a dry run of the same large-tier form
 (`cmapi-live-g`, never submitted), and the auto-approved plan is the Chrome dry run of `cmapi-live-f`, never submitted.
 
+## The portal on the API: Quotas and KPIs (#301)
+
+Measured on 2026-11-15 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API
+(`cmapi-portal-ui/tests/api/standin.mjs`). The stand-in now serves `GET /api/v1/quotas` (with the list engine of
+`cmapi/src/cmapi/core/listquery.py`: filters, sorts, a keyset cursor bound to the filters, `startsWith`, letters and the
+attention counts), `:suggest`, `:export`, `GET` and `PATCH .../namespaces/{ns}` (If-Match, Idempotency-Key, `change-pending`)
+and `GET /api/v1/admin/kpi`, and a `cmapi.operator` user. Stage: built-mocked. It does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| Everything | `npm test` | exit 0 in Chromium 156.0.8078.4; portal suite 39 checks (12 new, 1 changed) |
+| The installed Chrome | `PW_CHANNEL=chrome npm test`, then the portal suite again | Chrome 157.0.8103.51: the first run failed one slice 2 check on a colour transition (#312); the portal suite run again passed 39 of 39, and the behaviour and parity suites passed |
+| Parity both ways | check "6 the Quotas and KPIs tabs" | Quotas: 49 strings of the mockup's block found over 13 states (list, type-ahead with and without a match, applied search, export, the same size, custom, a plan, the 202, a lock, a stale cursor, empty); KPIs: 5 strings; nothing shown that is not listed |
+| Layout at 390, 820, 1440 px, both themes | check "7 the Quotas and KPIs tabs" | 24 views (a planned change, the open type-ahead, the export, the KPIs), no sideways scroll, no placeholder |
+| axe at 390 and 1440 px, both themes | the same check | 16 scans, no serious or critical finding |
+| One write at a time | check "R6" | a double click and two submits in one task each sent 1 PATCH |
+| Mutants | `npm run test:mutants` | 119 mutants (69 before, 50 new), 119 killed. The first run had 2 survivors: both were weak checks, fixed (below) |
+| New tests fail on main | each new check run alone with `CHECK=` on a build of main 01a23fe with this branch's `portal.test.mjs` and `standin.mjs` | all 12 new checks fail (the Quotas and KPIs tabs say "This tab is not on the API yet."); the changed check 5 (an operator sees KPIs) passes on main, because main already gated the tab by `reports:read` |
+
+**Found while testing.** The first parity check of the Quotas tab could not fail on an invented sentence: the letters of the
+A–Z bar were "known" strings, and taking each letter out of a text left nothing. A mutant showed it; the letters are now
+matched whole. A double click did not prove the hook's one-at-a-time guard either, because the page's own "sending" state
+had already reached React; two submits in one task do. **Not proven here:** anything on CRC, keyboard use beyond
+PatternFly and axe, and the custom-size PATCH against the real service (the stand-in follows
+`cmapi/tests/service/test_custom_tier_change.py`).
+
 ## What testing found
 
 | Found by | Problem | Fix |

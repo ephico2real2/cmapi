@@ -85,3 +85,27 @@ export function groupsOf(r: Pick<ChangeRequest, "approval">): string {
 
 /** "Auto-approved by baseline-rnd-namespace" from "auto:baseline-rnd-namespace". */
 export const policyOf = (auto: string): string => (auto.startsWith("auto:") ? auto.slice(5) : auto);
+
+// Kubernetes quantities (k8s.io/apimachinery resource.Quantity): a decimal number with an SI or binary suffix.
+const SUFFIX: Record<string, number> = {
+  "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15, E: 1e18,
+  Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40, Pi: 2 ** 50, Ei: 2 ** 60
+};
+
+/** "500m" is 0.5 and "16Gi" is 17179869184. Null for no value or for text that is not a quantity. */
+export function quantityOf(text: string | null | undefined): number | null {
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(m|k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)?$/.exec((text ?? "").trim());
+  return m ? Number(m[1]) * SUFFIX[m[2] ?? ""] : null;
+}
+
+/** The mockup's fmt(): one decimal, no trailing zero. */
+export const fmt = (n: number): string => (Math.round(n * 10) / 10).toString();
+
+/** The mockup's pctBar(): the share of the hard limit, the bar's tone at 80% and 95%, and "used / hard". */
+export function barOf(used: number | null, hard: number | null): { pct: number; bar: string; text: string } | null {
+  if (used === null || hard === null || hard <= 0) return null;
+  const r = used / hard;
+  return { pct: Math.round(r * 100), bar: r >= 0.95 ? "crit" : r >= 0.8 ? "warn" : "", text: `${fmt(used)} / ${fmt(hard)}` };
+}
+
+export const GIB = 2 ** 30;
