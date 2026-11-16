@@ -17,6 +17,8 @@ export interface TabProps {
   params: URLSearchParams;
   /** Writes the tab's own parameters. An empty value removes the parameter. */
   setParams: (values: Record<string, string>) => void;
+  /** Shows another tab with its parameters: "Open at current step" opens the Workflow tab on one request. */
+  open: (tab: TabId, values?: Record<string, string>) => void;
 }
 
 function read(): Route {

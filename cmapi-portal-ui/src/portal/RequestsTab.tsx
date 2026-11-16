@@ -12,9 +12,8 @@ const LIMIT = 25;
 const STATES = [["all", "All"], ["open", "Open"], ["closed", "Closed"]] as const;
 type StateFilter = (typeof STATES)[number][0];
 const SEARCH_DELAY_MS = 300;
-const WHY_NOT_OPEN = "requests-open-why";
 
-export function RequestsTab({ config, params, setParams }: TabProps) {
+export function RequestsTab({ config, params, setParams, open }: TabProps) {
   const q = params.get("q") ?? "";
   const wanted = params.get("state");
   const state: StateFilter = STATES.some(([id]) => id === wanted) ? (wanted as StateFilter) : "all";
@@ -100,12 +99,11 @@ export function RequestsTab({ config, params, setParams }: TabProps) {
                   r.requestId, r.clusterId, r.namespace, actionOf(r), <Pill tone={toneOf(r.status)}>{r.status}</Pill>,
                   <>{where.event}<div><Small>{where.by}</Small></div></>,
                   approvalOf(r), prOf(r), whenOf(r.updatedAt, now),
-                  <Button variant="secondary" size="sm" isAriaDisabled aria-describedby={WHY_NOT_OPEN}>Open at current step</Button>
+                  <Button variant="secondary" size="sm" onClick={() => open("workflow", { request: r.requestId })}>Open at current step</Button>
                 ];
               }}
             />
             {result.data.items.length === 0 && <Empty>{`No requests on the ${config.instance} instance match this search and filter.`}</Empty>}
-            {result.data.items.length > 0 && <Small><span id={WHY_NOT_OPEN}>Open at current step is off: the Workflow tab is not on the API yet.</span></Small>}
           </>
         )}
         <Small>This list shows the {config.instance} instance only; requests for other environments live in their own instance. A request refused before it is stored (a policy rejection or the wrong instance) never appears here.</Small>

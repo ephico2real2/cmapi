@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const vite = join(app, "node_modules", ".bin", "vite");
 
-// [what it breaks, file, the text, its replacement, the suite that must fail]
+// [what it breaks, file, the text, its replacement, the suite that must fail, and optionally the checks of that suite to run
+// (their names' start, as CHECK takes it): the checks that claim to see the defect, so a mutant does not run the whole suite]
 const MUTANTS = [
   ["PKCE dropped", "src/portal/auth.ts", `response_type: "code",`, `response_type: "code", disablePKCE: true,`, "portal"],
   ["tokens kept in localStorage", "src/portal/auth.ts", `new WebStorageStateStore({ store: new InMemoryWebStorage() })`, `new WebStorageStateStore({ store: window.localStorage })`, "portal"],
@@ -33,7 +34,7 @@ const MUTANTS = [
   ["the name comes from nowhere", "src/portal/PortalApp.tsx", `<b>{me.data.username}</b>`, `<b>ola</b>`, "portal"],
   ["two columns swapped", "src/portal/RequestsTab.tsx", `r.requestId, r.clusterId, r.namespace,`, `r.requestId, r.namespace, r.clusterId,`, "portal"],
   ["each status the wrong colour", "src/portal/format.ts", `pending_approval: "warn", awaiting_prune: "warn",`, `pending_approval: "ok", awaiting_prune: "ok",`, "portal"],
-  ["the approval count is wrong", "src/portal/format.ts", "`${a.rule} · ${need - left} of ${need}`", "`${a.rule} · ${need} of ${need}`", "portal"],
+  ["the approval count is wrong", "src/portal/format.ts", "`${a.rule} · ${have} of ${need}`", "`${a.rule} · ${need} of ${need}`", "portal"],
   ["the status filter stays in the browser", "src/portal/RequestsTab.tsx", `if (state !== "all") query.state = state;`, ``, "portal"],
   ["the search stays in the browser", "src/portal/RequestsTab.tsx", `if (q) query.q = q;`, ``, "portal"],
   ["Next is connected to nothing", "src/portal/RequestsTab.tsx", `next={() => page.nextCursor && setCursor(page.nextCursor)}`, `next={() => {}}`, "portal"],
@@ -41,7 +42,43 @@ const MUTANTS = [
   ["the empty sentence is gone", "src/portal/RequestsTab.tsx", `{result.data.items.length === 0 && <Empty>`, `{false && <Empty>`, "portal"],
   ["a changed heading", "src/portal/RequestsTab.tsx", `<Head title="Requests" lede="Every write you`, `<Head title="Requests" lede="Each write you`, "portal"],
   ["an invented sentence", "src/portal/RequestsTab.tsx", `<Small>This list shows the`, `<Small>Requests are kept for 90 days. This list shows the`, "portal"],
-  ["Open at current step looks active", "src/portal/RequestsTab.tsx", `isAriaDisabled aria-describedby={WHY_NOT_OPEN}`, ``, "portal"],
+  ["Open at current step goes nowhere", "src/portal/RequestsTab.tsx", `onClick={() => open("workflow", { request: r.requestId })}`, `onClick={() => {}}`, "portal", "8 Workflow: Open"],
+  // Portal slice 2 (#300): the Workflow, New namespace and Approvals tabs.
+  ["a step is not its event", "src/portal/WorkflowTab.tsx", `{j + 1} {e.event}`, `{j + 1} {e.by}`, "portal", "8 Workflow: Open"],
+  ["an open request is not followed", "src/api/hooks.ts", `const FOLLOW_MS = 5000;`, `const FOLLOW_MS = 600_000;`, "portal", "8 Workflow: Open"],
+  ["a finished request is read again", "src/api/hooks.ts", `"merged", "awaiting_prune", "sync_failed"
+]);`, `"merged", "awaiting_prune", "sync_failed", "synced"
+]);`, "portal", "8 Workflow: Open"],
+  ["merge_failed has the wrong tone", "src/portal/format.ts", `sync_failed: "bad", merge_failed: "bad",`, `sync_failed: "bad", merge_failed: "info",`, "portal", "8 Workflow: Open"],
+  ["applied has the wrong tone", "src/portal/format.ts", `pr_open: "info", applied: "info",`, `pr_open: "info", applied: "ok",`, "portal", "8 Workflow: Open"],
+  ["Back to current step does nothing", "src/portal/WorkflowTab.tsx", `onClick={() => setPicked(null)}`, `onClick={() => {}}`, "portal", "8 Workflow: Open"],
+  ["Next step is never off", "src/portal/WorkflowTab.tsx", `isDisabled={i === last}`, `isDisabled={false}`, "portal", "8 Workflow: Open"],
+  ["the detail is of another step", "src/portal/WorkflowTab.tsx", `const step = events[i];`, `const step = events[last];`, "portal", "8 Workflow: Open"],
+  ["a changed Workflow heading", "src/portal/WorkflowTab.tsx", `title="Request workflow"`, `title="Request flow"`, "portal", "6 the Workflow"],
+  ["a new Idempotency-Key for each submit", "src/portal/NewNamespaceTab.tsx", `if (sent.current?.request !== request) sent.current =`, `sent.current =`, "portal", "9 New namespace: the"],
+  ["a changed form keeps the old Idempotency-Key", "src/portal/NewNamespaceTab.tsx", `if (sent.current?.request !== request) sent.current =`, `if (!sent.current) sent.current =`, "portal", "R1 New namespace"],
+  ["Submit sends a form that was not planned", "src/portal/NewNamespaceTab.tsx", `if (!planned || !planIsOfForm) {`, `if (false) {`, "portal", "R2 New namespace"],
+  ["a double click sends two writes", "src/api/hooks.ts", `return (args) => inFlight.current ?? (inFlight.current = run(args).finally(() => { inFlight.current = null; }));`, `return (args) => run(args);`, "portal", "R3 a double click"],
+  ["the requester is matched by username", "src/portal/ApprovalsTab.tsx", `const self = who.sub === me.identity.sub;`, `const self = who.username === me.username;`, "portal", "R4 Approvals"],
+  ["no Idempotency-Key", "src/api/hooks.ts", `header: { "Idempotency-Key": key }`, `header: {}`, "portal", "9 New namespace: the"],
+  ["the dry run writes", "src/api/hooks.ts", `query: { dryRun: true }`, `query: { dryRun: false }`, "portal", "9 New namespace: the"],
+  ["the plan outlives a change to the form", "src/portal/NewNamespaceTab.tsx", `{ set(value); setPlanned(null); }`, `{ set(value); }`, "portal", "9 New namespace: the"],
+  ["the browser's checks are off", "src/portal/NewNamespaceTab.tsx", `<Form noValidate={false}`, `<Form noValidate`, "portal", "9 New namespace refusals"],
+  ["Submit does not open the new request", "src/portal/NewNamespaceTab.tsx", `.then((request) => open("workflow", { request: request.requestId }), () => undefined)`, `.then(() => undefined, () => undefined)`, "portal", "9 New namespace: the"],
+  ["a 5xx reads as a refusal", "src/api/hooks.ts", `return error.status >= 500 ?`, `return error.status >= 600 ?`, "portal", "9 New namespace: the"],
+  ["a refused dry run is hidden", "src/portal/NewNamespaceTab.tsx", `{plan.state === "refused" && <Callout`, `{false && <Callout`, "portal", "9 New namespace refusals"],
+  ["tier sizes swapped", "src/portal/NewNamespaceTab.tsx", `cpu: String(q["requests.cpu"] ?? "—"), memory: String(q["requests.memory"] ?? "—")`, `cpu: String(q["requests.memory"] ?? "—"), memory: String(q["requests.cpu"] ?? "—")`, "portal", "9 New namespace: the"],
+  ["the approval count of the plan is wrong", "src/portal/NewNamespaceTab.tsx", "title: `${need} approval${need > 1", "title: `${need - 1} approval${need > 1", "portal", "9 New namespace: the"],
+  ["an invented hint", "src/portal/NewNamespaceTab.tsx", `<Hint>From clusters.yaml metadata.</Hint>`, `<Hint>From clusters.yaml metadata. Pick the nearest.</Hint>`, "portal", "6 the Workflow"],
+  ["the other portals are gone", "src/portal/config.ts", `otherInstances: otherInstancesOf(o.otherInstances)`, `otherInstances: []`, "portal", "9 New namespace: the"],
+  ["an http portal link is accepted", "src/portal/config.ts", `url: serviceUrl(o.url, \`otherInstances.\${name}.url\`)`, `url: String(o.url)`, "bundle"],
+  ["the approvals are not mine", "src/portal/ApprovalsTab.tsx", `{ status: "pending_approval", approver: "me", limit: LIMIT }`, `{ status: "pending_approval", limit: LIMIT }`, "portal", "10 Approvals: the requests"],
+  ["a reject with no reason is sent", "src/portal/ApprovalsTab.tsx", `if (!reason) return;`, ``, "portal", "10 Approvals: the requests"],
+  ["Approve is connected to nothing", "src/portal/ApprovalsTab.tsx", `onClick={onApprove}`, `onClick={() => {}}`, "portal", "10 Approvals: the requests"],
+  ["a refusal of the API is hidden", "src/portal/ApprovalsTab.tsx", `{refusal?.state === "refused" && <Callout`, `{false && <Callout`, "portal", "10 Approvals: the API"],
+  ["the decision's callout is gone", "src/portal/ApprovalsTab.tsx", `{done && <Callout`, `{false && <Callout`, "portal", "10 Approvals: the requests"],
+  ["a decided request still counts as waiting", "src/portal/ApprovalsTab.tsx", `items.filter((r) => !decided[r.requestId]).length`, `items.length`, "portal", "10 Approvals: the requests"],
+  ["the requester is never you", "src/portal/ApprovalsTab.tsx", `const self = who.sub === me.identity.sub;`, `const self = false;`, "portal", "10 Approvals: the API"],
   ["Try again is connected to nothing", "src/portal/RequestsTab.tsx", `<AlertActionLink onClick={retry}>`, `<AlertActionLink onClick={() => {}}>`, "portal"],
   ["no loading line", "src/portal/RequestsTab.tsx", `<span role="status">Loading requests…</span>`, ``, "portal"],
   ["sign-out stays in the browser", "src/portal/PortalApp.tsx", `void auth.signoutRedirect();`, ``, "portal"],
@@ -56,7 +93,7 @@ const only = process.argv[2];
 const stale = MUTANTS.filter(([, file, from]) => readFileSync(join(app, file), "utf8").split(from).length !== 2).map(([what, file]) => `${what} (${file})`);
 if (stale.length) throw new Error(`the text of these mutants is not in the source exactly one time: ${stale.join("; ")}`);
 const results = [];
-for (const [what, file, from, to, suite] of MUTANTS) {
+for (const [what, file, from, to, suite, checks] of MUTANTS) {
   if (only && !what.includes(only)) continue;
   const path = join(app, file), source = readFileSync(path, "utf8");
   if (source.split(from).length !== 2) throw new Error(`${what}: the text is not in ${file} exactly one time`);
@@ -65,7 +102,8 @@ for (const [what, file, from, to, suite] of MUTANTS) {
   try {
     execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
     // A mutant can make the page wait without end. The suite has its own limit for each check; this one is the backstop.
-    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL" });
+    const env = checks ? { ...process.env, CHECK: checks } : { ...process.env, CHECK: "" };
+    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, env, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL" });
     if (run.error?.code === "ETIMEDOUT") outcome = "killed: timeout";
     else outcome = run.status === 0 ? "SURVIVED" : `killed: ${(run.stderr.match(/AssertionError[^\n]*\n?[^\n]*|TimeoutError[^\n]*|Timeout \d+ms[^\n]*|did not end in \d+ s/) ?? ["the suite failed"])[0].replace(/\s+/g, " ").slice(0, 150)}`;
   } catch {

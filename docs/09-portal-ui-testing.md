@@ -74,6 +74,25 @@ count, validation turned off, and ticks removed.
 See `cmapi-portal-ui/MOCKUP-CONTRACT.md`. Keyboard use relies on PatternFly and axe; no walk tabs through every
 control. No CI runs these suites yet.
 
+## The portal on the API: Workflow, New namespace and Approvals (#300)
+
+Measured on 2026-11-16 on this Mac, against the built portal (`dist/`), a stand-in issuer and a stand-in API
+(`cmapi-portal-ui/tests/api/standin.mjs`). Stage: built-mocked. It does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| Everything | `npm test` | exit 0 in Chromium 156.0.8078.4 and with `PW_CHANNEL=chrome` in Chrome 157.0.8103.51; portal suite 23 checks, config cases 10 |
+| Parity both ways, per tab | `tests/api/portal.test.mjs`, check "6 the Workflow, New namespace and Approvals tabs" | 15, 33 and 11 strings of the mockup's blocks found, in 4, 4 and 3 states; nothing shown that is not listed |
+| Layout at 390, 820, 1440 px, both themes | the same suite, check "7 the Workflow, New namespace and Approvals tabs" | 18 views, no sideways scroll, no placeholder |
+| axe at 390 and 1440 px, both themes | the same check | 12 scans, no serious or critical finding; the Approvals scan has the reason field open |
+| Mutants | `npm run test:mutants` | 65 mutants (36 before, 29 new), 65 killed |
+| New tests fail on main | each new check run alone with `CHECK=` on a build of main 0a805b0 | all 10 changed or new portal checks and both new config cases fail |
+
+**Found while testing.** Chrome sends a POST again by itself when a reused connection closes with no answer. The
+stand-in's lost-answer case had to hold until the test cleared it; the retry carried the same Idempotency-Key, so the API
+answered with the first request. **Not proven:** a sign-in and a submit on CRC (the steps are in the PR for #300),
+keyboard use beyond PatternFly and axe.
+
 ## What testing found
 
 | Found by | Problem | Fix |

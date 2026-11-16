@@ -19,9 +19,8 @@ export function approvalOf(r: ChangeRequest): string {
   const a = r.approval;
   if (!a) return "—";
   if (a.auto) return a.auto.startsWith("auto:") ? `auto: ${a.auto.slice(5)}` : a.auto;
-  const need = a.slots.reduce((n, slot) => n + slot.count, 0);
-  const left = a.remaining.reduce((n, slot) => n + slot.needed, 0);
-  return `${a.rule} · ${need - left} of ${need}`;
+  const { need, have } = countsOf(r);
+  return `${a.rule} · ${have} of ${need}`;
 }
 
 export const prOf = (r: ChangeRequest): string => (r.pr ? `#${r.pr.number}` : "—");
@@ -46,3 +45,43 @@ export function whenOf(iso: string, now: Date): string {
 /** "1–25 of 61 · newest first", or "0 requests". */
 export const rangeOf = (page: { from: number; to: number; total: number }): string =>
   (page.total ? `${page.from}–${page.to} of ${page.total} · newest first` : "0 requests");
+
+/** "17:05:42": the mockup's clock for an event, in UTC. */
+export function clockOf(iso: string): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? "—" : at.toISOString().slice(11, 19);
+}
+
+/** "3 min 12 s", the mockup's form of a duration (its dur()). */
+export function durationOf(ms: number): string {
+  const t = Math.max(0, Math.round(ms / 1000)), m = Math.floor(t / 60), s = t % 60;
+  return (m ? `${m} min ` : "") + `${s} s`;
+}
+
+/** "Nov 4" for "2026-11-04", the mockup's dayName(). */
+export const dayName = (iso: string): string => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}`;
+
+/** Today in UTC as "2026-11-15", and the day `days` after it. The mockup's dates are UTC days. */
+export function isoDay(now: Date, days = 0): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + days * 864e5).toISOString().slice(0, 10);
+}
+
+/** Whole days from today (UTC) to a date, the mockup's dayDiff(). */
+export const daysUntil = (iso: string, now: Date): number => Math.round((Date.parse(iso) - Date.parse(isoDay(now))) / 864e5);
+
+/** Approvals needed and recorded: "need" from the slots, "have" as need minus what remains. */
+export function countsOf(r: Pick<ChangeRequest, "approval">): { need: number; have: number } {
+  const a = r.approval;
+  if (!a) return { need: 0, have: 0 };
+  const need = a.slots.reduce((n, slot) => n + slot.count, 0);
+  return { need, have: need - a.remaining.reduce((n, slot) => n + slot.needed, 0) };
+}
+
+/** "approver-platform", or "approver-prod 1, approver-platform 2" when more than one group must approve: the mockup's form. */
+export function groupsOf(r: Pick<ChangeRequest, "approval">): string {
+  const slots = r.approval?.slots ?? [];
+  return slots.length === 1 ? slots[0].group : slots.map((s) => `${s.group} ${s.count}`).join(", ");
+}
+
+/** "Auto-approved by baseline-rnd-namespace" from "auto:baseline-rnd-namespace". */
+export const policyOf = (auto: string): string => (auto.startsWith("auto:") ? auto.slice(5) : auto);

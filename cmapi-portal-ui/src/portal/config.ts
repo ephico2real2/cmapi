@@ -14,6 +14,16 @@ export interface PortalConfig {
   displayName: string;
   /** The environments that this instance serves. */
   environments: string[];
+  /** The portals of the other instances, for the environments that this one does not serve. */
+  otherInstances: OtherInstance[];
+}
+
+export interface OtherInstance {
+  /** The instance's name, for example prod. */
+  name: string;
+  environments: string[];
+  /** The portal of that instance. */
+  url: string;
 }
 
 /** config.json is missing or wrong. The portal shows the message and starts nothing. */
@@ -41,11 +51,28 @@ function text(value: unknown, name: string): string {
   return value;
 }
 
+const names = (value: unknown, name: string): string[] => {
+  if (!Array.isArray(value) || value.some((e) => typeof e !== "string")) throw new ConfigError(`config.json: ${name} must be a list of names.`);
+  return value as string[];
+};
+
+/**
+ * otherInstances is `{"prod": {"environments": ["prod"], "url": "https://..."}}`, as the deployment writes it from the
+ * instance directory. An empty list stands for none. Each link is an https URL, checked as the API's is.
+ */
+function otherInstancesOf(value: unknown): OtherInstance[] {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) return [];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new ConfigError("config.json: otherInstances must be an object of instances.");
+  return Object.entries(value as Record<string, unknown>).map(([name, entry]) => {
+    const o = (typeof entry === "object" && entry !== null ? entry : {}) as Record<string, unknown>;
+    return { name, environments: names(o.environments, `otherInstances.${name}.environments`), url: serviceUrl(o.url, `otherInstances.${name}.url`) };
+  });
+}
+
 export function parseConfig(raw: unknown): PortalConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new ConfigError("config.json is not a JSON object.");
   const o = raw as Record<string, unknown>;
-  const environments = o.environments ?? [];
-  if (!Array.isArray(environments) || environments.some((e) => typeof e !== "string")) throw new ConfigError("config.json: environments must be a list of names.");
+  const environments = names(o.environments ?? [], "environments");
   const instance = text(o.instance, "instance");
   const apiUrl = serviceUrl(o.apiUrl, "apiUrl");
   // The API's paths start at the root of its host (/api/v1/...), so a path here would send each call to the wrong place.
@@ -56,7 +83,8 @@ export function parseConfig(raw: unknown): PortalConfig {
     clientId: text(o.clientId, "clientId"),
     instance,
     displayName: typeof o.displayName === "string" && o.displayName ? o.displayName : instance,
-    environments: environments as string[]
+    environments,
+    otherInstances: otherInstancesOf(o.otherInstances)
   };
 }
 
