@@ -10,6 +10,35 @@ Read this first to continue the build from a new session, with nothing else in h
 
 **The cache reference, 2026-11-13.** The owner: "check my inkcaskhq/kvpg". That is `github.com/inkcasthq/kvpg`, read by the coordinator at `f654a121820f`. It is the reference for a cmapi cache in PostgreSQL, not a dependency: cmapi keeps its contract v1 in a small Python store, on a logged table, only if a shared cache is needed. Never change kvpg and file nothing there. The owner then widened it: "ob1 is free the python equiavlanet to add a similar or use an existing public one as well". So OB1 can build the store or use a public Python library that passes the checks in the prompt. No choice is made yet, because no shared cache is needed yet. The detail is in the prompt, under "The database: CloudNativePG".
 
+## State on 2026-11-16, 05:00Z: read this first
+
+This section supersedes the one below it where they differ. `main` is `01a23fe`.
+
+**Git delivery, redesigned and live (#286).** cmapi now uses plain Git with one credential, an HTTPS token or an SSH key. Branch `cmapi/<cluster>/<requestId>` is cut from `origin/main` in a worktree per request, inside an emptyDir. A thin PR adapter handles each host: GitHub and Gitea are built, GitLab (PR-B) and Bitbucket (PR-C) are proposed. It is always a PR, never a push to main. In apply mode cmapi applies before it merges, with the new states `applied` and `merge_failed`.
+- Fable 5.2 and OB1 each designed it independently; the coordinator arbitrated (comment on #286).
+- Built in PR #288 (`21a7f47`), with the review's seven fixes and BUG-74 #293, the job-claim tie fix.
+
+**Identity.** Machine user `cmapi-git-bot`, Secrets `cmapi-git-bot` (token) and `cmapi-git-bot-ssh` (`kubernetes.io/ssh-auth`), ConfigMap `cmapi-git-bot-known-hosts`. The owner loaded the SSH key on 2026-11-16. CRC has run Git over SSH since PR #299 (`0a805b0`); the worker logs key fingerprint `SHA256:R7En1nykzQtx0+6OB46qo+i8B+PK1m3ZaWmkMRPw+gY`. The API token is still a copy of the owner's token, so PRs show `ephico2real2` until the bot's own token is loaded (docs/19 section 2).
+
+**Proven live on CRC.**
+- req-0001 → cmapi-cluster-configs PR #5; req-0003 → PR #6, with the D19 pod defaults; over SSH, req-20261116-0001 → PR #7.
+- In the portal through Playwright: req-20261116-0002 → PR #8 (auto-approved); req-20261116-0003 → PR #9, approved in the Approvals tab.
+- crc-proof.sh passes at 21a7f47 and at 130ff6c.
+
+**The portal.** Slice 2 (#300, PR #305 `130ff6c`): New namespace, Approvals and Workflow are on the API and live on CRC (screenshots in PR #308). Slice 3 (#301: Quotas and KPIs) is being built by OB1 run 14. Slice 4 (#302: Expiration, Policies, Capacity) needs the API first.
+
+**Docs.** docs/19 (connecting to Git, PR #296). docs/14 "Who a request is from", with the RBAC figure, light theme (PRs #297 and #298). `cmapi.requester` is a generic LDAP test user. A person submits as themselves; a tool can submit for a person with `onBehalfOf`. Realm `cmapi`'s users filter `(uid=cmapi.*)` admits only the 13 test users.
+
+**Cleanup.** Secret `cmapi-git` deleted (unused). 72 merged branches deleted. The only two not merged (closed PRs #285 and #165) are kept at `refs/pull/<n>/head`. 78 worktrees removed. Closed: #279 (BUG-69), #285, cmapi-cluster-configs #2, #3 and #4.
+
+**Open.**
+- Filed: #290, #291, #292, #294, #295, #303, #304, #306, #307, #309.
+- The owner decides:
+  - before PR-B, the API pod's plan-time read path (Git, or each host's API);
+  - a revert before a merge (#290);
+  - the users filter for real people;
+  - loading the bot's own token.
+
 ## State on 2026-11-15, 05:00Z: read this first
 
 This section supersedes the older sections below where they differ. In particular, "Local CI is the merge gate" and the #157 stop are no longer in force.
