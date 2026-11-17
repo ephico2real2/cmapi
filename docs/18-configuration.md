@@ -223,7 +223,7 @@ A key can be a label and an annotation at the same time, each with its own rule.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `prefixes` | list of text | `[]` | The allowed prefixes. `""` allows a key with no prefix. A `*` matches, as in `*.company.net/`. With no prefix, cmapi refuses each other key (`invalid_key`, "prefix not allowed") |
+| `prefixes` | list of text | `[]` | The allowed prefixes. `""` allows a key with no prefix, and nothing else does. A `*` matches, as in `*.company.net/`, but only a key that has a prefix: `["*"]` admits any prefix that is not reserved, and no key without one (#331). With no prefix, cmapi refuses each other key (`invalid_key`, "prefix not allowed") |
 | `max` | integer | `50` | The most other keys of this kind |
 | `maxValueBytes` | integer | `4096` | Annotations only. The most bytes of one value |
 | `maxBytesTotal` | integer | `65536` | Annotations only. The most bytes of all other annotation values |

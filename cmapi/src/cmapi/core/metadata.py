@@ -210,7 +210,11 @@ class MetadataKeys:
 
     @staticmethod
     def _prefix_in(prefix: str, patterns: list[str] | tuple[str, ...]) -> bool:
-        return any(fnmatchcase(prefix, p) if p else prefix == "" for p in patterns)
+        # A pattern names a prefix, and only "" admits a key with no prefix (docs/18, allowOther). The no-prefix case is
+        # not matched against the patterns, since fnmatchcase("", "*") is true (#331).
+        if not prefix:
+            return "" in patterns
+        return any(fnmatchcase(prefix, p) for p in patterns)
 
     def classify(self, key: str, kind: str | None = None) -> KeyClass:
         """The class of a key. With no kind, a key is governed or team when it is so as a label or an annotation."""
