@@ -1,10 +1,73 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-16 at 19:33Z. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-17. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-16, 19:33Z
+## Resume here: 2026-11-17
+
+Start the next session as section 1 of the 2026-11-16 state below says, then read this section first: it replaces that
+state's sections 2, 3 and 5. Sections 4, 6 to 10 still hold, with the changes listed here.
+
+### Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `7ba5d78` (PR #368). CI green on every merge of the day (last full run on `main`: c7ab6c4, all 7 jobs) |
+| CRC | Runs `7ba5d78` (deployed 2026-11-17, OB1 run 19, `workbench/cmapi/ob1-run19/`): `crc-proof.sh` all passed; Swagger shows the required keys; `/api/v1/metadata-keys` 200 + 304; the New namespace form refused a Team DL outside the domain on its field and created `cmapi-live-f` (req-20261117-0003, cluster-configs PR #14, synced in 25 s). keycloak-0 0 restarts. **Kyverno is not installed on CRC**, so the audit default and PolicyReports are not checked there, and the cluster-configs bundle was not re-rendered. The first build stalled the node for 29 s (#157) and a test user was locked during the proof (#373) |
+| Portal | 7 of 9 tabs on the API: Expiration added (#318). New namespace now builds its fields from the instance's metadata config (#336). Policies and Capacity are next (#302) |
+| Agents | #337 (step 7 below): two designs, then the build |
+
+### What was done on 2026-11-17: required labels and annotations (#328)
+
+The owner asked for #328 to be designed before it was built (2026-11-16). Two designs, one model family (Codex out of
+quota until 2026-11-18 14:09, Fable paused), arbitrated in `docs/reviews/2026-11-16-issue-328/arbitration.md`. Built in
+this order, each PR reviewed by OB3 (Opus 5.5), each review's fixes applied unchanged after the coordinator re-ran their
+tests, each review record in `docs/reviews/`:
+
+| Step | Issues | PR | What it does |
+|---|---|---|---|
+| 1 | #330, #331 | #340, #341 | The validator refuses a key with an empty prefix (`/foo`); `*` no longer admits unprefixed keys. A held invalid key can still be removed |
+| 2 | #335 | #339 | Helm values `metadata:` (the whole file), with `values.schema.json`; `configFiles` stays as a fallback |
+| 2b | #342, #343 | #344 | **Kyverno defaults to audit** (owner); cmapi's own checks refuse, with or without Kyverno; the 422 lists Kyverno's findings beside cmapi's |
+| 3 | #332, #338 | #346 | The loader refuses patterns outside the common subset of Python `re`, RE2 and ECMA-262; one anchored pattern shared by validator, Kyverno and schema; config shape checks |
+| 4 | #328, #334 | #350 | Required labels and annotations are schema fields in `/openapi.json` and Swagger, generated per instance; generated examples; 14 accepted breaking lines |
+| 5 | #333, #345, #356 | #354 | Kyverno covers allowOther prefixes and limits; no false `fail` in background scans; policy names within 63; OLM and Pipelines prefixes reserved |
+| — | #348, #349 | #351, #352 | Values matched with RE2 (linear time; `google-re2` added); curl samples accepted |
+| — | #358 | #359 | Company profile (owner): line of business free text, critical level 0 to 6, mnemonic 3 or 4 letters |
+| — | #355 | #367 | YAML written so Kubernetes tools read every string as a string (`y`, `n`, timestamps) |
+| 6 | #336 | #368 | `GET /api/v1/metadata-keys`; the New namespace form from the config, pattern checks in a Web Worker |
+| 7 | #337 | open | A report-only contract diff in the cluster-configs CI |
+
+**The owner's decisions of 2026-11-17** (also in memory):
+
+- Kyverno runs in **audit** by default for its detail; cmapi's core logic holds every rule and refuses, and works with
+  `policy.engine: none`. The portal's Policies tab shows the clusters' PolicyReports (#302).
+- The keys are set through the Helm values (#335). The read path for Git hosts is **Git with the bot's key** (host-neutral);
+  a PR adapter per host is still needed for open, status and merge (section 6, item 1 of the 2026-11-16 state: decided).
+- Sample values (`abc`, `amgsst`) are examples, never rules. Company LOB is free text, CL 0 to 6, mnemonic 3 or 4 letters.
+- The five #328 questions: accept the 14 breaking lines; the portal form from the config; refuse a required key with no
+  `example`; a report-only diff in the config repo's CI; clients generated from each instance's own `/openapi.json`.
+
+### What is next, in order
+
+1. **#337** (PR #370, in review) and **#366** (protect from deletion, building; with #374), then deploy them to CRC.
+2. **Portal slice 4, Policies** (#302 and its comments: PolicyReport results, plan-time Kyverno warnings, the mode of each
+   environment), then **Capacity**.
+3. **Open defects from today:** #347 (portal flake: PatternFly tab scroll-button transitions), #353 (a lone surrogate in an
+   annotation with no rule), #357 (CI does not build the API image), #360 to #364, #362 (the "any value" wording).
+4. **Follow-ups:** #365 (editor for allowOther keys), #366 (operator flag on `/me`, owner to confirm).
+5. Then the 2026-11-16 list from its item 2 on: portal fixes, Git follow-ups, GitLab and Bitbucket adapters, the queue.
+
+### Waiting for the owner
+
+- The live Claude Docs of docs/01 and docs/02 (the exports in the repository are updated; the live docs are not in this
+  account's list or not owned by it).
+- #366: may operators set `cmapi.net/protected` from the portal?
+- Titles for the company keys in the New namespace form (none today; the keys show).
+- From 2026-11-16: the leaner process (mutants once per slice), a Gitea validation, `cmapi-live-a`'s expiry.
+
+## State on 2026-11-16, 19:33Z (sections 2, 3 and 5 superseded by the section above)
 
 ### 1. How to start the next session
 
