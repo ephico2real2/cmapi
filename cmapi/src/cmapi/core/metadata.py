@@ -305,8 +305,11 @@ class MetadataKeys:
         return errs
 
     def _syntax(self, key: str, value: str | None, kind: str) -> dict[str, Any] | None:
-        prefix, _, name = key.rpartition("/")
-        if (prefix and (len(prefix) > 253 or not _DNS1123_SUB.fullmatch(prefix))) or \
+        # Kubernetes' IsLabelKey, which also checks annotation keys (#330): a "/" needs a prefix before it, so "/foo" has
+        # an empty prefix ("prefix part must be non-empty"), not none. A second "/" stays in the prefix, which the DNS
+        # subdomain check refuses.
+        prefix, slash, name = key.rpartition("/")
+        if (slash and (not prefix or len(prefix) > 253 or not _DNS1123_SUB.fullmatch(prefix))) or \
                 len(name) > 63 or not _NAME.fullmatch(name):
             return {"code": "invalid_key", "key": key}
         if kind == "label" and value not in (None, "") and (len(value) > 63 or not _NAME.fullmatch(value)):
