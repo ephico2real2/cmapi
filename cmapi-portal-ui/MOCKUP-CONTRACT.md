@@ -254,4 +254,4 @@ Consequences in the demo build:
 Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
 (`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
 check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
-source 119 ways, one at a time, and each must fail the suite or the checks named with it.
+source 139 ways, one at a time, and each must fail the suite or the checks named with it.

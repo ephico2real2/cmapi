@@ -521,5 +521,5 @@ export function useSubmitExpiry(): Outcome<ChangeRequest> & { submit: (change: P
     }
   });
   const send = useOneAtATime(mutation.mutateAsync);
-  return { ...outcomeOf(mutation), submit: (change, key) => send({ change, key }) };
+  return { ...outcomeOf(mutation), submit: (planned, key) => send({ change: planned, key }) };
 }
