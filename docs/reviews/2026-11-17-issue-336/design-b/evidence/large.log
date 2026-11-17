@@ -1,0 +1,6 @@
+keys 50+50 domains 10: load 6 ms, json_schema 4 ms, body 66 KiB, gzip 2 KiB
+keys 500+500 domains 200: load 43 ms, json_schema 582 ms, body 7429 KiB, gzip 57 KiB
+keys 2000+2000 domains 1000: load 177 ms, json_schema 11509 ms, body 145343 KiB, gzip 10637 KiB
+large-2000-1000.json: parse 327.7 ms, compile+test 6000 patterns 324.9 ms
+large-50-10.json: parse 0.4 ms, compile+test 150 patterns 0.7 ms
+large-500-200.json: parse 21.8 ms, compile+test 1500 patterns 28.3 ms

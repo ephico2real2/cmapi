@@ -1,0 +1,6 @@
+## schema + namespacePrefix only
+reference: 17 patterns compile with u; 5978 create maps, 508 accepted by validate(); client agrees on 5879; unsound (server accepts, client refuses) 0; loose (client lets through, server refuses) {"operator_only_key":92,"too_many_keys":2,"annotations_too_large":5}
+company: 15 patterns compile with u; 6219 create maps, 736 accepted by validate(); client agrees on 5979; unsound (server accepts, client refuses) 0; loose (client lets through, server refuses) {"derived_key":135,"operator_only_key":96,"too_many_keys":2,"annotations_too_large":7}
+## plus the x-cmapi-other-keys count and byte limits
+reference: 17 patterns compile with u; 5978 create maps, 508 accepted by validate(); client agrees on 5886; unsound (server accepts, client refuses) 0; loose (client lets through, server refuses) {"operator_only_key":92}
+company: 15 patterns compile with u; 6219 create maps, 736 accepted by validate(); client agrees on 5988; unsound (server accepts, client refuses) 0; loose (client lets through, server refuses) {"derived_key":135,"operator_only_key":96}

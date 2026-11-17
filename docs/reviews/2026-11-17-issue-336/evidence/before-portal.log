@@ -1,0 +1,34 @@
+ok - F1 logout: the ID token goes in the body of a POST, and no token is in a URL
+ok - F3 staggered 401s share the replacement token
+ok - F6 bearer insertion enforces credentials and redirect
+ok - F7 an in-flight renewal cannot restore a signed-out user
+ok - F8 discovery cannot downgrade sign-in or token endpoints
+ok - correct PKCE, transaction storage and callback cleanup
+ok - correct config service URL boundaries
+ok - F10 config rejects empty query and fragment delimiters
+FAIL - M1 the form never refuses a body that cmapi accepts: every case of the #328 corpus and design B's values, on both files: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - M2 the fields of each file: inputs in the order of required, then the keys cmapi sets, then the optional ones; no operator-only key: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - M3 an answer of another shape is the error state, never a form with fields missing: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - M4 the body: each field with a value; never an empty optional key, a key that cmapi sets, or an operator-only key: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - M5 a field's check: the validator's order and words, characters as code points, and a pattern not checked here counts as passed: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - M6 a refusal's errors: each on the field that it names, the others in the summary; a key the form lacks reads the rules again: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/api/direct.test.mjs
+FAIL - direct: 8 of 14
+ok - contract
+    throw new ERR_MODULE_NOT_FOUND(
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/src/portal/metadataForm.ts' imported from /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/cmapi-portal-ui/tests/contract.test.mjs
+== CHECK=18 New namespace on a company
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+== CHECK=18 New namespace on the reference
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+== CHECK=18 New namespace: a refused
+  name: 'TimeoutError'
+== CHECK=18 New namespace: a configured
+  name: 'TimeoutError'
+== CHECK=18 New namespace: rules that
+  name: 'TimeoutError'
+== CHECK=18 New namespace states
+  name: 'TimeoutError'
+== CHECK=6 the Workflow
+  name: 'TimeoutError'
+== CHECK=9 New namespace: the
+  name: 'TimeoutError'

@@ -1,0 +1,11 @@
+FAILED tests/test_metadata_form_336.py::test_a_title_is_the_property_title_on_create_and_beside_the_null_branch_on_a_patch
+FAILED tests/test_metadata_form_336.py::test_a_key_without_a_title_has_none_and_the_reference_file_titles_the_mockups_two_fields
+FAILED tests/test_metadata_form_336.py::test_the_loader_refuses_a_title_that_is_not_a_label[3-title must be text, not the int 3]
+FAILED tests/test_metadata_form_336.py::test_the_loader_refuses_a_title_that_is_not_a_label[  -title must be a non-empty text]
+FAILED tests/test_metadata_form_336.py::test_the_loader_refuses_a_title_that_is_not_a_label[title2-title must be text, not a list]
+FAILED tests/test_metadata_form_336.py::test_x_cmapi_rule_is_the_validators_words_for_each_declared_key[reference]
+FAILED tests/test_metadata_form_336.py::test_x_cmapi_rule_is_the_validators_words_for_each_declared_key[company]
+FAILED tests/test_metadata_form_336.py::test_the_portals_company_fixture_is_the_company_files_answer
+FAILED tests/test_metadata_form_336.py::test_the_recorded_sample_is_the_reference_files_answer
+FAILED tests/test_metadata_form_336.py::test_the_portals_corpus_is_the_one_this_code_builds
+10 failed in 1.58s

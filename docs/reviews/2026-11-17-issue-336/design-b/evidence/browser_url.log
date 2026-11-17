@@ -1,0 +1,16 @@
+"https://wiki.company.net/abc"   server accepts | type=url accepts  
+"https://a%zz/"                  server accepts | type=url refuses  BROWSER STRICTER
+"https://ex_ample.com/"          server accepts | type=url accepts  
+"https://a..b/"                  server accepts | type=url accepts  
+"https://-x-/"                   server accepts | type=url accepts  
+"https://x:abc/"                 server accepts | type=url refuses  BROWSER STRICTER
+"https://x:99999/"               server accepts | type=url refuses  BROWSER STRICTER
+"http://x"                       server accepts | type=url accepts  
+"https://x y/"                   server refuses | type=url accepts  
+"https://[::1]/"                 server accepts | type=url accepts  
+"https://[::1"                   server refuses | type=url refuses  
+"https://x/%zz"                  server accepts | type=url accepts  
+"https://ü.example/"             server accepts | type=url accepts  
+"ftp://x"                        server refuses | type=url accepts  
+values where type=url refuses what cmapi accepts: 3
+M12 value []

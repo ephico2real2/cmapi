@@ -1,0 +1,3 @@
+browser 156.0.8078.4
+what the page's fetch saw: [{"status":200,"etag":"\"abc123\"","body":"{\"labels\":{\"type\":\"object\"}}"},{"status":200,"etag":"\"abc123\"","body":"{\"labels\":{\"type\":\"object\"}}"}]
+what the API saw: [{"method":"GET","ifNoneMatch":null,"auth":true},{"method":"GET","ifNoneMatch":"\"abc123\"","auth":true}]

@@ -1,0 +1,17 @@
+reference labels cmapi.net/team | req | derived=None  | fmt=None   | ex=['payments']
+reference labels cmapi.net/cost-center | opt | derived=None  | fmt=None   | ex=['cc-4410']
+reference labels cmapi.net/app | opt | derived=None  | fmt=None   | ex=None
+reference labels cmapi.net/rightsizing | opt | derived=None  | fmt=None   | ex=None
+reference labels cmapi.net/protected | opt | derived=None  | fmt=None  | operatorOnly | ex=None
+reference annotations cmapi.net/team-dl | req | derived=None  | fmt=email-in-domains   | ex=['payments-team@ephico2real.com']
+reference annotations cmapi.net/protected | opt | derived=None  | fmt=None  | operatorOnly | ex=None
+company labels name | opt | derived=namespace  | fmt=None   | ex=None
+company labels company.net/app-environment | opt | derived=environment  | fmt=None   | ex=None
+company labels company.net/mnemonic | req | derived=None  | fmt=None | nsprefix  | ex=['abc']
+company labels company.net/lob | req | derived=None  | fmt=None   | ex=['amgsst']
+company labels company.net/cl | req | derived=None | enum | fmt=None   | ex=['1']
+company labels cmapi.net/protected | opt | derived=None  | fmt=None  | operatorOnly | ex=None
+company annotations company.net/app-environment | opt | derived=environment  | fmt=None   | ex=None
+company annotations company.net/mnemonic-group-contact | opt | derived=None  | fmt=email-in-domains   | ex=['abc-team@company.net']
+company annotations company.net/mnemonic-confluence | opt | derived=None  | fmt=url   | ex=['https://wiki.company.net/abc']
+company annotations cmapi.net/protected | opt | derived=None  | fmt=None  | operatorOnly | ex=None

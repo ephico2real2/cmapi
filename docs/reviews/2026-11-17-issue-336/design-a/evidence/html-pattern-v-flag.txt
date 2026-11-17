@@ -1,0 +1,7 @@
+Source: https://html.spec.whatwg.org/multipage/input.html#the-pattern-attribute (fetched 2026-11-17)
+"Let regexpCompletion be RegExpCreate(pattern, "v"). If regexpCompletion is an abrupt completion, then return nothing.
+The element has no compiled pattern regular expression. User agents are encouraged to log this error in a developer
+console, to aid debugging. Let anchoredPattern be the string "^(?:", followed by pattern, followed by ")$".
+Return ! RegExpCreate(anchoredPattern, "v")."
+Measured (v-flag-run.txt): 6 of the 8 distinct served patterns (reference) and 6 of 7 (company) are SyntaxErrors under
+the v flag in Node 26.9.0, so an HTML pattern attribute holding them would be no constraint at all.

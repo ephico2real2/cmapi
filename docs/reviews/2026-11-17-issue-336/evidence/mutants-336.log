@@ -1,0 +1,27 @@
+ok   #336 a declared field is dropped - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   #336 the CRC keys are hard-coded again - killed: Timeout 8000ms exceeded.
+ok   #336 a pattern is not checked - killed: AssertionError [ERR_ASSERTION]: the field's error is null, not /^Not valid: must match \^\[a-z\]\{3,4\}\$; the start of the namespace name, before its
+ok   #336 the label syntax is not checked - killed: AssertionError [ERR_ASSERTION]: the field's error is null, not /^Not a valid label value/ at waitError (file:///Users/olasumbo/gitRepos/workbench/cmap
+ok   #336 the prefix is not checked - killed: AssertionError [ERR_ASSERTION]: the field's error is null, not /^xyz-dev does not start with abc-/ at waitError (file:///Users/olasumbo/gitRepos/workb
+ok   #336 an enum value is not checked - killed: the suite failed
+ok   #336 characters are counted in UTF-16 units - killed: the suite failed
+ok   #336 the patterns run on the page's thread - killed: AssertionError [ERR_ASSERTION]: the page answers 
+ok   #336 no time limit on a pattern - killed: Timeout 8000ms exceeded.
+ok   #336 a refusal's errors are dropped - killed: AssertionError [ERR_ASSERTION]: the field's error is null, not /^must match \^\[a-z0-9-\]\{2,40\}\$/ at waitError (file:///Users/olasumbo/gitRepos/wor
+ok   #336 a refusal's errors are not on their fields - killed: AssertionError [ERR_ASSERTION]: the field's error is null, not /^must match \^\[a-z0-9-\]\{2,40\}\$/ at waitError (file:///Users/olasumbo/gitRepos/wor
+ok   #336 a key the form lacks does not read the rules again - killed: AssertionError [ERR_ASSERTION]: a missing key that the form does not show: the rules are read again 
+ok   #336 the summary does not take the focus - killed: AssertionError [ERR_ASSERTION]: the summary has the focus at file:///Users/olasumbo/gitRepos/workbench/cmapi/wt-336/cmapi-portal-ui/tests/api/portal.t
+ok   #336 the summary's link goes nowhere - killed: Timeout 8000ms exceeded.
+ok   #336 a key that cmapi sets is sent - killed: AssertionError [ERR_ASSERTION]: the requester's keys only: no key that cmapi sets, no empty optional key + actual - expected
+ok   #336 an empty optional key is sent - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   #336 a key that cmapi sets is editable - killed: AssertionError [ERR_ASSERTION]: read-only, not disabled: read by a screen reader, never sent + actual - expected
+ok   #336 an operator-only key is offered - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   #336 a URL field is type=url - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   #336 the example is the value - killed: AssertionError [ERR_ASSERTION]: an example is a placeholder, never a value 
+ok   #336 the titles are ignored - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   #336 the rules-changed warning is gone - killed: Timeout 8000ms exceeded.
+ok   #336 the rules are not read again - killed: Timeout 8000ms exceeded.
+ok   #336 a 403 of the rules reads as an error - killed: Timeout 8000ms exceeded.
+ok   #336 an answer of another shape is read - killed: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /The metadata rules of this instance are not in the form this portal re
+ok   #336 a keyword that the form does not evaluate - killed: AssertionError [ERR_ASSERTION]: keywords of GET /api/v1/metadata-keys that the form neither evaluates nor lists as ignored + actual - expected
+26 mutants, 26 killed, 0 survived. The source is restored and the portal is built again.

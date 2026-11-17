@@ -1,0 +1,8 @@
+company: the form's body: []
+company: + derived name, same value: []
+company: + derived name, another value: [{'code': 'derived_key', 'key': 'name', 'kind': 'label', 'detail': 'cmapi sets name from the namespace (abc-rnd)'}]
+company: name not starting with the mnemonic: [{'code': 'invalid_value', 'key': 'company.net/mnemonic', 'detail': 'xyz-rnd does not start with abc-'}]
+company: an empty optional annotation sent: [{'code': 'invalid_value', 'key': 'company.net/mnemonic-confluence', 'detail': 'an http or https URL'}]
+company: the reference body (today's hard-coded keys): [{'code': 'invalid_key', 'key': 'cmapi.net/team', 'detail': 'prefix not allowed'}, {'code': 'invalid_key', 'key': 'cmapi.net/team-dl', 'detail': 'prefix not allowed'}, {'code': 'missing_required_key', 'key': 'company.net/mnemonic', 'kind': 'label', 'detail': "must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'"}, {'code': 'missing_required_key', 'key': 'company.net/lob', 'kind': 'label', 'detail': 'any value'}, {'code': 'missing_required_key', 'key': 'company.net/cl', 'kind': 'label', 'detail': "one of ['0', '1', '2', '3', '4', '5', '6']"}]
+company: operator-only key by a requester: [{'code': 'operator_only_key', 'key': 'cmapi.net/protected'}]
+reference: today's body: []
