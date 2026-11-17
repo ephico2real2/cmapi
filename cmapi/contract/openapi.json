@@ -4477,7 +4477,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/auto-approval:resume -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"reason\": \"incident 1234\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/auto-approval:resume -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"reason\": \"incident 1234 closed\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -5304,7 +5304,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/prune:confirm -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"namespace\": \"payments-dev\", \"clusterId\": \"CRC\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/prune:confirm -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"clusterId\": \"CRC\", \"namespace\": \"search-dev\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -6240,7 +6240,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{\"namespace\": \"payments-dev\", \"tier\": \"small\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}}, \"labels\": {\"cmapi.net/team\": \"payments\"}, \"annotations\": {\"cmapi.net/team-dl\": \"payments-team@ephico2real.com\"}, \"expiresAt\": \"2026-12-15\", \"justification\": \"Payments service dev namespace\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{\"annotations\": {\"cmapi.net/team-dl\": \"payments-team@ephico2real.com\"}, \"justification\": \"Payments service dev namespace\", \"labels\": {\"cmapi.net/cost-center\": \"cc-4410\", \"cmapi.net/team\": \"payments\"}, \"namespace\": \"payments-dev\", \"tier\": \"small\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -7598,7 +7598,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"tier\": \"large\", \"limitRange\": {\"container\": {\"default\": {\"cpu\": \"1\", \"memory\": \"1Gi\"}, \"max\": {\"cpu\": \"4\", \"memory\": \"8Gi\"}}}, \"labels\": {\"cmapi.net/cost-center\": \"cc-4410\"}, \"justification\": \"More capacity for the batch\"}'"
+            "source": "curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"Load test next sprint\", \"tier\": \"large\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -8236,7 +8236,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:extend -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"days\": 30, \"until\": \"2026-12-15\", \"justification\": \"Another sprint\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:extend -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"days\": 7, \"justification\": \"Another sprint\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -8897,7 +8897,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:makePermanent -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"The service went to production use\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:makePermanent -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"In production use\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -9544,7 +9544,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"until\": \"2026-12-15\", \"justification\": \"A test namespace for one sprint\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"A load test this sprint\", \"until\": \"2026-12-08\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -12927,7 +12927,7 @@
           {
             "label": "curl",
             "lang": "Shell",
-            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:reject -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"comment\": \"sizing reviewed\"}'"
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:reject -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"comment\": \"Use the medium tier\"}'"
           }
         ],
         "x-plugin-version": "0.2.0"
