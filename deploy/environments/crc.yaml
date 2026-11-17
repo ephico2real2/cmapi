@@ -113,3 +113,86 @@ database:
     enabled: true
     storage: 2Gi
     storageClass: crc-csi-hostpath-provisioner
+
+# THROWAWAY (#337 live proof, never merged): the chart's keys plus one required label.
+metadata:
+  system:
+  - cmapi.net/cluster-id
+  - cmapi.net/managed
+  - cmapi.net/request-id
+  - cmapi.net/requested-by
+  - cmapi.net/requested-by-user
+  - cmapi.net/tier
+  - cmapi.net/instance
+  - cmapi.net/env
+  - cmapi.net/tier-hash
+  - cmapi.net/beyond-tier
+  - cmapi.net/expiry
+  - cmapi.net/expires-at
+  operatorOnly:
+  - cmapi.net/protected
+  reservedPrefixes:
+  - kubernetes.io/
+  - '*.kubernetes.io/'
+  - k8s.io/
+  - openshift.io/
+  - '*.openshift.io/'
+  - argocd.argoproj.io/
+  - '*.kyverno.io/'
+  - redhatcop.redhat.io/
+  - olm.operatorgroup.uid/
+  - openshift-pipelines.tekton.dev/
+  requiredLabels:
+    cmapi.net/team:
+      pattern: ^[a-z0-9-]{2,40}$
+      title: Team
+      description: 'Who owns it, for cost and notices: any team name. Not checked against who you are; your Keycloak roles decide what you may do'
+      example: payments
+    cmapi.net/data-class:
+      enum:
+      - public
+      - internal
+      - restricted
+      title: Data class
+      description: The class of data the namespace holds
+      example: internal
+  requiredAnnotations:
+    cmapi.net/team-dl:
+      format: email-in-domains
+      title: Team DL
+      description: Your team's distribution list, in one of the organisation's email domains (emailDomains); format only
+      example: payments-team@ephico2real.com
+  extraLabels:
+    keys:
+      cmapi.net/cost-center:
+        pattern: ^cc-[0-9]{4}$
+        example: cc-4410
+      cmapi.net/app:
+        pattern: ^[a-z0-9-]{2,40}$
+        description: Links an app's environments
+      cmapi.net/rightsizing:
+        pattern: ^(auto|manual)$
+        description: Opt-in to automatic rnd and qa decreases
+    allowOther:
+      prefixes:
+      - ''
+      - '*.ephico2real.com/'
+      max: 50
+  extraAnnotations:
+    keys: {}
+    allowOther:
+      prefixes:
+      - ''
+      - '*.ephico2real.com/'
+      max: 50
+      maxValueBytes: 4096
+      maxBytesTotal: 65536
+  adoptionLabels:
+    company.net/provisioner:
+      recognise:
+      - cluster-configs
+  sensitiveKeys:
+  - cmapi.net/team
+  - network.ephico2real.com/zone
+  emailDomains:
+  - ephico2real.com
