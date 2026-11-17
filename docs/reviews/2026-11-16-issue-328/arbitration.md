@@ -70,6 +70,10 @@ This holds on `main` by design, and each step below keeps it and proves it:
 bad body. #333 adds the agreement test with Kyverno on: on one shared case corpus, each body that the rendered policies
 refuse, cmapi also refuses, so Kyverno is never the only guard.
 
+The owner, 2026-11-17: "Kyverno should be in audit mode. The core logic like we said should be in the cmapi core logic
+itself." On `main` the default is `enforce` (`core/policy.py:40`). #342 makes `audit` the default, at plan time and in the
+rendered policies: Kyverno's findings show as warnings with their policy, rule and message, and cmapi's own checks refuse.
+
 ## The order of work (refined 2026-11-17)
 
 | Step | Issues | Why in this place | Runs beside |
@@ -80,6 +84,7 @@ refuse, cmapi also refuses, so Kyverno is never the only guard.
 | 4 | #328 with #334 | The generator `MetadataKeys.json_schema(kind, op)`, the generated examples and curl sample, the 14 lines in `accepted-breaking.txt`, and the docs (generated clients come from the instance's own `/openapi.json`, question 5) | |
 | 5 | #333 | Kyverno coverage of `allowOther`, limits, reserved, system and operator-only keys, and the agreement test with and without Kyverno | #336 |
 | 6 | #336 | The portal form from the config, through a read-only API route that the same generator feeds | Step 5 |
+| 2b | #342 | Kyverno defaults to audit. Touches `core/policy.py`, `policygen.py`'s actions and docs, not `metadata.py` | Steps 1 and 2 |
 | 7 | #337 | A report-only contract diff in the cluster-configs CI | |
 
 Reviewer for each step: OB3 (Opus 5.5), since Codex is out of quota until 2026-11-18; Codex reviews from then on.
