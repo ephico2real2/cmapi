@@ -54,9 +54,12 @@ def test_the_owners_sample_namespace_renders_exactly(keys):
 
 @pytest.mark.parametrize("change, want", [
     ({"company.net/mnemonic": None}, [("missing_required_key", "company.net/mnemonic")]),
-    ({"company.net/lob": "retail"}, [("invalid_value", "company.net/lob")]),
+    ({"company.net/lob": "retail sales"}, [("invalid_value", "company.net/lob")]),    # free text, but a label value
+    ({"company.net/lob": "a" * 64}, [("invalid_value", "company.net/lob")]),
     ({"company.net/cl": "7"}, [("invalid_value", "company.net/cl")]),
-    ({"company.net/mnemonic": "abcd"}, [("invalid_value", "company.net/mnemonic")]),
+    ({"company.net/mnemonic": "abcde"}, [("invalid_value", "company.net/mnemonic")]),   # #358: 3 or 4 letters
+    ({"company.net/mnemonic": "ab"}, [("invalid_value", "company.net/mnemonic")]),
+    ({"company.net/mnemonic": "abcd"}, [("invalid_value", "company.net/mnemonic")]),    # abc-rnd does not start with abcd-
     ({"company.net/mnemonic": "xyz"}, [("invalid_value", "company.net/mnemonic")]),     # abc-rnd does not start with xyz-
     ({"name": "aao-rnd"}, [("derived_key", "name")]),                                   # the owner's typo: a derived value
     ({"company.net/app-environment": "prod"}, [("derived_key", "company.net/app-environment")]),
@@ -67,6 +70,24 @@ def test_each_rule_refuses_with_the_key(keys, change, want):
     assert codes(keys.validate(sent, {}, operator=False, sources=SOURCES)) == want
 
 
+@pytest.mark.parametrize("lob", ["retail", "amgsst", "Card.Services_2", "a" * 63])
+@pytest.mark.parametrize("cl", ["0", "4", "6"])
+def test_the_line_of_business_is_free_text_and_the_critical_level_is_0_to_6(keys, lob, cl):
+    """#358, the owner: amgsst was only an example of a line of business, which is free text (any label value), and the
+    critical level is 0 to 6."""
+    assert keys.validate({**SENT, "company.net/lob": lob, "company.net/cl": cl}, {}, operator=False, sources=SOURCES) == []
+
+
+@pytest.mark.parametrize("mnemonic", ["abc", "abcd"])
+def test_a_mnemonic_is_3_or_4_letters_that_start_the_namespace_name(keys, mnemonic):
+    """#358, the owner: the mnemonic is 3 or 4 lowercase letters, still the start of the namespace name."""
+    sources = {**SOURCES, "namespace": f"{mnemonic}-rnd"}
+    sent = {**SENT, "company.net/mnemonic": mnemonic}
+    assert keys.validate(sent, {}, operator=False, sources=sources) == []
+    assert keys.validate(sent, {}, operator=False, sources={**sources, "namespace": "abcde-rnd"}) == [
+        {"code": "invalid_value", "key": "company.net/mnemonic", "detail": f"abcde-rnd does not start with {mnemonic}-"}]
+
+
 def test_a_derived_key_with_its_own_value_is_accepted_and_one_removed_is_refused(keys):
     assert keys.validate({**SENT, "name": "abc-rnd"}, {"company.net/app-environment": "rnd"}, operator=False, sources=SOURCES) == []
     errs = keys.validate({"name": None}, {}, operator=False, sources=SOURCES, current_labels=SENT)
@@ -75,11 +96,12 @@ def test_a_derived_key_with_its_own_value_is_accepted_and_one_removed_is_refused
 
 def test_the_refusal_is_one_problem_that_names_each_key_and_its_rule(keys):
     with pytest.raises(Problem) as e:
-        keys.check({"company.net/lob": "retail"}, {}, operator=False, sources=SOURCES)
+        keys.check({"company.net/lob": "retail sales"}, {}, operator=False, sources=SOURCES)
     errors = e.value.body("https://x/")["errors"]
     by_key = {err["key"]: err for err in errors}
     assert set(by_key) == {"company.net/lob", "company.net/mnemonic", "company.net/cl"}
-    assert by_key["company.net/lob"]["detail"] == "one of ['amgsst']"
+    assert by_key["company.net/lob"]["detail"] == "not a valid label value"
+    assert by_key["company.net/cl"]["detail"] == "one of ['0', '1', '2', '3', '4', '5', '6']"
     assert by_key["company.net/mnemonic"]["code"] == "missing_required_key"
     assert "the start of the namespace name" in by_key["company.net/mnemonic"]["detail"]
 
@@ -115,7 +137,7 @@ def test_the_old_stanzas_stop_the_start_with_the_new_names():
     (lambda r: r["requiredLabels"]["company.net/lob"].__setitem__("required", True), "unknown fields"),
     (lambda r: r["requiredLabels"].__setitem__("cmapi.net/tier", {}), "system, operator-only or reserved"),
     (lambda r: r["requiredLabels"].__setitem__("app.kubernetes.io/name", {}), "system, operator-only or reserved"),
-    (lambda r: r["requiredLabels"]["company.net/lob"].__setitem__("pattern", "^a"), "give one of pattern, enum and format"),
+    (lambda r: r["requiredLabels"]["company.net/cl"].__setitem__("pattern", "^a"), "give one of pattern, enum and format"),
     (lambda r: r["requiredLabels"]["name"].__setitem__("value", {"from": "team"}), "value.from must be one of"),
     (lambda r: r["requiredLabels"]["company.net/cl"].__setitem__("enum", ["a b"]), "not valid label values"),
     (lambda r: r["adoptionLabels"].__setitem__("company.net/lob", {"recognise": ["x"]}), "not an adoption label"),
@@ -168,7 +190,7 @@ def test_an_existing_namespace_that_lacks_a_required_key_takes_an_unrelated_chan
 
 
 def test_a_request_that_touches_the_held_key_must_give_a_valid_value(keys):
-    for sent, want in (({"company.net/lob": "retail"}, ("invalid_value", "company.net/lob")),
+    for sent, want in (({"company.net/lob": "retail sales"}, ("invalid_value", "company.net/lob")),
                        ({"company.net/lob": None}, ("missing_required_key", "company.net/lob"))):
         assert want in codes(keys.validate(sent, {}, operator=False, sources=SOURCES, current_labels=HELD, existing=True))
     assert keys.validate({"company.net/lob": "amgsst"}, {}, operator=False, sources=SOURCES, current_labels=HELD,

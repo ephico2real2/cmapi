@@ -138,7 +138,7 @@ def test_the_index_names_one_key_and_rule_for_each_policy(catalog, company):
     names = [doc["metadata"]["name"] for rel, t in files.items() if rel.endswith(".yaml") for doc in yaml.safe_load_all(t)]
     index = index_of(files)
     assert sorted(names) == sorted(index) and len(names) == len(set(names))
-    assert index["cmapi-metadata-rnd-label-company-net-lob-enum"] == {"kind": "label", "key": "company.net/lob", "rule": "enum"}
+    assert index["cmapi-metadata-rnd-label-company-net-cl-enum"] == {"kind": "label", "key": "company.net/cl", "rule": "enum"}
     assert index["cmapi-quota-rnd-quota-requests-cpu-max"] == {"kind": "quota", "key": "requests.cpu", "rule": "max"}
 
 
@@ -196,10 +196,11 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
                                                                        "memory.yaml": memory}))["fail"])
     assert got == {
         "cmapi-metadata-rnd-label-name-derived": 'the label name is "aao-rnd"; cmapi sets it to the namespace name',
-        "cmapi-metadata-rnd-label-company-net-lob-enum": 'the label company.net/lob is "retail"; it must be: required; one of amgsst',
-        "cmapi-metadata-rnd-label-company-net-cl-enum": 'the label company.net/cl is "7"; it must be: required; one of 0, 1, 2, 3',
+        # #358: the line of business is free text, so "retail" passes; the critical level is 0 to 6.
+        "cmapi-metadata-rnd-label-company-net-cl-enum":
+            'the label company.net/cl is "7"; it must be: required; one of 0, 1, 2, 3, 4, 5, 6',
         "cmapi-metadata-rnd-label-company-net-mnemonic-pattern":
-            "the label company.net/mnemonic is missing; it must be: required; must match ^[a-z]{3}$; "
+            "the label company.net/mnemonic is missing; it must be: required; must match ^[a-z]{3,4}$; "
             "the start of the namespace name, before its first '-'",
         "cmapi-metadata-rnd-label-cmapi-net-env-derived":
             "the label cmapi.net/env is prod; it must be rnd, the environment of this policy",
@@ -215,10 +216,41 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
     }
 
 
+def test_the_rendered_policy_takes_any_line_of_business_a_critical_level_of_0_to_6_and_a_4_letter_mnemonic(
+        catalog, company):
+    """#358, the owner: the line of business is free text, the critical level is 0 to 6, and the mnemonic is 3 or 4
+    lowercase letters. The rendered policy agrees with cmapi: the line of business has the required check with the
+    label-value syntax and no list, the critical level is one of 0 to 6, and the mnemonic matches ^[a-z]{3,4}$."""
+    files = render_bundle(catalog, company, PolicySettings(), {"rnd"}, "nonprod")
+    checks = {(v["key"], v["rule"]) for v in index_of(files).values()}
+    assert ("company.net/lob", "required") in checks and ("company.net/lob", "enum") not in checks
+    assert ("company.net/cl", "enum") in checks
+    policy = next(t for p, t in files.items() if p.startswith("env/rnd/cmapi-metadata"))
+    assert "one of 0, 1, 2, 3, 4, 5, 6" in policy and "amgsst" not in policy
+    expressions = {d["metadata"]["name"]: d["spec"]["validations"][0]["expression"] for d in yaml.safe_load_all(policy)}
+    assert '.matches("^(?:^[a-z]{3,4}$)$")' in expressions["cmapi-metadata-rnd-label-company-net-mnemonic-pattern"]
+
+
+def test_kyverno_and_cmapi_take_a_free_text_lob_a_level_of_6_and_a_4_letter_mnemonic(kyverno, catalog, company, tmp_path):
+    """#358 through the rendered policy itself: the namespace abcd-rnd with the mnemonic abcd, the line of business
+    retail and the critical level 6 passes both checkers."""
+    labels = {"company.net/mnemonic": "abcd", "company.net/lob": "retail", "company.net/cl": "6"}
+    sources = {"namespace": "abcd-rnd", "environment": "rnd", "cluster": "OCP_GF15", "instance": "nonprod"}
+    assert company.validate(labels, {}, operator=False, sources=sources) == []
+    bundle = write(tmp_path / "b", render_bundle(catalog, company, PolicySettings(), {"rnd"}, "nonprod"))
+    ns = yaml.safe_load(owners_sample(catalog, company)["namespace.yaml"])
+    ns["metadata"]["name"] = ns["metadata"]["labels"]["name"] = "abcd-rnd"
+    ns["metadata"]["labels"].update(labels)
+    assert set(apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"ns.yaml": ns}))) == {"pass"}
+
+
 @pytest.mark.parametrize("labels, annotations, key", [
-    ({"company.net/lob": "retail"}, {}, "company.net/lob"),
+    ({"company.net/lob": ""}, {}, "company.net/lob"),                  # #358: free text, but required
+    ({"company.net/lob": "retail sales"}, {}, "company.net/lob"),      # and a label value
     ({"company.net/cl": "9"}, {}, "company.net/cl"),
-    ({"company.net/mnemonic": "abcd"}, {}, "company.net/mnemonic"),
+    ({"company.net/mnemonic": "abcd"}, {}, "company.net/mnemonic"),     # abc-rnd does not start with abcd-
+    ({"company.net/mnemonic": "abcde"}, {}, "company.net/mnemonic"),    # #358: 3 or 4 letters
+    ({"company.net/mnemonic": "ab"}, {}, "company.net/mnemonic"),
     ({"company.net/mnemonic": "xyz"}, {}, "company.net/mnemonic"),
     ({"name": "aao-rnd"}, {}, "name"),
     ({"company.net/app-environment": "prod"}, {}, "company.net/app-environment"),

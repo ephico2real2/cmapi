@@ -4,17 +4,20 @@
 #
 #   kind: Namespace
 #   metadata:
-#     name: abc-rnd                       # every namespace starts with the team's mnemonic
+#     name: abc-rnd                       # every namespace starts with the team's mnemonic and a '-'
 #     labels:
 #       name: abc-rnd                     # derived: a copy of the namespace name
 #       company.net/app-environment: rnd  # derived: the environment of the namespace's cluster
-#       company.net/mnemonic: abc         # required: the start of the namespace name
-#       company.net/lob: amgsst           # required: line of business
-#       company.net/cl: '1'               # required: critical level
+#       company.net/mnemonic: abc         # required: 3 or 4 lowercase letters, the start of the namespace name
+#       company.net/lob: amgsst           # required: line of business, free text
+#       company.net/cl: '1'               # required: critical level, 0 to 6
 #     annotations:
 #       company.net/app-environment: rnd  # derived
 #       company.net/mnemonic-group-contact: abc-team@company.net       # optional: an address in emailDomains
 #       company.net/mnemonic-confluence: https://wiki.company.net/abc  # optional: an http or https URL
+#
+# abc, amgsst and '1' are examples (the owner's decision on #358): any mnemonic of 3 or 4 lowercase letters that starts
+# the namespace name, any line of business that a label value can hold, and a critical level of 0 to 6.
 #
 # The owner's decision on #234: the two optional keys are annotations, with their formats. An existing namespace that
 # carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
@@ -27,9 +30,9 @@ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "
 requiredLabels:
   name:                        {value: {from: namespace}, description: "A copy of the namespace name"}
   company.net/app-environment: {value: {from: environment}, description: "The environment of the namespace's cluster"}
-  company.net/mnemonic:        {pattern: "^[a-z]{3}$", namespacePrefix: true, description: "The team's mnemonic: the start of the namespace name", example: abc}
-  company.net/lob:             {enum: [amgsst], description: "Line of business", example: amgsst}
-  company.net/cl:              {enum: ["0", "1", "2", "3"], description: "Critical level", example: "1"}
+  company.net/mnemonic:        {pattern: "^[a-z]{3,4}$", namespacePrefix: true, description: "The team's mnemonic: the start of the namespace name", example: abc}
+  company.net/lob:             {description: "Line of business, as free text", example: amgsst}
+  company.net/cl:              {enum: ["0", "1", "2", "3", "4", "5", "6"], description: "Critical level", example: "1"}
 requiredAnnotations:
   company.net/app-environment: {value: {from: environment}}
 extraLabels:
