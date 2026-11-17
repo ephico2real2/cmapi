@@ -329,7 +329,11 @@ def sample_request(method: str, path: str, op: dict[str, Any], components: dict[
     body = None
     content = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
     if content:
-        body = _example_of(content.get("schema") or {}, components)
+        # The media type's example is a whole body (OpenAPI 3.1, Media Type Object: it "SHALL override the example provided
+        # by the schema"): the recorded request, with this instance's labels and annotations (#334), which "Try it out"
+        # sends too. A body put together from each property's first example can pair fields that refuse each other, as
+        # limitRange with a named tier (#349), so it is only for an operation that no run recorded.
+        body = content["example"] if "example" in content else _example_of(content.get("schema") or {}, components)
         if body is None:
             body = {}
         headers.append(("Content-Type", "application/json"))
@@ -364,6 +368,9 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     if metadata is not None:
         # Before the curl samples, which take the body from the examples that this sets (#334).
         _document_metadata(spec, metadata)
+    _document_validation_problem(spec)
+    # Before the curl samples, which send the recorded body of each write (#349).
+    add_recorded_examples(spec, load_samples(), metadata)
     components = (spec.get("components") or {}).get("schemas") or {}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
@@ -371,8 +378,6 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                 continue
             op["x-codeSamples"] = [{"lang": "Shell", "label": "curl",
                                     "source": curl_sample(sample_request(method, path, op, components, base_url))}]
-    _document_validation_problem(spec)
-    add_recorded_examples(spec, load_samples(), metadata)
     return spec if problem_base == BASE else _with_type_base(spec, problem_base)
 
 

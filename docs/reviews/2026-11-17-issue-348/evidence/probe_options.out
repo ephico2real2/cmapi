@@ -1,0 +1,5 @@
+'(a+)+b'                                 nested unbounded                              len=    25 subset=in  re=   1355.2 ms  re2= 0.177 ms
+'(a|a)*b'                                star height 1, overlapping alternation        len=    25 subset=in  re=   2802.8 ms  re2= 0.210 ms
+'(a|aa)+b'                               star height 1, overlapping alternation        len=    31 subset=in  re=    293.3 ms  re2= 0.143 ms
+'[a-z]*[a-z]*[a-z]*[a-z]*[a-z]*b'        star height 1, polynomial n^5                 len=   121 subset=in  re=   1891.2 ms  re2= 0.249 ms
+'[a-z0-9]+(?:-[a-z0-9]+)*'               nested, unambiguous (a common slug pattern)   len= 10001 subset=in  re=      1.1 ms  re2= 0.305 ms

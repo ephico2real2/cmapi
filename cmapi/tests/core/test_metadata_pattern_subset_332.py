@@ -1,5 +1,6 @@
-"""#332: a value's regex is one string that Python re (the validator), RE2 (Kyverno CEL matches) and ECMA-262 (the API
-document, #328) read alike. The loader refuses a configured pattern outside that subset, metadata.anchored() anchors a
+"""#332: a value's regex is one string that Python re (a Python client of the API document; the validator until #348, which
+matches with RE2, test_metadata_linear_match_348.py), RE2 (Kyverno CEL matches) and ECMA-262 (the API document, #328) read
+alike. The loader refuses a configured pattern outside that subset, metadata.anchored() anchors a
 pattern in one place, and metadata.value_regex() gives each format its one regex, which the validator and the rendered
 policies share. Also the owner's answer to #328 question 3: a required key needs an example that its own rule accepts.
 

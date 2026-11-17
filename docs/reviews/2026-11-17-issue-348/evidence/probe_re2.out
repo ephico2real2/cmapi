@@ -1,0 +1,19 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1794919222.709145 30552792 re2.cc:242] Error parsing '(a)\1': invalid escape sequence: \1
+E0000 00:00:1794919222.709288 30552792 re2.cc:242] Error parsing '(?=a)': invalid perl operator: (?=
+E0000 00:00:1794919222.710197 30552792 re2.cc:242] Error parsing 'a{1001}': invalid repetition size: {1001}
+refused (a)\1 Error b'invalid escape sequence: \\1'
+refused (?=a) Error b'invalid perl operator: (?='
+compiled (?P<x>a)
+refused a{1001} Error b'invalid repetition size: {1001}'
+surrogate err UnicodeEncodeError 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed
+surrogate err UnicodeEncodeError 'utf-8' codec can't encode character '\udfff' in position 1: surrogates not allowed
+n=16 re=5.5ms re2=0.126ms
+n=20 re=85.2ms re2=0.176ms
+n=22 re=341.8ms re2=0.117ms
+n=24 re=1373.6ms re2=0.112ms
+re2 n=63 0.040ms
+re2 n=10000 0.557ms
+re2 n=262144 0.682ms
+<re2._Match object at 0x10e7e5b20> True
+<class 're2._Regexp'>
