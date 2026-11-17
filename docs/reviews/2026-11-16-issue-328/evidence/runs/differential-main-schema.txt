@@ -1,0 +1,14 @@
+{
+ "agree": 100,
+ "unsound": 0,
+ "loose_by_reason": {
+  "['invalid_value', 'missing_required_key']": 4,
+  "['invalid_value']": 186,
+  "['missing_required_key']": 6,
+  "['invalid_key']": 190,
+  "['reserved_key']": 54,
+  "['operator_only_key']": 16,
+  "['invalid-team-dl', 'missing_required_key']": 4,
+  "['invalid-team-dl']": 33,
+  "['annotations_too_large']": 6,
+  "['annotations_too_large', 'invalid_key']": 4

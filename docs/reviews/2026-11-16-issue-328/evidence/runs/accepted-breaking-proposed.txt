@@ -1,0 +1,14 @@
+POST /api/v1/clusters/{cluster_id}/namespaces added the new required request property `annotations/cmapi.net/team-dl`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new required request property `labels/cmapi.net/team`
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the `annotations/additionalProperties` request property's maxLength was set to `4096`
+POST /api/v1/clusters/{cluster_id}/namespaces the `labels/additionalProperties` request property's maxLength was set to `63`
+POST /api/v1/clusters/{cluster_id}/namespaces added the pattern `^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$` to the request property `labels/additionalProperties`
+POST /api/v1/clusters/{cluster_id}/namespaces added 'propertyNames' constraint to the request property `annotations`
+POST /api/v1/clusters/{cluster_id}/namespaces added 'propertyNames' constraint to the request property `labels`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `annotations/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]` request property's maxLength was set to `4096`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `labels/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]` request property's maxLength was set to `63`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the pattern `^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$` to the request property `labels/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `annotations/anyOf[subschema #1]`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `labels/anyOf[subschema #1]`

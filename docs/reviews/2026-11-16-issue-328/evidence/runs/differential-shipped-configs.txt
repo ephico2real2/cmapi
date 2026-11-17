@@ -1,0 +1,20 @@
+## reference
+{
+ "agree": 587,
+ "unsound": 0,
+ "loose_by_reason": {
+  "['operator_only_key']": 16
+ }
+}
+LOOSE ['operator_only_key'] create label {'cmapi.net/protected': 'ola'}
+LOOSE ['operator_only_key'] create annotation {'cmapi.net/protected': 'ola'}
+## company
+{
+ "agree": 618,
+ "unsound": 0,
+ "loose_by_reason": {
+  "['derived_key']": 89,
+  "['operator_only_key']": 16
+ }
+}
+LOOSE ['derived_key'] create label {'name': ''}

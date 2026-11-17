@@ -1,0 +1,30 @@
+dmcg_reference_open                           required only                    accepted
+dmcg_reference_open                           extra under *.ephico2real.com/   accepted
+dmcg_reference_open                           extra with no prefix             accepted
+dmcg_reference_open                           missing required                 refused: `cmapi.net/team`
+dmcg_reference_open                           bad prefix (server refuses)      accepted
+dmcg_reference_patternProperties              required only                    accepted
+dmcg_reference_patternProperties              extra under *.ephico2real.com/   refused: `team.ephico2real.com/owner`
+dmcg_reference_patternProperties              extra with no prefix             refused: owner
+dmcg_reference_patternProperties              missing required                 refused: `cmapi.net/team`
+dmcg_reference_patternProperties              bad prefix (server refuses)      refused: `other.example/x`
+dmcgv_reference_patternProperties             required only                    accepted
+dmcgv_reference_patternProperties             extra under *.ephico2real.com/   accepted
+dmcgv_reference_patternProperties             extra with no prefix             accepted
+dmcgv_reference_patternProperties             missing required                 refused: `cmapi.net/team`
+dmcgv_reference_patternProperties             bad prefix (server refuses)      refused:   Value error, Unexpected property 'other.example/x' [type=v
+dmcg_reference_propertyNames                  required only                    accepted
+dmcg_reference_propertyNames                  extra under *.ephico2real.com/   accepted
+dmcg_reference_propertyNames                  extra with no prefix             accepted
+dmcg_reference_propertyNames                  missing required                 refused: `cmapi.net/team`
+dmcg_reference_propertyNames                  bad prefix (server refuses)      accepted
+dmcgv_reference_propertyNames                 required only                    accepted
+dmcgv_reference_propertyNames                 extra under *.ephico2real.com/   accepted
+dmcgv_reference_propertyNames                 extra with no prefix             accepted
+dmcgv_reference_propertyNames                 missing required                 refused: `cmapi.net/team`
+dmcgv_reference_propertyNames                 bad prefix (server refuses)      accepted
+dmcg_chosen_reference                         required only                    accepted
+dmcg_chosen_reference                         extra under *.ephico2real.com/   accepted
+dmcg_chosen_reference                         extra with no prefix             accepted
+dmcg_chosen_reference                         missing required                 refused: `cmapi.net/team`
+dmcg_chosen_reference                         bad prefix (server refuses)      accepted

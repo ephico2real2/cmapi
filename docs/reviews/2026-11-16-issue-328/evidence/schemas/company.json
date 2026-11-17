@@ -1,0 +1,393 @@
+{
+  "create.label": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "A copy of the namespace name. Set by cmapi from the namespace; a request may send the same value, never another",
+        "readOnly": true,
+        "x-cmapi-derived-from": "namespace",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63
+      },
+      "company.net/app-environment": {
+        "type": "string",
+        "description": "The environment of the namespace's cluster. Set by cmapi from the environment; a request may send the same value, never another",
+        "readOnly": true,
+        "x-cmapi-derived-from": "environment",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63
+      },
+      "company.net/mnemonic": {
+        "type": "string",
+        "description": "The team's mnemonic: the start of the namespace name. The namespace name must start with this value and a '-'",
+        "pattern": "^(?:^[a-z]{3}$)$",
+        "maxLength": 63,
+        "minLength": 1,
+        "x-cmapi-namespace-prefix": true,
+        "examples": [
+          "abc"
+        ]
+      },
+      "company.net/lob": {
+        "type": "string",
+        "description": "Line of business",
+        "enum": [
+          "amgsst"
+        ],
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "amgsst"
+        ]
+      },
+      "company.net/cl": {
+        "type": "string",
+        "description": "Critical level",
+        "enum": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "1"
+        ]
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "required": [
+      "company.net/mnemonic",
+      "company.net/lob",
+      "company.net/cl"
+    ],
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "name",
+            "company.net/app-environment",
+            "company.net/mnemonic",
+            "company.net/lob",
+            "company.net/cl",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+      "maxLength": 63
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50
+    }
+  },
+  "create.annotation": {
+    "type": "object",
+    "properties": {
+      "company.net/app-environment": {
+        "type": "string",
+        "readOnly": true,
+        "description": "Set by cmapi from the environment; a request may send the same value, never another",
+        "x-cmapi-derived-from": "environment"
+      },
+      "company.net/mnemonic-group-contact": {
+        "type": "string",
+        "description": "The mnemonic's group contact",
+        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC][oO][mM][pP][aA][nN][yY]\\.[nN][eE][tT])$",
+        "x-cmapi-format": "email-in-domains",
+        "examples": [
+          "abc-team@company.net"
+        ]
+      },
+      "company.net/mnemonic-confluence": {
+        "type": "string",
+        "description": "The mnemonic's Confluence space",
+        "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#]+",
+        "x-cmapi-format": "url",
+        "examples": [
+          "https://wiki.company.net/abc"
+        ]
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "company.net/app-environment",
+            "company.net/mnemonic-group-contact",
+            "company.net/mnemonic-confluence",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50,
+      "maxValueBytes": 4096,
+      "maxBytesTotal": 65536
+    }
+  },
+  "patch.label": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "A copy of the namespace name. Set by cmapi from the namespace; a request may send the same value, never another",
+        "readOnly": true,
+        "x-cmapi-derived-from": "namespace",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63
+      },
+      "company.net/app-environment": {
+        "type": "string",
+        "description": "The environment of the namespace's cluster. Set by cmapi from the environment; a request may send the same value, never another",
+        "readOnly": true,
+        "x-cmapi-derived-from": "environment",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63
+      },
+      "company.net/mnemonic": {
+        "type": "string",
+        "description": "The team's mnemonic: the start of the namespace name. The namespace name must start with this value and a '-'",
+        "pattern": "^(?:^[a-z]{3}$)$",
+        "maxLength": 63,
+        "minLength": 1,
+        "x-cmapi-namespace-prefix": true,
+        "examples": [
+          "abc"
+        ]
+      },
+      "company.net/lob": {
+        "type": "string",
+        "description": "Line of business",
+        "enum": [
+          "amgsst"
+        ],
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "amgsst"
+        ]
+      },
+      "company.net/cl": {
+        "type": "string",
+        "description": "Critical level",
+        "enum": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "1"
+        ]
+      },
+      "cmapi.net/protected": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+            "maxLength": 63
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "name",
+            "company.net/app-environment",
+            "company.net/mnemonic",
+            "company.net/lob",
+            "company.net/cl",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+          "maxLength": 63
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50
+    }
+  },
+  "patch.annotation": {
+    "type": "object",
+    "properties": {
+      "company.net/app-environment": {
+        "type": "string",
+        "readOnly": true,
+        "description": "Set by cmapi from the environment; a request may send the same value, never another",
+        "x-cmapi-derived-from": "environment"
+      },
+      "company.net/mnemonic-group-contact": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC][oO][mM][pP][aA][nN][yY]\\.[nN][eE][tT])$",
+            "x-cmapi-format": "email-in-domains"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The mnemonic's group contact",
+        "examples": [
+          "abc-team@company.net"
+        ]
+      },
+      "company.net/mnemonic-confluence": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#]+",
+            "x-cmapi-format": "url"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The mnemonic's Confluence space",
+        "examples": [
+          "https://wiki.company.net/abc"
+        ]
+      },
+      "cmapi.net/protected": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "company.net/app-environment",
+            "company.net/mnemonic-group-contact",
+            "company.net/mnemonic-confluence",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "additionalProperties": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50,
+      "maxValueBytes": 4096,
+      "maxBytesTotal": 65536
+    }
+  }
+}
