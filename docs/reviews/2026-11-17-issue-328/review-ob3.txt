@@ -1,0 +1,183 @@
+OB3 on PR #350 (head b4123ab, main db9aba5). Depth: C1 deep (own corpus, 4 configs, 201k bodies, Node re-check); C2/C4/C5/C7 medium (seeded TestClient via suite.sh, Ajv, Playwright); C3/C6 shallow-to-medium (oasdiff run + read). Shallow = C6's "no code path relies on the schema" (a grep).
+VERDICT: fix first. F1 is a body cmapi accepts that the served schema refuses (the brief's blocker), on a config the loader accepts; it does not occur on the reference or company file. F2 is precision only. Both in /Users/olasumbo/gitRepos/workbench/cmapi/review-350/ob3/fixes.patch (applies with patch -p1 at the repo root).
+C1: REFUTED (narrow). drive.py (own corpus) validate()+pydantic types vs the served NamespaceCreate/NamespacePatch (Python, $ read as ECMA, 10,589 pattern pairs re-run in Node 26 RegExp/u: 0 differ): reference 25,965 bodies/1,206 accepted/0 unsound; company 28,845/1,348/0; "rich" 102,411/2,581/0; "slash-reserved" 44,205/6,371/6 unsound: PATCH {"labels":{"a/b/c":null}} (and x/y/z, a/c/d, both kinds) with allowOther ["","a*","x*"] and reservedPrefixes ["a/b/","a[/]c/","x[+-0]y/"]: validate()==[] on the held key, schema refuses. Cause: _glob_regex(exact=True) emits "/" (literal, [/], or a range over it) and _key_names reads it as ^(?:R)/ on the whole key, past the prefix. F1 fixes it (0 unsound on all 4 after: after/drive.log).
+C1 precision: "a prefix over 253" IS expressible on create (propertyNames "not": {"pattern": "^[^/]{254}"}, no lookahead): 44 reference / 50 company create bodies were loose (drive.log). F2 adds it; oasdiff head->fixed: no breaking change; the gate still exits 0 with the 14 lines; api-types --check ok; OAS 3.1 + Spectral clean.
+C2: CONFIRMED. meta.py: both served docs 0 errors vs the OAS 3.1 schema (@apidevtools/openapi-schemas v3.1, 2020-12) and 338 Schema Objects 0 errors vs the 2020-12 meta-schema; Spectral 6.17.1 (repo ruleset) 0 warn; Ajv 2020 (@redocly/ajv 8.11.2, u flag) compiles both; render.log: Swagger UI 5.34.1 35 opblocks, 0 page/console errors, Schema tab has labels, Try it out filled; ReDoc 3.1.0 renders, names the keys, 0 errors.
+C3: CONFIRMED. oasdiff 1.37.0 main->head: "14 changes: 14 error" (oasdiff-raw.txt), gate.sh with head's list rc=0, with main's list rc=1. Each line is a required key/map, a label-value pattern/maxLength 63, annotation maxLength 4096, or propertyNames: all inside the schema that C1 found sound on the reference (contract) config, so each describes only bodies cmapi refused; block comment cites #328 and the reason.
+C4: CONFIRMED for every metadata example; caveat: the curl samples AS SERVED get 422 limits-with-named-tier on both instances (probe-*.json), which is #349 (pre-existing, filed); without limitRange they get 200, Try it out 200 (create 202), patch examples 200; Ajv accepts all served examples. The "#349" assert (test_metadata_schema_328_api.py:75) inspects the served curl body only: no gh/network in the three new test files (grep), hermetic; no defect.
+C5: CONFIRMED. Served company PATCH: company.net/mnemonic and name have no anyOf; mnemonic-confluence anyOf [string, null]; Ajv: null on each required/derived key refused, on other keys accepted. Held "/foo": PATCH {labels|annotations: {"/foo": null}} dry run 200 on both instances, {"/foo":"y"} 422 invalid_key; the schema (Ajv and Python) accepts the null removal.
+C6: CONFIRMED. json_schema() has one caller, core/docs.py:434 (document only); models.py unchanged (labels: dict[str, str]); pipeline.py:212 still calls metadata.check in every mode; probe ran policy.engine none, no kyverno on PATH, and cmapi refused "/foo" alone (policy-violation). _DNS1123_SUB/_NAME rewrites only make groups non-capturing.
+C7: CONFIRMED. served-reference.json (probe) == committed cmapi/contract/openapi.json (deep compare: equal); scripts/api-types.mjs --check with openapi-typescript 7.13.0: "ok - the API types match".
+F1 (blocker, core/metadata.py _glob_regex/_glob_class): exact glob with literal "/" -> None; "/" left out of classes, a range over it split ("x[+-0]y" -> "x[+-.0]y"); [!/] -> [^/]. Test test_a_reserved_glob_with_a_slash_never_refuses_a_held_key_that_a_patch_may_remove.
+F2 (precision): _LONG_PREFIX "not" on create propertyNames; metadata_corpus counts "prefix over 253" as loose only on a patch; docs/18 sentence; contract regenerated. Test test_a_create_refuses_a_key_whose_prefix_is_over_253_characters.
+Fail-before/pass-after (fix-tests.log, cmapi pinned per run by run_pytest.py: the ob-328 venv's editable install otherwise imports wt-328): head src 5 failed/41 passed (my 2 + the PR's precision test on reference, star, star-and-none); fixed src 46 passed, CMAPI_REQUIRE_NODE=1.
+Not asked: suite.sh's venv (ob1-run) has no jsonschema, so test_metadata_schema_328_api.py cannot run through it; I did not run it (CI green). patternProperties could tie a patch key's syntax to null, but it also binds declared keys (an annotation over maxValueBytes would be refused): not proposed. readOnly under OAS-aware request validators (openapi-core) not measured.
+Not checked: full service suite; docs/01, docs/02 prose; portal tsc; Kyverno-on paths; CRC (nothing run there).
+Housekeeping: cmapi-design `git status --short` empty before and after; deleted my head/, main/, copy/, applytest/, bt*/ under review-350; kept ob3/ scripts (drive.py, drive_node.mjs, meta.py, ajv.mjs, render.mjs, run_pytest.py, test_ob3_probe.py), logs, json, fixes.patch, out.txt. Re-run: export both refs, copy test_ob3_probe.py into tests/service, OB3_OUT=<dir> suite.sh.
+===== fixes.patch
+--- a/cmapi/src/cmapi/core/metadata.py
++++ b/cmapi/src/cmapi/core/metadata.py
+@@ -336,10 +336,12 @@
+ # Each regex below is in the subset of _Subset (tests/core/test_metadata_schema_328.py holds it), so ECMA-262 reads it as
+ # the validator does. A label value: empty, or _NAME of at most 63 characters (maxLength says the 63).
+ _LABEL_VALUE = f"^(?:{_NAME_TEXT})?$"
+-# A key: an optional DNS-1123 subdomain and "/", then a name of 1 to 63 characters. The prefix's 253 is maxLength's
+-# 317 (253 + 1 + 63) only: a length bound on one part of a regex needs a lookahead, which RE2 lacks.
++# A key: an optional DNS-1123 subdomain and "/", then a name of 1 to 63 characters. The prefix's 253 characters are a
++# second schema, in "not" (_LONG_PREFIX): a length bound on one part of a single regex would need a lookahead, which
++# RE2 lacks. _KEY allows one "/" at most, so the text before it is the prefix that _syntax reads.
+ _KEY = f"^(?:{_DNS1123_SUB_TEXT}/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{{0,61}}[A-Za-z0-9])?$"
+ _KEY_MAX = 253 + 1 + 63
++_LONG_PREFIX = "^[^/]{254}"
+ _OPS = ("create", "patch")
+ 
+ 
+@@ -372,24 +374,37 @@
+                     return None
+                 klass = "[^/]"
+             out.append(klass)
++        elif c == "/":
++            # A prefix holds no "/", so fnmatchcase never matches this glob: as keys that are refused it is none (None);
++            # as keys that are admitted, a "/" only widens the set. The regex is read on a whole key (^(?:R)/ in
++            # _key_names), where a "/" here would reach past the prefix into a key that the validator admits.
++            if exact:
++                return None
++            out.append("\\/")
+         else:
+             out.append("\\" + c if c in _SYNTAX else c)
+     return "".join(out)
+ 
+ 
+ def _glob_class(body: str, negate: bool) -> str | None:
+-    """One fnmatch class as a regex class in the subset, or None. Ranges as a-z; every other character is itself."""
++    """One fnmatch class as a regex class in the subset, or None. Ranges as a-z; every other character is itself. A
++    prefix holds no "/", so "/" is left out of the class (a range over it is split around it), as [^/ leaves it out of
++    a negated one: the class is read on a whole key, and must not match the "/" that ends the prefix."""
+     parts, i = [], 0
+     while i < len(body):
+         if i + 2 < len(body) and body[i + 1] == "-":
+             low, high = body[i], body[i + 2]
+             if low > high:
+                 return None                                 # fnmatch drops an empty range; say it as unknown
+-            parts.append(_class_char(low) + "-" + _class_char(high))
++            spans = [(low, "."), ("0", high)] if low <= "/" <= high else [(low, high)]   # "." and "0" are "/" -1, +1
++            parts += [_class_char(a) if a == b else _class_char(a) + "-" + _class_char(b) for a, b in spans if a <= b]
+             i += 3
+         else:
+-            parts.append(_class_char(body[i]))
++            if body[i] != "/":
++                parts.append(_class_char(body[i]))
+             i += 1
++    if negate and not parts:
++        return "[^/]"                                       # [!/]: any character of a prefix
+     text = ("[^/" if negate else "[") + "".join(parts) + "]"
+     return text if parts and portable_pattern_problem(text) is None else None
+ 
+@@ -896,7 +911,7 @@
+         It documents validate(); it never replaces it. It is sound: each map that validate() accepts passes it
+         (tests/core/test_metadata_schema_328.py runs both on one corpus). What JSON Schema cannot say stays loose and is
+         said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix), the
+-        count of other keys and the sizes in bytes (allowOther), and the 253 characters of a key's prefix."""
++        count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a key's prefix."""
+         if kind not in KINDS or op not in _OPS:
+             raise ValueError(f"json_schema: kind is one of {KINDS} and op one of {_OPS}, not {kind!r}, {op!r}")
+         patch = op == "patch"
+@@ -1015,6 +1030,6 @@
+             if nots:
+                 branch["not"] = {"anyOf": nots}
+             any_of.append(branch)
+-        names: dict[str, Any] = {} if patch else {"maxLength": _KEY_MAX, "pattern": _KEY}
++        names: dict[str, Any] = {} if patch else {"maxLength": _KEY_MAX, "pattern": _KEY, "not": {"pattern": _LONG_PREFIX}}
+         names["anyOf"] = any_of or [{"enum": []}]
+         return names
+--- a/cmapi/tests/core/metadata_corpus.py
++++ b/cmapi/tests/core/metadata_corpus.py
+@@ -28,7 +28,7 @@
+     "namespacePrefix": "the request's namespace",
+     "too_many_keys": "a count of keys",
+     "annotations_too_large": "a size in bytes",
+-    "prefix over 253": "a length bound on one part of a key",
++    "prefix over 253": "a length bound on one part of a key, on a patch (propertyNames checks the class only there)",
+     "key syntax on a patch": "a key that Git holds can be removed whatever its name",
+ }
+ 
+@@ -182,7 +182,7 @@
+             reasons.add(code)
+         elif code == "invalid_value" and "does not start with" in e.get("detail", ""):
+             reasons.add("namespacePrefix")
+-        elif code == "invalid_key" and len(key.rpartition("/")[0]) > 253:
++        elif code == "invalid_key" and case.op == "patch" and len(key.rpartition("/")[0]) > 253:
+             reasons.add("prefix over 253")
+         elif code == "invalid_key" and case.op == "patch" and keys._syntax(key, None, case.kind):
+             reasons.add("key syntax on a patch")
+--- a/cmapi/tests/core/test_metadata_schema_328.py
++++ b/cmapi/tests/core/test_metadata_schema_328.py
+@@ -207,3 +207,35 @@
+         keys.json_schema("labels", "create")
+     with pytest.raises(ValueError, match="json_schema"):
+         keys.json_schema("label", "update")
++
++
++def test_a_reserved_glob_with_a_slash_never_refuses_a_held_key_that_a_patch_may_remove():
++    """A prefix holds no "/", so a reserved glob with one (literal, in a class, or in a range over it) matches no prefix.
++    The schema reads the glob on a whole key (^(?:R)/), where that "/" would reach past the prefix: it refused a patch
++    that removes a held key which allowOther admits and validate() accepts (OB3 on #350)."""
++    data = raw(SHIPPED)
++    for stanza in ("extraLabels", "extraAnnotations"):
++        data[stanza]["allowOther"]["prefixes"] = ["", "a*", "x*"]
++    data["reservedPrefixes"] = ["kubernetes.io/", "a/b/", "a[/]c/", "x[+-0]y/"]
++    keys, reader = MetadataKeys(data), SchemaReader()
++    for kind in KINDS:
++        schema = reader.validator(keys.json_schema(kind, "patch"))
++        for key in ("a/b/c", "a/c/d", "x/y/z"):
++            sent, held = ({key: None}, {}), {"current_labels" if kind == "label" else "current_annotations": {key: "x"}}
++            assert keys.validate(*(sent if kind == "label" else sent[::-1]), operator=False, existing=True, **held) == []
++            assert schema.is_valid({key: None}), (kind, key)
++        for key in ("x+y/k", "x.y/k", "x0y/k"):          # the class still refuses each prefix that it reads
++            assert keys.classify(key, kind) == "reserved" and not schema.is_valid({key: None}), (kind, key)
++    assert _glob_regex("x[+-0]y", exact=True) == "x[+-.0]y" and _glob_regex("a/b", exact=True) is None
++    assert _glob_regex("a[!/]c", exact=True) == "a[^/]c"
++
++
++def test_a_create_refuses_a_key_whose_prefix_is_over_253_characters():
++    """JSON Schema says the 253 with a second pattern under "not", with no lookahead (OB3 on #350)."""
++    keys, reader = MetadataKeys.load(SHIPPED), SchemaReader()
++    for kind in KINDS:
++        names = reader.validator(keys.json_schema(kind, "create")["propertyNames"])
++        for length, ok in ((253, True), (254, False)):
++            key = "a" * (length - len(".ephico2real.com")) + ".ephico2real.com/k"
++            assert (keys._syntax(key, None, kind) is None) is ok
++            assert names.is_valid(key) is ok, (kind, length)
+--- a/docs/18-configuration.md
++++ b/docs/18-configuration.md
+@@ -371,7 +371,7 @@
+ | `operatorOnly` | A property with `x-cmapi-operator-only: true` |
+ | `allowOther` | `propertyNames`: a declared key, or a key under an allowed prefix that is not a system key, an adoption label, a key of the other kind or under a reserved prefix. `additionalProperties`: the value rule of those keys. `x-cmapi-other-keys`: the prefixes and the limits |
+ 
+-What JSON Schema cannot say is in the description of the map, which ReDoc shows (ReDoc 3.1.0 does not show `propertyNames`): who may set an operator-only key, that a derived value must equal the request's target, that a `namespacePrefix` value starts the namespace name, the count of other keys (`max`), the sizes in bytes (`maxValueBytes`, `maxBytesTotal`; the schema's `maxLength` counts characters, a bound that holds because a character is at least one byte), and the 253 characters of a key's prefix. On a patch, `propertyNames` checks the class of a key and not its syntax: a key that Git holds from before #330, such as `/foo`, can still be removed with `null`, and JSON Schema cannot tie a key's name to its value.
++What JSON Schema cannot say is in the description of the map, which ReDoc shows (ReDoc 3.1.0 does not show `propertyNames`): who may set an operator-only key, that a derived value must equal the request's target, that a `namespacePrefix` value starts the namespace name, the count of other keys (`max`), the sizes in bytes (`maxValueBytes`, `maxBytesTotal`; the schema's `maxLength` counts characters, a bound that holds because a character is at least one byte), and on a patch the 253 characters of a key's prefix (a create refuses a longer one with a second pattern under `not`). On a patch, `propertyNames` checks the class of a key and not its syntax: a key that Git holds from before #330, such as `/foo`, can still be removed with `null`, and JSON Schema cannot tie a key's name to its value.
+ 
+ The schema documents cmapi's own check; it never replaces it. cmapi refuses each body with or without Kyverno (`policy.engine: none` included), and a client that checks the schema first only learns of a refusal sooner. Each map that cmapi accepts passes the schema: `cmapi/tests/core/test_metadata_schema_328.py` runs one corpus of about 12,000 maps for each file through both, on the shipped files and on four synthetic ones, and `cmapi/tests/service/test_metadata_schema_328_api.py` runs it on each instance's served document.
+ 
+--- a/cmapi/contract/openapi.json
++++ b/cmapi/contract/openapi.json
+@@ -2108,6 +2108,9 @@
+                 }
+               ],
+               "maxLength": 317,
++              "not": {
++                "pattern": "^[^/]{254}"
++              },
+               "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+             },
+             "required": [
+@@ -2248,6 +2251,9 @@
+                 }
+               ],
+               "maxLength": 317,
++              "not": {
++                "pattern": "^[^/]{254}"
++              },
+               "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+             },
+             "required": [
