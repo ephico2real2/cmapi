@@ -1,0 +1,14 @@
+reference 8 distinct patterns; 6 refused by the v flag (HTML pattern attribute)
+   ^(?:^[a-z0-9-]{2,40}$)$… Invalid regular expression: /^(?:^[a-z0-9-]{2,40}$)$/v: Inva
+   ^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z… Invalid regular expression: /^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.
+   ^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.… Invalid regular expression: /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-
+   ^[^/]{254}… Invalid regular expression: /^[^/]{254}/v: Invalid character
+   ^(?:[^/]+|[^/]*\.ephico2real\.com/[^/]+)… Invalid regular expression: /^(?:[^/]+|[^/]*\.ephico2real\.c
+   ^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[eE… Invalid regular expression: /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-
+company 7 distinct patterns; 6 refused by the v flag (HTML pattern attribute)
+   ^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z… Invalid regular expression: /^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.
+   ^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.… Invalid regular expression: /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-
+   ^[^/]{254}… Invalid regular expression: /^[^/]{254}/v: Invalid character
+   ^(?:[^/]+|[^/]*\.company\.net/[^/]+)$… Invalid regular expression: /^(?:[^/]+|[^/]*\.company\.net/[
+   ^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC… Invalid regular expression: /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-
+   ^[hH][tT][tT][pP][sS]?://(?:[^/?#\[\]\t-… Invalid regular expression: /^[hH][tT][tT][pP][sS]?://(?:[^/

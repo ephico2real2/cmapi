@@ -3,7 +3,6 @@ documented routers, refuses to start with an undocumented route, serves /docs, /
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import html
 import json
 import os
@@ -27,6 +26,7 @@ from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
 from cmapi.core.docs import PROBLEMS, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
+from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.kpi import register_collectors
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
@@ -222,13 +222,13 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
         if kind not in documents:
             spec = app.openapi()
             body = (json.dumps(spec, separators=(",", ":")) if kind == "json" else yaml.safe_dump(spec, sort_keys=False)).encode()
-            documents[kind] = (body, '"' + hashlib.sha256(body).hexdigest()[:32] + '"')
+            documents[kind] = (body, etag_of(body))
         return documents[kind]
 
     def serve(kind: str, media_type: str, request: Request) -> Response:
         body, etag = document(kind)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
-        if _etag_matches(request.headers.get("if-none-match"), etag):
+        if etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         return Response(body, media_type=media_type, headers=headers)
 
@@ -321,14 +321,6 @@ def _redoc_html(title: str, start_url: str, favicon_url: str) -> str:
 </body>
 </html>
 """
-
-
-def _etag_matches(if_none_match: str | None, etag: str) -> bool:
-    """If-None-Match against the document's tag, by the weak comparison RFC 9110 13.1.2 asks for."""
-    if not if_none_match:
-        return False
-    candidates = [c.strip() for c in if_none_match.split(",")]
-    return "*" in candidates or etag in [c.removeprefix("W/") for c in candidates]
 
 
 def _add_servers(app: FastAPI, ctx: AppContext) -> None:

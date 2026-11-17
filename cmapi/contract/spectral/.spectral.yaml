@@ -136,7 +136,7 @@ rules:
   cmapi-net-keys-only-in-labels:
     description: >-
       In an example, a key with the prefix cmapi.net/ is a metadata key. It is only in a labels map or an annotations map,
-      and it is never the name of a field of the API.
+      or a property of the JSON Schema of one (GET /api/v1/metadata-keys, #336), and it is never the name of a field of the API.
     message: "{{error}}"
     severity: error
     given: "$"

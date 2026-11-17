@@ -1,0 +1,8 @@
+reference: route labels/annotations == _document_metadata output on origin/main: True; compact body 3814 bytes; strong ETag would be "65964c94c7809f2bb599d3cacf7b9c67"
+  labels: properties=['cmapi.net/team', 'cmapi.net/cost-center', 'cmapi.net/app', 'cmapi.net/rightsizing', 'cmapi.net/protected'] required=['cmapi.net/team'] x-cmapi-other-keys={'prefixes': ['', '*.ephico2real.com/'], 'max': 50}
+  annotations: properties=['cmapi.net/team-dl', 'cmapi.net/protected'] required=['cmapi.net/team-dl'] x-cmapi-other-keys={'prefixes': ['', '*.ephico2real.com/'], 'max': 50, 'maxValueBytes': 4096, 'maxBytesTotal': 65536}
+  create corpus: 5978 maps, 508 accepted by validate()
+company: route labels/annotations == _document_metadata output on origin/main: True; compact body 7218 bytes; strong ETag would be "1ff8fa24926329f377f03c796a0b7f58"
+  labels: properties=['name', 'company.net/app-environment', 'company.net/mnemonic', 'company.net/lob', 'company.net/cl', 'cmapi.net/protected'] required=['company.net/mnemonic', 'company.net/lob', 'company.net/cl'] x-cmapi-other-keys={'prefixes': ['', '*.company.net/'], 'max': 50}
+  annotations: properties=['company.net/app-environment', 'company.net/mnemonic-group-contact', 'company.net/mnemonic-confluence', 'cmapi.net/protected'] required=[] x-cmapi-other-keys={'prefixes': ['', '*.company.net/'], 'max': 50, 'maxValueBytes': 4096, 'maxBytesTotal': 65536}
+  create corpus: 6219 maps, 736 accepted by validate()

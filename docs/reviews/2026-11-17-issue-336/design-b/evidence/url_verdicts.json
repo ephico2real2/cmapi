@@ -1,0 +1,16 @@
+{
+ "https://wiki.company.net/abc": true,
+ "https://a%zz/": true,
+ "https://ex_ample.com/": true,
+ "https://a..b/": true,
+ "https://-x-/": true,
+ "https://x:abc/": true,
+ "https://x:99999/": true,
+ "http://x": true,
+ "https://x y/": false,
+ "https://[::1]/": true,
+ "https://[::1": false,
+ "https://x/%zz": true,
+ "https://ü.example/": true,
+ "ftp://x": false
+}

@@ -1,18 +1,24 @@
-// The New namespace tab: GET /api/v1/tiers and GET /api/v1/clusters for the form, the dry run for the plan and its
-// approval, then the create with an Idempotency-Key that the portal makes (#282). The words are the mockup's
+// The New namespace tab: GET /api/v1/tiers, GET /api/v1/clusters and GET /api/v1/metadata-keys for the form, the dry run
+// for the plan and its approval, then the create with an Idempotency-Key that the portal makes (#282). The labels and
+// annotations are the instance's own keys, from its metadata-keys.yaml (#336). The words are the mockup's
 // (mockups/portal/Main.dc.html, isNew). MOCKUP-CONTRACT.md lists what differs, and why.
 import {
   ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormSelect, FormSelectOption, Grid,
-  GridItem, Label, Skeleton, Stack, TextArea, TextInput
+  GridItem, Label, List, ListItem, Skeleton, Stack, TextArea, TextInput
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { useClusters, useMe, usePlan, useSubmitNamespace, useTiers } from "../api/hooks";
-import type { Cluster, NamespaceCreate, Plan, TierCatalog } from "../api/hooks";
+import { useClusters, useMe, useMetadataKeys, usePlan, useSubmitNamespace, useTiers } from "../api/hooks";
+import type { Cluster, CreateBody, Plan, TierCatalog } from "../api/hooks";
+import type { ProblemItem } from "../api/problem";
 import { Callout, Checks, Choices, Empty, Head, Hint, KV, Panel, Pill, Small } from "../components/ui";
 import type { Check } from "../components/ui";
 import { dayName, daysUntil, isoDay, policyOf } from "./format";
+import { MetadataSection } from "./MetadataFields";
+import { bodyOf, checkAll, errorsByField, nameSuggestion, valueKey } from "./metadataForm";
+import type { MetaField, MetaForm, Source } from "./metadataForm";
+import { sharedPatternTest } from "./patterns";
 import { CAPACITY_TONE, capacityCheck, capacityLine, MARK, sentence } from "./plan";
 import type { TabProps } from "./route";
 
@@ -70,42 +76,134 @@ function approvalCard(plan: Plan, env: string): { tone: string; title: string; d
   };
 }
 
+/** How long the form waits after the last keystroke before it checks the fields (design B of #336, D7). */
+const CHECK_AFTER_MS = 150;
+
+/** The refusal of a dry run or a submit, for the field errors and the summary. */
+interface Refusal { code: string; detail: string; errors: ProblemItem[] }
+
+/** Each input's own message for the browser's native validation, so Submit stops on it and focuses the first one. */
+function setValidity(form: HTMLFormElement | null, fields: MetaField[], errors: Record<string, string | null>) {
+  for (const f of fields) {
+    const el = form?.querySelector<HTMLInputElement | HTMLSelectElement>(`#${f.id}`);
+    el?.setCustomValidity(f.derivedFrom === null ? errors[f.id] ?? "" : "");
+  }
+}
+
 export function NewNamespaceTab({ config, open }: TabProps) {
   const now = new Date();
   const me = useMe();
   const clusters = useClusters();
+  const rules = useMetadataKeys();
   // No choice yet: the first environment of this instance that has a cluster to write to.
   const [pickedEnv, setEnv] = useState("");
   const writable = clusters.state === "ok" ? clusters.data.items.filter((c) => c.writes) : null;
   const env = pickedEnv || (writable && (config.environments.find((e) => writable.some((c) => c.environment === e)) ?? config.environments[0])) || "";
   const tiers = useTiers(env);
   const [tier, setTier] = useState("medium");
-  const [team, setTeam] = useState("");
   const [region, setRegion] = useState(ANY_REGION);
   const [chosen, setChosen] = useState("");
   const [name, setName] = useState("");
-  const [dl, setDl] = useState("");
+  // The value of each label and annotation field, keyed by kind and key (metadataForm.valueKey), so a value stays with its
+  // key when the rules change while the form is open.
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<Record<MetaField["kind"], boolean>>({ label: false, annotation: false });
   const [expires, setExpires] = useState("");
   const [why, setWhy] = useState("");
   // The body that the last Dry run sent. A change to the form hides its result, as in the mockup.
-  const [planned, setPlanned] = useState<{ cluster: string; body: NamespaceCreate } | null>(null);
+  const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody } | null>(null);
+  // The body that the last Submit sent, so that its refusal shows on the fields only while the form is that body.
+  const [submitted, setSubmitted] = useState<string | null>(null);
   // One key for each request that this form sends (#282). Submitting the same form again after a refusal or a lost answer
   // sends the same key, so the API answers with the first request and never makes two. A changed form is another request:
   // the API refuses an old key with another body (409 idempotency-replay, docs/04 "Rules for each call"), so it gets a new
   // key. Leaving the tab ends the form: the next one starts with none.
   const sent = useRef<{ key: string; request: string } | null>(null);
-  const keyFor = (clusterId: string, value: NamespaceCreate): string => {
+  const keyFor = (clusterId: string, value: CreateBody): string => {
     const request = JSON.stringify([clusterId, value]);
     if (sent.current?.request !== request) sent.current = { key: crypto.randomUUID(), request };
     return sent.current.key;
   };
   const submit = useSubmitNamespace();
   const plan = usePlan(planned?.cluster ?? "", planned?.body ?? null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
+
+  const form: MetaForm | null = rules.state === "ok" ? rules.data.form : null;
+  const fingerprint = rules.state === "ok" ? rules.data.fingerprint : null;
+  const nsName = name || (form ? nameSuggestion(form, values, env) : "");
+
+  // The fields' own checks: CHECK_AFTER_MS after the last change, each pattern in a worker with a time limit (patterns.ts).
+  // A result is of the inputs it was run on; it shows only while the form still has them.
+  const inputs = JSON.stringify([fingerprint, values, nsName]);
+  const [checked, setChecked] = useState<{ inputs: string; errors: Record<string, string | null> } | null>(null);
+  // WAI-ARIA 1.2, aria-invalid: "if the user has not attempted to submit the form, authors SHOULD NOT set the aria-invalid
+  // attribute on required widgets simply because the user has not yet entered data". An empty required field shows its
+  // error after the first Dry run or Submit; until then the browser's own check (required) still stops both.
+  const [attempted, setAttempted] = useState(false);
+  const clientErrors = checked?.inputs === inputs ? checked.errors : {};
+  /** The checks of the form as this render has it: the last result when it is of these inputs, else a new run. */
+  const checkNow = async (): Promise<Record<string, string | null>> => {
+    if (!form) return {};
+    if (checked?.inputs === inputs) return checked.errors;
+    const errors = await checkAll(form, values, nsName, sharedPatternTest);
+    setChecked({ inputs, errors });
+    return errors;
+  };
+  // `inputs` is the text of the rules, the values and the name, so it changes exactly when one of them does.
+  useEffect(() => {
+    if (!form) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      void checkAll(form, values, nsName, sharedPatternTest).then((errors) => { if (live) setChecked({ inputs, errors }); });
+    }, CHECK_AFTER_MS);
+    return () => { live = false; clearTimeout(timer); };
+  }, [inputs]);
+  useEffect(() => { if (form) setValidity(formRef.current, form.fields, clientErrors); });
+
+  // The rules of this instance changed after the form loaded: the fields follow the new rules, a removed key's value is
+  // dropped, and a warning says so (the conflict state).
+  const firstRules = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fingerprint || !form) return;
+    if (firstRules.current === null) firstRules.current = fingerprint;
+    const shown = new Set(form.fields.map(valueKey));
+    setValues((v) => (Object.keys(v).every((k) => shown.has(k)) ? v : Object.fromEntries(Object.entries(v).filter(([k]) => shown.has(k)))));
+  }, [fingerprint]);
+  const rulesChanged = firstRules.current !== null && fingerprint !== null && fingerprint !== firstRules.current;
 
   const edit = <T,>(set: (value: T) => void) => (value: T) => { set(value); setPlanned(null); };
+  const setValue = (f: MetaField, value: string) => edit(setValues)({ ...values, [valueKey(f)]: value });
   const head = <Head title="New namespace" lede="Describe what you need. cmapi picks the cluster from stored capacity snapshots, shows the approval that will apply, and turns the request into a pull request." />;
 
-  const forbidden = [clusters, tiers].find((r) => r.state === "forbidden");
+  // The refusal that belongs to this form: the dry run of the form as it is, or the submit of the form as it is.
+  const offered = tiers.state === "ok" ? tiersOf(tiers.data, env) : [];
+  const current = offered.find((t) => t.name === tier) ?? offered[0];
+  const inEnv = (writable ?? []).filter((c) => c.environment === env);
+  const candidates = inEnv.filter((c) => region === ANY_REGION || c.labels.region === region);
+  const cluster: Cluster | undefined = candidates.find((c) => c.clusterId === chosen) ?? candidates[0];
+  const expAllowed = env !== "prod";
+  const body: CreateBody = {
+    namespace: nsName,
+    tier: current?.name ?? tier,
+    ...(form ? bodyOf(form, values) : { labels: {}, annotations: {} }),
+    justification: why || null,
+    ...(expAllowed && expires ? { expiresAt: expires } : {})
+  };
+  // The plan on the page is of this form: same cluster, same body. A refetch of the clusters, tiers or rules can change the
+  // form without an edit, so the bodies are compared, not only reset on each edit.
+  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body);
+  const refusal: Refusal | null = plan.state === "refused" && planIsOfForm ? plan
+    : submit.state === "refused" && submitted === JSON.stringify(body) ? submit : null;
+  const mapped = form && refusal ? errorsByField(refusal.errors, form) : null;
+  const refusalKey = refusal ? JSON.stringify([refusal.code, refusal.errors]) : "";
+  useEffect(() => {
+    if (!refusalKey) return;
+    summaryRef.current?.focus();                         // the summary of a refusal takes the focus (WCAG 2.2, 3.3.1)
+    if (mapped?.unknownKey) rules.reload();              // a key that the form does not show: the rules changed
+  }, [refusalKey]);
+
+  const forbidden = [clusters, tiers, rules].find((r) => r.state === "forbidden");
   if (forbidden?.state === "forbidden") {
     return (
       <Stack hasGutter>
@@ -116,54 +214,70 @@ export function NewNamespaceTab({ config, open }: TabProps) {
       </Stack>
     );
   }
-  const failed = [clusters, tiers].find((r) => r.state === "error");
+  const failed = [clusters, tiers, rules].find((r) => r.state === "error");
   if (failed?.state === "error") {
     return (
       <Stack hasGutter>
         {head}
-        <Alert variant="danger" isInline title="The form did not load." actionLinks={<AlertActionLink onClick={() => { clusters.reload(); tiers.reload(); }}>Try again</AlertActionLink>}>
+        <Alert variant="danger" isInline title="The form did not load." actionLinks={<AlertActionLink onClick={() => { clusters.reload(); tiers.reload(); rules.reload(); }}>Try again</AlertActionLink>}>
           {failed.cause}
         </Alert>
       </Stack>
     );
   }
   if (clusters.state === "ok" && !env) return <Stack hasGutter>{head}<Empty>config.json names no environment for this instance.</Empty></Stack>;
-  if (clusters.state !== "ok" || tiers.state !== "ok") {
+  if (clusters.state !== "ok" || tiers.state !== "ok" || !form) {
     return <Stack hasGutter>{head}<span role="status">Loading the form…</span><Skeleton /><Skeleton /><Skeleton /></Stack>;
   }
 
-  const offered = tiersOf(tiers.data, env);
-  const current = offered.find((t) => t.name === tier) ?? offered[0];
-  const inEnv = (writable ?? []).filter((c) => c.environment === env);
   const regions = [...new Set(inEnv.map((c) => c.labels.region).filter((r): r is string => Boolean(r)))].sort();
-  const candidates = inEnv.filter((c) => region === ANY_REGION || c.labels.region === region);
-  const cluster: Cluster | undefined = candidates.find((c) => c.clusterId === chosen) ?? candidates[0];
-  const nsName = name || (team ? `${team}-${env}` : "");
-  const expAllowed = env !== "prod";
   const expDays = expAllowed && expires ? daysUntil(expires, now) : null;
-
-  const body: NamespaceCreate = {
-    namespace: nsName,
-    tier: current?.name ?? tier,
-    labels: { "cmapi.net/team": team },
-    annotations: { "cmapi.net/team-dl": dl },
-    justification: why || null,
-    ...(expAllowed && expires ? { expiresAt: expires } : {})
-  };
+  const target: Record<Source, string> = { namespace: nsName, environment: env, cluster: cluster?.clusterId ?? "",
+    instance: me.state === "ok" ? me.data.instance : "" };
+  const shownError = (f: MetaField): string | null =>
+    !attempted && (values[valueKey(f)] ?? "") === "" ? null : clientErrors[f.id] ?? null;
+  const fieldErrors: Record<string, string | null | undefined> = Object.fromEntries(
+    form.fields.map((f) => [f.id, shownError(f) ?? mapped?.byField[f.id] ?? null]));
   const planOk = plan.state === "ok" ? plan.data : null;
 
-  // The plan on the page is of this form: same cluster, same body. A refetch of the clusters or tiers can change the form
-  // without an edit, so the bodies are compared, not only reset on each edit.
-  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body);
+  /**
+   * The fields' checks for the form as it is now, then the browser's own (required, the address, the dates): true when
+   * the form may be planned. A field in error inside a collapsed group opens the group, so the browser can focus it.
+   */
+  const valid = async (): Promise<boolean> => {
+    setAttempted(true);
+    const errors = await checkNow();
+    setValidity(formRef.current, form.fields, errors);
+    const closed = form.fields.filter((f) => errors[f.id] && !f.required && f.derivedFrom === null && !expanded[f.kind]);
+    if (closed.length) {
+      setExpanded((x) => ({ ...x, ...Object.fromEntries(closed.map((f) => [f.kind, true])) }));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return formRef.current?.reportValidity() ?? false;
+  };
+  const focusField = (f: MetaField) => {
+    if (!f.required && f.derivedFrom === null) setExpanded((x) => ({ ...x, [f.kind]: true }));
+    requestAnimationFrame(() => document.getElementById(f.id)?.focus());
+  };
+
+  const onDryRun = () => {
+    if (!cluster) return;
+    const at = { cluster: cluster.clusterId, body };
+    void valid().then((ok) => { if (ok) setPlanned(at); });
+  };
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!cluster || submit.state === "sending") return;
-    // Nothing is submitted that the person has not seen planned: a form with no plan, or changed since its dry run, is
-    // planned first, and the next Submit sends it. A refused or failed dry run is on the page, and Submit waits for a plan.
-    if (!planned || !planIsOfForm) { setPlanned({ cluster: cluster.clusterId, body }); return; }
-    if (plan.state !== "ok") return;
-    // The tab ends on a 202: the Workflow tab follows the new request, as the mockup's Submit opens its workflow.
-    submit.submit(planned.cluster, planned.body, keyFor(planned.cluster, planned.body)).then((request) => open("workflow", { request: request.requestId }), () => undefined);
+    void valid().then((ok) => {
+      if (!ok) return;
+      // Nothing is submitted that the person has not seen planned: a form with no plan, or changed since its dry run, is
+      // planned first, and the next Submit sends it. A refused or failed dry run is on the page, and Submit waits for a plan.
+      if (!planned || !planIsOfForm) { setPlanned({ cluster: cluster.clusterId, body }); return; }
+      if (plan.state !== "ok") return;
+      setSubmitted(JSON.stringify(planned.body));
+      // The tab ends on a 202: the Workflow tab follows the new request, as the mockup's Submit opens its workflow.
+      submit.submit(planned.cluster, planned.body, keyFor(planned.cluster, planned.body)).then((request) => open("workflow", { request: request.requestId }), () => undefined);
+    });
   };
 
   const checks: Check[] = planOk ? [
@@ -178,6 +292,14 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     { s: planOk.approval.auto ? "pass" : "warn", mark: planOk.approval.auto ? MARK.pass : MARK.warn, main: "Approval", note: approvalCard(planOk, env).rule }
   ] : [];
   const appr = planOk ? approvalCard(planOk, env) : null;
+  // The error summary of a refusal: each item, and a link to the field that it names.
+  const summary = mapped && mapped.items.length > 0 && (
+    <List>
+      {mapped.items.map(({ field, text }, i) => (
+        <ListItem key={i}>{field ? <Button variant="link" isInline onClick={() => focusField(field)}>{text}</Button> : text}</ListItem>
+      ))}
+    </List>
+  );
 
   return (
     <Stack hasGutter>
@@ -185,7 +307,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
       <Grid hasGutter>
         <GridItem md={12} lg={7}>
           <Panel>
-            <Form noValidate={false} onSubmit={onSubmit}>
+            <Form noValidate={false} onSubmit={onSubmit} ref={formRef}>
               <FormGroup label="Environment" role="group" fieldId="ns-env">
                 <Choices label="Environment" options={config.environments.map((e) => ({ label: e, on: e === env, pick: () => { edit(setEnv)(e); setChosen(""); } }))} />
                 <Hint>This is the {config.displayName} portal: it serves {config.environments.join(", ")} only.</Hint>
@@ -197,70 +319,64 @@ export function NewNamespaceTab({ config, open }: TabProps) {
               </FormGroup>
               <Grid hasGutter>
                 <GridItem md={6}>
-                  <FormGroup label="Team" fieldId="ns-team">
-                    <TextInput id="ns-team" isRequired value={team} onChange={(_, v) => edit(setTeam)(v)} />
-                    <Hint>Who owns it, for cost and notices: any team name. Not checked against who you are; your Keycloak roles decide what you may do.</Hint>
-                  </FormGroup>
-                </GridItem>
-                <GridItem md={6}>
                   <FormGroup label="Region" fieldId="ns-region">
-                    <FormSelect id="ns-region" value={region} onChange={(_, v) => { edit(setRegion)(v); setChosen(""); }}>
+                    <FormSelect id="ns-region" value={region} aria-describedby="ns-region-help" onChange={(_, v) => { edit(setRegion)(v); setChosen(""); }}>
                       {regions.map((r) => <FormSelectOption key={r} value={r} label={r} />)}
                       <FormSelectOption value={ANY_REGION} label="Any region" />
                     </FormSelect>
-                    <Hint>From clusters.yaml metadata.</Hint>
+                    <Hint id="ns-region-help">From clusters.yaml metadata.</Hint>
+                  </FormGroup>
+                </GridItem>
+                <GridItem md={6}>
+                  <FormGroup label="Cluster" fieldId="ns-cluster">
+                    <FormSelect id="ns-cluster" value={cluster?.clusterId ?? ""} isDisabled={!candidates.length} aria-describedby="ns-cluster-help" onChange={(_, v) => edit(setChosen)(v)}>
+                      {candidates.map((c) => <FormSelectOption key={c.clusterId} value={c.clusterId} label={c.clusterId} />)}
+                      {!candidates.length && <FormSelectOption value="" label="—" />}
+                    </FormSelect>
+                    <Hint id="ns-cluster-help">{candidates.length ? `The ${env} clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).` : `No ${env} cluster takes writes on this instance.`}</Hint>
                   </FormGroup>
                 </GridItem>
               </Grid>
-              <FormGroup label="Cluster" fieldId="ns-cluster">
-                <FormSelect id="ns-cluster" value={cluster?.clusterId ?? ""} isDisabled={!candidates.length} onChange={(_, v) => edit(setChosen)(v)}>
-                  {candidates.map((c) => <FormSelectOption key={c.clusterId} value={c.clusterId} label={c.clusterId} />)}
-                  {!candidates.length && <FormSelectOption value="" label="—" />}
-                </FormSelect>
-                <Hint>{candidates.length ? `The ${env} clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).` : `No ${env} cluster takes writes on this instance.`}</Hint>
-              </FormGroup>
+              {rulesChanged && <Alert variant="warning" isInline title="The label and annotation rules of this instance changed. Check the fields below." />}
+              {(["label", "annotation"] as const).map((kind) => (
+                <MetadataSection key={kind} kind={kind} fields={form.fields} values={values} errors={fieldErrors} target={target}
+                  expanded={expanded[kind]} onExpand={(x) => setExpanded((e) => ({ ...e, [kind]: x }))} onChange={setValue} />
+              ))}
+              {me.state === "ok" && <Hint>{`Requested by ${me.data.username} (${me.data.identity.email ?? "no email"}), from your sign-in.`}</Hint>}
               <FormGroup label="Namespace name" fieldId="ns-name">
-                <TextInput id="ns-name" isRequired value={nsName} onChange={(_, v) => edit(setName)(v)} />
-                <Hint>Any DNS-1123 name. Not allowed: reserved names (default, openshift-*, kube-*, cmapi-system, ocp-*) and a name already on the cluster outside cmapi.</Hint>
+                <TextInput id="ns-name" isRequired value={nsName} aria-describedby="ns-name-help" onChange={(_, v) => edit(setName)(v)} />
+                <Hint id="ns-name-help">Any DNS-1123 name. Not allowed: reserved names (default, openshift-*, kube-*, cmapi-system, ocp-*) and a name already on the cluster outside cmapi.</Hint>
               </FormGroup>
               <FormGroup label="Tier" role="group" fieldId="ns-tier">
                 <Choices label="Tier" options={offered.map((t) => ({ label: t.name, sub: `${t.cpu} cores · ${t.memory}`, on: t.name === current?.name, pick: () => edit(setTier)(t.name) }))} />
                 <Hint>cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.</Hint>
               </FormGroup>
-              <Grid hasGutter>
-                <GridItem md={6}>
-                  <FormGroup label="Team DL (required)" fieldId="ns-dl">
-                    <TextInput id="ns-dl" type="email" isRequired value={dl} onChange={(_, v) => edit(setDl)(v)} />
-                    <Hint>Your team's distribution list, in one of the organisation's email domains (emailDomains); format only.{me.state === "ok" && ` Requested by ${me.data.username} (${me.data.identity.email ?? "no email"}), from your sign-in.`}</Hint>
-                  </FormGroup>
-                </GridItem>
-                <GridItem md={6}>
-                  {expAllowed && (
-                    <FormGroup label="Expires (optional)" fieldId="ns-exp">
-                      <TextInput id="ns-exp" type="date" min={isoDay(now, 1)} max={isoDay(now, MAX_LIFETIME_DAYS)} value={expires} onChange={(_, v) => edit(setExpires)(v)} />
-                      <Hint>{expires ? `Expires in ${expDays} days. Notices at 14, 7 and 1 days, then a 7-day grace; extend from the Expiration tab in steps of up to 30 days.` : "Leave empty for a permanent namespace. At most 180 days from today; extend later from the Expiration tab."}</Hint>
-                    </FormGroup>
-                  )}
-                  {!expAllowed && (
-                    <FormGroup label="Expires" fieldId="ns-exp-never">
-                      <Hint>Never. Production namespaces cannot carry expiration metadata: refused at validation and by the deny-expiry-in-prod policy.</Hint>
-                    </FormGroup>
-                  )}
-                </GridItem>
-              </Grid>
+              {expAllowed && (
+                <FormGroup label="Expires (optional)" fieldId="ns-exp">
+                  <TextInput id="ns-exp" type="date" min={isoDay(now, 1)} max={isoDay(now, MAX_LIFETIME_DAYS)} value={expires} aria-describedby="ns-exp-help" onChange={(_, v) => edit(setExpires)(v)} />
+                  <Hint id="ns-exp-help">{expires ? `Expires in ${expDays} days. Notices at 14, 7 and 1 days, then a 7-day grace; extend from the Expiration tab in steps of up to 30 days.` : "Leave empty for a permanent namespace. At most 180 days from today; extend later from the Expiration tab."}</Hint>
+                </FormGroup>
+              )}
+              {!expAllowed && (
+                <FormGroup label="Expires" fieldId="ns-exp-never">
+                  <Hint>Never. Production namespaces cannot carry expiration metadata: refused at validation and by the deny-expiry-in-prod policy.</Hint>
+                </FormGroup>
+              )}
               <FormGroup label="Justification" fieldId="ns-why">
                 <TextArea id="ns-why" value={why} onChange={(_, v) => edit(setWhy)(v)} />
               </FormGroup>
               {plan.state === "sending" && <span role="status">Planning…</span>}
               {planOk && <Callout tone="info" title="Dry run passed · nothing written"><Checks items={checks} /></Callout>}
-              {plan.state === "refused" && <Callout tone="bad" title={`Refused: ${plan.code}`}>{plan.detail}</Callout>}
+              <div ref={summaryRef} tabIndex={-1}>
+                {plan.state === "refused" && <Callout tone="bad" title={`Refused: ${plan.code}`}>{plan.detail}{planIsOfForm && summary}</Callout>}
+                {submit.state === "refused" && <Callout tone="bad" title="Not submitted">{`${submit.code}: ${submit.detail}`}{refusal === submit && summary}</Callout>}
+              </div>
               {plan.state === "error" && (
                 <Alert variant="danger" isInline title="The dry run did not complete." actionLinks={<AlertActionLink onClick={plan.reload}>Try again</AlertActionLink>}>{plan.cause}</Alert>
               )}
-              {submit.state === "refused" && <Callout tone="bad" title="Not submitted">{`${submit.code}: ${submit.detail}`}</Callout>}
               {submit.state === "error" && <Callout tone="bad" title="Not submitted">{`${submit.cause} Submit again: the same request is sent, and the API makes it at most once.`}</Callout>}
               <ActionGroup>
-                <Button variant="secondary" type="button" isDisabled={!cluster} onClick={() => cluster && setPlanned({ cluster: cluster.clusterId, body })}>Dry run</Button>
+                <Button variant="secondary" type="button" isDisabled={!cluster} onClick={onDryRun}>Dry run</Button>
                 <Button variant="primary" type="submit" isDisabled={!cluster} isLoading={submit.state === "sending"}>Submit request</Button>
               </ActionGroup>
             </Form>

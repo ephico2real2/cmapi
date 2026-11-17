@@ -119,7 +119,8 @@ TAG_GROUPS: tuple[str, ...] = ("Namespaces and metadata", "Access", "Capacity an
 # The "core" plugin has two routers (routers/me.py and routers/health.py), so its metadata is here, once.
 CORE: dict[str, str] = {"version": __version__, "group": "Operations",
                         "description": "The instance itself: who the caller is and what the caller can do, the clusters "
-                                       "that the instance knows, and the version of the running build."}
+                                       "that the instance knows, the rules of a new namespace's labels and annotations, "
+                                       "and the version of the running build."}
 
 
 class DocumentedRouter(APIRouter):
@@ -371,6 +372,10 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     _document_validation_problem(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     add_recorded_examples(spec, load_samples(), metadata)
+    if metadata is not None:
+        # After the recorded examples: the sample was recorded on the reference file, and this instance's own rules are the
+        # answer that it gives (the defect of #334, for GET /api/v1/metadata-keys; #336).
+        _document_metadata_keys_example(spec, metadata)
     components = (spec.get("components") or {}).get("schemas") or {}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
@@ -449,6 +454,15 @@ def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
                                 "examples": [metadata_patch_example(keys, kind)]}
         if op == "create" and "namespace" in props:
             props["namespace"]["examples"] = [example_namespace(keys, ex) for ex in props["namespace"].get("examples") or []]
+
+
+def _document_metadata_keys_example(spec: dict[str, Any], keys: Any) -> None:
+    """The 200 example of GET /api/v1/metadata-keys is this instance's answer, not the recorded one of the reference file."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if isinstance(op, dict) and op.get("operationId") == "core_metadata_keys":
+                media = op["responses"]["200"].setdefault("content", {}).setdefault("application/json", {})
+                media["example"] = keys.keys_view()
 
 
 def _with_type_base(node: Any, problem_base: str) -> Any:

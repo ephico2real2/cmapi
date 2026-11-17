@@ -166,6 +166,131 @@ test("F10 config rejects empty query and fragment delimiters", async () => {
   }
 });
 
+// #336: the New namespace form's labels and annotations, from GET /api/v1/metadata-keys. The two answers are the service's:
+// the recorded one of the reference file and the company file's (cmapi/tests/core/test_metadata_form_336.py holds both).
+const { readFileSync } = await import("node:fs");
+const SAMPLES = JSON.parse(readFileSync(new URL("../../../cmapi/src/cmapi/contract/samples.json", import.meta.url), "utf8"));
+const RULES = { reference: SAMPLES.operations.core_metadata_keys.response.body,
+  company: JSON.parse(readFileSync(new URL("metadata-keys.company.json", import.meta.url), "utf8")) };
+const ecma = (pattern, value) => new RegExp(pattern, "u").test(value);
+
+test("M1 the form never refuses a body that cmapi accepts: every case of the #328 corpus and design B's values, on both files", async () => {
+  const { checkAll, fieldsOf, valueKey } = await import("../../src/portal/metadataForm.ts");
+  const corpus = JSON.parse(readFileSync(new URL("metadata-corpus.json", import.meta.url), "utf8"));
+  const seen = {};
+  for (const [name, view] of Object.entries(RULES)) {
+    const form = fieldsOf(view);
+    const { namespace, environment, cases } = corpus[name];
+    // The corpus's body is the required keys at their examples: the form's fields filled with the same examples.
+    const base = Object.fromEntries(form.fields.filter((f) => f.required && f.derivedFrom === null).map((f) => [valueKey(f), f.example]));
+    const stricter = [], tally = { cases: cases.length, accepted: 0, agree: 0, looser: 0 };
+    for (const [kind, key, value, own, accepted] of cases) {
+      const values = { ...base };
+      if (value === null) delete values[`${kind}:${key}`];
+      else values[`${kind}:${key}`] = value;
+      const errors = await checkAll(form, values, own ? `${value}-${environment}` : namespace, ecma);
+      const refused = Object.entries(errors).filter(([, e]) => e);
+      tally.accepted += accepted;
+      if (refused.length && accepted) stricter.push({ kind, key, value, own, refused });
+      else if (!refused.length && !accepted) tally.looser++;
+      else tally.agree++;
+    }
+    assert.deepEqual(stricter.slice(0, 5), [], `${name}: the form refuses what cmapi accepts`);
+    assert.ok(tally.cases > 1000 && tally.accepted > 50 && tally.agree > 0.9 * tally.cases, `${name}: ${JSON.stringify(tally)}`);
+    seen[name] = tally;
+  }
+  console.log(`  differential: ${JSON.stringify(seen)}`);
+});
+
+test("M2 the fields of each file: inputs in the order of required, then the keys cmapi sets, then the optional ones; no operator-only key", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  // The recorded sample has its properties in alphabetical order (samples.json is written with sort_keys); the service
+  // keeps the file's order. Only `required` is an order the form keeps; the optional keys are compared as a set.
+  const groups = (view) => {
+    const fields = fieldsOf(view).fields;
+    for (const kind of ["label", "annotation"]) {
+      assert.deepEqual(fields.filter((f) => f.kind === kind).map((f) => f.id), fields.filter((f) => f.kind === kind).map((_, i) => `ns-${kind}-${i}`), "ids by kind and position");
+    }
+    const row = (f) => [f.key, f.title, f.derivedFrom, f.enum !== null, f.format, f.example];
+    return { required: fields.filter((f) => f.required).map(row), derived: fields.filter((f) => f.derivedFrom).map(row),
+      optional: fields.filter((f) => !f.required && !f.derivedFrom).map(row).sort() };
+  };
+  assert.deepEqual(groups(RULES.reference), {
+    required: [["cmapi.net/team", "Team", null, false, null, "payments"], ["cmapi.net/team-dl", "Team DL", null, false, "email-in-domains", "payments-team@ephico2real.com"]],
+    derived: [],
+    optional: [["cmapi.net/app", null, null, false, null, null], ["cmapi.net/cost-center", null, null, false, null, "cc-4410"], ["cmapi.net/rightsizing", null, null, false, null, null]] });
+  assert.deepEqual(groups(RULES.company), {
+    required: [["company.net/mnemonic", null, null, false, null, "abc"], ["company.net/lob", null, null, false, null, "amgsst"], ["company.net/cl", null, null, true, null, "1"]],
+    derived: [["name", null, "namespace", false, null, null], ["company.net/app-environment", null, "environment", false, null, null],
+      ["company.net/app-environment", null, "environment", false, null, null]],
+    optional: [["company.net/mnemonic-confluence", null, null, false, "url", "https://wiki.company.net/abc"],
+      ["company.net/mnemonic-group-contact", null, null, false, "email-in-domains", "abc-team@company.net"]] });
+  assert.ok(!fieldsOf(RULES.company).fields.some((f) => f.key === "cmapi.net/protected"), "an operator-only key is not offered");
+  // The label-value pattern is checked once, first, not again as a key's own pattern.
+  const team = fieldsOf(RULES.reference).fields[0];
+  assert.deepEqual(team.patterns, ["^(?:^[a-z0-9-]{2,40}$)$"]);
+  assert.equal(fieldsOf(RULES.company).fields[1].patterns.length, 0, "lob: the label syntax only");
+});
+
+test("M3 an answer of another shape is the error state, never a form with fields missing", async () => {
+  const { fieldsOf, RulesUnreadable } = await import("../../src/portal/metadataForm.ts");
+  const bad = [null, [], { labels: [] }, { labels: RULES.reference.labels }, { ...RULES.reference, labels: { ...RULES.reference.labels, properties: { x: "text" } } },
+    { ...RULES.reference, labels: { ...RULES.reference.labels, required: ["cmapi.net/owner"] } },
+    { ...RULES.reference, labels: { ...RULES.reference.labels, properties: { x: { type: "string", enum: [1] } } } }];
+  for (const view of bad) assert.throws(() => fieldsOf(view), (e) => e instanceof RulesUnreadable && /not in the form this portal reads/.test(e.message), JSON.stringify(view)?.slice(0, 80));
+});
+
+test("M4 the body: each field with a value; never an empty optional key, a key that cmapi sets, or an operator-only key", async () => {
+  const { bodyOf, fieldsOf, nameSuggestion } = await import("../../src/portal/metadataForm.ts");
+  const company = fieldsOf(RULES.company);
+  const values = { "label:company.net/mnemonic": "abc", "label:company.net/lob": "amgsst", "label:company.net/cl": "1", "label:name": "abc-rnd",
+    "annotation:company.net/mnemonic-group-contact": "", "annotation:company.net/mnemonic-confluence": "https://wiki.company.net/abc", "label:cmapi.net/protected": "yes" };
+  assert.deepEqual(bodyOf(company, values), { labels: { "company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1" },
+    annotations: { "company.net/mnemonic-confluence": "https://wiki.company.net/abc" } });
+  assert.equal(nameSuggestion(company, values, "rnd"), "abc-rnd", "the namespacePrefix key starts the name");
+  const reference = fieldsOf(RULES.reference);
+  assert.equal(nameSuggestion(reference, { "label:cmapi.net/team": "payments" }, "dev"), "payments-dev", "no namespacePrefix key: the first required label");
+  assert.equal(nameSuggestion(reference, {}, "dev"), "", "nothing typed, nothing suggested");
+});
+
+test("M5 a field's check: the validator's order and words, characters as code points, and a pattern not checked here counts as passed", async () => {
+  const { checkField, fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const company = fieldsOf(RULES.company);
+  const [mnemonic, lob, cl] = company.fields;
+  const ctx = { namespace: "abc-rnd", labelValue: company.labelValue };
+  assert.equal(await checkField(mnemonic, "", ctx, ecma), "Required: must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'");
+  assert.equal(await checkField(mnemonic, "ABC", ctx, ecma), "Not valid: must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'");
+  assert.equal(await checkField(mnemonic, "a b", ctx, ecma), "Not a valid label value", "the label syntax first, as _syntax");
+  assert.equal(await checkField(mnemonic, "xyz", ctx, ecma), "abc-rnd does not start with xyz-");
+  assert.equal(await checkField(mnemonic, "abc", ctx, ecma), null);
+  assert.equal(await checkField(lob, "amg sst", ctx, ecma), "Not a valid label value");
+  assert.equal(await checkField(cl, "9", ctx, ecma), "Not valid: one of ['0', '1', '2', '3', '4', '5', '6']");
+  assert.equal(await checkField(mnemonic, "ABC", { ...ctx, namespace: "ABC-rnd" }, () => null), null, "a pattern that ran out of time: no error here, cmapi decides");
+  // JSON Schema counts characters (RFC 8259: code points), as Python and cmapi do: three emoji are three, not six.
+  const short = { ...company.fields[6], kind: "annotation", patterns: [], maxLength: 3, minLength: 3 };
+  assert.equal(await checkField(short, "\u{1F600}\u{1F600}\u{1F600}", ctx, ecma), null);
+  assert.equal(await checkField(short, "\u{1F600}\u{1F600}\u{1F600}\u{1F600}", ctx, ecma), "At most 3 characters");
+});
+
+test("M6 a refusal's errors: each on the field that it names, the others in the summary; a key the form lacks reads the rules again", async () => {
+  const { errorsByField, fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { itemsOf } = await import("../../src/api/problem.ts");
+  const recorded = SAMPLES.problems["policy-violation"].response.body;
+  const reference = fieldsOf(RULES.reference);
+  const mapped = errorsByField(itemsOf(recorded.errors), reference);
+  assert.deepEqual(mapped.byField, { "ns-label-0": "must match ^[a-z0-9-]{2,40}$", "ns-annotation-0": "an address in ['ephico2real.com']" });
+  assert.equal(mapped.unknownKey, false);
+  const other = errorsByField(itemsOf([{ code: "reserved_key", key: "cmapi.net/x" }, { code: "too_many_keys", kind: "label", detail: "at most 50 other labels" },
+    { code: "missing_required_key", key: "cmapi.net/owner", kind: "label", detail: "must match ^[a-z]+$" }, "not an item", { key: "no code" }]), reference);
+  assert.deepEqual(other.items.map((i) => [i.field?.id ?? null, i.text]), [[null, "cmapi.net/x: reserved_key"], [null, "label: at most 50 other labels"],
+    [null, "cmapi.net/owner: must match ^[a-z]+$"]]);
+  assert.equal(other.unknownKey, true);
+  // A key that is a label and an annotation: the error's kind decides; with none, the label first.
+  const company = fieldsOf(RULES.company);
+  assert.deepEqual(errorsByField([{ code: "derived_key", key: "company.net/app-environment", kind: "annotation", detail: "d" }], company).byField, { "ns-annotation-0": "d" });
+  assert.deepEqual(errorsByField([{ code: "invalid_value", key: "company.net/app-environment", detail: "d" }], company).byField, { "ns-label-4": "d" });
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }

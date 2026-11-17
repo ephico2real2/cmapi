@@ -60,6 +60,6 @@ def test_a_url_that_the_policy_refuses_is_refused_by_cmapi_alone(company_no_kyve
     client, ctx, git, kube, validator, keys = company_no_kyverno
     r = client.post(URL, json=body(url), headers=auth(keys, "ola", **OLA))
     assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
-    assert r.json()["errors"] == [{"code": "invalid_value", "key": KEY, "detail": "an http or https URL"}]
+    assert r.json()["errors"] == [{"code": "invalid_value", "key": KEY, "kind": "annotation", "detail": "an http or https URL"}]
     listed = client.get("/api/v1/requests", headers=auth(keys, "ola", **OLA))
     assert listed.status_code == 200 and listed.json()["page"]["total"] == 0, listed.text

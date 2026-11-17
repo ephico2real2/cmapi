@@ -415,6 +415,23 @@ class TierCatalogView(BaseModel):
     environments: dict[str, Any] = Field(description="Per environment: tiers, custom bounds, and storageLimitRange.enabled: whether cmapi renders the storage LimitRange <ns>-limits-storage and takes limitRange.pvc.* values (off unless tiers.yaml turns it on)", examples=[{"dev": {"tiers": [], "custom": {}, "storageLimitRange": {"enabled": False}}}])
 
 
+class MetadataKeysView(Api):
+    """Body of GET /api/v1/metadata-keys (#336): this instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new
+    namespace's labels and annotations. Each object is the one that the API document holds at NamespaceCreate.labels and
+    .annotations, without the title, description and examples that the document puts around it."""
+    labels: dict[str, Any] = Field(
+        description="The JSON Schema of NamespaceCreate.labels on this instance: each declared key with its rule, which keys "
+                    "are required, which cmapi sets (readOnly) and which only cmapi-operator may set (x-cmapi-operator-only)",
+        examples=[{"type": "object", "properties": {"cmapi.net/team": {"type": "string", "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+                                                                       "title": "Team", "x-cmapi-rule": "must match ^[a-z0-9-]{2,40}$"}},
+                   "required": ["cmapi.net/team"]}])
+    annotations: dict[str, Any] = Field(
+        description="The JSON Schema of NamespaceCreate.annotations on this instance, in the same form",
+        examples=[{"type": "object", "properties": {"cmapi.net/team-dl": {"type": "string", "title": "Team DL",
+                                                                          "x-cmapi-format": "email-in-domains"}},
+                   "required": ["cmapi.net/team-dl"]}])
+
+
 class PruneConfirm(Api):
     namespace: str = Field(description="Namespace whose delete is awaiting a prune", examples=["payments-dev"])
     cluster_id: str | None = Field(default=None, description="Cluster, when the name is ambiguous", examples=["CRC"])

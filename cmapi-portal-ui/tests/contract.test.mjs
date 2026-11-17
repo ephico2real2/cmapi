@@ -26,3 +26,29 @@ assert.ok(named(3).has("dashboards"), "the KPI tab's dashboards are listed");
 const scripts = JSON.parse(readFileSync(join(app, "package.json"), "utf8")).scripts;
 assert.match(scripts.test, /^node \.\.\/scripts\/build-portal\.mjs --check && /, "npm test first checks that the mockup build is current");
 console.log("ok - contract");
+
+// #336: the New namespace form evaluates or shows each keyword that GET /api/v1/metadata-keys sends, or lists it as
+// ignored with its reason (src/portal/metadataForm.ts, KEYWORDS). A keyword in neither list fails here: the generator
+// (MetadataKeys.json_schema) gained a rule that the form would silently check less than cmapi does.
+const { KEYWORDS } = await import("../src/portal/metadataForm.ts");
+const samples = JSON.parse(readFileSync(join(app, "..", "cmapi", "src", "cmapi", "contract", "samples.json"), "utf8"));
+const answers = { reference: samples.operations.core_metadata_keys.response.body,
+  company: JSON.parse(readFileSync(join(app, "tests", "api", "metadata-keys.company.json"), "utf8")) };
+const known = (level) => new Set([...KEYWORDS[level].read, ...Object.keys(KEYWORDS[level].ignored)]);
+const unknown = [];
+const visit = (level, where, schema) => {
+  for (const keyword of Object.keys(schema)) if (!known(level).has(keyword)) unknown.push(`${where}: ${keyword}`);
+};
+for (const [name, answer] of Object.entries(answers)) {
+  assert.deepEqual(Object.keys(answer).sort(), ["annotations", "labels"], `${name}: the answer's two maps`);
+  for (const [field, map] of Object.entries(answer)) {
+    visit("map", `${name} ${field}`, map);
+    visit("additionalProperties", `${name} ${field}.additionalProperties`, map.additionalProperties);
+    for (const [key, prop] of Object.entries(map.properties)) {
+      visit("property", `${name} ${field}.${key}`, prop);
+      (prop.allOf ?? []).forEach((entry, i) => visit("allOf", `${name} ${field}.${key}.allOf[${i}]`, entry));
+    }
+  }
+}
+assert.deepEqual(unknown, [], "keywords of GET /api/v1/metadata-keys that the form neither evaluates nor lists as ignored");
+console.log("ok - the New namespace form reads each keyword of GET /api/v1/metadata-keys or lists it as ignored");

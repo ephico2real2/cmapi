@@ -1,0 +1,8 @@
+Source: https://ajv.js.org/security.html, "Content Security Policy" (fetched 2026-11-17)
+Ajv compiled at run time needs: "script-src directive must include 'unsafe-eval'", and "unsafe-eval is NOT recommended
+in a secure CSP". The alternative is compiling the schema at build time (standalone code), which a per-instance runtime
+schema cannot use. The portal's CSP (cmapi-portal-ui/nginx/templates/cmapi.conf.template:44-46) is script-src 'self'.
+@cfworker/json-schema 4.1.6 (MIT, no dependencies): README "Supports drafts 4, 7, 2019-09, and 2020-12"; Cloudflare
+Workers "do not have APIs required by Ajv schema compilation (eval or new Function(code))". Scanned: no eval/new Function
+in dist/esm; pattern is `new RegExp($pattern, 'u').test(instance)` (src/validate.ts:1183). Bundle: 22,678 B minified,
+6,384 B gzip (esbuild 0.25.0, one Validator import).

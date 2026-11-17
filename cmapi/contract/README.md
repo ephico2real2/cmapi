@@ -42,7 +42,7 @@ Copy `openapi.json` to `released/<version>.json`. Then run `python contract/chan
 | examples | `cmapi-parameter-example`, `cmapi-body-example`, `oas3-valid-media-example` |
 | problem responses | `cmapi-problem-media-type`, `cmapi-problem-schema`, `cmapi-problem-example`, `cmapi-secured-operation-problems` |
 | no inline schemas | `cmapi-no-inline-schema` |
-| `cmapi.net/` keys only in label examples | `cmapi-net-keys-only-in-labels` |
+| `cmapi.net/` keys only in label examples, or as properties of a label or annotation map's schema (#336) | `cmapi-net-keys-only-in-labels` |
 
 Spectral resolves each `$ref` before it runs a rule. The two rules that must see the reference itself say `resolved: false`. `info-contact` is off, because the document names no person and no address.
 

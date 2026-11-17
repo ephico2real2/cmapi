@@ -1,0 +1,3 @@
+without u: 21537 checks, 0 differ from RE2
+^[^/]{1,3}$ on 😀😀: without u false | with u true
+RE2 on 😀😀: True

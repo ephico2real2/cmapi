@@ -160,6 +160,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("core_me", "GET", "/api/v1/me", ola)
     rec.call("core_clusters", "GET", "/api/v1/clusters", ola)
     rec.call("tiers_tiers", "GET", "/api/v1/tiers?environment=dev", ola)
+    rec.call("core_metadata_keys", "GET", "/api/v1/metadata-keys", ola)
     rec.call("directory_search", "GET", "/api/v1/directory/users?q=ola", ola)
     rec.call("directory_get_user", "GET", "/api/v1/directory/users/ola", ola)
     rec.call("admin_integrations", "GET", "/api/v1/admin/integrations", ola)
@@ -174,6 +175,11 @@ def test_each_operation_has_a_sample_from_a_run(world):
              "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}}}}
     dry = rec.call("namespaces_create_namespace:dryRun", "POST", f"{base}?dryRun=true", ola, json_body=sized)
     assert dry.status_code == 200 and dry.json()["beyondTier"]["approvals"], dry.text
+    # A refused dry run (#336): its errors name each key, as the portal's New namespace form maps them to its fields.
+    refused = rec.call("namespaces_create_namespace", "POST", f"{base}?dryRun=true", ola,
+                       json_body={**NS, "labels": {"cmapi.net/team": "Payments"}, "annotations": {}})
+    assert refused.status_code == 422 and [(e["code"], e["key"]) for e in refused.json()["errors"]] == [
+        ("invalid_value", "cmapi.net/team"), ("missing_required_key", "cmapi.net/team-dl")], refused.text
     created = rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS, key=True)
     assert created.status_code == 202, created.text
     rid = created.json()["requestId"]

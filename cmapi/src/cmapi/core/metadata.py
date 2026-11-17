@@ -42,15 +42,17 @@ _DNS1123_SUB_TEXT = r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[
 _NAME_TEXT = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
 _DNS1123_SUB = re.compile(f"^{_DNS1123_SUB_TEXT}$")
 _NAME = re.compile(f"^{_NAME_TEXT}$")
-# A mail domain: DNS labels of letters, digits and "-", as the chart's values.schema.json says (#335).
-_DOMAIN = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$")
+# A mail domain: DNS labels of 1 to 63 letters, digits and "-" (RFC 1035, 2.3.4), as the chart's values.schema.json says
+# (#335). The 63 is also the label limit of HTML's "valid e-mail address", which the portal's <input type=email> checks
+# (#336): a longer label would make the browser refuse every address that cmapi accepts in that domain.
+_DOMAIN = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$")
 
 KeyClass = str   # "system" | "operatorOnly" | "reserved" | "governed" | "team" | "disallowed"
 KINDS = ("label", "annotation")
 # What cmapi can fill a key from. Each comes from the request's own target, never from the requester's text.
 DERIVED_FROM = ("namespace", "environment", "cluster", "instance")
 FORMATS = ("email-in-domains", "url")
-_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "description", "example"}
+_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "title", "description", "example"}
 _OLD_STANZAS = ("governed", "team")
 # The stanzas of the file (#338): a list of text, or a mapping. Any other top-level key stops the start, so a misspelt
 # stanza (requiredLabel) cannot load as a file with no rule in it.
@@ -514,6 +516,7 @@ class KeyRule:
     enum: tuple[str, ...] | None = None
     format: str | None = None           # one of FORMATS
     namespace_prefix: bool = False      # the namespace name must start with "<value>-"
+    title: str | None = None            # a short label for a form (JSON Schema title, #336); the key when absent
     description: str | None = None
     example: str | None = None
 
@@ -569,7 +572,7 @@ class MetadataKeys:
         domains = self._texts(raw, "emailDomains", problems)
         bad = [d for d in domains if len(d) > 253 or not _DOMAIN.fullmatch(d)]
         if bad:
-            problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
+            problems.append(f"emailDomains: {bad} are not domain names (labels of 1 to 63 letters, digits and -, joined by .)")
         self.email_domains = [d.lower() for d in domains]
         if self.email_domains and not bad:
             # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
@@ -666,10 +669,14 @@ class MetadataKeys:
             problems.append(f"{where}: a system, operator-only or reserved key cannot be set by a requester")
         if key in self.rules[kind]:
             problems.append(f"{where}: declared twice as a {kind}")
-        for field, want in (("description", str), ("example", str), ("namespacePrefix", bool)):
+        for field, want in (("title", str), ("description", str), ("example", str), ("namespacePrefix", bool)):
             if spec.get(field) is not None and not isinstance(spec[field], want):
                 problems.append(f"{where}: {field} must be {'text' if want is str else 'true or false'}, "
                                 f"not {_kind_of(spec[field])}")
+        title = spec.get("title")
+        if isinstance(title, str) and not title.strip():
+            # A form labels the field with it (#336): an empty label would leave the field with no name.
+            problems.append(f"{where}: title must be a non-empty text; leave it out to label the field with the key")
         derived = None
         if "value" in spec:
             derived = (spec["value"] or {}).get("from") if isinstance(spec["value"], Mapping) else None
@@ -703,6 +710,7 @@ class MetadataKeys:
         rule = KeyRule(kind=kind, required=required, derived=derived, pattern=pattern,
                        enum=tuple(enum) if enum is not None else None, format=fmt,
                        namespace_prefix=bool(spec.get("namespacePrefix")),
+                       title=title if isinstance(title, str) else None,
                        description=spec.get("description"), example=example)
         self.rules[kind][key] = rule
         if required and not derived and example is None:
@@ -888,14 +896,16 @@ class MetadataKeys:
                 len(name) > 63 or not _NAME.fullmatch(name):
             return {"code": "invalid_key", "key": key}
         if kind == "label" and value not in (None, "") and (len(value) > 63 or not _NAME.fullmatch(value)):
-            return {"code": "invalid_value", "key": key, "detail": "not a valid label value"}
+            return {"code": "invalid_value", "key": key, "kind": kind, "detail": "not a valid label value"}
         return None
 
     def _governed(self, key: str, value: str | None, kind: str, sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        # Each refusal of a value names its kind, as missing_required_key and derived_key do: a key can be a label and an
+        # annotation, each with its own rule, and a client puts the refusal on the field of that kind (#336).
         rule = self.rules[kind].get(key)
         if rule is None:
             other = "annotation" if kind == "label" else "label"
-            return [{"code": "invalid_key", "key": key, "detail": f"{key} is a {other}"}]
+            return [{"code": "invalid_key", "key": key, "kind": kind, "detail": f"{key} is a {other}"}]
         if rule.derived:
             expected = sources.get(rule.derived)
             # The same value is accepted, so a client that sends back what it read is not refused.
@@ -910,14 +920,14 @@ class MetadataKeys:
         if regex is not None and not value_matches(regex, value):
             if rule.format == "email-in-domains":
                 code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
-                return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
+                return [{"code": code, "key": key, "kind": kind, "detail": f"not an address in {self.email_domains}"}]
             detail = f"must match {rule.pattern}" if rule.pattern is not None else rule.text(self.email_domains)
-            return [{"code": "invalid_value", "key": key, "detail": detail}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": detail}]
         if rule.enum is not None and value not in rule.enum:
-            return [{"code": "invalid_value", "key": key, "detail": f"one of {list(rule.enum)}"}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"one of {list(rule.enum)}"}]
         namespace = sources.get("namespace")
         if rule.namespace_prefix and namespace and not namespace.startswith(f"{value}-"):
-            return [{"code": "invalid_value", "key": key, "detail": f"{namespace} does not start with {value}-"}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not start with {value}-"}]
         return []
 
     def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,
@@ -957,6 +967,12 @@ class MetadataKeys:
         return dict(sorted(items.items(), key=lambda kv: (rank.get(self.classify(kv[0]), 2), kv[0])))
 
     # ---- the API document (#328)
+    def keys_view(self) -> dict[str, Any]:
+        """GET /api/v1/metadata-keys (#336): the JSON Schema of NamespaceCreate's labels and annotations, the same objects
+        that the API document holds there (core/docs.py, _document_metadata), without the document's words around them.
+        For a client such as the portal, also when /openapi.json is off (docs.enabled: false)."""
+        return {"labels": self.json_schema("label", "create"), "annotations": self.json_schema("annotation", "create")}
+
     def json_schema(self, kind: str, op: str) -> dict[str, Any]:
         """The JSON Schema 2020-12 of the labels (kind=label) or annotations of NamespaceCreate (op=create) or of
         NamespacePatch (op=patch, the object branch of its anyOf with null), from this file, for the API document.
@@ -996,7 +1012,7 @@ class MetadataKeys:
         it reads a type list [string, null] against anyOf as a narrowing (measured, docs/reviews/2026-11-16-issue-328)."""
         if not patch:
             return schema
-        words = {k: schema.pop(k) for k in ("description", "examples") if k in schema}
+        words = {k: schema.pop(k) for k in ("title", "description", "examples") if k in schema}
         marks = {k: schema.pop(k) for k in list(schema) if k.startswith("x-cmapi-")}
         return {"anyOf": [schema, {"type": "null"}], **words, **marks}
 
@@ -1039,7 +1055,12 @@ class MetadataKeys:
         words.append(rule.text(self.email_domains))
         if rule.derived:
             words.append("a request may send the same value, never another")
+        if rule.title is not None:
+            out["title"] = rule.title                # Validation 9.1: the short label; the description explains
         out["description"] = " ".join(w[:1].upper() + w[1:].rstrip(".") + "." for w in words)
+        # The rule in the validator's own words (the detail of missing_required_key), so that a client such as the portal
+        # says what the API says (#336). An annotation: a JSON Schema validator ignores it (Core 2020-12, 6.5).
+        out["x-cmapi-rule"] = rule.text(self.email_domains)
         if rule.example is not None and not rule.derived:
             out["examples"] = [rule.example]
         if rule.derived:

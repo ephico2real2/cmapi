@@ -256,6 +256,38 @@ held the old value (#325). The form reads the namespace again on a 412, which th
 **Not proven on CRC.** Make permanent and its approver-platform approval, a refusal shown on the page, the grace
 and pending-delete states, the 820 px width, the dark theme and axe: these ran built-mocked only (above).
 
+## The New namespace form from the instance's metadata config (#336)
+
+Measured on 2026-11-17 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API, which now
+serves `GET /api/v1/metadata-keys` (the recorded answer of the reference file, or the company file's answer in
+`tests/api/metadata-keys.company.json`) with a strong ETag, `private, no-cache` and `304`, and refuses a create that leaves
+out a required key of the served rules in the shape of the recorded `policy-violation`. Stage: built-mocked. It does not
+prove the deployed product. The local runs were filtered with `CHECK=` to the New namespace checks; CI runs the whole suite.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| The form never refuses what cmapi accepts | `node tests/api/direct.test.mjs` (M1) on `tests/api/metadata-corpus.json` | reference: 1,315 cases, 96 accepted by `validate()`, 0 refused by the form, 3 let through (an empty optional key, which the form does not send); company: 1,654 cases, 170 accepted, 0 refused by the form, 2 let through (the same) |
+| Each keyword of the answer is read or listed as ignored | `node tests/contract.test.mjs` | passes on both answers; fails with `x-cmapi-format` taken out of the list (mutant) |
+| The company form | check "18 New namespace on a company instance" | the mnemonic, lob and cl inputs (cl a select of 0 to 6), `name` and `company.net/app-environment` read-only, no `cmapi.net/protected`; `ABC`, `amg sst` and `xyz-dev` refused in the validator's words with nothing sent; the dry-run body is the requester's three labels and the URL that `type=url` would refuse |
+| The reference form | check "18 New namespace on the reference instance" | "Team (required)" and "Team DL (required)" with the mockup's hints from the file; "Optional labels (3)" collapsed; the second opening sends `If-None-Match` with the tag (Chromium 156 revalidates; the stand-in answers 304) |
+| A refusal on its fields | check "18 New namespace: a refused dry run's errors" | the team error under its field with `aria-invalid`; the three errors in the callout, which takes the focus; its link focuses the field; a missing key the form does not show reads the rules again |
+| A pattern that backtracks | check "18 New namespace: a configured pattern that backtracks" | `^(?:[a-z0-9]+-?)*[a-z0-9]$` on 41 characters: the page answers in under 1 s and a field takes keys; no error shown; the dry run's refusal is under the field |
+| Rules that change while the form is open | check "18 New namespace: rules that change" | after a window focus: the warning, Team DL gone, a new required key empty and required, Team keeps its value, the body has no removed key |
+| States | check "18 New namespace states with the rules" | a 403 of the rules: the forbidden state; a 5xx: "The form did not load." and Try again; `labels: []`: the error state with "not in the form this portal reads", no form; a role limited to rnd gets the form |
+| Existing New namespace checks | checks 6 (parity), 9, R1, R2, R3 | pass; check 6 lists the API's words and the two sections, and splits the mockup's Team DL hint (MOCKUP-CONTRACT.md) |
+| Layout at 390, 820, 1440 px, both themes, and axe | check "7 the Workflow, New namespace and Approvals tabs" with a fourth view, the company form with an error shown | 4 tabs, 24 views, no sideways scroll; 16 axe scans, no serious or critical finding |
+| The placeholder's contrast, which axe does not measure | `docs/reviews/2026-11-17-issue-336/evidence/screens.mjs` | light `rgb(77, 77, 77)` on white, 8.45:1; dark `rgb(199, 199, 199)` on `rgb(56, 56, 56)`, 6.94:1 (`placeholder.log`) |
+| Mutants | `node tests/api/mutants.mjs "#336"` | 26 new mutants (a field dropped, a pattern, the label syntax, the prefix, an enum, UTF-16 lengths, patterns on the page's thread, no time limit, the errors dropped or not on their fields, no re-read, the summary's focus and link, a derived key sent or editable, an empty optional key sent, an operator-only key offered, `type=url`, the example as the value, the titles, the warning, no re-read on focus, the 403 state, another shape read, a keyword not listed): 26 killed, 0 survived (`mutants-336.log`) |
+| New tests fail on main | each new check with `CHECK=`, and the direct and contract tests, on a build of main c7ab6c4 with this branch's tests, stand-in and samples | the 6 new checks and checks 6 and 9 fail; direct M1 to M6 and the contract test fail (no `metadataForm.ts`) (`before-portal.log`) |
+
+Screenshots of the whole form for both files, at 390, 820 and 1440 px in each theme:
+`docs/reviews/2026-11-17-issue-336/screenshots/`.
+
+**Not proven here:** the form against the real service and Keycloak (the route itself is proven by the service tests, on
+the reference and company files, with `policy.engine: none`), the installed Chrome, and the company file on CRC (CRC runs
+the reference file and is shared). Whether a browser other than Chromium 156 revalidates the answer is not measured; the
+form does not depend on it.
+
 ## What testing found
 
 | Found by | Problem | Fix |

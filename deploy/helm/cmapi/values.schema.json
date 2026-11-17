@@ -77,7 +77,7 @@
           "items": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$"
+            "pattern": "^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$"
           }
         }
       },
@@ -139,6 +139,7 @@
         "enum": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "format": {"enum": ["email-in-domains", "url"]},
         "namespacePrefix": {"type": "boolean"},
+        "title": {"description": "A short label for a form, such as the portal's New namespace form; the key when absent (#336)", "type": "string", "minLength": 1, "pattern": "\\S"},
         "description": {"type": "string"},
         "example": {"type": "string"}
       },

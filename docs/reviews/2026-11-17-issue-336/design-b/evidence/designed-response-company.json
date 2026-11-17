@@ -1,0 +1,198 @@
+{
+  "labels": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "readOnly": true,
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "A copy of the namespace name. Set by cmapi from the namespace. A request may send the same value, never another.",
+        "x-cmapi-rule": "set by cmapi from the namespace",
+        "x-cmapi-derived-from": "namespace"
+      },
+      "company.net/app-environment": {
+        "type": "string",
+        "readOnly": true,
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "The environment of the namespace's cluster. Set by cmapi from the environment. A request may send the same value, never another.",
+        "x-cmapi-rule": "set by cmapi from the environment",
+        "x-cmapi-derived-from": "environment"
+      },
+      "company.net/mnemonic": {
+        "type": "string",
+        "pattern": "^(?:^[a-z]{3,4}$)$",
+        "allOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$"
+          }
+        ],
+        "maxLength": 63,
+        "minLength": 1,
+        "description": "The team's mnemonic: the start of the namespace name. Must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'.",
+        "x-cmapi-rule": "must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'",
+        "examples": [
+          "abc"
+        ],
+        "x-cmapi-namespace-prefix": true
+      },
+      "company.net/lob": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "minLength": 1,
+        "description": "Line of business, as free text. Any value.",
+        "x-cmapi-rule": "any value",
+        "examples": [
+          "amgsst"
+        ]
+      },
+      "company.net/cl": {
+        "type": "string",
+        "maxLength": 63,
+        "enum": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6"
+        ],
+        "minLength": 1,
+        "description": "Critical level. One of ['0', '1', '2', '3', '4', '5', '6'].",
+        "x-cmapi-rule": "one of ['0', '1', '2', '3', '4', '5', '6']",
+        "examples": [
+          "1"
+        ]
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "cmapi-operator and above only: a requester gets 403 forbidden.",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "required": [
+      "company.net/mnemonic",
+      "company.net/lob",
+      "company.net/cl"
+    ],
+    "propertyNames": {
+      "maxLength": 317,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$",
+      "not": {
+        "pattern": "^[^/]{254}"
+      },
+      "anyOf": [
+        {
+          "enum": [
+            "name",
+            "company.net/app-environment",
+            "company.net/mnemonic",
+            "company.net/lob",
+            "company.net/cl",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:[^/]+|[^/]*\\.company\\.net/[^/]+)$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+      "maxLength": 63
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50
+    }
+  },
+  "annotations": {
+    "type": "object",
+    "properties": {
+      "company.net/app-environment": {
+        "type": "string",
+        "readOnly": true,
+        "description": "Set by cmapi from the environment. A request may send the same value, never another.",
+        "x-cmapi-rule": "set by cmapi from the environment",
+        "x-cmapi-derived-from": "environment"
+      },
+      "company.net/mnemonic-group-contact": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC][oO][mM][pP][aA][nN][yY]\\.[nN][eE][tT])$",
+        "description": "The mnemonic's group contact. An address in ['company.net'].",
+        "x-cmapi-rule": "an address in ['company.net']",
+        "examples": [
+          "abc-team@company.net"
+        ],
+        "x-cmapi-format": "email-in-domains"
+      },
+      "company.net/mnemonic-confluence": {
+        "type": "string",
+        "pattern": "^[hH][tT][tT][pP][sS]?://(?:[^/?#\\[\\]\\t-\\r\u001c-    -     　⁇⁈⁉℀℁℅℆⩴︓︖﹕﹖﹟﹫＃／：？＠]+|(?:[^/?#\\[\\]\\t-\\r\u001c-    -     　⁇⁈⁉℀℁℅℆⩴︓︖﹕﹖﹟﹫＃／：？＠]*@)?\\[(?:(?:[0-9A-Fa-f]{1,4}:){6}(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|::(?:[0-9A-Fa-f]{1,4}:){5}(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){4}(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:(?:[0-9A-Fa-f]{1,4}:){0,1}[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){3}(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:(?:[0-9A-Fa-f]{1,4}:){0,2}[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){2}(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:(?:[0-9A-Fa-f]{1,4}:){0,3}[0-9A-Fa-f]{1,4})?::[0-9A-Fa-f]{1,4}:(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:(?:[0-9A-Fa-f]{1,4}:){0,4}[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3})|(?:(?:[0-9A-Fa-f]{1,4}:){0,5}[0-9A-Fa-f]{1,4})?::[0-9A-Fa-f]{1,4}|(?:(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4})?::)\\](?::[^/?#@\\[\\]\\t-\\r\u001c-    -     　⁇⁈⁉℀℁℅℆⩴︓︖﹕﹖﹟﹫＃／：？＠]*)?)(?:[/?#][^\\t-\\r\u001c-    -     　]*)?$",
+        "description": "The mnemonic's Confluence space. An http or https URL.",
+        "x-cmapi-rule": "an http or https URL",
+        "examples": [
+          "https://wiki.company.net/abc"
+        ],
+        "x-cmapi-format": "url"
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "description": "cmapi-operator and above only: a requester gets 403 forbidden.",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "maxLength": 317,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$",
+      "not": {
+        "pattern": "^[^/]{254}"
+      },
+      "anyOf": [
+        {
+          "enum": [
+            "company.net/app-environment",
+            "company.net/mnemonic-group-contact",
+            "company.net/mnemonic-confluence",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:[^/]+|[^/]*\\.company\\.net/[^/]+)$",
+          "not": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.company.net/"
+      ],
+      "max": 50,
+      "maxValueBytes": 4096,
+      "maxBytesTotal": 65536
+    }
+  }
+}

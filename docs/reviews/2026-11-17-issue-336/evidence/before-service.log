@@ -1,0 +1,36 @@
+E         - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E       assert (1 != 0 and "values don't meet the specifications of the schema" in "Error: values don't meet the specifications of the schema(s) in the following chart(s):\ncmapi:\n- at '/metadata/requ...m': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n" and "at '/metadata/requiredLabels/cmapi.net~1team/title': got number, want string" in "Error: values don't meet the specifications of the schema(s) in the following chart(s):\ncmapi:\n- at '/metadata/requ...m': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n")
+E        +  where 1 = CompletedProcess(args=['helm', 'template', 'cmapi', '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/depl...': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n").returncode
+E         [ERROR] values.yaml: - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E         - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E         Error: 1 chart(s) linted, 1 chart(s) failed
+E       assert (1 != 0 and "values don't meet the specifications of the schema" in "==> Linting /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi\n[INFO] Chart.yaml: icon i...dLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n\nError: 1 chart(s) linted, 1 chart(s) failed\n" and "at '/metadata/requiredLabels/cmapi.net~1team/title': got number, want string" in "==> Linting /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi\n[INFO] Chart.yaml: icon i...dLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n\nError: 1 chart(s) linted, 1 chart(s) failed\n")
+E        +  where 1 = CompletedProcess(args=['helm', 'lint', '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi...i.net~1team': additional properties 'title' not allowed\n\n\n", stderr='Error: 1 chart(s) linted, 1 chart(s) failed\n').returncode
+E         - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E       assert (1 != 0 and "values don't meet the specifications of the schema" in "Error: values don't meet the specifications of the schema(s) in the following chart(s):\ncmapi:\n- at '/metadata/requ...m': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n" and "at '/metadata/requiredLabels/cmapi.net~1team/title': minLength" in "Error: values don't meet the specifications of the schema(s) in the following chart(s):\ncmapi:\n- at '/metadata/requ...m': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n")
+E        +  where 1 = CompletedProcess(args=['helm', 'template', 'cmapi', '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/depl...': 'allOf' failed\n    - at '/metadata/requiredLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n").returncode
+E         [ERROR] values.yaml: - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E         - at '/metadata/requiredLabels': 'allOf' failed
+E           - at '/metadata/requiredLabels/cmapi.net~1team': 'allOf' failed
+E         Error: 1 chart(s) linted, 1 chart(s) failed
+E       assert (1 != 0 and "values don't meet the specifications of the schema" in "==> Linting /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi\n[INFO] Chart.yaml: icon i...dLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n\nError: 1 chart(s) linted, 1 chart(s) failed\n" and "at '/metadata/requiredLabels/cmapi.net~1team/title': minLength" in "==> Linting /Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi\n[INFO] Chart.yaml: icon i...dLabels/cmapi.net~1team': additional properties 'title' not allowed\n\n\nError: 1 chart(s) linted, 1 chart(s) failed\n")
+E        +  where 1 = CompletedProcess(args=['helm', 'lint', '/Users/olasumbo/gitRepos/workbench/cmapi/ob-336/main-c7ab6c4/deploy/helm/cmapi...i.net~1team': additional properties 'title' not allowed\n\n\n", stderr='Error: 1 chart(s) linted, 1 chart(s) failed\n').returncode
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_route_answers_the_instances_rules[reference]
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_route_answers_the_instances_rules[company]
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_route_is_the_api_documents_namespace_create_labels_and_annotations[reference]
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_route_is_the_api_documents_namespace_create_labels_and_annotations[company]
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_documents_example_of_the_route_is_this_instances_answer[reference]
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_documents_example_of_the_route_is_this_instances_answer[company]
+FAILED tests/service/test_metadata_keys_336_api.py::test_docs_disabled_keeps_the_route
+FAILED tests/service/test_metadata_keys_336_api.py::test_a_strong_etag_and_304
+FAILED tests/service/test_metadata_keys_336_api.py::test_the_permission_is_objects_read
+FAILED tests/service/test_helm_metadata_values.py::test_the_schema_refuses_a_malformed_block_before_anything_renders[a title that is not text-template]
+FAILED tests/service/test_helm_metadata_values.py::test_the_schema_refuses_a_malformed_block_before_anything_renders[a title that is not text-lint]
+FAILED tests/service/test_helm_metadata_values.py::test_the_schema_refuses_a_malformed_block_before_anything_renders[an empty title-template]
+FAILED tests/service/test_helm_metadata_values.py::test_the_schema_refuses_a_malformed_block_before_anything_renders[an empty title-lint]
+13 failed, 63 passed, 3 deselected in 18.68s
