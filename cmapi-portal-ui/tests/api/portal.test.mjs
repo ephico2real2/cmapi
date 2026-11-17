@@ -2033,7 +2033,9 @@ try {
   // The KPIs of a pod: the recorded answer with the cgroup figures that a container has (the sample was recorded on macOS).
   const recordedKpi = SAMPLES.operations.admin_kpi.response.body;
   const podKpi = { ...recordedKpi, components: [{ ...recordedKpi.components[0], memoryBytes: 612 * 2 ** 20, memoryLimitBytes: 2 ** 30, cpuUsageSeconds: 412.6, cpuLimitCores: 2,
-    cpuPeriods: 1000, cpuThrottledPeriods: 16, cpuThrottledSeconds: 0.8, measuredAt: Date.parse("2026-11-15T17:30:12Z") / 1000 }], database: { ...recordedKpi.database, connections: 90 } };
+    cpuPeriods: 1000, cpuThrottledPeriods: 16, cpuThrottledSeconds: 0.8, measuredAt: Date.parse("2026-11-15T17:30:12Z") / 1000 }],
+    // The sizes are pinned like the rest: a recorded run's database size and WAL differ from run to run (test_api_samples.py).
+    database: { ...recordedKpi.database, connections: 90, sizeBytes: 10117647, walBytes: 80 * 2 ** 20 } };
   const kpiCards = (page) => panel(page).locator(".pf-v6-l-gallery > .pf-v6-c-card").filter({ has: page.locator("h3") }).evaluateAll((cards) => cards.map((c) => c.innerText.replace(/\s+/g, " ").trim()));
   // The mockup's forms of a KPI value: "6 min", "9.5 h", "84%", and "unavailable" for one that is not measured.
   const kpiText = (k) => (k.value === null ? "unavailable" : k.unit === "ratio" ? `${one(k.value * 100)}%` : k.value < 60 ? `${one(k.value)} s` : k.value < 3600 ? `${one(k.value / 60)} min` : `${one(k.value / 3600)} h`);
