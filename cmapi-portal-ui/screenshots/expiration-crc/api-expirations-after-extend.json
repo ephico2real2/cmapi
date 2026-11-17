@@ -1,0 +1,111 @@
+{
+    "items": [
+        {
+            "name": "cmapi-live-a",
+            "clusterId": "CRC",
+            "env": "dev",
+            "team": "platform",
+            "app": null,
+            "created": "2026-11-15",
+            "expiresAt": "2027-01-16",
+            "daysLeft": 60,
+            "state": "active",
+            "graceEnds": "2027-01-23",
+            "lifetimeDays": 62,
+            "noticesSent": 0,
+            "openRequest": null
+        },
+        {
+            "name": "cmapi-live-b",
+            "clusterId": "CRC",
+            "env": "dev",
+            "team": "platform",
+            "app": null,
+            "created": "2026-11-15",
+            "expiresAt": null,
+            "daysLeft": null,
+            "state": "permanent",
+            "graceEnds": null,
+            "lifetimeDays": null,
+            "noticesSent": 0,
+            "openRequest": null
+        },
+        {
+            "name": "cmapi-live-c",
+            "clusterId": "CRC",
+            "env": "dev",
+            "team": "platform",
+            "app": null,
+            "created": "2026-11-16",
+            "expiresAt": null,
+            "daysLeft": null,
+            "state": "permanent",
+            "graceEnds": null,
+            "lifetimeDays": null,
+            "noticesSent": 0,
+            "openRequest": null
+        },
+        {
+            "name": "cmapi-live-d",
+            "clusterId": "CRC",
+            "env": "dev",
+            "team": "platform",
+            "app": null,
+            "created": "2026-11-16",
+            "expiresAt": null,
+            "daysLeft": null,
+            "state": "permanent",
+            "graceEnds": null,
+            "lifetimeDays": null,
+            "noticesSent": 0,
+            "openRequest": null
+        },
+        {
+            "name": "cmapi-live-e",
+            "clusterId": "CRC",
+            "env": "dev",
+            "team": "platform",
+            "app": null,
+            "created": "2026-11-16",
+            "expiresAt": null,
+            "daysLeft": null,
+            "state": "permanent",
+            "graceEnds": null,
+            "lifetimeDays": null,
+            "noticesSent": 0,
+            "openRequest": null
+        }
+    ],
+    "page": {
+        "limit": 50,
+        "total": 5,
+        "from": 1,
+        "to": 5,
+        "nextCursor": null,
+        "prevCursor": null
+    },
+    "letters": {
+        "C": 5
+    },
+    "facets": {
+        "attention": 0,
+        "expiring": 0,
+        "grace": 0,
+        "pending_delete": 0,
+        "active": 1,
+        "permanent": 4
+    },
+    "rules": {
+        "dev": {
+            "maxExtensionDays": 30,
+            "maxLifetimeDays": 180,
+            "notifyDaysBefore": [
+                14,
+                7,
+                1
+            ],
+            "graceDays": 7
+        }
+    },
+    "today": "2026-11-17"
+}
