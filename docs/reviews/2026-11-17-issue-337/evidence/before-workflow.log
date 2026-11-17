@@ -1,0 +1,209 @@
+FFF.FFFF                                                                 [100%]
+=================================== FAILURES ===================================
+__________________ test_the_reusable_workflow_is_only_called ___________________
+
+    def test_the_reusable_workflow_is_only_called():
+>       doc = load(REUSABLE)
+
+tests/test_contract_report_workflow_337.py:36: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+____________ test_the_report_is_not_a_check_that_anything_waits_for ____________
+
+    def test_the_report_is_not_a_check_that_anything_waits_for():
+>       names = [job["name"] for job in load(REUSABLE)["jobs"].values()]
+
+tests/test_contract_report_workflow_337.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_ test_the_caller_runs_on_a_pull_request_that_changes_what_the_configmap_reads _
+
+    def test_the_caller_runs_on_a_pull_request_that_changes_what_the_configmap_reads():
+>       doc = load(CALLER)
+
+tests/test_contract_report_workflow_337.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/values-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/values-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+______ test_actions_are_pinned_by_commit_and_checkouts_keep_no_credential ______
+
+    def test_actions_are_pinned_by_commit_and_checkouts_keep_no_credential():
+        for path in (REUSABLE, CALLER):
+>           for s in steps(load(path)):
+
+tests/test_contract_report_workflow_337.py:71: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+__________ test_oasdiff_is_the_api_contract_jobs_pin_and_never_gates ___________
+
+    def test_oasdiff_is_the_api_contract_jobs_pin_and_never_gates():
+        ci = (WORKFLOWS / "ci.yml").read_text()
+>       text = REUSABLE.read_text()
+
+tests/test_contract_report_workflow_337.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_______________ test_no_expression_is_expanded_in_a_shell_script _______________
+
+    def test_no_expression_is_expanded_in_a_shell_script():
+        """Inputs reach a script through env, so no value can become shell syntax (GitHub, security hardening for Actions)."""
+        for path in (REUSABLE, CALLER):
+>           for s in steps(load(path)):
+
+tests/test_contract_report_workflow_337.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_______________________ test_cmapi_ref_must_be_a_commit ________________________
+
+    def test_cmapi_ref_must_be_a_commit():
+>       doc = load(REUSABLE)
+
+tests/test_contract_report_workflow_337.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_contract_report_workflow_337.py:26: in load
+    doc = yaml.safe_load(path.read_text())
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<main 7ba5d78>/.github/workflows/api-contract-report.yml')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '<main 7ba5d78>/.github/workflows/api-contract-report.yml'
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1013: FileNotFoundError
+=========================== short test summary info ============================
+FAILED tests/test_contract_report_workflow_337.py::test_the_reusable_workflow_is_only_called
+FAILED tests/test_contract_report_workflow_337.py::test_the_report_is_not_a_check_that_anything_waits_for
+FAILED tests/test_contract_report_workflow_337.py::test_the_caller_runs_on_a_pull_request_that_changes_what_the_configmap_reads
+FAILED tests/test_contract_report_workflow_337.py::test_actions_are_pinned_by_commit_and_checkouts_keep_no_credential
+FAILED tests/test_contract_report_workflow_337.py::test_oasdiff_is_the_api_contract_jobs_pin_and_never_gates
+FAILED tests/test_contract_report_workflow_337.py::test_no_expression_is_expanded_in_a_shell_script
+FAILED tests/test_contract_report_workflow_337.py::test_cmapi_ref_must_be_a_commit
+7 failed, 1 passed in 0.95s

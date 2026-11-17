@@ -1,0 +1,135 @@
+# The API contract report of a Helm values change (#337), as a reusable workflow. A running cmapi reads metadata-keys.yaml
+# from the ConfigMap that its Helm values render (#335), so the report runs in the CI of the repository that holds those
+# values: this repository calls it from values-contract-report.yml, and a site's values repository calls it the same way,
+# with cmapi-ref set to the commit of the cmapi it runs:
+#
+#   on:
+#     pull_request:
+#       paths: [environments/**]
+#   permissions:
+#     contents: read
+#   jobs:
+#     api-contract:
+#       uses: ephico2real2/cmapi/.github/workflows/api-contract-report.yml@<40-hex commit>
+#       with:
+#         values-files: environments/*.yaml
+#         cmapi-ref: <the same commit>
+#         helm-args: --set cmapi.digest=sha256:<64 a> ...   # what helm template needs that only a deploy passes
+#
+# Report only (cmapi/contract/report.py): a change, breaking or not, passes; the job fails only when it cannot say what
+# changed. Never make it a required check: a workflow skipped by its paths filter leaves a required check pending, which
+# blocks the pull request (GitHub, workflow syntax, on.<pull_request>.paths). Under pull_request a fork's token is
+# read-only and gets no secret, and this needs neither; pull_request_target is never used (GitHub, secure use reference).
+# Actions are pinned by the commit of their release tag; oasdiff by version and SHA-256, the api-contract job's pin.
+name: api-contract-report
+
+on:
+  workflow_call:
+    inputs:
+      values-files:
+        description: Globs of Helm values files, one for each line, relative to the repository root
+        type: string
+        required: true
+      helm-args:
+        description: More arguments of helm template, such as placeholders for what only a deploy passes
+        type: string
+        required: false
+        default: ''
+      cmapi-ref:
+        description: The 40-hex commit of cmapi whose chart and cmapi-tools render; empty only in the cmapi repository itself
+        type: string
+        required: false
+        default: ''
+      cmapi-repository:
+        description: Where cmapi-ref is
+        type: string
+        required: false
+        default: ephico2real2/cmapi
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: report/api-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Only on a pull request
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "::error::the API contract report compares a pull request with its base branch; it ran on $GITHUB_EVENT_NAME"
+          exit 1
+      # GITHUB_SHA is the merge commit refs/pull/N/merge, and its first parent the base branch it merged onto (GitHub,
+      # events that trigger workflows), so the two trees are exactly what merging changes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          fetch-depth: 2
+          persist-credentials: false
+      - name: The base tree
+        run: git -C head worktree add --detach "$GITHUB_WORKSPACE/base" HEAD^1
+      - name: cmapi-ref is a commit
+        if: inputs.cmapi-ref != ''
+        env:
+          REF: ${{ inputs.cmapi-ref }}
+        run: |
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::cmapi-ref must be a 40-hex commit, so the report renders as one known cmapi does: $REF is not"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.cmapi-ref != ''
+        with:
+          repository: ${{ inputs.cmapi-repository }}
+          ref: ${{ inputs.cmapi-ref }}
+          path: cmapi-src
+          persist-credentials: false
+      # In the cmapi repository each side renders with its own chart and the change's cmapi-tools. Elsewhere both sides
+      # render with the chart and cmapi-tools of cmapi-ref, so only the values differ.
+      - name: Where cmapi comes from
+        env:
+          REF: ${{ inputs.cmapi-ref }}
+        run: |
+          if [ -n "$REF" ]; then
+            src=cmapi-src base_chart=cmapi-src/deploy/helm/cmapi head_chart=cmapi-src/deploy/helm/cmapi
+          elif [ -f head/cmapi/pyproject.toml ] && [ -d head/deploy/helm/cmapi ]; then
+            src=head base_chart=base/deploy/helm/cmapi head_chart=head/deploy/helm/cmapi
+          else
+            echo "::error::this repository holds no cmapi: set the input cmapi-ref to the commit of the cmapi your instances run"
+            exit 1
+          fi
+          { echo "CMAPI_SRC=$GITHUB_WORKSPACE/$src"; echo "CHART_BASE=$GITHUB_WORKSPACE/$base_chart"
+            echo "CHART_HEAD=$GITHUB_WORKSPACE/$head_chart"; } >> "$GITHUB_ENV"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      # Not editable: the report then also proves that the package carries its reference instance.
+      - name: cmapi-tools
+        run: |
+          python -m pip install "$CMAPI_SRC/cmapi"
+          cmapi-tools openapi render --help >/dev/null
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.19.0
+      - name: oasdiff v1.37.0
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/oasdiff.tar.gz" https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
+          echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  $RUNNER_TEMP/oasdiff.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff && sudo mv "$RUNNER_TEMP/oasdiff" /usr/local/bin/
+          oasdiff --version
+      - name: The report
+        env:
+          VALUES: ${{ inputs.values-files }}
+          HELM_ARGS: ${{ inputs.helm-args }}
+        run: |
+          args=()
+          while IFS= read -r glob; do
+            glob="${glob#"${glob%%[![:space:]]*}"}"; glob="${glob%"${glob##*[![:space:]]}"}"
+            if [ -n "$glob" ]; then args+=(--values "$glob"); fi
+          done <<< "$VALUES"
+          # --helm-args=VALUE, one word: argparse reads a separate value that starts with "-" and has no space, such as
+          # --skip-tests, as an option and stops on a usage error.
+          python "$CMAPI_SRC/cmapi/contract/report.py" --base base --head head "${args[@]}" \
+            --chart-base "$CHART_BASE" --chart-head "$CHART_HEAD" --helm-args="$HELM_ARGS" \
+            --cmapi "$(git -C "$CMAPI_SRC" rev-parse HEAD)"

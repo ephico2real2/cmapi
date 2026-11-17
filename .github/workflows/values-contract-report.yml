@@ -1,0 +1,32 @@
+# The API contract report of a change to this repository's Helm values or to the chart's metadata-keys.yaml (#337): what
+# the change does to the API document that the instance serves. The paths are the inputs of the ConfigMap's
+# metadata-keys.yaml: the site files, the chart's file and defaults, and the template that writes it. Report only, and
+# never a required check (api-contract-report.yml says why).
+name: values-contract-report
+
+on:
+  pull_request:
+    paths:
+      - deploy/environments/**
+      - deploy/helm/cmapi/config/metadata-keys.yaml
+      - deploy/helm/cmapi/values.yaml
+      - deploy/helm/cmapi/templates/config.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: values-contract-report-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    uses: ./.github/workflows/api-contract-report.yml
+    with:
+      values-files: deploy/environments/*.yaml
+      # Render-only placeholders for what a deploy passes (deploy/release-crc.sh: the image lock and the CA bundle). The
+      # ConfigMap reads none of them.
+      helm-args: >-
+        --set cmapi.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        --set cmapi_portal.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        --set trustedCA.certificates=render-only
