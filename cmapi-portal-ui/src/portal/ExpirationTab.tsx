@@ -6,7 +6,7 @@ import { LockIcon } from "@patternfly/react-icons";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useExpirations, useExpiryPlan, useMe, useNamespace, useSubmitExpiry } from "../api/hooks";
-import type { ChangeRequest, ExpirationPage, ExpirationRow, ExpirationsQuery, ExpiryChange, Outcome, Plan, PlannedExpiry } from "../api/hooks";
+import type { ChangeRequest, ExpirationPage, ExpirationRow, ExpirationsQuery, ExpiryChange, Me, Outcome, Plan, PlannedExpiry } from "../api/hooks";
 import { PERMISSION } from "../api/permissions.generated";
 import { Callout, Checks, Choices, Code, DataTable, Empty, Filter, Head, KV, Pager, Panel, Pill, Small } from "../components/ui";
 import type { Check, Choice } from "../components/ui";
@@ -32,6 +32,13 @@ const outdated = (o: Outcome<unknown>): boolean => o.state === "refused" && PREC
 const EXTEND = PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend"];
 
 const keyOf = (r: Pick<ExpirationRow, "clusterId" | "name">): string => `${r.clusterId}/${r.name}`;
+/**
+ * Whether a held role grants the permission in the row's environment (GET /api/v1/me, access.roles). A role can be limited to
+ * some environments (docs/14, "environments"), and the API answers 403 environment-forbidden outside them, so a permission
+ * held somewhere (access.permissions) is not enough to show the form.
+ */
+const grantsIn = (access: Me["access"], permission: string, env: string | null | undefined): boolean =>
+  access.roles.some((r) => r.permissions.includes(permission) && (r.environments === "all" || (!!env && r.environments.includes(env))));
 const STATE_IDS: readonly string[] = STATES.map(([id]) => id);
 /** A day as ISO text, `days` after the ISO day `from`, in UTC. */
 const plusDays = (from: string, days: number): string => new Date(Date.parse(from) + days * 864e5).toISOString().slice(0, 10);
@@ -182,7 +189,7 @@ export function ExpirationTab({ config, params, setParams, open }: TabProps) {
           row={shown}
           rules={rulesOf(shown)}
           today={page.today}
-          canChange={me.state === "ok" && me.data.access.permissions.includes(EXTEND)}
+          canChange={me.state === "ok" && grantsIn(me.data.access, EXTEND, shown.env)}
           onOpen={(id) => open("workflow", { request: id })}
         />
       )}

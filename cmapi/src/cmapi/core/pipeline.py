@@ -223,13 +223,20 @@ class Pipeline:
             p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None
             if p:
                 exp_facts = p.facts()
-        elif body.get("extendDays") or body.get("expiresAt") or body.get("makePermanent"):
-            info = ExpiryInfo(ns, env, created=date.today(), expires_at=date.fromisoformat(old_exp) if old_exp else None)
+        elif body.get("extendDays") or body.get("extendUntil") or body.get("expiresAt") or body.get("makePermanent"):
+            # maxLifetimeDays counts from the day the namespace was created on its cluster (docs/01, Namespace expiration).
+            # A namespace that is not on the cluster yet counts from today, as a create does. A cluster that cannot be read
+            # is a 503 from the cache, never a lifetime of zero days: that would skip approver-platform.
+            created = created_day(cache.namespace(ns)) or date.today()
+            info = ExpiryInfo(ns, env, created=created, expires_at=date.fromisoformat(old_exp) if old_exp else None)
             if body.get("makePermanent"):
                 p = self.cfg.expiration.plan_make_permanent(info)
                 expires = None
-            elif body.get("extendDays"):
-                p = self.cfg.expiration.plan_extend(info, date.today(), days=int(body["extendDays"]))
+            elif body.get("extendDays") or body.get("extendUntil"):
+                # :extend moves the date that exists, by days or to a date; :set (expiresAt) gives a permanent one its first.
+                p = self.cfg.expiration.plan_extend(info, date.today(),
+                                                    days=int(body["extendDays"]) if body.get("extendDays") else None,
+                                                    until=_date(body["extendUntil"]) if body.get("extendUntil") else None)
                 expires = p.new_date
             else:
                 p = self.cfg.expiration.plan_set(info, expires, date.today())
@@ -389,6 +396,15 @@ class Pipeline:
 
 def _date(v: Any) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
+
+
+def created_day(obj: Mapping[str, Any] | None) -> date | None:
+    """The UTC day a namespace was created on its cluster (metadata.creationTimestamp), or None when it is not known."""
+    stamp = ((obj or {}).get("metadata") or {}).get("creationTimestamp")
+    try:
+        return date.fromisoformat(str(stamp)[:10]) if stamp else None
+    except ValueError:
+        return None
 
 
 def _tier_quota(prev: Mapping[str, str], ns: str) -> dict[str, Any] | None:

@@ -145,8 +145,10 @@ def expirations(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None,
         raise Problem.unprocessable("validation-failed", f"state is one of {sorted(STATES)}, not {state}")
     day = today()
     rows, envs = expiration_rows(c, who, day)
+    # The day is bound into the cursor: daysLeft and state, so the urgency order, move at midnight, and a cursor of another
+    # day would skip or repeat rows. It is refused with 400 invalid-cursor, and the portal goes back to the first page.
     query = ListQuery(q=q, filters={"env": env or "", "clusterId": cluster_id or "", "team": team or ""}, sort=sort, limit=limit,
-                      cursor=cursor, context={"state": state or ""})
+                      cursor=cursor, context={"state": state or "", "today": day.isoformat()})
     lister = Lister(c.lister.secret, SORTS)
     page = lister.page([r for r in rows if STATES[state](r)] if state else rows, query)
     # The counts are over the other filters, not over the chosen state: each chip keeps its number.

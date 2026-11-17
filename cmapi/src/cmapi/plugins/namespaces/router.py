@@ -213,8 +213,8 @@ def _expiry_write(c: AppContext, who: Identity, cluster_id: str, raw: dict[str, 
                   dry_run: bool, reason: str, justification: str | None, fingerprinted: dict[str, Any] | None = None):
     """The one path of :extend, :set and :makePermanent: a namespace update planned from the date in Git, under If-Match.
 
-    `fingerprinted` is the body that the Idempotency-Key is bound to, when it must differ from what the plan reads: :set and
-    :extend with `until` both plan `expiresAt`, and the same key sent to the other route is another request, not a replay."""
+    `fingerprinted` is the body that the Idempotency-Key is bound to, when it must differ from what the plan reads: the route
+    is part of :set's fingerprint, so the same key sent to another route is another request, not a replay."""
     body = fingerprinted or raw
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, body)
@@ -237,7 +237,11 @@ def extend(cluster_id: ClusterId, ns: NamespaceName, body: ExtendBody, dry_run: 
     if body.days:
         raw["extendDays"] = body.days
     elif body.until:
-        raw["expiresAt"] = body.until
+        # extendUntil, not expiresAt: the pipeline plans expiresAt as :set, which refuses a namespace that has a date.
+        try:
+            raw["extendUntil"] = date.fromisoformat(body.until).isoformat()
+        except ValueError:
+            raise Problem.unprocessable("validation-failed", "until is a date, YYYY-MM-DD") from None
     else:
         raise Problem.unprocessable("validation-failed", "Send days or until")
     return _expiry_write(c, who, cluster_id, raw, key=key, etag=etag, dry_run=dry_run, reason="expiration:extend",

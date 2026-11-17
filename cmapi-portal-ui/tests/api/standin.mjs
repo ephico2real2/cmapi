@@ -29,14 +29,19 @@ const ROLE_PERMISSIONS = {
   "cmapi-approver": [...READ, "requests:approve", "requests:reject"],
   "cmapi-requester": SAMPLES.operations.core_me.response.body.access.permissions,
   "cmapi-operator": [...READ, "namespaces:create", "requests:cancel", "namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write", "requests:retry",
-    "adoption:write", "reports:read", "operations:run"]
+    "adoption:write", "reports:read", "operations:run"],
+  // A requester limited to rnd (docs/14, "environments"): the API answers 403 environment-forbidden for its writes elsewhere.
+  "cmapi-requester-rnd": SAMPLES.operations.core_me.response.body.access.permissions
 };
+/** The environments of a role that is limited to some; every other role covers all. */
+const ROLE_ENVIRONMENTS = { "cmapi-requester-rnd": ["rnd"] };
 // The groups follow docs/14 ("The groups"): the default path template /cmapi/app-cmapi-rbac-<name>.
 export const USERS = {
   viewer: { sub: "sub-viewer", username: "cmapi.viewer", role: "cmapi-viewer", groups: ["/cmapi/app-cmapi-rbac-viewer"] },
   approver: { sub: "sub-approver", username: "cmapi.approver", role: "cmapi-approver", groups: ["/cmapi/app-cmapi-rbac-approver-platform"], email: "cmapi.approver@ephico2real.com" },
   requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" },
-  operator: { sub: "sub-operator", username: "cmapi.operator", role: "cmapi-operator", groups: ["/cmapi/app-cmapi-rbac-operator"], email: "cmapi.operator@ephico2real.com" }
+  operator: { sub: "sub-operator", username: "cmapi.operator", role: "cmapi-operator", groups: ["/cmapi/app-cmapi-rbac-operator"], email: "cmapi.operator@ephico2real.com" },
+  rndRequester: { sub: "sub-rnd", username: "rnd.requester", role: "cmapi-requester-rnd", groups: ["/cmapi/app-cmapi-rbac-requester-rnd"], email: "rnd.requester@ephico2real.com" }
 };
 
 /** One realm, `cmapi`, with one public client that must use PKCE with S256. */
@@ -436,7 +441,7 @@ export async function startApi({ issuer, portalOrigin }) {
     if (url.pathname === "/api/v1/me") {
       const me = SAMPLES.operations.core_me.response.body;
       return ok({ ...me, username: user.username, roles: [user.role], groups: user.groups, identity: { ...me.identity, username: user.username, sub: user.sub, email: user.email ?? null },
-        access: { permissions, roles: [{ role: user.role, permissions, environments: "all" }] } });
+        access: { permissions, roles: [{ role: user.role, permissions, environments: ROLE_ENVIRONMENTS[user.role] ?? "all" }] } });
     }
     if (url.pathname === "/api/v1/requests") {
       if (state.mode === "forbidden") return problem(res, { ...SAMPLES.problems.forbidden.response.body, detail: "Missing permission requests:read: no role in your token grants it (roles: ['cmapi-none'])" }, cors);

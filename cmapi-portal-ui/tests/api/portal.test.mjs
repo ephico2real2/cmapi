@@ -1915,6 +1915,24 @@ try {
     }
   });
 
+  await check("17 Expiration: a role limited to rnd has the change form on an rnd namespace and not on a dev one", async () => {
+    // docs/14, "environments": the API answers 403 environment-forbidden outside the role's environments, so the form is not shown there.
+    const rndRow = [...expFleet].filter((r) => r.state === "active" && r.env === "rnd").sort(urgent)[0];
+    const { context, page, errors } = await expFresh({ user: "rndRequester" });
+    await manageExp(page, rndRow);
+    await page.getByText("rnd.requester", { exact: true }).waitFor();
+    await panel(page).getByRole("heading", { name: `Change expiration · ${rndRow.name}` }).waitFor();
+    await manageExp(page, dated);
+    await page.getByText("rnd.requester", { exact: true }).waitFor();
+    const etag = api.state.etags.get(`${dated.clusterId}/${dated.name}`);
+    await panel(page).getByText(new RegExp(`ETag ${etag}`)).waitFor();
+    assert.equal(dated.env, "dev");
+    assert.equal(await panel(page).getByRole("heading", { name: /^Change expiration/ }).count(), 0, "no form where the role does not reach");
+    assert.equal(expPosts(dated, "extend").length, 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   await check("6 the Expiration tab says what the mockup says, and adds only what is listed", async () => {
     const { context, page, errors } = await expFresh();
     const shown = [];
