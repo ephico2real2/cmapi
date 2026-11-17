@@ -312,7 +312,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|154-159": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|155-160": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -541,7 +541,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|15-21": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|21-27": [
   "@router.read(\"/me\", summary=\"Who am I\", permission=None, response_model=Me, problems=[\"unauthenticated\", \"idp-unavailable\"])",
   "def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:",
   "    \"\"\"The caller's identity as cmapi records it, the roles and groups in the token, and the permissions",

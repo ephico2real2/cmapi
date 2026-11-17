@@ -39,7 +39,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | Permission | viewer | onboarding | requester | approver | operator | admin | auditor | approval-relay | Routes today |
 |---|---|---|---|---|---|---|---|---|---|
 | `clusters:read` | yes | yes | yes | yes | yes | yes | yes | | 3 |
-| `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 8 |
+| `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 10 |
 | `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 0 |
 | `requests:read` | yes | yes | yes | yes | yes | yes | yes | yes | 5 |
 | `namespaces:create` | | yes | yes | | yes | yes | | | 1 |
@@ -78,14 +78,14 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:154-159`).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:155-160`).
 
 | Permission | Routes |
 |---|---|
 | None, and no token | `GET /api/v1/version` |
 | None, with a valid token | `GET /api/v1/me` |
 | `clusters:read` | `GET /api/v1/clusters`<br>`GET /api/v1/admin/integrations`<br>`GET /api/v1/admin/plugins` |
-| `objects:read` | `GET /api/v1/clusters/{cluster_id}/namespaces`<br>`GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`GET /api/v1/directory/users`<br>`GET /api/v1/directory/users/{username}`<br>`GET /api/v1/quotas`<br>`GET /api/v1/quotas:export`<br>`GET /api/v1/quotas:suggest`<br>`GET /api/v1/tiers` |
+| `objects:read` | `GET /api/v1/clusters/{cluster_id}/namespaces`<br>`GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`GET /api/v1/directory/users`<br>`GET /api/v1/directory/users/{username}`<br>`GET /api/v1/expirations`<br>`GET /api/v1/metadata-keys`<br>`GET /api/v1/quotas`<br>`GET /api/v1/quotas:export`<br>`GET /api/v1/quotas:suggest`<br>`GET /api/v1/tiers` |
 | `requests:read` | `GET /api/v1/requests`<br>`GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events`<br>`GET /api/v1/requests/{request_id}/approval-status`<br>`GET /api/v1/admin/auto-approval` |
 | `namespaces:create` | `POST /api/v1/clusters/{cluster_id}/namespaces` |
 | `namespaces:write` | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend` |
@@ -363,7 +363,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 
 ## See your own access
 
-`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:15-21`, `authz.py:167-172`). It needs a valid token and no permission. Read it first when a call returns 403.
+`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:21-27`, `authz.py:167-172`). It needs a valid token and no permission. Read it first when a call returns 403.
 
 ## What is not built
 

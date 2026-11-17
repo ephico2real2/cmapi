@@ -215,7 +215,8 @@ A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extra
 | `enum` | list of text | The value is one of these. A label value must be a valid label value |
 | `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#`, whitespace or character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (as `℀`, CVE-2019-9636), and a `[` only as `[userinfo@][IPv6 address]` with an optional `:port` after it, then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
 | `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes |
-| `description`, `example` | text | Text for people and for the API document. A required key that cmapi does not derive needs an `example`, and every `example` must pass its key's own rule (the owner's answer to #328, question 3) |
+| `title` | text | A short label for the key on a form, such as the portal's New namespace form: the reference file gives `cmapi.net/team` the title `Team` and `cmapi.net/team-dl` the title `Team DL`. With none, the form shows the key itself. The API document carries it as the property's JSON Schema `title` (#336) |
+| `description`, `example` | text | Text for people and for the API document. A required key that cmapi does not derive needs an `example`, and every `example` must pass its key's own rule (the owner's answer to #328, question 3). A form shows the description under the field and the example as the field's placeholder, never as its value |
 
 The loader refuses each of these, and the start stops:
 
@@ -225,7 +226,7 @@ The loader refuses each of these, and the start stops:
 - A `pattern` that does not compile, that is empty, or that is outside the subset below (#332).
 - More than one of `pattern`, `enum` and `format`.
 - A required key with no `example`, unless it has `value`. An `example` that its key's rule refuses, or that is not text.
-- A `description` that is not text, and a `namespacePrefix` that is not `true` or `false`.
+- A `title` or `description` that is not text, an empty `title`, and a `namespacePrefix` that is not `true` or `false`.
 - A format on a label, and `email-in-domains` with no `emailDomains`.
 - An `adoptionLabels` key that a stanza declares, or that is a system or operator-only key.
 - An `adoptionLabels` entry whose `recognise` is not a list of label values.
@@ -235,6 +236,8 @@ A key can be a label and an annotation at the same time, each with its own rule.
 ### Patterns
 
 Each `pattern` is read by RE2 in cmapi's validator (the whole value must match; `value_matches` in `core/metadata.py`, #348) and in the rendered Kyverno policies (CEL `matches()`), and by ECMA-262 or Python's `re` in each client of the API document (a JSON Schema `pattern`, #328). cmapi anchors a pattern once, as `^(?:P)$` (`anchored` in `core/metadata.py`), and the loader refuses a pattern that any of the three would read differently, with the key, the construct and its position: `extraAnnotations.company.net/code: pattern '^\\d{4}$' is outside the subset that Python re, RE2 (Kyverno) and ECMA-262 (the API document) read alike: \d (Python also matches the digits of other scripts): write [0-9], at character 2 (docs/18, "Patterns")`.
+
+A pattern in the subset can still backtrack in an engine that backtracks. RE2 cannot (see the last paragraph of this section), but ECMA-262's engines do: a client that checks a value against the API document's schema in the browser or in Node, such as Ajv or `@cfworker/json-schema`, runs `new RegExp(pattern, "u")`, and `^(?:[a-z0-9]+-?)*[a-z0-9]$`, an everyday pattern for a name of parts, takes V8 944 ms on a 26-character value that ends in `!`, and four times as long for each two characters more (measured for #336, `docs/reviews/2026-11-17-issue-336/design-b/evidence/redos-v8.log`). The loader does not refuse such a pattern: no static check holds for every pattern (`(a|a)*` backtracks as badly as `(a+)+`), and cmapi itself is safe. So a client that checks a configured pattern itself must bound the time of the check: the portal runs each pattern in a Web Worker and stops it after 200 ms, says nothing about that field, and lets cmapi's answer to the dry run decide (#336). Prefer patterns with one way to match a value: `^[a-z0-9]+(-[a-z0-9]+)*$` accepts the same values as the pattern above (equal on all 21,845 strings of `a`, `b`, `0` and `-` up to 7 characters) and takes V8 under 1 ms on 10,001 characters (`docs/reviews/2026-11-17-issue-336/evidence/backtrack-equivalent.log`).
 
 The subset is RFC 9485's interoperable regular expressions (I-Regexp) without `\p{..}` and `.`, with `^` and `$` where they change nothing:
 
@@ -372,9 +375,12 @@ What the schema says, for each map:
 | `enum` | `enum` |
 | `value: {from: ...}` | A property with `readOnly: true` and `x-cmapi-derived-from`, never required, with no `null` branch on a patch. Swagger UI hides a read-only property in a request body |
 | `namespacePrefix` | `x-cmapi-namespace-prefix: true`, and the rule in words |
-| `description`, `example` | `description` (with the rule in words) and `examples` |
+| `title` | `title` |
+| `description`, `example` | `description` (with the rule in words) and `examples`. Each declared key also has `x-cmapi-rule`: the rule in the words that a refusal's `detail` uses (`missing_required_key`), so a client says what the API says |
 | `operatorOnly` | A property with `x-cmapi-operator-only: true` |
 | `allowOther` | `propertyNames`: a declared key, or a key under an allowed prefix that is not a system key, an adoption label, a key of the other kind or under a reserved prefix. `additionalProperties`: the value rule of those keys. `x-cmapi-other-keys`: the prefixes and the limits |
+
+The same two maps are served on their own by `GET /api/v1/metadata-keys` (#336), with the permission `objects:read`, also when `docs.enabled` is false: `{"labels": ..., "annotations": ...}`, each exactly the object of `NamespaceCreate` above without its `title`, `description` and `examples` (a service test holds the two equal on the reference and the company file). The portal's New namespace form builds its fields from it. The answer is built once at start, with a strong `ETag` over its bytes, `Cache-Control: private, no-cache`, and `304` on `If-None-Match`.
 
 What JSON Schema cannot say is in the description of the map, which ReDoc shows (ReDoc 3.1.0 does not show `propertyNames`): who may set an operator-only key, that a derived value must equal the request's target, that a `namespacePrefix` value starts the namespace name, the count of other keys (`max`), the sizes in bytes (`maxValueBytes`, `maxBytesTotal`; the schema's `maxLength` counts characters, a bound that holds because a character is at least one byte), and on a patch the 253 characters of a key's prefix (a create refuses a longer one with a second pattern under `not`). On a patch, `propertyNames` checks the class of a key and not its syntax: a key that Git holds from before #330, such as `/foo`, can still be removed with `null`, and JSON Schema cannot tie a key's name to its value.
 

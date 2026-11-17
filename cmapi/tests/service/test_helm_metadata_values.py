@@ -181,6 +181,11 @@ REFUSED = {
                                      "at '/metadata/requiredLabels/cmapi.net~1x': got null, want object"),
     "an example that is not text": (_mutate(lambda k: k["requiredLabels"]["cmapi.net/team"].__setitem__("example", 4410)),
                                     "at '/metadata/requiredLabels/cmapi.net~1team/example': got number, want string"),
+    # #336: a title labels a field of the portal's form; the loader refuses each of these at start too.
+    "a title that is not text": (_mutate(lambda k: k["requiredLabels"]["cmapi.net/team"].__setitem__("title", 3)),
+                                 "at '/metadata/requiredLabels/cmapi.net~1team/title': got number, want string"),
+    "an empty title": (_mutate(lambda k: k["requiredLabels"]["cmapi.net/team"].__setitem__("title", "")),
+                       "at '/metadata/requiredLabels/cmapi.net~1team/title': minLength"),
     # #328 question 3 (#332): the loader refuses it at start; the schema refuses it before the render.
     "a required key without an example": (_mutate(lambda k: k["requiredAnnotations"]["cmapi.net/team-dl"].pop("example")),
                                           "at '/metadata/requiredAnnotations/cmapi.net~1team-dl': missing property "
@@ -261,7 +266,7 @@ def test_checksum_config_hashes_no_leading_whitespace(tmp_path, values):
 # The loader's own refusals of #332 and #338, given as the block: the schema refuses each first, and the loader refuses
 # the same file at start, so a file that reaches a pod through configFiles or the plain manifests cannot slip past either.
 BOTH = ("a misspelled stanza", "text for a list", "an unknown field of a rule", "an adoption label without recognise",
-        "an example that is not text", "a required key without an example")
+        "an example that is not text", "a required key without an example", "a title that is not text", "an empty title")
 
 
 @pytest.mark.parametrize("case", BOTH)

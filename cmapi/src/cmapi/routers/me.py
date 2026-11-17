@@ -1,12 +1,18 @@
-"""GET /api/v1/me: who is calling and what their roles allow (docs/02, GET /me)."""
+"""GET /api/v1/me: who is calling and what their roles allow (docs/02, GET /me); the clusters of this instance; and the
+rules of a new namespace's labels and annotations (GET /api/v1/metadata-keys, #336)."""
 from __future__ import annotations
 
-from fastapi import Depends
+import functools
+import json
+
+from fastapi import Depends, Request, Response
 
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CORE, DocumentedRouter
+from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
-from cmapi.core.models import ClusterList, Me
+from cmapi.core.metadata import MetadataKeys
+from cmapi.core.models import ClusterList, Me, MetadataKeysView
 from cmapi.routers import caller, ctx, require
 
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
@@ -26,3 +32,31 @@ def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = 
     """Every cluster from clusters.yaml and every imported one, with its import status and the findings
     of the six checks. A cluster with a policy entry but no import Secret shows not-imported."""
     return {"items": [st.view() for st in c.registry.clusters.values()]}
+
+
+@functools.lru_cache(maxsize=4)
+def metadata_keys_document(keys: MetadataKeys) -> tuple[bytes, str]:
+    """The body of GET /api/v1/metadata-keys and its strong ETag, built once for each loaded file. metadata-keys.yaml is
+    read at start and a change restarts the pods (checksum/config), so a process serves one file; the cache is keyed by
+    the loaded object, so a test that loads another file gets its own answer."""
+    body = json.dumps(keys.keys_view(), separators=(",", ":"), ensure_ascii=False).encode()
+    return body, etag_of(body)
+
+
+@router.read("/metadata-keys", summary="The rules of a new namespace's labels and annotations", permission="objects:read",
+             response_model=MetadataKeysView)
+def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
+                  c: AppContext = Depends(ctx)) -> Response:
+    """This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each
+    declared key with its rule, which keys are required, which cmapi sets (readOnly), and which only cmapi-operator may
+    set. The same schemas as NamespaceCreate in the API document, here also when docs.enabled is false. Each property
+    carries x-cmapi-rule, the rule in the words of a refusal, and title when the file gives one.
+
+    cmapi checks every request against the file itself: this answer describes the rules, it does not replace them. The
+    answer is the instance's, the same for every caller; it has a strong ETag, and If-None-Match answers 304."""
+    body, etag = metadata_keys_document(c.cfg.metadata)
+    # private: the request carries Authorization (RFC 9111, 3.5); no-cache: revalidated before each reuse (5.2.2.4).
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)

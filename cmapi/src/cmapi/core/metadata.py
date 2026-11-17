@@ -50,7 +50,7 @@ KINDS = ("label", "annotation")
 # What cmapi can fill a key from. Each comes from the request's own target, never from the requester's text.
 DERIVED_FROM = ("namespace", "environment", "cluster", "instance")
 FORMATS = ("email-in-domains", "url")
-_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "description", "example"}
+_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "title", "description", "example"}
 _OLD_STANZAS = ("governed", "team")
 # The stanzas of the file (#338): a list of text, or a mapping. Any other top-level key stops the start, so a misspelt
 # stanza (requiredLabel) cannot load as a file with no rule in it.
@@ -514,6 +514,7 @@ class KeyRule:
     enum: tuple[str, ...] | None = None
     format: str | None = None           # one of FORMATS
     namespace_prefix: bool = False      # the namespace name must start with "<value>-"
+    title: str | None = None            # a short label for a form (JSON Schema title, #336); the key when absent
     description: str | None = None
     example: str | None = None
 
@@ -666,10 +667,14 @@ class MetadataKeys:
             problems.append(f"{where}: a system, operator-only or reserved key cannot be set by a requester")
         if key in self.rules[kind]:
             problems.append(f"{where}: declared twice as a {kind}")
-        for field, want in (("description", str), ("example", str), ("namespacePrefix", bool)):
+        for field, want in (("title", str), ("description", str), ("example", str), ("namespacePrefix", bool)):
             if spec.get(field) is not None and not isinstance(spec[field], want):
                 problems.append(f"{where}: {field} must be {'text' if want is str else 'true or false'}, "
                                 f"not {_kind_of(spec[field])}")
+        title = spec.get("title")
+        if isinstance(title, str) and not title.strip():
+            # A form labels the field with it (#336): an empty label would leave the field with no name.
+            problems.append(f"{where}: title must be a non-empty text; leave it out to label the field with the key")
         derived = None
         if "value" in spec:
             derived = (spec["value"] or {}).get("from") if isinstance(spec["value"], Mapping) else None
@@ -703,6 +708,7 @@ class MetadataKeys:
         rule = KeyRule(kind=kind, required=required, derived=derived, pattern=pattern,
                        enum=tuple(enum) if enum is not None else None, format=fmt,
                        namespace_prefix=bool(spec.get("namespacePrefix")),
+                       title=title if isinstance(title, str) else None,
                        description=spec.get("description"), example=example)
         self.rules[kind][key] = rule
         if required and not derived and example is None:
@@ -957,6 +963,12 @@ class MetadataKeys:
         return dict(sorted(items.items(), key=lambda kv: (rank.get(self.classify(kv[0]), 2), kv[0])))
 
     # ---- the API document (#328)
+    def keys_view(self) -> dict[str, Any]:
+        """GET /api/v1/metadata-keys (#336): the JSON Schema of NamespaceCreate's labels and annotations, the same objects
+        that the API document holds there (core/docs.py, _document_metadata), without the document's words around them.
+        For a client such as the portal, also when /openapi.json is off (docs.enabled: false)."""
+        return {"labels": self.json_schema("label", "create"), "annotations": self.json_schema("annotation", "create")}
+
     def json_schema(self, kind: str, op: str) -> dict[str, Any]:
         """The JSON Schema 2020-12 of the labels (kind=label) or annotations of NamespaceCreate (op=create) or of
         NamespacePatch (op=patch, the object branch of its anyOf with null), from this file, for the API document.
@@ -996,7 +1008,7 @@ class MetadataKeys:
         it reads a type list [string, null] against anyOf as a narrowing (measured, docs/reviews/2026-11-16-issue-328)."""
         if not patch:
             return schema
-        words = {k: schema.pop(k) for k in ("description", "examples") if k in schema}
+        words = {k: schema.pop(k) for k in ("title", "description", "examples") if k in schema}
         marks = {k: schema.pop(k) for k in list(schema) if k.startswith("x-cmapi-")}
         return {"anyOf": [schema, {"type": "null"}], **words, **marks}
 
@@ -1039,7 +1051,12 @@ class MetadataKeys:
         words.append(rule.text(self.email_domains))
         if rule.derived:
             words.append("a request may send the same value, never another")
+        if rule.title is not None:
+            out["title"] = rule.title                # Validation 9.1: the short label; the description explains
         out["description"] = " ".join(w[:1].upper() + w[1:].rstrip(".") + "." for w in words)
+        # The rule in the validator's own words (the detail of missing_required_key), so that a client such as the portal
+        # says what the API says (#336). An annotation: a JSON Schema validator ignores it (Core 2020-12, 6.5).
+        out["x-cmapi-rule"] = rule.text(self.email_domains)
         if rule.example is not None and not rule.derived:
             out["examples"] = [rule.example]
         if rule.derived:
