@@ -14,7 +14,7 @@ state's sections 2, 3 and 5. Sections 4, 6 to 10 still hold, with the changes li
 | Item | State |
 |---|---|
 | `main` | `7ba5d78` (PR #368). CI green on every merge of the day (last full run on `main`: c7ab6c4, all 7 jobs) |
-| CRC | Still runs `9ba33b2` (the Expiration slice, PR #322). **None of the 2026-11-17 merges is deployed.** The Kyverno default changed to audit (#342) and the bundle changed (#354, #356): deploy and re-run `crc-proof.sh` before calling anything live |
+| CRC | Runs `7ba5d78` (deployed 2026-11-17, OB1 run 19, `workbench/cmapi/ob1-run19/`): `crc-proof.sh` all passed; Swagger shows the required keys; `/api/v1/metadata-keys` 200 + 304; the New namespace form refused a Team DL outside the domain on its field and created `cmapi-live-f` (req-20261117-0003, cluster-configs PR #14, synced in 25 s). keycloak-0 0 restarts. **Kyverno is not installed on CRC**, so the audit default and PolicyReports are not checked there, and the cluster-configs bundle was not re-rendered. The first build stalled the node for 29 s (#157) and a test user was locked during the proof (#373) |
 | Portal | 7 of 9 tabs on the API: Expiration added (#318). New namespace now builds its fields from the instance's metadata config (#336). Policies and Capacity are next (#302) |
 | Agents | #337 (step 7 below): two designs, then the build |
 
@@ -51,8 +51,7 @@ tests, each review record in `docs/reviews/`:
 
 ### What is next, in order
 
-1. **#337** (in progress), then **deploy `main` to CRC** and run `crc-proof.sh` with the audit default; walk the New
-   namespace form and Swagger on CRC with screenshots.
+1. **#337** (PR #370, in review) and **#366** (protect from deletion, building; with #374), then deploy them to CRC.
 2. **Portal slice 4, Policies** (#302 and its comments: PolicyReport results, plan-time Kyverno warnings, the mode of each
    environment), then **Capacity**.
 3. **Open defects from today:** #347 (portal flake: PatternFly tab scroll-button transitions), #353 (a lone surrogate in an
