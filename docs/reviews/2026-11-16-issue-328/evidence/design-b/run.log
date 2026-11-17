@@ -1,0 +1,33 @@
+cmapi imported from /Users/olasumbo/gitRepos/cmapi-design/cmapi/src/cmapi/core/metadata.py
+== 1. head contract: main's openapi.json with design B's labels and annotations
+== 2. oasdiff 1.37.0 (oasdiff version 1.37.0)
+gate with main's accepted-breaking.txt: exit 1 (14 changes: 14 error, 0 warning, 0 info)
+gate with the 14 #328 lines added: exit 0
+== 3. Spectral (the contract's ruleset)
+head: exit 0 (No results with a severity of 'warn' or higher found!)
+== 4. openapi-typescript 7.13.0 and tsc 5.9.3
+tsc base: exit 0 (0 errors)
+tsc head: exit 2 (3 errors)
+== 5. differential: core/metadata.py validate() vs ajv 2020 on the generated schema
+metadata-keys.yaml: 5385 cases, 5183 agree, 202 differ
+   197  key '/foo': validator accepts, Kubernetes and the schema refuse (validator bug)
+metadata-keys.company.yaml: 5680 cases, 5218 agree, 462 differ
+   256  derived key with another value: request-dependent, the schema says readOnly only
+   188  key '/foo': validator accepts, Kubernetes and the schema refuse (validator bug)
+     4  namespacePrefix: depends on the namespace name, inexpressible
+     2  url '\x01http://x': python accepts, schema refuses
+     2  url 'http://[x': python ValueError: Invalid IPv6 URL, schema accepts
+== 5b. the same, with section 2.3's validator applied (proto/patched_validator.py)
+metadata-keys.yaml: 5385 cases, 5385 agree, 0 differ
+metadata-keys.company.yaml: 5680 cases, 5414 agree, 266 differ
+   256  derived key with another value: request-dependent, the schema says readOnly only
+     4  namespacePrefix: depends on the namespace name, inexpressible
+== 6. one regex, three engines: Python re.fullmatch, ECMA-262 (u), RE2 (Go regexp)
+18 regexes x 35 strings
+ecma: 630 verdicts, 0 differ from python
+re2: 630 verdicts, 0 differ from python
+== 7. Swagger UI 5.34.1 (sha256 of the tarball: 8e7286de0230e431fc8a5a75490d28117af3d0c306413b6f9e17f7bb55045fb6)
+sample drive: exit 0
+contract drive: exit 0
+base.json required marks: ['namespace']
+head.json required marks: ['annotations', 'cmapi.net/team-dl', 'labels', 'cmapi.net/team', 'namespace']
