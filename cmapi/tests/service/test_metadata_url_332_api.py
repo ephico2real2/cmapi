@@ -54,7 +54,8 @@ def test_the_instance_runs_no_kyverno_and_plans_a_good_url(company_no_kyverno):
         assert r.status_code == 200 and r.json()["findings"] == [], r.text
 
 
-@pytest.mark.parametrize("url", ["\x01https://wiki.company.net/abc", "http://[wiki.company.net/abc"])
+@pytest.mark.parametrize("url", ["\x01https://wiki.company.net/abc", "http://[wiki.company.net/abc",
+                                 "http://wiki\u2100company.net/abc", "http://[::1]x/abc"])
 def test_a_url_that_the_policy_refuses_is_refused_by_cmapi_alone(company_no_kyverno, url):
     client, ctx, git, kube, validator, keys = company_no_kyverno
     r = client.post(URL, json=body(url), headers=auth(keys, "ola", **OLA))

@@ -133,3 +133,17 @@ def test_the_instance_does_not_start_on_such_a_file(tmp_path, edit, message):
     with pytest.raises(ConfigError, match=re.escape("metadata-keys.yaml: invalid metadata-keys.yaml: ")) as e:
         load_instance(EX / "instances/nonprod", tmp_path / "metadata-keys.yaml")
     assert message in str(e.value)
+
+
+@pytest.mark.parametrize("value, shown", [("", "the text ''"), (0, "the int 0"), (False, "the bool False"), ([], "a list")])
+def test_a_rule_given_as_an_empty_value_that_is_not_a_mapping_is_refused(raw, value, shown):
+    """key: (null) is a key with any value. "", 0, false and [] are typos, and `spec or {}` loaded each as that, while a
+    truthy text or number was refused."""
+    raw["extraAnnotations"]["keys"]["company.net/x"] = value
+    refused(raw, f"extraAnnotations.company.net/x: a key's rule is a mapping, not {shown}")
+
+
+def test_an_empty_rule_is_a_key_with_any_value(raw):
+    raw["extraAnnotations"]["keys"]["company.net/x"] = None
+    rule = MetadataKeys(raw).rules["annotation"]["company.net/x"]
+    assert (rule.pattern, rule.enum, rule.format, rule.required) == (None, None, None, False)

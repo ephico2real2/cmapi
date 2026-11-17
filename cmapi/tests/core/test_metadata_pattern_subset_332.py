@@ -17,6 +17,8 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -123,10 +125,55 @@ def test_the_validator_refuses_a_bad_url_with_the_rule_and_never_raises(value):
 
 
 @pytest.mark.parametrize("value", ["https://wiki.company.net/abc", "HTTP://x", "http://[::1]:8080/a?b#c",
-                                   "http://u@[fe80::1]/"])
+                                   "http://u@[fe80::1]/", "http://u:p@[::1]:/", "http://x/a\u2100b"])
 def test_the_validator_accepts_a_url(value):
     keys = MetadataKeys.load(COMPANY)
     assert keys.validate(SENT, {URL_KEY: value}, operator=False, sources=SOURCES) == []
+
+
+# Before #332 urlsplit raised ValueError on each, so the validator refused it (a 422): an NFKC delimiter in the netloc
+# (CVE-2019-9636: U+2100 is "a/c", U+FF0F "/", U+FF1A ":", U+FE6B "@"), and text before "[" or after "]" that is not a
+# userinfo or a port (_check_bracketed_netloc). The one regex must not accept what the validator refused.
+@pytest.mark.parametrize("value", ["http://a\u2100b/", "http://x\uff0fy/", "https://wiki\uff1acompany.net/",
+                                   "http://x\ufe6by/", "http://u\uff20x/", "http://[::1]x/", "http://a[::1]/",
+                                   "http://[::1]:80@x/", "http://u@[::1]x:80/", "http://[::1]:8\u2100/"])
+def test_the_validator_refuses_an_authority_that_urlsplit_refused(value):
+    keys = MetadataKeys.load(COMPANY)
+    errs = keys.validate(SENT, {URL_KEY: value}, operator=False, sources=SOURCES)
+    assert [(e["code"], e["key"], e["detail"]) for e in errs] == [("invalid_value", URL_KEY, "an http or https URL")]
+
+
+def test_the_nfkc_delimiter_class_is_every_code_point_whose_nfkc_form_holds_a_url_delimiter():
+    from cmapi.core.metadata import _NFKC_DELIMITERS
+    want = [hex(c) for c in range(0x80, sys.maxunicode + 1) if not 0xD800 <= c <= 0xDFFF
+            and any(d in unicodedata.normalize("NFKC", chr(c)) for d in "/?#@:")]
+    assert [hex(ord(c)) for c in _NFKC_DELIMITERS] == want
+
+
+def _urlsplit_check(value: str) -> bool:
+    """The validator's URL check before #332 (main 5a8f817), kept here as the reference that the regex must not loosen."""
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.netloc) and not any(c.isspace() for c in value)
+
+
+def test_the_url_regex_accepts_nothing_that_the_urlsplit_check_refused():
+    """20,000 seeded authorities from the pieces where the two differ: brackets, "@", ":", "%", NFKC delimiters and
+    non-ASCII letters. The regex may refuse more (a leading C0 control, IPvFuture, a zone ID), never accept more."""
+    keys = MetadataKeys.load(COMPANY)
+    url = re.compile(value_regex(keys.rules["annotation"][URL_KEY], keys.email_domains))
+    rand = random.Random(332)
+    pieces = ["a", "1", "f", ":", "@", "[", "]", ".", "%", "-", "::1", "[::1]", "fe80::1", "[fe80::1]", "\u2100",
+              "\uff0f", "\uff1a", "\uff20", "\ufe56", "\xe9", ":80"]
+    loosened = []
+    for _ in range(20000):
+        value = (rand.choice(["http://", "HTTPS://"]) + "".join(rand.choice(pieces) for _ in range(rand.randint(1, 6)))
+                 + rand.choice(["", "/", "/x", "?q", "#f", "/\u2100"]))
+        if url.fullmatch(value) and not _urlsplit_check(value):
+            loosened.append(value)
+    assert loosened == [], loosened[:10]
 
 
 def test_the_url_host_reads_an_ipv6_address_as_python_ipaddress_does():

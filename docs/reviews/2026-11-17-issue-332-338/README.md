@@ -64,8 +64,13 @@ repetition count above 1000", and nested counts multiply (`repeatIsValid`; measu
 Measured by `evidence/url-email-verdicts.py` on main 5a8f817 and on this branch, 162 verdicts of the company file's URL and
 email keys: 10 differ (`evidence/validator-main-vs-branch.txt`).
 
-- Refused now, accepted on main: `"\x01http://x"` (the policy refused it already), and `http://[v1.x]/` (an IPvFuture
-  literal; RFC 3986's `IPvFuture` is not written into the regex).
+- Refused now, accepted on main: `"\x01http://x"` (the policy refused it already), `http://[v1.x]/` (an IPvFuture
+  literal; RFC 3986's `IPvFuture` is not written into the regex), and `http://[fe80::1%25eth0]/` (an IPv6 zone ID, which
+  `ipaddress` reads and RFC 3986 and the WHATWG URL standard do not).
+- Refused, as on main: a netloc with a character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (`http://a℀b/`,
+  CVE-2019-9636), and text before `[` that is not a userinfo or after `]` that is not a port (`http://[::1]x/`). urlsplit
+  raised `ValueError` on both; `test_the_url_regex_accepts_nothing_that_the_urlsplit_check_refused` holds the regex to that
+  (review of #346, OB3).
 - Refused now with the key's `invalid_value`, a 422 `validation-failed` from `urlsplit` on main: `http://[x`, `http://x]`,
   `http://[x]`, `http://[:::::]/`, `http://[1::2::3]/`, `http://[12345::]/`, `http://[1.2.3.4]/`,
   `http://[::ffff:256.0.0.1]/`.

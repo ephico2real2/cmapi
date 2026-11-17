@@ -294,9 +294,17 @@ _EMAIL_LOCAL = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+"
 # Python's str.isspace(), written out: RE2 reads no \u escape and ECMA-262 no \x{..}, so the characters past \r are
 # literal (tests/core/test_metadata_pattern_subset_332.py holds it equal to isspace over every code point).
 _SPACE = "\\t-\\r\x1c- \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
-# The authority of a URL: no "/", "?", "#" or whitespace, and a "[" only around an IPv6 address, as RFC 3986 section
-# 3.2.2 writes IPv6address (ls32 is two 16-bit pieces or an IPv4 address).
-_HOST = f"[^/?#\\[\\]{_SPACE}]"
+# The characters whose NFKC form holds "/", "?", "#", "@" or ":" (U+2100 ACCOUNT OF is "a/c"). urllib.parse refuses a
+# netloc with one ("contains invalid characters under NFKC normalization", CVE-2019-9636), and so did the validator
+# before #332, because a client that normalises the host for IDNA would split it there. Literal, as _SPACE is
+# (tests/core/test_metadata_pattern_subset_332.py holds it equal to unicodedata over every code point).
+_NFKC_DELIMITERS = ("\u2047\u2048\u2049\u2100\u2101\u2105\u2106\u2a74\ufe13\ufe16\ufe55\ufe56\ufe5f\ufe6b\uff03\uff0f"
+                    "\uff1a\uff1f\uff20")
+# The authority of a URL (RFC 3986 section 3.2): no "/", "?", "#", whitespace or NFKC delimiter. A "[" only in
+# [userinfo "@"] "[" IPv6address "]" [":" port]: nothing before "[" but a userinfo and nothing after "]" but a port, as
+# RFC 3986's IP-literal and urllib.parse (_check_bracketed_netloc) say; ls32 is two 16-bit pieces or an IPv4 address.
+_HOST = f"[^/?#\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
+_PORT = f"[^/?#@\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
 _H16 = "[0-9A-Fa-f]{1,4}"
 _OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
 _LS32 = f"(?:{_H16}:{_H16}|{_OCTET}(?:\\.{_OCTET}){{3}})"
@@ -304,7 +312,7 @@ _IPV6 = "|".join([f"(?:{_H16}:){{6}}{_LS32}", f"::(?:{_H16}:){{5}}{_LS32}", f"(?
                   *(f"(?:(?:{_H16}:){{0,{n}}}{_H16})?::(?:{_H16}:){{{4 - n}}}{_LS32}" for n in (1, 2)),
                   f"(?:(?:{_H16}:){{0,3}}{_H16})?::{_H16}:{_LS32}", f"(?:(?:{_H16}:){{0,4}}{_H16})?::{_LS32}",
                   f"(?:(?:{_H16}:){{0,5}}{_H16})?::{_H16}", f"(?:(?:{_H16}:){{0,6}}{_H16})?::"])
-_URL = (f"^{_literal('http')}[sS]?://(?:{_HOST}+|{_HOST}*\\[(?:{_IPV6})\\]{_HOST}*)"
+_URL = (f"^{_literal('http')}[sS]?://(?:{_HOST}+|(?:{_HOST}*@)?\\[(?:{_IPV6})\\](?::{_PORT}*)?)"
         f"(?:[/?#][^{_SPACE}]*)?$")
 
 
@@ -467,9 +475,11 @@ class MetadataKeys:
         if not isinstance(key, str):
             problems.append(f"{stanza}: the key {key!r} is not text")
             return
-        spec = spec or {}
+        # An empty rule (key:) is a key with any value. "", 0, false and [] are not empty: `spec or {}` read each as
+        # one, so a typo loaded an unrestricted key where a truthy scalar was refused (#338).
+        spec = {} if spec is None else spec
         if not isinstance(spec, Mapping):
-            problems.append(f"{where}: a key's rule is a mapping")
+            problems.append(f"{where}: a key's rule is a mapping, not {_kind_of(spec)}")
             return
         unknown = set(spec) - _RULE_FIELDS
         if unknown:
