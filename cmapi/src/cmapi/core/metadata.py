@@ -261,8 +261,11 @@ class MetadataKeys:
         merged = {"label": self.merge_patch(current_labels or {}, labels),
                   "annotation": self.merge_patch(current_annotations or {}, annotations)}
         for kind, items in (("label", labels), ("annotation", annotations)):
+            held = (current_labels if kind == "label" else current_annotations) or {}
             for key, value in items.items():
-                e = self._syntax(key, value, kind)
+                # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
+                # holds from before #330 ("/foo") can be removed, though no request may set it now.
+                e = None if value is None and key in held else self._syntax(key, value, kind)
                 if e:
                     errs.append(e)
                     continue
