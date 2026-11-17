@@ -184,7 +184,7 @@ class Pipeline:
         if action == "create":
             # The label is only written at create; refuse here, not as a 422 from the API server at apply.
             label_value_of(requester.person.username)
-        operator = "cmapi-operator" in who.roles or "cmapi-admin" in who.roles
+        operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
         prev_ns = next((yaml.safe_load(t) for p, t in prev_files.items() if p.endswith("namespace.yaml")), None)
         if action == "create" and prev_ns:
@@ -198,10 +198,14 @@ class Pipeline:
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
+        # The keys that a request may send, as Git holds them: a change merges its patch over them. Operator-only keys
+        # (cmapi.net/protected) are among them, so a change that does not name one keeps it, and only an operator's patch
+        # sets or removes it (#374). System keys are the renderer's own and are written again from the spec.
+        kept = ("governed", "team", "operatorOnly")
         cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
-                 if self.cfg.metadata.classify(k, "label") in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "label") in kept}
         cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
-                 if self.cfg.metadata.classify(k, "annotation") in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "annotation") in kept}
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
         # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
         sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
@@ -304,7 +308,7 @@ class Pipeline:
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
-                 **exp_facts, **self.cfg.metadata.change_facts({**cur_l, **cur_a}, {**labels, **anns})}
+                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns)}
         if old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
@@ -327,15 +331,23 @@ class Pipeline:
                     beyond_tier=beyond_view)
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
-        """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only cmapi-operator may set
-        is a 403 at once: that request is never rendered."""
+        """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only an operator may set
+        is a 403 at once: that request is never rendered.
+
+        A label of protected.labels (approval-rules.yaml) takes only the value that protects, or null to remove it (#366):
+        another value ("false") would be stored and shown while the namespace stays deletable."""
+        want = self.cfg.approvals.protected_values()
+        protection = [{"code": "invalid_value", "key": k, "kind": "label",
+                       "detail": f"only {want[k]!r}, the value that protects; null removes it"}
+                      for k, v in labels.items() if k in want and v is not None and v != want[k]]
         try:
             self.cfg.metadata.check(labels, annotations, **kw)
         except Problem as refusal:
             if refusal.code != "policy-violation":
                 raise
+            refusal.errors.extend(protection)
             return refusal
-        return None
+        return Problem.policy_violation("Metadata refused", protection) if protection else None
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
         req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)

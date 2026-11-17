@@ -1,0 +1,146 @@
+OB3 (Opus 5.5) review of PR #378 at a05e490 (base 6a75115). Depth: C1 and C5 deep (every write path driven through submit and run_jobs on both keys; the dialog's focus measured over four close paths, because my first reading turned out to be a timing artefact); C2, C3 and C7 medium (TestClient against the seeded service suite, and mutants); C4 medium; C6 shallow (code read and one RolePolicy measurement). Shallow claims that a second reader should re-check: C6.
+Verdict: APPROVE WITH ONE FIX. #374 is fixed on every path. F1 below breaks C3: under one condition, removing protection needs no approval.
+
+C1: CONFIRMED. The drive script is probe/test_ob3_probe_378.py, the head log probe-head.log and the main log probe-main.log. A namespace was created by opal with the labels cmapi.net/protected=true and do-not-delete=true and the annotation do-not-delete=true. Then each of six paths was submitted as ola and run through run_jobs, which runs the worker's re-render: PATCH labels, PATCH annotations, PATCH tier, :extend, :set and :makePermanent. On head, every path keeps all three keys (`PATH ... LABELS {'cmapi.net/protected': 'true', 'do-not-delete': 'true'} ANN {'do-not-delete': 'true'}` six times). After each path, DELETE gives 422 namespace-protected, and plan_delete(reason="expired") raises namespace-protected. On main, every path drops the label (`'cmapi.net/protected': None`) on all six paths. Adoption has no route: docs/14-authorization.md:375 says "Routes for ... adoption ... Not built". I imported cmapi from the export: `CMAPI_FILE .../review-378/head/cmapi/src/cmapi/__init__.py`.
+C2: CONFIRMED. I grepped cmapi/src for the role names cmapi-operator and cmapi-admin. The only role-name hits left are the automationRoles default cmapi-onboarding (pipeline.py:126, checks.py:72) and model examples; the four operator checks are now is_operator(), at pipeline.py:187, requests.py:178 and directory/__init__.py:34 and 51. An operator role limited to rnd gets 403 forbidden on PATCH protected=true in dev (`SCOPED 403 forbidden`). A requester who puts either key in labels or in annotations, on a create or a PATCH, gets 403 (8/8 cases). For each of the 8 built-in roles, /me's operator field matches the API's dry-run decision: admin and operator are True/all/200, and the other six are False/[]/403.
+C3: REFUTED by F1. Otherwise as claimed: the PR test shows protecting is approved and removing gives "threshold sensitiveKeyChanged: +1 approver-platform". The values "", "TRUE", "True" and "1" are each refused with 422 (`VALUE ...`), and so are "false" and "yes" (PR test). F1: when an annotation has the same key, removing the protection label is auto-approved (`UNPROTECT do-not-delete 202 approved ['dev change: 0 from approver-platform']`, and the same for cmapi.net/protected). The cause is that change_facts compares {**labels, **annotations}, so the annotation's value hides the label's removal (pipeline.py:311). The same merge lets a requester change the sensitive team label network.ephico2real.com/zone with no approval (`ZONE 202 approved`); main has that too. Fix: fixes.patch (metadata.change_facts compares labels and annotations separately; pipeline.py:311 passes them apart). Test: fix/test_unprotect_approval_378.py. It fails 3/3 on head (fix/before.log) and passes 3/3 with the fix (fix/after2.log). On a clean head clone with the patch applied, it passes together with test_protected_366: 24 passed (fix/patched-head.log). With the fix, 112 core metadata and approvals tests pass, and test_flow passes 20.
+C4: CONFIRMED. I wrote do-not-delete=true (label) and do-not-delete=false (annotation) into Git by hand, as main allowed. A requester's cost-center change keeps both (`LEGACY true false`). The requester's PATCH of the label to null or "true", or of the annotation to null, is 403 (`LEGACY-TOUCH ... 403 forbidden`). On main, the same null was 202.
+C5: CONFIRMED, with one flaky check. The portal 19 checks pass 7/7 (portal19-fixed.log): the badge for everyone, the control and the create box for operators only, and request bodies of exactly {labels:{"cmapi.net/protected":"true"|null}, justification}. My probe (probe/portal_ob3_dialog_check.mjs) measured four things. Focus stays inside the dialog over 12 Tab and 12 Shift+Tab presses. aria-describedby=protect-what, and the Justification field is labelled. axe found only a moderate heading-order. Focus returns to the opener after Escape, Cancel, Tab+Escape and Tab+Cancel, but at the moment the dialog detaches, 2 of the 4 paths still had focus on BODY. Correction: I first read the Escape failure as "focus not returned". It was a timing artefact; focus returns after the dialog leaves the DOM. As a result, the PR's own check at portal.test.mjs:1977 asserts too early: it failed 1 of 15 runs (portal19-head2.log) and passed 13 of 13 in isolation (flake-summary.txt, flakeB-summary.txt). The fix in fixes.patch waits for the focus with a 5 s bound; with it, all 7 checks pass.
+C6: CONFIRMED that requesters lose nothing beyond the two keys (code read: the operator flag and the value rule touch only protected.labels keys). Changes for other callers:
+  (a) Cancel of another person's request is now checked in the request's environment (requests.py:178): an operator limited to some environments loses it outside them, and a role that inherits operator gains it.
+  (b) Directory employee IDs now go by the permission in any environment (directory/__init__.py:34,51).
+  (c) Operators can no longer store do-not-delete with a value other than "true".
+  (d) A site whose authz-roles.yaml gives cmapi-operator an explicit permissions list stops being an operator on upgrade (measured: RolePolicy.is_operator gives False on head; main checked the role name). No file in the tree does this: all use `cmapi-operator: {}`.
+C7: CONFIRMED. test_protected_366.py: 19 of 21 fail on main and 21 of 21 pass on head (probe-main.log, probe-head.log). The 2 that pass on main are regression guards for behaviour main already had: the requester cmapi.net/protected case and the expiry delete. Three mutants, each killed by an assertion, not an error (mut/run.sh, mut/*.log):
+  M1: kept=("governed","team"), killed by test_a_requesters_change_keeps... (protected missing).
+  M2: is_operator(who) without env in the pipeline, killed by test_an_operator_is_a_permission... (202 == 403).
+  M3: the value check removed, killed by test_only_the_value_that_protects... (202 == 422, 3 cases).
+
+Not asked: (1) open_pr.py:92 hard-codes protected=False on a revert of a create; I did not trace it. (2) The expiry daily job is not built (expire_check has no caller), so the expiry delete is proven only through plan_delete. Not checked: CRC, Kyverno modes, the full suites.
+
+Housekeeping: `git status --short` of /Users/olasumbo/gitRepos/cmapi-design was empty before and after. I made no git writes there. I deleted the head, main and chk clones, bt/, node_modules, the .orig and .fixed copies and the flake-N logs. I kept the probe/, mut/ and fix/ scripts and logs, the portal19 and flake summaries, fixes.patch and out.txt.
+
+=== fixes.patch (verbatim) ===
+diff --git a/cmapi/src/cmapi/core/metadata.py b/cmapi/src/cmapi/core/metadata.py
+index 9898a40..81dbb52 100644
+--- a/cmapi/src/cmapi/core/metadata.py
++++ b/cmapi/src/cmapi/core/metadata.py
+@@ -952,12 +952,22 @@ class MetadataKeys:
+                 out[k] = v
+         return out
+ 
+-    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str]) -> dict[str, Any]:
+-        """Facts for the approval engine: which classes changed, and whether a sensitive key did."""
+-        changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
+-        # a sensitive key counts when an existing value changes or goes; setting it the first time
+-        # (every create sets cmapi.net/team) is not a change of ownership
+-        sensitive = {k for k in changed & self.sensitive if k in before}
++    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str],
++                     before_annotations: Mapping[str, str] | None = None,
++                     after_annotations: Mapping[str, str] | None = None) -> dict[str, Any]:
++        """Facts for the approval engine: which classes changed, and whether a sensitive key did.
++
++        before/after are the labels, and the annotations come apart: a key can be both (do-not-delete, any operator-only or
++        team key), and one map merged over the other would hide a change in it, such as a protection label removed while an
++        annotation of the same key stays (#378)."""
++        changed: set[str] = set()
++        sensitive: set[str] = set()
++        for b, a in ((before, after), (before_annotations or {}, after_annotations or {})):
++            moved = {k for k in set(b) | set(a) if b.get(k) != a.get(k)}
++            changed |= moved
++            # a sensitive key counts when an existing value changes or goes; setting it the first time
++            # (every create sets cmapi.net/team) is not a change of ownership
++            sensitive |= {k for k in moved & self.sensitive if k in b}
+         return {"keyClasses": sorted({self.classify(k) for k in changed}),
+                 "sensitiveKeyChanged": bool(sensitive)}
+ 
+diff --git a/cmapi/src/cmapi/core/pipeline.py b/cmapi/src/cmapi/core/pipeline.py
+index 6c3be50..6ffdbec 100644
+--- a/cmapi/src/cmapi/core/pipeline.py
++++ b/cmapi/src/cmapi/core/pipeline.py
+@@ -308,7 +308,7 @@ class Pipeline:
+                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
+                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
+                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
+-                 **exp_facts, **self.cfg.metadata.change_facts({**cur_l, **cur_a}, {**labels, **anns})}
++                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns)}
+         if old_tier and action != "create":
+             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
+         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
+diff --git a/cmapi/tests/service/test_unprotect_approval_378.py b/cmapi/tests/service/test_unprotect_approval_378.py
+new file mode 100644
+index 0000000..1e40d0e
+--- /dev/null
++++ b/cmapi/tests/service/test_unprotect_approval_378.py
+@@ -0,0 +1,57 @@
++"""OB3 finding on PR #378: removing a protection label needs approver-platform even when an annotation of the same key
++holds the same value. change_facts compared {**labels, **annotations}, so the annotation hid the label's removal."""
++from __future__ import annotations
++
++import shutil
++
++import pytest
++import yaml
++
++from conftest import build_world
++from test_flow import NS, OPAL, auth, run_jobs
++
++URL = "/api/v1/clusters/CRC/namespaces"
++ONE = f"{URL}/payments-dev"
++
++
++@pytest.fixture
++def world(test_config, fresh_db, keys, monkeypatch, tmp_path):
++    d = tmp_path / "config"
++    shutil.copytree(test_config, d)
++    inst = yaml.safe_load((d / "instance.yaml").read_text())
++    inst["instance"]["policy"] = {"engine": "none"}
++    (d / "instance.yaml").write_text(yaml.safe_dump(inst))
++    with build_world(d, keys, monkeypatch) as w:
++        yield w
++
++
++@pytest.mark.parametrize("key", ["do-not-delete", "cmapi.net/protected"])
++def test_removing_a_protection_label_needs_approver_platform_when_an_annotation_shares_its_key(world, key):
++    client, ctx, git, *_, keys = world
++    body = {**NS, "labels": {**NS["labels"], key: "true"}, "annotations": {**NS["annotations"], key: "true"}}
++    r = client.post(URL, json=body, headers=auth(keys, "opal", **OPAL))
++    assert r.status_code == 202 and r.json()["status"] == "approved", r.text
++    run_jobs(ctx)
++    etag = client.get(ONE, headers=auth(keys, "opal", **OPAL)).json()["etag"]
++    r = client.patch(ONE, json={"labels": {key: None}}, headers={**auth(keys, "opal", **OPAL), "If-Match": etag})
++    print("UNPROTECT", key, r.status_code, r.json().get("status"), r.json().get("approval", {}).get("reasons"))
++    assert r.status_code == 202, r.text
++    assert r.json()["status"] == "pending_approval", r.json()["approval"]
++    assert "threshold sensitiveKeyChanged: +1 approver-platform" in r.json()["approval"]["reasons"], r.json()["approval"]
++
++
++def test_a_requesters_sensitive_team_label_change_is_not_hidden_by_an_annotation_of_the_same_key(world):
++    """The same merge let a requester change a sensitiveKeys label with no approval: a team key is allowed as a label and as
++    an annotation, so an annotation of the same key hid the label's change."""
++    from test_flow import OLA
++    client, ctx, git, *_, keys = world
++    zone = "network.ephico2real.com/zone"
++    body = {**NS, "labels": {**NS["labels"], zone: "a"}, "annotations": {**NS["annotations"], zone: "a"}}
++    r = client.post(URL, json=body, headers=auth(keys, "ola", **OLA))
++    assert r.status_code == 202 and r.json()["status"] == "approved", r.text
++    run_jobs(ctx)
++    etag = client.get(ONE, headers=auth(keys, "ola", **OLA)).json()["etag"]
++    r = client.patch(ONE, json={"labels": {zone: "b"}}, headers={**auth(keys, "ola", **OLA), "If-Match": etag})
++    print("ZONE", r.status_code, r.json().get("status"), r.json().get("approval", {}).get("reasons"))
++    assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.json()
++    assert "threshold sensitiveKeyChanged: +1 approver-platform" in r.json()["approval"]["reasons"], r.json()["approval"]
+diff --git a/cmapi-portal-ui/tests/api/portal.test.mjs b/cmapi-portal-ui/tests/api/portal.test.mjs
+index f76b093..1565181 100644
+--- a/cmapi-portal-ui/tests/api/portal.test.mjs
++++ b/cmapi-portal-ui/tests/api/portal.test.mjs
+@@ -1974,7 +1974,8 @@ try {
+     await dialog(page).getByRole("button", { name: "Cancel" }).click();
+     await dialog(page).waitFor({ state: "detached" });
+     assert.equal(patches(protectedTarget).filter((c) => c.query.dryRun !== "true").length, 0, "Cancel writes nothing");
+-    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Remove protection", "the focus is back on the button");
++    // PatternFly's focus trap gives the focus back after the dialog leaves the DOM, not with it: wait for it, with a bound.
++    await page.waitForFunction(() => document.activeElement?.textContent === "Remove protection", null, { timeout: 5_000 });
+     await opener.click();
+     await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+     await dialog(page).getByRole("button", { name: "Submit request" }).click();

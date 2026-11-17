@@ -182,14 +182,14 @@ The rules for the labels and the annotations that a requester sets on a namespac
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `system` | list of keys | `[]` | Keys that only the renderer sets. A request that sends one is refused (`reserved_key`) |
-| `operatorOnly` | list of keys | `[]` | Keys that `cmapi-operator` and above can set. A requester gets 403 |
+| `operatorOnly` | list of keys | `[]` | Keys that only an operator (`namespaces:protect`, docs/14) can set or remove. Another caller gets 403. A change that does not name such a key keeps the value that Git holds (#374). The shipped files list the labels of `protected.labels`, `cmapi.net/protected` and `do-not-delete`, so only an operator protects a namespace (#366) |
 | `reservedPrefixes` | list of prefixes | `[]` | Prefixes of Kubernetes, OpenShift and platform controllers. A trailing `/` is allowed, and `*` matches (`fnmatch`). A request that sends such a key is refused (`reserved_key`) |
 | `requiredLabels` | mapping of key to rule | `{}` | Labels that each namespace carries |
 | `requiredAnnotations` | mapping of key to rule | `{}` | Annotations that each namespace carries |
 | `extraLabels` | mapping | `{}` | `keys`: optional labels, each with a rule. `allowOther`: any other label under a prefix |
 | `extraAnnotations` | mapping | `{}` | The same, for annotations |
 | `adoptionLabels` | mapping of key to `{recognise: [values]}` | `{}` | Labels that mark a namespace that another tool made. A requester cannot set them: the class of such a key is `reserved`. Today cmapi reads only the keys, for that class. The adoption that reads the values (story #26) is not built |
-| `sensitiveKeys` | list of keys | `[]` | A change of the value of one of these keys adds the fact `sensitiveKeyChanged`. The first time that a key is set is not a change |
+| `sensitiveKeys` | list of keys | `[]` | A change of the value of one of these keys adds the fact `sensitiveKeyChanged`. The first time that a key is set is not a change. The shipped files list `cmapi.net/protected` and `do-not-delete`: protecting a namespace needs no extra approval, and removing the protection adds one approver-platform approval (#366) |
 | `emailDomains` | list of domains | `[]` | The mail domains for a key with `format: email-in-domains`. A key of that format needs at least one domain |
 
 Where `emailDomains` is set: in each deployment's metadata configuration. On CRC it is `deploy/manifests/environments/crc/20-config.yaml`, key `emailDomains`; on kind it is the same key in `deploy/manifests/environments/kind/20-config.yaml`. The examples are `examples/cluster-configs/policies/metadata-keys.yaml` (`[ephico2real.com]`, a placeholder) and the company profile `metadata-keys.company.yaml` (`[company.net]`). To change it on CRC, edit that key, apply the ConfigMap, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`. The domain is checked for format only: cmapi never looks a DL up.
@@ -279,7 +279,7 @@ not lowercased, so it refuses an annotation prefix with capitals (`Example.com/a
 | Class | A key that | Through the API |
 |---|---|---|
 | `system` | Is in `system` | Refused |
-| `operatorOnly` | Is in `operatorOnly` | Refused for a requester (403) |
+| `operatorOnly` | Is in `operatorOnly` | Refused for a caller that is not an operator (403) |
 | `reserved` | Is in `adoptionLabels` (as a label), or has a prefix of `reservedPrefixes` | Refused |
 | `governed` | Is declared in a required or extra stanza | Allowed, with its rule |
 | `team` | Has a prefix of `allowOther` | Allowed, within the limits |
@@ -326,7 +326,7 @@ metadata:
   system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
            cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash,
            cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
-  operatorOnly: [cmapi.net/protected]
+  operatorOnly: [cmapi.net/protected, do-not-delete]
   reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                      argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
                      olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
@@ -342,7 +342,7 @@ metadata:
     keys: {}
     allowOther: {prefixes: ["", "*.acme.example/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
   adoptionLabels: {}
-  sensitiveKeys: [cmapi.net/team]
+  sensitiveKeys: [cmapi.net/team, cmapi.net/protected, do-not-delete]
   emailDomains: [acme.example]
 ```
 
@@ -529,7 +529,7 @@ A requirement is a list of slots, one for each approving group. The ledger fills
 | `thresholds[].add` | integer | `1` | The approvers to add. `add: 0` is a rule that answers and adds no approver |
 | `thresholds[].group` | text | `defaults.group` | The group of the added approvers |
 | `thresholds[].reason` | text | The `when` text | Text in the `reasons` of the request |
-| `protected.labels` | list of `key=value` | `[]` | A namespace with one of these labels is protected: a delete is refused (`namespace-protected`) |
+| `protected.labels` | list of `key=value` | `[]` | A namespace whose labels in Git match one of these is protected: a delete request is refused (`namespace-protected`), also the delete after it expires. A request may set such a label only to the listed value, or remove it with `null` (`invalid_value` otherwise). `GET` on a namespace gives `protected` and `protectedBy` from them (#366). List only operator-only keys here, or a requester can protect a namespace |
 | `autoApproval.enabled` | boolean | `false` | The master switch for auto-approval |
 | `autoApproval.maxPerTeamPerDay` | integer | `20` | The most auto-approvals for one team in a day (UTC). cmapi counts at submit, for a request with a team. `0` stops each auto-approval, also of a request with no team |
 | `autoApproval.policies[]` | list | `[]` | The policies. See below |

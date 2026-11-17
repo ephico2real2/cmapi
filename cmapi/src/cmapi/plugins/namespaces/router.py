@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import yaml
 from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 
@@ -99,6 +100,12 @@ def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], open_ma
             "etag": None, "openRequest": open_map.get((cluster_id, m["name"]))}
 
 
+def _git_labels(files: dict[str, str]) -> dict[str, str]:
+    """The labels of namespace.yaml in the folder, or none when Git holds no folder."""
+    text = next((t for p, t in files.items() if p.endswith("/namespace.yaml")), None)
+    return ((yaml.safe_load(text) or {}).get("metadata") or {}).get("labels") or {} if text else {}
+
+
 @router.read("/namespaces", summary="Managed namespaces on a cluster", permission="objects:read", response_model=NamespaceList,
              problems=["cluster-not-found", "cluster-unreachable"])
 def list_namespaces(cluster_id: ClusterId, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
@@ -136,6 +143,9 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     obj = live or {"metadata": {"name": ns, "labels": {}, "annotations": {}}}
     view = _namespace_view(c, cluster_id, obj, open_map)
     view["etag"] = folder_etag(files)
+    # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).
+    view["protectedBy"] = c.cfg.approvals.protected_by(_git_labels(files))
+    view["protected"] = bool(view["protectedBy"])
     response.headers["ETag"] = f'"{view["etag"]}"'
     return view
 

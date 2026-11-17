@@ -175,7 +175,7 @@ def cancel(request_id: RequestId, who: Identity = Depends(require("requests:canc
             raise Problem.conflict("invalid-transition", f"{request_id}: an apply has started, so the cluster may be ahead of "
                                                          "main; it can no longer be cancelled", state=row.status)
         repo.move(row, E.CANCEL, who.username, actor_is_requester=row.requester_username == who.username,
-                  actor_is_operator=bool({"cmapi-operator", "cmapi-admin"} & who.roles))
+                  actor_is_operator=c.cfg.roles.is_operator(who, row.env))
         AuditRepo(s).record(who, "request.cancel", request_id, None)
         jobs.enqueue("git_cleanup", request_id=request_id, cluster_id=row.cluster_id)
         return request_view(repo, row)

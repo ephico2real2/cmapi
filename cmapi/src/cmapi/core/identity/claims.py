@@ -86,7 +86,7 @@ class Person:
                 "employeeId": self.employee_id, "kind": "user"}
 
     def public(self, include_employee_id: bool) -> dict[str, Any]:
-        """GET /api/v1/directory/users: employee ID only for cmapi-operator and above."""
+        """GET /api/v1/directory/users: employee ID only for an operator (namespaces:protect)."""
         out = {"username": self.username, "email": self.email,
                "name": " ".join(x for x in (self.given_name, self.middle_name, self.family_name) if x)}
         if include_employee_id:

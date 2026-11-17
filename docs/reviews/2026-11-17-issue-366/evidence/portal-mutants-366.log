@@ -1,0 +1,16 @@
+ok   the protection control is everyone's - killed: AssertionError [ERR_ASSERTION]: viewer: the control 
+FAIL an operator somewhere is an operator everywhere - SURVIVED
+ok   the badge reads the labels, not protectedBy - killed: Timeout 8000ms exceeded.
+ok   removing the protection sends "false" - killed: Timeout 8000ms exceeded.
+ok   the protection body carries another key - killed: AssertionError [ERR_ASSERTION]: the plan: the label only + actual - expected
+ok   the protection keeps no key across a retry - killed: Timeout 8000ms exceeded.
+ok   a 412 of the protection is not read again - killed: Timeout 8000ms exceeded.
+ok   the removal does not say what still protects - killed: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Still protected by do-not-delete=true/. Input: 
+ok   a 403 of the protection does not read /me again - killed: AssertionError [ERR_ASSERTION]: a 403 reads /me again at file:///Users/olasumbo/gitRepos/workbench/cmapi/wt-366/cmapi-portal-ui/tests/api/portal.test.
+ok   the create box is everyone's - killed: AssertionError [ERR_ASSERTION]: a requester has no box 
+ok   the create box sends the label unchecked - killed: AssertionError [ERR_ASSERTION]: unchecked: no protection key at all + actual - expected
+ok   #336 the CRC keys are hard-coded again - killed: Timeout 8000ms exceeded.
+ok   a role of another environment sees the expiry form - killed: AssertionError [ERR_ASSERTION]: no form where the role does not reach 
+ok   a new Idempotency-Key for each quota submit - killed: Timeout 8000ms exceeded.
+ok   a changed quota change keeps the old key - killed: Timeout 8000ms exceeded.
+ok   an operator somewhere is an operator everywhere - killed: AssertionError [ERR_ASSERTION]: dev: not an operator there 

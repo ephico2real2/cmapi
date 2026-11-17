@@ -77,13 +77,19 @@ class Me(Api):
     identity: IdentityRecord = Field(description="The identity cmapi records for this caller")
     access: Access = Field(description="What the roles allow, and where")
     instance: str = Field(description="The instance answering", examples=["nonprod"])
+    operator: bool = Field(description="Whether the caller is an operator somewhere: it holds namespaces:protect, so it may "
+                                       "set the operator-only labels and annotations of metadata-keys.yaml "
+                                       "(cmapi.net/protected). The portal shows the operator's controls from it; the API "
+                                       "checks each write in its environment", examples=[False])
+    operator_environments: list[str] | Literal["all"] = Field(description="Where the caller is an operator: the environments "
+                                                              "of namespaces:protect, or all", examples=[[]])
 
 
 class DirectoryUser(Api):
     username: str = Field(description="Username", examples=["ola"])
     email: str | None = Field(description="Email", examples=["ola@ephico2real.com"])
     name: str = Field(description="Display name", examples=["Ola A Adeyemi"])
-    employee_id: str | None = Field(default=None, description="Employee ID; only for cmapi-operator and above", examples=["1001"])
+    employee_id: str | None = Field(default=None, description="Employee ID; only for an operator (namespaces:protect)", examples=["1001"])
 
 
 class DirectoryUsers(Api):
@@ -276,6 +282,11 @@ class NamespaceView(ClusterScoped):
     expires_at: str | None = Field(description="cmapi.net/expires-at", examples=[None])
     etag: str | None = Field(description="Git commit of its folder; send as If-Match on a change", examples=["0a1b2c3d"])
     open_request: str | None = Field(description="Request holding the namespace lock", examples=[None])
+    protected: bool | None = Field(default=None, description="Whether cmapi refuses a delete request for it (422 "
+                                   "namespace-protected): its labels in Git, which a delete checks, match protected.labels of "
+                                   "approval-rules.yaml. Null on the list, which reads no Git", examples=[False])
+    protected_by: list[str] | None = Field(default=None, description="The entries of protected.labels that its labels in Git "
+                                           "match, such as cmapi.net/protected=true. Null on the list", examples=[[]])
 
 
 class NamespaceList(Api):
@@ -421,7 +432,7 @@ class MetadataKeysView(Api):
     .annotations, without the title, description and examples that the document puts around it."""
     labels: dict[str, Any] = Field(
         description="The JSON Schema of NamespaceCreate.labels on this instance: each declared key with its rule, which keys "
-                    "are required, which cmapi sets (readOnly) and which only cmapi-operator may set (x-cmapi-operator-only)",
+                    "are required, which cmapi sets (readOnly) and which only an operator may set (x-cmapi-operator-only)",
         examples=[{"type": "object", "properties": {"cmapi.net/team": {"type": "string", "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
                                                                        "title": "Team", "x-cmapi-rule": "must match ^[a-z0-9-]{2,40}$"}},
                    "required": ["cmapi.net/team"]}])

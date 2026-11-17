@@ -37,7 +37,7 @@ async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width 
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map() });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -1872,6 +1872,212 @@ try {
     assert.equal(together, 1);
     assert.deepEqual(second.errors, []);
     await second.context.close();
+  });
+
+  // #366: operators protect a namespace from deletion. The badge is everyone's, from the API's protectedBy; the control and the
+  // create box are an operator's, from /me's operator and operatorEnvironments. Each body names the protection label only.
+  const PROTECTION = "cmapi.net/protected=true";
+  const protectedTarget = named.find((r) => r.env === "dev" && r.tier === "small" && !r.openRequest && r !== target);
+  const detailCard = (page, r) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: `${r.name} on ${r.clusterId}` }) });
+  const dialog = (page) => page.getByRole("dialog");
+  const protectFresh = async (user, protection = []) => {
+    const opened = await quotaFresh({ user });
+    api.state.protection = new Map([[`${protectedTarget.clusterId}/${protectedTarget.name}`, protection]]);
+    await manage(opened.page, protectedTarget);
+    return opened;
+  };
+
+  await check("19 Protection: everyone sees the badge and why a delete request is refused; only an operator has the control", async () => {
+    for (const [user, control] of [["viewer", null], ["requester", null], ["operator", "Remove protection"]]) {
+      const { context, page, errors } = await protectFresh(user, [PROTECTION, "do-not-delete=true"]);
+      const card = detailCard(page, protectedTarget);
+      await card.getByText("Protected", { exact: true }).waitFor();
+      assert.match(await card.innerText(), /cmapi refuses a delete request for this namespace \(422 namespace-protected\): cmapi\.net\/protected=true, do-not-delete=true\./, user);
+      assert.equal(await card.getByRole("button", { name: /protect/i }).count(), control ? 1 : 0, `${user}: the control`);
+      if (control) assert.equal(await card.getByRole("button", { name: control }).count(), 1);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    // Not protected: no badge, and the operator's control protects.
+    const { context, page, errors } = await protectFresh("operator");
+    const card = detailCard(page, protectedTarget);
+    await card.getByRole("button", { name: "Protect from deletion" }).waitFor();
+    assert.equal(await card.getByText("Protected", { exact: true }).count(), 0);
+    assert.doesNotMatch(await card.innerText(), /cmapi refuses a delete request/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("19 Protection: the operator's dialog plans exactly the label with If-Match, shows the approval, and submits that body with one key", async () => {
+    const { context, page, errors } = await protectFresh("operator");
+    const etag = api.state.etags.get(`${protectedTarget.clusterId}/${protectedTarget.name}`);
+    const writes = () => patches(protectedTarget);
+    await detailCard(page, protectedTarget).getByRole("button", { name: "Protect from deletion" }).click();
+    await dialog(page).getByRole("heading", { name: "Protect from deletion" }).waitFor();
+    assert.match(await dialog(page).innerText(), new RegExp(`This sends a request to add cmapi\.net/protected=true to ${protectedTarget.name}\.`));
+    const approval = dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" });
+    await approval.waitFor();
+    assert.deepEqual(writes().map((c) => ({ query: c.query, ifMatch: c.ifMatch, key: c.key, body: c.body })),
+      [{ query: { dryRun: "true" }, ifMatch: `"${etag}"`, key: null, body: { labels: { "cmapi.net/protected": "true" } } }], "the plan: the label only");
+    await dialog(page).getByLabel("Justification").fill("Shared ledger, never delete");
+    // The first answer is lost on the way: Submit again sends the same request with the same key.
+    const route = `PATCH /api/v1/clusters/${protectedTarget.clusterId}/namespaces/${protectedTarget.name}`;
+    api.state.lose.add(route);
+    await dialog(page).getByRole("button", { name: "Submit request" }).click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" }).waitFor();
+    api.state.lose.clear();
+    await dialog(page).getByRole("button", { name: "Submit request" }).click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    const sent = writes().filter((c) => c.query.dryRun !== "true");
+    assert.ok(sent.length >= 2, `the lost write and the second (${sent.length})`);
+    assert.deepEqual(sent.map((c) => c.key), sent.map(() => sent[0].key), "the same change keeps its Idempotency-Key");
+    assert.equal(api.state.created, 1, "the API made one request");
+    assert.deepEqual(sent[0].body, { labels: { "cmapi.net/protected": "true" }, justification: "Shared ledger, never delete" }, "the label and the reason, nothing else");
+    assert.equal(sent.at(-1).ifMatch, `"${etag}"`);
+    assert.match(sent[0].key, /^[0-9a-f-]{36}$/);
+    assert.equal(await dialog(page).getByRole("status").filter({ hasText: "202 Accepted" }).count(), 1, "the outcome is a status message");
+    await dialog(page).getByRole("button", { name: "Open at current step" }).click();
+    await page.waitForFunction(() => location.hash.startsWith("#workflow?request="));
+    assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE/.test(e)), []);
+    await context.close();
+  });
+
+  await check("19 Protection: an operator limited to rnd has the control and the create box in rnd, and neither in dev", async () => {
+    const onRnd = named.find((r) => r.env === "rnd" && !r.openRequest);
+    const { context, page, errors } = await quotaFresh({ user: "rndOperator" });
+    await manage(page, protectedTarget);
+    await detailCard(page, protectedTarget).getByText(/ETag [0-9a-f]{16}/).waitFor();     // the namespace was read
+    assert.equal(await detailCard(page, protectedTarget).getByRole("button", { name: /protect/i }).count(), 0, "dev: not an operator there");
+    await manage(page, onRnd);
+    await detailCard(page, onRnd).getByRole("button", { name: "Protect from deletion" }).waitFor();
+    // The create form: the box follows operatorEnvironments, not a permission held somewhere.
+    await newTab(page);
+    const envs = panel(page).getByRole("group", { name: "Environment" });
+    await envs.getByRole("button", { name: "dev" }).click();
+    await panel(page).getByLabel("Justification").waitFor();
+    assert.equal(await panel(page).getByLabel("Protect from deletion").count(), 0, "dev: not an operator there");
+    await envs.getByRole("button", { name: "rnd" }).click();
+    await panel(page).getByLabel("Protect from deletion").waitFor();
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("19 Protection: removing it sends null, needs approver-platform, and says what still protects; Cancel sends nothing", async () => {
+    const { context, page, errors } = await protectFresh("operator", [PROTECTION, "do-not-delete=true"]);
+    const opener = detailCard(page, protectedTarget).getByRole("button", { name: "Remove protection" });
+    await opener.click();
+    await dialog(page).getByRole("heading", { name: "Remove protection" }).waitFor();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi from approver-platform" }).waitFor();
+    assert.match(await dialog(page).innerText(), /Still protected by do-not-delete=true/);
+    assert.match(await dialog(page).innerText(), /threshold sensitiveKeyChanged: \+1 approver-platform/);
+    assert.deepEqual(patches(protectedTarget).map((c) => c.body), [{ labels: { "cmapi.net/protected": null } }], "removal is null, never \"false\"");
+    await dialog(page).getByRole("button", { name: "Cancel" }).click();
+    await dialog(page).waitFor({ state: "detached" });
+    assert.equal(patches(protectedTarget).filter((c) => c.query.dryRun !== "true").length, 0, "Cancel writes nothing");
+    // PatternFly's focus trap gives the focus back after the dialog leaves the DOM, not with it: wait for it, with a bound.
+    await page.waitForFunction(() => document.activeElement?.textContent === "Remove protection", null, { timeout: 5_000 });
+    await opener.click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    await dialog(page).getByRole("button", { name: "Submit request" }).click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    assert.match(await dialog(page).innerText(), /Waiting for 1 approval in cmapi \(approver-platform\)/);
+    assert.deepEqual(patches(protectedTarget).filter((c) => c.query.dryRun !== "true").map((c) => c.body), [{ labels: { "cmapi.net/protected": null }, justification: null }]);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("19 Protection: a 412 reads the namespace again and plans on its new ETag; a refusal shows its code", async () => {
+    const { context, page, errors } = await protectFresh("operator");
+    const key = `${protectedTarget.clusterId}/${protectedTarget.name}`;
+    const old = api.state.etags.get(key);
+    api.state.etags.set(key, "0123456789abcdef");
+    expectedStatus = [412];
+    await detailCard(page, protectedTarget).getByRole("button", { name: "Protect from deletion" }).click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" }).waitFor();
+    assert.deepEqual(patches(protectedTarget).map((c) => c.ifMatch), [`"${old}"`, "\"0123456789abcdef\""], "the stale etag once, then the namespace's new one");
+    assert.equal(await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "precondition-failed" }).count(), 0);
+    expectedStatus = [412, 403];
+    api.state.answers.push({ route: `PATCH /api/v1/clusters/${key.replace("/", "/namespaces/")}`, status: 403,
+      body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Only an operator (namespaces:protect) may set cmapi.net/protected" } });
+    const meBefore = calls("/api/v1/me").length;
+    await dialog(page).getByRole("button", { name: "Submit request" }).click();
+    await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "403 forbidden · nothing written" }).waitFor();
+    for (let i = 0; i < 20 && calls("/api/v1/me").length === meBefore; i++) await page.waitForTimeout(100);
+    assert.ok(calls("/api/v1/me").length > meBefore, "a 403 reads /me again");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("19 New namespace: Protect from deletion for an operator, absent for a requester; the body has the label only when checked", async () => {
+    {
+      const { context, page, errors } = await fresh();
+      await newTab(page);
+      assert.equal(await panel(page).getByLabel("Protect from deletion").count(), 0, "a requester has no box");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    const { context, page, errors } = await fresh({ user: "operator" });
+    await newTab(page);
+    await fillForm(page);
+    const box = panel(page).getByLabel("Protect from deletion");
+    assert.equal(await box.isChecked(), false);
+    await panel(page).getByRole("button", { name: "Dry run" }).click();
+    await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed" }).waitFor();
+    assert.deepEqual(posts().at(-1).body.labels, { "cmapi.net/team": "payments" }, "unchecked: no protection key at all");
+    await box.check();
+    assert.match(await panel(page).innerText(), /Operators only\. Adds cmapi\.net\/protected=true: cmapi refuses a delete request for this namespace until an operator removes it\./);
+    await panel(page).getByRole("button", { name: "Dry run" }).click();
+    await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed" }).waitFor();
+    assert.deepEqual(posts().at(-1).body.labels, { "cmapi.net/team": "payments", "cmapi.net/protected": "true" });
+    await panel(page).getByRole("button", { name: "Submit request" }).click();
+    await page.waitForFunction(() => location.hash.startsWith("#workflow?request="));
+    assert.deepEqual(posts().at(-1).body.labels, { "cmapi.net/team": "payments", "cmapi.net/protected": "true" }, "the submit sends the planned body");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("19 Protection at 390 and 1440 px in each theme, with the dialog open, and axe", async () => {
+    for (const width of [390, 1440]) {
+      const { context, page, errors } = await quotaFresh({ user: "operator", width });
+      api.state.protection = new Map([[`${protectedTarget.clusterId}/${protectedTarget.name}`, [PROTECTION]]]);
+      await manage(page, protectedTarget);
+      await detailCard(page, protectedTarget).getByText("Protected", { exact: true }).waitFor();
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+        await settled(page);
+        const card = detailCard(page, protectedTarget);
+        await card.scrollIntoViewIfNeeded();
+        await card.screenshot({ path: join(out, `protection-${width}-${theme}.png`) });
+        const scan = await new AxeBuilder({ page }).analyze();
+        assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe at ${width} ${theme}`);
+        await card.getByRole("button", { name: "Remove protection" }).click();
+        await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+        await settled(page);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert.ok(overflow <= 0, `${width} ${theme}: no sideways scroll with the dialog open (${overflow})`);
+        await page.screenshot({ path: join(out, `protection-dialog-${width}-${theme}.png`) });
+        const modal = await new AxeBuilder({ page }).include(".pf-v6-c-modal-box").analyze();
+        assert.deepEqual(modal.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on the dialog at ${width} ${theme}`);
+        await dialog(page).getByRole("button", { name: "Cancel" }).click();
+        await dialog(page).waitFor({ state: "detached" });
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    for (const width of [390, 1440]) {
+      const { context, page, errors } = await fresh({ user: "operator", width });
+      await newTab(page);
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+        await settled(page);
+        const group = panel(page).locator(".pf-v6-c-form__group").filter({ hasText: "Deletion protection" });
+        await group.getByLabel("Protect from deletion").check();
+        await group.scrollIntoViewIfNeeded();
+        await group.screenshot({ path: join(out, `protection-create-${width}-${theme}.png`) });
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
   });
 
   // Portal slice 4a (#318): the Expiration tab. The fleet is 40 namespaces of the stand-in in dev and rnd, over every state,

@@ -1,0 +1,7 @@
+ok   #374 operator-only keys are not carried forward - 1 failed in 2.32s
+ok   /me reads role names - 1 failed in 1.16s
+ok   the pipeline reads role names - 1 failed in 1.31s
+ok   the operator check ignores the environment - 1 failed in 1.90s
+ok   protection is read from the live labels - 1 failed in 1.76s
+ok   any value of a protection label is stored - 1 failed in 1.25s
+6 service mutants, 6 killed, 0 survived

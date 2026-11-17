@@ -4,7 +4,7 @@ One file, cluster-configs/policies/metadata-keys.yaml, decides every key's class
 feeds the Kyverno bundle, so plan time, CI and admission agree (docs/02, "Labels and annotations"; #215).
 
     system               set only by the renderer (cluster-id, tier, requested-by, expiry, ...)
-    operatorOnly         cmapi-operator and above (cmapi.net/protected)
+    operatorOnly         an operator only, who holds namespaces:protect (cmapi.net/protected, do-not-delete)
     reservedPrefixes     Kubernetes, OpenShift and platform-controller prefixes
     requiredLabels       keys the namespace must carry, each with a rule; a key with value.from is set by cmapi
     requiredAnnotations
@@ -936,7 +936,7 @@ class MetadataKeys:
                              require_governed=require_governed, current_labels=current_labels,
                              current_annotations=current_annotations, sources=sources, existing=existing)
         if any(e["code"] == "operator_only_key" for e in errs):
-            raise Problem.forbidden("Only cmapi-operator may set " +
+            raise Problem.forbidden("Only an operator (namespaces:protect) may set " +
                                     ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key"))
         if errs:
             raise Problem.policy_violation("Metadata refused", errs)
@@ -952,12 +952,22 @@ class MetadataKeys:
                 out[k] = v
         return out
 
-    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str]) -> dict[str, Any]:
-        """Facts for the approval engine: which classes changed, and whether a sensitive key did."""
-        changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        # a sensitive key counts when an existing value changes or goes; setting it the first time
-        # (every create sets cmapi.net/team) is not a change of ownership
-        sensitive = {k for k in changed & self.sensitive if k in before}
+    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str],
+                     before_annotations: Mapping[str, str] | None = None,
+                     after_annotations: Mapping[str, str] | None = None) -> dict[str, Any]:
+        """Facts for the approval engine: which classes changed, and whether a sensitive key did.
+
+        before/after are the labels, and the annotations come apart: a key can be both (do-not-delete, any operator-only or
+        team key), and one map merged over the other would hide a change in it, such as a protection label removed while an
+        annotation of the same key stays (#378)."""
+        changed: set[str] = set()
+        sensitive: set[str] = set()
+        for b, a in ((before, after), (before_annotations or {}, after_annotations or {})):
+            moved = {k for k in set(b) | set(a) if b.get(k) != a.get(k)}
+            changed |= moved
+            # a sensitive key counts when an existing value changes or goes; setting it the first time
+            # (every create sets cmapi.net/team) is not a change of ownership
+            sensitive |= {k for k in moved & self.sensitive if k in b}
         return {"keyClasses": sorted({self.classify(k) for k in changed}),
                 "sensitiveKeyChanged": bool(sensitive)}
 
@@ -1020,7 +1030,7 @@ class MetadataKeys:
         out: dict[str, Any] = {"type": "string"}
         if kind == "label":
             out.update(pattern=_LABEL_VALUE, maxLength=63)
-        out["description"] = "cmapi-operator and above only: a requester gets 403 forbidden."
+        out["description"] = "An operator only (namespaces:protect): another caller gets 403 forbidden."
         out["x-cmapi-operator-only"] = True
         return out
 

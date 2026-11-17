@@ -1,5 +1,5 @@
 {
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|307-334": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|321-348": [
   "    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,",
   "                relay_permitted: bool | None = None, comment: str = \"\") -> bool:",
   "        \"\"\"approver is the eligible person; relay is the channel client (approvals:relay) if any.",
@@ -29,17 +29,17 @@
   "        return self.met",
   ""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|314-317": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|328-331": [
   "        if relay is not None:",
   "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|323-324": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-338": [
   "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
   "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|325-326": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|339-340": [
   "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
   "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")"
  ],
@@ -147,7 +147,7 @@
   "def unauthenticated_headers(problem: Problem) -> Mapping[str, str]:",
   "    return {\"WWW-Authenticate\": 'Bearer error=\"invalid_token\"'} if problem.status == 401 else {}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|103-108": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|106-111": [
   "            if spec is None:",
   "                if name not in ROLE_PERMISSIONS:",
   "                    raise ValueError(f\"unknown role {name}\")",
@@ -155,21 +155,41 @@
   "                self.grants[name] = g",
   "                return g"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|115-117": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|118-120": [
   "            unknown = perms - PERMISSIONS",
   "            if unknown:",
   "                problems.append(f\"role {name}: unknown permissions {sorted(unknown)}\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|121-123": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|124-126": [
   "                if self.served is not None and envs - self.served:",
   "                    problems.append(f\"role {name}: environments {sorted(envs - self.served)} \"",
   "                                    f\"are not served by this instance\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|138-139": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|141-142": [
   "    def held(self, who: Identity) -> list[RoleGrant]:",
   "        return [self.grants[r] for r in sorted(who.roles) if r in self.grants]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|157-165": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|160-166": [
+  "    def is_operator(self, who: Identity, env: str | None = None) -> bool:",
+  "        \"\"\"An operator in env, or with no env in some environment: the caller holds namespaces:protect there (#366).",
+  "",
+  "        The one answer for the pipeline's operator-only keys, GET /me and the routes that treat an operator apart. A",
+  "        permission, not a role name, so a role that inherits cmapi-operator, or one limited to some environments, counts",
+  "        as authz-roles.yaml says.\"\"\"",
+  "        return self.allowed(who, OPERATOR_PERMISSION, env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|168-176": [
+  "    def operator_environments(self, who: Identity) -> list[str] | str:",
+  "        \"\"\"GET /me: \"all\" when a role grants namespaces:protect in every environment, else the environments that do.\"\"\"",
+  "        envs: set[str] = set()",
+  "        for g in self.held(who):",
+  "            if OPERATOR_PERMISSION in g.permissions:",
+  "                if g.environments is None:",
+  "                    return \"all\"",
+  "                envs |= g.environments",
+  "        return sorted(envs)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|178-186": [
   "    def require(self, who: Identity, permission: str, env: str | None = None) -> None:",
   "        if self.allowed(who, permission, env):",
   "            return",
@@ -180,13 +200,13 @@
   "        raise Problem.forbidden(f\"Missing permission {permission}: no role in your token grants it \"",
   "                                f\"(roles: {sorted(who.roles) or 'none'})\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|160-163": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|181-184": [
   "        if env is not None and self.allowed(who, permission):",
   "            raise Problem.forbidden(f\"Your roles grant {permission} only in \"",
   "                                    f\"{sorted(self.environments(who, permission) or [])}, not {env}\",",
   "                                    code=\"environment-forbidden\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|167-172": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|188-193": [
   "    def describe(self, who: Identity) -> dict[str, Any]:",
   "        \"\"\"For GET /me: what the caller's roles let it do, and where.\"\"\"",
   "        return {\"roles\": [{\"role\": g.role, \"permissions\": sorted(g.permissions),",
@@ -194,12 +214,15 @@
   "                          for g in self.held(who)],",
   "                \"permissions\": sorted(self.permissions(who))}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|21-41": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|21-44": [
   "_VIEW = {\"clusters:read\", \"objects:read\", \"capacity:read\", \"requests:read\"}",
   "# namespaces:create is asking for a new namespace; namespaces:write is changing or deleting one.",
   "_ONBOARD = _VIEW | {\"namespaces:create\", \"requests:cancel\"}",
   "_REQUEST = _ONBOARD | {\"namespaces:write\", \"quotas:write\", \"serviceaccounts:write\", \"grants:write\"}",
-  "_OPERATE = _REQUEST | {\"requests:retry\", \"adoption:write\", \"reports:read\", \"operations:run\"}",
+  "# namespaces:protect is what makes an operator (#366): setting and removing the operator-only labels and annotations of",
+  "# metadata-keys.yaml (cmapi.net/protected), cancelling another person's request and reading employee IDs.",
+  "OPERATOR_PERMISSION = \"namespaces:protect\"",
+  "_OPERATE = _REQUEST | {\"requests:retry\", \"adoption:write\", \"reports:read\", \"operations:run\", OPERATOR_PERMISSION}",
   "",
   "# The built-in roles: used when authz-roles.yaml does not define a role, and the vocabulary of",
   "# permissions a config file may use.",
@@ -217,10 +240,10 @@
   "    \"cmapi-approval-relay\": frozenset({\"requests:read\", \"approvals:relay\"}),",
   "}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|47-47": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|50-50": [
   "DEFAULT_GROUP_PATH = \"/cmapi/app-cmapi-rbac-{name}\""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|53-59": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|56-62": [
   "def check_group_path(template: Any) -> None:",
   "    \"\"\"A Keycloak full path with one plain {name}. Checked at startup: at the first approval, str.format would raise inside a request.\"\"\"",
   "    if not isinstance(template, str) or not template.startswith(\"/\"):",
@@ -229,7 +252,7 @@
   "    if fields != [(\"name\", \"\", None)]:",
   "        raise ValueError(f\"{template!r} must hold {{name}} once, and no other field\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|76-135": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/authz.py|79-138": [
   "class RolePolicy:",
   "    \"\"\"Keycloak role -> permissions and environments, for one instance.",
   "",
@@ -479,10 +502,13 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|183-183": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|352-352": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|187-187": [
+  "        operator = self.cfg.roles.is_operator(who, env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|364-364": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|405-405": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|417-417": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [
@@ -507,10 +533,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|109-109": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env) or not c.cfg.expiration.allows(env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|109-109": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|116-116": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|125-125": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|132-132": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
@@ -541,14 +567,17 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|21-27": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|21-30": [
   "@router.read(\"/me\", summary=\"Who am I\", permission=None, response_model=Me, problems=[\"unauthenticated\", \"idp-unavailable\"])",
   "def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:",
   "    \"\"\"The caller's identity as cmapi records it, the roles and groups in the token, and the permissions",
-  "    each role grants with the environments it covers. The first thing to check when a call returns 403.\"\"\"",
+  "    each role grants with the environments it covers. The first thing to check when a call returns 403. `operator` says",
+  "    whether the caller may set the operator-only keys (namespaces:protect), and `operatorEnvironments` where (#366).\"\"\"",
+  "    roles = c.cfg.roles",
   "    return {\"username\": who.username, \"kind\": who.kind, \"client\": who.client_id, \"roles\": sorted(who.roles),",
-  "            \"groups\": sorted(who.groups), \"identity\": who.record(), \"access\": c.cfg.roles.describe(who),",
-  "            \"instance\": c.cfg.name}"
+  "            \"groups\": sorted(who.groups), \"identity\": who.record(), \"access\": roles.describe(who),",
+  "            \"instance\": c.cfg.name, \"operator\": roles.is_operator(who),",
+  "            \"operatorEnvironments\": roles.operator_environments(who)}"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|110-110": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"

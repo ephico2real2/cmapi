@@ -21,10 +21,13 @@ router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 @router.read("/me", summary="Who am I", permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
 def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
     """The caller's identity as cmapi records it, the roles and groups in the token, and the permissions
-    each role grants with the environments it covers. The first thing to check when a call returns 403."""
+    each role grants with the environments it covers. The first thing to check when a call returns 403. `operator` says
+    whether the caller may set the operator-only keys (namespaces:protect), and `operatorEnvironments` where (#366)."""
+    roles = c.cfg.roles
     return {"username": who.username, "kind": who.kind, "client": who.client_id, "roles": sorted(who.roles),
-            "groups": sorted(who.groups), "identity": who.record(), "access": c.cfg.roles.describe(who),
-            "instance": c.cfg.name}
+            "groups": sorted(who.groups), "identity": who.record(), "access": roles.describe(who),
+            "instance": c.cfg.name, "operator": roles.is_operator(who),
+            "operatorEnvironments": roles.operator_environments(who)}
 
 
 @router.read("/clusters", summary="Clusters this instance knows", permission="clusters:read", response_model=ClusterList)
@@ -48,9 +51,9 @@ def metadata_keys_document(keys: MetadataKeys) -> tuple[bytes, str]:
 def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> Response:
     """This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each
-    declared key with its rule, which keys are required, which cmapi sets (readOnly), and which only cmapi-operator may
-    set. The same schemas as NamespaceCreate in the API document, here also when docs.enabled is false. Each property
-    carries x-cmapi-rule, the rule in the words of a refusal, and title when the file gives one.
+    declared key with its rule, which keys are required, which cmapi sets (readOnly), and which only an operator
+    (namespaces:protect) may set. The same schemas as NamespaceCreate in the API document, here also when docs.enabled is
+    false. Each property carries x-cmapi-rule, the rule in the words of a refusal, and title when the file gives one.
 
     cmapi checks every request against the file itself: this answer describes the rules, it does not replace them. The
     answer is the instance's, the same for every caller; it has a strong ETag, and If-None-Match answers 304."""
