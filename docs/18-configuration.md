@@ -226,12 +226,19 @@ A key can be a label and an annotation at the same time, each with its own rule.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `prefixes` | list of text | `[]` | The allowed prefixes. `""` allows a key with no prefix. A `*` matches, as in `*.company.net/`. With no prefix, cmapi refuses each other key (`invalid_key`, "prefix not allowed") |
+| `prefixes` | list of text | `[]` | The allowed prefixes. `""` allows a key with no prefix, and nothing else does. A `*` matches, as in `*.company.net/`, but only a key that has a prefix: `["*"]` admits any prefix that is not reserved, and no key without one (#331). With no prefix, cmapi refuses each other key (`invalid_key`, "prefix not allowed") |
 | `max` | integer | `50` | The most other keys of this kind |
 | `maxValueBytes` | integer | `4096` | Annotations only. The most bytes of one value |
 | `maxBytesTotal` | integer | `65536` | Annotations only. The most bytes of all other annotation values |
 
 ### The classes of a key
+
+Before any class, each key that a request sends must be a key that Kubernetes accepts, or it is refused (`invalid_key`):
+the rule of apimachinery's `IsLabelKey`, which the API server applies to label keys and, lowercased, to annotation keys.
+A key is a name of at most 63 characters, with an optional prefix and one `/`. When there is a `/`, the prefix before it
+must be a DNS subdomain of at most 253 characters, so `/foo` (an empty prefix) and `a/b/c` are refused (#330). The loader
+refuses a declared key or an adoption label that breaks the rule. cmapi applies the rule to annotation keys as written,
+not lowercased, so it refuses an annotation prefix with capitals (`Example.com/abc`) that the API server would accept.
 
 `MetadataKeys.classify` gives each key one class. The approval rules read the class as the fact `keyClasses`.
 

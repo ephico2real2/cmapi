@@ -210,7 +210,11 @@ class MetadataKeys:
 
     @staticmethod
     def _prefix_in(prefix: str, patterns: list[str] | tuple[str, ...]) -> bool:
-        return any(fnmatchcase(prefix, p) if p else prefix == "" for p in patterns)
+        # A pattern names a prefix, and only "" admits a key with no prefix (docs/18, allowOther). The no-prefix case is
+        # not matched against the patterns, since fnmatchcase("", "*") is true (#331).
+        if not prefix:
+            return "" in patterns
+        return any(fnmatchcase(prefix, p) for p in patterns)
 
     def classify(self, key: str, kind: str | None = None) -> KeyClass:
         """The class of a key. With no kind, a key is governed or team when it is so as a label or an annotation."""
@@ -261,8 +265,11 @@ class MetadataKeys:
         merged = {"label": self.merge_patch(current_labels or {}, labels),
                   "annotation": self.merge_patch(current_annotations or {}, annotations)}
         for kind, items in (("label", labels), ("annotation", annotations)):
+            held = (current_labels if kind == "label" else current_annotations) or {}
             for key, value in items.items():
-                e = self._syntax(key, value, kind)
+                # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
+                # holds from before #330 ("/foo") can be removed, though no request may set it now.
+                e = None if value is None and key in held else self._syntax(key, value, kind)
                 if e:
                     errs.append(e)
                     continue
@@ -305,8 +312,11 @@ class MetadataKeys:
         return errs
 
     def _syntax(self, key: str, value: str | None, kind: str) -> dict[str, Any] | None:
-        prefix, _, name = key.rpartition("/")
-        if (prefix and (len(prefix) > 253 or not _DNS1123_SUB.fullmatch(prefix))) or \
+        # Kubernetes' IsLabelKey, which also checks annotation keys (#330): a "/" needs a prefix before it, so "/foo" has
+        # an empty prefix ("prefix part must be non-empty"), not none. A second "/" stays in the prefix, which the DNS
+        # subdomain check refuses.
+        prefix, slash, name = key.rpartition("/")
+        if (slash and (not prefix or len(prefix) > 253 or not _DNS1123_SUB.fullmatch(prefix))) or \
                 len(name) > 63 or not _NAME.fullmatch(name):
             return {"code": "invalid_key", "key": key}
         if kind == "label" and value not in (None, "") and (len(value) > 63 or not _NAME.fullmatch(value)):
