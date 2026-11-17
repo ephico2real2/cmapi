@@ -195,6 +195,8 @@ def test_readiness_refuses_garbage_and_a_divergent_revision(world, monkeypatch):
     monkeypatch.setattr(ctx.db, "schema_version", lambda: "0004")
     assert client.get("/readyz").status_code == 503, "0004 has no lock for applied and merge_failed (#286)"
     monkeypatch.setattr(ctx.db, "schema_version", lambda: "0005")
+    assert client.get("/readyz").status_code == 503, "0005 has no policy_rejections table (#302)"
+    monkeypatch.setattr(ctx.db, "schema_version", lambda: "0006")
     assert client.get("/readyz").status_code == 200
 
 

@@ -11,6 +11,8 @@ import httpx
 import yaml
 
 from cmapi.core.auth import Authenticator, Jwks
+from cmapi.core.clients.kube import KubeClient
+from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.capacity_backend import SimulatedCapacity
 from cmapi.core.config import InstanceConfig, load_instance
 from cmapi.core.db import Database
@@ -21,8 +23,9 @@ from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
 from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
+from cmapi.core.policybundle import PolicyBundle, bundle_files
 from cmapi.core.policygen import render_bundle
-from cmapi.core.registry import ClusterRegistry, DirImportSource, HubImportSource, ImportSource, load_policies
+from cmapi.core.registry import ClusterRegistry, ClusterState, DirImportSource, HubImportSource, ImportSource, load_policies
 from cmapi.core.sync import DeliveryConfig
 from cmapi.core.validate import CliValidator
 from cmapi.settings import Settings
@@ -44,6 +47,7 @@ class AppContext:
     capacity_cfg: dict[str, Any]
     issuer: str
     audience: str
+    bundle: PolicyBundle | None = None                      # the policies of the bundle, by environment (#302)
     deliverer_factory: Callable[[str], Any] | None = None   # tests inject a fake cluster write client
 
     def auto_paused(self) -> bool:
@@ -82,6 +86,18 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                          legacy_token_type=bool(inst["auth"].get("acceptLegacyTokenType", False)))
     CONFIG_INFO.labels("|".join(f"{k}={v}" for k, v in sorted(cfg.hashes.items()))[:200]).set(1)
 
+    # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures, and
+    # the Policies tab reads each cluster's reports against the same policies (#302).
+    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
+    policy_bundle = PolicyBundle(bundle_files(settings.policies_dir, bundle))
+
+    def reports_for(st: ClusterState, client: KubeClient) -> ReportCache | None:
+        """A report cache for a cluster whose environment runs Kyverno; none with engine none or mode off (no call at all)."""
+        env = st.environment
+        if env is None or cfg.policy.mode_for(env) == "off":
+            return None
+        return ReportCache(client, policy_bundle.for_environment(env), max_rows=cfg.policy.max_results_per_cluster)
+
     policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)
     if import_source is None:
         if settings.imports_dir:
@@ -90,7 +106,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
             import_source = HubImportSource(settings.kube_api_url, settings.kube_token_file, settings.kube_ca_file,
                                             settings.imports_namespace)
     registry = ClusterRegistry(policies, import_source, trusted_bundle=str(settings.ca_bundle) if settings.ca_bundle else None,
-                               start_caches=start_registry)
+                               start_caches=start_registry, reports_factory=reports_for)
     if start_registry:
         registry.start()
 
@@ -105,8 +121,6 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                         known_hosts_dir=settings.git_known_hosts_dir, ca_bundle=settings.git_ca_bundle or settings.ca_bundle,
                         username=g.get("username"), commit_email=g.get("commitEmail"), host_checks=bool(g.get("hostChecks", False)),
                         post_status=bool(g.get("postStatus", False)), size_limit=settings.git_workdir_limit_bytes)
-    # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures.
-    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
     validator = CliValidator(settings.policies_dir, schema_location=os.environ.get("CMAPI_KUBECONFORM_SCHEMAS") or None,
                              kubernetes_version=os.environ.get("CMAPI_KUBERNETES_VERSION") or None,
                              policy=cfg.policy, environments=cfg.allowed_environments, bundle=bundle)
@@ -131,7 +145,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                    Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
                                           "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
-                     capacity_cfg=capacity_cfg, issuer=issuer, audience=audience)
+                     capacity_cfg=capacity_cfg, issuer=issuer, audience=audience, bundle=policy_bundle)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []
     ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused)
     return ctx

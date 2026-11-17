@@ -372,6 +372,190 @@ class ExpirationPage(Api):
                         examples=["2026-11-16"])
 
 
+# --------------------------------------------------------------------------- policies (#302)
+
+PolicyMode = Literal["enforce", "audit", "off"]
+ReportState = Literal["ok", "loading", "not-installed", "forbidden", "unreachable", "stale", "capped", "drift", "mode-off",
+                      "engine-off"]
+
+
+class Policy(Api):
+    engine: Literal["kyverno", "none"] = Field(description="The policy engine of the instance: `kyverno`, or `none`, which runs no "
+                                                          "policy anywhere", examples=["kyverno"])
+    kyverno_version: str | None = Field(description="The Kyverno CLI that the image pins: the least version that the clusters must "
+                                                    "run. Null outside the image", examples=["v1.20.0"])
+    environments: dict[str, PolicyMode] = Field(description="The mode of each served environment: `audit` (the default: admitted, "
+                                                            "reported and warned), `enforce` (denied) or `off` (no policy)",
+                                                examples=[{"dev": "audit", "rnd": "audit"}])
+
+
+class PolicyCounts(Api):
+    pass_: int = Field(alias="pass", description="Results that passed", examples=[412])
+    fail: int = Field(description="Results that failed. In `audit` the resource was admitted and the failure recorded; in "
+                                  "`enforce` a failure at admission was denied, and a background scan still reports one", examples=[2])
+    warn: int = Field(description="Results of a policy that is not scored: Kyverno reports such a failure as warn", examples=[0])
+    error: int = Field(description="Results that Kyverno could not evaluate", examples=[0])
+    skip: int = Field(description="Results that did not apply", examples=[0])
+
+
+class PolicyHidden(Api):
+    unmanaged: int = Field(description="Results on namespaces that cmapi does not manage, and on cluster-scoped objects other than "
+                                       "a Namespace: counted, never listed", examples=[1840])
+    other_policies: int = Field(description="Results of policies that are not in the bundle of the cluster's environment",
+                                examples=[41])
+    stale: int = Field(description="Results of a bundle policy that is not on the cluster any more: Kyverno drops them at its "
+                                   "next reconcile", examples=[0])
+
+
+class PolicyBundleView(Api):
+    expected: int = Field(description="The policies of the bundle for the cluster's environment", examples=[31])
+    live: int = Field(description="Of those, the ones on the cluster", examples=[31])
+    current: int = Field(description="Of those, the ones whose `cmapi.net/policy-digest` is the render's", examples=[31])
+    ready: int = Field(description="Of those, the ones whose `status.conditionStatus.ready` is true", examples=[31])
+    missing: list[str] = Field(description="Bundle policies that are not on the cluster (at most 20 names)", examples=[[]])
+    differing: list[str] = Field(description="Bundle policies whose digest on the cluster is not the render's (at most 20)",
+                                 examples=[[]])
+    actions_differ: list[str] = Field(description="Rendered policies whose live `validationActions` are not those of the "
+                                                  "environment's mode (at most 20)", examples=[[]])
+    actions_differ_total: int = Field(description="How many rendered policies on the cluster have other `validationActions` "
+                                                  "than the mode's: `actionsDiffer` names 20 at most", examples=[0])
+
+
+class PolicyCluster(Api):
+    cluster_id: str = Field(description="Cluster", examples=["CRC"])
+    env: str = Field(description="Its environment", examples=["dev"])
+    mode: PolicyMode = Field(description="The mode that instance.yaml configures for the environment", examples=["audit"])
+    live_actions: list[str] = Field(description="The `validationActions` that the cluster's copies of the bundle carry: "
+                                                "`Audit` and `Warn` for audit, `Deny` for enforce. Empty when none is read",
+                                    examples=[["Audit", "Warn"]])
+    state: ReportState = Field(description="What can be said of the cluster's reports: `ok`; `loading` (not listed yet); "
+                                           "`not-installed` (discovery does not serve wgpolicyk8s.io/v1alpha2); `forbidden` "
+                                           "(cmapi-reader may not list the reports or the policies); `unreachable` (the cluster's "
+                                           "import is not connected); `stale` (no good read for 30 minutes: the counts are the "
+                                           "last ones read); `capped` (rows past policy.reports.maxResultsPerCluster are counted "
+                                           "and not listed); `drift` (the bundle on the cluster is not the render, or its actions "
+                                           "are not the mode's); `mode-off` (the environment's mode is off); `engine-off` "
+                                           "(policy.engine is none)", examples=["ok"])
+    state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
+    as_of: datetime | None = Field(description="The last good read of the reports, or for `unreachable` the last check of the "
+                                               "cluster", examples=["2026-11-17T18:02:11Z"])
+    bundle: PolicyBundleView | None = Field(description="The bundle on the cluster against the render. Null when the policies "
+                                                        "are not read", examples=[None])
+    counts: PolicyCounts | None = Field(description="Results of the bundle's policies on the managed namespaces. Null, never "
+                                                    "zero, when they are not known", examples=[None])
+    hidden: PolicyHidden | None = Field(description="Results that are counted and not shown. Null when the counts are null",
+                                        examples=[None])
+    dropped: int | None = Field(description="Rows past the cap, counted in `counts` and not listed. Null when the counts are null",
+                                examples=[0])
+
+
+class PolicyCheck(Api):
+    kind: str = Field(description="What the rendered policy checks: label, annotation, quota or limit", examples=["label"])
+    key: str | None = Field(description="The key it checks; null for a rule over the keys that no stanza declares",
+                            examples=["cmapi.net/team"])
+    rule: str = Field(description="The rule: required, pattern, enum, max, prefix and the others of core/policygen.py",
+                      examples=["pattern"])
+
+
+class PolicySummary(Api):
+    name: str = Field(description="The policy's name, from the bundle", examples=["cmapi-metadata-dev-label-cmapi-net-team-pattern"])
+    kind: str = Field(description="Its kind", examples=["ValidatingPolicy"])
+    description: str | None = Field(description="`policies.kyverno.io/description`", examples=["The labels and annotations that "
+                                                                                               "metadata-keys.yaml requires"])
+    check: PolicyCheck | None = Field(description="What a rendered policy checks, from the bundle's index.json; null for a "
+                                                  "hand-written policy", examples=[None])
+    environments: list[str] = Field(description="The environments in scope whose bundle has it", examples=[["dev"]])
+    generated: bool = Field(description="True for a policy that cmapi renders from its configuration", examples=[True])
+    counts: PolicyCounts | None = Field(description="Its results over the clusters in scope that run it and have counts, "
+                                                    "following `clusterId`, `env` and `namespace`. Null, never zero, when no such "
+                                                    "cluster has counts: Kyverno not installed, the policy not on the cluster, "
+                                                    "the reports not readable or not listed yet", examples=[None])
+
+
+class PolicyResource(Api):
+    api_version: str = Field(description="apiVersion", examples=["v1"])
+    kind: str = Field(description="Kind", examples=["Namespace"])
+    name: str = Field(description="Name", examples=["orders-dev"])
+
+
+class PolicyResultRow(Api):
+    cluster_id: str = Field(description="Cluster", examples=["CRC"])
+    env: str = Field(description="Environment", examples=["dev"])
+    mode: PolicyMode = Field(description="The environment's mode: in `audit` the resource was admitted, in `enforce` an "
+                                         "admission was denied", examples=["audit"])
+    namespace: str = Field(description="The managed namespace: the resource's, or the Namespace itself", examples=["orders-dev"])
+    resource: PolicyResource = Field(description="The resource the result is about")
+    policy: str = Field(description="The policy", examples=["cmapi-metadata-dev-label-other-keys-prefix"])
+    rule: str | None = Field(description="The rule: index.json's rule of a rendered policy, else Kyverno's own rule",
+                             examples=["prefix"])
+    kyverno_rule: str | None = Field(description="Kyverno's own rule name from the report (`validation` for a ValidatingPolicy)",
+                                     examples=["validation"])
+    result: Literal["fail", "warn", "error"] = Field(description="The verdict", examples=["fail"])
+    message: str = Field(description="Kyverno's message, at most 300 characters",
+                         examples=["the label keys other.example/x are not declared in metadata-keys.yaml"])
+    process: str | None = Field(description="`admission review` or `background scan`", examples=["background scan"])
+    source: str | None = Field(description="The result's source, as Kyverno writes it", examples=["KyvernoValidatingPolicy"])
+    observed_at: datetime | None = Field(description="The result's timestamp", examples=["2026-11-17T17:58:40Z"])
+
+
+class PolicyResultPage(Api):
+    policy: Policy = Field(description="The engine, the pinned Kyverno version and each environment's mode: the `policy` object "
+                                       "of GET /api/v1/admin/integrations")
+    clusters: list[PolicyCluster] = Field(description="Each cluster of an environment where the caller holds objects:read")
+    policies: list[PolicySummary] = Field(description="Each policy of the bundles of those environments, with its counts")
+    items: list[PolicyResultRow] = Field(description="One page of fail, warn and error results on managed namespaces")
+    page: PageInfo = Field(description="Paging")
+    letters: dict[str, int] = Field(description="Rows per first letter of the namespace", examples=[{"O": 1}])
+
+
+class RejectionFinding(Api):
+    source: str = Field(description="`cmapi` (its own checks), `kyverno`, `kubeconform`, or `ci` (the Git host's CI)",
+                        examples=["cmapi"])
+    policy: str = Field(description="The policy or check: a Kyverno policy, `metadata-keys`, a problem code, `cmapi-check`",
+                        examples=["metadata-keys"])
+    rule: str | None = Field(description="The rule: the error's code for cmapi, index.json's rule of a rendered policy",
+                             examples=["invalid_value"])
+    kyverno_rule: str | None = Field(description="Kyverno's own rule name, for a Kyverno finding", examples=[None])
+    path: str | None = Field(description="Where: `labels/<key>`, or the file of the plan", examples=["labels/cmapi.net/team"])
+    severity: Literal["error", "warning"] = Field(description="`error` refused; `warning` reported only (audit)",
+                                                  examples=["error"])
+    message: str = Field(description="What it said, at most 300 characters", examples=["must match ^[a-z][a-z0-9-]{1,30}$"])
+
+
+class Rejection(Api):
+    id: str = Field(description="`rej-<n>`; never a request ID", examples=["rej-1042"])
+    first_at: datetime = Field(description="When it was first refused on its UTC day: the order of the list", examples=["2026-11-17T17:02:11Z"])
+    last_at: datetime = Field(description="When it was last refused that day", examples=["2026-11-17T17:05:40Z"])
+    count: int = Field(description="How many times that day", examples=[2])
+    stage: Literal["plan", "ci"] = Field(description="`plan` (the API's plan) or `ci` (the worker's checks of the pull request)",
+                                         examples=["plan"])
+    outcome: Literal["refused", "warned"] = Field(description="`refused`, or `warned`: Kyverno's findings on a plan that went on to "
+                                                              "a request", examples=["refused"])
+    problem: str | None = Field(description="The problem code of the 422 of a refused plan", examples=["policy-violation"])
+    cluster_id: str = Field(description="Cluster", examples=["CRC"])
+    env: str = Field(description="Environment", examples=["dev"])
+    namespace: str = Field(description="Namespace", examples=["checkout-dev"])
+    plugin: str = Field(description="Plugin", examples=["namespaces"])
+    action: str = Field(description="`create`, `update`, `delete`, `expiration:extend`, `expiration:set` or "
+                                    "`expiration:makePermanent`", examples=["create"])
+    request_id: str | None = Field(description="The request of a warned plan or a CI refusal; null for a refused plan, which "
+                                               "never became one", examples=[None])
+    username: str = Field(description="Who asked: the username only, never the email, the employee ID or the justification",
+                          examples=["ola"])
+    automated: bool = Field(description="A service client or an automation account", examples=[False])
+    findings: list[RejectionFinding] = Field(description="Each error and warning, at most 20")
+
+
+class RejectionPage(Api):
+    since: str = Field(description="The window asked for, in days", examples=["7d"])
+    from_: datetime = Field(alias="from", description="The start of the window", examples=["2026-11-10T18:02:11Z"])
+    truncated: bool = Field(description="True when the window holds more than the 10,000 newest rows that one list reads",
+                            examples=[False])
+    items: list[Rejection] = Field(description="One page, newest first")
+    page: PageInfo = Field(description="Paging")
+    letters: dict[str, int] = Field(description="Rows per first letter of the namespace", examples=[{"C": 1}])
+
+
 class Suggestion(Api):
     name: str = Field(description="Namespace", examples=["payments-dev"])
     cluster_id: str = Field(description="Cluster", examples=["CRC"])

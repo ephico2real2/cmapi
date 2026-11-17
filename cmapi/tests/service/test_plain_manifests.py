@@ -565,10 +565,14 @@ def test_none_of_the_old_names_is_in_what_ships():
 
 
 def test_crc_reader_reads_only_what_the_code_reads():
-    from_code = {"namespaces", "resourcequotas", "limitranges", "pods", "persistentvolumeclaims"}
+    from cmapi.core.clients.kube import RESOURCES
+    from cmapi.core.clients.policyreports import POLICY_KINDS, REPORT_KINDS
+    # The core kinds of the WatchCache and the workload counts, and (#302) the kinds of the report cache, by their API group.
+    from_code = {("", r) for r in ("namespaces", "resourcequotas", "limitranges", "pods", "persistentvolumeclaims")}
+    from_code |= {(RESOURCES[k][0].split("/")[2], RESOURCES[k][0].rsplit("/", 1)[1]) for k in REPORT_KINDS + POLICY_KINDS}
     rules = crc("ClusterRole", "cmapi-reader")["rules"]
-    assert {r for rule in rules for r in rule["resources"]} == from_code
-    assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules) and all(rule["apiGroups"] == [""] for rule in rules)
+    assert {(g, r) for rule in rules for g in rule["apiGroups"] for r in rule["resources"]} == from_code
+    assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules)
     token = crc("Secret", "cmapi-reader-token")
     assert "data" not in token and "stringData" not in token, "the controller fills it; no value in Git"
     assert token["type"] == "kubernetes.io/service-account-token"

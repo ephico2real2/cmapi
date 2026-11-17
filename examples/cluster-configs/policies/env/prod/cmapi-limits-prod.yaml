@@ -7,6 +7,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 0e60c5c7ac62fa356bbb09961a6676eeee07dce623282b90b019020d269df2b8
 spec:
   validationActions:
   - Audit
@@ -44,6 +45,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: fd6745dedeae322409c178c73a0f2b32dc8cd8887bf4ec80b9dde1a0c8d8d8fe
 spec:
   validationActions:
   - Audit
@@ -81,6 +83,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: c6933f55cb87170640d422a2c80f900bf03db2b2f78f5c362d88f4e1ec735f6c
 spec:
   validationActions:
   - Audit
@@ -118,6 +121,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: b537a6a15647cba37dd35e98d6a687997c70f539e9c506ccefc09e4a4deb442c
 spec:
   validationActions:
   - Audit
@@ -155,6 +159,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 72779195c2427fc9f8f8ec62fdad5934ef5c8be4b4ed9226e4ff9b7526133c18
 spec:
   validationActions:
   - Audit
@@ -192,6 +197,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 64a7c064cc0ce37efd28d9fcb9f04f5a3349857111df55d1330227ee98938537
 spec:
   validationActions:
   - Audit
@@ -229,6 +235,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 9158e8c0d34b52d2649be98ee9959e0700a1065a50a83bd899994368242d1697
 spec:
   validationActions:
   - Audit
@@ -263,6 +270,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: e248a8ba4116bffc1dd14c13f54bfa795465ecd629efb583ea9449388eb980e6
 spec:
   validationActions:
   - Audit
@@ -297,6 +305,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: bd217ec82352dd525a136d585b36bea442e47665b829ee2e19794dffd53dfcf9
 spec:
   validationActions:
   - Audit
@@ -331,6 +340,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 6b45defa9926d002296fc35f44b54c4694785304e06f73c8692990ad5848963e
 spec:
   validationActions:
   - Audit

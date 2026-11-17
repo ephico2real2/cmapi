@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { COMPANY_KEYS, expirationsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
+import { COMPANY_KEYS, expirationsFrom, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
+  startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -31,13 +32,13 @@ let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
 async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
-  expirations = [], never = false, metadataKeys = REFERENCE_KEYS } = {}) {
+  expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3) } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map() });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -2746,6 +2747,301 @@ try {
     for (const [view, user, reach] of VIEWS) {
       for (const width of [390, 820, 1440]) {
         const { context, page, errors } = await quotaFresh({ user, width, kpi: podKpi });
+        await reach(page);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
+          await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
+  });
+
+  // Portal slice 4, the Policies part (#302). The fleet is CRC with 30 failing, warning and erroring rows built from the recorded
+  // row of GET /api/v1/policies/results, and one cluster in each other state of the API. Each expectation is written from the
+  // mockup's forms (policiesView()) and the API's contract, not from the page's code.
+  const polCalls = () => calls("/api/v1/policies/results");
+  const refusedCalls = () => calls("/api/v1/policies/rejections");
+  const sentPol = (want, why) => assert.ok(polCalls().some((c) => isDeepStrictEqual(c.query, want)), `${why}: ${JSON.stringify(want)} was not sent; the calls were ${JSON.stringify(polCalls().map((c) => c.query))}`);
+  const tableRows = (page, label) => page.locator(`table[aria-label="${label}"] tbody tr`).evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
+  const polCard = (page, title) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: title }) });
+  const openPol = async (page, hash = "#policies") => {
+    await open(page, hash);
+    await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+  };
+  // The mockup's cluster row: id, env, the mode, the bundle, ready, the four counts ("—", never 0, when unknown) and the state's word.
+  const STATE_WORD = { ok: () => "ok", "not-installed": () => "Kyverno not installed", forbidden: () => "no access to the reports", unreachable: (c) => `unreachable since ${c.asOf.slice(11, 16)}`,
+    stale: (c) => `stale since ${c.asOf.slice(11, 16)}`, capped: (c) => `${c.dropped} rows not listed`, drift: () => "off the bundle", loading: () => "loading", "mode-off": () => "mode off", "engine-off": () => "Kyverno off" };
+  const n = (v) => (v === null || v === undefined ? "—" : String(v));
+  const expectedCluster = (c) => {
+    const b = c.bundle, off = b ? [b.expected - b.live && `${b.expected - b.live} missing`, b.live - b.current && `${b.live - b.current} differ`, b.actionsDifferTotal && `${b.actionsDifferTotal} with other actions`].filter(Boolean) : [];
+    return [c.clusterId, c.env, c.mode, b ? (off.length ? off.join(", ") : "current") : "—", b ? `${b.ready} / ${b.expected}` : "—", n(c.counts?.pass), n(c.counts?.fail), n(c.counts?.warn), n(c.counts?.error), STATE_WORD[c.state](c)];
+  };
+  const keyOfRow = (r) => [r.namespace, r.resource.kind, r.resource.name, r.policy, r.kyvernoRule ?? ""].join("/");
+  const byKey = (a, b) => (keyOfRow(a) < keyOfRow(b) ? -1 : keyOfRow(a) > keyOfRow(b) ? 1 : 0);
+  const expectedResult = (r) => [r.namespace, `${r.resource.kind}/${r.resource.name}`, `${r.policy}${r.rule ? ` rule ${r.rule}` : ""}`, r.result, r.message, r.clusterId];
+
+  await check("20 Policies: the clusters, the policies and the rows of GET /api/v1/policies/results cell by cell; a state is never a zero; the cluster chips, Show failures and the pages are API parameters", async () => {
+    const fleet = policyFleet();
+    const { context, page, errors } = await fresh({ policies: fleet });
+    await openPol(page);
+    assert.deepEqual(await tableRows(page, "Clusters"), fleet.clusters.map(expectedCluster));
+    const unknown = (await tableRows(page, "Clusters")).filter((r) => ["Kyverno not installed", "no access to the reports"].includes(r[9]) || r[9].startsWith("unreachable"));
+    assert.equal(unknown.length, 3);
+    assert.ok(unknown.every((r) => r.slice(5, 9).every((v) => v === "—")), "a cluster whose counts are unknown shows —, never 0");
+    // Each state's tone: unreachable and forbidden danger, capped, stale and drift warning, the rest info, ok success (the mockup's stateTone).
+    const tones = await polCard(page, "Clusters").locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.lastElementChild.querySelector(".pf-v6-c-label").className.match(/pf-m-(success|warning|danger|info)/)?.[1] ?? "grey"));
+    assert.deepEqual(tones, ["success", "warning", "danger", "info", "danger", "warning", "warning"]);
+    const lede = await panel(page).locator("p").first().innerText();
+    assert.equal(lede, `What the Kyverno bundle decided on each cluster of the nonprod instance, read from the policy reports, beside cmapi's own refusals at plan time and in CI. The same bundle runs in all three places. Pinned for this instance: ${fleet.policy.kyvernoVersion ? `Kyverno ${fleet.policy.kyvernoVersion}` : "no Kyverno CLI pinned (outside the image)"}; audit in dev, rnd.`);
+    const failing = fleet.clusters.reduce((t, c) => t + (c.counts?.fail ?? 0), 0);
+    await panel(page).getByText(`${failing} failing · 1 cluster off the bundle`).waitFor();
+    // The policies: the API's, from the bundle, each with what it checks and its counts. None is named by the page.
+    await panel(page).getByText("1840 results on namespaces that cmapi does not manage, 41 of other policies and 2 of policies no longer on the cluster are counted and not shown.").waitFor();
+    const policyRows = await tableRows(page, "Results by policy");
+    assert.equal(policyRows.length, fleet.policies.length);
+    const first = fleet.policies[0];
+    assert.deepEqual(policyRows[0].slice(0, 3), [first.name, first.kind, `${first.check.kind} ${first.check.key ?? "keys that no stanza declares"}: ${first.check.rule}`]);
+    // The rows: by namespace, 25 a page, then the rest.
+    const ordered = [...fleet.items].sort(byKey);
+    assert.deepEqual(await tableRows(page, "Failing resources"), ordered.slice(0, 25).map(expectedResult));
+    sentPol({ result: "fail,warn,error", limit: "25" }, "the first call");
+    const pills = await polCard(page, /^Failing, warning and erroring resources/).locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.children[3].querySelector(".pf-v6-c-label").className.match(/pf-m-(success|warning|danger|info)/)?.[1]));
+    assert.deepEqual(pills, ordered.slice(0, 25).map((r) => ({ fail: "danger", warn: "warning", error: "info" })[r.result]), "fail danger, warn warning, error info");
+    await polCard(page, /^Failing, warning and erroring resources/).getByRole("button", { name: "Next ›" }).click();
+    await panel(page).getByText("26–30 of 30 · by namespace").waitFor();
+    assert.deepEqual(await tableRows(page, "Failing resources"), ordered.slice(25).map(expectedResult));
+    await polCard(page, /^Failing, warning and erroring resources/).getByRole("button", { name: "‹ Previous" }).click();
+    await panel(page).getByText("1–25 of 30 · by namespace").waitFor();
+    // A chip is the API's clusterId; Show failures is its policy. Each is a new first page, and in the address.
+    await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click();
+    await page.waitForFunction(() => location.hash === "#policies?cluster=CRC");
+    sentPol({ result: "fail,warn,error", limit: "25", clusterId: "CRC" }, "the chip");
+    const second = ordered.find((r) => r.policy !== ordered[0].policy).policy;
+    await polCard(page, "Results by policy").locator("tbody tr").filter({ hasText: second }).getByRole("button", { name: "Show failures" }).click();
+    await panel(page).getByRole("heading", { name: `Failing, warning and erroring resources · ${second} · CRC` }).waitFor();
+    sentPol({ result: "fail,warn,error", limit: "25", clusterId: "CRC", policy: second }, "Show failures");
+    assert.deepEqual(await tableRows(page, "Failing resources"), ordered.filter((r) => r.policy === second).slice(0, 25).map(expectedResult));
+    await panel(page).getByText(`GET /api/v1/policies/results?result=fail,warn,error&clusterId=CRC&policy=${second} · filtered to the environments your roles cover · paged like every list.`).waitFor();
+    await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).click();
+    await panel(page).getByRole("heading", { name: "Failing, warning and erroring resources · CRC", exact: true }).waitFor();
+    // Clusters whose counts are unknown are no chip: the mockup's chips are the live clusters.
+    assert.deepEqual(await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button").allInnerTexts(), ["All clusters", ...fleet.clusters.filter((c) => c.counts !== null).map((c) => c.clusterId)]);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("20 Policies: the refusals of GET /api/v1/policies/rejections, with the stage, the policy or check, Kyverno's warnings beside cmapi's errors, and the username only", async () => {
+    const rejections = rejectionsFrom(3);
+    const { context, page, errors } = await fresh({ rejections });
+    await openPol(page);
+    await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
+    const got = await tableRows(page, "Refused by cmapi");
+    const [plan, warned, ci] = rejections;
+    assert.equal(got.length, 3);
+    assert.deepEqual(got[0].slice(1, 3), [`${plan.clusterId} · ${plan.namespace}`, "plan (422)"]);
+    assert.equal(got[0][3], "metadata-keys rule reserved_key");
+    assert.equal(got[0][4], `kubernetes.io/team is reserved; use cmapi.net/team (2 times that day) warning: ${plan.findings[1].policy} ${plan.findings[1].rule}: ${plan.findings[1].message}`);
+    assert.equal(got[0][5], plan.username);
+    assert.deepEqual(got[1].slice(2, 4), ["plan, warned", `${warned.findings[0].policy} rule ${warned.findings[0].rule}`]);
+    assert.deepEqual([got[2][2], got[2][3]], ["CI", "cmapi-check"]);
+    assert.equal(got[2][4], ci.findings[0].message);
+    const text = await polCard(page, "Refused by cmapi before Git · last 7 days").innerText();
+    assert.doesNotMatch(text, /@|employee|justification/i, "no email, employee ID or justification");
+    assert.ok(refusedCalls().every((c) => c.query.since === "7d"), "the mockup's window");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("21 Policies states: loading, empty, a 403, a 5xx with Try again, a stale cursor, the refusals' 403 in their panel only, and engine none", async () => {
+    {
+      const { context, page, errors } = await fresh();
+      api.state.delayMs = 400;
+      await page.goto(`${portal.page}#policies`);
+      await page.getByRole("status").filter({ hasText: "Loading the policy results…" }).waitFor();
+      await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+      api.state.delayMs = 0;
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ mode: "empty" });
+      await openPol(page);
+      await panel(page).getByText("Nothing failing for this selection.").waitFor();
+      await panel(page).getByText("Nothing refused in the last 7 days.").waitFor();
+      await panel(page).getByText("0 results", { exact: true }).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      expectedStatus = [403];
+      const { context, page, errors } = await fresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/policies/results", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission objects:read: no role in your token grants it (roles: ['cmapi-none'])" } });
+      await open(page, "#policies");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see policy results." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission objects:read/);
+      assert.equal(await panel(page).getByRole("button", { name: "Try again" }).count(), 0, "a 403 offers no action");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/policies/results", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The watch cache did not answer." } });
+      await open(page, "#policies");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The policy results did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The watch cache did not answer\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      await openPol(page);
+      expectedStatus = [400];
+      api.state.answers.push({ route: "GET /api/v1/policies/results", status: 400, body: { type: "https://cmapi.ephico2real.com/problems/invalid-cursor", title: "invalid-cursor", status: 400, code: "invalid-cursor", detail: "Filters or sort changed since this cursor was issued" } });
+      await polCard(page, /^Failing, warning and erroring resources/).getByRole("button", { name: "Next ›" }).click();
+      await panel(page).getByText("This page link is out of date").waitFor();
+      await panel(page).getByRole("button", { name: "Back to the first page" }).click();
+      await panel(page).getByText("1–25 of 30 · by namespace").waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // The refusals fail on their own: the results stay, and the 403 is in the refusals' panel only.
+      const { context, page, errors } = await fresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/policies/rejections", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission requests:read: no role in your token grants it (roles: ['cmapi-none'])" } });
+      await openPol(page);
+      await polCard(page, "Refused by cmapi before Git · last 7 days").getByRole("heading", { name: "You do not have permission to see the refusals." }).waitFor();
+      assert.equal((await tableRows(page, "Failing resources")).length, 25);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // policy.engine none: the tab says Kyverno is off and shows cmapi's refusals only.
+      const off = policyFleet([]);
+      off.policy = { ...off.policy, engine: "none", environments: { dev: "off", rnd: "off" } };
+      off.clusters = off.clusters.slice(0, 1).map((c) => policyCluster(c, { clusterId: c.clusterId, state: "engine-off", mode: "off", stateDetail: "policy.engine is none on this instance: no Kyverno runs and no report is read" }));
+      off.policies = [];
+      const { context, page, errors } = await fresh({ policies: off });
+      await open(page, "#policies");
+      await panel(page).getByText("Kyverno is off on this instance").waitFor();
+      await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
+      assert.equal(await panel(page).locator("table[aria-label=Clusters], table[aria-label='Results by policy'], table[aria-label='Failing resources']").count(), 0, "no results panel with engine none");
+      assert.match(await panel(page).locator("p").first().innerText(), /Pinned for this instance: no policy engine \(policy\.engine: none\)\.$/);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("22 Policies: no zero for what is not known: a policy on no cluster with counts, the head with no cluster counted, and CRC with Kyverno and none of cmapi's policies (OB3, #384)", async () => {
+    // Kyverno not installed anywhere: no count is known, so no 0 is shown, in the head or in the policies.
+    const none = policyFleet([]);
+    none.clusters = none.clusters.filter((c) => c.state === "not-installed");
+    none.perCluster = {};
+    {
+      const { context, page, errors } = await fresh({ policies: none });
+      await openPol(page);
+      await panel(page).getByText("— failing · 0 clusters off the bundle").waitFor();
+      const rows = await tableRows(page, "Results by policy");
+      assert.equal(rows.length, none.policies.length);
+      assert.ok(rows.every((r) => r.slice(3, 7).every((v) => v === "—")), `a policy with no known count shows —, never 0: ${JSON.stringify(rows[0])}`);
+      assert.equal(await panel(page).getByText(/results on namespaces that cmapi does not manage/).count(), 0, "no hidden counts are known");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    // CRC since 2026-11-17: Kyverno installed, the 31 policies of dev not delivered. The API names 20 of the missing and counts 31.
+    const crc = policyFleet([]);
+    const base = crc.clusters[0], names = crc.policies.map((p) => p.name);
+    crc.clusters = [{ ...base, state: "drift", stateDetail: `${names.length} missing, 0 differ from the render, 0 without the actions Audit, Warn of mode audit`,
+      liveActions: [], counts: { pass: 0, fail: 0, warn: 0, error: 0, skip: 0 }, hidden: { unmanaged: 0, otherPolicies: 0, stale: 0 },
+      bundle: { ...base.bundle, expected: names.length, live: 0, current: 0, ready: 0, missing: names.slice(0, 20), differing: [], actionsDiffer: [], actionsDifferTotal: 0 } }];
+    crc.perCluster = {};
+    {
+      const { context, page, errors } = await fresh({ policies: crc });
+      await openPol(page);
+      const [row] = await tableRows(page, "Clusters");
+      assert.deepEqual(row, ["CRC", "dev", "audit", `${names.length} missing`, `0 / ${names.length}`, "0", "0", "0", "0", "off the bundle"]);
+      await panel(page).getByText("0 failing · 1 cluster off the bundle").waitFor();
+      assert.ok((await tableRows(page, "Results by policy")).every((r) => r.slice(3, 7).every((v) => v === "—")), "a policy not on the cluster has no count");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("6 the Policies tab says what the mockup says, and adds only what is listed", async () => {
+    const fleet = policyFleet();
+    const { context, page, errors } = await fresh({ policies: fleet });
+    const shown = [];
+    await openPol(page);
+    await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
+    assert.deepEqual(await panel(page).getByRole("heading", { level: 1 }).allInnerTexts(), ["Policies"], "the mockup's heading");
+    shown.push(...await shownText(page));
+    await polCard(page, "Results by policy").locator("tbody tr").first().getByRole("button", { name: "Show failures" }).click();
+    await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).waitFor();
+    shown.push(...await shownText(page));
+    api.state.mode = "empty";
+    await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click();
+    await panel(page).getByText("Nothing failing for this selection.").waitFor();
+    shown.push(...await shownText(page));
+    await context.close();
+    // The mockup's clusters footnote names a bundle tag and an alert that cmapi has not: the page says what it reads (MOCKUP-CONTRACT.md).
+    const MOCKUP_ONLY = ["Kyverno not installed, an unreachable cluster, and results dropped by the report size breaker show as states, never as zero. A cluster on another bundle tag than the pinned one raises CmapiPolicyBundleDrift after 30 minutes."];
+    const fromMockup = mockupBlock("isPolicies", "isCapacity").filter((t) => !MOCKUP_ONLY.includes(t));
+    const data = [...fleet.clusters.flatMap((c) => [c.clusterId, c.env, c.mode, c.stateDetail && `${c.clusterId}: ${c.stateDetail}.`]), ...fleet.policies.flatMap((p) => [p.name, p.kind]),
+      ...fleet.items.flatMap((r) => [r.namespace, r.policy, r.message, r.result, `${r.resource.kind}/${r.resource.name}`]),
+      ...api.state.rejections.flatMap((r) => [r.username, `${r.clusterId} · ${r.namespace}`, ...r.findings.flatMap((f) => [f.policy, f.message]),
+        r.count > 1 && `${r.findings[0].message} (${r.count} times that day)`])].filter(Boolean);
+    // The mockup's logic builds these (policiesView()).
+    const FROM_LOGIC = [/^\d+$/, /^—$/, /^\d+ \/ \d+$/, /^\d+ failing · \d+ clusters? off the bundle$/, /^Failing, warning and erroring resources( · [\w-]+)?( · [A-Z0-9_]+)?$/, /^(plan \(422\)|plan, warned|CI)$/,
+      /^([A-Z][a-z]{2} \d{1,2} )?\d{2}:\d{2}$/, "All clusters", "Show failures", "Showing", "ok", "Kyverno not installed", /^unreachable since \d{2}:\d{2}$/];
+    // The portal's own words, each in MOCKUP-CONTRACT.md.
+    const ADDED = ["Mode", "By", "current", "off the bundle", "no access to the reports", /^\d+ rows not listed$/, /^stale since \d{2}:\d{2}$/, /^\d+ missing(, \d+ differ)?$/, /^rule [\w-]+$/,
+      /^(label|annotation|quota|limit) [\w./-]+: [\w-]+$/, /^(label|annotation) keys that no stanza declares: [\w-]+$/, /^\d+–\d+ of \d+ · (by namespace|newest first)$/, "0 results",
+      /^What the Kyverno bundle decided on each cluster of the nonprod instance, read from the policy reports, beside cmapi's own refusals at plan time and in CI\. The same bundle runs in all three places\. Pinned for this instance: (Kyverno v[\d.]+|no Kyverno CLI pinned \(outside the image\)); audit in dev, rnd\.$/,
+      "Kyverno not installed, an unreachable cluster, reports that cmapi-reader may not read, and rows past the cap show as states, never as zero. A cluster whose policies differ from what cmapi renders, by digest or by their actions, is off the bundle.",
+      /^\d+ results on namespaces that cmapi does not manage, \d+ of other policies and \d+ of policies no longer on the cluster are counted and not shown\.$/,
+      /^GET \/api\/v1\/policies\/results\?result=fail,warn,error(&clusterId=[A-Z0-9_]+)?(&policy=[\w-]+)? · filtered to the environments your roles cover · paged like every list\.$/,
+      /^\(\d+ times that day\)$/, /^(warning|error): [\w-]+( [\w-]+)?: /, "Nothing refused in the last 7 days.", "Cluster", "Failing resources", "Refused by cmapi", "Results by policy", "Clusters",
+      "nonprod", "dev", "rnd", "Action", "‹ Previous", "Next ›"];
+    const strings = [...data, ...FROM_LOGIC, ...ADDED].filter((k) => typeof k === "string");
+    const patterns = [...FROM_LOGIC, ...ADDED].filter((k) => k instanceof RegExp);
+    const counted = compare("Policies", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+    console.log(`  strings of the mockup compared on the Policies tab: ${counted}`);
+    assert.deepEqual(errors, []);
+  });
+
+  await check("7 the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+    const VIEWS = [
+      ["policies", async (page) => { await openPol(page); await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor(); }],
+      ["policies-policy", async (page) => {
+        await openPol(page, `#policies?cluster=CRC&policy=${policyFleet().items[0].policy}`);
+        await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).waitFor();
+      }]
+    ];
+    let scans = 0;
+    for (const [view, reach] of VIEWS) {
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await fresh({ width });
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");

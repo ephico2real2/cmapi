@@ -1,0 +1,32 @@
+_________________ test_a_failed_write_leaves_the_422_unchanged _________________
+    def test_a_failed_write_leaves_the_422_unchanged(world, fresh_db, monkeypatch):
+FAILED tests/service/test_policies_302.py::test_kyverno_not_installed_is_a_state_from_discovery_with_null_counts
+FAILED tests/service/test_policies_302.py::test_a_403_on_the_list_is_forbidden_not_not_installed
+FAILED tests/service/test_policies_302.py::test_an_unreachable_cluster_keeps_its_state_and_the_time_of_its_check
+FAILED tests/service/test_policies_302.py::test_a_cluster_not_listed_yet_is_loading
+FAILED tests/service/test_policies_302.py::test_past_the_cap_rows_are_counted_not_listed
+FAILED tests/service/test_policies_302.py::test_the_mode_off_reads_nothing - ...
+FAILED tests/service/test_policies_302.py::test_engine_none_reads_no_report_and_still_lists_cmapis_refusals
+FAILED tests/service/test_policies_302.py::test_a_refusal_is_stored_with_the_username_only
+FAILED tests/service/test_policies_302.py::test_a_dry_run_is_counted_not_stored
+FAILED tests/service/test_policies_302.py::test_cmapis_own_refusals_are_counted_as_validation_failures
+FAILED tests/service/test_policies_302.py::test_a_failed_write_leaves_the_422_unchanged
+FAILED tests/service/test_policies_302.py::test_kyvernos_warnings_on_an_accepted_plan_are_stored_with_the_request
+FAILED tests/service/test_policies_302.py::test_a_ci_refusal_is_stored_with_its_request
+FAILED tests/service/test_policies_302.py::test_rejections_scope_window_and_retention
+FAILED tests/service/test_policies_302.py::test_the_retention_is_a_key_of_the_instance
+FAILED tests/service/test_policies_302.py::test_the_integrations_policy_is_the_named_schema
+FAILED tests/service/test_policies_302.py::test_kyvernos_rule_is_kept_in_a_finding
+ERROR tests/service/test_policies_302.py::test_stale_reports_keep_their_counts_and_say_so
+ERROR tests/service/test_policies_302.py::test_ok_counts_the_managed_namespaces_and_hides_the_rest_by_count
+ERROR tests/service/test_policies_302.py::test_rows_carry_the_policy_the_rule_and_the_message
+ERROR tests/service/test_policies_302.py::test_the_policies_come_from_the_bundle_with_their_counts
+ERROR tests/service/test_policies_302.py::test_drift_by_digest_by_absence_and_by_the_actions_of_the_mode
+ERROR tests/service/test_policies_302.py::test_an_unscored_warn_stays_warn_in_audit
+ERROR tests/service/test_policies_302.py::test_a_caller_sees_only_the_environments_of_its_roles
+ERROR tests/service/test_policies_302.py::test_filters_and_paging_are_stable_while_verdicts_change
+ERROR tests/service/test_policies_302.py::test_reports_are_listed_in_chunks_and_kept_small
+17 failed, 1 passed, 9 errors in 38.37s
+E           psycopg.errors.UndefinedTable: relation "policy_rejections" does not exist
+../../../ob1-run/venv/lib/python3.12/site-packages/psycopg/cursor.py:117: UndefinedTable
+E           sqlalchemy.exc.ProgrammingError: (psycopg.errors.UndefinedTable) relation "policy_rejections" does not exist

@@ -336,6 +336,21 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rows = {i["name"]: (i["expiresAt"], i["state"], i["openRequest"]) for i in listed.json()["items"]}
     assert rows["notes-dev"] == (until, "active", None) and rows["sprint-dev"][2] == permanent.json()["requestId"], listed.text
 
+    # ---- policies (#302): Kyverno v1.20 on the cluster in audit, one namespace failing a rendered policy, and the refusals
+    # above (the reserved name kube-tools) as cmapi stored them
+    from test_policies_302 import KYVERNO, live_bundle, ns_report, pick, result
+    kube.served_groups = set(KYVERNO)
+    live_bundle(kube, ctx)
+    ns_report(kube, "payments-dev", [result(pick(ctx, "prefix"), "fail", "the label keys other.example/x are not declared in "
+                                     "metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes"),
+                                     result(pick(ctx, "max"), "pass")])
+    ctx.registry.cache("CRC")._list("Namespace")
+    ctx.registry.clusters["CRC"].reports.sync()
+    found = rec.call("policies_results", "GET", "/api/v1/policies/results?limit=25", ola)
+    assert found.status_code == 200 and found.json()["items"], found.text
+    refused = rec.call("policies_rejections", "GET", "/api/v1/policies/rejections?since=7d", ola)
+    assert refused.status_code == 200 and refused.json()["items"], refused.text
+
     data ={"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items()))}
     spec = client.get("/openapi.json").json()
     wanted = {op["operationId"] for ops in spec["paths"].values() for op in ops.values()}

@@ -1,0 +1,18 @@
+ok   an unknown count reads as 0 - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   the mode is not the cluster's - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   each state the wrong tone - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   the error tone is danger - killed: AssertionError [ERR_ASSERTION]: fail danger, warn warning, error info + actual - expected
+ok   the cluster chip stays in the browser - killed: AssertionError [ERR_ASSERTION]: the chip: {"result":"fail,warn,error","limit":"25","clusterId":"CRC"} was not sent; the calls were [{"result":"fail,wa
+ok   Show failures stays in the browser - killed: AssertionError [ERR_ASSERTION]: Show failures: {"result":"fail,warn,error","limit":"25","clusterId":"CRC","policy":"cmapi-metadata-dev-label-cmapi-net
+ok   the policies' Next goes nowhere - killed: Timeout 8000ms exceeded.
+ok   a list of policies of the page's own - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 
+FAIL the hidden counts are dropped - SURVIVED
+ok   the stage is the API's word - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   the refusal names nobody - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 
+ok   engine none still shows the results - killed: Timeout 8000ms exceeded.
+ok   a 403 of the refusals reads as an error - killed: Timeout 8000ms exceeded.
+ok   the policy results' Try again is connected to nothing - killed: Timeout 8000ms exceeded.
+FAIL a changed Policies heading - SURVIVED
+ok   an invented sentence on the Policies tab - killed: AssertionError [ERR_ASSERTION]: Policies: each string of the mockup's tab is on the page + actual - expected
+ok   the hidden counts are not summed - killed: Timeout 8000ms exceeded.
+ok   a changed Policies heading - killed: AssertionError [ERR_ASSERTION]: the mockup's heading + actual - expected

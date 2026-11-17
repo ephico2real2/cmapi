@@ -17,6 +17,7 @@ from cmapi.core.identity.claims import Identity
 from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView,
                                PlanView)
 from cmapi.core.pipeline import folder_etag
+from cmapi.core.rejections import record_warned, refusals
 from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
 from cmapi.routers import ClusterId, DryRun, NamespaceName, caller, ctx, idempotency_key, if_match, require
@@ -80,6 +81,8 @@ def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict
             repo, jobs = RequestRepo(s), JobRepo(s)
             row = c.pipeline.submit(who, plan, repo, jobs, idempotency_key=key, body_fingerprint=fingerprint(body),
                                     justification=justification)
+            # Kyverno's warnings on this plan, beside cmapi's refusals on the Policies tab (#302).
+            record_warned(s, c, plan, row.request_id)
             AuditRepo(s).record(who, f"namespace.{plan.action}", f"{plan.cluster_id}/{plan.namespace}",
                                 {"requestId": row.request_id, "status": row.status})
             return request_view(repo, row)
@@ -169,7 +172,8 @@ def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
     replay = _replay(c, who, key, raw)
     if replay:
         return replay
-    plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="create")
+    with refusals(c, who, cluster_id, raw.get("namespace") or "", "create", dry_run=dry_run):
+        plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="create")
     if dry_run:
         return JSONResponse(PlanView.model_validate(plan.view()).model_dump(by_alias=True), status_code=200)
     return _submit(c, who, plan, key, raw, body.justification)
@@ -193,7 +197,8 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     replay = _replay(c, who, key, raw)
     if replay:
         return replay
-    plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag)
+    with refusals(c, who, cluster_id, ns, "update", dry_run=dry_run):
+        plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag)
     if dry_run:
         return JSONResponse(PlanView.model_validate(plan.view()).model_dump(by_alias=True), status_code=200)
     return _submit(c, who, plan, key, raw, body.justification)
@@ -211,7 +216,8 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None =
     replay = _replay(c, who, key, raw)
     if replay:
         return replay
-    plan = c.pipeline.plan_delete(who, cluster_id, ns, if_match=etag)
+    with refusals(c, who, cluster_id, ns, "delete", dry_run=False):
+        plan = c.pipeline.plan_delete(who, cluster_id, ns, if_match=etag)
     return _submit(c, who, plan, key, raw, None)
 
 
@@ -230,7 +236,8 @@ def _expiry_write(c: AppContext, who: Identity, cluster_id: str, raw: dict[str, 
     replay = _replay(c, who, key, body)
     if replay:
         return replay
-    plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag, reason=reason)
+    with refusals(c, who, cluster_id, raw["namespace"], reason, dry_run=dry_run):
+        plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag, reason=reason)
     if dry_run:
         return JSONResponse(PlanView.model_validate(plan.view()).model_dump(by_alias=True), status_code=200)
     return _submit(c, who, plan, key, body, justification)

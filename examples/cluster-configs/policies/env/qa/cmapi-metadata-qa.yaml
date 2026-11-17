@@ -7,6 +7,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: e890d2d4dd599361bafe801e247328feeffa8eebd2110adef8eef39b8c158fc2
 spec:
   validationActions:
   - Audit
@@ -43,6 +44,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 7eac9d73eb5e1d1bd4cbed453f6c1361912fc04069bef96f8f91162441c2b9c3
 spec:
   validationActions:
   - Audit
@@ -79,6 +81,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 12fdbef9b0a0c151b0e8eb2312e5108b5f56b14a5b0127f726ead19c27b083d5
 spec:
   validationActions:
   - Audit
@@ -115,6 +118,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: e492e6e8e2b4419032cf2420e92ba8e7ec364bb55553a5ceee75cb28625b36e6
 spec:
   validationActions:
   - Audit
@@ -152,6 +156,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 247c5a14cf1d0787fb00a62fd0a26dd456337337ee994a0fcb2da35f92094617
 spec:
   validationActions:
   - Audit
@@ -189,6 +194,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 0d010601e5caade1ff72b5638232326e0e0dac84d3fb123bb5cc98c3bdf9ede1
 spec:
   validationActions:
   - Audit
@@ -225,6 +231,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 98cdafc3db5452a52a06d000cfca191910d9c2b3fb672889e74b7be877c6b412
 spec:
   validationActions:
   - Audit
@@ -262,6 +269,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 4a470878f2efe769841afb2a94105e2f1f2a8261a832c7e4e44f7ce89f844998
 spec:
   validationActions:
   - Audit
@@ -298,6 +306,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 27ebc9203155c937596695db7c86bc90b398a72e79563a76f4e81293fceb6418
 spec:
   validationActions:
   - Audit
@@ -333,6 +342,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: b8e221fb73b8a21a108a16136c6c59b64d5377e0241524aad4450db9c903bf59
 spec:
   validationActions:
   - Audit
@@ -368,6 +378,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: bae6c5ed29a33330bffc030a317ed2f4441b96f862f3a7f383f5c9494b254fe8
 spec:
   validationActions:
   - Audit
@@ -403,6 +414,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: ee909fa899776610efcd62c6d445bc1427470b142b7667680de145a84f3c47f0
 spec:
   validationActions:
   - Audit
@@ -438,6 +450,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: f9859a51fde7f899ad73465931fd107b49e1b6fffea9c9568fea7d5f4325215f
 spec:
   validationActions:
   - Audit
@@ -473,6 +486,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in qa.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 1f3aee2f4f1b49841971a7d2a673c90d9c603d34117305249c9118b5eb93f622
 spec:
   validationActions:
   - Audit

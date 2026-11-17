@@ -27,6 +27,7 @@ from cmapi.core.git.base import IncompleteList
 from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
+from cmapi.core.rejections import record_ci
 from cmapi.core.render.manifests import folder, plan_hash
 from cmapi.jobs.delivery import end_pr, mode_of, request_context
 
@@ -112,6 +113,15 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
                                 f"cmapi check: {'pass' if cmapi_ok else 'fail'}{host_ci}",
                {"findings": [f.message for f in findings], "head": head})
     if errors or not cmapi_ok or ci_failed:
+        # The Policies tab lists a CI refusal beside the plan-time ones (#302), with the request it failed.
+        why = (f"the pull request touches paths outside the plan: {', '.join(outside[:3])}" if outside else
+               f"the head moved from {pr.head_sha[:8]} to {head[:8]} after the pull request was opened" if head != pr.head_sha else
+               f"the head differs from the approved plan {row.plan_hash[:12]}")
+        extra = [{"source": "cmapi", "policy": "cmapi-check", "rule": None, "kyvernoRule": None, "path": None,
+                  "severity": "error", "message": why[:300]}] if not cmapi_ok else []
+        extra += [{"source": "ci", "policy": context, "rule": None, "kyvernoRule": None, "path": None, "severity": "error",
+                   "message": f"{context} failed on the Git host"} for context in ci_failed]
+        record_ci(repo.s, ctx, row, errors, extra)
         if head != pr.head_sha:
             repo.event(row, "head_moved", "ci", f"PR head moved from {pr.head_sha[:8]} to {head[:8]} after approval")
         repo.move(row, E.PR_FAILED, "ci", "checks failed")

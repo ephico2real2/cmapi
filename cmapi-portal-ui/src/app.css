@@ -10,3 +10,5 @@
 .cp-mark { position: absolute; inset-block-end: 0; block-size: var(--pf-t--global--spacer--sm); inline-size: var(--pf-t--global--border--width--strong); background-color: var(--pf-t--global--text--color--regular); }
 .cp-active { outline: var(--pf-t--global--border--width--strong) solid var(--pf-t--global--border--color--brand--default); }
 .cp-daysneg { color: var(--pf-t--global--text--color--status--danger--default); font-weight: var(--pf-t--global--font--weight--body--bold); }
+/* A policy name, as the mockup sets it: the monospace token of PatternFly. */
+.cp-mono { font-family: var(--pf-t--global--font--family--mono); }

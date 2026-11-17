@@ -308,10 +308,15 @@ def migrate(url, *args, timeout=60):
 
 
 def test_rollback_image_init_container_on_a_newer_schema_starts(schema):
-    """A later release migrated; the owner rolls back. /readyz says 'a newer revision counts as past': so must the init."""
+    """A later release migrated; the owner rolls back. /readyz says 'a newer revision counts as past': so must the init.
+
+    The later release's revision is the number after this code's newest. The test wrote '0004' when that was newer than the
+    head; once 0004, 0005 and 0006 existed it named a known, older revision, and the init re-ran 0006 on a schema that
+    already had its table (#302)."""
+    from cmapi.core.db import REQUIRED_REVISION
     assert migrate(schema, "head").returncode == 0
     c = psycopg.connect(BASE, autocommit=True)
-    c.execute("update sp.alembic_version set version_num='0004'")
+    c.execute("update sp.alembic_version set version_num=%s", (f"{int(REQUIRED_REVISION) + 1:04d}",))
     r = migrate(schema, "head")
     c.close()
     assert r.returncode == 0, r.stderr.strip().splitlines()[-1][:200]
