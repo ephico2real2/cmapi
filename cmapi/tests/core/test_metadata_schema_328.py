@@ -172,7 +172,20 @@ def test_the_company_schema_has_its_own_keys_and_marks_the_derived_ones_read_onl
     keys = MetadataKeys.load(COMPANY)
     labels, annotations = keys.json_schema("label", "create"), keys.json_schema("annotation", "create")
     assert labels["required"] == ["company.net/mnemonic", "company.net/lob", "company.net/cl"]
-    assert labels["properties"]["company.net/cl"]["enum"] == ["0", "1", "2", "3"]
+    # #358, the owner: the critical level is 0 to 6, and the line of business is free text (amgsst is an example), so
+    # its schema is the label-value syntax with no enum.
+    assert labels["properties"]["company.net/cl"]["enum"] == ["0", "1", "2", "3", "4", "5", "6"]
+    lob = labels["properties"]["company.net/lob"]
+    # The mnemonic is 3 or 4 lowercase letters, anchored once as cmapi and the rendered policy match it.
+    assert labels["properties"]["company.net/mnemonic"]["pattern"] == anchored("^[a-z]{3,4}$") == "^(?:^[a-z]{3,4}$)$"
+    assert "enum" not in lob and lob["pattern"] == _LABEL_VALUE and lob["maxLength"] == 63 and lob["minLength"] == 1
+    assert lob["examples"] == ["amgsst"]
+    check = SchemaReader().validator(labels)
+    assert check.is_valid({"company.net/mnemonic": "abc", "company.net/lob": "retail", "company.net/cl": "6"})
+    assert check.is_valid({"company.net/mnemonic": "abcd", "company.net/lob": "retail", "company.net/cl": "6"})
+    for bad in ({"company.net/cl": "7"}, {"company.net/lob": "retail sales"}, {"company.net/lob": "a" * 64},
+                {"company.net/mnemonic": "ab"}, {"company.net/mnemonic": "abcde"}):
+        assert not check.is_valid({"company.net/mnemonic": "abc", "company.net/lob": "retail", "company.net/cl": "6", **bad})
     for derived in ("name", "company.net/app-environment"):
         assert labels["properties"][derived]["readOnly"] is True and derived not in labels["required"]
     assert "required" not in annotations, "the only required annotation is derived"

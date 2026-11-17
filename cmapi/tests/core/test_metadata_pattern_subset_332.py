@@ -213,7 +213,7 @@ def test_the_rendered_policy_matches_with_the_one_anchored_regex_of_each_key():
                 assert f".matches({cel(regex)})" in expressions[name], key
                 checked += 1
     assert checked == 3
-    assert '.matches("^(?:^[a-z]{3}$)$")' in expressions["cmapi-metadata-rnd-label-company-net-mnemonic-pattern"]
+    assert '.matches("^(?:^[a-z]{3,4}$)$")' in expressions["cmapi-metadata-rnd-label-company-net-mnemonic-pattern"]
 
 
 # ---------------------------------------------------------------------------------------- the three engines, measured
@@ -316,8 +316,8 @@ def test_a_derived_or_optional_key_needs_no_example(raw):
 
 
 @pytest.mark.parametrize("stanza, key, example, why", [
-    ("requiredLabels", "company.net/mnemonic", "abcd", "must match ^[a-z]{3}$"),
-    ("requiredLabels", "company.net/cl", "7", "one of ['0', '1', '2', '3']"),
+    ("requiredLabels", "company.net/mnemonic", "abcde", "must match ^[a-z]{3,4}$"),
+    ("requiredLabels", "company.net/cl", "7", "one of ['0', '1', '2', '3', '4', '5', '6']"),
     ("extraAnnotations", "company.net/mnemonic-group-contact", "abc@other.org", "not an address in ['company.net']"),
     ("extraAnnotations", "company.net/mnemonic-confluence", "wiki.company.net", "an http or https URL"),
 ])

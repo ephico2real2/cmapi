@@ -385,6 +385,12 @@ The examples in the document are this instance's too (#334): the `labels` and `a
 
 `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample namespace `abc-rnd`. `company.net` stands for the company's domain. The test `cmapi/tests/core/test_metadata_stanzas.py` renders the sample from this file. The company's keys on the namespace are these. The namespace also carries the `cmapi.net/` system keys:
 
+- `company.net/mnemonic`: 3 or 4 lowercase letters (`^[a-z]{3,4}$`), the start of the namespace name. `abc` is an example: `abcd-rnd` with the mnemonic `abcd` passes too, and the 3-letter mnemonics stay valid.
+- `company.net/lob`: the line of business, free text. `amgsst` is an example, not a list: any value that a label can hold passes (at most 63 characters of letters, digits, `-`, `_` and `.`, starting and ending with a letter or a digit), and the key is required.
+- `company.net/cl`: the critical level, `"0"` to `"6"`.
+
+The owner's decision on #358 (2026-11-17). Before it, the file listed `lob` as `[amgsst]`, `cl` as `"0"` to `"3"`, and the mnemonic as 3 letters.
+
 ```yaml
 kind: Namespace
 metadata:
@@ -392,9 +398,9 @@ metadata:
   labels:
     name: abc-rnd                       # derived from the namespace
     company.net/app-environment: rnd    # derived from the environment of the cluster
-    company.net/mnemonic: abc           # required: the start of the namespace name
-    company.net/lob: amgsst             # required: line of business
-    company.net/cl: '1'                 # required: critical level
+    company.net/mnemonic: abc           # required: 3 or 4 letters, the start of the namespace name (abc is an example)
+    company.net/lob: amgsst             # required: line of business, free text (amgsst is an example)
+    company.net/cl: '1'                 # required: critical level, 0 to 6
   annotations:
     company.net/app-environment: rnd                                # derived
     company.net/mnemonic-group-contact: abc-team@company.net       # optional: an address in emailDomains
@@ -405,9 +411,9 @@ metadata:
 requiredLabels:
   name:                        {value: {from: namespace}, description: "A copy of the namespace name"}
   company.net/app-environment: {value: {from: environment}}
-  company.net/mnemonic:        {pattern: "^[a-z]{3}$", namespacePrefix: true}
-  company.net/lob:             {enum: [amgsst]}
-  company.net/cl:              {enum: ["0", "1", "2", "3"]}
+  company.net/mnemonic:        {pattern: "^[a-z]{3,4}$", namespacePrefix: true}
+  company.net/lob:             {description: "Line of business, as free text"}
+  company.net/cl:              {enum: ["0", "1", "2", "3", "4", "5", "6"]}
 requiredAnnotations:
   company.net/app-environment: {value: {from: environment}}
 extraLabels:
