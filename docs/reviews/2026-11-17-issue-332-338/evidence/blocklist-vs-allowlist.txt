@@ -1,0 +1,30 @@
+design B blocklist misses 16 of 29 : ['^\\d{4}$', '^\\w+$', '^a.c$', '^a{,3}$', '^a{1001}$', '^(?:a{100}){11}$', '^a]$', '^a}$', '^a{$', '^\\-$', '^[a-z]$x', '^a$\\n?', '^a|b^', '^(^a)$', '^[a&&b]$', '^\\x41$']
+ecma compiles "^\\d{4}$"
+ecma compiles "^\\w+$"
+ecma compiles "^a.c$"
+ecma refuses "^a{,3}$" Invalid regular expression: /^(?:^a{,3}$)$/u: Incomplete quantifier
+ecma compiles "^a{1001}$"
+ecma compiles "^(?:a{100}){11}$"
+ecma refuses "^a]$" Invalid regular expression: /^(?:^a]$)$/u: Lone quantifier brackets
+ecma refuses "^a}$" Invalid regular expression: /^(?:^a}$)$/u: Lone quantifier brackets
+ecma refuses "^a{$" Invalid regular expression: /^(?:^a{$)$/u: Incomplete quantifier
+ecma refuses "^\\-$" Invalid regular expression: /^(?:^\-$)$/u: Invalid escape
+ecma compiles "^[a-z]$x"
+ecma compiles "^a$\\n?"
+ecma compiles "^a|b^"
+ecma compiles "^(^a)$"
+ecma compiles "^[a&&b]$"
+ecma compiles "^\\x41$"
+
+RE2 ^a{,3}$                <nil>
+RE2 ^a{1001}$              error parsing regexp: invalid repeat count: `{1001}`
+RE2 ^(?:a{100}){11}$       error parsing regexp: invalid repeat count: `{11}`
+RE2 ^a]$                   <nil>
+RE2 ^a}$                   <nil>
+RE2 ^a{$                   <nil>
+RE2 ^\-$                   <nil>
+RE2 ^[a&&b]$               <nil>
+RE2 ^\x41$                 <nil>
+RE2 ^[a-z]*+$              error parsing regexp: invalid nested repetition operator: `*+`
+RE2 ^(?>a)$                error parsing regexp: invalid or unsupported Perl syntax: `(?>`
+RE2 ^a\Z                   error parsing regexp: invalid escape sequence: `\Z`
