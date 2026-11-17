@@ -214,7 +214,47 @@ fleet is 40 namespaces in dev and rnd over every state. Stage: built-mocked. It 
 | New tests fail on main | each new check run alone with `CHECK=` on a build of main b7149d2 with this branch's `portal.test.mjs`, `standin.mjs` and samples | all 8 new checks fail (the tab says "This tab is not on the API yet.") |
 
 **Not proven here:** the tab against the real service and Keycloak (the live walk on CRC, extending `cmapi-live-a`, comes
-after the review), and keyboard use beyond PatternFly and axe.
+after the review), and keyboard use beyond PatternFly and axe. The live walk is in the next section.
+
+### Expiration live on CRC (#318)
+
+Measured on 2026-11-17 by OB1 run 17, on CRC, against main 9ba33b2 deployed by docs/13 steps 5 and 21 (images
+`cmapi@sha256:345c39a6…` and `cmapi-portal@sha256:45bd4d32…`; `/api/v1/version` answered `9ba33b2064`, where it answered
+`525ca27725` before). Stage: deployed. Step 6 was not run: `oc diff` of `environment/` was empty. No migration: the
+migrations folder did not change since 525ca27, and `alembic_version` read `0005`, the head, before and after. docs/13
+step 23 (`deploy/crc-proof.sh`, unmodified) printed "proof: all passed", and step 24 ended the watch with `rc=0`.
+keycloak-0 had 0 restarts before and after every step, and the api, worker, portal and db pods 0 restarts after the walk.
+The method is slice 3's (above): Playwright through `https://cmapi.apps-crc.testing`, HTTPS errors not ignored,
+`cmapi.requester` signed in on Keycloak's own form with the password piped from Secret `cmapi-ldap-test-users`, light theme.
+The change ran in bundled Chromium 156.0.8078.4; the list ran in it and in the installed Chrome 157.0.8103.79.
+Screenshots and the API's answers: `cmapi-portal-ui/screenshots/expiration-crc/`.
+
+| Check | Who | Result |
+|---|---|---|
+| The API | `cmapi.requester`, curl with the token on stdin | `GET /api/v1/expirations?limit=50`: 200, 5 rows `cmapi-live-a` to `cmapi-live-e`, all dev, all `permanent`; `today` 2026-11-17; rules for dev 30 / 180 / [14, 7, 1] / 7 (`api-expirations-before.json`) |
+| `:extend` on a permanent namespace | the same | `POST .../cmapi-live-a/expiration:extend?dryRun=true` `{"days":30}` with If-Match: 422 `expiration-not-set`, "The namespace is permanent; use :set" (`api-extend-live-a-422.json`). So the walk first used Set a date, the only action the tab offers a permanent namespace, then extended the date it set |
+| The list | `cmapi.requester` | The tab opens on Needs action (`?limit=25&state=attention`, 0 rows); All shows the API's 5 rows in its order, "1–5 of 5 · most urgent first", Expires "never", State "Permanent 5". The same after the change in both browsers, with `cmapi-live-a` first. At 390 px the rows become cards and the page does not scroll sideways |
+| The plan | `cmapi.requester` (`namespaces:write`) | Set a date, the default 2026-12-17 (today + 30). `POST .../expiration:set?dryRun=true` with `If-Match: "a191fbec7278f89c"`, the ETag of `GET .../namespaces/cmapi-live-a`: 200. The checks "Lifetime within 180 days · 32 days from creation (Nov 15)", "The plan writes cmapi.net/expires-at: 2026-12-17", and "No approval needed" (rule `dev-change`, 0 approvals) |
+| Submit | `cmapi.requester` | `POST .../expiration:set` with the same If-Match and an Idempotency-Key: 202 `req-20261117-0001`, `approved` at once ("Approved at once; the bot PR updates cmapi.net/expires-at when CI passes"). No approval by a person: a change in dev needs none |
+| To synced | the Workflow tab | On the page's reads: `approved` 04:55:43, `pr_open` 04:55:58, `applied` 04:56:03, `synced` 04:56:13Z; "finished at step 10 of 10: branch_deleted". The request's events: created 04:55:42.15, `pr_opened` #12 04:55:52, CI pass 04:55:54, `applied` 04:56:01, `merged` 2ec73449 and `synced` 04:56:02.83, `branch_deleted` 04:56:08Z |
+| The row after | `cmapi.requester` | Dec 17, 30 days left, "32 of 180 d", Active; the API: `expiresAt` 2026-12-17, `graceEnds` 2026-12-24, facets active 1, permanent 4 (`api-expirations-after.json`). The form now offers Extend 7, 14 and 30 days and Make permanent |
+| The cluster and Git | `oc`, `gh` | `oc get ns cmapi-live-a -o jsonpath='{.metadata.annotations.cmapi\.net/expires-at}'`: `2026-12-17` (it had none before), field manager `cmapi-deliverer`. PR #12 on `cmapi-cluster-configs` merged at 04:56:06Z: `namespace.yaml` +3 −1 (`cmapi.net/expiry: managed`, `cmapi.net/expires-at: '2026-12-17'`, the request id) |
+| Extend from the tab | `cmapi.requester` | With the date set, the form offered Extend 7, 14 and 30 days and Make permanent. Extend 30 days: `POST .../expiration:extend?dryRun=true` with `If-Match: "4520db45a0c5d2f6"`: 200, "Extension within 30 days · +30 days, to Jan 16", "Lifetime within 180 days · 62 days from creation", "The plan writes cmapi.net/expires-at: 2027-01-16", "No approval needed". Submit: 202 `req-20261117-0002`, `approved`; on the page's reads `pr_open` 05:00:30, `applied` 05:00:35, `synced` 05:00:46Z. Events: created 05:00:20.37, `pr_opened` #13 05:00:25, CI pass 05:00:27, `merged` d752bcc2 and `synced` 05:00:35.84Z |
+| Extend: the row, the cluster, Git | the tab, `oc`, `gh` | The row: Jan 16, 60 days left, "62 of 180 d", Active (`api-expirations-after-extend.json`: `expiresAt` 2027-01-16, `graceEnds` 2027-01-23). `oc get ns cmapi-live-a` annotation `cmapi.net/expires-at`: `2027-01-16`. PR #13 merged at 05:00:39Z: `expires-at` `'2026-12-17'` to `'2027-01-16'` and the request id |
+| Same origin, CSP | every walk | Every request went to `cmapi.apps-crc.testing` or `keycloak.apps-crc.testing`; no CSP violation; no page error |
+
+**Found on CRC.** At 390 px the State chips break their words ("Need s actio n 0"), and so does the Quotas New size
+choice in the built-mocked pictures ("mediu m"): the shared `Choices` component shrinks its items instead of scrolling
+them. The layout check cannot see it, as nothing scrolls sideways (#324). The Workflow tab warned 44 times on
+`ProgressStep` while one request was followed (#306). Chromium 156 warns on `web-share`, as before. The events are
+stamped with the transaction's start, so `applied` (04:56:01.13) reads before `apply_started` (04:56:02.70) (#294). After each
+change, the picture taken after `synced` and after the page read the namespace again still shows the ETag from before the
+change: `a191fbec7278f89c` after the set (the API served `4520db45a0c5d2f6` later), `4520db45a0c5d2f6` after the extend
+(the API served `28feaca300c6d77a` at 05:01:09Z). This run does not show whether the API's Git read or the page's cache
+held the old value (#325). The form reads the namespace again on a 412, which this run did not test.
+
+**Not proven on CRC.** Make permanent and its approver-platform approval, a refusal shown on the page, the grace
+and pending-delete states, the 820 px width, the dark theme and axe: these ran built-mocked only (above).
 
 ## What testing found
 

@@ -1,0 +1,7 @@
+{
+    "type": "https://cmapi.apps-crc.testing/problems/expiration-not-set",
+    "title": "expiration not set",
+    "status": 422,
+    "detail": "The namespace is permanent; use :set",
+    "code": "expiration-not-set"
+}
