@@ -422,7 +422,11 @@ export function policyResultsPage(fleet, params) {
   const letters = {};
   for (const r of ordered) letters[r.namespace[0].toUpperCase()] = (letters[r.namespace[0].toUpperCase()] ?? 0) + 1;
   const scoped = fleet.clusters.filter((c) => c.counts !== null && (!clusterId || c.clusterId === clusterId)).map((c) => c.clusterId);
-  const policies = fleet.policies.map((p) => ({ ...p, counts: VERDICTS.reduce((acc, v) => ({ ...acc, [v]: scoped.reduce((n, cid) => n + (fleet.perCluster[cid]?.[p.name]?.[v] ?? 0), 0) }), {}) }));
+  // As the API's: a policy's counts sum the scoped clusters that run it with known counts, and are null, never zero, with none.
+  const policies = fleet.policies.map((p) => {
+    const runs = scoped.filter((cid) => fleet.perCluster[cid]?.[p.name]);
+    return { ...p, counts: runs.length ? VERDICTS.reduce((acc, v) => ({ ...acc, [v]: runs.reduce((n, cid) => n + fleet.perCluster[cid][p.name][v], 0) }), {}) : null };
+  });
   return { policy: fleet.policy, clusters: fleet.clusters, policies: clusterId && !scoped.length ? [] : policies, items, letters,
     page: { limit, total, from: items.length ? start + 1 : 0, to: end, nextCursor: items.length && end < total ? sign(keys[end - 1], "next") : null,
       prevCursor: items.length && start > 0 ? sign(keys[start], "prev") : null } };

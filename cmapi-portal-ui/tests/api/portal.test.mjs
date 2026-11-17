@@ -2789,7 +2789,7 @@ try {
     stale: (c) => `stale since ${c.asOf.slice(11, 16)}`, capped: (c) => `${c.dropped} rows not listed`, drift: () => "off the bundle", loading: () => "loading", "mode-off": () => "mode off", "engine-off": () => "Kyverno off" };
   const n = (v) => (v === null || v === undefined ? "—" : String(v));
   const expectedCluster = (c) => {
-    const b = c.bundle, off = b ? [b.missing.length && `${b.missing.length} missing`, b.differing.length && `${b.differing.length} differ`, b.actionsDiffer.length && `${b.actionsDiffer.length} with other actions`].filter(Boolean) : [];
+    const b = c.bundle, off = b ? [b.expected - b.live && `${b.expected - b.live} missing`, b.live - b.current && `${b.live - b.current} differ`, b.actionsDifferTotal && `${b.actionsDifferTotal} with other actions`].filter(Boolean) : [];
     return [c.clusterId, c.env, c.mode, b ? (off.length ? off.join(", ") : "current") : "—", b ? `${b.ready} / ${b.expected}` : "—", n(c.counts?.pass), n(c.counts?.fail), n(c.counts?.warn), n(c.counts?.error), STATE_WORD[c.state](c)];
   };
   const keyOfRow = (r) => [r.namespace, r.resource.kind, r.resource.name, r.policy, r.kyvernoRule ?? ""].join("/");
@@ -2948,6 +2948,41 @@ try {
       await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
       assert.equal(await panel(page).locator("table[aria-label=Clusters], table[aria-label='Results by policy'], table[aria-label='Failing resources']").count(), 0, "no results panel with engine none");
       assert.match(await panel(page).locator("p").first().innerText(), /Pinned for this instance: no policy engine \(policy\.engine: none\)\.$/);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("22 Policies: no zero for what is not known: a policy on no cluster with counts, the head with no cluster counted, and CRC with Kyverno and none of cmapi's policies (OB3, #384)", async () => {
+    // Kyverno not installed anywhere: no count is known, so no 0 is shown, in the head or in the policies.
+    const none = policyFleet([]);
+    none.clusters = none.clusters.filter((c) => c.state === "not-installed");
+    none.perCluster = {};
+    {
+      const { context, page, errors } = await fresh({ policies: none });
+      await openPol(page);
+      await panel(page).getByText("— failing · 0 clusters off the bundle").waitFor();
+      const rows = await tableRows(page, "Results by policy");
+      assert.equal(rows.length, none.policies.length);
+      assert.ok(rows.every((r) => r.slice(3, 7).every((v) => v === "—")), `a policy with no known count shows —, never 0: ${JSON.stringify(rows[0])}`);
+      assert.equal(await panel(page).getByText(/results on namespaces that cmapi does not manage/).count(), 0, "no hidden counts are known");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    // CRC since 2026-11-17: Kyverno installed, the 31 policies of dev not delivered. The API names 20 of the missing and counts 31.
+    const crc = policyFleet([]);
+    const base = crc.clusters[0], names = crc.policies.map((p) => p.name);
+    crc.clusters = [{ ...base, state: "drift", stateDetail: `${names.length} missing, 0 differ from the render, 0 without the actions Audit, Warn of mode audit`,
+      liveActions: [], counts: { pass: 0, fail: 0, warn: 0, error: 0, skip: 0 }, hidden: { unmanaged: 0, otherPolicies: 0, stale: 0 },
+      bundle: { ...base.bundle, expected: names.length, live: 0, current: 0, ready: 0, missing: names.slice(0, 20), differing: [], actionsDiffer: [], actionsDifferTotal: 0 } }];
+    crc.perCluster = {};
+    {
+      const { context, page, errors } = await fresh({ policies: crc });
+      await openPol(page);
+      const [row] = await tableRows(page, "Clusters");
+      assert.deepEqual(row, ["CRC", "dev", "audit", `${names.length} missing`, `0 / ${names.length}`, "0", "0", "0", "0", "off the bundle"]);
+      await panel(page).getByText("0 failing · 1 cluster off the bundle").waitFor();
+      assert.ok((await tableRows(page, "Results by policy")).every((r) => r.slice(3, 7).every((v) => v === "—")), "a policy not on the cluster has no count");
       assert.deepEqual(errors, []);
       await context.close();
     }

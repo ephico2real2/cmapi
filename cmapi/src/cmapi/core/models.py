@@ -417,6 +417,8 @@ class PolicyBundleView(Api):
                                  examples=[[]])
     actions_differ: list[str] = Field(description="Rendered policies whose live `validationActions` are not those of the "
                                                   "environment's mode (at most 20)", examples=[[]])
+    actions_differ_total: int = Field(description="How many rendered policies on the cluster have other `validationActions` "
+                                                  "than the mode's: `actionsDiffer` names 20 at most", examples=[0])
 
 
 class PolicyCluster(Api):
@@ -464,8 +466,10 @@ class PolicySummary(Api):
                                                   "hand-written policy", examples=[None])
     environments: list[str] = Field(description="The environments in scope whose bundle has it", examples=[["dev"]])
     generated: bool = Field(description="True for a policy that cmapi renders from its configuration", examples=[True])
-    counts: PolicyCounts = Field(description="Its results over the clusters in scope that have counts, following `clusterId`, "
-                                             "`env` and `namespace`")
+    counts: PolicyCounts | None = Field(description="Its results over the clusters in scope that run it and have counts, "
+                                                    "following `clusterId`, `env` and `namespace`. Null, never zero, when no such "
+                                                    "cluster has counts: Kyverno not installed, the policy not on the cluster, "
+                                                    "the reports not readable or not listed yet", examples=[None])
 
 
 class PolicyResource(Api):

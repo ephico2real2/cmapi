@@ -33,8 +33,6 @@ VALIDATION_FAILURES = Counter("cmapi_validation_failures_total", "Plans refused 
 PLAN_REFUSALS = Counter("cmapi_plan_refusals_total", "Plans that cmapi refused before Git", ["code", "dry_run"])
 REJECTIONS_UNRECORDED = Counter("cmapi_policy_rejections_unrecorded_total",
                                 "Refusals that could not be stored in policy_rejections; the refusal itself was answered", ["stage"])
-POLICY_REPORTS_STATE = Gauge("cmapi_policy_reports_state", "1 for the state of each cluster's policy reports (#302)",
-                             ["cluster_id", "state"])
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",

@@ -185,8 +185,10 @@ class WatchCache:
     """List-then-watch of the kinds cmapi reads, for one cluster.
 
     `project(kind, obj)` keeps what a reader needs instead of the object (#302: a PolicyReport is reduced to its non-pass
-    results and counters), applied on each list and each event; `dropped(kind, key)` is told of each key that leaves the
-    cache, by a DELETED event or by a relist that no longer holds it. `chunk` lists in pages of that size (`limit` and
+    results and counters). It must be pure: a chunked list projects each page as it arrives, so the raw objects of one page
+    at most are held, never the whole collection. `admit(kind, key, value)` sees each projected value as it enters the
+    cache (a committed list or an event) and returns what is stored, after `dropped(kind, key)` was told of each key that
+    left: by a DELETED event, or by a relist that no longer holds it. `chunk` lists in pages of that size (`limit` and
     `continue`): a 410 on a continue token restarts the list after the backoff, like any other failed list."""
 
     KINDS = ("Namespace", "ResourceQuota", "LimitRange")
@@ -194,9 +196,10 @@ class WatchCache:
 
     def __init__(self, client: KubeClient, kinds: tuple[str, ...] = KINDS, clock: Callable[[], float] = time.time, *,
                  project: Callable[[str, dict[str, Any]], Any] | None = None,
+                 admit: Callable[[str, str, Any], Any] | None = None,
                  dropped: Callable[[str, str], None] | None = None, chunk: int | None = None):
         self.client, self.kinds, self.clock = client, kinds, clock
-        self.project, self.dropped, self.chunk = project, dropped, chunk
+        self.project, self.admit, self.dropped, self.chunk = project, admit, dropped, chunk
         self.state: dict[str, CacheState] = {k: CacheState() for k in kinds}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -210,29 +213,34 @@ class WatchCache:
     def _value(self, kind: str, obj: dict[str, Any]) -> Any:
         return self.project(kind, obj) if self.project else obj
 
-    def _fetch(self, kind: str) -> tuple[list[dict[str, Any]], str]:
-        """Every object of the kind and the list's resourceVersion, in one call or in chunks."""
+    def _admitted(self, kind: str, key: str, value: Any) -> Any:
+        return self.admit(kind, key, value) if self.admit else value
+
+    def _fetch(self, kind: str) -> tuple[list[tuple[str, Any]], str]:
+        """(key, projected value) of every object of the kind, and the list's resourceVersion, in one call or in chunks.
+        Each page is projected before the next is asked for, so its raw objects are released page by page."""
         if not self.chunk:
             out = self.client.list(kind)
-            return out.get("items", []), out["metadata"]["resourceVersion"]
-        items: list[dict[str, Any]] = []
+            return [(self._key(o), self._value(kind, o)) for o in out.get("items", [])], out["metadata"]["resourceVersion"]
+        values: list[tuple[str, Any]] = []
         token: str | None = None
         while True:
             out = self.client.list(kind, limit=self.chunk, continue_=token)
-            items.extend(out.get("items", []))
+            values.extend((self._key(o), self._value(kind, o)) for o in out.get("items", []))
             token = (out.get("metadata") or {}).get("continue") or None
             if token is None:
-                return items, out["metadata"]["resourceVersion"]
+                return values, out["metadata"]["resourceVersion"]
+            del out                         # the page's raw objects go before the next page arrives
 
     def _list(self, kind: str) -> None:
-        objs, rv = self._fetch(kind)
+        values, rv = self._fetch(kind)
         with self._lock:
             st = self.state[kind]
-            fresh = {self._key(o) for o in objs}
+            fresh = {key for key, _ in values}
             if self.dropped:
                 for key in set(st.items) - fresh:
                     self.dropped(kind, key)
-            st.items = {self._key(o): self._value(kind, o) for o in objs}
+            st.items = {key: self._admitted(kind, key, value) for key, value in values}
             st.resource_version = rv
             st.last_good, st.error, st.error_status = self.clock(), None, None
 
@@ -254,7 +262,8 @@ class WatchCache:
                             st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
                             st.last_good = self.clock()
                             if t in ("ADDED", "MODIFIED"):
-                                st.items[self._key(obj)] = self._value(kind, obj)
+                                key = self._key(obj)
+                                st.items[key] = self._admitted(kind, key, self._value(kind, obj))
                             elif t == "DELETED":
                                 if st.items.pop(self._key(obj), None) is not None and self.dropped:
                                     self.dropped(kind, self._key(obj))

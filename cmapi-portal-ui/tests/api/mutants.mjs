@@ -195,6 +195,9 @@ const MUTANTS = [
   ["engine none still shows the results", "src/portal/PoliciesTab.tsx", "if (engineOff) {", "if (false) {", "portal", "21 Policies"],
   ["a 403 of the refusals reads as an error", "src/portal/PoliciesTab.tsx", "  if (result.state === \"forbidden\") {\n    body =", "  if (false) {\n    body =", "portal", "21 Policies"],
   ["the policy results' Try again is connected to nothing", "src/portal/PoliciesTab.tsx", "title=\"The policy results did not load.\" actionLinks={<AlertActionLink onClick={result.reload}>", "title=\"The policy results did not load.\" actionLinks={<AlertActionLink onClick={() => {}}>", "portal", "21 Policies"],
+  ["OB3 384: a policy's unknown count reads as 0", "src/portal/PoliciesTab.tsx", "count(p.counts?.pass)", "String(p.counts?.pass ?? 0)", "portal", "22 Policies"],
+  ["OB3 384: the head sums no cluster into 0 failing", "src/portal/PoliciesTab.tsx", ": \"—\";\n  const drift", ": \"0\";\n  const drift", "portal", "22 Policies"],
+  ["OB3 384: the missing count is the 20 names", "src/portal/PoliciesTab.tsx", "const missing = b.expected - b.live,", "const missing = b.missing.length,", "portal", "22 Policies"],
   ["a changed Policies heading", "src/portal/PoliciesTab.tsx", "title=\"Policies\"", "title=\"Policy\"", "portal", "6 the Policies"],
   ["an invented sentence on the Policies tab", "src/portal/PoliciesTab.tsx", " · paged like every list.`", " · paged like every list, newest first.`", "portal", "6 the Policies"],
   // #366: the protection of a namespace.

@@ -152,19 +152,20 @@ class ReportCache:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    # ---- the cap, applied as each report arrives
+    # ---- the reduction, pure, as each page or event arrives; then the cap, as each report enters the cache
     def _project(self, kind: str, obj: dict[str, Any]) -> Any:
+        return reduce_policy(obj) if kind in POLICY_KINDS else reduce(kind, obj, self.bundle)
+
+    def _admit(self, kind: str, key: str, out: Any) -> Any:
         if kind in POLICY_KINDS:
-            return reduce_policy(obj)
-        out = reduce(kind, obj, self.bundle)
-        key = (kind, WatchCache._key(obj))
+            return out
         with self._lock:
-            held = self._held.get(key, 0)
+            held = self._held.get((kind, key), 0)
             room = max(0, self.max_rows - (self._total - held))
             if len(out.rows) > room:
                 out.dropped, out.rows = len(out.rows) - room, out.rows[:room]
             self._total += len(out.rows) - held
-            self._held[key] = len(out.rows)
+            self._held[(kind, key)] = len(out.rows)
         return out
 
     def _dropped(self, kind: str, key: str) -> None:
@@ -194,8 +195,8 @@ class ReportCache:
                 self.watch.stop()
             with self._lock:
                 self._held, self._total = {}, 0
-            self.watch = WatchCache(self.client, kinds, self.clock, project=self._project, dropped=self._dropped,
-                                    chunk=self.chunk)
+            self.watch = WatchCache(self.client, kinds, self.clock, project=self._project, admit=self._admit,
+                                    dropped=self._dropped, chunk=self.chunk)
         return self.watch
 
     def sync(self) -> None:

@@ -117,3 +117,52 @@ def test_the_readers_role_grants_each_kind_that_the_report_cache_lists_and_watch
         path = RESOURCES[kind][0]                       # /apis/<group>/<version>/<plural>
         group, plural = path.split("/")[2], path.rsplit("/", 1)[1]
         assert {(group, plural, v) for v in ("get", "list", "watch")} <= granted, kind
+
+
+def test_a_chunked_list_holds_the_raw_reports_of_one_page_at_most(bundle):
+    """OB3 on #384: each page is reduced before the next is asked for. Before, every raw report of the cluster was held
+    until the last page arrived (8,000 Kyverno reports of 31 results: a 276 MiB peak against 55 MiB kept)."""
+    import weakref
+
+    from cmapi.core.clients.policyreports import ReportCache
+
+    class Raw(dict):                                   # a dict that a weak reference can follow
+        pass
+
+    policy = next(iter(bundle.for_environment("dev")))
+    alive: list[weakref.ref] = []
+    held_at_call: list[int] = []
+
+    class Client:
+        cluster_id = "X"
+
+        def served(self, group_version):
+            return True
+
+        def list(self, kind, namespace=None, label_selector=None, resource_version=None, *, limit=None, continue_=None):
+            held_at_call.append(sum(1 for r in alive if r() is not None))
+            if kind != "ClusterPolicyReport":
+                return {"metadata": {"resourceVersion": "1"}, "items": []}
+            start = int(continue_ or 0)
+            end = min(6, start + limit)
+            items = [Raw({"metadata": {"name": f"r{i}"}, "scope": {"apiVersion": "v1", "kind": "Namespace", "name": f"n{i}"},
+                          "results": [{"policy": policy, "result": "fail", "message": "m"}]}) for i in range(start, end)]
+            alive.extend(weakref.ref(o) for o in items)
+            return {"metadata": {"resourceVersion": "9", **({"continue": str(end)} if end < 6 else {})}, "items": items}
+
+    cache = ReportCache(Client(), bundle.for_environment("dev"), chunk=2)
+    cache.sync()
+    assert len(cache.snapshot().reports) == 6
+    assert max(held_at_call) == 0, f"raw reports still held when the next page was asked for: {held_at_call}"
+
+
+def test_every_metric_that_observability_declares_is_recorded_somewhere():
+    """OB3 on #384: cmapi_policy_reports_state was declared and never set, so /metrics named a series that never had a sample."""
+    import re
+
+    import cmapi
+
+    src = Path(cmapi.__file__).parent
+    names = re.findall(r"^([A-Z_]+) = (?:Counter|Gauge|Histogram)\(", (src / "core/observability.py").read_text(), re.M)
+    code = "\n".join(p.read_text() for p in src.rglob("*.py"))
+    assert len(names) > 20 and [n for n in names if not re.search(rf"\b{n}\.(labels|inc|set|observe)\(", code)] == []

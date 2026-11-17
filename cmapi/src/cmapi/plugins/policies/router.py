@@ -90,14 +90,15 @@ def _bundle_view(bundle: Mapping[str, BundlePolicy], snap: Snapshot, mode: str) 
     actions_differ = [n for n in on if bundle[n].generated and list(live[n].actions) != want]
     view = {"expected": len(bundle), "live": len(on), "current": len(on) - len(differing),
             "ready": sum(1 for n in on if live[n].ready), "missing": missing[:NAMES_MAX], "differing": differing[:NAMES_MAX],
-            "actionsDiffer": actions_differ[:NAMES_MAX]}
+            "actionsDiffer": actions_differ[:NAMES_MAX], "actionsDifferTotal": len(actions_differ)}
     actions = sorted({a for n in on for a in live[n].actions})
     return view, actions, bool(missing or differing or actions_differ)
 
 
 def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
              ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, int]]]:
-    """One cluster's view, its listed rows, and the counts of each policy (following `namespace`)."""
+    """One cluster's view, its listed rows, and the counts of each policy that runs on it (following `namespace`); no
+    policy has counts from a cluster whose state leaves them unknown."""
     mode = c.cfg.policy.mode_for(env)
     view: dict[str, Any] = {"clusterId": st.cluster_id, "env": env, "mode": mode, "liveActions": [], "state": "ok",
                             "stateDetail": None, "asOf": None, "bundle": None, "counts": None, "hidden": None, "dropped": None}
@@ -130,7 +131,10 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
 
     bundle = c.bundle.for_environment(env) if c.bundle else {}
     managed, live = _managed(st), snap.policies
-    counts, hidden, per_policy = _empty(), {"unmanaged": 0, "otherPolicies": 0, "stale": 0}, {}
+    counts, hidden = _empty(), {"unmanaged": 0, "otherPolicies": 0, "stale": 0}
+    # A policy of the bundle that runs on this cluster has known counts here, zero until a result says otherwise; one that
+    # is not on the cluster has none, so the caller never reads a zero for it from this cluster.
+    per_policy: dict[str, dict[str, int]] = {n: _empty() for n in bundle if live is None or n in live}
     rows: list[dict[str, Any]] = []
     for rep in snap.reports:
         in_scope = rep.namespace is not None and rep.namespace in managed
@@ -144,7 +148,7 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
             else:
                 counts[verdict] += n
                 if namespace in (None, rep.namespace):
-                    per_policy.setdefault(policy, _empty())[verdict] += n
+                    per_policy[policy][verdict] += n
         if not in_scope:
             continue
         api_version, kind, name = rep.resource
@@ -165,9 +169,10 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         view.update(state="capped", stateDetail=f"{snap.dropped} rows past policy.reports.maxResultsPerCluster "
                                                 f"({c.cfg.policy.max_results_per_cluster}) are counted and not listed")
     elif drift:
+        # The totals, not the lengths of the name lists, which stop at NAMES_MAX.
         b = bundle_view or {}
-        view.update(state="drift", stateDetail=f"{len(b.get('missing', []))} missing, {len(b.get('differing', []))} differ "
-                                               f"from the render, {len(b.get('actionsDiffer', []))} without the actions "
+        view.update(state="drift", stateDetail=f"{b['expected'] - b['live']} missing, {b['live'] - b['current']} differ "
+                                               f"from the render, {b['actionsDifferTotal']} without the actions "
                                                f"{', '.join(ACTIONS.get(mode, []))} of mode {mode}")
     return view, rows, per_policy
 
@@ -222,7 +227,8 @@ def results(cluster_id: ClusterFilter = None, env: EnvFilter = None, namespace: 
             p, envs = found[name]
             policies.append({"name": name, "kind": p.kind, "description": p.description,
                              "check": dict(p.check) if p.check else None, "environments": sorted(envs),
-                             "generated": p.generated, "counts": per_policy.get(name, _empty())})
+                             # null, never zero, when no cluster in scope that runs the policy has known counts
+                             "generated": p.generated, "counts": per_policy.get(name)})
     rows = [r for r in rows if r["result"] in wanted]
     _row_names(rows)
     query = ListQuery(q=q, filters={"clusterId": cluster_id or "", "env": env or "", "namespace": namespace or "",

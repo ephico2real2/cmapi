@@ -2417,6 +2417,12 @@ export interface components {
              */
             actionsDiffer: string[];
             /**
+             * Actionsdiffertotal
+             * @description How many rendered policies on the cluster have other `validationActions` than the mode's: `actionsDiffer` names 20 at most
+             * @example 0
+             */
+            actionsDifferTotal: number;
+            /**
              * Current
              * @description Of those, the ones whose `cmapi.net/policy-digest` is the render's
              * @example 31
@@ -2738,8 +2744,11 @@ export interface components {
              * @example null
              */
             check: components["schemas"]["PolicyCheck"] | null;
-            /** @description Its results over the clusters in scope that have counts, following `clusterId`, `env` and `namespace` */
-            counts: components["schemas"]["PolicyCounts"];
+            /**
+             * @description Its results over the clusters in scope that run it and have counts, following `clusterId`, `env` and `namespace`. Null, never zero, when no such cluster has counts: Kyverno not installed, the policy not on the cluster, the reports not readable or not listed yet
+             * @example null
+             */
+            counts: components["schemas"]["PolicyCounts"] | null;
             /**
              * Description
              * @description `policies.kyverno.io/description`
@@ -6906,6 +6915,7 @@ export interface operations {
                      *           "asOf": "2026-11-17T21:54:56.790744Z",
                      *           "bundle": {
                      *             "actionsDiffer": [],
+                     *             "actionsDifferTotal": 0,
                      *             "current": 31,
                      *             "differing": [],
                      *             "expected": 31,

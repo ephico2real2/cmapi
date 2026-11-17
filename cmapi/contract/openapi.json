@@ -3413,6 +3413,14 @@
             "title": "Actionsdiffer",
             "type": "array"
           },
+          "actionsDifferTotal": {
+            "description": "How many rendered policies on the cluster have other `validationActions` than the mode's: `actionsDiffer` names 20 at most",
+            "examples": [
+              0
+            ],
+            "title": "Actionsdiffertotal",
+            "type": "integer"
+          },
           "current": {
             "description": "Of those, the ones whose `cmapi.net/policy-digest` is the render's",
             "examples": [
@@ -3475,7 +3483,8 @@
           "ready",
           "missing",
           "differing",
-          "actionsDiffer"
+          "actionsDiffer",
+          "actionsDifferTotal"
         ],
         "title": "PolicyBundleView",
         "type": "object"
@@ -4066,8 +4075,18 @@
             ]
           },
           "counts": {
-            "$ref": "#/components/schemas/PolicyCounts",
-            "description": "Its results over the clusters in scope that have counts, following `clusterId`, `env` and `namespace`"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its results over the clusters in scope that run it and have counts, following `clusterId`, `env` and `namespace`. Null, never zero, when no such cluster has counts: Kyverno not installed, the policy not on the cluster, the reports not readable or not listed yet",
+            "examples": [
+              null
+            ]
           },
           "description": {
             "anyOf": [
@@ -12514,6 +12533,7 @@
                       "asOf": "2026-11-17T21:54:56.790744Z",
                       "bundle": {
                         "actionsDiffer": [],
+                        "actionsDifferTotal": 0,
                         "current": 31,
                         "differing": [],
                         "expected": 31,

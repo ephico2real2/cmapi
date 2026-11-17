@@ -1288,6 +1288,7 @@ The answer was 200 (`application/json`):
       "asOf": "2026-11-17T21:54:56.790744Z",
       "bundle": {
         "actionsDiffer": [],
+        "actionsDifferTotal": 0,
         "current": 31,
         "differing": [],
         "expected": 31,

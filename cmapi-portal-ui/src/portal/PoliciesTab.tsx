@@ -42,18 +42,19 @@ function whatOf(p: PolicySummary): string {
   return `${KIND_WORD[p.check.kind] ?? p.check.kind} ${p.check.key ?? "keys that no stanza declares"}: ${p.check.rule}`;
 }
 
-/** The bundle on the cluster, in a word: current, or what is off. */
+/** The bundle on the cluster, in a word: current, or what is off. The totals, never the name lists, which stop at 20. */
 function bundleOf(c: PolicyCluster): [string, string] {
   const b = c.bundle;
   if (!b) return ["—", ""];
-  const off = [b.missing.length && `${b.missing.length} missing`, b.differing.length && `${b.differing.length} differ`,
-    b.actionsDiffer.length && `${b.actionsDiffer.length} with other actions`].filter(Boolean);
+  const missing = b.expected - b.live, differ = b.live - b.current;
+  const off = [missing && `${missing} missing`, differ && `${differ} differ`,
+    b.actionsDifferTotal && `${b.actionsDifferTotal} with other actions`].filter(Boolean);
   return off.length ? [off.join(", "), "warn"] : ["current", "ok"];
 }
 
 /** "audit", or "audit (cluster: Deny)" when the cluster's copies carry other actions than the configured mode's. */
 function modeOf(c: PolicyCluster): string {
-  return c.bundle && c.bundle.actionsDiffer.length && c.liveActions.length ? `${c.mode} (cluster: ${c.liveActions.join(", ")})` : c.mode;
+  return c.bundle && c.bundle.actionsDifferTotal && c.liveActions.length ? `${c.mode} (cluster: ${c.liveActions.join(", ")})` : c.mode;
 }
 
 /** "Kyverno v1.20.0; audit in dev, rnd": the engine, the pinned CLI and each environment's mode (GET /admin/integrations' policy). */
@@ -89,13 +90,15 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
   const page = result.state === "ok" ? result.data : null;
   const engineOff = page?.policy.engine === "none";
   const known = page?.clusters.filter((c) => c.counts !== null) ?? [];
-  const failing = known.reduce((n, c) => n + (c.counts?.fail ?? 0), 0);
+  // With no cluster's counts known, the head says so: a sum over nothing is not "0 failing".
+  const failing = known.length ? String(known.reduce((n, c) => n + (c.counts?.fail ?? 0), 0)) : "—";
   const drift = page?.clusters.filter((c) => bundleOf(c)[1] === "warn").length ?? 0;
+  const pillTone = drift || (known.length && failing !== "0") ? "warn" : known.length ? "ok" : "info";
   const head = (
     <Head
       title="Policies"
       lede={`What the Kyverno bundle decided on each cluster of the ${config.instance} instance, read from the policy reports, beside cmapi's own refusals at plan time and in CI. The same bundle runs in all three places. Pinned for this instance: ${page ? pinnedOf(page.policy) : "…"}.`}
-      pill={page && !engineOff ? <Pill tone={failing || drift ? "warn" : "ok"}>{`${failing} failing · ${drift} cluster${drift === 1 ? "" : "s"} off the bundle`}</Pill> : undefined}
+      pill={page && !engineOff ? <Pill tone={pillTone}>{`${failing} failing · ${drift} cluster${drift === 1 ? "" : "s"} off the bundle`}</Pill> : undefined}
     />
   );
   const rejections = <Refused result={refused} setCursor={setRefusedCursor} />;
@@ -165,12 +168,12 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
             cols={["Policy", "Kind", "What it checks", "Pass", "Fail", "Warn", "Error", ""]}
             rows={page.policies}
             selected={(p) => p.name === policy}
-            cells={(p) => [<span className="cp-mono">{p.name}</span>, p.kind, whatOf(p), String(p.counts.pass), String(p.counts.fail),
-              String(p.counts.warn), String(p.counts.error),
+            cells={(p) => [<span className="cp-mono">{p.name}</span>, p.kind, whatOf(p), count(p.counts?.pass), count(p.counts?.fail),
+              count(p.counts?.warn), count(p.counts?.error),
               <Button variant="secondary" size="sm" onClick={() => apply({ policy: p.name === policy ? "" : p.name })}>{p.name === policy ? "Showing" : "Show failures"}</Button>]}
           />
           {page.policies.length === 0 && <Empty>No policy runs in the environments of these clusters.</Empty>}
-          <Small>{`${hidden.unmanaged} results on namespaces that cmapi does not manage, ${hidden.other} of other policies and ${hidden.gone} of policies no longer on the cluster are counted and not shown.`}</Small>
+          {known.some(inScope) && <Small>{`${hidden.unmanaged} results on namespaces that cmapi does not manage, ${hidden.other} of other policies and ${hidden.gone} of policies no longer on the cluster are counted and not shown.`}</Small>}
         </Panel>
       )}
 

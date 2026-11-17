@@ -177,7 +177,7 @@ def test_ok_counts_the_managed_namespaces_and_hides_the_rest_by_count(kyverno):
     assert cl["hidden"] == {"unmanaged": 2, "otherPolicies": 1, "stale": 0}
     expected = len(ctx.bundle.for_environment("dev"))
     assert cl["bundle"] == {"expected": expected, "live": expected, "current": expected, "ready": expected, "missing": [],
-                            "differing": [], "actionsDiffer": []}
+                            "differing": [], "actionsDiffer": [], "actionsDifferTotal": 0}
     assert cl["liveActions"] == ["Audit", "Warn"] and cl["dropped"] == 0
     assert body["policy"]["engine"] == "kyverno" and body["policy"]["environments"] == {"dev": "audit", "rnd": "audit"}
 
@@ -497,3 +497,53 @@ def test_kyvernos_rule_is_kept_in_a_finding():
     f = Finding("kyverno", "p", "f.yaml", "m", "warning", kyverno_rule="validation")
     assert f.view() == {"source": "kyverno", "rule": "p", "path": "f.yaml", "message": "m", "severity": "warning",
                         "kyvernoRule": "validation"}
+
+
+# ---------------------------------------------------------------- OB3 on #384: a policy's counts are null, never zero, when unknown
+
+def test_a_policy_on_no_cluster_with_known_counts_has_null_counts(world):
+    """Kyverno not installed: the cluster's counts are null, so each policy's are too, never a row of zeros."""
+    client, ctx, git, kube, validator, keys = world
+    ctx.registry.clusters["CRC"].reports.sync()
+    body = get(client, keys, RESULTS)
+    assert body["clusters"][0]["state"] == "not-installed" and body["policies"]
+    assert {p["name"]: p["counts"] for p in body["policies"] if p["counts"] is not None} == {}
+
+
+def test_crc_with_kyverno_and_no_cmapi_policy_delivered(world):
+    """CRC since 2026-11-17: Kyverno v1.20.0 installed, none of cmapi's policies on the cluster. The cluster is off the
+    bundle with every policy missing; its counts are known zeros; no policy reads as zero, since none runs there."""
+    client, ctx, git, kube, validator, keys = world
+    kube.served_groups = set(KYVERNO)
+    put_ns(kube, "orders-dev")
+    sync(ctx)
+    body = get(client, keys, RESULTS)
+    [cl] = body["clusters"]
+    expected = len(ctx.bundle.for_environment("dev"))
+    assert cl["state"] == "drift" and cl["bundle"]["live"] == 0 and cl["bundle"]["expected"] == expected
+    assert cl["counts"] == {"pass": 0, "fail": 0, "warn": 0, "error": 0, "skip": 0}
+    assert cl["stateDetail"] == f"{expected} missing, 0 differ from the render, 0 without the actions Audit, Warn of mode audit"
+    assert len(cl["bundle"]["missing"]) == min(expected, 20) and cl["bundle"]["actionsDifferTotal"] == 0
+    assert [p["counts"] for p in body["policies"]] == [None] * expected
+
+
+def test_a_policy_missing_from_the_cluster_has_null_counts_beside_the_others(kyverno):
+    client, ctx, git, kube, validator, keys = kyverno
+    gone = pick(ctx, "max")
+    kube.objects.pop(("ValidatingPolicy", "", gone))
+    sync(ctx)
+    by_name = {p["name"]: p["counts"] for p in get(client, keys, RESULTS)["policies"]}
+    assert by_name[gone] is None
+    assert by_name[pick(ctx, "prefix")] == {"pass": 1, "fail": 1, "warn": 0, "error": 1, "skip": 0}
+    assert by_name[pick(ctx, "pattern")]["warn"] == 1
+
+
+def test_the_drift_detail_counts_every_policy_not_the_twenty_named(kyverno):
+    """The mode's actions differ on all 31 policies: the detail says 31, while the list names 20."""
+    client, ctx, git, kube, validator, keys = kyverno
+    live_bundle(kube, ctx, actions=ACTIONS["enforce"])
+    sync(ctx)
+    [cl] = get(client, keys, RESULTS)["clusters"]
+    expected = len(ctx.bundle.for_environment("dev"))
+    assert expected > 20 and len(cl["bundle"]["actionsDiffer"]) == 20 and cl["bundle"]["actionsDifferTotal"] == expected
+    assert cl["stateDetail"] == f"0 missing, 0 differ from the render, {expected} without the actions Audit, Warn of mode audit"
