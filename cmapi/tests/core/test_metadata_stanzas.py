@@ -85,7 +85,7 @@ def test_a_mnemonic_is_3_or_4_letters_that_start_the_namespace_name(keys, mnemon
     sent = {**SENT, "company.net/mnemonic": mnemonic}
     assert keys.validate(sent, {}, operator=False, sources=sources) == []
     assert keys.validate(sent, {}, operator=False, sources={**sources, "namespace": "abcde-rnd"}) == [
-        {"code": "invalid_value", "key": "company.net/mnemonic", "detail": f"abcde-rnd does not start with {mnemonic}-"}]
+        {"code": "invalid_value", "key": "company.net/mnemonic", "kind": "label", "detail": f"abcde-rnd does not start with {mnemonic}-"}]
 
 
 def test_a_derived_key_with_its_own_value_is_accepted_and_one_removed_is_refused(keys):

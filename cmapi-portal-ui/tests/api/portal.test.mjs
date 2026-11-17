@@ -735,6 +735,26 @@ try {
   const passed = (page) => panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
   const refusedWith = (errors) => ({ route: "POST /api/v1/clusters/CRC/namespaces", status: 422, body: { ...SAMPLES.problems["policy-violation"].response.body, errors } });
 
+  await check("OB3-368 New namespace: no field is in error before the person tries the form; an empty required field is, after a Dry run", async () => {
+    // WAI-ARIA 1.2, aria-invalid: not on a required widget only because nothing was entered before the user tried to submit.
+    for (const metadataKeys of [REFERENCE_KEYS, COMPANY_KEYS]) {
+      const { context, page, errors } = await fresh({ metadataKeys });
+      try {
+        await newTab(page);
+        await page.waitForTimeout(600);
+        assert.deepEqual(await panel(page).locator("[aria-invalid=true]").count(), 0, "no field is invalid before the person tries the form");
+        assert.deepEqual(await panel(page).locator("[id$=-error]").count(), 0, "and no error text");
+        const first = page.locator("#ns-label-0");
+        const before = posts().length;
+        await panel(page).getByRole("button", { name: "Dry run" }).click();
+        await waitError(first, /^Required: /);
+        assert.equal(await first.getAttribute("aria-invalid"), "true");
+        assert.equal(posts().length, before, "nothing is planned");
+        assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    }
+  });
+
   await check("18 New namespace on a company instance: the fields of GET /api/v1/metadata-keys, the keys cmapi sets read-only, refusals in the browser, and the body", async () => {
     const { context, page, errors } = await fresh({ metadataKeys: COMPANY_KEYS });
     try {

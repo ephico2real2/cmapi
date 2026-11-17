@@ -90,6 +90,8 @@ CASES: list[tuple[str, str, Callable[[dict], Any]]] = [
      lambda s: set_(s["components"]["schemas"]["NamespaceCreate"]["properties"]["tier"], "examples", [{"cmapi.net/tier": "small"}])),
     ("a cmapi.net/ key is a property of a schema in an example that is not of a metadata map", "cmapi-net-keys-only-in-labels",
      lambda s: set_(op(s)["responses"]["202"]["content"]["application/json"]["example"], "quota", {"properties": {"cmapi.net/tier": {}}})),
+    ("a cmapi.net/ key is under a properties object of a body's labels map, not of the schema of one", "cmapi-net-keys-only-in-labels",
+     lambda s: set_(op(s)["requestBody"]["content"]["application/json"]["example"], "labels", {"properties": {"cmapi.net/team": "payments"}})),
 ]
 
 

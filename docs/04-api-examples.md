@@ -2999,7 +2999,8 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
     {
       "code": "invalid_value",
       "detail": "must match ^[a-z0-9-]{2,40}$",
-      "key": "cmapi.net/team"
+      "key": "cmapi.net/team",
+      "kind": "label"
     },
     {
       "code": "missing_required_key",

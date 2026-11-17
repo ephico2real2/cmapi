@@ -42,8 +42,10 @@ _DNS1123_SUB_TEXT = r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[
 _NAME_TEXT = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
 _DNS1123_SUB = re.compile(f"^{_DNS1123_SUB_TEXT}$")
 _NAME = re.compile(f"^{_NAME_TEXT}$")
-# A mail domain: DNS labels of letters, digits and "-", as the chart's values.schema.json says (#335).
-_DOMAIN = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$")
+# A mail domain: DNS labels of 1 to 63 letters, digits and "-" (RFC 1035, 2.3.4), as the chart's values.schema.json says
+# (#335). The 63 is also the label limit of HTML's "valid e-mail address", which the portal's <input type=email> checks
+# (#336): a longer label would make the browser refuse every address that cmapi accepts in that domain.
+_DOMAIN = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$")
 
 KeyClass = str   # "system" | "operatorOnly" | "reserved" | "governed" | "team" | "disallowed"
 KINDS = ("label", "annotation")
@@ -570,7 +572,7 @@ class MetadataKeys:
         domains = self._texts(raw, "emailDomains", problems)
         bad = [d for d in domains if len(d) > 253 or not _DOMAIN.fullmatch(d)]
         if bad:
-            problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
+            problems.append(f"emailDomains: {bad} are not domain names (labels of 1 to 63 letters, digits and -, joined by .)")
         self.email_domains = [d.lower() for d in domains]
         if self.email_domains and not bad:
             # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
@@ -894,14 +896,16 @@ class MetadataKeys:
                 len(name) > 63 or not _NAME.fullmatch(name):
             return {"code": "invalid_key", "key": key}
         if kind == "label" and value not in (None, "") and (len(value) > 63 or not _NAME.fullmatch(value)):
-            return {"code": "invalid_value", "key": key, "detail": "not a valid label value"}
+            return {"code": "invalid_value", "key": key, "kind": kind, "detail": "not a valid label value"}
         return None
 
     def _governed(self, key: str, value: str | None, kind: str, sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        # Each refusal of a value names its kind, as missing_required_key and derived_key do: a key can be a label and an
+        # annotation, each with its own rule, and a client puts the refusal on the field of that kind (#336).
         rule = self.rules[kind].get(key)
         if rule is None:
             other = "annotation" if kind == "label" else "label"
-            return [{"code": "invalid_key", "key": key, "detail": f"{key} is a {other}"}]
+            return [{"code": "invalid_key", "key": key, "kind": kind, "detail": f"{key} is a {other}"}]
         if rule.derived:
             expected = sources.get(rule.derived)
             # The same value is accepted, so a client that sends back what it read is not refused.
@@ -916,14 +920,14 @@ class MetadataKeys:
         if regex is not None and not value_matches(regex, value):
             if rule.format == "email-in-domains":
                 code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
-                return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
+                return [{"code": code, "key": key, "kind": kind, "detail": f"not an address in {self.email_domains}"}]
             detail = f"must match {rule.pattern}" if rule.pattern is not None else rule.text(self.email_domains)
-            return [{"code": "invalid_value", "key": key, "detail": detail}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": detail}]
         if rule.enum is not None and value not in rule.enum:
-            return [{"code": "invalid_value", "key": key, "detail": f"one of {list(rule.enum)}"}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"one of {list(rule.enum)}"}]
         namespace = sources.get("namespace")
         if rule.namespace_prefix and namespace and not namespace.startswith(f"{value}-"):
-            return [{"code": "invalid_value", "key": key, "detail": f"{namespace} does not start with {value}-"}]
+            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not start with {value}-"}]
         return []
 
     def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,

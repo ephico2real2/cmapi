@@ -137,6 +137,10 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   // A result is of the inputs it was run on; it shows only while the form still has them.
   const inputs = JSON.stringify([fingerprint, values, nsName]);
   const [checked, setChecked] = useState<{ inputs: string; errors: Record<string, string | null> } | null>(null);
+  // WAI-ARIA 1.2, aria-invalid: "if the user has not attempted to submit the form, authors SHOULD NOT set the aria-invalid
+  // attribute on required widgets simply because the user has not yet entered data". An empty required field shows its
+  // error after the first Dry run or Submit; until then the browser's own check (required) still stops both.
+  const [attempted, setAttempted] = useState(false);
   const clientErrors = checked?.inputs === inputs ? checked.errors : {};
   /** The checks of the form as this render has it: the last result when it is of these inputs, else a new run. */
   const checkNow = async (): Promise<Record<string, string | null>> => {
@@ -230,8 +234,10 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const expDays = expAllowed && expires ? daysUntil(expires, now) : null;
   const target: Record<Source, string> = { namespace: nsName, environment: env, cluster: cluster?.clusterId ?? "",
     instance: me.state === "ok" ? me.data.instance : "" };
+  const shownError = (f: MetaField): string | null =>
+    !attempted && (values[valueKey(f)] ?? "") === "" ? null : clientErrors[f.id] ?? null;
   const fieldErrors: Record<string, string | null | undefined> = Object.fromEntries(
-    form.fields.map((f) => [f.id, clientErrors[f.id] ?? mapped?.byField[f.id] ?? null]));
+    form.fields.map((f) => [f.id, shownError(f) ?? mapped?.byField[f.id] ?? null]));
   const planOk = plan.state === "ok" ? plan.data : null;
 
   /**
@@ -239,6 +245,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
    * the form may be planned. A field in error inside a collapsed group opens the group, so the browser can focus it.
    */
   const valid = async (): Promise<boolean> => {
+    setAttempted(true);
     const errors = await checkNow();
     setValidity(formRef.current, form.fields, errors);
     const closed = form.fields.filter((f) => errors[f.id] && !f.required && f.derivedFrom === null && !expanded[f.kind]);
