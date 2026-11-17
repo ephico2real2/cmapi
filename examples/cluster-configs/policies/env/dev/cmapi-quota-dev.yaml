@@ -7,6 +7,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: d63ad202fb053c0e4b0c1c5ced2a05b4e8cc6b4fd6ec7b534b63fb5528d43853
 spec:
   validationActions:
   - Audit
@@ -43,6 +44,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: d66cd7df8ba4fc1dda5b736ecfd8d94197daafa5576d56f8a5f4acd18038b5be
 spec:
   validationActions:
   - Audit
@@ -79,6 +81,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 767d79d86512fd5bbfed4eade56793e4e883c0cd01a98bd0b8b6fc75479727f6
 spec:
   validationActions:
   - Audit
@@ -115,6 +118,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: f9b01875c098e99bcd06590f955dc6e09f20cca2500eb51c9eb30f1bc7334843
 spec:
   validationActions:
   - Audit
@@ -151,6 +155,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: dd2883dd2518aee4a41dfcbb735411aa2ae5863dfc6c9d569e7eb262156a0143
 spec:
   validationActions:
   - Audit
@@ -187,6 +192,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: f9b2154ae4bfffa6d18e55b718f85e007697c4af0c07fabae9a57771151beddb
 spec:
   validationActions:
   - Audit
@@ -223,6 +229,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.
     cmapi.net/generated: 'true'
+    cmapi.net/policy-digest: 0b453fe2b01a9b057d15691c43c0a35205418464b9c54bde04ab39cf7fc6d387
 spec:
   validationActions:
   - Audit

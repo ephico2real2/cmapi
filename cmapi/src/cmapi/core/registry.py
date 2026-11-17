@@ -12,7 +12,8 @@ and the six checks before a cluster is read (docs/01, "Cluster connections and m
     6. Capability: list namespaces.
 
 Each refusal is a finding on that cluster only. A connected cluster with no clusters.yaml entry
-is read-only (writes get 422 cluster-not-writable). Every connected cluster gets a WatchCache.
+is read-only (writes get 422 cluster-not-writable). Every connected cluster gets a WatchCache, and, when the instance runs
+Kyverno in its environment, a ReportCache of its policy reports (core/clients/policyreports.py, #302) from `reports_factory`.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ import httpx
 import yaml
 
 from cmapi.core.clients.kube import ClusterUnreachable, KubeClient, KubeError, WatchCache
+from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, log
 
@@ -68,6 +70,7 @@ class ClusterState:
     checked_at: datetime | None = None
     client: KubeClient | None = None
     cache: WatchCache | None = None
+    reports: ReportCache | None = None
     token_expires_at: str | None = None
 
     @property
@@ -163,10 +166,13 @@ def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
 class ClusterRegistry:
     def __init__(self, policies: Mapping[str, ClusterPolicy], source: ImportSource | None, *,
                  trusted_bundle: str | None = None, relist_seconds: int = 300,
-                 client_factory: Callable[..., KubeClient] = KubeClient, start_caches: bool = True):
+                 client_factory: Callable[..., KubeClient] = KubeClient, start_caches: bool = True,
+                 reports_factory: Callable[[ClusterState, KubeClient], ReportCache | None] | None = None):
         self.policies = dict(policies)
         self.source, self.trusted_bundle, self.relist_seconds = source, trusted_bundle, relist_seconds
         self.client_factory, self.start_caches = client_factory, start_caches
+        # None, or None from the factory: no report cache for that cluster (engine none, or its environment's mode off).
+        self.reports_factory = reports_factory
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -241,12 +247,14 @@ class ClusterRegistry:
         st = self._set(st, "connected", [], version, secret)
         fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
         if st.client is None or self._fingerprints.get(cluster_id) != fp:
-            if st.cache is not None:
-                st.cache.stop()
+            self._stop_caches(st)
             st.client = client
             st.cache = WatchCache(client)
+            st.reports = self.reports_factory(st, client) if self.reports_factory else None
             if self.start_caches:
                 st.cache.start()
+                if st.reports is not None:
+                    st.reports.start()
             self._fingerprints[cluster_id] = fp
         else:
             client.close()
@@ -256,7 +264,7 @@ class ClusterRegistry:
              secret: Mapping[str, Any]) -> ClusterState:
         with self._lock:
             if status != "connected" and st.cache is not None:
-                st.cache.stop()
+                self._stop_caches(st)
                 st.cache, st.client = None, None
             st.status, st.findings, st.server_version = status, findings, version
             st.checked_at = datetime.now(timezone.utc)
@@ -294,8 +302,7 @@ class ClusterRegistry:
             for cid, st in self.clusters.items():
                 if cid not in seen and st.status != "not-imported":
                     st.status, st.findings = "not-imported", ["no import Secret"]
-                    if st.cache:
-                        st.cache.stop()
+                    self._stop_caches(st)
                     st.cache, st.client = None, None
 
     def start(self) -> None:
@@ -309,8 +316,15 @@ class ClusterRegistry:
     def stop(self) -> None:
         self._stop.set()
         for st in self.clusters.values():
-            if st.cache:
-                st.cache.stop()
+            self._stop_caches(st)
+
+    @staticmethod
+    def _stop_caches(st: ClusterState) -> None:
+        if st.cache is not None:
+            st.cache.stop()
+        if st.reports is not None:
+            st.reports.stop()
+            st.reports = None
 
     # ---- questions the API asks
     def get(self, cluster_id: str) -> ClusterState:

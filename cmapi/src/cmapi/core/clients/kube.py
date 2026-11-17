@@ -34,7 +34,21 @@ RESOURCES = {
     "Node": ("/api/v1/nodes", False),
     "Pod": ("/api/v1/pods", True),
     "PersistentVolumeClaim": ("/api/v1/persistentvolumeclaims", True),
+    # Kyverno's reports and the policy kind that cmapi renders (#302), read by the reader's own rule for them.
+    "PolicyReport": ("/apis/wgpolicyk8s.io/v1alpha2/policyreports", True),
+    "ClusterPolicyReport": ("/apis/wgpolicyk8s.io/v1alpha2/clusterpolicyreports", False),
+    "ValidatingPolicy": ("/apis/policies.kyverno.io/v1/validatingpolicies", False),
 }
+
+
+def resource_path(kind: str, namespace: str | None = None) -> str:
+    """The collection path of a kind, in one namespace when the kind is namespaced and a namespace is given:
+    /api/v1/namespaces/<ns>/pods, /apis/<group>/<version>/namespaces/<ns>/<plural>."""
+    path, namespaced = RESOURCES[kind]
+    if namespaced and namespace:
+        base, plural = path.rsplit("/", 1)
+        return f"{base}/namespaces/{namespace}/{plural}"
+    return path
 
 
 class ClusterUnreachable(RuntimeError):
@@ -86,26 +100,40 @@ class KubeClient:
             return r.json()["status"]["userInfo"]["username"]
         raise KubeError(r.status_code, "whoami", r.text)
 
+    def served(self, group_version: str) -> bool:
+        """Whether the API server serves a group version, from discovery (GET /apis/<group>/<version>).
+
+        Discovery is open to every authenticated identity (system:discovery), so it tells "not installed" (404) from "not
+        granted": a list of a kind that the API server does not serve answers 403 to an identity without the grant, because
+        authorization runs before the 404 (measured on CRC, #302 design A)."""
+        r = self._request("GET", f"/apis/{group_version}")
+        if r.status_code == 404:
+            return False
+        if r.status_code >= 400:
+            raise KubeError(r.status_code, f"/apis/{group_version}", r.text)
+        return True
+
     def list(self, kind: str, namespace: str | None = None, label_selector: str | None = None,
-             resource_version: str | None = None) -> dict[str, Any]:
-        path, namespaced = RESOURCES[kind]
-        if namespaced and namespace:
-            path = path.replace("/v1/", f"/v1/namespaces/{namespace}/", 1)
+             resource_version: str | None = None, *, limit: int | None = None, continue_: str | None = None) -> dict[str, Any]:
+        """One list call. `limit` and `continue_` page a large collection (API concepts, "Retrieving large results sets in
+        chunks"); without them the API server answers in one response."""
+        path = resource_path(kind, namespace)
         params: dict[str, Any] = {}
         if label_selector:
             params["labelSelector"] = label_selector
         if resource_version is not None:
             params["resourceVersion"] = resource_version
+        if limit is not None:
+            params["limit"] = limit
+        if continue_:
+            params["continue"] = continue_
         out = self.get(path, params)
         if out is None:
             raise KubeError(404, path, "list not found")
         return out
 
     def get_object(self, kind: str, namespace: str | None, name: str) -> dict[str, Any] | None:
-        path, namespaced = RESOURCES[kind]
-        if namespaced:
-            path = path.replace("/v1/", f"/v1/namespaces/{namespace}/", 1)
-        return self.get(f"{path}/{name}")
+        return self.get(f"{resource_path(kind, namespace)}/{name}")
 
     def watch(self, kind: str, resource_version: str, timeout_seconds: int = 300) -> Iterator[dict[str, Any]]:
         path, _ = RESOURCES[kind]
@@ -124,9 +152,7 @@ class KubeClient:
     # ---- the one write path, used only by the delivery job with the deliverer identity
     def apply(self, doc: Mapping[str, Any], field_manager: str = APPLY_FIELD_MANAGER) -> dict[str, Any]:
         kind, meta = doc["kind"], doc["metadata"]
-        path, namespaced = RESOURCES[kind]
-        if namespaced:
-            path = path.replace("/v1/", f"/v1/namespaces/{meta['namespace']}/", 1)
+        path = resource_path(kind, meta.get("namespace"))
         r = self._request("PATCH", f"{path}/{meta['name']}", params={"fieldManager": field_manager, "force": "true"},
                           content=json.dumps(doc), headers={"Content-Type": "application/apply-patch+yaml"})
         if r.status_code >= 400:
@@ -134,9 +160,7 @@ class KubeClient:
         return r.json()
 
     def delete(self, kind: str, namespace: str | None, name: str) -> None:
-        path, namespaced = RESOURCES[kind]
-        if namespaced:
-            path = path.replace("/v1/", f"/v1/namespaces/{namespace}/", 1)
+        path = resource_path(kind, namespace)
         r = self._request("DELETE", f"{path}/{name}")
         if r.status_code not in (200, 202, 404):
             raise KubeError(r.status_code, path, r.text)
@@ -150,20 +174,29 @@ class KubeError(RuntimeError):
 
 @dataclass
 class CacheState:
-    items: dict[str, dict[str, Any]] = field(default_factory=dict)      # key -> object
+    items: dict[str, Any] = field(default_factory=dict)                  # key -> object, or its projection
     resource_version: str | None = None
     last_good: float | None = None                                       # time.time() of the last list or event
     error: str | None = None
+    error_status: int | None = None                                      # the HTTP status of the last error, when it had one
 
 
 class WatchCache:
-    """List-then-watch of the kinds cmapi reads, for one cluster."""
+    """List-then-watch of the kinds cmapi reads, for one cluster.
+
+    `project(kind, obj)` keeps what a reader needs instead of the object (#302: a PolicyReport is reduced to its non-pass
+    results and counters), applied on each list and each event; `dropped(kind, key)` is told of each key that leaves the
+    cache, by a DELETED event or by a relist that no longer holds it. `chunk` lists in pages of that size (`limit` and
+    `continue`): a 410 on a continue token restarts the list after the backoff, like any other failed list."""
 
     KINDS = ("Namespace", "ResourceQuota", "LimitRange")
     RELIST_SECONDS = 1800
 
-    def __init__(self, client: KubeClient, kinds: tuple[str, ...] = KINDS, clock: Callable[[], float] = time.time):
+    def __init__(self, client: KubeClient, kinds: tuple[str, ...] = KINDS, clock: Callable[[], float] = time.time, *,
+                 project: Callable[[str, dict[str, Any]], Any] | None = None,
+                 dropped: Callable[[str, str], None] | None = None, chunk: int | None = None):
         self.client, self.kinds, self.clock = client, kinds, clock
+        self.project, self.dropped, self.chunk = project, dropped, chunk
         self.state: dict[str, CacheState] = {k: CacheState() for k in kinds}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -174,13 +207,34 @@ class WatchCache:
         m = obj["metadata"]
         return f"{m.get('namespace', '')}/{m['name']}"
 
+    def _value(self, kind: str, obj: dict[str, Any]) -> Any:
+        return self.project(kind, obj) if self.project else obj
+
+    def _fetch(self, kind: str) -> tuple[list[dict[str, Any]], str]:
+        """Every object of the kind and the list's resourceVersion, in one call or in chunks."""
+        if not self.chunk:
+            out = self.client.list(kind)
+            return out.get("items", []), out["metadata"]["resourceVersion"]
+        items: list[dict[str, Any]] = []
+        token: str | None = None
+        while True:
+            out = self.client.list(kind, limit=self.chunk, continue_=token)
+            items.extend(out.get("items", []))
+            token = (out.get("metadata") or {}).get("continue") or None
+            if token is None:
+                return items, out["metadata"]["resourceVersion"]
+
     def _list(self, kind: str) -> None:
-        out = self.client.list(kind)
+        objs, rv = self._fetch(kind)
         with self._lock:
             st = self.state[kind]
-            st.items = {self._key(o): o for o in out.get("items", [])}
-            st.resource_version = out["metadata"]["resourceVersion"]
-            st.last_good, st.error = self.clock(), None
+            fresh = {self._key(o) for o in objs}
+            if self.dropped:
+                for key in set(st.items) - fresh:
+                    self.dropped(kind, key)
+            st.items = {self._key(o): self._value(kind, o) for o in objs}
+            st.resource_version = rv
+            st.last_good, st.error, st.error_status = self.clock(), None, None
 
     def _loop(self, kind: str) -> None:
         backoff = 1.0
@@ -200,14 +254,16 @@ class WatchCache:
                             st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
                             st.last_good = self.clock()
                             if t in ("ADDED", "MODIFIED"):
-                                st.items[self._key(obj)] = obj
+                                st.items[self._key(obj)] = self._value(kind, obj)
                             elif t == "DELETED":
-                                st.items.pop(self._key(obj), None)
+                                if st.items.pop(self._key(obj), None) is not None and self.dropped:
+                                    self.dropped(kind, self._key(obj))
                         if self._stop.is_set():
                             break
             except (ClusterUnreachable, KubeError, ValueError) as exc:
                 with self._lock:
                     self.state[kind].error = str(exc)[:200]
+                    self.state[kind].error_status = exc.status if isinstance(exc, KubeError) else None
                 log.warning("watch_cache", cluster_id=self.client.cluster_id, kind=kind, error=str(exc)[:200],
                             retry_in=backoff)
                 self._stop.wait(backoff)

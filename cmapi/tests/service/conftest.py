@@ -295,7 +295,11 @@ class FakeGit(HostGitProvider):
 
 
 class FakeKube(KubeClient):
-    """One cluster in memory: namespaces, quotas and limit ranges, applied by the deliverer."""
+    """One cluster in memory: namespaces, quotas and limit ranges, applied by the deliverer.
+
+    #302: `served_groups` is what API discovery serves (empty: Kyverno is not installed, as on CRC), `forbidden_kinds` the
+    kinds whose list answers 403, and `calls` each discovery and list call by kind, so a test can show that no call was made.
+    A list with `limit` pages by `continue`, as the API server does."""
 
     def __init__(self, cluster_id="CRC", identity="system:serviceaccount:cmapi-system:cmapi-reader"):
         self.cluster_id, self.identity = cluster_id, identity
@@ -303,6 +307,9 @@ class FakeKube(KubeClient):
         self.rv = 1
         self.applied: list[str] = []
         self.unreachable = False
+        self.served_groups: set[str] = set()
+        self.forbidden_kinds: set[str] = set()
+        self.calls: list[str] = []
 
     def close(self):
         pass
@@ -319,9 +326,25 @@ class FakeKube(KubeClient):
     def whoami(self):
         return self.identity
 
-    def list(self, kind, namespace=None, label_selector=None, resource_version=None):
+    def served(self, group_version):
+        self.calls.append(f"discovery {group_version}")
+        if self.unreachable:
+            from cmapi.core.clients.kube import ClusterUnreachable
+            raise ClusterUnreachable("fake cluster down")
+        return group_version in self.served_groups
+
+    def list(self, kind, namespace=None, label_selector=None, resource_version=None, *, limit=None, continue_=None):
+        self.calls.append(kind)
+        if kind in self.forbidden_kinds:
+            raise KubeError(403, f"list {kind}", "forbidden")
         items = [o for (k, ns, _), o in self.objects.items() if k == kind and (namespace is None or ns == namespace)]
-        return {"items": items, "metadata": {"resourceVersion": str(self.rv)}}
+        if limit is None:
+            return {"items": items, "metadata": {"resourceVersion": str(self.rv)}}
+        items.sort(key=lambda o: (o["metadata"].get("namespace", ""), o["metadata"]["name"]))
+        start = int(continue_ or 0)
+        more = start + limit < len(items)
+        return {"items": items[start:start + limit],
+                "metadata": {"resourceVersion": str(self.rv), **({"continue": str(start + limit)} if more else {})}}
 
     def get_object(self, kind, namespace, name):
         return self.objects.get(self._k(kind, namespace, name))
@@ -408,7 +431,7 @@ def database() -> Database:
 def fresh_db(database: Database) -> Database:
     with database.engine.begin() as c:
         c.execute(text("TRUNCATE change_requests, request_events, approvals, jobs, audit_events, admin_switches, "
-                       "approval_notifications, expiration_notices RESTART IDENTITY CASCADE"))
+                       "approval_notifications, expiration_notices, policy_rejections RESTART IDENTITY CASCADE"))
     return database
 
 

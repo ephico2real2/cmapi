@@ -7,6 +7,10 @@ instance.yaml:
       mode: audit              # audit | enforce | off: the mode of each environment that `environments` does not name
       environments:
         prod: {mode: enforce}
+      reports:
+        maxResultsPerCluster: 20000   # the rows of fail, warn and error that the Policies tab keeps per cluster (#302)
+      rejections:
+        retentionDays: 90             # how long a stored refusal of cmapi is kept (#302)
 
 With no `policy` key, or no `mode`, the engine is kyverno and each environment audits (#342). The owner, 2026-11-17: "Kyverno
 should be in audit mode. The core logic like we said should be in the cmapi core logic itself." cmapi's own checks refuse a
@@ -24,12 +28,16 @@ about Kyverno itself (no binary, a policy it cannot evaluate, no result) is an e
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 ENGINES = ("kyverno", "none")
 MODES = ("enforce", "audit", "off")
 DEFAULT_MODE = "audit"      # #342: cmapi's own checks are the refusal; Kyverno reports
+# #302. 20,000 kept rows took 9.4 MiB in CPython 3.14 (design B, M17). 90 days: the arbitration of #302, one key per instance.
+DEFAULT_MAX_RESULTS = 20_000
+DEFAULT_RETENTION_DAYS = 90
 
 
 def _mode(value: Any) -> Any:
@@ -43,6 +51,8 @@ class PolicySettings:
     engine: str = "kyverno"
     default_mode: str = DEFAULT_MODE
     environments: Mapping[str, str] = field(default_factory=dict)
+    max_results_per_cluster: int = DEFAULT_MAX_RESULTS
+    rejection_retention_days: int = DEFAULT_RETENTION_DAYS
 
     def mode_for(self, environment: str) -> str:
         """The mode of one environment: off for every environment when the engine is none."""
@@ -52,6 +62,12 @@ class PolicySettings:
 
     def modes(self, environments: set[str]) -> dict[str, str]:
         return {e: self.mode_for(e) for e in sorted(environments)}
+
+    def view(self, environments: set[str]) -> dict[str, Any]:
+        """The `policy` object of the API (schema Policy), the same in GET /admin/integrations and GET /policies/results:
+        the engine, the Kyverno CLI that the image pins (CMAPI_KYVERNO_VERSION; null outside the image) and each mode."""
+        return {"engine": self.engine, "kyvernoVersion": os.environ.get("CMAPI_KYVERNO_VERSION") or None,
+                "environments": self.modes(environments)}
 
     def needs_kyverno(self, environments: set[str]) -> bool:
         """True when some served environment runs Kyverno at plan time, so the kyverno binary must be present."""
@@ -65,7 +81,7 @@ class PolicySettings:
             return cls(), problems
         if not isinstance(raw, Mapping):
             return cls(), ["instance.yaml: policy must be a mapping"]
-        unknown = set(raw) - {"engine", "mode", "environments"}
+        unknown = set(raw) - {"engine", "mode", "environments", "reports", "rejections"}
         if unknown:
             problems.append(f"instance.yaml: policy has unknown fields {sorted(unknown)}")
         engine = raw.get("engine", "kyverno")
@@ -87,4 +103,22 @@ class PolicySettings:
                 envs[env] = mode
         if engine == "none" and (envs or "mode" in raw and default != "off"):
             problems.append("instance.yaml: policy.engine none runs no policy: give no mode, or mode off")
-        return cls(engine=engine, default_mode=default, environments=envs), problems
+        max_results = _count(raw, "reports", "maxResultsPerCluster", DEFAULT_MAX_RESULTS, 1, 1_000_000, problems)
+        retention = _count(raw, "rejections", "retentionDays", DEFAULT_RETENTION_DAYS, 1, 3650, problems)
+        return cls(engine=engine, default_mode=default, environments=envs, max_results_per_cluster=max_results,
+                   rejection_retention_days=retention), problems
+
+
+def _count(raw: Mapping[str, Any], block: str, key: str, default: int, low: int, high: int, problems: list[str]) -> int:
+    """A whole number of `policy.<block>.<key>`, from low to high; the default when the key is absent."""
+    section = raw.get(block)
+    if section is None:
+        return default
+    if not isinstance(section, Mapping) or set(section) - {key}:
+        problems.append(f"instance.yaml: policy.{block} has the one key {key}")
+        return default
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        problems.append(f"instance.yaml: policy.{block}.{key} is a whole number from {low} to {high}, not {value!r}")
+        return default
+    return value

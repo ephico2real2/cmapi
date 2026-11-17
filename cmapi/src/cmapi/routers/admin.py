@@ -1,7 +1,6 @@
 """Admin routes: prune confirmation, the auto-approval kill switch, integrations, the plugins, the Git log, KPIs."""
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import Depends, Request
@@ -16,7 +15,7 @@ from cmapi.core.git.base import GitUnavailable
 from cmapi.core.identity.claims import Identity
 from cmapi.core.kpi import kpi_report
 from cmapi.core.lifecycle import Event as E, State as S
-from cmapi.core.models import Api, ChangeRequest, PruneConfirm
+from cmapi.core.models import Api, ChangeRequest, Policy, PruneConfirm
 from cmapi.core.observability import AUTO_PAUSED
 from cmapi.core.plugins import BUILT_IN
 from cmapi.core.views import request_view
@@ -48,11 +47,9 @@ class Integrations(Api):
     operations: dict[str, Any] = Field(description="Operations engine", examples=[{"engine": "builtin"}])
     events: dict[str, Any] = Field(description="Event publisher", examples=[{"publisher": "none"}])
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
-    policy: dict[str, Any] = Field(description="The policy engine (kyverno or none), the mode of each served environment "
-                                               "(audit, the default; enforce; or off), and kyvernoVersion: the Kyverno CLI that "
-                                               "the image pins, the least version that the clusters must run (null outside the image)",
-                                   examples=[{"engine": "kyverno", "kyvernoVersion": "v1.20.0",
-                                              "environments": {"dev": "audit", "rnd": "audit"}}])
+    policy: Policy = Field(description="The policy engine (kyverno or none), the mode of each served environment "
+                                       "(audit, the default; enforce; or off), and kyvernoVersion: the Kyverno CLI that the image "
+                                       "pins, the least version that the clusters must run (null outside the image)")
 
 
 class PluginRow(Api):
@@ -183,8 +180,7 @@ def integrations(who: Identity = Depends(require("clusters:read")), c: AppContex
                          "syncTimeoutSeconds": c.delivery.sync_timeout_seconds},
             "syncSignal": i.get("syncSignal") or {"default": "poll"}, "operations": i.get("operations") or {"engine": "builtin"},
             "events": i.get("events") or {"publisher": "none"}, "clusters": c.registry.status_map(),
-            "policy": {"engine": c.cfg.policy.engine, "kyvernoVersion": os.environ.get("CMAPI_KYVERNO_VERSION") or None,
-                       "environments": c.cfg.policy.modes(c.cfg.allowed_environments)}}
+            "policy": c.cfg.policy.view(c.cfg.allowed_environments)}
 
 
 @router.read("/plugins", summary="The plugins of this instance", permission="clusters:read", response_model=PluginList)

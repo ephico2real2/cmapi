@@ -14,6 +14,7 @@ from cmapi.jobs.merge import merge
 from cmapi.jobs.open_pr import open_pr, open_revert
 from cmapi.jobs.pr_checks import pr_checks
 from cmapi.jobs.push_branch import push_branch
+from cmapi.jobs.rejections_prune import REJECTIONS_PRUNE_EVERY, rejections_prune
 from cmapi.jobs.watch_sync import prune, watch_sync
 
 HANDLERS = {
@@ -29,6 +30,8 @@ HANDLERS = {
     "git_reconcile": git_reconcile,
     "approval_timeout": approval_timeout,
     "channel_notify": channel_notify,
+    "rejections_prune": rejections_prune,
 }
 
-RECURRING = {"approval_timeout": APPROVAL_TIMEOUT_EVERY, "git_reconcile": GIT_RECONCILE_EVERY}
+RECURRING = {"approval_timeout": APPROVAL_TIMEOUT_EVERY, "git_reconcile": GIT_RECONCILE_EVERY,
+             "rejections_prune": REJECTIONS_PRUNE_EVERY}

@@ -14,6 +14,8 @@ export const PERMISSION = {
   "GET /api/v1/directory/users/{username}": "objects:read",
   "GET /api/v1/expirations": "objects:read",
   "GET /api/v1/metadata-keys": "objects:read",
+  "GET /api/v1/policies/rejections": "requests:read",
+  "GET /api/v1/policies/results": "objects:read",
   "GET /api/v1/quotas": "objects:read",
   "GET /api/v1/quotas:export": "objects:read",
   "GET /api/v1/quotas:suggest": "objects:read",

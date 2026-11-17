@@ -74,13 +74,13 @@ class Plan:
                              "bindingResource": self.capacity.binding_resource, **dict(self.capacity.detail)},
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
-                "findings": [asdict(f) for f in self.findings], "beyondTier": self.beyond_tier}
+                "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
         return {"files": self.files, "prev": self.prev, "changes": self.changes, "facts": self.facts,
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh, **dict(self.capacity.detail)},
-                "spec": _spec_json(self.spec), "findings": [asdict(f) for f in self.findings],
+                "spec": _spec_json(self.spec), "findings": [f.view() for f in self.findings],
                 "beyondTier": self.beyond_tier}
 
 
@@ -170,6 +170,14 @@ class Pipeline:
     # ---- plan a create or update
     def plan_namespace(self, who: Identity, cluster_id: str, body: Mapping[str, Any], *, action: str,
                        if_match: str | None = None, reason: str | None = None) -> Plan:
+        try:
+            return self._plan_namespace(who, cluster_id, body, action=action, if_match=if_match, reason=reason)
+        except Problem as exc:
+            count_refusal(exc)
+            raise
+
+    def _plan_namespace(self, who: Identity, cluster_id: str, body: Mapping[str, Any], *, action: str,
+                        if_match: str | None = None, reason: str | None = None) -> Plan:
         st = self.registry.writable(cluster_id)
         env = st.policy.environment
         self.check_env_served(env)
@@ -284,16 +292,14 @@ class Pipeline:
                 raise
             raise refusal from exc
         if refusal is not None:
-            refusal.extra["findings"] = [asdict(f) for f in findings]
+            refusal.extra["findings"] = [f.view() for f in findings]
             raise refusal
         errors = [f for f in findings if f.severity == "error"]
         if errors:
-            for f in errors:
-                VALIDATION_FAILURES.labels(f.source).inc()
             raise Problem.policy_violation("Rendered files failed validation",
-                                           [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message}
-                                            for f in errors],
-                                           findings=[asdict(f) for f in findings if f.severity != "error"])
+                                           [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message,
+                                             "kyvernoRule": f.kyverno_rule} for f in errors],
+                                           findings=[f.view() for f in findings if f.severity != "error"])
         old_hard = {}
         if old_tier:
             # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
@@ -430,6 +436,22 @@ class Pipeline:
         return row
 
 
+# The refusals of cmapi's own checks that are a verdict on the request (#302): its names and its expiry. A policy-violation
+# counts each of its errors by its source (cmapi's metadata check, or the validator's kubeconform and Kyverno).
+CMAPI_REFUSALS = frozenset({"reserved-namespace", "invalid-namespace-name", "expiration-not-allowed", "expiration-limit",
+                            "expiration-in-past"})
+
+
+def count_refusal(problem: Problem) -> None:
+    """cmapi_validation_failures_total{source}: one for each error of a policy-violation, and one for each other refusal of
+    CMAPI_REFUSALS. Before #302 only the validator's errors were counted, and cmapi's own refusals, raised first, were not."""
+    if problem.code == "policy-violation":
+        for error in problem.errors or [{}]:
+            VALIDATION_FAILURES.labels(error.get("source") or "cmapi").inc()
+    elif problem.code in CMAPI_REFUSALS:
+        VALIDATION_FAILURES.labels("cmapi").inc()
+
+
 def _date(v: Any) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
@@ -485,4 +507,4 @@ def _grants(prev: Mapping[str, str], *, scc: bool) -> list[tuple[str, str]]:
     return out
 
 
-__all__ = ["Pipeline", "Plan", "approval_view", "folder_etag", "fingerprint"]
+__all__ = ["CMAPI_REFUSALS", "Pipeline", "Plan", "approval_view", "count_refusal", "folder_etag", "fingerprint"]

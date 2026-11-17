@@ -20,6 +20,7 @@ import { ApprovalsTab } from "./ApprovalsTab";
 import { ExpirationTab } from "./ExpirationTab";
 import { KpisTab } from "./KpisTab";
 import { NewNamespaceTab } from "./NewNamespaceTab";
+import { PoliciesTab } from "./PoliciesTab";
 import { QuotasTab } from "./QuotasTab";
 import { RequestsTab } from "./RequestsTab";
 import { WorkflowTab } from "./WorkflowTab";
@@ -44,7 +45,7 @@ const TABS: TabDef[] = [
   { id: "expiration", label: "Expiration", needs: PERMISSION["GET /api/v1/expirations"], panel: ExpirationTab },
   { id: "requests", label: "Requests", needs: PERMISSION["GET /api/v1/requests"], panel: RequestsTab },
   { id: "approvals", label: "Approvals", needs: PERMISSION["POST /api/v1/requests/{request_id}:approve"], panel: ApprovalsTab },
-  { id: "policies", label: "Policies", needs: null },
+  { id: "policies", label: "Policies", needs: PERMISSION["GET /api/v1/policies/results"], panel: PoliciesTab },
   { id: "capacity", label: "Capacity", needs: null },
   { id: "kpis", label: "KPIs", needs: PERMISSION["GET /api/v1/admin/kpi"], panel: KpisTab }
 ];

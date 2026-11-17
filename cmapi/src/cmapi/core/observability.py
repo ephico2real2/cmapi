@@ -28,6 +28,13 @@ HTTP_DURATION = Histogram("cmapi_http_request_duration_seconds", "HTTP request d
                           buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10))
 CHANGE_REQUESTS = Counter("cmapi_change_requests_total", "Change requests by outcome", ["plugin", "action", "environment", "status"])
 VALIDATION_FAILURES = Counter("cmapi_validation_failures_total", "Plans refused by validation", ["source"])
+# #302: each refusal of cmapi's that the Policies tab lists, by problem code, and whether it was a dry run (a dry run is
+# counted here only: the portal's forms dry-run as a person types, so storing them would store drafts).
+PLAN_REFUSALS = Counter("cmapi_plan_refusals_total", "Plans that cmapi refused before Git", ["code", "dry_run"])
+REJECTIONS_UNRECORDED = Counter("cmapi_policy_rejections_unrecorded_total",
+                                "Refusals that could not be stored in policy_rejections; the refusal itself was answered", ["stage"])
+POLICY_REPORTS_STATE = Gauge("cmapi_policy_reports_state", "1 for the state of each cluster's policy reports (#302)",
+                             ["cluster_id", "state"])
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",

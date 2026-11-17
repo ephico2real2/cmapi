@@ -117,10 +117,26 @@ def _policy(name: str, resource: str, actions: list[str], checks: list[Check], d
         *({"name": n, "expression": e} for c in checks for n, e in c.variables),
     ]
     spec["validations"] = [{"expression": c.expression, "message": c.fallback, "messageExpression": c.message} for c in checks]
-    return {"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
-            "metadata": {"name": name, "annotations": {"policies.kyverno.io/description": description,
-                                                       "cmapi.net/generated": "true"}},
-            "spec": spec}
+    doc = {"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
+           "metadata": {"name": name, "annotations": {"policies.kyverno.io/description": description,
+                                                      "cmapi.net/generated": "true"}},
+           "spec": spec}
+    doc["metadata"]["annotations"][DIGEST] = policy_digest(doc)
+    return doc
+
+
+# The digest of each rendered policy, on the policy itself (#302): the Policies tab compares the cluster's copy with the
+# render by this value, never by the spec, which the API server and Kyverno default (a spec read back never equals the
+# render). cmapi renders from its configuration and has no bundle tag, so a digest per policy is what says "current".
+DIGEST = "cmapi.net/policy-digest"
+
+
+def policy_digest(doc: Mapping[str, Any]) -> str:
+    """SHA-256 of the policy as canonical JSON (sorted keys, no spaces), without its own digest annotation."""
+    meta = dict(doc.get("metadata") or {})
+    meta["annotations"] = {k: v for k, v in (meta.get("annotations") or {}).items() if k != DIGEST}
+    body = {**doc, "metadata": meta}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
 
 # ------------------------------------------------------------------------------------------------- Namespace metadata

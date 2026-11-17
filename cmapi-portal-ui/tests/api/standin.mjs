@@ -356,6 +356,114 @@ export function expirationPage(rows, q, today) {
       nextCursor: items.length && end < total ? sign(keys[end - 1], "next") : null, prevCursor: items.length && start > 0 ? sign(keys[start], "prev") : null } };
 }
 
+// The Policies tab's API (cmapi/src/cmapi/plugins/policies/router.py): the recorded answers of GET /api/v1/policies/results and
+// /rejections, and a fleet built from them with each state of a cluster, for the states and the paging. The keyset cursor is bound
+// to the filters, as the API's; the counts of `policies` follow clusterId, as the API's.
+export const POLICY_SAMPLE = SAMPLES.operations.policies_results.response.body;
+export const REJECTION_SAMPLE = SAMPLES.operations.policies_rejections.response.body;
+const VERDICTS = ["pass", "fail", "warn", "error", "skip"];
+const zero = () => Object.fromEntries(VERDICTS.map((v) => [v, 0]));
+/** A cluster of the recorded answer, in another state: the API's null counts, never zeros, for what is not known. */
+export function policyCluster(base, { clusterId, env = base.env, state = "ok", stateDetail = null, counts = base.counts, asOf = base.asOf, bundle = base.bundle, dropped = 0,
+  hidden = base.hidden, liveActions = base.liveActions, mode = base.mode }) {
+  const unknown = ["loading", "not-installed", "forbidden", "unreachable", "mode-off", "engine-off"].includes(state);
+  return { ...base, clusterId, env, mode, state, stateDetail, asOf, liveActions: unknown ? [] : liveActions, bundle: unknown ? null : bundle,
+    counts: unknown ? null : counts, hidden: unknown ? null : hidden, dropped: unknown ? null : dropped };
+}
+/** `count` failing rows over the recorded row's policy and a second one, on CRC, each namespace its own. */
+export function policyRowsFrom(count, { clusterId = "CRC" } = {}) {
+  const row = POLICY_SAMPLE.items[0];
+  const second = POLICY_SAMPLE.policies.find((p) => p.name !== row.policy && p.check?.rule === "pattern") ?? POLICY_SAMPLE.policies[1];
+  return Array.from({ length: count }, (_, i) => {
+    const ns = `${TEAMS[i % TEAMS.length]}-${APPS[Math.floor(i / TEAMS.length) % APPS.length]}-dev`;
+    const odd = i % 3 === 2;
+    return { ...row, clusterId, namespace: ns, resource: { ...row.resource, name: ns }, policy: odd ? second.name : row.policy, rule: odd ? second.check.rule : row.rule,
+      result: ["fail", "fail", "warn", "error"][i % 4], message: `${row.message} (${ns})` };
+  });
+}
+/** The fleet of the Policies checks: CRC with rows, and a cluster in each other state of the API. */
+export function policyFleet(rows = policyRowsFrom(30)) {
+  const base = POLICY_SAMPLE.clusters[0];
+  const fails = (cid, v) => rows.filter((r) => r.clusterId === cid && r.result === v).length;
+  const crc = { ...base, counts: { ...base.counts, fail: fails("CRC", "fail"), warn: fails("CRC", "warn"), error: fails("CRC", "error") }, hidden: { unmanaged: 1840, otherPolicies: 41, stale: 2 } };
+  const clusters = [crc,
+    policyCluster(base, { clusterId: "OCP_GF6", env: "rnd", state: "drift", stateDetail: "1 missing, 3 differ from the render, 0 without the actions Audit, Warn of mode audit",
+      bundle: { ...base.bundle, live: 30, current: 27, missing: [POLICY_SAMPLE.policies[0].name], differing: POLICY_SAMPLE.policies.slice(1, 4).map((p) => p.name) }, counts: zero() }),
+    policyCluster(base, { clusterId: "OCP_GF7", env: "rnd", state: "unreachable", stateDetail: "the cluster is unreachable: fake cluster down", asOf: "2026-11-17T15:30:00Z" }),
+    policyCluster(base, { clusterId: "OCP_GF9", env: "rnd", state: "not-installed", stateDetail: "wgpolicyk8s.io/v1alpha2 is not served: Kyverno is not installed on the cluster", asOf: null }),
+    policyCluster(base, { clusterId: "OCP_GF8", env: "rnd", state: "forbidden", stateDetail: "cmapi-reader may not list clusterpolicyreports: the reader's ClusterRole needs get, list and watch on them", asOf: null }),
+    policyCluster(base, { clusterId: "OCP_GF10", env: "rnd", state: "capped", stateDetail: "140 rows past policy.reports.maxResultsPerCluster (20000) are counted and not listed", dropped: 140, counts: zero() }),
+    policyCluster(base, { clusterId: "OCP_GF11", env: "rnd", state: "stale", stateDetail: "no good read of the reports for 30 minutes: the counts are the last ones read", counts: zero() })];
+  const perCluster = { CRC: Object.fromEntries(POLICY_SAMPLE.policies.map((p) => [p.name, { ...zero(), pass: p.counts.pass + 3,
+    fail: rows.filter((r) => r.policy === p.name && r.result === "fail").length, warn: rows.filter((r) => r.policy === p.name && r.result === "warn").length,
+    error: rows.filter((r) => r.policy === p.name && r.result === "error").length }])) };
+  return { policy: POLICY_SAMPLE.policy, clusters, policies: POLICY_SAMPLE.policies, perCluster, items: rows };
+}
+const policyKey = (r) => [r.namespace, r.resource.kind, r.resource.name, r.policy, r.kyvernoRule ?? ""].join("/");
+/** GET /api/v1/policies/results: a page, or a problem as [status, code, detail]. */
+export function policyResultsPage(fleet, params) {
+  const result = (params.get("result") || "fail,warn,error").split(",").map((v) => v.trim()).filter(Boolean);
+  if (!result.length || result.some((v) => !["fail", "warn", "error"].includes(v))) return [422, "validation-failed", `result is a comma-separated list of ['fail', 'warn', 'error'], not '${params.get("result")}'`];
+  const clusterId = params.get("clusterId") || "", policy = params.get("policy") || "", limit = Number(params.get("limit") ?? 50), cursor = params.get("cursor");
+  const hash = JSON.stringify([clusterId, policy, [...result].sort().join(",")]);
+  const ordered = fleet.items.filter((r) => (!clusterId || r.clusterId === clusterId) && (!policy || r.policy === policy) && result.includes(r.result))
+    .sort((a, b) => compareKeys([policyKey(a), a.clusterId], [policyKey(b), b.clusterId]));
+  const keys = ordered.map((r) => [policyKey(r), r.clusterId]), total = ordered.length;
+  let start = 0, end = Math.min(total, limit);
+  if (cursor) {
+    let c = null;
+    try { c = JSON.parse(Buffer.from(cursor, "base64url").toString()); } catch { /* refused below */ }
+    if (!c || c.h !== hash) return [400, "invalid-cursor", "Filters or sort changed since this cursor was issued"];
+    if (c.d === "next") { start = keys.findIndex((k) => compareKeys(k, c.k) > 0); if (start < 0) start = total; end = Math.min(total, start + limit); }
+    else { end = keys.findIndex((k) => compareKeys(k, c.k) >= 0); if (end < 0) end = total; start = Math.max(0, end - limit); }
+  }
+  const items = ordered.slice(start, end);
+  const sign = (k, d) => Buffer.from(JSON.stringify({ k, d, h: hash })).toString("base64url");
+  const letters = {};
+  for (const r of ordered) letters[r.namespace[0].toUpperCase()] = (letters[r.namespace[0].toUpperCase()] ?? 0) + 1;
+  const scoped = fleet.clusters.filter((c) => c.counts !== null && (!clusterId || c.clusterId === clusterId)).map((c) => c.clusterId);
+  const policies = fleet.policies.map((p) => ({ ...p, counts: VERDICTS.reduce((acc, v) => ({ ...acc, [v]: scoped.reduce((n, cid) => n + (fleet.perCluster[cid]?.[p.name]?.[v] ?? 0), 0) }), {}) }));
+  return { policy: fleet.policy, clusters: fleet.clusters, policies: clusterId && !scoped.length ? [] : policies, items, letters,
+    page: { limit, total, from: items.length ? start + 1 : 0, to: end, nextCursor: items.length && end < total ? sign(keys[end - 1], "next") : null,
+      prevCursor: items.length && start > 0 ? sign(keys[start], "prev") : null } };
+}
+/** `count` refusals, newest first: the recorded plan refusal, a warned plan with its request and a CI refusal, in turn. */
+export function rejectionsFrom(count, now = Date.parse(REJECTION_SAMPLE.from) + 7 * 864e5) {
+  const [plan, ci] = [REJECTION_SAMPLE.items.find((r) => r.stage === "plan") ?? REJECTION_SAMPLE.items[0], REJECTION_SAMPLE.items.find((r) => r.stage === "ci") ?? REJECTION_SAMPLE.items[0]];
+  const kyverno = { source: "kyverno", policy: POLICY_SAMPLE.items[0].policy, rule: POLICY_SAMPLE.items[0].rule, kyvernoRule: "validation", path: "clusters/CRC/namespaces/checkout-dev/namespace.yaml",
+    severity: "warning", message: "the label keys kubernetes.io/team are not declared in metadata-keys.yaml" };
+  return Array.from({ length: count }, (_, i) => {
+    const at = new Date(now - (i + 1) * 3_600_000).toISOString();
+    const kind = i % 3, namespace = `${TEAMS[i % TEAMS.length]}-dev`;
+    const common = { id: `rej-${1000 - i}`, firstAt: at, lastAt: at, count: i === 0 ? 2 : 1, namespace, username: i % 2 ? "cmapi.requester" : "ola" };
+    if (kind === 0) return { ...plan, ...common, problem: "policy-violation", findings: [{ source: "cmapi", policy: "metadata-keys", rule: "reserved_key", kyvernoRule: null,
+      path: "labels/kubernetes.io/team", severity: "error", message: "kubernetes.io/team is reserved; use cmapi.net/team" }, kyverno] };
+    if (kind === 1) return { ...plan, ...common, outcome: "warned", problem: null, requestId: `req-20261117-${String(100 + i).padStart(4, "0")}`, findings: [kyverno] };
+    return { ...ci, ...common };
+  });
+}
+/** GET /api/v1/policies/rejections: a page, or a problem. */
+export function rejectionsPage(rows, params) {
+  const since = params.get("since") || "7d", limit = Number(params.get("limit") ?? 50), cursor = params.get("cursor");
+  const days = /^(\d{1,4})d$/.exec(since)?.[1];
+  if (!days || Number(days) < 1 || Number(days) > 90) return [422, "validation-failed", `since is 1d to 90d, not '${since}'`];
+  const ordered = [...rows].sort((a, b) => compareKeys([-Date.parse(a.firstAt), a.namespace, a.id], [-Date.parse(b.firstAt), b.namespace, b.id]));
+  let start = 0;
+  if (cursor) {
+    let c = null;
+    try { c = JSON.parse(Buffer.from(cursor, "base64url").toString()); } catch { /* refused below */ }
+    if (!c || c.since !== since) return [400, "invalid-cursor", "Filters or sort changed since this cursor was issued"];
+    start = c.at;
+  }
+  const items = ordered.slice(start, start + limit);
+  const at = (n) => Buffer.from(JSON.stringify({ at: n, since })).toString("base64url");
+  const letters = {};
+  for (const r of ordered) letters[r.namespace[0].toUpperCase()] = (letters[r.namespace[0].toUpperCase()] ?? 0) + 1;
+  return { since, from: new Date(Date.now() - Number(days) * 864e5).toISOString(), truncated: false, items, letters,
+    page: { limit, total: ordered.length, from: items.length ? start + 1 : 0, to: start + items.length, nextCursor: start + limit < ordered.length ? at(start + limit) : null,
+      prevCursor: start > 0 ? at(Math.max(0, start - limit)) : null } };
+}
+
 const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
 /** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
 const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
@@ -406,7 +514,9 @@ export async function startApi({ issuer, portalOrigin }) {
     /** The answer of GET /api/v1/metadata-keys: the instance's rules of labels and annotations. */
     metadataKeys: REFERENCE_KEYS,
     /** "cluster/namespace" → its protectedBy, the protected.labels entries that its labels in Git match (#366). */
-    protection: new Map()
+    protection: new Map(),
+    /** GET /api/v1/policies/results (policyFleet) and the rows of GET /api/v1/policies/rejections (#302). */
+    policies: policyFleet(), rejections: rejectionsFrom(3)
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -612,6 +722,19 @@ export async function startApi({ issuer, portalOrigin }) {
       if (Array.isArray(page)) return problem(res, refuse(...page), cors);
       if (state.mode === "empty" && !state.never) page.rules = { dev: EXP_RULES.dev, rnd: EXP_RULES.dev };
       return ok(page);
+    }
+    if (url.pathname === "/api/v1/policies/results") {
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const fleet = state.mode === "empty" ? { ...state.policies, items: [] } : state.policies;
+      const page = policyResultsPage(fleet, url.searchParams);
+      return Array.isArray(page) ? problem(res, refuse(...page), cors) : ok(page);
+    }
+    if (url.pathname === "/api/v1/policies/rejections") {
+      const denied = lacks("requests:read");
+      if (denied) return problem(res, denied, cors);
+      const page = rejectionsPage(state.mode === "empty" ? [] : state.rejections, url.searchParams);
+      return Array.isArray(page) ? problem(res, refuse(...page), cors) : ok(page);
     }
     const expiry = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)\/expiration:(extend|set|makePermanent)$/.exec(url.pathname);
     if (expiry && req.method === "POST") {

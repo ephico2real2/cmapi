@@ -468,6 +468,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/policies/rejections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What cmapi refused before Git, paged
+         * @description The plans that cmapi refused (a 422 that never became a request), Kyverno's warnings on plans that went on to a request,
+         *     and the pull requests that the worker's checks failed, in the environments where the caller holds requests:read, newest
+         *     first. Each holds who asked by username only. A refusal repeated on its UTC day is one row with its `count`.
+         *
+         *     **Requires** `requests:read`.
+         */
+        get: operations["policies_rejections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policies/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Kyverno's results on each cluster, paged
+         * @description The clusters of the caller's environments with the state of their policy reports, each policy of the bundle with its
+         *     counts, and one page of the fail, warn and error results on managed namespaces, from the watch of each cluster's reports.
+         *     A cluster whose results are not known (Kyverno not installed, not reachable, not readable, its mode off) has a state and
+         *     null counts, never zeros. The `policy` object is the one of GET /admin/integrations.
+         *
+         *     **Requires** `objects:read`.
+         */
+        get: operations["policies_results"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotas": {
         parameters: {
             query?: never;
@@ -1551,21 +1600,8 @@ export interface components {
             operations: {
                 [key: string]: unknown;
             };
-            /**
-             * Policy
-             * @description The policy engine (kyverno or none), the mode of each served environment (audit, the default; enforce; or off), and kyvernoVersion: the Kyverno CLI that the image pins, the least version that the clusters must run (null outside the image)
-             * @example {
-             *       "engine": "kyverno",
-             *       "environments": {
-             *         "dev": "audit",
-             *         "rnd": "audit"
-             *       },
-             *       "kyvernoVersion": "v1.20.0"
-             *     }
-             */
-            policy: {
-                [key: string]: unknown;
-            };
+            /** @description The policy engine (kyverno or none), the mode of each served environment (audit, the default; enforce; or off), and kyvernoVersion: the Kyverno CLI that the image pins, the least version that the clusters must run (null outside the image) */
+            policy: components["schemas"]["Policy"];
             /**
              * Syncsignal
              * @description poll or notify, per the default
@@ -2345,6 +2381,398 @@ export interface components {
              */
             version: string | null;
         };
+        /** Policy */
+        Policy: {
+            /**
+             * Engine
+             * @description The policy engine of the instance: `kyverno`, or `none`, which runs no policy anywhere
+             * @example kyverno
+             * @enum {string}
+             */
+            engine: "kyverno" | "none";
+            /**
+             * Environments
+             * @description The mode of each served environment: `audit` (the default: admitted, reported and warned), `enforce` (denied) or `off` (no policy)
+             * @example {
+             *       "dev": "audit",
+             *       "rnd": "audit"
+             *     }
+             */
+            environments: {
+                [key: string]: "enforce" | "audit" | "off";
+            };
+            /**
+             * Kyvernoversion
+             * @description The Kyverno CLI that the image pins: the least version that the clusters must run. Null outside the image
+             * @example v1.20.0
+             */
+            kyvernoVersion: string | null;
+        };
+        /** PolicyBundleView */
+        PolicyBundleView: {
+            /**
+             * Actionsdiffer
+             * @description Rendered policies whose live `validationActions` are not those of the environment's mode (at most 20)
+             * @example []
+             */
+            actionsDiffer: string[];
+            /**
+             * Current
+             * @description Of those, the ones whose `cmapi.net/policy-digest` is the render's
+             * @example 31
+             */
+            current: number;
+            /**
+             * Differing
+             * @description Bundle policies whose digest on the cluster is not the render's (at most 20)
+             * @example []
+             */
+            differing: string[];
+            /**
+             * Expected
+             * @description The policies of the bundle for the cluster's environment
+             * @example 31
+             */
+            expected: number;
+            /**
+             * Live
+             * @description Of those, the ones on the cluster
+             * @example 31
+             */
+            live: number;
+            /**
+             * Missing
+             * @description Bundle policies that are not on the cluster (at most 20 names)
+             * @example []
+             */
+            missing: string[];
+            /**
+             * Ready
+             * @description Of those, the ones whose `status.conditionStatus.ready` is true
+             * @example 31
+             */
+            ready: number;
+        };
+        /** PolicyCheck */
+        PolicyCheck: {
+            /**
+             * Key
+             * @description The key it checks; null for a rule over the keys that no stanza declares
+             * @example cmapi.net/team
+             */
+            key: string | null;
+            /**
+             * Kind
+             * @description What the rendered policy checks: label, annotation, quota or limit
+             * @example label
+             */
+            kind: string;
+            /**
+             * Rule
+             * @description The rule: required, pattern, enum, max, prefix and the others of core/policygen.py
+             * @example pattern
+             */
+            rule: string;
+        };
+        /** PolicyCluster */
+        PolicyCluster: {
+            /**
+             * Asof
+             * @description The last good read of the reports, or for `unreachable` the last check of the cluster
+             * @example 2026-11-17T18:02:11Z
+             */
+            asOf: string | null;
+            /**
+             * @description The bundle on the cluster against the render. Null when the policies are not read
+             * @example null
+             */
+            bundle: components["schemas"]["PolicyBundleView"] | null;
+            /**
+             * Clusterid
+             * @description Cluster
+             * @example CRC
+             */
+            clusterId: string;
+            /**
+             * @description Results of the bundle's policies on the managed namespaces. Null, never zero, when they are not known
+             * @example null
+             */
+            counts: components["schemas"]["PolicyCounts"] | null;
+            /**
+             * Dropped
+             * @description Rows past the cap, counted in `counts` and not listed. Null when the counts are null
+             * @example 0
+             */
+            dropped: number | null;
+            /**
+             * Env
+             * @description Its environment
+             * @example dev
+             */
+            env: string;
+            /**
+             * @description Results that are counted and not shown. Null when the counts are null
+             * @example null
+             */
+            hidden: components["schemas"]["PolicyHidden"] | null;
+            /**
+             * Liveactions
+             * @description The `validationActions` that the cluster's copies of the bundle carry: `Audit` and `Warn` for audit, `Deny` for enforce. Empty when none is read
+             * @example [
+             *       "Audit",
+             *       "Warn"
+             *     ]
+             */
+            liveActions: string[];
+            /**
+             * Mode
+             * @description The mode that instance.yaml configures for the environment
+             * @example audit
+             * @enum {string}
+             */
+            mode: "enforce" | "audit" | "off";
+            /**
+             * State
+             * @description What can be said of the cluster's reports: `ok`; `loading` (not listed yet); `not-installed` (discovery does not serve wgpolicyk8s.io/v1alpha2); `forbidden` (cmapi-reader may not list the reports or the policies); `unreachable` (the cluster's import is not connected); `stale` (no good read for 30 minutes: the counts are the last ones read); `capped` (rows past policy.reports.maxResultsPerCluster are counted and not listed); `drift` (the bundle on the cluster is not the render, or its actions are not the mode's); `mode-off` (the environment's mode is off); `engine-off` (policy.engine is none)
+             * @example ok
+             * @enum {string}
+             */
+            state: "ok" | "loading" | "not-installed" | "forbidden" | "unreachable" | "stale" | "capped" | "drift" | "mode-off" | "engine-off";
+            /**
+             * Statedetail
+             * @description Why, in words; null when the state is ok
+             * @example null
+             */
+            stateDetail: string | null;
+        };
+        /** PolicyCounts */
+        PolicyCounts: {
+            /**
+             * Error
+             * @description Results that Kyverno could not evaluate
+             * @example 0
+             */
+            error: number;
+            /**
+             * Fail
+             * @description Results that failed. In `audit` the resource was admitted and the failure recorded; in `enforce` a failure at admission was denied, and a background scan still reports one
+             * @example 2
+             */
+            fail: number;
+            /**
+             * Pass
+             * @description Results that passed
+             * @example 412
+             */
+            pass: number;
+            /**
+             * Skip
+             * @description Results that did not apply
+             * @example 0
+             */
+            skip: number;
+            /**
+             * Warn
+             * @description Results of a policy that is not scored: Kyverno reports such a failure as warn
+             * @example 0
+             */
+            warn: number;
+        };
+        /** PolicyHidden */
+        PolicyHidden: {
+            /**
+             * Otherpolicies
+             * @description Results of policies that are not in the bundle of the cluster's environment
+             * @example 41
+             */
+            otherPolicies: number;
+            /**
+             * Stale
+             * @description Results of a bundle policy that is not on the cluster any more: Kyverno drops them at its next reconcile
+             * @example 0
+             */
+            stale: number;
+            /**
+             * Unmanaged
+             * @description Results on namespaces that cmapi does not manage, and on cluster-scoped objects other than a Namespace: counted, never listed
+             * @example 1840
+             */
+            unmanaged: number;
+        };
+        /** PolicyResource */
+        PolicyResource: {
+            /**
+             * Apiversion
+             * @description apiVersion
+             * @example v1
+             */
+            apiVersion: string;
+            /**
+             * Kind
+             * @description Kind
+             * @example Namespace
+             */
+            kind: string;
+            /**
+             * Name
+             * @description Name
+             * @example orders-dev
+             */
+            name: string;
+        };
+        /** PolicyResultPage */
+        PolicyResultPage: {
+            /**
+             * Clusters
+             * @description Each cluster of an environment where the caller holds objects:read
+             */
+            clusters: components["schemas"]["PolicyCluster"][];
+            /**
+             * Items
+             * @description One page of fail, warn and error results on managed namespaces
+             */
+            items: components["schemas"]["PolicyResultRow"][];
+            /**
+             * Letters
+             * @description Rows per first letter of the namespace
+             * @example {
+             *       "O": 1
+             *     }
+             */
+            letters: {
+                [key: string]: number;
+            };
+            /** @description Paging */
+            page: components["schemas"]["PageInfo"];
+            /**
+             * Policies
+             * @description Each policy of the bundles of those environments, with its counts
+             */
+            policies: components["schemas"]["PolicySummary"][];
+            /** @description The engine, the pinned Kyverno version and each environment's mode: the `policy` object of GET /api/v1/admin/integrations */
+            policy: components["schemas"]["Policy"];
+        };
+        /** PolicyResultRow */
+        PolicyResultRow: {
+            /**
+             * Clusterid
+             * @description Cluster
+             * @example CRC
+             */
+            clusterId: string;
+            /**
+             * Env
+             * @description Environment
+             * @example dev
+             */
+            env: string;
+            /**
+             * Kyvernorule
+             * @description Kyverno's own rule name from the report (`validation` for a ValidatingPolicy)
+             * @example validation
+             */
+            kyvernoRule: string | null;
+            /**
+             * Message
+             * @description Kyverno's message, at most 300 characters
+             * @example the label keys other.example/x are not declared in metadata-keys.yaml
+             */
+            message: string;
+            /**
+             * Mode
+             * @description The environment's mode: in `audit` the resource was admitted, in `enforce` an admission was denied
+             * @example audit
+             * @enum {string}
+             */
+            mode: "enforce" | "audit" | "off";
+            /**
+             * Namespace
+             * @description The managed namespace: the resource's, or the Namespace itself
+             * @example orders-dev
+             */
+            namespace: string;
+            /**
+             * Observedat
+             * @description The result's timestamp
+             * @example 2026-11-17T17:58:40Z
+             */
+            observedAt: string | null;
+            /**
+             * Policy
+             * @description The policy
+             * @example cmapi-metadata-dev-label-other-keys-prefix
+             */
+            policy: string;
+            /**
+             * Process
+             * @description `admission review` or `background scan`
+             * @example background scan
+             */
+            process: string | null;
+            /** @description The resource the result is about */
+            resource: components["schemas"]["PolicyResource"];
+            /**
+             * Result
+             * @description The verdict
+             * @example fail
+             * @enum {string}
+             */
+            result: "fail" | "warn" | "error";
+            /**
+             * Rule
+             * @description The rule: index.json's rule of a rendered policy, else Kyverno's own rule
+             * @example prefix
+             */
+            rule: string | null;
+            /**
+             * Source
+             * @description The result's source, as Kyverno writes it
+             * @example KyvernoValidatingPolicy
+             */
+            source: string | null;
+        };
+        /** PolicySummary */
+        PolicySummary: {
+            /**
+             * @description What a rendered policy checks, from the bundle's index.json; null for a hand-written policy
+             * @example null
+             */
+            check: components["schemas"]["PolicyCheck"] | null;
+            /** @description Its results over the clusters in scope that have counts, following `clusterId`, `env` and `namespace` */
+            counts: components["schemas"]["PolicyCounts"];
+            /**
+             * Description
+             * @description `policies.kyverno.io/description`
+             * @example The labels and annotations that metadata-keys.yaml requires
+             */
+            description: string | null;
+            /**
+             * Environments
+             * @description The environments in scope whose bundle has it
+             * @example [
+             *       "dev"
+             *     ]
+             */
+            environments: string[];
+            /**
+             * Generated
+             * @description True for a policy that cmapi renders from its configuration
+             * @example true
+             */
+            generated: boolean;
+            /**
+             * Kind
+             * @description Its kind
+             * @example ValidatingPolicy
+             */
+            kind: string;
+            /**
+             * Name
+             * @description The policy's name, from the bundle
+             * @example cmapi-metadata-dev-label-cmapi-net-team-pattern
+             */
+            name: string;
+        };
         /** PrView */
         PrView: {
             /**
@@ -2563,6 +2991,193 @@ export interface components {
              * @example 0
              */
             used: number;
+        };
+        /** Rejection */
+        Rejection: {
+            /**
+             * Action
+             * @description `create`, `update`, `delete`, `expiration:extend`, `expiration:set` or `expiration:makePermanent`
+             * @example create
+             */
+            action: string;
+            /**
+             * Automated
+             * @description A service client or an automation account
+             * @example false
+             */
+            automated: boolean;
+            /**
+             * Clusterid
+             * @description Cluster
+             * @example CRC
+             */
+            clusterId: string;
+            /**
+             * Count
+             * @description How many times that day
+             * @example 2
+             */
+            count: number;
+            /**
+             * Env
+             * @description Environment
+             * @example dev
+             */
+            env: string;
+            /**
+             * Findings
+             * @description Each error and warning, at most 20
+             */
+            findings: components["schemas"]["RejectionFinding"][];
+            /**
+             * Firstat
+             * Format: date-time
+             * @description When it was first refused on its UTC day: the order of the list
+             * @example 2026-11-17T17:02:11Z
+             */
+            firstAt: string;
+            /**
+             * Id
+             * @description `rej-<n>`; never a request ID
+             * @example rej-1042
+             */
+            id: string;
+            /**
+             * Lastat
+             * Format: date-time
+             * @description When it was last refused that day
+             * @example 2026-11-17T17:05:40Z
+             */
+            lastAt: string;
+            /**
+             * Namespace
+             * @description Namespace
+             * @example checkout-dev
+             */
+            namespace: string;
+            /**
+             * Outcome
+             * @description `refused`, or `warned`: Kyverno's findings on a plan that went on to a request
+             * @example refused
+             * @enum {string}
+             */
+            outcome: "refused" | "warned";
+            /**
+             * Plugin
+             * @description Plugin
+             * @example namespaces
+             */
+            plugin: string;
+            /**
+             * Problem
+             * @description The problem code of the 422 of a refused plan
+             * @example policy-violation
+             */
+            problem: string | null;
+            /**
+             * Requestid
+             * @description The request of a warned plan or a CI refusal; null for a refused plan, which never became one
+             * @example null
+             */
+            requestId: string | null;
+            /**
+             * Stage
+             * @description `plan` (the API's plan) or `ci` (the worker's checks of the pull request)
+             * @example plan
+             * @enum {string}
+             */
+            stage: "plan" | "ci";
+            /**
+             * Username
+             * @description Who asked: the username only, never the email, the employee ID or the justification
+             * @example ola
+             */
+            username: string;
+        };
+        /** RejectionFinding */
+        RejectionFinding: {
+            /**
+             * Kyvernorule
+             * @description Kyverno's own rule name, for a Kyverno finding
+             * @example null
+             */
+            kyvernoRule: string | null;
+            /**
+             * Message
+             * @description What it said, at most 300 characters
+             * @example must match ^[a-z][a-z0-9-]{1,30}$
+             */
+            message: string;
+            /**
+             * Path
+             * @description Where: `labels/<key>`, or the file of the plan
+             * @example labels/cmapi.net/team
+             */
+            path: string | null;
+            /**
+             * Policy
+             * @description The policy or check: a Kyverno policy, `metadata-keys`, a problem code, `cmapi-check`
+             * @example metadata-keys
+             */
+            policy: string;
+            /**
+             * Rule
+             * @description The rule: the error's code for cmapi, index.json's rule of a rendered policy
+             * @example invalid_value
+             */
+            rule: string | null;
+            /**
+             * Severity
+             * @description `error` refused; `warning` reported only (audit)
+             * @example error
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+            /**
+             * Source
+             * @description `cmapi` (its own checks), `kyverno`, `kubeconform`, or `ci` (the Git host's CI)
+             * @example cmapi
+             */
+            source: string;
+        };
+        /** RejectionPage */
+        RejectionPage: {
+            /**
+             * From
+             * Format: date-time
+             * @description The start of the window
+             * @example 2026-11-10T18:02:11Z
+             */
+            from: string;
+            /**
+             * Items
+             * @description One page, newest first
+             */
+            items: components["schemas"]["Rejection"][];
+            /**
+             * Letters
+             * @description Rows per first letter of the namespace
+             * @example {
+             *       "C": 1
+             *     }
+             */
+            letters: {
+                [key: string]: number;
+            };
+            /** @description Paging */
+            page: components["schemas"]["PageInfo"];
+            /**
+             * Since
+             * @description The window asked for, in days
+             * @example 7d
+             */
+            since: string;
+            /**
+             * Truncated
+             * @description True when the window holds more than the 10,000 newest rows that one list reads
+             * @example false
+             */
+            truncated: boolean;
         };
         /** RequestEvent */
         RequestEvent: {
@@ -2921,7 +3536,7 @@ export interface operations {
                      * @example {
                      *       "paused": true,
                      *       "reason": "incident 1234",
-                     *       "setAt": "2026-11-17T19:25:04.209447+00:00",
+                     *       "setAt": "2026-11-17T21:54:47.483080+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -2985,7 +3600,7 @@ export interface operations {
                      * @example {
                      *       "paused": false,
                      *       "reason": "incident 1234 closed",
-                     *       "setAt": "2026-11-17T19:25:04.152819+00:00",
+                     *       "setAt": "2026-11-17T21:54:47.433295+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -3169,7 +3784,7 @@ export interface operations {
                      *           "cpuThrottledPeriods": null,
                      *           "cpuThrottledSeconds": null,
                      *           "cpuUsageSeconds": null,
-                     *           "measuredAt": 1794943499.2497978,
+                     *           "measuredAt": 1794952482.929687,
                      *           "memoryBytes": null,
                      *           "memoryLimitBytes": null
                      *         }
@@ -3180,7 +3795,7 @@ export interface operations {
                      *         "oldestTransactionSeconds": 0,
                      *         "poolInUse": 0,
                      *         "poolSize": 5,
-                     *         "sizeBytes": 8567831,
+                     *         "sizeBytes": 8977431,
                      *         "walBytes": 83886080
                      *       },
                      *       "instance": "nonprod",
@@ -3192,7 +3807,7 @@ export interface operations {
                      *           "target": "under 10 min",
                      *           "targetStatus": "proposed",
                      *           "unit": "seconds",
-                     *           "value": 0.258429
+                     *           "value": 0.230435
                      *         },
                      *         {
                      *           "id": "lead-time-approved-p90",
@@ -3349,6 +3964,13 @@ export interface operations {
                      *           "core": false,
                      *           "disabledEnvironments": [],
                      *           "enabled": true,
+                     *           "name": "policies",
+                     *           "version": "0.2.0"
+                     *         },
+                     *         {
+                     *           "core": false,
+                     *           "disabledEnvironments": [],
+                     *           "enabled": true,
                      *           "name": "quotas",
                      *           "version": "0.2.0"
                      *         },
@@ -3416,7 +4038,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-17T19:25:08.008995Z",
+                     *             "at": "2026-11-17T21:54:51.252432Z",
                      *             "comment": "",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -3443,74 +4065,74 @@ export interface operations {
                      *       "baseSha": "afc9dd57a1c698e05c664256e7b7633a7fa37e0f",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:07.924813Z",
+                     *       "createdAt": "2026-11-17T21:54:51.166885Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:07.924813Z",
+                     *           "at": "2026-11-17T21:54:51.166885Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.008995Z",
+                     *           "at": "2026-11-17T21:54:51.252432Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.008995Z",
+                     *           "at": "2026-11-17T21:54:51.252432Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.158091Z",
+                     *           "at": "2026-11-17T21:54:51.405052Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261117-0008 at 882df0e3 on afc9dd57 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.295046Z",
+                     *           "at": "2026-11-17T21:54:51.522755Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261117-0008 #7",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.390003Z",
+                     *           "at": "2026-11-17T21:54:51.614002Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.473030Z",
+                     *           "at": "2026-11-17T21:54:51.699302Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 882df0e3; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.473030Z",
+                     *           "at": "2026-11-17T21:54:51.699302Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 882df0e3",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:08.576857Z",
+                     *           "at": "2026-11-17T21:54:51.797799Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "prune_pending",
                      *           "note": "Prune=confirm: waiting for an operator to confirm the prune",
                      *           "status": "awaiting_prune"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:09.031215Z",
+                     *           "at": "2026-11-17T21:54:52.245247Z",
                      *           "by": "opal",
                      *           "event": "prune_confirm",
                      *           "note": "operator confirmed the prune",
@@ -3560,7 +4182,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "awaiting_prune",
-                     *       "updatedAt": "2026-11-17T19:25:08.891899Z"
+                     *       "updatedAt": "2026-11-17T21:54:52.119372Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -3623,7 +4245,7 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-17T19:24:57.133603Z",
+                     *           "checkedAt": "2026-11-17T21:54:40.840257Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
                      *           "findings": [],
@@ -3942,11 +4564,11 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:24:58.268573Z",
+                     *       "createdAt": "2026-11-17T21:54:41.990947Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:24:58.268573Z",
+                     *           "at": "2026-11-17T21:54:41.990947Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
@@ -3990,7 +4612,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-17T19:24:58.192293Z"
+                     *       "updatedAt": "2026-11-17T21:54:41.922096Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -4226,11 +4848,11 @@ export interface operations {
                      *       "baseSha": "afc9dd57a1c698e05c664256e7b7633a7fa37e0f",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:07.924813Z",
+                     *       "createdAt": "2026-11-17T21:54:51.166885Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:07.924813Z",
+                     *           "at": "2026-11-17T21:54:51.166885Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -4274,7 +4896,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-17T19:25:07.789465Z"
+                     *       "updatedAt": "2026-11-17T21:54:51.044621Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -4508,11 +5130,11 @@ export interface operations {
                      *       "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:24:59.622528Z",
+                     *       "createdAt": "2026-11-17T21:54:43.256710Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:24:59.622528Z",
+                     *           "at": "2026-11-17T21:54:43.256710Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -4556,7 +5178,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-17T19:24:59.551414Z"
+                     *       "updatedAt": "2026-11-17T21:54:43.196748Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -4772,11 +5394,11 @@ export interface operations {
                      *       "baseSha": "7df244b25b2bca02452215a5bd7251d334a72303",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:02.481338Z",
+                     *       "createdAt": "2026-11-17T21:54:45.855130Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:02.481338Z",
+                     *           "at": "2026-11-17T21:54:45.855130Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -4820,7 +5442,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-17T19:25:02.407788Z"
+                     *       "updatedAt": "2026-11-17T21:54:45.796417Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -5059,11 +5681,11 @@ export interface operations {
                      *       "baseSha": "0cfdd0dc84c323ae7672cf55d6d8582a73bb764d",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:13.490577Z",
+                     *       "createdAt": "2026-11-17T21:54:56.624254Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:13.490577Z",
+                     *           "at": "2026-11-17T21:54:56.624254Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -5107,7 +5729,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-17T19:25:13.417756Z"
+                     *       "updatedAt": "2026-11-17T21:54:56.570271Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -5323,11 +5945,11 @@ export interface operations {
                      *       "baseSha": "a968e682d8290348bc8e1fbaea06386719b0175b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:12.668581Z",
+                     *       "createdAt": "2026-11-17T21:54:55.805475Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:12.668581Z",
+                     *           "at": "2026-11-17T21:54:55.805475Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -5371,7 +5993,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-17T19:25:12.593799Z"
+                     *       "updatedAt": "2026-11-17T21:54:55.743940Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6091,6 +6713,966 @@ export interface operations {
             };
         };
     };
+    policies_rejections: {
+        parameters: {
+            query?: {
+                /** @description How far back, in days: `1d` to the instance's policy.rejections.retentionDays (90 by default). Another value returns 422 `validation-failed`. */
+                since?: string;
+                /** @description Only this cluster. */
+                clusterId?: string | null;
+                /** @description Only the clusters of this environment. */
+                env?: string | null;
+                /** @description Only this namespace. */
+                namespace?: string | null;
+                /** @description Only `plan` or only `ci`. */
+                stage?: string | null;
+                /** @description Only `refused` or only `warned`. */
+                outcome?: string | null;
+                /** @description Only this policy (the policy or check of a finding, for rejections). */
+                policy?: string | null;
+                /** @description Text that the namespace or the resource's name contains. */
+                q?: string;
+                /** @description The number of rows in one page: 25, 50 or 100, and never more than 200. A larger result is not cut: `page.nextCursor` gives the next page. */
+                limit?: number;
+                /** @description `page.nextCursor` or `page.prevCursor` of an earlier page of the same filters and sort. A cursor of other filters returns 400 `invalid-cursor`. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-11-10T21:54:56.902656Z",
+                     *       "items": [
+                     *         {
+                     *           "action": "create",
+                     *           "automated": false,
+                     *           "clusterId": "CRC",
+                     *           "count": 1,
+                     *           "env": "dev",
+                     *           "findings": [
+                     *             {
+                     *               "kyvernoRule": null,
+                     *               "message": "kube-tools is reserved (kube-*)",
+                     *               "path": null,
+                     *               "policy": "reserved-namespace",
+                     *               "rule": null,
+                     *               "severity": "error",
+                     *               "source": "cmapi"
+                     *             }
+                     *           ],
+                     *           "firstAt": "2026-11-17T21:54:54.591507Z",
+                     *           "id": "rej-2",
+                     *           "lastAt": "2026-11-17T21:54:54.591507Z",
+                     *           "namespace": "kube-tools",
+                     *           "outcome": "refused",
+                     *           "plugin": "namespaces",
+                     *           "problem": "reserved-namespace",
+                     *           "requestId": null,
+                     *           "stage": "plan",
+                     *           "username": "ola"
+                     *         },
+                     *         {
+                     *           "action": "create",
+                     *           "automated": false,
+                     *           "clusterId": "CRC",
+                     *           "count": 1,
+                     *           "env": "dev",
+                     *           "findings": [
+                     *             {
+                     *               "kyvernoRule": null,
+                     *               "message": "the head moved from afc9dd57 to 265b5674 after the pull request was opened",
+                     *               "path": null,
+                     *               "policy": "cmapi-check",
+                     *               "rule": null,
+                     *               "severity": "error",
+                     *               "source": "cmapi"
+                     *             }
+                     *           ],
+                     *           "firstAt": "2026-11-17T21:54:48.967568Z",
+                     *           "id": "rej-1",
+                     *           "lastAt": "2026-11-17T21:54:48.967568Z",
+                     *           "namespace": "search-dev",
+                     *           "outcome": "refused",
+                     *           "plugin": "namespaces",
+                     *           "problem": null,
+                     *           "requestId": "req-20261117-0007",
+                     *           "stage": "ci",
+                     *           "username": "ola"
+                     *         }
+                     *       ],
+                     *       "letters": {
+                     *         "K": 1,
+                     *         "S": 1
+                     *       },
+                     *       "page": {
+                     *         "from": 1,
+                     *         "limit": 50,
+                     *         "nextCursor": null,
+                     *         "prevCursor": null,
+                     *         "to": 2,
+                     *         "total": 2
+                     *       },
+                     *       "since": "7d",
+                     *       "truncated": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RejectionPage"];
+                };
+            };
+            /** @description invalid-cursor, invalid-limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description validation-failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    policies_results: {
+        parameters: {
+            query?: {
+                /** @description Only this cluster. */
+                clusterId?: string | null;
+                /** @description Only the clusters of this environment. */
+                env?: string | null;
+                /** @description Only this namespace. */
+                namespace?: string | null;
+                /** @description Only this policy (the policy or check of a finding, for rejections). */
+                policy?: string | null;
+                /** @description The verdicts to list, comma-separated: `fail`, `warn` and `error` (the default is all three). Pass and skip are counted, never listed: another value returns 422 `validation-failed`. */
+                result?: string;
+                /** @description Text that the namespace or the resource's name contains. */
+                q?: string;
+                /** @description The number of rows in one page: 25, 50 or 100, and never more than 200. A larger result is not cut: `page.nextCursor` gives the next page. */
+                limit?: number;
+                /** @description `page.nextCursor` or `page.prevCursor` of an earlier page of the same filters and sort. A cursor of other filters returns 400 `invalid-cursor`. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "clusters": [
+                     *         {
+                     *           "asOf": "2026-11-17T21:54:56.790744Z",
+                     *           "bundle": {
+                     *             "actionsDiffer": [],
+                     *             "current": 31,
+                     *             "differing": [],
+                     *             "expected": 31,
+                     *             "live": 31,
+                     *             "missing": [],
+                     *             "ready": 31
+                     *           },
+                     *           "clusterId": "CRC",
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 1,
+                     *             "pass": 1,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "dropped": 0,
+                     *           "env": "dev",
+                     *           "hidden": {
+                     *             "otherPolicies": 0,
+                     *             "stale": 0,
+                     *             "unmanaged": 0
+                     *           },
+                     *           "liveActions": [
+                     *             "Audit",
+                     *             "Warn"
+                     *           ],
+                     *           "mode": "audit",
+                     *           "state": "ok",
+                     *           "stateDetail": null
+                     *         }
+                     *       ],
+                     *       "items": [
+                     *         {
+                     *           "clusterId": "CRC",
+                     *           "env": "dev",
+                     *           "kyvernoRule": "validation",
+                     *           "message": "the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes",
+                     *           "mode": "audit",
+                     *           "namespace": "payments-dev",
+                     *           "observedAt": "2026-11-17T13:41:10Z",
+                     *           "policy": "cmapi-metadata-dev-label-other-keys-prefix",
+                     *           "process": "background scan",
+                     *           "resource": {
+                     *             "apiVersion": "v1",
+                     *             "kind": "Namespace",
+                     *             "name": "payments-dev"
+                     *           },
+                     *           "result": "fail",
+                     *           "rule": "prefix",
+                     *           "source": "KyvernoValidatingPolicy"
+                     *         }
+                     *       ],
+                     *       "letters": {
+                     *         "P": 1
+                     *       },
+                     *       "page": {
+                     *         "from": 1,
+                     *         "limit": 25,
+                     *         "nextCursor": null,
+                     *         "prevCursor": null,
+                     *         "to": 1,
+                     *         "total": 1
+                     *       },
+                     *       "policies": [
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.default.cpu",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-default-cpu-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.default.cpu",
+                     *             "kind": "limit",
+                     *             "rule": "order"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-default-cpu-order"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.default.memory",
+                     *             "kind": "limit",
+                     *             "rule": "order"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-default-me-084635f0"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.default.memory",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-default-memory-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.defaultRequest.memory",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-defaultreq-1acccb96"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.defaultRequest.cpu",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-defaultreq-df4ab28d"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.max.cpu",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-max-cpu-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.max.cpu",
+                     *             "kind": "limit",
+                     *             "rule": "order"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-max-cpu-order"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.max.memory",
+                     *             "kind": "limit",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-max-memory-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "limitRange.container.max.memory",
+                     *             "kind": "limit",
+                     *             "rule": "order"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each LimitRange value of a managed namespace at or below the dev maximum; limits never below requests.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-limits-dev-limit-limitrange-container-max-memory-order"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/team-dl",
+                     *             "kind": "annotation",
+                     *             "rule": "format"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-annotation-cmapi-net-team-dl-format"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "annotation",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-annotation-other-keys-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "annotation",
+                     *             "rule": "max-bytes-total"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-annotation-other-keys-max-bytes-total"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "annotation",
+                     *             "rule": "max-value-bytes"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-annotation-other-keys-max-value-bytes"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "annotation",
+                     *             "rule": "prefix"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-annotation-other-keys-prefix"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/app",
+                     *             "kind": "label",
+                     *             "rule": "pattern"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-app-pattern"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/cluster-id",
+                     *             "kind": "label",
+                     *             "rule": "required"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-cluster-id-required"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/cost-center",
+                     *             "kind": "label",
+                     *             "rule": "pattern"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-cost-center-pattern"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/env",
+                     *             "kind": "label",
+                     *             "rule": "derived"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-env-derived"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/managed",
+                     *             "kind": "label",
+                     *             "rule": "required"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-managed-required"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/rightsizing",
+                     *             "kind": "label",
+                     *             "rule": "pattern"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-rightsizing-pattern"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "cmapi.net/team",
+                     *             "kind": "label",
+                     *             "rule": "pattern"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-cmapi-net-team-pattern"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "label",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 1,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-other-keys-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": null,
+                     *             "kind": "label",
+                     *             "rule": "prefix"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 1,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "The labels and annotations that metadata-keys.yaml requires of a managed namespace in dev.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-metadata-dev-label-other-keys-prefix"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "persistentvolumeclaims",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-persistentvolumeclaims-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "pods",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-pods-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "requests.cpu",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-requests-cpu-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "requests.memory",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-requests-memory-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "requests.storage",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-requests-storage-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "services.loadbalancers",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-services-loadbalancers-max"
+                     *         },
+                     *         {
+                     *           "check": {
+                     *             "key": "services.nodeports",
+                     *             "kind": "quota",
+                     *             "rule": "max"
+                     *           },
+                     *           "counts": {
+                     *             "error": 0,
+                     *             "fail": 0,
+                     *             "pass": 0,
+                     *             "skip": 0,
+                     *             "warn": 0
+                     *           },
+                     *           "description": "Each ResourceQuota key of a managed namespace at or below the dev maximum of tiers.yaml.",
+                     *           "environments": [
+                     *             "dev"
+                     *           ],
+                     *           "generated": true,
+                     *           "kind": "ValidatingPolicy",
+                     *           "name": "cmapi-quota-dev-quota-services-nodeports-max"
+                     *         }
+                     *       ],
+                     *       "policy": {
+                     *         "engine": "kyverno",
+                     *         "environments": {
+                     *           "dev": "audit",
+                     *           "rnd": "audit"
+                     *         },
+                     *         "kyvernoVersion": null
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PolicyResultPage"];
+                };
+            };
+            /** @description invalid-cursor, invalid-limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description validation-failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     quotas_quotas: {
         parameters: {
             query?: {
@@ -6407,11 +7989,11 @@ export interface operations {
                      *           "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                      *           "beyondTier": null,
                      *           "clusterId": "CRC",
-                     *           "createdAt": "2026-11-17T19:24:59.622528Z",
+                     *           "createdAt": "2026-11-17T21:54:43.256710Z",
                      *           "env": "dev",
                      *           "events": [
                      *             {
-                     *               "at": "2026-11-17T19:24:59.622528Z",
+                     *               "at": "2026-11-17T21:54:43.256710Z",
                      *               "by": "ola",
                      *               "event": "plan_needs_approval",
                      *               "note": "waiting for [('approver-platform', 1)]",
@@ -6455,7 +8037,7 @@ export interface operations {
                      *             "submittedByClient": null
                      *           },
                      *           "status": "pending_approval",
-                     *           "updatedAt": "2026-11-17T19:24:59.551414Z"
+                     *           "updatedAt": "2026-11-17T21:54:43.196748Z"
                      *         }
                      *       ],
                      *       "letters": {
@@ -6550,67 +8132,67 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:24:58.268573Z",
+                     *       "createdAt": "2026-11-17T21:54:41.990947Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:24:58.268573Z",
+                     *           "at": "2026-11-17T21:54:41.990947Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.401111Z",
+                     *           "at": "2026-11-17T21:54:42.118519Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261117-0001 at 2a30c94f on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.454873Z",
+                     *           "at": "2026-11-17T21:54:42.162989Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261117-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.507437Z",
+                     *           "at": "2026-11-17T21:54:42.202979Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.561949Z",
+                     *           "at": "2026-11-17T21:54:42.252127Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying 2a30c94f before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.549211Z",
+                     *           "at": "2026-11-17T21:54:42.240029Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261117-0001 at 2a30c94f, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 2a30c94f; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 2a30c94f",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -6660,7 +8242,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "synced",
-                     *       "updatedAt": "2026-11-17T19:24:58.530138Z"
+                     *       "updatedAt": "2026-11-17T21:54:42.223986Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6793,63 +8375,63 @@ export interface operations {
                      * @example {
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:24:58.268573Z",
+                     *           "at": "2026-11-17T21:54:41.990947Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.401111Z",
+                     *           "at": "2026-11-17T21:54:42.118519Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261117-0001 at 2a30c94f on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.454873Z",
+                     *           "at": "2026-11-17T21:54:42.162989Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261117-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.507437Z",
+                     *           "at": "2026-11-17T21:54:42.202979Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.561949Z",
+                     *           "at": "2026-11-17T21:54:42.252127Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying 2a30c94f before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.549211Z",
+                     *           "at": "2026-11-17T21:54:42.240029Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261117-0001 at 2a30c94f, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 2a30c94f; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 2a30c94f",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:58.640951Z",
+                     *           "at": "2026-11-17T21:54:42.323102Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -6934,7 +8516,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-17T19:24:59.856755Z",
+                     *             "at": "2026-11-17T21:54:43.487705Z",
                      *             "comment": "sizing reviewed",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -6962,25 +8544,25 @@ export interface operations {
                      *       "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:24:59.622528Z",
+                     *       "createdAt": "2026-11-17T21:54:43.256710Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:24:59.622528Z",
+                     *           "at": "2026-11-17T21:54:43.256710Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:59.856755Z",
+                     *           "at": "2026-11-17T21:54:43.487705Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "sizing reviewed",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:24:59.856755Z",
+                     *           "at": "2026-11-17T21:54:43.487705Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
@@ -7024,7 +8606,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-17T19:24:59.741450Z"
+                     *       "updatedAt": "2026-11-17T21:54:43.386084Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7125,18 +8707,18 @@ export interface operations {
                      *       "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:03.767032Z",
+                     *       "createdAt": "2026-11-17T21:54:47.072126Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:03.767032Z",
+                     *           "at": "2026-11-17T21:54:47.072126Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:04.115217Z",
+                     *           "at": "2026-11-17T21:54:47.399163Z",
                      *           "by": "ola",
                      *           "event": "cancel",
                      *           "note": "",
@@ -7180,7 +8762,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "cancelled",
-                     *       "updatedAt": "2026-11-17T19:25:03.982627Z"
+                     *       "updatedAt": "2026-11-17T21:54:47.276845Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7290,18 +8872,18 @@ export interface operations {
                      *       "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:03.907078Z",
+                     *       "createdAt": "2026-11-17T21:54:47.202022Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:03.907078Z",
+                     *           "at": "2026-11-17T21:54:47.202022Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:04.019321Z",
+                     *           "at": "2026-11-17T21:54:47.310759Z",
                      *           "by": "amy",
                      *           "event": "rejected",
                      *           "note": "Use the medium tier",
@@ -7345,7 +8927,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "rejected",
-                     *       "updatedAt": "2026-11-17T19:25:03.886869Z"
+                     *       "updatedAt": "2026-11-17T21:54:47.189759Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7436,67 +9018,67 @@ export interface operations {
                      *       "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:05.363482Z",
+                     *       "createdAt": "2026-11-17T21:54:48.625967Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:05.363482Z",
+                     *           "at": "2026-11-17T21:54:48.625967Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.492979Z",
+                     *           "at": "2026-11-17T21:54:48.730900Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261117-0007 at afc9dd57 on 882df0e3 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.588200Z",
+                     *           "at": "2026-11-17T21:54:48.817913Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261117-0007 #5",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.748539Z",
+                     *           "at": "2026-11-17T21:54:48.967568Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.748539Z",
+                     *           "at": "2026-11-17T21:54:48.967568Z",
                      *           "by": "ci",
                      *           "event": "head_moved",
                      *           "note": "PR head moved from afc9dd57 to 265b5674 after approval",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.748539Z",
+                     *           "at": "2026-11-17T21:54:48.967568Z",
                      *           "by": "ci",
                      *           "event": "pr_failed",
                      *           "note": "checks failed",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.748539Z",
+                     *           "at": "2026-11-17T21:54:48.967568Z",
                      *           "by": "worker",
                      *           "event": "pr_closed",
                      *           "note": "#5: its checks failed; the request is failed and may be retried",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:05.849200Z",
+                     *           "at": "2026-11-17T21:54:49.078830Z",
                      *           "by": "worker",
                      *           "event": "branch_deleted",
                      *           "note": "cmapi/CRC/req-20261117-0007 at 265b5674",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:06.741993Z",
+                     *           "at": "2026-11-17T21:54:49.954737Z",
                      *           "by": "opal",
                      *           "event": "retry",
                      *           "note": "retry requested",
@@ -7546,7 +9128,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-17T19:25:06.611610Z"
+                     *       "updatedAt": "2026-11-17T21:54:49.837439Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7637,60 +9219,60 @@ export interface operations {
                      *       "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-17T19:25:10.116002Z",
+                     *       "createdAt": "2026-11-17T21:54:53.367716Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-17T19:25:10.116002Z",
+                     *           "at": "2026-11-17T21:54:53.367716Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.255944Z",
+                     *           "at": "2026-11-17T21:54:53.464831Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261117-0009 at 53f12e59 on 882df0e3 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.311132Z",
+                     *           "at": "2026-11-17T21:54:53.512235Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261117-0009 #8",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.362837Z",
+                     *           "at": "2026-11-17T21:54:53.554669Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.404461Z",
+                     *           "at": "2026-11-17T21:54:53.594595Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 53f12e59; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.404461Z",
+                     *           "at": "2026-11-17T21:54:53.594595Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 53f12e59",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.459728Z",
+                     *           "at": "2026-11-17T21:54:53.651689Z",
                      *           "by": "worker",
                      *           "event": "sync_timeout",
                      *           "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                      *           "status": "sync_failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-17T19:25:10.629491Z",
+                     *           "at": "2026-11-17T21:54:53.819054Z",
                      *           "by": "opal",
                      *           "event": "revert_requested",
                      *           "note": "",
@@ -7740,7 +9322,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "sync_failed",
-                     *       "updatedAt": "2026-11-17T19:25:10.489685Z"
+                     *       "updatedAt": "2026-11-17T21:54:53.692500Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];

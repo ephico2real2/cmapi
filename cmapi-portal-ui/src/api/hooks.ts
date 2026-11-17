@@ -37,6 +37,14 @@ export type KpiView = components["schemas"]["KpiView"];
 export type ExpirationPage = components["schemas"]["ExpirationPage"];
 export type ExpirationRow = components["schemas"]["ExpirationRow"];
 export type ExpirationsQuery = NonNullable<operations["expiration_expirations"]["parameters"]["query"]>;
+export type PolicyResultPage = components["schemas"]["PolicyResultPage"];
+export type PolicyCluster = components["schemas"]["PolicyCluster"];
+export type PolicySummary = components["schemas"]["PolicySummary"];
+export type PolicyResultRow = components["schemas"]["PolicyResultRow"];
+export type PolicyResultsQuery = NonNullable<operations["policies_results"]["parameters"]["query"]>;
+export type RejectionPage = components["schemas"]["RejectionPage"];
+export type Rejection = components["schemas"]["Rejection"];
+export type RejectionsQuery = NonNullable<operations["policies_rejections"]["parameters"]["query"]>;
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -480,6 +488,37 @@ export function useKpi(): Result<KpiView> & { reload: () => void } {
       if (!data) throw problemOf(response, error);
       return data;
     }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** GET /api/v1/policies/results: the clusters, the policies and one page of results, each page keyed on its filters and cursor. */
+export function usePolicyResults(params: PolicyResultsQuery): Result<PolicyResultPage> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["policy-results", params],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/policies/results", { params: { query: params }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    },
+    // The rows of the last page stay while the next page loads.
+    placeholderData: keepPreviousData
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** GET /api/v1/policies/rejections: what cmapi refused before Git, one query for each page. */
+export function usePolicyRejections(params: RejectionsQuery): Result<RejectionPage> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["policy-rejections", params],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/policies/rejections", { params: { query: params }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    },
+    placeholderData: keepPreviousData
   });
   return { ...resultOf(query), reload: () => void query.refetch() };
 }

@@ -37,6 +37,7 @@ from typing import Any, Mapping
 import yaml
 
 from cmapi.core.policy import PolicySettings
+from cmapi.core.policybundle import bundle_files
 from cmapi.core.policygen import environment_of, index_of
 from cmapi.core.ports import Finding
 from cmapi.core.tiers import LIMIT_KINDS, limit_key_parts, qty
@@ -61,11 +62,8 @@ class CliValidator:
                  schema_location: str | None = None, kubernetes_version: str | None = None, timeout: float = 60.0,
                  policy: PolicySettings | None = None, environments: set[str] | None = None,
                  bundle: Mapping[str, str] | None = None):
-        root = Path(policies_dir)
         # Relative path -> text: the hand-written policies first, then the rendered bundle (#212), which wins on a clash.
-        self.bundle: dict[str, str] = {str(p.relative_to(root)): p.read_text() for p in sorted(root.rglob("*.yaml"))} \
-            if root.exists() else {}
-        self.bundle.update(bundle or {})
+        self.bundle: dict[str, str] = bundle_files(policies_dir, bundle)
         self.index = index_of(self.bundle)
         self.kubeconform, self.kyverno, self.timeout = kubeconform, kyverno, timeout
         self.schema_location, self.kubernetes_version = schema_location, kubernetes_version
@@ -207,7 +205,9 @@ class CliValidator:
             check = self.index.get(res.get("policy", ""))
             if check and check.get("key") and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check)):
                 continue
-            out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300]))
+            rule = res.get("rule")
+            out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300],
+                               kyverno_rule=rule if isinstance(rule, str) and rule else None))
         for name, kinds in _matched_kinds(policies).items():
             for rel, doc in docs.items():
                 if doc.get("kind") in kinds and (name, rel) not in seen:

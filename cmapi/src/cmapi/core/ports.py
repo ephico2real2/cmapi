@@ -21,10 +21,18 @@ from cmapi.core.identity.directory import DirectoryProvider  # noqa: F401  (re-e
 @dataclass(frozen=True)
 class Finding:
     source: Literal["kyverno", "kubeconform", "cmapi"]
-    rule: str
+    rule: str                                     # the policy's name for Kyverno, the check's name for cmapi, `schema`
     path: str
     message: str
     severity: Literal["error", "warning"] = "error"
+    # Kyverno's own rule name from its report (#302): `validation` for a ValidatingPolicy, the rule of a hand-written
+    # ClusterPolicy. None for every other source.
+    kyverno_rule: str | None = None
+
+    def view(self) -> dict[str, Any]:
+        """The JSON form of a finding in a plan, a 422 and a stored refusal: camelCase, as the rest of the API."""
+        return {"source": self.source, "rule": self.rule, "path": self.path, "message": self.message,
+                "severity": self.severity, "kyvernoRule": self.kyverno_rule}
 
 
 @dataclass(frozen=True)
