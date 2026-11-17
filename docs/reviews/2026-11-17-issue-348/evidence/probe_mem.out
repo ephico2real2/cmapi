@@ -1,0 +1,10 @@
+default max_mem 8388608
+'[^a]{1000}'                                 subset=in re2 ok
+'(?:[^a]{10}){100}'                          subset=in re2 ok
+'[^a]{1000}[^b]{1000}[^c]{1000}'             subset=in re2 ok
+'(?:[^\\n\\r]{1000}x){1}'                    subset=in re2 ok
+'[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1'   subset=in re2 ok
+'é{1000}'                                    subset=in re2 ok
+URL ok
+[^a]{1000} x 50: subset=in re2 ok
+[^a]{1000} x 100: subset=in re2 refused: pattern too large - compile failed

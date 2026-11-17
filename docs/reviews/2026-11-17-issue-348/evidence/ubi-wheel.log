@@ -1,0 +1,10 @@
+pip 24.2 from /opt/app-root/lib64/python3.12/site-packages/pip (python 3.12)
+ldd (GNU libc) 2.34
+
+[notice] A new release of pip is available: 24.2 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+
+[notice] A new release of pip is available: 24.2 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+google_re2-1.1.20251105-1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+None 0.747 ms
