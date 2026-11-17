@@ -37,7 +37,7 @@ FORMS = [
     "2026-11-17", "2026-1-2", "2001-12-14t21:59:43.10-05:00", "2026-1-2T1:2:3Z", "2026-1-2 1:2:3",  # timestamp
     "<<", "=",                                                                            # merge, value
 ]
-# Values that every reader takes as strings already, whose bytes must not change.
+# Values whose bytes must not change: every reader takes them plain as strings, or PyYAML quotes them already (1_).
 ORDINARY = ["payments", "abc-team@company.net", "https://wiki.company.net/abc", "v1.2.3", "1.2.3", "4.18.0", "10Gi",
             "500m", "x", "t", "f", "o", ".", "0x", "0b", "1_", "2026-1-2T1:2:3", "2026-13", "yn", "nope"]
 SOURCES = {"namespace": "payments-dev", "environment": "dev", "cluster": "CRC", "instance": "nonprod"}
