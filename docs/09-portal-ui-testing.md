@@ -314,6 +314,32 @@ does not prove the deployed product.
 **Not proven here:** the controls against the real service and Keycloak (the service suite proves the API side with
 `policy.engine: none`, `tests/service/test_protected_366.py`), and the walk on CRC.
 
+## The portal on the API: Policies (#302)
+
+Measured on 2026-11-17 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The
+stand-in now serves `GET /api/v1/policies/results` (the recorded answer, and a fleet built from it: CRC with 30 fail, warn
+and error rows, and one cluster in each other state: off the bundle, unreachable, Kyverno not installed, no access, capped,
+stale with mode enforce; the keyset cursor bound to `clusterId`, `policy` and `result`; the counts of `policies` following
+`clusterId`) and `GET /api/v1/policies/rejections` (a plan refusal with Kyverno's warning, a warned plan, a CI refusal;
+`since` from 1d to 90d). Stage: built-mocked. It does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| Everything | `npm test` | exit 0 in Chromium 156.0.8078.4: the portal suite 68 checks (5 new), then the behaviour and parity suites: 98 states, 0 with a missing string |
+| The installed Chrome | `CHECK=<name> PW_CHANNEL=chrome node tests/api/portal.test.mjs` for each Policies check | the 5 Policies checks pass in Chrome 157.0.8103.79 (`docs/reviews/2026-11-17-issue-302-policies/evidence/portal-chrome.log`) |
+| The clusters, the policies and the rows, cell by cell | check "20 Policies: the clusters" | each cluster's 10 cells, `—` (never 0) for the 3 clusters whose counts are unknown, each state's tone; the lede's pinned version and modes; the head's pill; 31 policies from the API with what each checks; 25 rows then 5, by namespace, Previous back to 25; a chip sends `clusterId`, Show failures sends `policy`, each in the address |
+| The refusals | check "20 Policies: the refusals" | the stage ("plan (422)", "plan, warned", "CI"), the policy or check and its rule, Kyverno's warning beside cmapi's error, "(2 times that day)", the username; no `@`, employee ID or justification in the panel |
+| States | check "21 Policies states" | loading, empty, a 403 with no action, a 5xx and Try again, a stale cursor and "Back to the first page", the refusals' 403 in their panel only (the results stay), and `policy.engine: none` (the callout and the refusals only) |
+| Parity both ways | check "6 the Policies tab" | 31 strings of the mockup's block found over 3 states; nothing shown that is not listed (MOCKUP-CONTRACT.md); the mockup's clusters footnote is the one string listed as mockup only |
+| Layout at 390, 820, 1440 px, both themes | check "7 the Policies tab" | 12 views (the tab, and a cluster and a policy chosen), no sideways scroll, no placeholder. Screenshots: `docs/reviews/2026-11-17-issue-302-policies/screenshots/` |
+| axe at 390 and 1440 px, both themes | the same check | 8 scans, no serious or critical finding |
+| Mutants | `node tests/api/mutants.mjs "<name>"` for each new one | 16 new mutants, 16 killed (`docs/reviews/2026-11-17-issue-302-policies/evidence/mutants.log`). The first run had two survivors: "the hidden counts are dropped" changed nothing (`Small` takes no `hidden`), replaced by "the hidden counts are not summed"; "a changed Policies heading" survived the string comparison, which finds "Policies" in other text, so check 6 now reads the `h1` by role |
+| New checks fail on main | each Policies check with `CHECK=`, on a build of main abad314 with this branch's tests, stand-in and samples | all 5 fail: the tab says "This tab is not on the API yet.", so no Clusters table and no loading line appear within the 8 s wait (`evidence/portal-before.log`) |
+
+**Not proven here:** the tab against the real service and Keycloak, and the walk on CRC (the coordinator deploys). The
+service side ran against a real cluster: `docs/reviews/2026-11-17-issue-302-policies/evidence/kind/` (kind, Kyverno
+v1.20.0 in audit, the reader of `deploy/manifests/environments/crc/reader/`).
+
 ## What testing found
 
 | Found by | Problem | Fix |

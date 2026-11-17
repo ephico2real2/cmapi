@@ -150,6 +150,14 @@ def test_a_cluster_not_listed_yet_is_loading(world):
     assert cl["state"] == "loading" and cl["counts"] is None
 
 
+def test_reports_before_the_namespaces_are_listed_are_loading(kyverno):
+    """Which namespaces cmapi manages comes from the watch cache: before its first list, no result is counted as unmanaged."""
+    client, ctx, git, kube, validator, keys = kyverno
+    ctx.registry.clusters["CRC"].cache.state["Namespace"].last_good = None
+    [cl] = get(client, keys, RESULTS)["clusters"]
+    assert (cl["state"], cl["stateDetail"], cl["counts"]) == ("loading", "the namespaces are being listed", None)
+
+
 def test_stale_reports_keep_their_counts_and_say_so(kyverno, monkeypatch):
     client, ctx, git, kube, validator, keys = kyverno
     watch = ctx.registry.clusters["CRC"].reports.watch

@@ -1,0 +1,20 @@
+== 20 Policies: the clusters
+locator.waitFor: Timeout 8000ms exceeded.
+  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible
+    "  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible"
+== 20 Policies: the refusals
+locator.waitFor: Timeout 8000ms exceeded.
+  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible
+    "  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible"
+== 21 Policies
+locator.waitFor: Timeout 8000ms exceeded.
+  - waiting for getByRole('status').filter({ hasText: 'Loading the policy results…' }) to be visible
+    "  - waiting for getByRole('status').filter({ hasText: 'Loading the policy results…' }) to be visible"
+== 6 the Policies
+locator.waitFor: Timeout 8000ms exceeded.
+  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible
+    "  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible"
+== 7 the Policies
+locator.waitFor: Timeout 8000ms exceeded.
+  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible
+    "  - waiting for locator('table[aria-label=Clusters] tbody tr').first() to be visible"

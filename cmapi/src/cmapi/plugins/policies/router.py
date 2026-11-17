@@ -124,6 +124,9 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         return unknown("forbidden", f"cmapi-reader may not list {kinds}: the reader's ClusterRole needs get, list and watch on them")
     if not snap.listed:
         return unknown("loading", "the reports are being listed")
+    if st.cache is None or st.cache.state["Namespace"].last_good is None:
+        # Which namespaces cmapi manages is not known yet: every result would read as unmanaged.
+        return unknown("loading", "the namespaces are being listed")
 
     bundle = c.bundle.for_environment(env) if c.bundle else {}
     managed, live = _managed(st), snap.policies

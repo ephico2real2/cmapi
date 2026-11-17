@@ -1,0 +1,9 @@
+ok - 20 Policies: the clusters, the policies and the rows of GET /api/v1/policies/results cell by cell; a state is never a zero; the cluster chips, Show failures and the pages are API parameters
+ok - 20 Policies: the refusals of GET /api/v1/policies/rejections, with the stage, the policy or check, Kyverno's warnings beside cmapi's errors, and the username only
+ok - portal on the API: 2 checks, chromium 157.0.8103.79
+ok - 21 Policies states: loading, empty, a 403, a 5xx with Try again, a stale cursor, the refusals' 403 in their panel only, and engine none
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 6 the Policies tab says what the mockup says, and adds only what is listed
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 7 the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
