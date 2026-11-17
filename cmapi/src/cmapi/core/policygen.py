@@ -35,6 +35,7 @@ reserved key is not on the object: those keys are allowed there, and refusing th
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -399,7 +400,7 @@ def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str
             # and cmapi must see every failed key to drop only those whose value Git already holds.
             docs = []
             for c in checks:
-                name = f"{family}-{c.kind}-{_slug(c.key) if c.key else 'other-keys'}-{c.rule.lower()}"
+                name = policy_name(f"{family}-{c.kind}-{_slug(c.key) if c.key else 'other-keys'}-{c.rule.lower()}")
                 if name in index:
                     raise PolicyGenError(f"two checks render the policy name {name}")
                 docs.append(_policy(name, resource, actions, [c], description, match))
@@ -427,6 +428,20 @@ _HEADER = ("# Rendered by cmapi from its configuration (core/policygen.py, #212)
 
 def _yaml_all(docs: list[Mapping[str, Any]]) -> str:
     return _HEADER + yaml.safe_dump_all([dict(d) for d in docs], sort_keys=False, width=1000)
+
+
+# Kyverno labels each report with vpol.kyverno.io/<policy name> (pkg/utils/report/metadata.go, PolicyLabel, v1.20.0), and
+# the name part of a label is at most 63 characters, so a longer policy name makes the API server refuse the background
+# scan's report of every resource it scans (#356).
+NAME_MAX = 63
+
+
+def policy_name(name: str) -> str:
+    """name, or when it is longer than NAME_MAX its first characters and 8 hex digits of its SHA-256: deterministic, so a
+    render gives the same names each time, and unique where the full names are (index.json maps each to its key)."""
+    if len(name) <= NAME_MAX:
+        return name
+    return name[:NAME_MAX - 9].rstrip("-") + "-" + hashlib.sha256(name.encode()).hexdigest()[:8]
 
 
 def _slug(key: str) -> str:

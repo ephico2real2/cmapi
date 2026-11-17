@@ -17,7 +17,7 @@ import yaml
 
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.policy import PolicySettings
-from cmapi.core.policygen import PolicyGenError, index_of, render_bundle
+from cmapi.core.policygen import PolicyGenError, index_of, policy_name, render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from cmapi.core.tiers import TierCatalog
 from cmapi.core.validate import CliValidator, PolicyEngineMissing
@@ -209,7 +209,8 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
             "services.loadbalancers 3 is above the rnd maximum of 2; a bound of tiers.yaml, which approval does not lift",
         "cmapi-limits-rnd-limit-limitrange-container-max-cpu-max":
             "limitRange.container.max.cpu 20 is above the rnd maximum of 16; a bound of tiers.yaml, which approval does not lift",
-        "cmapi-limits-rnd-limit-limitrange-container-default-memory-order":
+        # 64 characters: shortened with its hash, so Kyverno's report label stays within 63 (#356).
+        policy_name("cmapi-limits-rnd-limit-limitrange-container-default-memory-order"):
             "container default memory 128Mi is below its defaultRequest 256Mi",
     }
 

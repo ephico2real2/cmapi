@@ -9,23 +9,23 @@
     "kind": "limit",
     "rule": "order"
   },
+  "cmapi-limits-dev-limit-limitrange-container-default-me-084635f0": {
+    "key": "limitRange.container.default.memory",
+    "kind": "limit",
+    "rule": "order"
+  },
   "cmapi-limits-dev-limit-limitrange-container-default-memory-max": {
     "key": "limitRange.container.default.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-dev-limit-limitrange-container-default-memory-order": {
-    "key": "limitRange.container.default.memory",
-    "kind": "limit",
-    "rule": "order"
-  },
-  "cmapi-limits-dev-limit-limitrange-container-defaultrequest-cpu-max": {
-    "key": "limitRange.container.defaultRequest.cpu",
+  "cmapi-limits-dev-limit-limitrange-container-defaultreq-1acccb96": {
+    "key": "limitRange.container.defaultRequest.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-dev-limit-limitrange-container-defaultrequest-memory-max": {
-    "key": "limitRange.container.defaultRequest.memory",
+  "cmapi-limits-dev-limit-limitrange-container-defaultreq-df4ab28d": {
+    "key": "limitRange.container.defaultRequest.cpu",
     "kind": "limit",
     "rule": "max"
   },

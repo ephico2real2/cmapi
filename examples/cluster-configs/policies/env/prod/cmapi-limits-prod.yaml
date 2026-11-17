@@ -77,7 +77,7 @@ spec:
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: cmapi-limits-prod-limit-limitrange-container-defaultrequest-cpu-max
+  name: cmapi-limits-prod-limit-limitrange-container-defaultre-cd1c63ca
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
@@ -114,7 +114,7 @@ spec:
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: cmapi-limits-prod-limit-limitrange-container-defaultrequest-memory-max
+  name: cmapi-limits-prod-limit-limitrange-container-defaultre-16733463
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'
@@ -293,7 +293,7 @@ spec:
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: cmapi-limits-prod-limit-limitrange-container-default-memory-order
+  name: cmapi-limits-prod-limit-limitrange-container-default-m-a74f22b8
   annotations:
     policies.kyverno.io/description: Each LimitRange value of a managed namespace at or below the prod maximum; limits never below requests.
     cmapi.net/generated: 'true'

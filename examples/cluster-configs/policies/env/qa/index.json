@@ -19,13 +19,13 @@
     "kind": "limit",
     "rule": "order"
   },
-  "cmapi-limits-qa-limit-limitrange-container-defaultrequest-cpu-max": {
-    "key": "limitRange.container.defaultRequest.cpu",
+  "cmapi-limits-qa-limit-limitrange-container-defaultrequ-595941ff": {
+    "key": "limitRange.container.defaultRequest.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-qa-limit-limitrange-container-defaultrequest-memory-max": {
-    "key": "limitRange.container.defaultRequest.memory",
+  "cmapi-limits-qa-limit-limitrange-container-defaultrequ-fac98118": {
+    "key": "limitRange.container.defaultRequest.cpu",
     "kind": "limit",
     "rule": "max"
   },

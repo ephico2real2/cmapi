@@ -29,7 +29,7 @@ import yaml
 
 from cmapi.core.metadata import KINDS, MetadataKeys
 from cmapi.core.policy import PolicySettings
-from cmapi.core.policygen import index_of, render_bundle
+from cmapi.core.policygen import index_of, policy_name, render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from cmapi.core.tiers import TierCatalog
 from cmapi.core.validate import CliValidator, _held
@@ -282,3 +282,19 @@ def test_each_map_that_the_rendered_policies_refuse_cmapi_refuses(kyverno, catal
                                 "codes of cmapi only": dict(sorted(only.items()))}) + "\n")
     assert kyverno_only == [], (counts, kyverno_only[:5])
     assert counts["kyverno refuses"] > 0, counts
+
+
+# ----------------------------------------------------------------------------------------------- #356, without the CLI
+@pytest.mark.parametrize("path", [SHIPPED, COMPANY])
+def test_each_policy_name_fits_kyvernos_report_label(catalog, path):
+    """#356: Kyverno labels a report vpol.kyverno.io/<policy name>, whose name part is at most 63 characters; one longer
+    name made the API server refuse the background scan's report of every resource. Names stay unique and stable."""
+    keys = MetadataKeys.load(path)
+    names = [n for env in sorted(ALL_ENVS) for n in index_of(render_bundle(catalog, keys, PolicySettings(), {env},
+                                                                          "prod" if env == "prod" else "nonprod"))]
+    assert names and all(len(n) <= 63 for n in names), [n for n in names if len(n) > 63]
+    assert len(names) == len(set(names))
+    long = "cmapi-limits-rnd-limit-limitrange-container-defaultrequest-memory-max"
+    assert policy_name(long) == policy_name(long) != policy_name(long + "x")
+    assert len(policy_name(long)) <= 63 and policy_name("cmapi-quota-rnd-quota-requests-cpu-max") == \
+        "cmapi-quota-rnd-quota-requests-cpu-max"
