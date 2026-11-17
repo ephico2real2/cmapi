@@ -288,6 +288,32 @@ the reference and company files, with `policy.engine: none`), the installed Chro
 the reference file and is shared). Whether a browser other than Chromium 156 revalidates the answer is not measured; the
 form does not depend on it.
 
+## Protection from deletion (#366)
+
+Measured on 2026-11-17 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The stand-in
+now answers `operator` and `operatorEnvironments` on `GET /api/v1/me` (an operator holds `namespaces:protect`; a new user,
+`rnd.operator`, holds it in rnd only), `protected` and `protectedBy` on `GET .../namespaces/{ns}`, refuses a protection label
+from a caller who is not an operator (403) and a value other than `"true"` (422 `invalid_value`), and plans a removal with
+the approval that the service measured (`threshold sensitiveKeyChanged: +1 approver-platform`). Stage: built-mocked. It
+does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| The badge and its sentence, to everyone; the control to an operator only | check "19 Protection: everyone" | viewer, requester and operator see "Protected" and "cmapi refuses a delete request for this namespace (422 namespace-protected): cmapi.net/protected=true, do-not-delete=true."; only the operator has "Remove protection"; an unprotected namespace has no badge and "Protect from deletion" |
+| The protect dialog | check "19 Protection: the operator's dialog" | the dry run's body is `{"labels":{"cmapi.net/protected":"true"}}` with If-Match and no key; a lost answer, then Submit again: the same key, one request made; the 202 is a status message; "Open at current step" opens the Workflow tab |
+| An operator in rnd only | check "19 Protection: an operator limited to rnd" | no control on a dev namespace, the control on an rnd one; no create box in dev, the box in rnd |
+| The remove dialog | check "19 Protection: removing it" | the body is `null`, never `"false"`; "1 approval in cmapi from approver-platform"; "Still protected by do-not-delete=true"; Cancel writes nothing and the focus returns to the button |
+| A 412 and a 403 | check "19 Protection: a 412" | the stale ETag once, then the namespace's new one, with no 412 callout; a 403 shows "403 forbidden · nothing written" and reads `/me` again |
+| The create box | check "19 New namespace" | absent for a requester; for an operator, unchecked sends no protection key, checked sends `"cmapi.net/protected": "true"` in the dry run and in the submit |
+| Layout and axe | check "19 Protection at 390 and 1440 px" | the detail, the open dialog and the create box at 390 and 1440 px in each theme: no sideways scroll; axe on the page and on the dialog, no serious or critical finding. Screenshots: `docs/reviews/2026-11-17-issue-366/screenshots/` |
+| The installed Chrome | `CHECK=19 PW_CHANNEL=chrome node tests/api/portal.test.mjs` | 7 checks pass in Chrome 157.0.8103.79 (`evidence/portal-19-chrome.log`) |
+| The whole portal suite | `npm test` | 62 checks pass in Chromium 156, then the behaviour and parity tests: 98 states, 0 with a missing string (the run before the last three checks were added) |
+| New checks fail on main | each check with `CHECK=`, on a build of main 7ba5d78 with this branch's tests and stand-in | the six checks that existed then each fail (`evidence/portal-19-before.log`) |
+| Mutants | `node tests/api/mutants.mjs "<name>"` for each new one | 11 new mutants (the control or the box for everyone, an operator somewhere counted everywhere, the badge from the labels, `"false"` for a removal, a second key in the body, no key kept across a retry, no re-read on a 412 or a 403, no note of what still protects, the box sending the label unchecked) and the four whose text moved: 15 killed. The first run had one survivor, "an operator somewhere is an operator everywhere": the detail also needs `namespaces:write` in the environment, so the check now tests the create box in dev and rnd (`evidence/portal-mutants-366.log`) |
+
+**Not proven here:** the controls against the real service and Keycloak (the service suite proves the API side with
+`policy.engine: none`, `tests/service/test_protected_366.py`), and the walk on CRC.
+
 ## What testing found
 
 | Found by | Problem | Fix |

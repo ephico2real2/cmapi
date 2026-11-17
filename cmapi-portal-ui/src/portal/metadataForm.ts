@@ -45,6 +45,8 @@ export interface MetaForm {
   fields: MetaField[];
   /** A label value's syntax (labels.additionalProperties): Kubernetes' IsValidLabelValue, which cmapi checks first. */
   labelValue: { pattern: string; maxLength: number } | null;
+  /** The labels that only an operator may set (x-cmapi-operator-only), such as cmapi.net/protected (#366). */
+  operatorOnlyLabels: string[];
 }
 
 /** The answer is not the shape that this portal reads: the form shows an error, never a form with fields missing. */
@@ -119,6 +121,7 @@ export function fieldsOf(view: unknown): MetaForm {
   const labelValue = isObject(extra) && typeof extra.pattern === "string" && countOf(extra.maxLength) !== null
     ? { pattern: extra.pattern, maxLength: countOf(extra.maxLength)! } : null;
   const fields: MetaField[] = [];
+  const operatorOnlyLabels: string[] = [];
   for (const [kind, name] of [["label", "labels"], ["annotation", "annotations"]] as const) {
     const map = view[name];
     if (!isObject(map) || map.type !== "object" || !isObject(map.properties)) throw new RulesUnreadable(`${name} has no properties`);
@@ -132,6 +135,7 @@ export function fieldsOf(view: unknown): MetaForm {
     const read = Object.entries(props).map(([key, prop]) =>
       fieldOf(kind, key, prop, required.includes(key), kind === "label" ? labelValue?.pattern ?? null : null));
     const offered = read.filter((f): f is MetaField => f !== "operator-only");
+    if (kind === "label") operatorOnlyLabels.push(...Object.keys(props).filter((_, i) => read[i] === "operator-only"));
     // Required in the order of `required` (an array keeps its order through JSON; an object's integer-like keys do not),
     // then what cmapi sets, then the optional keys.
     const ordered = [
@@ -141,7 +145,7 @@ export function fieldsOf(view: unknown): MetaForm {
     ];
     ordered.forEach((f, i) => fields.push({ ...f, id: `ns-${kind}-${i}` }));
   }
-  return { fields, labelValue };
+  return { fields, labelValue, operatorOnlyLabels };
 }
 
 /** The key of a field's value in the form's state: a key can be a label and an annotation, each with its own value. */

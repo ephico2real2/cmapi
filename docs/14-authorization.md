@@ -30,11 +30,11 @@ One LDAP group exists for each role. Its name is `app-cmapi-rbac-<role>`. Keyclo
 
 Sources: the groups and their client roles are in `deploy/manifests/environments/crc/realm/10-realm-import.yaml:391-445`. The LDAP entries are in `examples/cmapi-sso/ldap/cmapi-groups.ldif`. The role `cmapi-approval-relay` has no group, because it goes on a client and not on a person (`docs/11`, "The groups").
 
-The path template is `identity.groupPath` in `instance.yaml`. Its default is `/cmapi/app-cmapi-rbac-{name}` (`cmapi/src/cmapi/core/authz.py:47`). The service stops at startup if the template cannot name a group (`authz.py:53-59`).
+The path template is `identity.groupPath` in `instance.yaml`. Its default is `/cmapi/app-cmapi-rbac-{name}` (`cmapi/src/cmapi/core/authz.py:50`). The service stops at startup if the template cannot name a group (`authz.py:56-62`).
 
 ## The roles and their permissions
 
-A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-staging` or `cmapi-prod`. The built-in roles and their permissions are in `cmapi/src/cmapi/core/authz.py:21-41`. The table below comes from that code and from `cmapi/contract/openapi.json`. The last column counts the routes that need the permission today. A count of 0 means that the permission is defined and no built route uses it yet.
+A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-staging` or `cmapi-prod`. The built-in roles and their permissions are in `cmapi/src/cmapi/core/authz.py:21-44`. The table below comes from that code and from `cmapi/contract/openapi.json`. The last column counts the routes that need the permission today. A count of 0 means that the permission is defined and no built route uses it yet.
 
 | Permission | viewer | onboarding | requester | approver | operator | admin | auditor | approval-relay | Routes today |
 |---|---|---|---|---|---|---|---|---|---|
@@ -54,6 +54,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `adoption:write` | | | | | yes | yes | | | 0 |
 | `reports:read` | | | | | yes | yes | | | 2 |
 | `operations:run` | | | | | yes | yes | | | 1 |
+| `namespaces:protect` | | | | | yes | yes | | | 0 |
 | `config:write` | | | | | | yes | | | 0 |
 | `clusters:onboard` | | | | | | yes | | | 0 |
 | `admin:reload` | | | | | | yes | | | 0 |
@@ -62,11 +63,13 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `audit:export` | | | | | | | yes | | 0 |
 | `approvals:relay` | | | | | | | | yes | 0 |
 
+`namespaces:protect` is what makes an operator (#366). No route declares it: the routes check it inside, in the environment of the object. It lets a caller set and remove the operator-only labels and annotations of `metadata-keys.yaml` (`cmapi.net/protected` and `do-not-delete`; a requester gets 403), cancel another person's request, and read employee IDs in the directory (`cmapi/src/cmapi/core/authz.py:160-166`, `cmapi/src/cmapi/core/pipeline.py:187`). It is a permission, not a role name: a role of `authz-roles.yaml` that inherits `cmapi-operator` is an operator, and a role that grants it in some environments makes an operator there only. A file that lists `permissions:` for `cmapi-operator` itself must name `namespaces:protect`, or that role is no longer an operator.
+
 Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin cannot approve with those roles alone: `requests:approve` is only in `cmapi-approver`. On CRC the group `app-cmapi-rbac-operator` also gives `cmapi-approver`.
 
 ### Change the roles for one instance
 
-`authz-roles.yaml` in the configuration of the instance can change a role (`authz.py:76-135`):
+`authz-roles.yaml` in the configuration of the instance can change a role (`authz.py:79-138`):
 
 | Key | Effect |
 |---|---|
@@ -74,7 +77,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 | `inherits` | Adds the permissions of another role |
 | `environments` | Limits the role to some environments that the instance serves |
 
-[`docs/18-configuration.md`](18-configuration.md) lists each key of the file with its default. A permission that is not in the table above stops startup (`authz.py:115-117`). An environment that the instance does not serve also stops startup (`authz.py:121-123`). A built-in role that the file does not name keeps its permissions in each environment (`authz.py:103-108`).
+[`docs/18-configuration.md`](18-configuration.md) lists each key of the file with its default. A permission that is not in the table above stops startup (`authz.py:118-120`). An environment that the instance does not serve also stops startup (`authz.py:124-126`). A built-in role that the file does not name keeps its permissions in each environment (`authz.py:106-111`).
 
 ### Which route needs which permission
 
@@ -157,9 +160,9 @@ Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.
 
 ### Step 3: the permission
 
-Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:42-54`, where `dep` is the check). It asks the role policy of the instance (`authz.py:157-165`).
+Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:42-54`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
 
-1. The policy collects the roles of the caller that it knows (`authz.py:138-139`). It ignores an unknown role.
+1. The policy collects the roles of the caller that it knows (`authz.py:141-142`). It ignores an unknown role.
 2. If one of them has the permission, the request continues.
 3. If none has it, the answer is 403 `forbidden`: "Missing permission namespaces:create: no role in your token grants it (roles: [...])".
 
@@ -171,8 +174,8 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:177`, `:352` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:109`, `:125` |
+| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:177`, `:364` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:116`, `:132` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:87`, `:98`, `:110` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:129`, `:158`, `:173`, `:193`, `:222` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:136` |
@@ -180,13 +183,13 @@ A role can have a list of environments. The route checks the permission again wh
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
 | List expirations | Only the environments where the caller has `objects:read`, and where a namespace can expire | `cmapi/src/cmapi/plugins/expiration/router.py:109` |
 
-If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:160-163`). A list does not refuse: it leaves out the rows of the other environments.
+If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:181-184`). A list does not refuse: it leaves out the rows of the other environments.
 
 The tests `test_environment_role_cannot_*` cover each route group (`test_review_c_authz.py:112-175`). Before #141 (BUG-30), an approval in another environment answered `forbidden`. It now answers `environment-forbidden`, as a rejection does (`test_an_approval_in_another_environment_says_so_like_a_rejection`).
 
 ### Step 5: who can approve
 
-An approval has more checks than the permission (`approvals.py:307-334`). They are in this order:
+An approval has more checks than the permission (`approvals.py:321-348`). They are in this order:
 
 | Check | Refusal |
 |---|---|
@@ -253,7 +256,7 @@ not in the design:     one shared submitter account: loses attribution and the s
 1. The person has an LDAP account. An administrator of the directory puts the account in the group `app-cmapi-rbac-requester` (`docs/11`, "The groups").
 2. The LDAP federation of realm `cmapi` reads the group. It places the group under `/cmapi`, so the token carries the path `/cmapi/app-cmapi-rbac-requester` (`docs/15`, "The LDAP federation"; `docs/14`, "The contract in one table").
 3. Keycloak gives the members of that group the client role `cmapi-requester` on `cmapi-nonprod` (`10-realm-import.yaml:391-445`).
-4. cmapi reads the role from the token (`claims.py:54`). It looks up the permissions of the role (`authz.py:21-41`).
+4. cmapi reads the role from the token (`claims.py:54`). It looks up the permissions of the role (`authz.py:21-44`).
 
 The role `cmapi-requester` has these permissions (from the table "The roles and their permissions" above):
 
@@ -269,7 +272,7 @@ When a person calls, cmapi records the request under the caller of the token. Th
 
 | Value | Where it comes from | Where it is kept |
 |---|---|---|
-| `sub` | The claim `sub` (`claims.py:56`) | The database. Self-approval compares it (`approvals.py:325-326`) |
+| `sub` | The claim `sub` (`claims.py:56`) | The database. Self-approval compares it (`approvals.py:339-340`) |
 | Username | The claim `preferred_username` (`claims.py:52`) | The database, and as a label of the namespace (`claims.py:3-5`) |
 | `email` | The claim `email` (`claims.py:60`) | The database |
 | `employee_id` | The claim `employee_id` (`claims.py:64`) | The database |
@@ -284,7 +287,7 @@ A person calls as themselves. If a person sends `onBehalfOf`, cmapi refuses with
 A shared human account, for example `cmapi.requester`, that submits for many people is not in the design. A person cannot use `onBehalfOf` (`checks.py:74-78`), so a shared account would be recorded as the requester. It would have three effects:
 
 - Attribution is lost. Each request would carry the `sub` and the username of the shared account, and not those of the person.
-- The self-approval check fails. The check compares `sub` values (`approvals.py:325-326`). The requester would carry the `sub` of the shared account. A person who submits through it and then approves with their own account has another `sub`, so the check would not refuse.
+- The self-approval check fails. The check compares `sub` values (`approvals.py:339-340`). The requester would carry the `sub` of the shared account. A person who submits through it and then approves with their own account has another `sub`, so the check would not refuse.
 - The employee ID record is lost. The token of the shared account has one `employee_id`, or none, and a person's write needs one when the instance requires it (`checks.py:79-81`).
 
 A tool that must act for people has its own path: see the next section.
@@ -307,7 +310,7 @@ A tool signs in with the client credentials grant. It is a service client, or an
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
 | A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:53` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:405`, `approvals.py:325-326`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:208-210`, `approvals.py:323-324`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:417`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:208-210`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 
@@ -363,14 +366,14 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 
 ## See your own access
 
-`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:21-27`, `authz.py:167-172`). It needs a valid token and no permission. Read it first when a call returns 403.
+`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:21-30`, `authz.py:188-193`). `operator` says whether the caller holds `namespaces:protect` somewhere, and `operatorEnvironments` where: `all`, or a list (`authz.py:168-176`). The portal shows the operator's controls from these two fields; the API checks each write in its environment. It needs a valid token and no permission. Read it first when a call returns 403.
 
 ## What is not built
 
 | Part of the design | State |
 |---|---|
 | Routes for quotas, service accounts, grants, adoption, capacity, configuration, cluster onboarding, reload, events and audit export | Not built. Their permissions exist in `authz.py`, and no route uses them |
-| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:314-317`. No route accepts a relayed approval |
+| The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:328-331`. No route accepts a relayed approval |
 | A scope by team or by namespace name | Not designed. A role with `namespaces:create` can ask for each name that is not reserved (`authz.py:8-10`) |
 
 ## Proof

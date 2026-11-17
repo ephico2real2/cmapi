@@ -3,7 +3,7 @@
 // annotations are the instance's own keys, from its metadata-keys.yaml (#336). The words are the mockup's
 // (mockups/portal/Main.dc.html, isNew). MOCKUP-CONTRACT.md lists what differs, and why.
 import {
-  ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormSelect, FormSelectOption, Grid,
+  ActionGroup, Alert, AlertActionLink, Button, Checkbox, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormSelect, FormSelectOption, Grid,
   GridItem, Label, List, ListItem, Skeleton, Stack, TextArea, TextInput
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
@@ -14,6 +14,7 @@ import type { Cluster, CreateBody, Plan, TierCatalog } from "../api/hooks";
 import type { ProblemItem } from "../api/problem";
 import { Callout, Checks, Choices, Empty, Head, Hint, KV, Panel, Pill, Small } from "../components/ui";
 import type { Check } from "../components/ui";
+import { operatorIn, PROTECT_KEY, PROTECT_VALUE } from "./access";
 import { dayName, daysUntil, isoDay, policyOf } from "./format";
 import { MetadataSection } from "./MetadataFields";
 import { bodyOf, checkAll, errorsByField, nameSuggestion, valueKey } from "./metadataForm";
@@ -109,6 +110,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<MetaField["kind"], boolean>>({ label: false, annotation: false });
   const [expires, setExpires] = useState("");
+  const [protect, setProtect] = useState(false);
   const [why, setWhy] = useState("");
   // The body that the last Dry run sent. A change to the form hides its result, as in the mockup.
   const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody } | null>(null);
@@ -183,10 +185,15 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const candidates = inEnv.filter((c) => region === ANY_REGION || c.labels.region === region);
   const cluster: Cluster | undefined = candidates.find((c) => c.clusterId === chosen) ?? candidates[0];
   const expAllowed = env !== "prod";
+  // The protection box is an operator's, in this environment, where the instance's rules make the label operator-only
+  // (#366). Shown or not, the API decides on the token: a requester's body with the label gets 403.
+  const canProtect = me.state === "ok" && operatorIn(me.data, env) && !!form?.operatorOnlyLabels.includes(PROTECT_KEY);
+  const metadata = form ? bodyOf(form, values) : { labels: {}, annotations: {} };
   const body: CreateBody = {
     namespace: nsName,
     tier: current?.name ?? tier,
-    ...(form ? bodyOf(form, values) : { labels: {}, annotations: {} }),
+    ...metadata,
+    ...(canProtect && protect ? { labels: { ...metadata.labels, [PROTECT_KEY]: PROTECT_VALUE } } : {}),
     justification: why || null,
     ...(expAllowed && expires ? { expiresAt: expires } : {})
   };
@@ -360,6 +367,12 @@ export function NewNamespaceTab({ config, open }: TabProps) {
               {!expAllowed && (
                 <FormGroup label="Expires" fieldId="ns-exp-never">
                   <Hint>Never. Production namespaces cannot carry expiration metadata: refused at validation and by the deny-expiry-in-prod policy.</Hint>
+                </FormGroup>
+              )}
+              {canProtect && (
+                <FormGroup label="Deletion protection" fieldId="ns-protect">
+                  <Checkbox id="ns-protect" label="Protect from deletion" isChecked={protect} aria-describedby="ns-protect-help" onChange={(_, v) => edit(setProtect)(v)} />
+                  <Hint id="ns-protect-help">{`Operators only. Adds ${PROTECT_KEY}=${PROTECT_VALUE}: cmapi refuses a delete request for this namespace until an operator removes it.${protect && expAllowed && expires ? ` The delete after ${expires} and its grace will be held while it is protected.` : ""}`}</Hint>
                 </FormGroup>
               )}
               <FormGroup label="Justification" fieldId="ns-why">

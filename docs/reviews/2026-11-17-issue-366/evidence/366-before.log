@@ -1,0 +1,20 @@
+FAILED tests/service/test_protected_366.py::test_a_requesters_change_keeps_the_protection_and_the_delete_stays_refused
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:extend]
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:set]
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:makePermanent]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[vic-who0-False-where0]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[oni-who1-False-where1]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[ola-who2-False-where2]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[amy-who3-False-where3]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[opal-who4-True-all]
+FAILED tests/service/test_protected_366.py::test_me_says_who_is_an_operator[ada-who5-True-all]
+FAILED tests/service/test_protected_366.py::test_the_pipeline_and_me_ask_one_function
+FAILED tests/service/test_protected_366.py::test_a_requester_cannot_protect_or_unprotect[do-not-delete]
+FAILED tests/service/test_protected_366.py::test_only_the_value_that_protects_is_accepted[cmapi.net/protected-false]
+FAILED tests/service/test_protected_366.py::test_only_the_value_that_protects_is_accepted[cmapi.net/protected-yes]
+FAILED tests/service/test_protected_366.py::test_only_the_value_that_protects_is_accepted[do-not-delete-false]
+FAILED tests/service/test_protected_366.py::test_a_protected_namespace_says_so_and_its_delete_is_refused
+FAILED tests/service/test_protected_366.py::test_protection_is_read_from_git_the_input_of_a_delete
+FAILED tests/service/test_protected_366.py::test_protecting_needs_no_approval_and_removing_it_needs_approver_platform
+ERROR tests/service/test_protected_366.py::test_an_operator_is_a_permission_not_a_role_name
+18 failed, 2 passed, 1 error in 18.28s

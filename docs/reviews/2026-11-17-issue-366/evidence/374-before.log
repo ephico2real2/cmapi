@@ -1,0 +1,9 @@
+E       assert ('cc-9999' == 'cc-9999'
+E       assert None == 'true'
+E       assert None == 'true'
+E       assert None == 'true'
+FAILED tests/service/test_protected_366.py::test_a_requesters_change_keeps_the_protection_and_the_delete_stays_refused
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:extend]
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:set]
+FAILED tests/service/test_protected_366.py::test_an_expiry_change_keeps_the_protection[expiration:makePermanent]
+4 failed in 6.31s

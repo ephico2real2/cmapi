@@ -1,0 +1,8 @@
+ok - 19 Protection: everyone sees the badge and why a delete request is refused; only an operator has the control
+ok - 19 Protection: the operator's dialog plans exactly the label with If-Match, shows the approval, and submits that body with one key
+ok - 19 Protection: an operator limited to rnd has the control and the create box in rnd, and neither in dev
+ok - 19 Protection: removing it sends null, needs approver-platform, and says what still protects; Cancel sends nothing
+ok - 19 Protection: a 412 reads the namespace again and plans on its new ETag; a refusal shows its code
+ok - 19 New namespace: Protect from deletion for an operator, absent for a requester; the body has the label only when checked
+ok - 19 Protection at 390 and 1440 px in each theme, with the dialog open, and axe
+ok - portal on the API: 7 checks, chromium 156.0.8078.4

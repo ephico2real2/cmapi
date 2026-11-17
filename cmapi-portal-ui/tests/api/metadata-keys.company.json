@@ -72,7 +72,14 @@
         "type": "string",
         "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
         "maxLength": 63,
-        "description": "cmapi-operator and above only: a requester gets 403 forbidden.",
+        "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
+        "x-cmapi-operator-only": true
+      },
+      "do-not-delete": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
         "x-cmapi-operator-only": true
       }
     },
@@ -95,7 +102,8 @@
             "company.net/mnemonic",
             "company.net/lob",
             "company.net/cl",
-            "cmapi.net/protected"
+            "cmapi.net/protected",
+            "do-not-delete"
           ]
         },
         {
@@ -148,7 +156,12 @@
       },
       "cmapi.net/protected": {
         "type": "string",
-        "description": "cmapi-operator and above only: a requester gets 403 forbidden.",
+        "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
+        "x-cmapi-operator-only": true
+      },
+      "do-not-delete": {
+        "type": "string",
+        "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
         "x-cmapi-operator-only": true
       }
     },
@@ -164,7 +177,8 @@
             "company.net/app-environment",
             "company.net/mnemonic-group-contact",
             "company.net/mnemonic-confluence",
-            "cmapi.net/protected"
+            "cmapi.net/protected",
+            "do-not-delete"
           ]
         },
         {

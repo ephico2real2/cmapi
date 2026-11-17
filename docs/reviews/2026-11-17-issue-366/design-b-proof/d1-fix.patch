@@ -1,0 +1,13 @@
+diff --git a/cmapi/src/cmapi/core/pipeline.py b/cmapi/src/cmapi/core/pipeline.py
+index f8abb07..c327d77 100644
+--- a/cmapi/src/cmapi/core/pipeline.py
++++ b/cmapi/src/cmapi/core/pipeline.py
+@@ -199,7 +199,7 @@ class Pipeline:
+                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
+                               extra={"etag": etag})
+         cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
+-                 if self.cfg.metadata.classify(k, "label") in ("governed", "team")}
++                 if self.cfg.metadata.classify(k, "label") in ("governed", "team", "operatorOnly")}
+         cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
+                  if self.cfg.metadata.classify(k, "annotation") in ("governed", "team")}
+         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})

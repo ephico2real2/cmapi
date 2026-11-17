@@ -33,19 +33,30 @@ const ROLE_PERMISSIONS = {
   "cmapi-approver": [...READ, "requests:approve", "requests:reject"],
   "cmapi-requester": SAMPLES.operations.core_me.response.body.access.permissions,
   "cmapi-operator": [...READ, "namespaces:create", "requests:cancel", "namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write", "requests:retry",
-    "adoption:write", "reports:read", "operations:run"],
+    "adoption:write", "reports:read", "operations:run", "namespaces:protect"],
   // A requester limited to rnd (docs/14, "environments"): the API answers 403 environment-forbidden for its writes elsewhere.
   "cmapi-requester-rnd": SAMPLES.operations.core_me.response.body.access.permissions
 };
+// An operator limited to rnd (#366): /me says operator, with operatorEnvironments ["rnd"].
+ROLE_PERMISSIONS["cmapi-operator-rnd"] = ROLE_PERMISSIONS["cmapi-operator"];
+// #366: the operator's permission, and the labels of approval-rules.yaml protected.labels (operator-only on every instance).
+const PROTECT_PERMISSION = "namespaces:protect";
+const PROTECT_KEY = "cmapi.net/protected";
+const PROTECTION_LABELS = [PROTECT_KEY, "do-not-delete"];
+/** The approval of a removal of the protection label, as the service plans it (cmapi.net/protected is a sensitiveKeys entry). */
+const UNPROTECT_APPROVAL = { ...SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body.approval, auto: null,
+  reasons: ["dev change: 0 from approver-platform", "threshold sensitiveKeyChanged: +1 approver-platform"],
+  slots: [{ count: 1, group: "approver-platform", reason: "Sensitive key changed" }], remaining: [{ group: "approver-platform", needed: 1 }] };
 /** The environments of a role that is limited to some; every other role covers all. */
-const ROLE_ENVIRONMENTS = { "cmapi-requester-rnd": ["rnd"] };
+const ROLE_ENVIRONMENTS = { "cmapi-requester-rnd": ["rnd"], "cmapi-operator-rnd": ["rnd"] };
 // The groups follow docs/14 ("The groups"): the default path template /cmapi/app-cmapi-rbac-<name>.
 export const USERS = {
   viewer: { sub: "sub-viewer", username: "cmapi.viewer", role: "cmapi-viewer", groups: ["/cmapi/app-cmapi-rbac-viewer"] },
   approver: { sub: "sub-approver", username: "cmapi.approver", role: "cmapi-approver", groups: ["/cmapi/app-cmapi-rbac-approver-platform"], email: "cmapi.approver@ephico2real.com" },
   requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" },
   operator: { sub: "sub-operator", username: "cmapi.operator", role: "cmapi-operator", groups: ["/cmapi/app-cmapi-rbac-operator"], email: "cmapi.operator@ephico2real.com" },
-  rndRequester: { sub: "sub-rnd", username: "rnd.requester", role: "cmapi-requester-rnd", groups: ["/cmapi/app-cmapi-rbac-requester-rnd"], email: "rnd.requester@ephico2real.com" }
+  rndRequester: { sub: "sub-rnd", username: "rnd.requester", role: "cmapi-requester-rnd", groups: ["/cmapi/app-cmapi-rbac-requester-rnd"], email: "rnd.requester@ephico2real.com" },
+  rndOperator: { sub: "sub-rnd-operator", username: "rnd.operator", role: "cmapi-operator-rnd", groups: ["/cmapi/app-cmapi-rbac-operator-rnd"], email: "rnd.operator@ephico2real.com" }
 };
 
 /** One realm, `cmapi`, with one public client that must use PKCE with S256. */
@@ -393,7 +404,9 @@ export async function startApi({ issuer, portalOrigin }) {
     /** The namespaces of GET /api/v1/expirations, and the day that the API counts from. */
     expirations: [], today: EXP_SAMPLE.today, never: false,
     /** The answer of GET /api/v1/metadata-keys: the instance's rules of labels and annotations. */
-    metadataKeys: REFERENCE_KEYS
+    metadataKeys: REFERENCE_KEYS,
+    /** "cluster/namespace" → its protectedBy, the protected.labels entries that its labels in Git match (#366). */
+    protection: new Map()
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -437,6 +450,16 @@ export async function startApi({ issuer, portalOrigin }) {
     const permissions = ROLE_PERMISSIONS[user.role];
     const lacks = (permission) => (permissions.includes(permission) ? null
       : refuse(403, "forbidden", `Missing permission ${permission}: no role in your token grants it (roles: ['${user.role}'])`));
+    // cmapi/src/cmapi/core/metadata.py check() and pipeline.py _metadata_refusal(): an operator-only label from anyone else
+    // is 403; from an operator, a protection label takes "true", or null to remove it (#366).
+    const protectionRefusal = (labels) => {
+      const sent = Object.keys(labels ?? {}).filter((k) => PROTECTION_LABELS.includes(k));
+      if (!sent.length) return null;
+      if (!permissions.includes(PROTECT_PERMISSION)) return refuse(403, "forbidden", `Only an operator (namespaces:protect) may set ${sent.join(", ")}`);
+      const errors = sent.filter((k) => labels[k] !== null && labels[k] !== "true")
+        .map((key) => ({ code: "invalid_value", key, kind: "label", detail: "only 'true', the value that protects; null removes it" }));
+      return errors.length ? { ...SAMPLES.problems["policy-violation"].response.body, errors } : null;
+    };
     const find = (id) => state.items.find((r) => r.requestId === id);
     // A decision makes a new copy: the recorded samples are shared by every check and stay as they were recorded.
     const replace = (r, fields) => {
@@ -447,8 +470,11 @@ export async function startApi({ issuer, portalOrigin }) {
 
     if (url.pathname === "/api/v1/me") {
       const me = SAMPLES.operations.core_me.response.body;
+      // cmapi/src/cmapi/core/authz.py, is_operator and operator_environments: an operator holds namespaces:protect (#366).
+      const operator = permissions.includes(PROTECT_PERMISSION);
       return ok({ ...me, username: user.username, roles: [user.role], groups: user.groups, identity: { ...me.identity, username: user.username, sub: user.sub, email: user.email ?? null },
-        access: { permissions, roles: [{ role: user.role, permissions, environments: ROLE_ENVIRONMENTS[user.role] ?? "all" }] } });
+        access: { permissions, roles: [{ role: user.role, permissions, environments: ROLE_ENVIRONMENTS[user.role] ?? "all" }] },
+        operator, operatorEnvironments: operator ? ROLE_ENVIRONMENTS[user.role] ?? "all" : [] });
     }
     if (url.pathname === "/api/v1/requests") {
       if (state.mode === "forbidden") return problem(res, { ...SAMPLES.problems.forbidden.response.body, detail: "Missing permission requests:read: no role in your token grants it (roles: ['cmapi-none'])" }, cors);
@@ -543,6 +569,8 @@ export async function startApi({ issuer, portalOrigin }) {
         .filter((key) => !body[map]?.[key])
         .map((key) => ({ code: "missing_required_key", key, kind: map.slice(0, -1), detail: state.metadataKeys[map].properties[key]["x-cmapi-rule"] })));
       if (missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: missing }, cors);
+      const protection = protectionRefusal(body.labels);
+      if (protection) return problem(res, protection, cors);
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
         return ok({ ...state.plan, changes, capacity: { ...state.plan.capacity, clusterId } });
@@ -651,7 +679,10 @@ export async function startApi({ issuer, portalOrigin }) {
       if (req.method === "GET") {
         const view = SAMPLES.operations.namespaces_get_namespace.response.body;
         res.writeHead(200, { ...cors, "content-type": "application/json", etag: `"${etag}"` });
+        // protectedBy: the entries of protected.labels that the labels in Git match (cmapi/src/cmapi/plugins/namespaces/router.py).
+        const protectedBy = state.protection.get(`${clusterId}/${ns}`) ?? [];
         return res.end(JSON.stringify({ ...view, name: ns, clusterId, env: row.env, team: row.team, tier: row.tier, etag, openRequest: row.openRequest ?? null,
+          expiresAt: row.expiresAt ?? null, protected: protectedBy.length > 0, protectedBy,
           labels: { ...view.labels, "cmapi.net/cluster-id": clusterId, "cmapi.net/env": row.env, "cmapi.net/team": row.team, "cmapi.net/tier": row.tier } }));
       }
       // cmapi/src/cmapi/core/pipeline.py: If-Match is required, and it must be the folder's etag now (quotes are taken off).
@@ -667,9 +698,13 @@ export async function startApi({ issuer, portalOrigin }) {
         const n = quantity(v), lo = quantity(bounds?.min?.[k]), hi = quantity(bounds?.max?.[k]);
         if (n === null || (lo !== null && n < lo) || (hi !== null && n > hi)) return problem(res, refuse(422, "quota-out-of-bounds", `${k} ${v} is outside ${bounds?.min?.[k]} to ${bounds?.max?.[k]}`), cors);
       }
+      const protection = protectionRefusal(body.labels);
+      if (protection) return problem(res, protection, cors);
       const newCpu = quantity(body.quota?.["requests.cpu"] ?? named?.quota?.["requests.cpu"]) ?? 0, hardCpu = quantity(row.cpu[1]) ?? 0;
       // A larger CPU quota waits for the platform group (the recorded change); another change needs no approval (the recorded dry run).
-      const approval = newCpu > hardCpu ? state.updated.approval : state.planUpdate.approval;
+      // Removing the protection label is a sensitiveKeys change: one approver-platform (test_protected_366.py, measured).
+      const unprotect = body.labels && PROTECT_KEY in body.labels && body.labels[PROTECT_KEY] === null;
+      const approval = unprotect ? UNPROTECT_APPROVAL : newCpu > hardCpu ? state.updated.approval : state.planUpdate.approval;
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.entries(state.planUpdate.changes).map(([path, what]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${ns}/`).replaceAll("payments-dev", ns).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), what]));
         return ok({ ...state.planUpdate, etag, changes, approval, capacity: { ...state.planUpdate.capacity, clusterId } });

@@ -2,17 +2,19 @@
 // first, then the change that was planned, with If-Match and an Idempotency-Key. The words are the mockup's
 // (mockups/portal/Main.dc.html, isQuotas and quotaView()). MOCKUP-CONTRACT.md lists what differs, and why.
 import {
-  ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, Form, FormGroup, Grid, GridItem, Menu, MenuContent, MenuItem,
-  MenuList, Skeleton, Stack, TextArea, TextInput, TextInputGroup, TextInputGroupMain
+  ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, Form, FormGroup, Grid, GridItem, Label, Menu, MenuContent, MenuItem,
+  MenuList, Modal, ModalBody, ModalFooter, ModalHeader, Skeleton, Stack, TextArea, TextInput, TextInputGroup, TextInputGroupMain
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { SUGGEST_MIN, useCatalog, useClusters, useExport, useMe, useNamespace, usePatchPlan, useQuotas, useSubmitPatch, useSuggest } from "../api/hooks";
-import type { ChangeRequest, ExportQuery, NamespacePatch, Outcome, Plan, PlannedChange, QuotaRow, QuotasQuery, TierCatalog } from "../api/hooks";
+import type { ChangeRequest, ExportQuery, NamespacePatch, NamespaceView, Outcome, Plan, PlannedChange, QuotaRow, QuotasQuery, TierCatalog } from "../api/hooks";
 import { PERMISSION } from "../api/permissions.generated";
 import { Callout, Checks, Choices, Code, DataTable, Empty, Filter, Head, Hint, Meter, Pager, Panel, Pill, Small } from "../components/ui";
 import type { Check, Choice } from "../components/ui";
+import { grantsIn, operatorIn, PROTECT_KEY, PROTECT_VALUE } from "./access";
 import { barOf, countsOf, fmt, GIB, isoDay, policyOf, quantityOf } from "./format";
 import { capacityCheck, capacityLine, MARK, sentence } from "./plan";
 import type { TabProps } from "./route";
@@ -279,6 +281,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
           config={config}
           catalog={catalog.state === "ok" ? catalog.data : null}
           canChange={me.state === "ok" && me.data.access.permissions.includes(PATCH_NAMESPACE)}
+          canProtect={me.state === "ok" && operatorIn(me.data, shown.env) && grantsIn(me.data.access, PATCH_NAMESPACE, shown.env)}
           onOpen={(id) => open("workflow", { request: id })}
         />
       )}
@@ -397,19 +400,27 @@ interface DetailProps {
   config: TabProps["config"];
   catalog: TierCatalog | null;
   canChange: boolean;
+  /** An operator in the namespace's environment who may change it (#366): the protection control is shown. */
+  canProtect: boolean;
   onOpen: (requestId: string) => void;
 }
 
-/** The namespace's ResourceQuota, and the form that changes it. */
-function Detail({ row, config, catalog, canChange, onOpen }: DetailProps) {
+/** The namespace's ResourceQuota, whether a delete request is refused for it, and the form that changes its quota. */
+function Detail({ row, config, catalog, canChange, canProtect, onOpen }: DetailProps) {
   const ns = useNamespace(row.clusterId, row.name);
+  const view = ns.state === "ok" ? ns.data : null;
   const s = sizesOf(row);
   const rows = [["requests.cpu", s.cpu, " cores"], ["requests.memory", s.memory, " Gi"], ["pods", s.pods, ""]] as const;
   const etag = ns.state === "ok" ? ns.data.etag : null;
   return (
     <Grid hasGutter>
       <GridItem md={12} lg={6}>
-        <Panel title={`${row.name} on ${row.clusterId}`} pill={row.tierOutdated ? <Pill tone="warn">tier-outdated</Pill> : undefined}>
+        <Panel title={`${row.name} on ${row.clusterId}`} pill={view?.protected || row.tierOutdated ? (
+          <Flex gap={{ default: "gapXs" }}>
+            {view?.protected && <Label isCompact color="orange" icon={<LockIcon />}>Protected</Label>}
+            {row.tierOutdated && <Pill tone="warn">tier-outdated</Pill>}
+          </Flex>
+        ) : undefined}>
           <Small>{`${row.env ?? "—"} · tier ${row.tier ?? "—"} · ResourceQuota ${row.name}-quota · read from the watch cache, current to the second`}</Small>
           <DataTable
             label="ResourceQuota"
@@ -423,6 +434,8 @@ function Detail({ row, config, catalog, canChange, onOpen }: DetailProps) {
             }}
           />
           {ns.state === "error" && <Callout tone="bad" title="The namespace did not load.">{ns.cause}</Callout>}
+          {view?.protected && <Small>{protectionLine(view)}</Small>}
+          {canProtect && view && !row.openRequest && <ProtectControl view={view} reread={ns.reload} onOpen={onOpen} />}
           <Small>{`GET /api/v1/clusters/${row.clusterId}/namespaces/${row.name} · ETag ${etag ?? "—"} · ResourceQuota and LimitRange for tier ${row.tier ?? "—"} live in the namespace folder in Git.`}</Small>
         </Panel>
       </GridItem>
@@ -603,5 +616,117 @@ function ChangeForm({ row, etag, config, catalog, reread }: { row: QuotaRow; eta
       {answered?.state === "refused" && <Callout tone="bad" title={`${answered.status} ${answered.code} · nothing written`}>{`No request was stored and nothing was written to Git. ${answered.detail}`}</Callout>}
       {answered?.state === "error" && <Callout tone="bad" title="Not submitted">{`${answered.cause} Submit again: the same request is sent, and the API makes it at most once.`}</Callout>}
     </Form>
+  );
+}
+
+/**
+ * Why a delete request is refused, from the API's protectedBy: the labels in Git that a delete checks (#366). "A delete
+ * request", not "a delete": no Kyverno rule reads the label, so a delete outside cmapi is not stopped.
+ */
+function protectionLine(view: NamespaceView): string {
+  const expiry = view.expiresAt ? " Its expiry will not delete it: the delete after its grace is held while it is protected." : "";
+  return `cmapi refuses a delete request for this namespace (422 namespace-protected): ${(view.protectedBy ?? []).join(", ")}.${expiry}`;
+}
+
+const PROTECTION = `${PROTECT_KEY}=${PROTECT_VALUE}`;
+
+/**
+ * An operator protects the namespace, or removes the protection (#366): a Button that opens a dialog with the plan of the
+ * change and its approval, then submits it. Not a Switch: PatternFly's switch saves at once, and this change is a request
+ * that may wait for an approval. The body names the protection label only, "true" or null (a merge patch removes a key
+ * with null), so the control cannot carry another change; the API keeps every other key.
+ */
+function ProtectControl({ view, reread, onOpen }: { view: NamespaceView; reread: () => void; onOpen: (requestId: string) => void }) {
+  const set = (view.protectedBy ?? []).includes(PROTECTION);
+  const others = (view.protectedBy ?? []).filter((p) => p !== PROTECTION);
+  const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState("");
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  // One key for each change (#282): the same change sent again after a lost answer keeps it.
+  const keyOfChange = useRef<{ key: string; change: string } | null>(null);
+  const label = { [PROTECT_KEY]: set ? null : PROTECT_VALUE };
+  // The plan is of the label change at the namespace's etag now; a 412 or 428 reads the namespace again and plans again.
+  const change: PlannedChange = { clusterId: view.clusterId, ns: view.name, etag: view.etag ?? "", body: { labels: label } };
+  const plan = usePatchPlan(open && view.etag ? change : null);
+  const submit = useSubmitPatch();
+  const body: NamespacePatch = { labels: label, justification: why || null };
+  const fingerprint = JSON.stringify([view.clusterId, view.name, body]);
+  const answered = submitted === fingerprint ? submit : null;
+  const stale = outdated(plan) || (answered !== null && outdated(answered));
+  useEffect(() => { if (open && stale) reread(); }, [open, stale]);
+  // A 403 says the roles changed since /me was read: read it again, so the control follows what the API now allows.
+  const queries = useQueryClient();
+  const forbidden = answered?.state === "refused" && answered.status === 403;
+  useEffect(() => { if (forbidden) void queries.invalidateQueries({ queryKey: ["me"] }); }, [forbidden]);
+
+  const close = () => { setOpen(false); setWhy(""); setSubmitted(null); };
+  const keyFor = (): string => {
+    if (keyOfChange.current?.change !== fingerprint) keyOfChange.current = { key: crypto.randomUUID(), change: fingerprint };
+    return keyOfChange.current.key;
+  };
+  const planOk = plan.state === "ok" ? plan.data : null;
+  const done = answered?.state === "ok";
+  const onSubmit = () => {
+    if (!planOk || submit.state === "sending" || done) return;
+    setSubmitted(fingerprint);
+    submit.submit({ ...change, body }, keyFor()).catch(() => undefined);
+  };
+  const appr = planOk ? approvalOf(planOk, view.env ?? "") : null;
+  // The title is the button's name; PatternFly truncates a long title on a phone, so the namespace is in the body.
+  const title = set ? "Remove protection" : "Protect from deletion";
+  return (
+    <>
+      <div>
+        <Button variant={set ? "warning" : "secondary"} onClick={() => setOpen(true)}>{set ? "Remove protection" : "Protect from deletion"}</Button>
+      </div>
+      <Modal variant="small" isOpen={open} onClose={close} aria-labelledby="protect-title" aria-describedby="protect-what">
+        <ModalHeader title={title} labelId="protect-title" titleIconVariant={set ? "warning" : undefined} />
+        <ModalBody>
+          <Stack hasGutter>
+            <span id="protect-what">{set
+              ? `This sends a request to remove ${PROTECTION} from ${view.name}. Once it is applied, cmapi accepts a delete request for the namespace again.`
+              : `This sends a request to add ${PROTECTION} to ${view.name}. Once it is applied, cmapi refuses a delete request for the namespace (422 namespace-protected), also the delete after it expires.`}</span>
+            {set && others.length > 0 && (
+              <Callout tone="warn" title={`Still protected by ${others.join(", ")}`}>{"This request removes " + PROTECT_KEY + " only, so cmapi still refuses a delete request."}</Callout>
+            )}
+            <FormGroup label="Justification" fieldId="protect-why">
+              <TextArea id="protect-why" value={why} isDisabled={done} onChange={(_, v) => setWhy(v)} />
+            </FormGroup>
+            {plan.state === "sending" && <span role="status">Planning…</span>}
+            {planOk && appr && (
+              <Stack hasGutter>
+                <Checks items={[
+                  { s: "pass", mark: MARK.pass, main: "If-Match matches the current ETag", note: change.etag },
+                  { s: planOk.approval.auto ? "pass" : "warn", mark: planOk.approval.auto ? MARK.pass : MARK.warn, main: "Approval", note: planOk.approval.rule }
+                ]} />
+                <Callout tone={appr.tone} title={appr.title}>{appr.detail}</Callout>
+              </Stack>
+            )}
+            {plan.state === "refused" && !outdated(plan) && <Callout tone="bad" title={`Refused: ${plan.code}`}>{plan.detail}</Callout>}
+            {plan.state === "error" && (
+              <Alert variant="danger" isInline title="The plan did not complete." actionLinks={<AlertActionLink onClick={plan.reload}>Try again</AlertActionLink>}>{plan.cause}</Alert>
+            )}
+            <div role="status">
+              {done && (
+                <Callout tone="ok" title={sentOf(answered.data).title}>
+                  <Stack hasGutter>
+                    <span>{sentOf(answered.data).text}</span>
+                    <div><Button variant="secondary" size="sm" onClick={() => { close(); onOpen(answered.data.requestId); }}>Open at current step</Button></div>
+                  </Stack>
+                </Callout>
+              )}
+            </div>
+            {answered?.state === "refused" && !outdated(answered) && (
+              <Callout tone="bad" title={`${answered.status} ${answered.code} · nothing written`}>{`No request was stored and nothing was written to Git. ${answered.detail}`}</Callout>
+            )}
+            {answered?.state === "error" && <Callout tone="bad" title="Not submitted">{`${answered.cause} Submit again: the same request is sent, and the API makes it at most once.`}</Callout>}
+          </Stack>
+        </ModalBody>
+        <ModalFooter>
+          {!done && <Button variant={set ? "warning" : "primary"} onClick={onSubmit} isDisabled={!planOk} isLoading={submit.state === "sending"}>Submit request</Button>}
+          <Button variant="link" onClick={close}>{done ? "Close" : "Cancel"}</Button>
+        </ModalFooter>
+      </Modal>
+    </>
   );
 }
