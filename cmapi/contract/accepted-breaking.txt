@@ -181,3 +181,22 @@ POST /api/v1/requests/{request_id}:retry added the new `applied` enum value to t
 POST /api/v1/requests/{request_id}:retry added the new `merge_failed` enum value to the `status` response property for the response status `200`
 POST /api/v1/requests/{request_id}:revert added the new `applied` enum value to the `status` response property for the response status `200`
 POST /api/v1/requests/{request_id}:revert added the new `merge_failed` enum value to the `status` response property for the response status `200`
+
+# #328, accepted on 2026-11-17 by the owner, before the first release: the labels and annotations of the namespace writes now
+# carry the rules of metadata-keys.yaml as schema (MetadataKeys.json_schema). cmapi already refused each body that these
+# lines name (422 policy-violation, metadata.py validate); only the document changes. A body without labels is still read as
+# {} and refused by the metadata check, as before.
+POST /api/v1/clusters/{cluster_id}/namespaces added the new required request property `annotations/cmapi.net/team-dl`
+POST /api/v1/clusters/{cluster_id}/namespaces added the new required request property `labels/cmapi.net/team`
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the `annotations/additionalProperties` request property's maxLength was set to `4096`
+POST /api/v1/clusters/{cluster_id}/namespaces the `labels/additionalProperties` request property's maxLength was set to `63`
+POST /api/v1/clusters/{cluster_id}/namespaces added the pattern `^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$` to the request property `labels/additionalProperties`
+POST /api/v1/clusters/{cluster_id}/namespaces added 'propertyNames' constraint to the request property `annotations`
+POST /api/v1/clusters/{cluster_id}/namespaces added 'propertyNames' constraint to the request property `labels`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `annotations/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]` request property's maxLength was set to `4096`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `labels/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]` request property's maxLength was set to `63`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the pattern `^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$` to the request property `labels/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `annotations/anyOf[subschema #1]`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `labels/anyOf[subschema #1]`

@@ -1,0 +1,22 @@
+#328: the corpus of cmapi/tests/core/metadata_corpus.py through MetadataKeys.validate() and the schema
+(python-jsonschema 4.26.0, Draft 2020-12, patterns read as ECMA-262; the Node leg agreed on every pair).
+Measured 2026-11-17 on feat/328-metadata-schema (from main 2e4ffc2), Python 3.12.
+
+unsound      = validate() accepts, the schema refuses (must be 0: no body cmapi accepts is refused)
+unexplained  = the schema accepts, validate() refuses, for a rule that JSON Schema can say (must be 0)
+
+config         maps    accepted  unsound  unexplained
+reference      12079   1081      0        0
+company        12544   1424      0        0
+company-f2     12540   1157      0        0
+star           12071   3644      0        0
+star-and-none  12083   4232      0        0
+globs          12057   1634      0        0
+
+Loose by reason (the schema accepts, validate() refuses, for what JSON Schema cannot say):
+reference: operator_only_key 203, prefix over 253 192, too_many_keys 4, key syntax on a patch 488, annotations_too_large 19
+company:   derived_key 259, namespacePrefix 4, operator_only_key 191, too_many_keys 4, key syntax on a patch 388, annotations_too_large 19
+
+The same corpus against main's served maps (additionalProperties: {type: string}):
+reference: unsound 0, unexplained 9363
+company:   unsound 0, unexplained 9240

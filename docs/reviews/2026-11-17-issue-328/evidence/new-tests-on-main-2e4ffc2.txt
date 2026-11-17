@@ -1,0 +1,19 @@
+=========================== short test summary info ============================
+ERROR tests/core/test_metadata_schema_328.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.29s
+E           AttributeError: 'MetadataKeys' object has no attribute 'json_schema'
+E           AttributeError: 'MetadataKeys' object has no attribute 'json_schema'
+E           AssertionError: assert {'annotations..., 'namespace'} <= {'namespace'}
+E           AssertionError: assert ('labels' in ['namespace'])
+E           AssertionError: ({'annotations': {'cmapi.net/team-dl': 'payments-team@ephico2real.com'}, 'justification': 'Payments service dev namesp...g_required_key","key":"company.net/cl","kind":"label","detail":"one of [\'0\', \'1\', \'2\', \'3\']"}],"findings":[]}')
+E           AssertionError: {'labels': {'cmapi.net/team': None}}
+E       AssertionError: assert 422 == 202
+FAILED tests/service/test_metadata_schema_328_api.py::test_the_served_schema_accepts_each_map_that_the_instance_accepts_and_refuses_what_it_can_say[reference]
+FAILED tests/service/test_metadata_schema_328_api.py::test_the_served_schema_accepts_each_map_that_the_instance_accepts_and_refuses_what_it_can_say[company]
+FAILED tests/service/test_metadata_schema_328_api.py::test_the_document_requires_each_required_key_of_this_instance[reference]
+FAILED tests/service/test_metadata_schema_328_api.py::test_the_document_requires_each_required_key_of_this_instance[company]
+FAILED tests/service/test_metadata_schema_328_api.py::test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts[company]
+FAILED tests/service/test_metadata_schema_328_api.py::test_a_patch_cannot_remove_a_required_or_derived_key_in_the_schema_or_in_the_api[reference]
+FAILED tests/service/test_metadata_schema_328_api.py::test_a_patch_cannot_remove_a_required_or_derived_key_in_the_schema_or_in_the_api[company]
+7 failed, 1 passed in 11.31s

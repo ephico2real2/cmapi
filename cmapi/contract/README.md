@@ -4,7 +4,7 @@ This folder holds the contract of the cmapi API and the tools that guard it. The
 
 | File | What it is |
 |---|---|
-| `openapi.json` | The OpenAPI 3.1 document that the code serves, for the test instance of the service suite. A test keeps it current |
+| `openapi.json` | The OpenAPI 3.1 document that the code serves, for the test instance of the service suite, whose `metadata-keys.yaml` is the reference file. A test keeps it current. An instance with its own keys serves its own `labels` and `annotations` schema (#328): generate a client for it from its own `/openapi.json` (docs/18) |
 | `released/<version>.json` | The document of each released version. A release adds one file. No version is released yet |
 | `accepted-breaking.txt` | The breaking changes that the gate lets through, one for each line, each with its reason above it |
 | `gate.sh` | Compares two documents with oasdiff. It fails on a breaking change |
