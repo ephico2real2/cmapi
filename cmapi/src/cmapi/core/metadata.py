@@ -15,13 +15,15 @@ feeds the Kyverno bundle, so plan time, CI and admission agree (docs/02, "Labels
 The class names that the approval rules read (keyClasses) are unchanged: a key of a required or extra stanza is
 "governed", and a key that allowOther admits is "team".
 
-Every value regex is one string that three engines read: Python re here (re.fullmatch), RE2 in the rendered Kyverno
-policies (CEL matches(), core/policygen.py) and ECMA-262 in each client of the API document (JSON Schema pattern, #328).
-value_regex() builds it; the loader refuses a configured pattern outside the subset that the three read alike (#332).
+Every value regex is one string that each reader reads alike: RE2 in the validator here (value_matches, #348) and in the
+rendered Kyverno policies (CEL matches(), core/policygen.py), and ECMA-262 or Python re in each client of the API document
+(JSON Schema pattern, #328). value_regex() builds it; the loader refuses a configured pattern outside the subset that
+these read alike (#332).
 """
 from __future__ import annotations
 
 import difflib
+import functools
 import re
 import warnings
 from dataclasses import dataclass
@@ -29,6 +31,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Mapping
 
+import re2
 import yaml
 
 from cmapi.core.errors import Problem
@@ -285,6 +288,37 @@ def anchored(pattern: str) -> str:
     return f"^(?:{pattern})$"
 
 
+# The validator matches with RE2 (google-re2, RE2's own binding), not Python re (#348). A value is the requester's text and
+# a pattern is the operator's; re backtracks, so a pattern of the subset such as (a+)+b takes time exponential in the value
+# (seconds at 25 characters), and so do overlapping alternations and adjacent quantifiers that no load-time check can
+# list. RE2's time is linear in the value whatever the pattern, and it is the engine that Kyverno's CEL matches() runs.
+# The decision and its measurements: docs/reviews/2026-11-17-issue-348/README.md.
+_RE2_OPTIONS = re2.Options()
+_RE2_OPTIONS.log_errors = False         # a pattern that RE2 refuses is a problem of the file, not a line on stderr
+
+
+@functools.lru_cache(maxsize=None)      # keyed by the regexes of the loaded files, so bounded by their keys
+def _linear(regex: str) -> Any:
+    """The regex compiled by RE2. Raises re2.error when RE2 refuses it (the loader turns that into a problem)."""
+    return re2.compile(regex, options=_RE2_OPTIONS)
+
+
+def _re2_reason(exc: Exception) -> str:
+    """RE2's own reason for refusing a regex: google-re2 raises it as bytes."""
+    return exc.args[0].decode() if exc.args and isinstance(exc.args[0], bytes) else str(exc)
+
+
+def value_matches(regex: str, value: str) -> bool:
+    """value is a whole match of regex, in time linear in the value (#348). A value with a lone surrogate never
+    matches: RE2 reads UTF-8, which cannot hold one, and neither can a Kubernetes string, which Go's JSON decoder would
+    turn into U+FFFD, so the cluster would hold another value than the one checked."""
+    matcher = _linear(regex)
+    try:
+        return matcher.fullmatch(value) is not None
+    except UnicodeEncodeError:
+        return False
+
+
 def _literal(text: str) -> str:
     """text as a regex in the subset: ASCII letters in either case (no inline flag, which ECMA-262 lacks), a syntax
     character escaped. re.escape is not used: it escapes "-", "&", "~" and "#", and ECMA-262 refuses \\- outside a
@@ -537,6 +571,17 @@ class MetadataKeys:
         if bad:
             problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
         self.email_domains = [d.lower() for d in domains]
+        if self.email_domains and not bad:
+            # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
+            # (#348), or RE2's memory budget would refuse it on the first value of an email-in-domains key (a 500) or in
+            # the example check of _add below. The file stops here, as one with a pattern that RE2 refuses does.
+            try:
+                _linear(value_regex(KeyRule(kind="annotation", required=False, format="email-in-domains"),
+                                    self.email_domains))
+            except re2.error as exc:
+                problems.append(f"emailDomains: the {len(domains)} domains make an address regex that does not compile "
+                                f"in RE2, the validator's engine: {_re2_reason(exc)}")
+                raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems)) from None
         # {kind: {key: KeyRule}}: a key can be a label and an annotation at once, each with its own rule.
         self.rules: dict[str, dict[str, KeyRule]] = {"label": {}, "annotation": {}}
         self.allow_other: dict[str, AllowOther] = {}
@@ -690,6 +735,14 @@ class MetadataKeys:
         if problem:
             problems.append(f"{where}: pattern {pattern!r} is outside the subset that Python re, RE2 (Kyverno) and "
                             f"ECMA-262 (the API document) read alike: {problem} (docs/18, \"Patterns\")")
+            return False
+        try:
+            # The validator's engine (#348). Each construct of the subset compiles in it; what it refuses is a pattern
+            # whose program exceeds RE2's memory budget (8 MiB by default), such as a hundred [^a]{1000} in a row.
+            _linear(anchored(pattern))
+        except re2.error as exc:
+            problems.append(f"{where}: pattern {pattern!r} does not compile in RE2, the validator's engine: "
+                            f"{_re2_reason(exc)}")
             return False
         return True
 
@@ -854,7 +907,7 @@ class MetadataKeys:
             return []
         # The regex of the pattern or the format: the string that the rendered Kyverno policy matches too (#332).
         regex = value_regex(rule, self.email_domains)
-        if regex is not None and not re.fullmatch(regex, value):
+        if regex is not None and not value_matches(regex, value):
             if rule.format == "email-in-domains":
                 code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
                 return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]

@@ -232,7 +232,7 @@ A key can be a label and an annotation at the same time, each with its own rule.
 
 ### Patterns
 
-Three engines read each `pattern`: Python's `re` in cmapi (the whole value must match), RE2 in the rendered Kyverno policies (CEL `matches()`), and ECMA-262 in each client of the API document (a JSON Schema `pattern`, #328). cmapi anchors a pattern once, as `^(?:P)$` (`anchored` in `core/metadata.py`), and the loader refuses a pattern that any of the three would read differently, with the key, the construct and its position: `extraAnnotations.company.net/code: pattern '^\\d{4}$' is outside the subset that Python re, RE2 (Kyverno) and ECMA-262 (the API document) read alike: \d (Python also matches the digits of other scripts): write [0-9], at character 2 (docs/18, "Patterns")`.
+Each `pattern` is read by RE2 in cmapi's validator (the whole value must match; `value_matches` in `core/metadata.py`, #348) and in the rendered Kyverno policies (CEL `matches()`), and by ECMA-262 or Python's `re` in each client of the API document (a JSON Schema `pattern`, #328). cmapi anchors a pattern once, as `^(?:P)$` (`anchored` in `core/metadata.py`), and the loader refuses a pattern that any of the three would read differently, with the key, the construct and its position: `extraAnnotations.company.net/code: pattern '^\\d{4}$' is outside the subset that Python re, RE2 (Kyverno) and ECMA-262 (the API document) read alike: \d (Python also matches the digits of other scripts): write [0-9], at character 2 (docs/18, "Patterns")`.
 
 The subset is RFC 9485's interoperable regular expressions (I-Regexp) without `\p{..}` and `.`, with `^` and `$` where they change nothing:
 
@@ -246,6 +246,8 @@ The subset is RFC 9485's interoperable regular expressions (I-Regexp) without `\
 | `^` at the start and `$` at the end of the pattern, or of a top-level alternative | `^a$\|^b$` is allowed; `(^a)` and `a$b` are not |
 
 Refused, with what to write instead: `.` (ECMA-262 leaves out `\r`, U+2028 and U+2029: write `[^\n\r]`), `\d \w \s \b` and their capitals (write the class, as `[0-9]`), `\A \Z \z` (write `^` and `$`), inline flags as `(?i)`, named groups, lookaround, backreferences, atomic groups and possessive quantifiers, POSIX classes as `[[:alpha:]]`, `\p{..}`, character codes as `\x41` (write the character), `{,n}` (write `{0,n}`), and an unescaped `]`, `{` or `}`. The decision record, with its sources and the three-engine measurement, is `docs/reviews/2026-11-17-issue-332-338/README.md`.
+
+cmapi matches with RE2 (Google's `google-re2` binding), so the time of a check is linear in the value whatever the pattern: a pattern such as `(a+)+b`, which is in the subset, cannot hold a worker on a crafted value, as it did with Python's backtracking `re` (1.4 s on 25 characters, doubling with each one). A value with a lone surrogate (`\ud800` in the JSON) never matches a pattern or a format: a Kubernetes string cannot hold one. A pattern whose program is beyond RE2's memory budget (8 MiB, for example a hundred `[^a]{1000}` in a row) stops the start with RE2's reason. The decision record is `docs/reviews/2026-11-17-issue-348/README.md`.
 
 ### `allowOther`
 
@@ -743,6 +745,7 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | The names of instances and environments, and `prod` | `docs/02`, "The names of instances and environments" (#232) |
 | The links of the email channel name the instance | `docs/reviews/2026-11-14-issue-222/README.md` |
 | Git delivery: a Git layer and a thin PR adapter, apply before merge | `docs/reviews/2026-11-15-issue-286/README.md` |
+| The validator matches a pattern with RE2, in linear time | `docs/reviews/2026-11-17-issue-348/README.md` |
 
 ## The bot account on each host
 

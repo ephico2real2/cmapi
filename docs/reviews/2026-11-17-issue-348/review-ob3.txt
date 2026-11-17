@@ -1,0 +1,78 @@
+OB3 review of #351 (85e28e5) and #352 (76cb1fa), main 31e0794. Deep: C2 (three-engine corpus) and C3 (behaviour diff + 500 paths) - a wrong answer there ships a regex mismatch or a 500; C1/C5 medium (built/driven once); C4 medium; C6 shallow (one command).
+#351: FIX FIRST (one low-severity 500 path, fix below). #352: MERGE.
+C1 CONFIRMED (supply chain): pyproject.toml pins google-re2==1.1.20251105 exactly; no hashes, no lock (no dependency in the repo has either; CI does not build cmapi/Containerfile at all - ci.yml builds only the portal). Wheel METADATA: no Requires-Dist, BSD licence classifier, LICENSE = RE2's 3-clause text; tags cp312 manylinux_2_28 x86_64 and aarch64. Built the image's Python stage on the pinned base digest (probe/Containerfile.deps, probe/amd64.log): pip 24.2 took the x86_64 wheel (no compiler), inside: "PY 3.12.15 x86_64 google-re2 1.1.20251105 ... fullmatch None ... cmapi .../site-packages/cmapi/core/metadata.py True"; _re2.so links only libstdc++/libm/libgcc_s/libc (glibc 2.34). arm64: not a target - the pinned digest is a single-arch amd64 v2 manifest (podman manifest inspect) and the Containerfile fetches linux_x86_64 kyverno; my arm64 run only reused the amd64 cache, so arm64 is unproven.
+C2 CONFIRMED: probe/corpus_351.py (seeded AST generator over the subset + 61 edge patterns + email/URL formats via value_regex): 422 regexes, 52,215 pairs (7,454 matches), 0 differences between value_matches, re.fullmatch and Node RegExp(rx,"u"); 0 RE2 compile refusals. Sensitivity: the same corpus shows 1,147 diffs vs re.IGNORECASE and 156 regexes differ under Node without "u" (probe/corpus_sensitivity.out). value_matches compiles exactly value_regex()/anchored() output and calls fullmatch (metadata.py:310-312, 893). Lone surrogates excluded by design (RE2 refuses them; Node "u" accepts).
+C3 CONFIRMED with one exception (F1): all 6 shipped configs load on both heads; 3,047 validate() verdicts (every declared key x generated values incl. lone surrogates) identical main vs branch, 0 raised (probe/configs_*.json). F1: the email-in-domains regex is never compiled at load; 20,000 domains of 62-66 chars load, then validate raises re2.error (not a ValueError, so not caught by main.py:160 -> 500, inferred from the handler list), where main answers [] / invalid_value. Threshold between 5,000 (ok) and 20,000 (refused). Fix + test: fix-351-email-regex.patch (test fails "DID NOT RAISE" before, passes after; 231 passed/23 skipped over 6 metadata/policy core files on the fixed copy).
+C4 CONFIRMED (wall-clock only, robust): child took 0.22 s on the branch; same test on a main copy fails at 31.1 s "did not answer 16 values in 30 s". It proves linear time, not "RE2 used" (any linear engine passes, which is the right property); the corpus test is what binds value_matches. Margin >100x, no CI risk seen.
+C5 CONFIRMED: suite.sh on #352 (test_metadata_schema_328_api.py + test_api_docs.py; jsonschema symlinked from my venv into a copy's tests/service because the suite venv lacks it): 31 passed (suite-349.log); fixture sets policy.engine none and asserts no kyverno on PATH (lines 40-44). openapi.json differs from main only in x-codeSamples (8 bodies). Bodies carry only payments-team@ephico2real.com (placeholder domain per the config), no host besides the existing servers URL, no token; ola@ephico2real.com (test identity) is already 31x in main's openapi.json, unchanged.
+C6 CONFIRMED, narrower than written: a declared any-value governed key accepts "a\ud800" (validate -> []); an allowOther team annotation does NOT - validate raises UnicodeEncodeError at metadata.py:861 (len(v.encode())), a ValueError, so the API answers 422 validation-failed with a codec message (handler inferred, not driven). No shipped config has an any-value governed key (all 33 surrogate verdicts refused). #353's "allowOther ... written to Git" should be corrected.
+Not asked (measured, no finding): RE2's cost is linear in the value but scales with the pattern: [ab]*a[ab]{999} on 262,144 chars = 3.84 s, (a+)+b-class shapes <35 ms; governed annotation values have no length bound before Kubernetes (probe/re2_worst.out). Formats on 10 MB values: email 103 ms, URL 104 ms.
+Not checked: Kyverno CLI leg; arm64 image; full suites; HTTP drive of F1's 500 and C6's 422; CRC/kind.
+Housekeeping: git status --short of /Users/olasumbo/gitRepos/cmapi-design empty before and after; no git writes. Deleted: exports, throwaway venv, wheels, pytest basetemps, my podman images (ob3-re2 tags and the pulled b99faaad base). Kept: probe/ (scripts, logs, json), suite-349.log, fix-351-email-regex.patch, out.txt, git-status-before.txt.
+Files: /Users/olasumbo/gitRepos/workbench/cmapi/review-351-352/{out.txt,fix-351-email-regex.patch,suite-349.log,probe/}
+
+Patch (verbatim; applies on 85e28e5 with `patch -p1` from the repository root, dry run checked):
+diff -ru -x __pycache__ fix348/cmapi/src/cmapi/core/metadata.py fix348-fix/cmapi/src/cmapi/core/metadata.py
+--- fix348/cmapi/src/cmapi/core/metadata.py	2026-11-17 06:50:50
++++ fix348-fix/cmapi/src/cmapi/core/metadata.py	2026-11-17 07:30:44
+@@ -303,6 +303,11 @@
+     return re2.compile(regex, options=_RE2_OPTIONS)
+ 
+ 
++def _re2_reason(exc: Exception) -> str:
++    """RE2's own reason for refusing a regex: google-re2 raises it as bytes."""
++    return exc.args[0].decode() if exc.args and isinstance(exc.args[0], bytes) else str(exc)
++
++
+ def value_matches(regex: str, value: str) -> bool:
+     """value is a whole match of regex, in time linear in the value (#348). A value with a lone surrogate never
+     matches: RE2 reads UTF-8, which cannot hold one, and neither can a Kubernetes string, which Go's JSON decoder would
+@@ -566,6 +571,17 @@
+         if bad:
+             problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
+         self.email_domains = [d.lower() for d in domains]
++        if self.email_domains and not bad:
++            # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
++            # (#348), or RE2's memory budget would refuse it on the first value of an email-in-domains key (a 500) or in
++            # the example check of _add below. The file stops here, as one with a pattern that RE2 refuses does.
++            try:
++                _linear(value_regex(KeyRule(kind="annotation", required=False, format="email-in-domains"),
++                                    self.email_domains))
++            except re2.error as exc:
++                problems.append(f"emailDomains: the {len(domains)} domains make an address regex that does not compile "
++                                f"in RE2, the validator's engine: {_re2_reason(exc)}")
++                raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems)) from None
+         # {kind: {key: KeyRule}}: a key can be a label and an annotation at once, each with its own rule.
+         self.rules: dict[str, dict[str, KeyRule]] = {"label": {}, "annotation": {}}
+         self.allow_other: dict[str, AllowOther] = {}
+@@ -725,8 +741,8 @@
+             # whose program exceeds RE2's memory budget (8 MiB by default), such as a hundred [^a]{1000} in a row.
+             _linear(anchored(pattern))
+         except re2.error as exc:
+-            reason = exc.args[0].decode() if exc.args and isinstance(exc.args[0], bytes) else str(exc)
+-            problems.append(f"{where}: pattern {pattern!r} does not compile in RE2, the validator's engine: {reason}")
++            problems.append(f"{where}: pattern {pattern!r} does not compile in RE2, the validator's engine: "
++                            f"{_re2_reason(exc)}")
+             return False
+         return True
+ 
+diff -ru -x __pycache__ fix348/cmapi/tests/core/test_metadata_linear_match_348.py fix348-fix/cmapi/tests/core/test_metadata_linear_match_348.py
+--- fix348/cmapi/tests/core/test_metadata_linear_match_348.py	2026-11-17 06:50:50
++++ fix348-fix/cmapi/tests/core/test_metadata_linear_match_348.py	2026-11-17 07:32:34
+@@ -112,3 +112,16 @@
+     assert keys.validate({}, {"example.net/any": "x"}, operator=False) == []
+     errs = keys.validate({}, {"example.net/any": value}, operator=False)
+     assert [(e["code"], e["key"]) for e in errs] == [("invalid_value", "example.net/any")], errs
++
++
++def test_an_address_regex_too_large_for_re2_stops_the_start_and_never_raises_on_a_request():
++    """The email-in-domains regex joins every emailDomains entry, and the loader compiled only configured patterns in RE2:
++    20,000 domains of 62 to 66 characters (a 5 MB regex) loaded, then each value of the key raised re2.error, a 500, where
++    main's re.fullmatch answered. The loader refuses it at start with RE2's reason (OB3, review of #351)."""
++    domains = [f"d{i}-{'x' * 47}.example.com" for i in range(20_000)]
++    config = {"emailDomains": domains,
++              "extraAnnotations": {"keys": {"example.net/dl": {"format": "email-in-domains"}},
++                                   "allowOther": {"prefixes": [], "max": 0, "maxValueBytes": 0, "maxBytesTotal": 0}}}
++    with pytest.raises(ValueError, match=re.escape("emailDomains: the 20000 domains make an address regex that does not "
++                                                   "compile in RE2, the validator's engine: pattern too large")):
++        MetadataKeys(config)
