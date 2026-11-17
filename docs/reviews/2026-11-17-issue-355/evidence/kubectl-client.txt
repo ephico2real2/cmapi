@@ -1,0 +1,4 @@
+== main
+error: unable to decode "render-main/ns/values/clusters/OCP_GF15/namespaces/abc-rnd/namespace.yaml": json: cannot unmarshal bool into Go struct field ObjectMeta.metadata.annotations of type string
+== fix
+error: unable to recognize "render-fix/ns/values/clusters/OCP_GF15/namespaces/abc-rnd/namespace.yaml": Get "http://localhost:8080/api?timeout=32s": dial tcp [::1]:8080: connect: connection refused

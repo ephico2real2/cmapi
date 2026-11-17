@@ -25,6 +25,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
+      # tests/core/kube_readers.py builds yamlread/main.go: the YAML readers of kubectl, Argo CD and Kyverno (#355).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmapi/tests/core/yamlread/go.mod
+          cache-dependency-path: cmapi/tests/core/yamlread/go.sum
       - name: The Kyverno CLI that the image pins
         # The version and SHA-256 come from cmapi/Containerfile, so the image and this job cannot drift apart. The rendered
         # policies (#212) are run through it by tests/core/test_policygen.py, which fails here rather than skip.
@@ -42,6 +47,7 @@ jobs:
           PYTHONPATH: src
           CMAPI_REQUIRE_KYVERNO: "1"
           CMAPI_REQUIRE_NODE: "1"
+          CMAPI_REQUIRE_GO: "1"
         run: python -m pytest tests -q
 
   service:
@@ -64,6 +70,11 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: v3.19.0
+      # tests/core/kube_readers.py builds yamlread/main.go: the YAML readers of kubectl, Argo CD and Kyverno (#355).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmapi/tests/core/yamlread/go.mod
+          cache-dependency-path: cmapi/tests/core/yamlread/go.sum
       - name: Install
         run: python -m pip install -e "cmapi[test]"
       # The Git layer's SSH tests (#286) run a throwaway sshd as the runner's user; /run/sshd is its privilege separation folder.
@@ -78,6 +89,7 @@ jobs:
           PYTHONPATH: src:tests/service
           CMAPI_TEST_DATABASE_URL: postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi
           CMAPI_TEST_REQUIRE_SSHD: "1"
+          CMAPI_REQUIRE_GO: "1"
         run: python -m pytest tests/service -q -W ignore::DeprecationWarning -W ignore::pydantic.warnings.UnsupportedFieldAttributeWarning
 
   portal-mockup:

@@ -1,0 +1,62 @@
+diff -r render-main/ns/owner-medium-sa/clusters/OCP_GF15/namespaces/abc-rnd/serviceaccounts.yaml render-fix/ns/owner-medium-sa/clusters/OCP_GF15/namespaces/abc-rnd/serviceaccounts.yaml
+16c16
+<   name: y
+---
+>   name: 'y'
+diff -r render-main/ns/values/clusters/OCP_GF15/namespaces/abc-rnd/namespace.yaml render-fix/ns/values/clusters/OCP_GF15/namespaces/abc-rnd/namespace.yaml
+34,42c34,42
+<     x.ephico2real.com/v18: y
+<     x.ephico2real.com/v19: Y
+<     x.ephico2real.com/v20: n
+<     x.ephico2real.com/v21: N
+<     x.ephico2real.com/v22: 0o17
+<     x.ephico2real.com/v23: 1e3
+<     x.ephico2real.com/v24: 089
+<     x.ephico2real.com/v25: 0X1F
+<     x.ephico2real.com/v26: 0B1
+---
+>     x.ephico2real.com/v18: 'y'
+>     x.ephico2real.com/v19: 'Y'
+>     x.ephico2real.com/v20: 'n'
+>     x.ephico2real.com/v21: 'N'
+>     x.ephico2real.com/v22: '0o17'
+>     x.ephico2real.com/v23: '1e3'
+>     x.ephico2real.com/v24: '089'
+>     x.ephico2real.com/v25: '0X1F'
+>     x.ephico2real.com/v26: '0B1'
+44c44
+<     x.ephico2real.com/v28: +.5
+---
+>     x.ephico2real.com/v28: '+.5'
+54c54
+<     x.ephico2real.com/v38: 2026-1-2
+---
+>     x.ephico2real.com/v38: '2026-1-2'
+83,91c83,91
+<     team.ephico2real.com/a18: y
+<     team.ephico2real.com/a19: Y
+<     team.ephico2real.com/a20: n
+<     team.ephico2real.com/a21: N
+<     team.ephico2real.com/a22: 0o17
+<     team.ephico2real.com/a23: 1e3
+<     team.ephico2real.com/a24: 089
+<     team.ephico2real.com/a25: 0X1F
+<     team.ephico2real.com/a26: 0B1
+---
+>     team.ephico2real.com/a18: 'y'
+>     team.ephico2real.com/a19: 'Y'
+>     team.ephico2real.com/a20: 'n'
+>     team.ephico2real.com/a21: 'N'
+>     team.ephico2real.com/a22: '0o17'
+>     team.ephico2real.com/a23: '1e3'
+>     team.ephico2real.com/a24: '089'
+>     team.ephico2real.com/a25: '0X1F'
+>     team.ephico2real.com/a26: '0B1'
+93c93
+<     team.ephico2real.com/a28: +.5
+---
+>     team.ephico2real.com/a28: '+.5'
+103c103
+<     team.ephico2real.com/a38: 2026-1-2
+---
+>     team.ephico2real.com/a38: '2026-1-2'
