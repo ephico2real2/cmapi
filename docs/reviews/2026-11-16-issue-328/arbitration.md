@@ -80,7 +80,7 @@ rendered policies: Kyverno's findings show as warnings with their policy, rule a
 |---|---|---|---|
 | 1 | #330, then #331 | Validator defects, the base of the generator: the schema must not describe a rule that the validator breaks. Same file, so one agent, two PRs, each with a failing test first | Step 2 |
 | 2 | #335 | The Helm values. Touches `deploy/helm/` and `docs/18` only | Step 1 |
-| 3 | #332 | The pattern check at load: the common subset of Python `re`, RE2 and ECMA-262, anchored once as `^(?:P)$`, with one `value_regex` for each format (B). It also refuses a required key with no `example` (question 3). The generator emits these patterns, so it comes first | |
+| 3 | #332, with #338 | The pattern check at load: the common subset of Python `re`, RE2 and ECMA-262, anchored once as `^(?:P)$`, with one `value_regex` for each format (B). It also refuses a required key with no `example` (question 3). #338 (found in #335's work): the loader ignores an unknown stanza and reads a text where a list is expected as characters; same loader, same step. The generator emits these patterns, so it comes first | |
 | 4 | #328 with #334 | The generator `MetadataKeys.json_schema(kind, op)`, the generated examples and curl sample, the 14 lines in `accepted-breaking.txt`, and the docs (generated clients come from the instance's own `/openapi.json`, question 5) | |
 | 5 | #333 | Kyverno coverage of `allowOther`, limits, reserved, system and operator-only keys, and the agreement test with and without Kyverno | #336 |
 | 6 | #336 | The portal form from the config, through a read-only API route that the same generator feeds | Step 5 |
