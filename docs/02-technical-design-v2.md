@@ -1887,31 +1887,31 @@ Branch protection requires CI and the cmapi check rather than a human review, an
 
 ## Policy in one place
 
-Every object rule is rendered once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. cmapi's own checks run as well, so a request is checked the same way when Kyverno is off (#213).
+Every object rule is rendered once as a Kyverno policy and checked at three points: the API at plan time, CI on the PR, and admission on the cluster. cmapi's own checks run as well, so a request is checked the same way when Kyverno is off (#213). **cmapi's own checks are the refusal; Kyverno audits by default (#342).** The owner, 2026-11-17: "Kyverno should be in audit mode. The core logic like we said should be in the cmapi core logic itself." A body that breaks a name, tier or metadata rule gets `422` from cmapi in every mode and with `engine: none`. In `audit` Kyverno's findings are warnings at plan time, reports in CI and PolicyReport results at admission; `enforce` makes them refusals at each point.
 
-| Checkpoint | How it runs | What it stops |
-| --- | --- | --- |
-| API plan | kyverno apply on the rendered manifests, from the CLI baked into the image | Bad requests, before any PR exists |
-| CI on the PR | Same command, same bundle version | Hand edits to cluster-configs that bypass the API |
-| Cluster admission | The rendered policies of the cluster's environment, synced by its policies Application; the instance's mode gives Deny, or Audit and Warn | Changes that bypass Git entirely |
+| Checkpoint | How it runs | What it does in `audit` (the default) | What it stops in `enforce` |
+| --- | --- | --- | --- |
+| API plan | cmapi's own checks, then kyverno apply on the rendered manifests, from the CLI baked into the image | cmapi refuses a bad request; a Kyverno finding is a warning on the plan, and on the 422 beside cmapi's errors | Bad requests, before any PR exists |
+| CI on the PR | Same command, same bundle version | Reports a finding as a warning; does not fail | Hand edits to cluster-configs that bypass the API |
+| Cluster admission | The rendered policies of the cluster's environment, synced by its policies Application; the instance's mode gives Deny, or Audit and Warn | Admits; records the failure in the PolicyReport and returns a warning to the client | Changes that bypass Git entirely |
 
 **Kyverno is optional (#213).** One setting for each instance, `policy` in `instance.yaml` (chart value `instance.policy`), gives the engine and a mode for each environment. cmapi works with or without Kyverno: its own checks (names, tiers, bounds, metadata keys) never depend on it.
 
 ```yaml
 policy:
   engine: kyverno          # kyverno | none
-  mode: enforce            # the mode of each environment that `environments` does not name
+  mode: audit              # the mode of each environment that `environments` does not name
   environments:
-    rnd: {mode: audit}
+    prod: {mode: enforce}
 ```
 
 | Mode | Plan time in cmapi | Rendered policies (cluster), with #212 | CI on the PR |
 | --- | --- | --- | --- |
-| `enforce` (the default) | A Kyverno finding refuses the plan (`policy-violation`), as before | `validationActions: [Deny]` | Fails |
-| `audit` | A Kyverno finding is a warning on the plan and the dry run. The request goes on to approval, and the warning keeps the auto-approval rules from applying, so an approver sees it | `validationActions: [Audit, Warn]` | Reports, does not fail |
+| `audit` (the default, #342) | A Kyverno finding is a warning on the plan and the dry run. The request goes on to approval, and the warning keeps the auto-approval rules from applying, so an approver sees it | `validationActions: [Audit, Warn]` | Reports, does not fail |
+| `enforce` | A Kyverno finding refuses the plan (`policy-violation`) | `validationActions: [Deny]` | Fails |
 | `off`, or `engine: none` | No Kyverno run; kubeconform and cmapi's own checks still run. cmapi needs no kyverno binary | No policies | Skips the Kyverno step |
 
-When a served environment runs Kyverno (`enforce` or `audit`) and the image has no kyverno binary, cmapi does not start (`PolicyEngineMissing`): a missing binary is a configuration error, not a refusal of every plan. A missing binary found while planning stays an error in each mode. `GET /api/v1/admin/integrations` reports the engine, each environment's mode and the Kyverno version that the image pins (v1.20.0, the least version the clusters must run, docs/11); the metric `cmapi_policy_mode{environment, mode}` is 1 for each. Moving an environment away from `enforce` is a change of the instance's configuration and gets the platform group's review; GitHub enforces that review only with branch protection (#227). The policies are `policies.kyverno.io/v1`, which the 1.20 CLI applies. With `CMAPI_KYVERNO_VERSION` set, as the image sets it, cmapi does not start with another CLI version. The decision record is `docs/reviews/2026-11-14-issue-213/`. Each rendered policy takes its `validationActions` from the mode, and an `off` environment gets no policies (#212).
+When a served environment runs Kyverno (`enforce` or `audit`) and the image has no kyverno binary, cmapi does not start (`PolicyEngineMissing`): a missing binary is a configuration error, not a refusal of every plan. A missing binary found while planning stays an error in each mode. `GET /api/v1/admin/integrations` reports the engine, each environment's mode and the Kyverno version that the image pins (v1.20.0, the least version the clusters must run, docs/11); the metric `cmapi_policy_mode{environment, mode}` is 1 for each. A change of an environment's mode is a change of the instance's configuration and gets the platform group's review; GitHub enforces that review only with branch protection (#227). The policies are `policies.kyverno.io/v1`, which the 1.20 CLI applies. With `CMAPI_KYVERNO_VERSION` set, as the image sets it, cmapi does not start with another CLI version. The decision record is `docs/reviews/2026-11-14-issue-213/`. Each rendered policy takes its `validationActions` from the mode, and an `off` environment gets no policies (#212).
 
 **The bundle is rendered, not written (#212).** `core/policygen.py` renders it from the instance's own configuration: `metadata-keys.yaml`, `tiers.yaml` and the `policy` of `instance.yaml`. Nobody edits a policy. Each value is a CEL literal in the policy, and each check is its own `ValidatingPolicy`, because Kyverno reports only the first failed validation of a policy. Each message names the key, the offending value and the configured value: "requests.cpu 40 is above the rnd maximum of 32; a bound of tiers.yaml, which approval does not lift". The decision record, with the two independent designs and their measurements, is `docs/reviews/2026-11-14-issue-212/`.
 
@@ -1942,7 +1942,9 @@ cmapi-cluster-configs/
 
 Each cluster has a policies Application beside its namespaces Application. It syncs only `policies/env/<its environment>/*.yaml`, with prune, so a namespace's own `cmapi.net/env` cannot choose looser bounds, and an environment that becomes `off` loses its policies (`examples/cluster-configs/clusters/OCP_GF15/argocd/policies-application.yaml`). Each instance renders the folders of its own environments: `cmapi-tools policies render --config-dir <instance> --metadata-keys <file> --out policies`. `cmapi-tools policies check`, with the same arguments, fails when a file differs from the render. This repository's tests run it on the example bundle; the workflow of cmapi-cluster-configs that runs it comes with #244.
 
-At plan time cmapi renders the bundle in memory from its running configuration, adds any hand-written policy of `/etc/cmapi/policies`, and runs one `kyverno apply` with a JSON report on the Namespace, ResourceQuota and LimitRange. A violation is a finding of source kyverno: an error in `enforce`, a warning in `audit`. An evaluation error, a run with no report, and a policy that gives no result for a file that it matches are findings of source cmapi, errors in each mode. A Kyverno failure maps to the policy-violation problem type, with the policy name in errors.
+At plan time cmapi renders the bundle in memory from its running configuration, adds any hand-written policy of `/etc/cmapi/policies`, and runs one `kyverno apply` with a JSON report on the Namespace, ResourceQuota and LimitRange. A violation is a finding of source kyverno: a warning in `audit`, an error in `enforce`. An evaluation error, a run with no report, and a policy that gives no result for a file that it matches are findings of source cmapi, errors in each mode. In `enforce` a Kyverno failure maps to the policy-violation problem type, with the policy name in errors. A body that cmapi's metadata check refuses is still rendered and validated, so its policy-violation lists the validator's findings in `findings` beside cmapi's `errors`; a validator refusal lists the warnings of the same run there too.
+
+**The warning guard of auto-approval stays (#342).** With cmapi's checks complete, a Kyverno warning on a body that cmapi passes means Kyverno is stricter than cmapi: a hand-written policy of `/etc/cmapi/policies` that cmapi does not model, or a rendered policy that disagrees with the Python checks, which the agreement tests (#333) must catch. Either way the cluster will report the namespace in its PolicyReport, so a person approves it rather than a policy; the fallback is counted in `cmapi_auto_approval_fallbacks_total{guard="warnings"}`.
 
 Not built here: the bot's pull request when the configuration changes, and the bundle hash in each plan (#244); a PolicyException for each approved beyond-tier value at admission, an owner choice (#242); a policy for each cluster for a key derived from the cluster (#243). The ServiceAccount subject rule, the ClusterRole and SCC allowlists and the protected-namespace delete block are not rendered yet.
 

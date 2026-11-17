@@ -205,78 +205,91 @@ class Pipeline:
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
         # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
         sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
-        self.cfg.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
-                                sources=sources, existing=prev_ns is not None)
+        # cmapi's own metadata check is the refusal in every policy mode and with no Kyverno at all (#342). A refused body is
+        # still rendered and validated, so the 422 lists what the validator found beside cmapi's errors: in audit, Kyverno's
+        # warning on the same value. Anything that fails after the refusal came from the refused body, and the refusal stands,
+        # as it did when the check stopped the plan here.
+        refusal = self._metadata_refusal(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
+                                         sources=sources, existing=prev_ns is not None)
         labels = self.cfg.metadata.merge_patch(cur_l, labels)
         anns = self.cfg.metadata.merge_patch(cur_a, anns)
 
-        old_tier = (prev_ns or {}).get("metadata", {}).get("labels", {}).get("cmapi.net/tier")
-        old_exp = (prev_ns or {}).get("metadata", {}).get("annotations", {}).get("cmapi.net/expires-at")
-        old_rq = _tier_quota(prev_files, ns)
-        old_quota = _hard(old_rq)
-        tier = body.get("tier") or old_tier or "small"
-        quota, limits = body.get("quota"), body.get("limitRange")
-        expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
-            date.fromisoformat(old_exp) if old_exp and action != "create" else None)
-        exp_facts: dict[str, Any] = {}
-        if action == "create":
-            p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None
-            if p:
-                exp_facts = p.facts()
-        elif body.get("extendDays") or body.get("extendUntil") or body.get("expiresAt") or body.get("makePermanent"):
-            # maxLifetimeDays counts from the day the namespace was created on its cluster (docs/01, Namespace expiration).
-            # A namespace that is not on the cluster yet counts from today, as a create does. A cluster that cannot be read
-            # is a 503 from the cache, never a lifetime of zero days: that would skip approver-platform.
-            created = created_day(cache.namespace(ns)) or date.today()
-            info = ExpiryInfo(ns, env, created=created, expires_at=date.fromisoformat(old_exp) if old_exp else None)
-            if body.get("makePermanent"):
-                p = self.cfg.expiration.plan_make_permanent(info)
-                expires = None
-            elif body.get("extendDays") or body.get("extendUntil"):
-                # :extend moves the date that exists, by days or to a date; :set (expiresAt) gives a permanent one its first.
-                p = self.cfg.expiration.plan_extend(info, date.today(),
-                                                    days=int(body["extendDays"]) if body.get("extendDays") else None,
-                                                    until=_date(body["extendUntil"]) if body.get("extendUntil") else None)
-                expires = p.new_date
-            else:
-                p = self.cfg.expiration.plan_set(info, expires, date.today())
-                expires = p.new_date
-            exp_facts = p.facts()
-        resolved = self.cfg.tiers.resolve(env, tier)
-        custom_before = bool(old_tier) and self.cfg.tiers.resolve(env, old_tier).custom
-        # The custom values that Git holds: the sizable keys, and each key that the objects name as beyond the tier.
-        # A change merges the request over them, key by key, so a change of one label keeps the approved sizes (#214).
-        approved: dict[str, str] = {}
-        if custom_before and old_quota:
-            approved = {**{k: v for k, v in old_quota.items() if k in self.cfg.tiers.sizable},
-                        **self.cfg.tiers.rendered_overrides(old_rq, objects_of(prev_files, "LimitRange"))}
-        if resolved.custom and custom_before:
-            quota = {**{k: v for k, v in approved.items() if not k.startswith("limitRange.")}, **(quota or {})}
-            limits = _merge_limits(approved, limits)
-        hard = self.cfg.tiers.quota_for(env, tier, quota, approved)
-        limit_range = self.cfg.tiers.limits_for(env, tier, limits, hard, approved)
-        spec = NamespaceSpec(namespace=ns, cluster_id=cluster_id, instance=self.cfg.name, env=env, tier=tier,
-                             request_id="(planned)", requested_by_user=requester.person.username.lower(),
-                             requested_by_email=requester.email, labels=labels, annotations=anns,
-                             quota=quota if resolved.custom else None, limit_range=limits if resolved.custom else None,
-                             approved=approved if resolved.custom else {}, expires_at=expires,
-                             service_accounts=_service_accounts(prev_files), grants=_grants(prev_files, scc=False),
-                             scc_grants=_grants(prev_files, scc=True))
-        files = self.renderer.render(spec, previous=prev_files)
-        changes = {p: s for p, s in diff_files(prev_files, files).items() if s != "unchanged"}
-        if not changes:
-            raise Problem.unprocessable("no-change", "The request changes nothing")
         try:
-            findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
-        except ValidatorUnavailable as exc:
-            raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
+            old_tier = (prev_ns or {}).get("metadata", {}).get("labels", {}).get("cmapi.net/tier")
+            old_exp = (prev_ns or {}).get("metadata", {}).get("annotations", {}).get("cmapi.net/expires-at")
+            old_rq = _tier_quota(prev_files, ns)
+            old_quota = _hard(old_rq)
+            tier = body.get("tier") or old_tier or "small"
+            quota, limits = body.get("quota"), body.get("limitRange")
+            expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
+                date.fromisoformat(old_exp) if old_exp and action != "create" else None)
+            exp_facts: dict[str, Any] = {}
+            if action == "create":
+                p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None
+                if p:
+                    exp_facts = p.facts()
+            elif body.get("extendDays") or body.get("extendUntil") or body.get("expiresAt") or body.get("makePermanent"):
+                # maxLifetimeDays counts from the day the namespace was created on its cluster (docs/01, Namespace expiration).
+                # A namespace that is not on the cluster yet counts from today, as a create does. A cluster that cannot be read
+                # is a 503 from the cache, never a lifetime of zero days: that would skip approver-platform.
+                created = created_day(cache.namespace(ns)) or date.today()
+                info = ExpiryInfo(ns, env, created=created, expires_at=date.fromisoformat(old_exp) if old_exp else None)
+                if body.get("makePermanent"):
+                    p = self.cfg.expiration.plan_make_permanent(info)
+                    expires = None
+                elif body.get("extendDays") or body.get("extendUntil"):
+                    # :extend moves the date that exists, by days or to a date; :set (expiresAt) gives a permanent one its first.
+                    p = self.cfg.expiration.plan_extend(info, date.today(),
+                                                        days=int(body["extendDays"]) if body.get("extendDays") else None,
+                                                        until=_date(body["extendUntil"]) if body.get("extendUntil") else None)
+                    expires = p.new_date
+                else:
+                    p = self.cfg.expiration.plan_set(info, expires, date.today())
+                    expires = p.new_date
+                exp_facts = p.facts()
+            resolved = self.cfg.tiers.resolve(env, tier)
+            custom_before = bool(old_tier) and self.cfg.tiers.resolve(env, old_tier).custom
+            # The custom values that Git holds: the sizable keys, and each key that the objects name as beyond the tier.
+            # A change merges the request over them, key by key, so a change of one label keeps the approved sizes (#214).
+            approved: dict[str, str] = {}
+            if custom_before and old_quota:
+                approved = {**{k: v for k, v in old_quota.items() if k in self.cfg.tiers.sizable},
+                            **self.cfg.tiers.rendered_overrides(old_rq, objects_of(prev_files, "LimitRange"))}
+            if resolved.custom and custom_before:
+                quota = {**{k: v for k, v in approved.items() if not k.startswith("limitRange.")}, **(quota or {})}
+                limits = _merge_limits(approved, limits)
+            hard = self.cfg.tiers.quota_for(env, tier, quota, approved)
+            limit_range = self.cfg.tiers.limits_for(env, tier, limits, hard, approved)
+            spec = NamespaceSpec(namespace=ns, cluster_id=cluster_id, instance=self.cfg.name, env=env, tier=tier,
+                                 request_id="(planned)", requested_by_user=requester.person.username.lower(),
+                                 requested_by_email=requester.email, labels=labels, annotations=anns,
+                                 quota=quota if resolved.custom else None, limit_range=limits if resolved.custom else None,
+                                 approved=approved if resolved.custom else {}, expires_at=expires,
+                                 service_accounts=_service_accounts(prev_files), grants=_grants(prev_files, scc=False),
+                                 scc_grants=_grants(prev_files, scc=True))
+            files = self.renderer.render(spec, previous=prev_files)
+            changes = {p: s for p, s in diff_files(prev_files, files).items() if s != "unchanged"}
+            if not changes:
+                raise Problem.unprocessable("no-change", "The request changes nothing")
+            try:
+                findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
+            except ValidatorUnavailable as exc:
+                raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
+        except Exception as exc:
+            if refusal is None:
+                raise
+            raise refusal from exc
+        if refusal is not None:
+            refusal.extra["findings"] = [asdict(f) for f in findings]
+            raise refusal
         errors = [f for f in findings if f.severity == "error"]
         if errors:
             for f in errors:
                 VALIDATION_FAILURES.labels(f.source).inc()
             raise Problem.policy_violation("Rendered files failed validation",
                                            [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message}
-                                            for f in errors])
+                                            for f in errors],
+                                           findings=[asdict(f) for f in findings if f.severity != "error"])
         old_hard = {}
         if old_tier:
             # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
@@ -312,6 +325,17 @@ class Pipeline:
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
                     beyond_tier=beyond_view)
+
+    def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
+        """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only cmapi-operator may set
+        is a 403 at once: that request is never rendered."""
+        try:
+            self.cfg.metadata.check(labels, annotations, **kw)
+        except Problem as refusal:
+            if refusal.code != "policy-violation":
+                raise
+            return refusal
+        return None
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
         req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)

@@ -9,7 +9,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -41,7 +42,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -73,7 +75,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -105,7 +108,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -138,7 +142,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -171,7 +176,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -203,7 +209,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -236,7 +243,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:

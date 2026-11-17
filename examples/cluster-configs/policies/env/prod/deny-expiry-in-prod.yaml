@@ -9,7 +9,8 @@ metadata:
     cmapi.net/generated: 'true'
 spec:
   validationActions:
-  - Deny
+  - Audit
+  - Warn
   matchConstraints:
     resourceRules:
     - apiGroups:

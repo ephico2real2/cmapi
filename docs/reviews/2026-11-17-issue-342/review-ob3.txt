@@ -1,0 +1,31 @@
+OB3 review of PR #344 (head d0e3948, main 5a8f817). Verdict: MERGE. No blocking finding; one comment-only text correction (optional).
+Depth: C1 deep (driven main vs head through the API with seeded DB, 8 cases), C3 deep (Kyverno v1.20.0 source + CLI run); C2, C4-C7 shallow (source/CRD/grep) — C4/C7 are the ones a second model may overturn.
+
+C1 CONFIRMED (status/code/detail/errors identical; body adds only `findings`). drive/test_ob3_drive_344.py on both exports via suite.sh (8 passed each), drive-{main,head}.jsonl: enforce/audit/none, ValidatorUnavailable (kubeconform "failed downloading schema"), kubeconform invalid, kyverno crash (exit 2) -> main 422 = head 422, errors equal, body minus `findings` equal in all 8; valid body + unavailable still 503 on both. No 5xx: `except Exception: raise refusal from exc` (pipeline.py). No writes: Idempotency-Key reused after the refused POST gives 202 (no replay/409), git.prs 0. `findings` is legal: ProblemDetail additionalProperties:true. Timing: refused POST waits for the validator: 0.12 s main -> 3.95 s head with a 3 s kyverno stub, bounded by CliValidator timeout=60 s per binary (same as a valid dry run, so no new amplification class).
+C2 CONFIRMED. kysrc/vpol-crd.yaml (v1.20.0): "Warn ... reported to the request client in HTTP Warning headers ... both for allowed or denied", "Audit ... recorded in the created reports", "Deny and Warn may not be used together". kysrc/vpol-handler.go:175-198: Deny->errs, Warn->warnings, independent. k8s VAP docs: "validationActions: [Warn, Audit]" is the documented example. [Audit, Warn] over [Audit]: Warn adds the 299 header oc/kubectl/Argo CD show, admits either way.
+C3 REFUTED (the risk). Background scan sets request: kysrc/pkg_controllers_report_utils_scanner.go:142-155 `celengine.Request(..., admissionv1.Create, authenticationv1.UserInfo{}, &resource, nil, ...)`; request.go:48-61 fills Operation. So request.operation=='CREATE', `variables.update` false, no CEL error. CLI measured: kyverno v1.20.0 apply prod bundle on a prod ns -> Counter({'pass': 8, 'fail': 1}), no `error` (c3/apply.json). Residual, pre-existing since #212 and mode-independent: background evaluates without oldObject, so a grandfathered value cmapi ratchets (_held) shows `fail` in PolicyReports. No fix needed for this PR.
+C4 CONFIRMED in scope, one text off. The callouts said deny-expiry-in-prod "refuses them ... at admission"; false under [Audit, Warn], so they had to change. "cmapi treats a prod namespace as permanent" true: rules.py:165 `if ns.expires_at is None or not self.allows(ns.environment)`, config.py:112. But router.py's new comment ("Kyverno reports a hand edit, and refuses it in enforce") sits in `_expires`, reached only from expiration_rows, which skips non-expiring envs (router.py:108 `not c.cfg.expiration.allows(env)`), i.e. never prod; and only prod/deny-expiry-in-prod.yaml mentions expires-at. Fix: fix-router-comment.patch (comment only; no fail-before test is possible for a comment; premise proven by the two greps).
+C5 CONFIRMED. Predicate evaluated: [Audit,Warn] T, [Warn] T (cluster admits), [Deny,Warn] F, [Audit,Deny] F, [] F, None F, [Deny] F. All correct: audit iff the cluster would admit; empty/invalid fail closed. Head's test_config_repo_ci.py + policy_modes + policygen: 53 passed with real kyverno v1.20.0.
+C6 CONFIRMED. approvals.py unchanged (FIXED_GUARDS has "warnings", :216); facts warnings = all surviving findings; only source=="kyverno" findings become warnings (validate/__init__.py:108). Main's default enforce 422'd those, so no request moves to auto-approved, and non-Kyverno outcomes are unchanged. head test_policy_modes_api.py: 11 passed.
+C7 CONFIRMED (not weakened). Pinned sizeBytes 10117647 / walBytes 80 MiB = main's recorded samples.json values exactly; head's sample re-recorded as 8420375 / 16 MiB. Assertion "Size 10 MiB · WAL 80 MiB" still tests the UI formatting of the API values.
+
+Not checked: cluster admission/PolicyReports (no kind/CRC); portal suite; full service suite (CI 949 on d0e3948).
+Housekeeping: cmapi-design `git status --short` empty before and after; deleted my basetemps, fix copies, drive-test copies in the exports. Kept: drive/ (script, logs, jsonl), kysrc/ (Kyverno v1.20.0 sources), c3/, fix-router-comment.patch.
+
+=== fix-router-comment.patch
+--- a/cmapi/src/cmapi/plugins/expiration/router.py	2026-11-17 03:32:36
++++ b/cmapi/src/cmapi/plugins/expiration/router.py	2026-11-17 03:32:42
+@@ -79,9 +79,10 @@
+     try:
+         return date.fromisoformat(raw)
+     except ValueError:
+-        # Only the renderer writes the key; Kyverno reports a hand edit, and refuses it in enforce. A value that is not a date
+-        # is shown as the cluster has it and counted as no date, because no plan can extend it; the log names it for the
+-        # platform team.
++        # Only the renderer writes the key, and no Kyverno policy checks its value here: the list skips each environment that
++        # cannot expire, so prod (the one environment deny-expiry-in-prod covers) never reaches this. A hand-edited value that
++        # is not a date is shown as the cluster has it and counted as no date, because no plan can extend it; the log names
++        # it for the platform team.
+         log.warning("expires_at_unreadable", cluster_id=cluster_id, namespace=name, value=raw[:40])
+         return None
+ 

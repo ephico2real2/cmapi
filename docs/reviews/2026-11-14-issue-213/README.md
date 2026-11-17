@@ -14,7 +14,7 @@ OB1 run 6 (Opus 5.5 at high) wrote the code, the tests and this record on 2026-1
 | Question | Decision | Why |
 |---|---|---|
 | Where the setting lives | `policy` in `instance.yaml` (chart value `instance.policy`): `engine`, a default `mode`, and `environments` | The issue's shape. One instance file, so a change of mode is one reviewed change |
-| No `policy` key | Kyverno enforces in each environment | cmapi's behaviour before #213; no instance changes behaviour |
+| No `policy` key | Kyverno enforces in each environment (superseded on 2026-11-17 by #342: audit, below) | cmapi's behaviour before #213; no instance changes behaviour |
 | What audit does at plan time | Each Kyverno finding becomes a warning; the request goes on to approval | The issue. The pipeline already lets warnings through and lists them on the plan; `warnings` is a fixed guard of auto-approval (`core/approvals.py`), so an approver sees each one |
 | A missing binary | A start error when a served environment runs Kyverno; a finding of cmapi (an error in every mode) when it disappears later | The issue: "a configuration error at startup, not a refusal of every request". An image that loses its binary must not pass plans in audit |
 | What off does | No Kyverno run; kubeconform and cmapi's own checks run | The issue. cmapi's own checks never depended on Kyverno |
@@ -72,3 +72,40 @@ They are applied unchanged, with Fable's tests (`tests/core/test_fable_review_24
 
 Filed from the review: #249, about audit on the GitHub external-CI path. The workflow of the configuration repository
 must report and not fail (Wave 3).
+
+## 2026-11-17: audit by default (#342)
+
+The owner, 2026-11-17: "Kyverno should be in audit mode. The core logic like we said should be in the cmapi core logic
+itself." (On #213, 2026-11-13: "the cmapi would work with or without kyverno though.") Opus 5.5 wrote the change, with one
+model family.
+
+| Question | Decision | Why |
+|---|---|---|
+| No `policy` key, or no `mode` | Each environment audits (`DEFAULT_MODE`, `core/policy.py`); a bad `mode` falls back to audit while the start stops | The owner. `enforce` and `off` stay, per environment |
+| The rendered policies in audit | `validationActions: [Audit, Warn]`, as #212 rendered audit | The v1.20.0 CRD: "Audit" records the failure "in the created reports", "Warn" reports it "to the request client in HTTP Warning headers", and "Deny" and "Warn" "may not be used together". `[Audit]` alone was rejected: it drops the warning that Argo CD and `oc` show, and gains nothing |
+| Who refuses | cmapi's own checks (names, tiers and bounds, metadata keys) in every mode and with `engine: none` | The owner. They ran before Kyverno already; this change keeps them first |
+| A metadata refusal and Kyverno | The refused body is still rendered and validated, and the 422 lists the validator's findings in `findings` beside cmapi's `errors`; anything that fails after the refusal leaves the refusal as it was | The issue: "with the Kyverno warning listed beside it". A refusal before the render (name, tier) has no `findings` |
+| cmapi's findings about Kyverno itself | Errors in every mode, unchanged (F2 above) | The issue |
+| `ci/kyverno` of cluster-configs (`kyverno_check.py`) | Audit is no `Deny` in `validationActions` (#343) | It took only `[Audit]` as audit, so cmapi's `[Audit, Warn]` failed the PR; its test had rewritten `Deny` to `[Audit]` by hand and hid it |
+| The `warnings` guard of auto-approval (`core/approvals.py`, `FIXED_GUARDS`) | Kept | With cmapi's checks complete, a Kyverno warning on a body that cmapi passes means Kyverno is stricter than cmapi: a hand-written policy of `/etc/cmapi/policies` that cmapi does not model, or a disagreement that #333's agreement test must catch. The cluster will report the namespace either way, so a person approves it. Removing the guard would auto-approve what the clusters' PolicyReports show as failing. The fallback is counted (`cmapi_auto_approval_fallbacks_total{guard="warnings"}`) |
+
+Options rejected: keep `enforce` as the default (the owner's decision); `engine: none` by default (the owner wants Kyverno
+in audit, and the clusters' PolicyReports feed the portal's Policies tab); drop the `warnings` guard (above).
+
+What audit changes for a hand edit: a hand edit of cluster-configs that bypasses the API (for example an expiry on a prod
+namespace) is reported in CI and at admission, not refused, unless the environment's mode is `enforce`. cmapi treats a prod
+namespace as permanent whatever it carries (`ExpirationRules.state`). An instance that wants Kyverno to refuse hand edits sets
+`enforce` for those environments.
+
+Sources, read on 2026-11-17:
+
+- The ValidatingPolicy CRD of Kyverno v1.20.0, `config/crds/policies.kyverno.io/policies.kyverno.io_validatingpolicies.yaml`
+  at the tag `v1.20.0` of <https://github.com/kyverno/kyverno>: `validationActions` is a required set of `Deny`, `Audit` and
+  `Warn`, with the definitions quoted above; `evaluation.background.enabled` defaults to true.
+- Kyverno, Policy Reports: <https://kyverno.io/docs/policy-reports/>: "A ValidatingPolicy with `validationActions: [Audit]`
+  allows a non-compliant resource to be created and records the failure in a report", and "Reports can contain results from
+  admission processing and from background scans".
+- Kubernetes, ValidatingAdmissionPolicy: <https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/>,
+  "Validation actions", which Kyverno's field follows: `[Warn, Audit]` is the documented pair for warning and auditing.
+
+Not measured: a cluster's admission and PolicyReport with the Audit bundle (no kind or CRC run in this change).

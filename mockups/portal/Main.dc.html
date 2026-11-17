@@ -696,7 +696,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
         </div>
         <sc-if value="{{exp.prod}}" hint-placeholder-val="{{false}}">
           <div class="card">
-            <div class="callout ok"><b>Production namespaces never expire</b><span style="font-size: 0.88rem">A prod request with an expiry gets 422 expiration-not-allowed, the renderer never writes cmapi.net/expires-at or cmapi.net/expiry for prod, and the deny-expiry-in-prod Kyverno policy refuses them in CI and at admission, so a hand edit cannot add them either.</span></div>
+            <div class="callout ok"><b>Production namespaces never expire</b><span style="font-size: 0.88rem">A prod request with an expiry gets 422 expiration-not-allowed, the renderer never writes cmapi.net/expires-at or cmapi.net/expiry for prod, and cmapi treats a prod namespace as permanent whatever it carries. The deny-expiry-in-prod Kyverno policy reports a hand edit that adds them, in CI and at admission, and refuses it where prod's policy mode is enforce.</span></div>
             <dl class="kv"><sc-for list="{{exp.prodRows}}" as="r" hint-placeholder-count="3"><dt>{{r.k}}</dt><dd>{{r.v}}</dd></sc-for></dl>
           </div>
         </sc-if>

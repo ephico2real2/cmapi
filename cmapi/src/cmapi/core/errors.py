@@ -44,8 +44,8 @@ class Problem(Exception):
 
     # the problem types the modules raise
     @classmethod
-    def policy_violation(cls, detail: str, errors: list[dict[str, Any]]) -> "Problem":
-        return cls(422, "policy-violation", detail, errors)
+    def policy_violation(cls, detail: str, errors: list[dict[str, Any]], **extra: Any) -> "Problem":
+        return cls(422, "policy-violation", detail, errors, extra=extra)
 
     @classmethod
     def unprocessable(cls, code: str, detail: str, **extra: Any) -> "Problem":
