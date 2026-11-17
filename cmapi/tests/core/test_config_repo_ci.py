@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from cmapi.core.config import load_instance
+from cmapi.core.policy import PolicySettings
 from cmapi.core.policygen import render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from conftest import EX
@@ -51,9 +52,10 @@ def crc(tmp_path_factory):
     return load_instance(d, d / "metadata-keys.yaml")
 
 
-def repository(tmp: Path, cfg, **over) -> Path:
-    """A cluster-configs checkout: CRC's rendered bundle under policies/, and one namespace folder cmapi rendered, for dev."""
-    for rel, text in render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name).items():
+def repository(tmp: Path, cfg, policy: PolicySettings | None = None, **over) -> Path:
+    """A cluster-configs checkout: CRC's rendered bundle under policies/ (in CRC's own mode, or `policy`), and one namespace
+    folder cmapi rendered, for dev."""
+    for rel, text in render_bundle(cfg.tiers, cfg.metadata, policy or cfg.policy, cfg.allowed_environments, cfg.name).items():
         f = tmp / "policies" / rel
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text)
@@ -108,7 +110,8 @@ def test_a_folder_cmapi_renders_passes_its_environments_bundle(kyverno, crc, tmp
 
 
 def test_a_value_beyond_the_bound_fails_on_its_file(kyverno, crc, tmp_path):
-    root = repository(tmp_path, crc)
+    """In enforce the rendered policies Deny, and the check fails the PR on the file."""
+    root = repository(tmp_path, crc, PolicySettings(default_mode="enforce"))
     rq = folder(root) / f"resourcequota-{NS}-quota.yaml"
     edit(rq, lambda d: d["spec"]["hard"].update({"requests.cpu": "999"}))
     r = run(root, kyverno)
@@ -117,10 +120,10 @@ def test_a_value_beyond_the_bound_fails_on_its_file(kyverno, crc, tmp_path):
 
 
 def test_in_audit_the_same_value_is_a_warning(kyverno, crc, tmp_path):
-    """The mode is in the bundle: a rendered policy of an environment in audit has validationActions [Audit]."""
+    """The mode is in the bundle: CRC sets no `policy`, so its rendered policies audit (#342) and the check reports."""
+    assert crc.policy.mode_for("dev") == "audit"
     root = repository(tmp_path, crc)
-    for f in (root / "policies/env/dev").glob("*.yaml"):
-        f.write_text(f.read_text().replace("  validationActions:\n  - Deny\n", "  validationActions:\n  - Audit\n"))
+    assert "  validationActions:\n  - Audit\n  - Warn\n" in (root / "policies/env/dev/cmapi-quota-dev.yaml").read_text()
     edit(folder(root) / f"resourcequota-{NS}-quota.yaml", lambda d: d["spec"]["hard"].update({"requests.cpu": "999"}))
     r = run(root, kyverno)
     assert r.returncode == 0, r.stdout

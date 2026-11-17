@@ -2,6 +2,9 @@
 
 The stub kyverno fails every namespace; the stub kubeconform passes. So enforce refuses the plan, audit sends the request
 to approval with the finding as a warning, and off plans and submits with no kyverno binary at all.
+
+#342: with no `policy` key the mode is audit. cmapi's own checks are the refusal in every mode and with engine none, and a
+refusal lists the validator's findings beside cmapi's errors.
 """
 from __future__ import annotations
 
@@ -27,7 +30,8 @@ def _stub(path, body):
 
 @pytest.fixture
 def world_with(test_config, fresh_db, keys, monkeypatch, tmp_path):
-    """build(policy, kyverno=True): the API on an instance.yaml with that `policy` key, and cmapi's real validator."""
+    """build(policy, kyverno=True): the API on an instance.yaml with that `policy` key (None: no key at all), and cmapi's
+    real validator."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _stub(bin_dir / "kubeconform", 'echo \'{"resources": [], "summary": {"valid": 1}}\'\n')
@@ -48,7 +52,10 @@ def world_with(test_config, fresh_db, keys, monkeypatch, tmp_path):
         d = tmp_path / f"config{len(worlds)}"
         shutil.copytree(test_config, d)
         inst = yaml.safe_load((d / "instance.yaml").read_text())
-        inst["instance"]["policy"] = policy
+        if policy is None:
+            inst["instance"].pop("policy", None)
+        else:
+            inst["instance"]["policy"] = policy
         (d / "instance.yaml").write_text(yaml.safe_dump(inst))
         cm = build_world(d, keys, monkeypatch)
         world = cm.__enter__()
@@ -88,6 +95,64 @@ def test_off_plans_and_submits_with_no_kyverno_binary(world_with):
     r = client.post(URL, json=NS, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 202 and r.json()["status"] == "approved", r.text
     assert r.json()["approval"]["auto"] == "auto:baseline-rnd-namespace"
+
+
+BAD_DL = {**NS, "annotations": {"cmapi.net/team-dl": "payments-team@other.org"}}    # not in emailDomains
+
+
+def test_with_no_policy_key_each_environment_audits(world_with):
+    """#342, the owner: "Kyverno should be in audit mode." A Kyverno finding on a body that cmapi passes is a warning."""
+    client, ctx, git, kube, validator, keys = world_with(None)
+    assert ctx.cfg.policy.modes(ctx.cfg.allowed_environments) == {"dev": "audit", "rnd": "audit"}
+    dry = client.post(URL + "?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
+    assert dry.status_code == 200, dry.text
+    assert [(f["source"], f["rule"], f["severity"]) for f in dry.json()["findings"]] == \
+        [("kyverno", "require-team-metadata", "warning")]
+
+
+@pytest.mark.parametrize("policy", [None, {"mode": "enforce"}], ids=["no-policy", "enforce"])
+def test_cmapi_refuses_a_bad_metadata_body_and_lists_the_kyverno_finding_beside(world_with, policy):
+    """cmapi's own check is the refusal (#342): a 422 with its errors, and Kyverno's finding on the same body beside them,
+    a warning in audit and an error in enforce."""
+    client, ctx, git, kube, validator, keys = world_with(policy)
+    r = client.post(URL, json=BAD_DL, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
+    assert [(e["code"], e["key"]) for e in r.json()["errors"]] == [("invalid-team-dl", "cmapi.net/team-dl")]
+    severity = "error" if policy else "warning"
+    assert [(f["source"], f["rule"], f["message"], f["severity"]) for f in r.json()["findings"]] == \
+        [("kyverno", "require-team-metadata", "team missing", severity)]
+    assert git.prs == {}
+
+
+def test_with_engine_none_cmapi_refuses_the_same_body(world_with):
+    """The owner (#213): "the cmapi would work with or without kyverno". With no Kyverno, cmapi's refusal is the same."""
+    client, ctx, git, kube, validator, keys = world_with({"engine": "none"}, kyverno=False)
+    assert shutil.which("kyverno") is None
+    r = client.post(URL, json=BAD_DL, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
+    assert [(e["code"], e["key"]) for e in r.json()["errors"]] == [("invalid-team-dl", "cmapi.net/team-dl")]
+    assert r.json()["findings"] == []
+
+
+def test_a_metadata_refusal_comes_first_whatever_else_the_body_breaks(world_with):
+    """Behaviour kept from before #342: a body that breaks a metadata rule and names an unknown tier gets the metadata 422,
+    as it did when cmapi's check stopped the plan before the tier was read."""
+    client, ctx, git, kube, validator, keys = world_with(None)
+    r = client.post(URL, json={**BAD_DL, "tier": "no-such-tier"}, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
+    assert [e["code"] for e in r.json()["errors"]] == ["invalid-team-dl"]
+    assert "findings" not in r.json()
+
+
+def test_a_validator_refusal_lists_the_audit_warnings_beside_its_errors(world_with, tmp_path):
+    """A kubeconform error refuses the plan; the Kyverno warning of the same run is listed beside it, not dropped."""
+    client, ctx, git, kube, validator, keys = world_with(None)
+    _stub(tmp_path / "bin" / "kubeconform", 'echo \'{"resources": [{"filename": "x.yaml", "status": "statusInvalid", '
+                                            '"msg": "bad field"}]}\'\nexit 1\n')
+    r = client.post(URL, json=NS, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
+    assert [(e["source"], e["detail"]) for e in r.json()["errors"]] == [("kubeconform", "bad field")]
+    assert [(f["source"], f["severity"]) for f in r.json()["findings"]] == [("kyverno", "warning")]
 
 
 def test_the_integrations_endpoint_reports_the_engine_and_each_mode(world_with, monkeypatch):

@@ -84,8 +84,8 @@ def _validate(tmp_path, hand: str):
     d = tmp_path / f"hand{len(list(tmp_path.iterdir()))}"
     d.mkdir()
     (d / "hand.yaml").write_text(hand)
-    v = CliValidator(d, policy=PolicySettings(), environments={"rnd"},
-                     bundle=render_bundle(catalog, keys, PolicySettings(), {"rnd"}, "nonprod"))
+    enforce = PolicySettings(default_mode="enforce")     # a Kyverno failure stays an error, as it was measured (#245)
+    v = CliValidator(d, policy=enforce, environments={"rnd"}, bundle=render_bundle(catalog, keys, enforce, {"rnd"}, "nonprod"))
     files = {"clusters/OCP_GF15/namespaces/abc-rnd/" + k: t for k, t in owners_sample(catalog, keys).items()}
     return [(f.source, f.rule, f.severity) for f in v.validate(files, "OCP_GF15", "rnd") if f.source != "kubeconform"]
 

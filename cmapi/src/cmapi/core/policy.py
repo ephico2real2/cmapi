@@ -4,20 +4,23 @@ instance.yaml:
 
     policy:
       engine: kyverno          # kyverno | none
-      mode: enforce            # enforce | audit | off: the mode of each environment that `environments` does not name
+      mode: audit              # audit | enforce | off: the mode of each environment that `environments` does not name
       environments:
-        rnd: {mode: audit}
+        prod: {mode: enforce}
 
-With no `policy` key, the engine is kyverno and each environment enforces: cmapi's behaviour before #213.
+With no `policy` key, or no `mode`, the engine is kyverno and each environment audits (#342). The owner, 2026-11-17: "Kyverno
+should be in audit mode. The core logic like we said should be in the cmapi core logic itself." cmapi's own checks refuse a
+request in every mode; Kyverno reports beside them, and the rendered policies admit and record (`[Audit, Warn]`).
 
 | Mode    | Plan time in cmapi                                                     |
 |---------|------------------------------------------------------------------------|
+| audit   | A Kyverno finding is a warning on the plan; the request goes to approval (the default) |
 | enforce | A Kyverno finding refuses the plan (problem policy-violation)          |
-| audit   | A Kyverno finding is a warning on the plan; the request goes to approval |
 | off     | No Kyverno run; kubeconform and cmapi's own checks still run            |
 
 `engine: none` is `off` for every environment, and then cmapi needs no kyverno binary. cmapi's own checks (names, tiers,
-bounds, metadata keys) never depend on Kyverno, so `off` loses only the cluster-side admission check.
+bounds, metadata keys) never depend on Kyverno, so `off` loses only the cluster-side admission check. A finding of cmapi
+about Kyverno itself (no binary, a policy it cannot evaluate, no result) is an error in every mode (#213 F2).
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ from typing import Any, Mapping
 
 ENGINES = ("kyverno", "none")
 MODES = ("enforce", "audit", "off")
+DEFAULT_MODE = "audit"      # #342: cmapi's own checks are the refusal; Kyverno reports
 
 
 def _mode(value: Any) -> Any:
@@ -37,7 +41,7 @@ def _mode(value: Any) -> Any:
 @dataclass(frozen=True)
 class PolicySettings:
     engine: str = "kyverno"
-    default_mode: str = "enforce"
+    default_mode: str = DEFAULT_MODE
     environments: Mapping[str, str] = field(default_factory=dict)
 
     def mode_for(self, environment: str) -> str:
@@ -68,10 +72,10 @@ class PolicySettings:
         if engine not in ENGINES:
             problems.append(f"instance.yaml: policy.engine must be one of {list(ENGINES)}, not {engine!r}")
             engine = "kyverno"
-        default = _mode(raw.get("mode", "enforce"))
+        default = _mode(raw.get("mode", DEFAULT_MODE))
         if default not in MODES:
             problems.append(f"instance.yaml: policy.mode must be one of {list(MODES)}, not {default!r}")
-            default = "enforce"
+            default = DEFAULT_MODE
         envs: dict[str, str] = {}
         for env, spec in (raw.get("environments") or {}).items():
             mode = _mode((spec or {}).get("mode")) if isinstance(spec, Mapping) else None

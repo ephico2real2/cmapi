@@ -61,7 +61,7 @@ The only path from cmapi to a cluster's desired state is a merged PR that the cl
 | Keycloak | Hub, namespace cmapi-sso | Realm ephico2real; LDAP federation, read-only | LDAP or AD |
 | cmapi-imports | Hub namespace | One import Secret per cluster, written by the baseline process | Read by cmapi-api, cmapi-worker and cmapi-capacity |
 | cluster-configs | Git host | Desired state: one folder per cluster plus the Kyverno policy bundle | Argo CD on each cluster |
-| Argo CD | Each managed cluster | Applies that cluster's folder; Kyverno enforces the same bundle at admission | Git host |
+| Argo CD | Each managed cluster | Applies that cluster's folder; Kyverno checks the same bundle at admission: it admits and reports in audit, the default, and denies in enforce (#342) | Git host |
 | cmapi-reader | Each managed cluster | Read-only ServiceAccount and ClusterRole from the baseline; cluster-monitoring-view for Thanos | — |
 | Optional | Hub or external | Argo Workflows or Tekton (operations), Argo CD Notifications (sync signal), webhook or Kafka (events) | cmapi-api and worker, never in the request path |
 
@@ -541,7 +541,7 @@ An auto-approved request is approved at plan time by approver auto:\<policy>, sk
 Expiration is optional, and prod never has it. A namespace in rnd, dev, qa or uat may be created with an expiry date or without one; a prod namespace can never carry expiration metadata.
 
 - **Where it lives.** The renderer writes the annotation cmapi.net/expires-at (a date) and the label cmapi.net/expiry=managed onto the Namespace manifest (namespace.yaml); both are system keys nobody sets by hand. cleanup.kyverno.io/ttl is not used: a Kyverno delete would leave the folder in Git, and Argo CD would recreate the namespace.
-- **Never in prod.** A prod request with any expiry field gets 422 expiration-not-allowed, the renderer never writes the keys for prod, and the Kyverno ValidatingPolicy deny-expiry-in-prod refuses them in CI and at admission, so a hand edit cannot add them either.
+- **Never in prod.** A prod request with any expiry field gets 422 expiration-not-allowed, the renderer never writes the keys for prod, and cmapi treats a prod namespace as permanent whatever it carries. The Kyverno ValidatingPolicy deny-expiry-in-prod reports a hand edit that adds them, in CI and at admission, and refuses it where prod's policy mode is enforce (audit is the default, #342).
 - **Limits.** Set per environment in config/expiration.yaml. An extension within the limits follows the environment's change rule; going past them, or making a namespace permanent, adds approver-platform.
 
 | Setting | rnd, dev | qa, uat | prod |

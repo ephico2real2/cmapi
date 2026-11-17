@@ -115,6 +115,17 @@ def test_each_mode_renders_its_actions_and_off_renders_nothing(catalog, company)
     assert render_bundle(catalog, company, PolicySettings(engine="none"), ALL_ENVS, "nonprod") == {}
 
 
+def test_with_no_policy_key_the_rendered_policies_audit(catalog, company):
+    """#342: the default renders [Audit, Warn] in each environment, so the cluster admits and reports; cmapi refuses."""
+    policy, problems = PolicySettings.parse(None, ALL_ENVS)
+    assert problems == []
+    files = render_bundle(catalog, company, policy, ALL_ENVS, "nonprod")
+    actions = {tuple(doc["spec"]["validationActions"]) for rel, text in files.items() if rel.endswith(".yaml")
+               for doc in yaml.safe_load_all(text)}
+    assert actions == {("Audit", "Warn")}
+    assert {rel.split("/")[1] for rel in files} == set(ALL_ENVS)
+
+
 def test_a_tier_above_the_maximum_stops_the_render(catalog, company):
     raw = copy.deepcopy(catalog.file.model_dump())
     raw["environments"]["rnd"]["custom"]["max"]["requests.cpu"] = "16"     # large asks 32
@@ -277,9 +288,10 @@ def test_the_validator_finds_each_failed_key_with_its_file(kyverno, catalog, com
     rq = yaml.safe_load(files[RQ])
     rq["spec"]["hard"]["requests.cpu"] = "40"
     files[RQ] = yaml.safe_dump(rq)
-    found = validator(catalog, company, tmp_path).validate(folder(files), "OCP_GF15", "rnd")
-    assert [(f.source, f.rule, f.path, f.severity) for f in found if f.source != "kubeconform"] == \
-        [("kyverno", "cmapi-quota-rnd-quota-requests-cpu-max", BASE + RQ, "error")]
+    for policy, severity in ((PolicySettings(default_mode="enforce"), "error"), (PolicySettings(), "warning")):
+        found = validator(catalog, company, tmp_path, policy).validate(folder(files), "OCP_GF15", "rnd")
+        assert [(f.source, f.rule, f.path, f.severity) for f in found if f.source != "kubeconform"] == \
+            [("kyverno", "cmapi-quota-rnd-quota-requests-cpu-max", BASE + RQ, severity)], policy
 
 
 def test_a_value_that_git_already_holds_is_not_refused_and_a_changed_one_is(kyverno, catalog, company, tmp_path):

@@ -30,7 +30,9 @@ ACTIONS: dict[str, str] = {
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
     "precondition-failed": "Read the object again, and send the change with the new `ETag` in `If-Match`.",
     "validation-failed": "Correct the fields that `errors` names, and send the request again.",
-    "policy-violation": "Correct the items that `errors` names. Each item has a code and the key or the field that the policy refused.",
+    "policy-violation": "Correct the items that `errors` names. Each item has a code and the key or the field that the policy refused. "
+                        "`findings`, when present, lists what the validator found on the same files beside them: a Kyverno "
+                        "warning in audit says the cluster's policy reports the same value.",
     "capacity-exceeded": "Ask for less, or choose another cluster. `detail` names the resource that does not fit.",
     "environment-not-served": "Send the request to the instance that serves the environment. `detail` names it.",
     "cluster-not-writable": "Choose a cluster that takes writes, or ask the platform team to add this cluster to `clusters.yaml`.",

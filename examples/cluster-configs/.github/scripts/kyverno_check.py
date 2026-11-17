@@ -6,8 +6,8 @@ renders for that namespace's environment (`cmapi-tools policies render` into pol
 
 The environment of a folder is its Namespace's label cmapi.net/env, which cmapi derives. The policies of policies/env/<env>/ run on
 the folder's Namespace, ResourceQuota and LimitRange documents, as cmapi's own validator runs them (core/validate). The mode of
-the environment is in the bundle itself: a rendered policy with validationActions [Audit] reports a failure as a warning, and one
-with Deny fails the check, as the cluster's admission would. An environment with no rendered policy runs Kyverno off.
+the environment is in the bundle itself: a rendered policy without Deny in validationActions ([Audit, Warn], audit, the default
+since #342) reports a failure as a warning, and one with Deny fails the check, as the cluster's admission would. An environment with no rendered policy runs Kyverno off.
 
 It fails, as cmapi's validator does, when the CLI cannot evaluate a policy (result error), gives no report, or gives no result for
 a file of a kind a policy matches: the 1.16 CLI applied no rule to a policies.kyverno.io/v1 document and said nothing (docs/08).
@@ -92,7 +92,10 @@ def check_folder(root: Path, folder: Path, kyverno: str) -> tuple[list[str], lis
         result, message = res.get("result"), (res.get("message") or "")[:300]
         if result in ("pass", "skip"):
             continue
-        audit = policies[name][1]["spec"].get("validationActions") == ["Audit"]
+        # The cluster denies only with Deny: cmapi renders audit as [Audit, Warn] (core/policygen.py), and Deny never comes
+        # with Warn (the ValidatingPolicy CRD). A policy with no actions is not audit: it fails, as an unknown result does.
+        actions = policies[name][1]["spec"].get("validationActions")
+        audit = isinstance(actions, list) and bool(actions) and "Deny" not in actions
         if result == "fail" and audit:
             warnings.append(f"::warning file={rel(f)}::{name} (audit): {message}")
         elif result == "fail":

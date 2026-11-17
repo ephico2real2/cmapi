@@ -10,7 +10,7 @@ export function Expiration({ v }: TabProps) {
       <Head title="Expiration" lede={exp.lede} pill={<Pill>{exp.head}</Pill>} />
       {exp.prod && (
         <Panel>
-          <Callout tone="ok" title="Production namespaces never expire">{"A prod request with an expiry gets 422 expiration-not-allowed, the renderer never writes cmapi.net/expires-at or cmapi.net/expiry for prod, and the deny-expiry-in-prod Kyverno policy refuses them in CI and at admission, so a hand edit cannot add them either."}</Callout>
+          <Callout tone="ok" title="Production namespaces never expire">{"A prod request with an expiry gets 422 expiration-not-allowed, the renderer never writes cmapi.net/expires-at or cmapi.net/expiry for prod, and cmapi treats a prod namespace as permanent whatever it carries. The deny-expiry-in-prod Kyverno policy reports a hand edit that adds them, in CI and at admission, and refuses it where prod's policy mode is enforce."}</Callout>
           <KV rows={exp.prodRows} />
         </Panel>
       )}

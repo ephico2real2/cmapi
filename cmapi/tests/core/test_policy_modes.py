@@ -44,9 +44,19 @@ def kyverno_findings(v: CliValidator, env: str):
     return [(f.rule, f.severity) for f in v.validate(FILES, "C", env) if f.source == "kyverno"]
 
 
-def test_no_policy_key_enforces_in_each_environment_as_before():
-    p, problems = PolicySettings.parse(None, SERVED)
-    assert problems == [] and p.engine == "kyverno" and p.modes(SERVED) == {"dev": "enforce", "rnd": "enforce"}
+def test_no_policy_key_audits_in_each_environment():
+    """#342, the owner: "Kyverno should be in audit mode." cmapi's own checks are the refusal; Kyverno reports."""
+    for raw in (None, {}, {"engine": "kyverno"}, {"environments": {"rnd": {"mode": "enforce"}}}):
+        p, problems = PolicySettings.parse(raw, SERVED)
+        assert problems == [] and p.engine == "kyverno" and p.mode_for("dev") == "audit", raw
+    assert PolicySettings().modes(SERVED) == {"dev": "audit", "rnd": "audit"}
+    assert PolicySettings.parse({"environments": {"rnd": {"mode": "enforce"}}}, SERVED)[0].modes(SERVED) == \
+        {"dev": "audit", "rnd": "enforce"}
+
+
+def test_a_bad_mode_falls_back_to_audit_while_the_start_stops():
+    p, problems = PolicySettings.parse({"mode": "loud"}, SERVED)
+    assert problems and p.default_mode == "audit"
 
 
 def test_a_mode_for_each_environment_and_engine_none():
@@ -72,14 +82,21 @@ def test_a_bad_policy_stops_the_start(raw, message):
 
 
 def test_enforce_keeps_a_kyverno_finding_an_error(stubs):
-    v = CliValidator(stubs / "policies", policy=PolicySettings(), environments=SERVED)
+    v = CliValidator(stubs / "policies", policy=PolicySettings(default_mode="enforce"), environments=SERVED)
     assert kyverno_findings(v, "dev") == [("p", "error")]
 
 
 def test_audit_turns_a_kyverno_finding_into_a_warning(stubs):
-    v = CliValidator(stubs / "policies", policy=PolicySettings(environments={"rnd": "audit"}), environments=SERVED)
+    v = CliValidator(stubs / "policies", policy=PolicySettings(default_mode="enforce", environments={"rnd": "audit"}),
+                     environments=SERVED)
     assert kyverno_findings(v, "rnd") == [("p", "warning")]
     assert kyverno_findings(v, "dev") == [("p", "error")]
+
+
+def test_the_default_validator_audits(stubs):
+    """No policy given: each Kyverno finding is a warning (#342)."""
+    v = CliValidator(stubs / "policies", environments=SERVED)
+    assert kyverno_findings(v, "dev") == [("p", "warning")]
 
 
 def test_off_runs_no_kyverno(stubs):

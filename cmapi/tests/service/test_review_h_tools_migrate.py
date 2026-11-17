@@ -180,8 +180,8 @@ def test_realm_sync_runs_and_prints_no_secret(monkeypatch, capsys):
 
 def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monkeypatch):
     """Every file the ConfigMap holds, through load_instance, the policies, and the real Git, validator and Keycloak classes.
-    The image holds a kyverno binary, and the chart's policy enforces Kyverno, so the validator's start check (#213) needs
-    one on PATH: a stub stands in for the image's."""
+    The image holds a kyverno binary, and the chart's policy runs Kyverno (audit by default, #342), so the validator's start
+    check (#213) needs one on PATH: a stub stands in for the image's."""
     from cmapi.core.context import build_context
     from cmapi.settings import Settings
     bin_dir = tmp_path / "bin"
@@ -202,7 +202,7 @@ def test_the_charts_rendered_config_loads_with_the_real_adapters(tmp_path, monke
     assert ctx.delivery.argocd_namespace == "cmapi-argocd" and ctx.delivery.argocd_root_application == "cluster-configs-{clusterId}"
     assert ctx.issuer == "https://keycloak.apps-crc.testing/realms/cmapi" and ctx.audience == "cmapi-nonprod"
     assert ctx.directory is not None and ctx.registry.policies["CRC"].environment == "dev"
-    assert ctx.pipeline.validator.policy.modes({"dev", "rnd"}) == {"dev": "enforce", "rnd": "enforce"}
+    assert ctx.pipeline.validator.policy.modes({"dev", "rnd"}) == {"dev": "audit", "rnd": "audit"}
     # The Kyverno bundle rendered from the chart's own configuration (#212), for each environment it serves.
     assert {p.split("/")[1] for p in ctx.pipeline.validator.bundle if p.startswith("env/")} == {"dev", "rnd"}
 

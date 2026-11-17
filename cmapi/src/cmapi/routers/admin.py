@@ -49,10 +49,10 @@ class Integrations(Api):
     events: dict[str, Any] = Field(description="Event publisher", examples=[{"publisher": "none"}])
     clusters: dict[str, str] = Field(description="Cluster ID to import status", examples=[{"CRC": "connected"}])
     policy: dict[str, Any] = Field(description="The policy engine (kyverno or none), the mode of each served environment "
-                                               "(enforce, audit or off), and kyvernoVersion: the Kyverno CLI that the image pins, "
-                                               "the least version that the clusters must run (null outside the image)",
+                                               "(audit, the default; enforce; or off), and kyvernoVersion: the Kyverno CLI that "
+                                               "the image pins, the least version that the clusters must run (null outside the image)",
                                    examples=[{"engine": "kyverno", "kyvernoVersion": "v1.20.0",
-                                              "environments": {"dev": "enforce", "rnd": "audit"}}])
+                                              "environments": {"dev": "audit", "rnd": "audit"}}])
 
 
 class PluginRow(Api):

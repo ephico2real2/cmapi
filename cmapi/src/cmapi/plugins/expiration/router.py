@@ -79,8 +79,9 @@ def _expires(cluster_id: str, name: str, raw: str | None) -> date | None:
     try:
         return date.fromisoformat(raw)
     except ValueError:
-        # Only the renderer writes the key, and Kyverno refuses a hand edit in prod. A value that is not a date is shown as the
-        # cluster has it and counted as no date, because no plan can extend it; the log names it for the platform team.
+        # Only the renderer writes the key; Kyverno reports a hand edit, and refuses it in enforce. A value that is not a date
+        # is shown as the cluster has it and counted as no date, because no plan can extend it; the log names it for the
+        # platform team.
         log.warning("expires_at_unreadable", cluster_id=cluster_id, namespace=name, value=raw[:40])
         return None
 

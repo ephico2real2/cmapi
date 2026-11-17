@@ -12,8 +12,9 @@
 Every value is written into the policy as a CEL literal, so the CLI at plan time, CI and admission give one answer with
 no cluster lookup (docs/02, "Keeping it offline"). Each validation checks one key, and its message names the key, the
 offending value and the configured value. Each check is its own policy, because Kyverno reports only the first failed
-validation of a policy. An environment whose mode is off gets no files; audit renders
-`[Audit, Warn]`, enforce `[Deny]` (#213).
+validation of a policy. An environment whose mode is off gets no files; audit, the default (#342), renders
+`[Audit, Warn]`: admitted, recorded in a PolicyReport and returned to the client as a warning. enforce renders `[Deny]`
+(#213). Deny and Warn may not be combined (the ValidatingPolicy CRD of Kyverno v1.20.0).
 
 A value that the object already held is not checked again: at admission an UPDATE whose key keeps its oldObject value
 passes, and at plan time cmapi drops a failure on a key whose value Git already holds (core/validate). The bounds of

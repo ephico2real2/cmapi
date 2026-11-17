@@ -86,26 +86,29 @@ How to make the bot account, its token and its SSH key, and how to switch `insta
 ```yaml
 policy:
   engine: kyverno          # kyverno | none
-  mode: enforce            # enforce | audit | off, for each environment that `environments` does not name
+  mode: audit              # audit | enforce | off, for each environment that `environments` does not name
   environments:
-    rnd: {mode: audit}
+    prod: {mode: enforce}
 ```
 
 | Key | Type | Default | Allowed values |
 |---|---|---|---|
 | `policy.engine` | text | `kyverno` | `kyverno`, `none` |
-| `policy.mode` | text | `enforce` | `enforce`, `audit`, `off` |
+| `policy.mode` | text | `audit` | `audit`, `enforce`, `off` |
 | `policy.environments.<env>.mode` | text | The value of `policy.mode` | `enforce`, `audit`, `off`. The environment must be one that the instance serves |
 
-With no `policy` key, each environment enforces. An unknown key, an unknown value, and an environment that the instance does not serve each stop the start. `engine: none` runs no policy in any environment. With `engine: none`, an `environments` key, or a `mode` other than `off`, is an error (`PolicySettings.parse`).
+With no `policy` key, each environment audits (#342). The owner, 2026-11-17: "Kyverno should be in audit mode. The core logic like we said should be in the cmapi core logic itself." cmapi's own checks (names, tiers and their bounds, metadata keys) refuse a request in every mode and with `engine: none`; Kyverno reports beside them. An unknown key, an unknown value, and an environment that the instance does not serve each stop the start. `engine: none` runs no policy in any environment. With `engine: none`, an `environments` key, or a `mode` other than `off`, is an error (`PolicySettings.parse`).
 
 | Mode | At plan time in cmapi | In the rendered policies | In CI on the pull request |
 |---|---|---|---|
+| `audit` (the default) | A Kyverno finding is a warning on the plan. The request goes to approval, and a warning keeps the auto-approval policies from applying | `validationActions: [Audit, Warn]`: admitted, recorded in the PolicyReport, and returned to the client as a warning | Reports and does not fail |
 | `enforce` | A Kyverno finding refuses the plan with `policy-violation` | `validationActions: [Deny]` | Fails |
-| `audit` | A Kyverno finding is a warning on the plan. The request goes to approval, and a warning keeps the auto-approval policies from applying | `validationActions: [Audit, Warn]` | Reports and does not fail |
 | `off` | No Kyverno run. kubeconform and the checks of cmapi still run | No policy files for the environment | No Kyverno run. The Kyverno status reports `success` |
 
 Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`), `core/policygen.py` (`ACTIONS`, `render_bundle`).
+
+- A finding of cmapi about Kyverno itself (no binary, a policy that it cannot evaluate, a policy that gives no result) is an error in every mode (#213, F2).
+- A body that breaks a metadata rule gets `422 policy-violation` from cmapi in every mode. cmapi still renders and validates the refused body, so the problem lists the validator's findings beside its `errors` in `findings`: in `audit`, Kyverno's warning on the same value. A refusal that comes before the render (a name, a tier and its bounds) has no `findings` (`core/pipeline.py`, `plan_namespace`).
 
 - YAML 1.1 reads an unquoted `off` as the boolean `false`. cmapi reads `false` as `off` for a mode, and `true` stays an error (`_mode`, `core/policy.py`). Write `"off"` in quotes for clarity.
 - When a served environment runs Kyverno and the image has no `kyverno` binary, cmapi does not start (`PolicyEngineMissing`, `core/validate/__init__.py`). When the variable `CMAPI_KYVERNO_VERSION` is set, the binary must be that version. The image sets it (`cmapi/Containerfile`: v1.20.0).
