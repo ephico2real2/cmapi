@@ -1,0 +1,9 @@
+[08:09:16Z] before: revision 7, api pod cmapi-api-594447dbb8-jm4ks
+[08:09:17Z] helm upgrade with requiredLabel (misspelled) in place of requiredLabels
+Error: UPGRADE FAILED: values don't meet the specifications of the schema(s) in the following chart(s):
+cmapi:
+- at '/metadata': additional properties 'requiredLabel' not allowed
+- at '/metadata': missing property 'requiredLabels'
+
+exit=1
+[08:09:17Z] after: revision 7, api pod cmapi-api-594447dbb8-jm4ks
