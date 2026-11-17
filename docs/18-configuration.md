@@ -194,6 +194,14 @@ Where `emailDomains` is set: in each deployment's metadata configuration. On CRC
 
 The old stanzas `governed` and `team` stop the start. The error names the new stanzas (`MetadataKeys.__init__`). So a file of the old format cannot silently stop requiring a key.
 
+The shape of the file is checked too (#338), so that a typo cannot load as a file with fewer rules:
+
+- A top-level key that is not one of the ten stanzas above stops the start, and the error names the nearest stanza: `unknown stanza 'requiredLabel': did you mean requiredLabels?`.
+- A list stanza (`system`, `operatorOnly`, `reservedPrefixes`, `sensitiveKeys`, `emailDomains`) must be a list of text. A text such as `emailDomains: ephico2real.com` is refused; before #338 it loaded as its characters (`['e', 'p', 'h', ...]`).
+- A mapping stanza (`requiredLabels`, `requiredAnnotations`, `extraLabels`, `extraAnnotations`, `adoptionLabels`), and `keys` and `allowOther` in an extra stanza, must be a mapping. An `adoptionLabels` entry has the one field `recognise`.
+- Each `emailDomains` entry must be a domain name: labels of letters, digits and `-`, joined by `.`, as the chart's `values.schema.json` says.
+- An empty stanza (`operatorOnly:` with nothing after it) is an empty list or mapping. The file itself must be a mapping: an empty file stops the start.
+
 ### The rule of one key
 
 A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extraAnnotations.keys` has a rule. Give one of `value`, `pattern`, `enum` and `format`. A key with none takes any value.
@@ -201,24 +209,43 @@ A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extra
 | Field | Type | Meaning |
 |---|---|---|
 | `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A request can send the same value. Any other value, or a removal, is refused (`derived_key`). A key with `value` takes no `pattern`, `enum`, `format` or `namespacePrefix` |
-| `pattern` | regular expression | The whole value must match (`re.fullmatch`) |
+| `pattern` | regular expression | The whole value must match. Written in the subset that Python, Kyverno and the API document read alike: see "Patterns" below |
 | `enum` | list of text | The value is one of these. A label value must be a valid label value |
-| `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@` and a domain in `emailDomains`. `url`: an http or https URL with a host and no space. A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
+| `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#`, whitespace or character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (as `℀`, CVE-2019-9636), and a `[` only as `[userinfo@][IPv6 address]` with an optional `:port` after it, then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
 | `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes |
-| `description`, `example` | text | Text for people and for the API document |
+| `description`, `example` | text | Text for people and for the API document. A required key that cmapi does not derive needs an `example`, and every `example` must pass its key's own rule (the owner's answer to #328, question 3) |
 
 The loader refuses each of these, and the start stops:
 
 - A key that is a system, operator-only or reserved key.
 - A key declared two times as the same kind.
 - An invalid label or annotation key, or an unknown field.
-- A `pattern` that does not compile.
+- A `pattern` that does not compile, that is empty, or that is outside the subset below (#332).
 - More than one of `pattern`, `enum` and `format`.
+- A required key with no `example`, unless it has `value`. An `example` that its key's rule refuses, or that is not text.
+- A `description` that is not text, and a `namespacePrefix` that is not `true` or `false`.
 - A format on a label, and `email-in-domains` with no `emailDomains`.
 - An `adoptionLabels` key that a stanza declares, or that is a system or operator-only key.
 - An `adoptionLabels` entry whose `recognise` is not a list of label values.
 
 A key can be a label and an annotation at the same time, each with its own rule.
+
+### Patterns
+
+Three engines read each `pattern`: Python's `re` in cmapi (the whole value must match), RE2 in the rendered Kyverno policies (CEL `matches()`), and ECMA-262 in each client of the API document (a JSON Schema `pattern`, #328). cmapi anchors a pattern once, as `^(?:P)$` (`anchored` in `core/metadata.py`), and the loader refuses a pattern that any of the three would read differently, with the key, the construct and its position: `extraAnnotations.company.net/code: pattern '^\\d{4}$' is outside the subset that Python re, RE2 (Kyverno) and ECMA-262 (the API document) read alike: \d (Python also matches the digits of other scripts): write [0-9], at character 2 (docs/18, "Patterns")`.
+
+The subset is RFC 9485's interoperable regular expressions (I-Regexp) without `\p{..}` and `.`, with `^` and `$` where they change nothing:
+
+| Allowed | Notes |
+|---|---|
+| A character, as itself | Any character other than `^ $ \ . * + ? ( ) [ ] { } \|` |
+| `\^ \$ \\ \. \* \+ \? \( \) \[ \] \{ \} \\| \/`, and `\n \r \t` | `\-` only inside a class |
+| `[...]` and `[^...]`, with ranges such as `a-z` | A `-` first, last, or as `\-`. A `[`, `]` or `\` inside as `\[`, `\]`, `\\`. No `&&`, `\|\|`, `~~` or `--` |
+| `(...)`, `(?:...)` and `\|` | |
+| `*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}`, each optionally lazy (`*?`) | A count is at most 1000, and nested counts multiplied are at most 1000 (RE2's limit) |
+| `^` at the start and `$` at the end of the pattern, or of a top-level alternative | `^a$\|^b$` is allowed; `(^a)` and `a$b` are not |
+
+Refused, with what to write instead: `.` (ECMA-262 leaves out `\r`, U+2028 and U+2029: write `[^\n\r]`), `\d \w \s \b` and their capitals (write the class, as `[0-9]`), `\A \Z \z` (write `^` and `$`), inline flags as `(?i)`, named groups, lookaround, backreferences, atomic groups and possessive quantifiers, POSIX classes as `[[:alpha:]]`, `\p{..}`, character codes as `\x41` (write the character), `{,n}` (write `{0,n}`), and an unescaped `]`, `{` or `}`. The decision record, with its sources and the three-engine measurement, is `docs/reviews/2026-11-17-issue-332-338/README.md`.
 
 ### `allowOther`
 
@@ -282,7 +309,7 @@ The rules of the value:
 - **The block is the whole file**, not a patch of the chart's file. Write each of the ten stanzas of the table above, `{}` or `[]` when one is empty. The schema refuses a block that leaves one out, so a partial block cannot silently drop the reserved keys or the required ones.
 - **Empty (`metadata: {}`, the default):** the chart's `config/metadata-keys.yaml`, or the full text in `configFiles."metadata-keys.yaml"`. That text stays the fallback, and the schema does not read inside it.
 - **Both set:** the render fails: `metadata and configFiles."metadata-keys.yaml" both set metadata-keys.yaml: set one of them`.
-- **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format` or `namespacePrefix: true`; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
+- **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format` or `namespacePrefix: true`; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a required key with no `example` and no `value` (#332); a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles and is in the subset of "Patterns" above (its grammar nests parentheses, which the schema's own `pattern` keyword cannot describe), that an `example` passes its key's rule, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
 - `configFiles` takes only the five names of the chart's files. Another name, such as `metadata-key.yaml`, is refused; before #335 the chart ignored it and rendered its own file.
 
 An example, a site that requires its own owner label beside the reference keys (`deploy/environments/<site>.yaml`):

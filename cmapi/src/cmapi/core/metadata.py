@@ -14,23 +14,29 @@ feeds the Kyverno bundle, so plan time, CI and admission agree (docs/02, "Labels
 
 The class names that the approval rules read (keyClasses) are unchanged: a key of a required or extra stanza is
 "governed", and a key that allowOther admits is "team".
+
+Every value regex is one string that three engines read: Python re here (re.fullmatch), RE2 in the rendered Kyverno
+policies (CEL matches(), core/policygen.py) and ECMA-262 in each client of the API document (JSON Schema pattern, #328).
+value_regex() builds it; the loader refuses a configured pattern outside the subset that the three read alike (#332).
 """
 from __future__ import annotations
 
+import difflib
 import re
+import warnings
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import urlsplit
 
 import yaml
 
 from cmapi.core.errors import Problem
-from cmapi.core.identity.checks import email_in_domains
 
 _DNS1123_SUB = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")
 _NAME = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$")
+# A mail domain: DNS labels of letters, digits and "-", as the chart's values.schema.json says (#335).
+_DOMAIN = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$")
 
 KeyClass = str   # "system" | "operatorOnly" | "reserved" | "governed" | "team" | "disallowed"
 KINDS = ("label", "annotation")
@@ -39,6 +45,300 @@ DERIVED_FROM = ("namespace", "environment", "cluster", "instance")
 FORMATS = ("email-in-domains", "url")
 _RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "description", "example"}
 _OLD_STANZAS = ("governed", "team")
+# The stanzas of the file (#338): a list of text, or a mapping. Any other top-level key stops the start, so a misspelt
+# stanza (requiredLabel) cannot load as a file with no rule in it.
+_LIST_STANZAS = ("system", "operatorOnly", "reservedPrefixes", "sensitiveKeys", "emailDomains")
+_MAP_STANZAS = ("requiredLabels", "requiredAnnotations", "extraLabels", "extraAnnotations", "adoptionLabels")
+
+
+# ------------------------------------------------------------------------------------- the one regex of a value (#332)
+# The allowlist is RFC 9485 (I-Regexp, "an interoperable regular expression format") without \p{..}, which Python re
+# lacks, and without ".", which ECMA-262 reads as "not \n, \r, U+2028 or U+2029" and Python and RE2 as "not \n". It
+# adds (?:...), lazy quantifiers, \$ and \/ (all three read them alike), and ^ and $ only where a whole-value match
+# makes them no-ops: at the start and the end of a top-level alternative. Where Python's $ ("end, or before a final
+# newline") would differ from RE2 and ECMA-262 (end only), nothing can follow it, so it is evaluated at the end.
+# The decision and its sources: docs/reviews/2026-11-17-issue-332-338/README.md.
+_SYNTAX = frozenset("^$\\.*+?()[]{}|/")         # escapable everywhere: ECMA-262's SyntaxCharacter and "/"
+_CONTROL = {"n": "\n", "r": "\r", "t": "\t"}
+# RE2 (Go regexp/syntax): "The counting forms x{n,m}, x{n,} and x{n} reject forms that create a minimum or maximum
+# repetition count above 1000", nested counts multiplied (repeatIsValid).
+_MAX_REPEAT = 1000
+_GROUPS = (("(?P<", "a named group (?P<name>...)"), ("(?P=", "a named backreference (?P=name)"),
+           ("(?<=", "a lookbehind (?<=...)"), ("(?<!", "a negative lookbehind (?<!...)"),
+           ("(?<", "a named group (?<name>...)"), ("(?=", "a lookahead (?=...)"), ("(?!", "a negative lookahead (?!...)"),
+           ("(?>", "an atomic group (?>...)"), ("(?#", "a comment (?#...)"), ("(?(", "a conditional group (?(...)...)"))
+_ESCAPES = {
+    "A": r"\A (start of text): write ^ at the start", "Z": r"\Z (end of text): write $ at the end",
+    "z": r"\z (end of text): write $ at the end", "b": r"\b (a word boundary)", "B": r"\B (not a word boundary)",
+    "d": r"\d (Python also matches the digits of other scripts): write [0-9]", "D": r"\D: write [^0-9]",
+    "w": r"\w: write [A-Za-z0-9_]", "W": r"\W: write [^A-Za-z0-9_]",
+    "s": r"\s (whitespace, a different set in each engine): write the characters in a class, as [ \t]",
+    "S": r"\S (whitespace, a different set in each engine): write a class",
+    "p": r"\p{...} (a Unicode property, which Python re does not read)", "P": r"\P{...} (a Unicode property)",
+    "k": r"\k<name> (a named backreference)", "g": r"\g<name> (a group reference)",
+    "x": r"\x (a character code): write the character itself", "u": r"\u (a character code): write the character itself",
+    "U": r"\U (a character code): write the character itself", "N": r"\N{...} (a character name): write the character",
+    "0": r"\0 (a character code): write the character itself", "-": r"\- outside a class: write -",
+}
+# Python warns on these in a class, and ECMA-262's v flag reads them as set operations.
+_SET_OPERATORS = ("&&", "||", "~~", "--")
+
+
+class _NotPortable(Exception):
+    def __init__(self, construct: str, at: int):
+        super().__init__(construct)
+        self.construct, self.at = construct, at
+
+
+class _Subset:
+    """A recursive-descent reader of the allowlist above. It accepts a pattern or raises _NotPortable at the first
+    construct outside it."""
+
+    def __init__(self, pattern: str):
+        self.s, self.i = pattern, 0
+
+    def read(self) -> None:
+        self._alternation(top=True)
+        if self.i < len(self.s):
+            raise _NotPortable("an unmatched )", self.i)
+
+    def _peek(self, n: int = 0) -> str | None:
+        return self.s[self.i + n] if self.i + n < len(self.s) else None
+
+    def _alternation(self, top: bool) -> int:
+        weight = self._branch(top)
+        while self._peek() == "|":
+            self.i += 1
+            weight = max(weight, self._branch(top))
+        return weight
+
+    def _branch(self, top: bool) -> int:
+        weight = 1
+        if self._peek() == "^":
+            if not top:
+                raise _NotPortable("^ inside a group: write ^ only at the start of the pattern or of a top-level |", self.i)
+            self.i += 1
+        while (c := self._peek()) is not None and c not in "|)":
+            if c == "$":
+                if not top or self._peek(1) not in (None, "|"):
+                    raise _NotPortable("$ before the end: write $ only at the end of the pattern or of a top-level |",
+                                       self.i)
+                self.i += 1
+                break
+            if c == "^":
+                raise _NotPortable("^ after the start: write ^ only at the start of the pattern or of a top-level |",
+                                   self.i)
+            weight = max(weight, self._piece())
+        return weight
+
+    def _piece(self) -> int:
+        weight = self._atom()
+        c, at = self._peek(), self.i
+        if c is None or c not in "*+?{":
+            return weight
+        if c == "{":
+            low, high = self._counts()
+            if high == 0:
+                weight = 1                                  # x{0}: RE2 skips what it repeats
+            else:
+                weight *= high if high is not None else max(low, 1)
+                if weight > _MAX_REPEAT:
+                    raise _NotPortable(f"a repetition of more than {_MAX_REPEAT}, nested counts multiplied (RE2's limit)",
+                                       at)
+        else:
+            self.i += 1
+        if self._peek() == "?":
+            self.i += 1                                     # lazy: the same verdict on a whole-value match
+        if (c := self._peek()) is not None and c in "*+?{":
+            raise _NotPortable("a quantifier after a quantifier (possessive, as *+, or repeated)", self.i)
+        return weight
+
+    def _counts(self) -> tuple[int, int | None]:
+        m = re.compile(r"\{([0-9]+)(,([0-9]*))?\}").match(self.s, self.i)
+        if not m:
+            hint = "write {0,n}" if self.s.startswith("{,", self.i) else r"write \{ for a literal {"
+            raise _NotPortable(f"a {{ that is not {{n}}, {{n,}} or {{n,m}}: {hint}", self.i)
+        low = int(m.group(1))
+        high = low if m.group(2) is None else (int(m.group(3)) if m.group(3) else None)
+        if low > _MAX_REPEAT or (high is not None and high > _MAX_REPEAT):
+            raise _NotPortable(f"a count above {_MAX_REPEAT} (RE2's limit)", self.i)
+        if high is not None and low > high:
+            raise _NotPortable("a count {n,m} with n above m", self.i)
+        self.i = m.end()
+        return low, high
+
+    def _atom(self) -> int:
+        c, at = self._peek(), self.i
+        assert c is not None
+        if c == "(":
+            return self._group()
+        if c == "[":
+            self._class()
+        elif c == "\\":
+            self._escape(in_class=False)
+        elif c == ".":
+            raise _NotPortable(r". (any character: ECMA-262 also leaves out \r, U+2028 and U+2029): write a class, "
+                               r"as [^\n\r]", at)
+        elif c in "*+?{":
+            raise _NotPortable(f"{c} with nothing before it to repeat" + (r": write \{ for a literal {" if c == "{" else ""),
+                               at)
+        elif c in "]}":
+            raise _NotPortable(f"an unescaped {c}: write \\{c}", at)
+        elif 0xD800 <= ord(c) <= 0xDFFF:
+            raise _NotPortable("a lone surrogate", at)
+        else:
+            self.i += 1
+        return 1
+
+    def _group(self) -> int:
+        start = self.i
+        if self._peek(1) == "?":
+            if not self.s.startswith("(?:", start):
+                construct = next((name for prefix, name in _GROUPS if self.s.startswith(prefix, start)),
+                                 "an inline flag, as (?i)")
+                raise _NotPortable(construct, start)
+            self.i += 3
+        else:
+            self.i += 1
+        weight = self._alternation(top=False)
+        if self._peek() != ")":
+            raise _NotPortable("an unclosed (", start)
+        self.i += 1
+        return weight
+
+    def _class(self) -> None:
+        start = self.i
+        self.i += 1
+        if self._peek() == "^":
+            self.i += 1
+        if self._peek() == "]":
+            raise _NotPortable(r"an empty class, or a ] first in a class: write \]", self.i)
+        first = True
+        while (c := self._peek()) != "]":
+            if c is None:
+                raise _NotPortable("an unclosed [", start)
+            if c == "[":
+                posix = self.s[self.i:self.i + 2] in ("[:", "[=", "[.")
+                raise _NotPortable("a POSIX class, as [:alpha:]" if posix else r"a [ inside a class: write \[", self.i)
+            if self.s.startswith(_SET_OPERATORS, self.i) and not (first and c == "-"):
+                raise _NotPortable(f"{self.s[self.i:self.i + 2]} in a class (a set operation in ECMA-262's v flag and "
+                                   "a warning in Python)", self.i)
+            if c == "-":
+                if not first and self._peek(1) != "]":
+                    raise _NotPortable(r"a - inside a class that is not a range: write - first or last, or \-", self.i)
+                self.i += 1
+            else:
+                low = self._class_char()
+                if self._peek() == "-" and self._peek(1) not in ("]", None):
+                    at = self.i
+                    self.i += 1
+                    if ord(self._class_char()) < ord(low):
+                        raise _NotPortable("a range out of order", at)
+            first = False
+        self.i += 1
+
+    def _class_char(self) -> str:
+        c, at = self._peek(), self.i
+        if c is None:
+            raise _NotPortable("an unclosed [", at)
+        if c == "\\":
+            return self._escape(in_class=True)
+        if c in "[]-":
+            raise _NotPortable(f"an unescaped {c} in a range: write \\{c}", at)
+        if 0xD800 <= ord(c) <= 0xDFFF:
+            raise _NotPortable("a lone surrogate", at)
+        self.i += 1
+        return c
+
+    def _escape(self, in_class: bool) -> str:
+        at = self.i
+        c = self._peek(1)
+        if c is None:
+            raise _NotPortable("a \\ at the end", at)
+        self.i += 2
+        if c in _SYNTAX or (in_class and c == "-"):
+            return c
+        if c in _CONTROL:
+            return _CONTROL[c]
+        if c in "123456789":
+            raise _NotPortable(f"a backreference \\{c}", at)
+        raise _NotPortable(_ESCAPES.get(c, f"the escape \\{c}"), at)
+
+
+def portable_pattern_problem(pattern: str) -> str | None:
+    """None when the pattern is in the subset that Python re, RE2 and ECMA-262 read alike, or the first construct
+    outside it, with its position."""
+    try:
+        _Subset(pattern).read()
+    except _NotPortable as e:
+        return f"{e.construct}, at character {e.at + 1}"
+    return None
+
+
+def anchored(pattern: str) -> str:
+    """A configured pattern as one whole-value regex, for each engine: re.fullmatch, and RE2 and ECMA-262 that search.
+    The only place that anchors a pattern (#332)."""
+    return f"^(?:{pattern})$"
+
+
+def _literal(text: str) -> str:
+    """text as a regex in the subset: ASCII letters in either case (no inline flag, which ECMA-262 lacks), a syntax
+    character escaped. re.escape is not used: it escapes "-", "&", "~" and "#", and ECMA-262 refuses \\- outside a
+    class in Unicode mode."""
+    return "".join(f"[{c.lower()}{c.upper()}]" if c.isascii() and c.isalpha() else ("\\" + c if c in _SYNTAX else c)
+                   for c in text)
+
+
+# The local part of an address: one or more of these (the format email-in-domains, docs/18).
+_EMAIL_LOCAL = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+"
+# Python's str.isspace(), written out: RE2 reads no \u escape and ECMA-262 no \x{..}, so the characters past \r are
+# literal (tests/core/test_metadata_pattern_subset_332.py holds it equal to isspace over every code point).
+_SPACE = "\\t-\\r\x1c- \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+# The characters whose NFKC form holds "/", "?", "#", "@" or ":" (U+2100 ACCOUNT OF is "a/c"). urllib.parse refuses a
+# netloc with one ("contains invalid characters under NFKC normalization", CVE-2019-9636), and so did the validator
+# before #332, because a client that normalises the host for IDNA would split it there. Literal, as _SPACE is
+# (tests/core/test_metadata_pattern_subset_332.py holds it equal to unicodedata over every code point).
+_NFKC_DELIMITERS = ("\u2047\u2048\u2049\u2100\u2101\u2105\u2106\u2a74\ufe13\ufe16\ufe55\ufe56\ufe5f\ufe6b\uff03\uff0f"
+                    "\uff1a\uff1f\uff20")
+# The authority of a URL (RFC 3986 section 3.2): no "/", "?", "#", whitespace or NFKC delimiter. A "[" only in
+# [userinfo "@"] "[" IPv6address "]" [":" port]: nothing before "[" but a userinfo and nothing after "]" but a port, as
+# RFC 3986's IP-literal and urllib.parse (_check_bracketed_netloc) say; ls32 is two 16-bit pieces or an IPv4 address.
+_HOST = f"[^/?#\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
+_PORT = f"[^/?#@\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
+_H16 = "[0-9A-Fa-f]{1,4}"
+_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+_LS32 = f"(?:{_H16}:{_H16}|{_OCTET}(?:\\.{_OCTET}){{3}})"
+_IPV6 = "|".join([f"(?:{_H16}:){{6}}{_LS32}", f"::(?:{_H16}:){{5}}{_LS32}", f"(?:{_H16})?::(?:{_H16}:){{4}}{_LS32}",
+                  *(f"(?:(?:{_H16}:){{0,{n}}}{_H16})?::(?:{_H16}:){{{4 - n}}}{_LS32}" for n in (1, 2)),
+                  f"(?:(?:{_H16}:){{0,3}}{_H16})?::{_H16}:{_LS32}", f"(?:(?:{_H16}:){{0,4}}{_H16})?::{_LS32}",
+                  f"(?:(?:{_H16}:){{0,5}}{_H16})?::{_H16}", f"(?:(?:{_H16}:){{0,6}}{_H16})?::"])
+_URL = (f"^{_literal('http')}[sS]?://(?:{_HOST}+|(?:{_HOST}*@)?\\[(?:{_IPV6})\\](?::{_PORT}*)?)"
+        f"(?:[/?#][^{_SPACE}]*)?$")
+
+
+def value_regex(rule: "KeyRule", domains: list[str]) -> str | None:
+    """The one regex of a declared key's value, or None when its rule has none (an enum, a derived key, any value).
+    The validator, the Kyverno renderer and the API document (#328) each use this string (#332)."""
+    if rule.pattern is not None:
+        return anchored(rule.pattern)
+    if rule.format == "email-in-domains":
+        return f"^{_EMAIL_LOCAL}@(?:{'|'.join(_literal(d) for d in domains)})$"
+    if rule.format == "url":
+        return _URL
+    return None
+
+
+def _kind_of(value: Any) -> str:
+    """What a value of the file is, for a message."""
+    if value is None:
+        return "empty"
+    if isinstance(value, Mapping):
+        return "a mapping"
+    if isinstance(value, list):
+        return "a list"
+    if isinstance(value, str):
+        return f"the text {value!r}"
+    return f"the {type(value).__name__} {value!r}"
 
 
 @dataclass(frozen=True)
@@ -83,34 +383,53 @@ class AllowOther:
 
 class MetadataKeys:
     def __init__(self, raw: Mapping[str, Any]):
+        if not isinstance(raw, Mapping):
+            # An empty file reads as None: it has no stanza, so no key would be required (#338).
+            raise ValueError(f"metadata-keys.yaml is a mapping of the stanzas {list(_LIST_STANZAS + _MAP_STANZAS)}, "
+                             f"not {_kind_of(raw)}")
         problems: list[str] = []
         old = [s for s in _OLD_STANZAS if s in raw]
         if old:
             # A file of the old format must not start: its required keys would silently stop being required.
             raise ValueError(f"metadata-keys.yaml has the stanzas {old} of the old format; write requiredLabels, "
                              "requiredAnnotations, extraLabels and extraAnnotations instead (docs/02, \"Labels and annotations\")")
-        self.system = list(raw.get("system", []))
-        self.operator_only = list(raw.get("operatorOnly", []))
-        self.reserved_prefixes = [p.rstrip("/") for p in raw.get("reservedPrefixes", [])]
-        self.sensitive = set(raw.get("sensitiveKeys", []))
-        self.email_domains = [d.lower() for d in raw.get("emailDomains", [])]
+        for stanza in raw:
+            if stanza not in _LIST_STANZAS + _MAP_STANZAS:
+                # A misspelt stanza (requiredLabel) would otherwise load as a file without its rules (#338).
+                near = difflib.get_close_matches(str(stanza), _LIST_STANZAS + _MAP_STANZAS, n=1)
+                problems.append(f"unknown stanza {stanza!r}" + (f": did you mean {near[0]}?" if near else
+                                                                 f"; the stanzas are {list(_LIST_STANZAS + _MAP_STANZAS)}"))
+        self.system = self._texts(raw, "system", problems)
+        self.operator_only = self._texts(raw, "operatorOnly", problems)
+        self.reserved_prefixes = [p.rstrip("/") for p in self._texts(raw, "reservedPrefixes", problems)]
+        self.sensitive = set(self._texts(raw, "sensitiveKeys", problems))
+        domains = self._texts(raw, "emailDomains", problems)
+        bad = [d for d in domains if len(d) > 253 or not _DOMAIN.fullmatch(d)]
+        if bad:
+            problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
+        self.email_domains = [d.lower() for d in domains]
         # {kind: {key: KeyRule}}: a key can be a label and an annotation at once, each with its own rule.
         self.rules: dict[str, dict[str, KeyRule]] = {"label": {}, "annotation": {}}
         self.allow_other: dict[str, AllowOther] = {}
         for kind, req_name, extra_name in (("label", "requiredLabels", "extraLabels"),
                                            ("annotation", "requiredAnnotations", "extraAnnotations")):
-            for key, spec in (raw.get(req_name) or {}).items():
+            for key, spec in self._mapping(raw, req_name, problems).items():
                 self._add(kind, key, spec, True, req_name, problems)
-            extra = raw.get(extra_name) or {}
+            extra = self._mapping(raw, extra_name, problems)
             unknown = set(extra) - {"keys", "allowOther"}
             if unknown:
                 problems.append(f"{extra_name}: unknown fields {sorted(unknown)}")
-            for key, spec in (extra.get("keys") or {}).items():
+            for key, spec in self._mapping(extra, "keys", problems, extra_name).items():
                 self._add(kind, key, spec, False, extra_name, problems)
-            self.allow_other[kind] = self._allow_other(kind, extra.get("allowOther") or {}, extra_name, problems)
+            self.allow_other[kind] = self._allow_other(kind, self._mapping(extra, "allowOther", problems, extra_name),
+                                                       extra_name, problems)
         self.adoption_labels: dict[str, tuple[str, ...]] = {}
-        for key, spec in (raw.get("adoptionLabels") or {}).items():
-            values = (spec or {}).get("recognise")
+        for key, spec in self._mapping(raw, "adoptionLabels", problems).items():
+            if not isinstance(spec, Mapping) or set(spec) - {"recognise"}:
+                problems.append(f"adoptionLabels.{key}: an entry is {{recognise: [values]}}, not {_kind_of(spec)}"
+                                + (f" with the fields {sorted(map(str, spec))}" if isinstance(spec, Mapping) else ""))
+                continue
+            values = spec.get("recognise")
             if not isinstance(values, list) or not values or not all(isinstance(v, str) for v in values):
                 problems.append(f"adoptionLabels.{key}: recognise must be a list of values")
                 continue
@@ -124,22 +443,59 @@ class MetadataKeys:
         if problems:
             raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems))
 
+    @staticmethod
+    def _texts(raw: Mapping[str, Any], name: str, problems: list[str]) -> list[str]:
+        """A stanza that is a list of text. Empty (null) is []. A text is refused: list("x.com") would read it as its
+        characters (#338)."""
+        value = raw.get(name)
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            problems.append(f"{name} must be a list of text, as [a, b], not {_kind_of(value)}")
+            return []
+        odd = [v for v in value if not isinstance(v, str)]
+        if odd:
+            problems.append(f"{name} must be a list of text; {odd[0]!r} is not text")
+            return []
+        return list(value)
+
+    @staticmethod
+    def _mapping(raw: Mapping[str, Any], name: str, problems: list[str], parent: str = "") -> Mapping[str, Any]:
+        """A stanza or field that is a mapping. Empty (null) is {}."""
+        value = raw.get(name)
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            problems.append(f"{parent + '.' if parent else ''}{name} must be a mapping, not {_kind_of(value)}")
+            return {}
+        return value
+
     def _add(self, kind: str, key: str, spec: Any, required: bool, stanza: str, problems: list[str]) -> None:
         where = f"{stanza}.{key}"
-        spec = spec or {}
+        if not isinstance(key, str):
+            problems.append(f"{stanza}: the key {key!r} is not text")
+            return
+        # An empty rule (key:) is a key with any value. "", 0, false and [] are not empty: `spec or {}` read each as
+        # one, so a typo loaded an unrestricted key where a truthy scalar was refused (#338).
+        spec = {} if spec is None else spec
         if not isinstance(spec, Mapping):
-            problems.append(f"{where}: a key's rule is a mapping")
+            problems.append(f"{where}: a key's rule is a mapping, not {_kind_of(spec)}")
             return
         unknown = set(spec) - _RULE_FIELDS
         if unknown:
             problems.append(f"{where}: unknown fields {sorted(unknown)}")
-        if self._syntax(key, None, kind):
+        key_ok = not self._syntax(key, None, kind)
+        if not key_ok:
             problems.append(f"{where}: not a valid {kind} key")
         if key in self.system or key in self.operator_only or \
                 ("/" in key and self._prefix_in(self._prefix(key), self.reserved_prefixes)):
             problems.append(f"{where}: a system, operator-only or reserved key cannot be set by a requester")
         if key in self.rules[kind]:
             problems.append(f"{where}: declared twice as a {kind}")
+        for field, want in (("description", str), ("example", str), ("namespacePrefix", bool)):
+            if spec.get(field) is not None and not isinstance(spec[field], want):
+                problems.append(f"{where}: {field} must be {'text' if want is str else 'true or false'}, "
+                                f"not {_kind_of(spec[field])}")
         derived = None
         if "value" in spec:
             derived = (spec["value"] or {}).get("from") if isinstance(spec["value"], Mapping) else None
@@ -164,19 +520,49 @@ class MetadataKeys:
             holds = "a URL" if fmt == "url" else "an address"
             problems.append(f"{where}: format {fmt} is for annotations only; a label value cannot hold {holds}")
         pattern = spec.get("pattern")
-        if pattern is not None:
-            try:
-                re.compile(pattern)
-            except re.error as exc:
-                problems.append(f"{where}: pattern does not compile: {exc}")
+        regex_ok = self._pattern_ok(where, pattern, problems)
         if derived and (pattern is not None or enum is not None or fmt is not None or spec.get("namespacePrefix")):
             problems.append(f"{where}: a key with value.from takes no pattern, enum, format or namespacePrefix")
         if sum(x is not None for x in (pattern, enum, fmt)) > 1:
             problems.append(f"{where}: give one of pattern, enum and format")
-        self.rules[kind][key] = KeyRule(kind=kind, required=required, derived=derived, pattern=pattern,
-                                        enum=tuple(enum) if enum is not None else None, format=fmt,
-                                        namespace_prefix=bool(spec.get("namespacePrefix")),
-                                        description=spec.get("description"), example=spec.get("example"))
+        example = spec.get("example")
+        rule = KeyRule(kind=kind, required=required, derived=derived, pattern=pattern,
+                       enum=tuple(enum) if enum is not None else None, format=fmt,
+                       namespace_prefix=bool(spec.get("namespacePrefix")),
+                       description=spec.get("description"), example=example)
+        self.rules[kind][key] = rule
+        if required and not derived and example is None:
+            # The owner's decision (#328, question 3): the API document shows each required key with its example, and
+            # a document whose example misses a required key fails its own schema. cmapi does not invent one.
+            problems.append(f"{where}: a required key needs an example, a value that its rule accepts, for the API "
+                            "document")
+        elif isinstance(example, str) and not derived and regex_ok and key_ok:
+            refused = self._syntax(key, example, kind) or next(iter(self._governed(key, example, kind, {})), None)
+            if refused:
+                problems.append(f"{where}: the example {example!r} breaks the key's own rule "
+                                f"({refused.get('detail', rule.text(self.email_domains))})")
+
+    @staticmethod
+    def _pattern_ok(where: str, pattern: Any, problems: list[str]) -> bool:
+        """A configured pattern compiles in Python and is in the subset that RE2 and ECMA-262 read alike (#332)."""
+        if pattern is None:
+            return True
+        if not isinstance(pattern, str) or not pattern:
+            problems.append(f"{where}: pattern must be a non-empty text, not {_kind_of(pattern)}")
+            return False
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)     # a nested set: refused below with its name
+                re.compile(pattern)
+        except re.error as exc:
+            problems.append(f"{where}: pattern does not compile: {exc}")
+            return False
+        problem = portable_pattern_problem(pattern)
+        if problem:
+            problems.append(f"{where}: pattern {pattern!r} is outside the subset that Python re, RE2 (Kyverno) and "
+                            f"ECMA-262 (the API document) read alike: {problem} (docs/18, \"Patterns\")")
+            return False
+        return True
 
     @staticmethod
     def _allow_other(kind: str, raw: Mapping[str, Any], stanza: str, problems: list[str]) -> AllowOther:
@@ -337,16 +723,14 @@ class MetadataKeys:
             return []
         if value is None:
             return []
-        detail = rule.text(self.email_domains)
-        if rule.format == "email-in-domains" and not email_in_domains(value, self.email_domains):
-            code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
-            return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
-        if rule.format == "url":
-            parts = urlsplit(value)
-            if parts.scheme not in ("http", "https") or not parts.netloc or any(c.isspace() for c in value):
-                return [{"code": "invalid_value", "key": key, "detail": detail}]
-        if rule.pattern and not re.fullmatch(rule.pattern, value):
-            return [{"code": "invalid_value", "key": key, "detail": f"must match {rule.pattern}"}]
+        # The regex of the pattern or the format: the string that the rendered Kyverno policy matches too (#332).
+        regex = value_regex(rule, self.email_domains)
+        if regex is not None and not re.fullmatch(regex, value):
+            if rule.format == "email-in-domains":
+                code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
+                return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
+            detail = f"must match {rule.pattern}" if rule.pattern is not None else rule.text(self.email_domains)
+            return [{"code": "invalid_value", "key": key, "detail": detail}]
         if rule.enum is not None and value not in rule.enum:
             return [{"code": "invalid_value", "key": key, "detail": f"one of {list(rule.enum)}"}]
         namespace = sources.get("namespace")

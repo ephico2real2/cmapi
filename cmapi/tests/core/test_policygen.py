@@ -224,6 +224,10 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
     ({}, {"company.net/app-environment": "dev"}, "company.net/app-environment"),
     ({}, {"company.net/mnemonic-group-contact": "abc-team@other.org"}, "company.net/mnemonic-group-contact"),
     ({}, {"company.net/mnemonic-confluence": "ftp://wiki.company.net/abc"}, "company.net/mnemonic-confluence"),
+    # #332: one regex for both. On main Python accepted the first (urlsplit strips a leading C0 control) and raised
+    # ValueError on the second, which the policy accepted.
+    ({}, {"company.net/mnemonic-confluence": "\x01https://wiki.company.net/abc"}, "company.net/mnemonic-confluence"),
+    ({}, {"company.net/mnemonic-confluence": "http://[wiki.company.net/abc"}, "company.net/mnemonic-confluence"),
 ])
 def test_python_and_kyverno_refuse_the_same_value(kyverno, catalog, company, tmp_path, labels, annotations, key):
     """The agreement of the two checkers: each value that cmapi's own check refuses, the rendered policy refuses too."""

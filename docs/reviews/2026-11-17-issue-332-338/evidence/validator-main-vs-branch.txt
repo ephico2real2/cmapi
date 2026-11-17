@@ -1,0 +1,11 @@
+162 verdicts of the company file's url and email keys on the corpus, 10 differ between main 5a8f817 and this branch:
+  ("company.net/mnemonic-confluence '\\x01http://x'", 'accepted', 'refused')
+  ("company.net/mnemonic-confluence 'http://[x'", 'ValueError: Invalid IPv6 URL', 'refused')
+  ("company.net/mnemonic-confluence 'http://x]'", 'ValueError: Invalid IPv6 URL', 'refused')
+  ("company.net/mnemonic-confluence 'http://[x]'", "ValueError: 'x' does not appear to be an IPv4 or IPv6 address", 'refused')
+  ("company.net/mnemonic-confluence 'http://[:::::]/'", "ValueError: ':::::' does not appear to be an IPv4 or IPv6 address", 'refused')
+  ("company.net/mnemonic-confluence 'http://[1::2::3]/'", "ValueError: '1::2::3' does not appear to be an IPv4 or IPv6 address", 'refused')
+  ("company.net/mnemonic-confluence 'http://[12345::]/'", "ValueError: '12345::' does not appear to be an IPv4 or IPv6 address", 'refused')
+  ("company.net/mnemonic-confluence 'http://[1.2.3.4]/'", 'ValueError: An IPv4 address cannot be in brackets', 'refused')
+  ("company.net/mnemonic-confluence 'http://[::ffff:256.0.0.1]/'", "ValueError: '::ffff:256.0.0.1' does not appear to be an IPv4 or IPv6 address", 'refused')
+  ("company.net/mnemonic-confluence 'http://[v1.x]/'", 'accepted', 'refused')

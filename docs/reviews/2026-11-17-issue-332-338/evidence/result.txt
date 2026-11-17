@@ -1,0 +1,3 @@
+# 2026-11-17T09:24:22Z, go go1.27.3 regexp (RE2 syntax), node v26.9.0 RegExp u flag; python verdicts are re.fullmatch on Python 3.12.14
+re2: 2000 verdicts, 0 differ from python
+ecma: 2000 verdicts, 0 differ from python

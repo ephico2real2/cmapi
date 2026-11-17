@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -180,6 +181,10 @@ REFUSED = {
                                      "at '/metadata/requiredLabels/cmapi.net~1x': got null, want object"),
     "an example that is not text": (_mutate(lambda k: k["requiredLabels"]["cmapi.net/team"].__setitem__("example", 4410)),
                                     "at '/metadata/requiredLabels/cmapi.net~1team/example': got number, want string"),
+    # #328 question 3 (#332): the loader refuses it at start; the schema refuses it before the render.
+    "a required key without an example": (_mutate(lambda k: k["requiredAnnotations"]["cmapi.net/team-dl"].pop("example")),
+                                          "at '/metadata/requiredAnnotations/cmapi.net~1team-dl': missing property "
+                                          "'example'"),
 }
 
 
@@ -251,3 +256,42 @@ def test_checksum_config_hashes_no_leading_whitespace(tmp_path, values):
     # The probe reads what the pods hash; then that text starts with the ConfigMap itself.
     assert sums == dict.fromkeys(("cmapi-api", "cmapi-worker"), hashlib.sha256(raw.encode()).hexdigest()), sums
     assert raw.startswith("apiVersion: v1\nkind: ConfigMap\n"), repr(raw[:80])
+
+
+# The loader's own refusals of #332 and #338, given as the block: the schema refuses each first, and the loader refuses
+# the same file at start, so a file that reaches a pod through configFiles or the plain manifests cannot slip past either.
+BOTH = ("a misspelled stanza", "text for a list", "an unknown field of a rule", "an adoption label without recognise",
+        "an example that is not text", "a required key without an example")
+
+
+@pytest.mark.parametrize("case", BOTH)
+def test_the_loader_refuses_what_the_schema_refuses_for_the_shape_and_the_example(case):
+    with pytest.raises(ValueError, match="invalid metadata-keys.yaml"):
+        MetadataKeys(REFUSED[case][0])
+
+
+def test_a_pattern_outside_the_common_subset_passes_the_schema_and_stops_the_loader(tmp_path):
+    """JSON Schema cannot hold the subset of #332: its grammar nests parentheses, which no regular expression of the
+    schema's pattern keyword can describe. So the schema takes any text and the loader refuses it at start, naming the
+    construct; the chart renders it, and the pod fails its start (docs/18, "Patterns")."""
+    keys = _chart_keys()
+    keys["extraLabels"]["keys"]["cmapi.net/cost-center"]["pattern"] = pattern = r"^cc-\d{4}$"
+    rendered = _rendered_keys(tmp_path, {"metadata": keys})
+    with pytest.raises(ValueError, match=re.escape(f"pattern {pattern!r} is outside the subset")):
+        MetadataKeys(rendered)
+
+
+def test_the_schema_types_each_stanza_as_the_loader_reads_it():
+    """#338: a list stanza is an array and a mapping stanza an object in both, so neither reads the other's shape."""
+    schema = json.loads(SCHEMA.read_text())
+    stanzas = schema["properties"]["metadata"]["properties"]
+
+    def kind(node: dict) -> str:
+        if "$ref" in node:
+            return kind(schema["definitions"][node["$ref"].rsplit("/", 1)[1]])
+        if "allOf" in node:
+            return next(kind(n) for n in node["allOf"] if "$ref" in n or "type" in n)
+        return node["type"]
+
+    assert {name: kind(stanzas[name]) for name in metadata._LIST_STANZAS} == dict.fromkeys(metadata._LIST_STANZAS, "array")
+    assert {name: kind(stanzas[name]) for name in metadata._MAP_STANZAS} == dict.fromkeys(metadata._MAP_STANZAS, "object")
