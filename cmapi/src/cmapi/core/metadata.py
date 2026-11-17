@@ -33,8 +33,12 @@ import yaml
 
 from cmapi.core.errors import Problem
 
-_DNS1123_SUB = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")
-_NAME = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$")
+# Kubernetes' key and label-value syntax (IsLabelKey, IsValidLabelValue), as text so that the API document's schema
+# (json_schema, #328) reads the strings that the validator compiles.
+_DNS1123_SUB_TEXT = r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*"
+_NAME_TEXT = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
+_DNS1123_SUB = re.compile(f"^{_DNS1123_SUB_TEXT}$")
+_NAME = re.compile(f"^{_NAME_TEXT}$")
 # A mail domain: DNS labels of letters, digits and "-", as the chart's values.schema.json says (#335).
 _DOMAIN = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$")
 
@@ -326,6 +330,116 @@ def value_regex(rule: "KeyRule", domains: list[str]) -> str | None:
     if rule.format == "url":
         return _URL
     return None
+
+
+# ------------------------------------------------------------------------- the schema of labels and annotations (#328)
+# Each regex below is in the subset of _Subset (tests/core/test_metadata_schema_328.py holds it), so ECMA-262 reads it as
+# the validator does. A label value: empty, or _NAME of at most 63 characters (maxLength says the 63).
+_LABEL_VALUE = f"^(?:{_NAME_TEXT})?$"
+# A key: an optional DNS-1123 subdomain and "/", then a name of 1 to 63 characters. The prefix's 253 is maxLength's
+# 317 (253 + 1 + 63) only: a length bound on one part of a regex needs a lookahead, which RE2 lacks.
+_KEY = f"^(?:{_DNS1123_SUB_TEXT}/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{{0,61}}[A-Za-z0-9])?$"
+_KEY_MAX = 253 + 1 + 63
+_OPS = ("create", "patch")
+
+
+def _glob_regex(glob: str, *, exact: bool) -> str | None:
+    """fnmatchcase(prefix, glob) as a regex of the prefix (a key's text before its first "/", so it holds no "/").
+    A [...] class is read as fnmatch reads it; when it is not one that the subset can say exactly, exact=False gives
+    any one character (a wider set, for a set of keys that are admitted) and exact=True gives None (for a set of keys
+    that are refused, which must never hold more than the validator refuses)."""
+    out, i, n = [], 0, len(glob)
+    while i < n:
+        c = glob[i]
+        i += 1
+        if c == "*":
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        elif c == "[":
+            j = i + (i < n and glob[i] == "!")
+            j += j < n and glob[j] == "]"
+            while j < n and glob[j] != "]":
+                j += 1
+            if j >= n:
+                out.append("\\[")                       # fnmatch: a [ that no ] closes is the character itself
+                continue
+            body, i = glob[i:j], j + 1
+            negate, body = body.startswith("!"), body[1:] if body.startswith("!") else body
+            klass = _glob_class(body, negate)
+            if klass is None:
+                if exact:
+                    return None
+                klass = "[^/]"
+            out.append(klass)
+        else:
+            out.append("\\" + c if c in _SYNTAX else c)
+    return "".join(out)
+
+
+def _glob_class(body: str, negate: bool) -> str | None:
+    """One fnmatch class as a regex class in the subset, or None. Ranges as a-z; every other character is itself."""
+    parts, i = [], 0
+    while i < len(body):
+        if i + 2 < len(body) and body[i + 1] == "-":
+            low, high = body[i], body[i + 2]
+            if low > high:
+                return None                                 # fnmatch drops an empty range; say it as unknown
+            parts.append(_class_char(low) + "-" + _class_char(high))
+            i += 3
+        else:
+            parts.append(_class_char(body[i]))
+            i += 1
+    text = ("[^/" if negate else "[") + "".join(parts) + "]"
+    return text if parts and portable_pattern_problem(text) is None else None
+
+
+def _class_char(c: str) -> str:
+    return "\\" + c if c in "\\]^[-" else c
+
+
+def _glob_tokens(glob: str) -> list[str | None]:
+    """A glob as "*", one character, or None for any one character (? or a [...] class, read as any character)."""
+    out: list[str | None] = []
+    i, n = 0, len(glob)
+    while i < n:
+        c = glob[i]
+        i += 1
+        if c == "[":
+            j = i + (i < n and glob[i] == "!")
+            j += j < n and glob[j] == "]"
+            while j < n and glob[j] != "]":
+                j += 1
+            if j < n:
+                out.append(None)
+                i = j + 1
+                continue
+        out.append(None if c == "?" else c)
+    return out
+
+
+def _globs_meet(a: str, b: str) -> bool:
+    """Whether some non-empty text matches both globs. It may answer True for two that do not meet (a class is read
+    as any character); the caller only adds an exact exclusion that is then not needed."""
+    x, y = _glob_tokens(a), _glob_tokens(b)
+    seen: dict[tuple[int, int], bool] = {}
+
+    def meet(i: int, j: int) -> bool:
+        if (i, j) not in seen:
+            seen[(i, j)] = False                        # a cycle through two "*" adds nothing
+            if i == len(x) and j == len(y):
+                result = True
+            elif i < len(x) and x[i] == "*":
+                result = meet(i + 1, j) or (j < len(y) and meet(i, j + 1))
+            elif j < len(y) and y[j] == "*":
+                result = meet(i, j + 1) or (i < len(x) and meet(i + 1, j))
+            else:
+                result = i < len(x) and j < len(y) and (x[i] is None or y[j] is None or x[i] == y[j]) and \
+                    meet(i + 1, j + 1)
+            seen[(i, j)] = result
+        return seen[(i, j)]
+
+    return meet(0, 0)
 
 
 def _kind_of(value: Any) -> str:
@@ -773,3 +887,134 @@ class MetadataKeys:
         """Render order: system keys first, then governed, then the rest; each group sorted."""
         rank = {"system": 0, "reserved": 0, "operatorOnly": 0, "governed": 1}
         return dict(sorted(items.items(), key=lambda kv: (rank.get(self.classify(kv[0]), 2), kv[0])))
+
+    # ---- the API document (#328)
+    def json_schema(self, kind: str, op: str) -> dict[str, Any]:
+        """The JSON Schema 2020-12 of the labels (kind=label) or annotations of NamespaceCreate (op=create) or of
+        NamespacePatch (op=patch, the object branch of its anyOf with null), from this file, for the API document.
+
+        It documents validate(); it never replaces it. It is sound: each map that validate() accepts passes it
+        (tests/core/test_metadata_schema_328.py runs both on one corpus). What JSON Schema cannot say stays loose and is
+        said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix), the
+        count of other keys and the sizes in bytes (allowOther), and the 253 characters of a key's prefix."""
+        if kind not in KINDS or op not in _OPS:
+            raise ValueError(f"json_schema: kind is one of {KINDS} and op one of {_OPS}, not {kind!r}, {op!r}")
+        patch = op == "patch"
+        rules, other = self.rules[kind], self.allow_other[kind]
+        properties = {key: self._rule_schema(rule, patch) for key, rule in rules.items()}
+        for key in self.operator_only:
+            properties[key] = self._nullable(self._operator_schema(kind), patch)
+        extra: dict[str, Any] = {"type": "string"}
+        if kind == "label":
+            extra.update(pattern=_LABEL_VALUE, maxLength=63)
+        elif other.max_value_bytes is not None:
+            # A character is one to four bytes in UTF-8, so a bound on bytes is at least this bound on characters.
+            extra["maxLength"] = other.max_value_bytes
+        schema: dict[str, Any] = {"type": "object", "properties": properties}
+        required = [key for key, rule in rules.items() if rule.required and not rule.derived]
+        if required and not patch:
+            schema["required"] = required
+        schema["propertyNames"] = self._key_names(kind, list(properties), patch)
+        schema["additionalProperties"] = {"anyOf": [extra, {"type": "null"}]} if patch else extra
+        limits: dict[str, Any] = {"prefixes": [p + "/" if p else "" for p in other.prefixes], "max": other.max}
+        if kind == "annotation":
+            limits.update(maxValueBytes=other.max_value_bytes, maxBytesTotal=other.max_bytes_total)
+        schema["x-cmapi-other-keys"] = limits
+        return schema
+
+    @staticmethod
+    def _nullable(schema: dict[str, Any], patch: bool) -> dict[str, Any]:
+        """On a merge patch, null removes the key. FastAPI's form, anyOf with null, so oasdiff compares like with like:
+        it reads a type list [string, null] against anyOf as a narrowing (measured, docs/reviews/2026-11-16-issue-328)."""
+        if not patch:
+            return schema
+        words = {k: schema.pop(k) for k in ("description", "examples") if k in schema}
+        marks = {k: schema.pop(k) for k in list(schema) if k.startswith("x-cmapi-")}
+        return {"anyOf": [schema, {"type": "null"}], **words, **marks}
+
+    def _operator_schema(self, kind: str) -> dict[str, Any]:
+        out: dict[str, Any] = {"type": "string"}
+        if kind == "label":
+            out.update(pattern=_LABEL_VALUE, maxLength=63)
+        out["description"] = "cmapi-operator and above only: a requester gets 403 forbidden."
+        out["x-cmapi-operator-only"] = True
+        return out
+
+    def _rule_schema(self, rule: KeyRule, patch: bool) -> dict[str, Any]:
+        """One declared key. A required or derived key has no null branch on a patch: validate() refuses its removal
+        (missing_required_key, derived_key)."""
+        out: dict[str, Any] = {"type": "string"}
+        if rule.derived:
+            # Validation 9.4: readOnly is "managed exclusively by the owning authority". The same value is accepted
+            # (_governed), so the key stays in properties and out of required, with no const: it depends on the target.
+            out["readOnly"] = True
+            if rule.kind == "label":
+                out.update(pattern=_LABEL_VALUE, maxLength=63)
+        else:
+            regex = value_regex(rule, self.email_domains)
+            if rule.kind == "label":
+                if regex is not None:
+                    out["pattern"] = regex
+                    # _syntax checks the label value first; one schema object holds one pattern, so the second is in
+                    # allOf. Its "type" keeps openapi-typescript at string (measured in design B, #328).
+                    out["allOf"] = [{"type": "string", "pattern": _LABEL_VALUE}]
+                elif rule.enum is None:
+                    out["pattern"] = _LABEL_VALUE   # an enum's values are label values, checked at load (_add)
+                out["maxLength"] = 63
+            elif regex is not None:
+                out["pattern"] = regex
+            if rule.enum is not None:
+                out["enum"] = list(rule.enum)
+            if rule.required:
+                out["minLength"] = 1                # an empty value is a missing key (validate)
+        words = [rule.description] if rule.description else []
+        words.append(rule.text(self.email_domains))
+        if rule.derived:
+            words.append("a request may send the same value, never another")
+        out["description"] = " ".join(w[:1].upper() + w[1:].rstrip(".") + "." for w in words)
+        if rule.example is not None and not rule.derived:
+            out["examples"] = [rule.example]
+        if rule.derived:
+            out["x-cmapi-derived-from"] = rule.derived
+        if rule.format is not None:
+            out["x-cmapi-format"] = rule.format
+        if rule.namespace_prefix:
+            out["x-cmapi-namespace-prefix"] = True
+        return self._nullable(out, patch and not rule.required and not rule.derived)
+
+    def _key_names(self, kind: str, declared: list[str], patch: bool) -> dict[str, Any]:
+        """propertyNames: the declared and operator-only keys, or a key that allowOther admits and classify() does not
+        refuse first. On create, each key also has Kubernetes' syntax. On a patch it does not: a key that Git holds can
+        be removed with null even when its name is not valid now ("/foo" from before #330), and JSON Schema cannot tie
+        a key's name to its value, so the patch schema checks the class of a name only."""
+        other = "annotation" if kind == "label" else "label"
+        globs = self.allow_other[kind].prefixes
+        # classify() reads the text before the first "/": "" is a key with no "/" or one that starts with "/". On create
+        # the syntax pattern beside this one refuses an empty prefix, a second "/" and an empty name, so the shorter
+        # form says the same there.
+        rest = "(?:/[^/]*)+" if patch else "/[^/]+"
+        team = (["[^/]*", rest] if patch else ["[^/]+"]) if "" in globs else []
+        team += [_glob_regex(g, exact=False) + rest for g in globs if g]
+        any_of: list[dict[str, Any]] = [{"enum": declared}] if declared else []
+        if team:
+            pattern = "^(?:" + "|".join(team) + ")$"
+            admitted = re.compile(pattern)
+            refused = [k for k in dict.fromkeys([*self.system, *(self.adoption_labels if kind == "label" else ()),
+                                                 *(k for k in self.rules[other] if k not in self.rules[kind])])
+                       if admitted.fullmatch(k)]
+            # A reserved prefix is refused before allowOther is read: listed when an allowOther glob can admit one of its
+            # prefixes. A glob that matches "" is left out, since classify() never reads a key with no prefix as
+            # reserved; leaving one out only lets more keys through.
+            reserved = [r for g in self.reserved_prefixes
+                        if any(_globs_meet(g, a) for a in globs if a)
+                        and (r := _glob_regex(g, exact=True)) is not None and not re.fullmatch(r, "")]
+            nots: list[dict[str, Any]] = [{"enum": refused}] if refused else []
+            if reserved:
+                nots.append({"pattern": "^(?:" + "|".join(reserved) + ")/"})
+            branch: dict[str, Any] = {"pattern": pattern}
+            if nots:
+                branch["not"] = {"anyOf": nots}
+            any_of.append(branch)
+        names: dict[str, Any] = {} if patch else {"maxLength": _KEY_MAX, "pattern": _KEY}
+        names["anyOf"] = any_of or [{"enum": []}]
+        return names

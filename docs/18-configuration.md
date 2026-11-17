@@ -349,6 +349,36 @@ The plain manifests do not change: on CRC and kind the file stays the text of `m
 
 The schema is draft-07: Helm up to 3.18 validates with `xeipuuv/gojsonschema` (drafts 4, 6 and 7), Helm 3.19 and 4 with `santhosh-tekuri/jsonschema` v6 (drafts 4 to 2020-12) (`go.mod` of [v3.18.0](https://github.com/helm/helm/blob/v3.18.0/go.mod) and [v3.19.0](https://github.com/helm/helm/blob/v3.19.0/go.mod)). Measured on 3.19.0 (CI) and 4.3.1; Helm 3.18 and older were not run. Key maps use `patternProperties` with `additionalProperties: false`, not `propertyNames`: on Helm 4.3.1 a `propertyNames` refusal names the right key but a wrong, changing location (measured on a two-property chart).
 
+### The keys in each instance's Swagger UI and ReDoc
+
+Each instance's API document (`/openapi.json`, which `/docs` and `/redoc` show) carries that instance's keys as schema: `labels` and `annotations` of `NamespaceCreate` and `NamespacePatch` are generated from its `metadata-keys.yaml` by `MetadataKeys.json_schema` in `core/metadata.py` (#328). The file reaches the document this way:
+
+1. **Helm:** the value `metadata` (or the text `configFiles."metadata-keys.yaml"`, or the chart's own file when both are empty) is written into the `cmapi-config` ConfigMap. **Plain manifests:** the text of `metadata-keys.yaml` in `deploy/manifests/environments/<env>/20-config.yaml` is that ConfigMap.
+2. The ConfigMap is mounted read-only at `/etc/cmapi/config`, and the API loads the file once at start (`core/config.py`).
+3. The API builds its document from it at start (`main.py`, `build_openapi` with `ctx.cfg.metadata`). A change of the keys shows after a restart: with Helm, the `checksum/config` annotation restarts the pods; with the plain manifests, apply the ConfigMap and run `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`.
+
+What the schema says, for each map:
+
+| From the file | In the schema |
+|---|---|
+| A required key that cmapi does not derive | A property in `required` (create only), with `minLength: 1`; the map itself is in `NamespaceCreate.required`. On a patch it has no `null` branch, since a patch cannot remove it |
+| An optional key | A property; on a patch, `anyOf` with `null`, which removes it |
+| `pattern`, `format` | `pattern`: the one regex that cmapi and the rendered Kyverno policy match too (`value_regex`, "Patterns" above), and `x-cmapi-format` for a format. A label also gets the label-value syntax and `maxLength: 63` |
+| `enum` | `enum` |
+| `value: {from: ...}` | A property with `readOnly: true` and `x-cmapi-derived-from`, never required, with no `null` branch on a patch. Swagger UI hides a read-only property in a request body |
+| `namespacePrefix` | `x-cmapi-namespace-prefix: true`, and the rule in words |
+| `description`, `example` | `description` (with the rule in words) and `examples` |
+| `operatorOnly` | A property with `x-cmapi-operator-only: true` |
+| `allowOther` | `propertyNames`: a declared key, or a key under an allowed prefix that is not a system key, an adoption label, a key of the other kind or under a reserved prefix. `additionalProperties`: the value rule of those keys. `x-cmapi-other-keys`: the prefixes and the limits |
+
+What JSON Schema cannot say is in the description of the map, which ReDoc shows (ReDoc 3.1.0 does not show `propertyNames`): who may set an operator-only key, that a derived value must equal the request's target, that a `namespacePrefix` value starts the namespace name, the count of other keys (`max`), the sizes in bytes (`maxValueBytes`, `maxBytesTotal`; the schema's `maxLength` counts characters, a bound that holds because a character is at least one byte), and the 253 characters of a key's prefix. On a patch, `propertyNames` checks the class of a key and not its syntax: a key that Git holds from before #330, such as `/foo`, can still be removed with `null`, and JSON Schema cannot tie a key's name to its value.
+
+The schema documents cmapi's own check; it never replaces it. cmapi refuses each body with or without Kyverno (`policy.engine: none` included), and a client that checks the schema first only learns of a refusal sooner. Each map that cmapi accepts passes the schema: `cmapi/tests/core/test_metadata_schema_328.py` runs one corpus of about 12,000 maps for each file through both, on the shipped files and on four synthetic ones, and `cmapi/tests/service/test_metadata_schema_328_api.py` runs it on each instance's served document.
+
+The examples in the document are this instance's too (#334): the `labels` and `annotations` examples are the `example` of each required key, the namespace example starts with the example of a `namespacePrefix` key and `-` (`abc-dev` with the company file), and the patch example is the first optional key that has an example. The curl samples and Swagger UI's "Try it out" body are built from them: a recorded sample (`contract/samples.json`, recorded on the reference file) whose labels or annotations the instance refuses is replaced with them.
+
+**Generated clients.** The committed contract, `cmapi/contract/openapi.json`, is the document of the reference file (`examples/cluster-configs/policies/metadata-keys.yaml`), and the contract gate sees only that file. A client for an instance with its own keys is generated from that instance's own document, for example `curl -fsS https://<instance-route>/openapi.json -o openapi.json` and then the generator (the portal uses openapi-typescript 7.13.0, through `cmapi-portal-ui/scripts/api-types.mjs`). An instance with `docs.enabled: false` serves no document.
+
 ### The example of the owner's company
 
 `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample namespace `abc-rnd`. `company.net` stands for the company's domain. The test `cmapi/tests/core/test_metadata_stanzas.py` renders the sample from this file. The company's keys on the namespace are these. The namespace also carries the `cmapi.net/` system keys:

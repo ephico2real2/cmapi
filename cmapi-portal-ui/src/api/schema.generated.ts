@@ -1785,12 +1785,20 @@ export interface components {
         NamespaceCreate: {
             /**
              * Annotations
-             * @description Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.
+             * @description Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50, each value at most 4096 bytes and all of them at most 65536 bytes in UTF-8.
              * @example {
              *       "cmapi.net/team-dl": "payments-team@ephico2real.com"
              *     }
              */
-            annotations?: {
+            annotations: {
+                /** @description cmapi-operator and above only: a requester gets 403 forbidden. */
+                "cmapi.net/protected"?: string;
+                /**
+                 * @description The team's mail list, an address in one of emailDomains. An address in ['ephico2real.com'].
+                 * @example payments-team@ephico2real.com
+                 */
+                "cmapi.net/team-dl": string;
+            } & {
                 [key: string]: string;
             };
             /**
@@ -1812,7 +1820,24 @@ export interface components {
              *       "cmapi.net/team": "payments"
              *     }
              */
-            labels?: {
+            labels: {
+                /** @description Links an app's environments. Must match ^[a-z0-9-]{2,40}$. */
+                "cmapi.net/app"?: string;
+                /**
+                 * @description Must match ^cc-[0-9]{4}$.
+                 * @example cc-4410
+                 */
+                "cmapi.net/cost-center"?: string;
+                /** @description cmapi-operator and above only: a requester gets 403 forbidden. */
+                "cmapi.net/protected"?: string;
+                /** @description Opt-in to automatic rnd and qa decreases. Must match ^(auto|manual)$. */
+                "cmapi.net/rightsizing"?: string;
+                /**
+                 * @description Ownership and cost; any team, not checked against the caller. Must match ^[a-z0-9-]{2,40}$.
+                 * @example payments
+                 */
+                "cmapi.net/team": string;
+            } & {
                 [key: string]: string;
             };
             /**
@@ -1884,12 +1909,20 @@ export interface components {
         NamespacePatch: {
             /**
              * Annotations
-             * @description Merge patch; null removes a key. Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.
+             * @description Merge patch; null removes a key. Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50, each value at most 4096 bytes and all of them at most 65536 bytes in UTF-8.
              * @example null
              */
-            annotations?: {
+            annotations?: ({
+                /** @description cmapi-operator and above only: a requester gets 403 forbidden. */
+                "cmapi.net/protected"?: string | null;
+                /**
+                 * @description The team's mail list, an address in one of emailDomains. An address in ['ephico2real.com'].
+                 * @example payments-team@ephico2real.com
+                 */
+                "cmapi.net/team-dl"?: string;
+            } & {
                 [key: string]: string | null;
-            } | null;
+            }) | null;
             /**
              * Justification
              * @description Why
@@ -1903,9 +1936,26 @@ export interface components {
              *       "cmapi.net/cost-center": "cc-4410"
              *     }
              */
-            labels?: {
+            labels?: ({
+                /** @description Links an app's environments. Must match ^[a-z0-9-]{2,40}$. */
+                "cmapi.net/app"?: (string) | null;
+                /**
+                 * @description Must match ^cc-[0-9]{4}$.
+                 * @example cc-4410
+                 */
+                "cmapi.net/cost-center"?: (string) | null;
+                /** @description cmapi-operator and above only: a requester gets 403 forbidden. */
+                "cmapi.net/protected"?: string | null;
+                /** @description Opt-in to automatic rnd and qa decreases. Must match ^(auto|manual)$. */
+                "cmapi.net/rightsizing"?: (string) | null;
+                /**
+                 * @description Ownership and cost; any team, not checked against the caller. Must match ^[a-z0-9-]{2,40}$.
+                 * @example payments
+                 */
+                "cmapi.net/team"?: string;
+            } & {
                 [key: string]: string | null;
-            } | null;
+            }) | null;
             /**
              * Limitrange
              * @description Custom container and PVC limits, custom tier only (a pvc value only where storageLimitRange.enabled of GET /tiers is true), merged over the namespace's values in Git, key by key. Send the tier's value to remove an override
