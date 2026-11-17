@@ -1,0 +1,18 @@
+## f2
+{
+ "agree": 618,
+ "unsound": 0,
+ "loose_by_reason": {
+  "['derived_key']": 89,
+  "['operator_only_key']": 16
+ }
+}
+## star
+{
+ "agree": 587,
+ "unsound": 0,
+ "loose_by_reason": {
+  "['operator_only_key']": 16
+ }
+}
+LOOSE ['operator_only_key'] create label {'cmapi.net/protected': 'ola'}

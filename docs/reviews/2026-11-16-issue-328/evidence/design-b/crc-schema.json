@@ -1,0 +1,454 @@
+{
+  "NamespaceCreate.required": [
+    "namespace",
+    "labels",
+    "annotations"
+  ],
+  "NamespaceCreate.properties.labels": {
+    "additionalProperties": {
+      "maxLength": 63,
+      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+      "type": "string"
+    },
+    "description": "Required: `cmapi.net/team` (must match ^[a-z0-9-]{2,40}$). Optional: `cmapi.net/cost-center` (must match ^cc-[0-9]{4}$); `cmapi.net/app` (must match ^[a-z0-9-]{2,40}$); `cmapi.net/rightsizing` (must match ^(auto|manual)$). Any other key with no prefix, `*.ephico2real.com/`, at most 50.",
+    "examples": [
+      {
+        "cmapi.net/team": "payments"
+      }
+    ],
+    "properties": {
+      "cmapi.net/app": {
+        "allOf": [
+          {
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+            "type": "string"
+          }
+        ],
+        "description": "Links an app's environments. Must match ^[a-z0-9-]{2,40}$.",
+        "maxLength": 63,
+        "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+        "type": "string"
+      },
+      "cmapi.net/cost-center": {
+        "allOf": [
+          {
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+            "type": "string"
+          }
+        ],
+        "description": "Must match ^cc-[0-9]{4}$.",
+        "examples": [
+          "cc-4410"
+        ],
+        "maxLength": 63,
+        "pattern": "^(?:^cc-[0-9]{4}$)$",
+        "type": "string"
+      },
+      "cmapi.net/protected": {
+        "description": "cmapi-operator and above only (operatorOnly).",
+        "maxLength": 63,
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+        "type": "string"
+      },
+      "cmapi.net/rightsizing": {
+        "allOf": [
+          {
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+            "type": "string"
+          }
+        ],
+        "description": "Opt-in to automatic rnd and qa decreases. Must match ^(auto|manual)$.",
+        "maxLength": 63,
+        "pattern": "^(?:^(auto|manual)$)$",
+        "type": "string"
+      },
+      "cmapi.net/team": {
+        "allOf": [
+          {
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+            "type": "string"
+          }
+        ],
+        "description": "Ownership and cost; any team, not checked against the caller. Must match ^[a-z0-9-]{2,40}$.",
+        "examples": [
+          "payments"
+        ],
+        "maxLength": 63,
+        "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+        "type": "string"
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/app",
+            "cmapi.net/cost-center",
+            "cmapi.net/protected",
+            "cmapi.net/rightsizing",
+            "cmapi.net/team"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cmapi.net/beyond-tier",
+                  "cmapi.net/cluster-id",
+                  "cmapi.net/env",
+                  "cmapi.net/expires-at",
+                  "cmapi.net/expiry",
+                  "cmapi.net/instance",
+                  "cmapi.net/managed",
+                  "cmapi.net/request-id",
+                  "cmapi.net/requested-by",
+                  "cmapi.net/requested-by-user",
+                  "cmapi.net/team-dl",
+                  "cmapi.net/tier",
+                  "cmapi.net/tier-hash",
+                  "company.net/provisioner"
+                ]
+              },
+              {
+                "pattern": "^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/"
+              }
+            ]
+          },
+          "pattern": "^(?:[^/]+|[^/]*\\.ephico2real\\.com/[^/]+)$"
+        }
+      ],
+      "maxLength": 317,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+    },
+    "required": [
+      "cmapi.net/team"
+    ],
+    "title": "Labels",
+    "type": "object"
+  },
+  "NamespaceCreate.properties.annotations": {
+    "additionalProperties": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "description": "Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.",
+    "examples": [
+      {
+        "cmapi.net/team-dl": "payments-team@ephico2real.com"
+      }
+    ],
+    "properties": {
+      "cmapi.net/protected": {
+        "description": "cmapi-operator and above only (operatorOnly).",
+        "type": "string"
+      },
+      "cmapi.net/team-dl": {
+        "description": "The team's mail list, an address in one of emailDomains. An address in ['ephico2real.com'].",
+        "examples": [
+          "payments-team@ephico2real.com"
+        ],
+        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[eE][pP][hH][iI][cC][oO]2[rR][eE][aA][lL]\\.[cC][oO][mM])$",
+        "type": "string"
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/protected",
+            "cmapi.net/team-dl"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cmapi.net/app",
+                  "cmapi.net/beyond-tier",
+                  "cmapi.net/cluster-id",
+                  "cmapi.net/cost-center",
+                  "cmapi.net/env",
+                  "cmapi.net/expires-at",
+                  "cmapi.net/expiry",
+                  "cmapi.net/instance",
+                  "cmapi.net/managed",
+                  "cmapi.net/request-id",
+                  "cmapi.net/requested-by",
+                  "cmapi.net/requested-by-user",
+                  "cmapi.net/rightsizing",
+                  "cmapi.net/team",
+                  "cmapi.net/tier",
+                  "cmapi.net/tier-hash"
+                ]
+              },
+              {
+                "pattern": "^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/"
+              }
+            ]
+          },
+          "pattern": "^(?:[^/]+|[^/]*\\.ephico2real\\.com/[^/]+)$"
+        }
+      ],
+      "maxLength": 317,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+    },
+    "required": [
+      "cmapi.net/team-dl"
+    ],
+    "title": "Annotations",
+    "type": "object"
+  },
+  "NamespacePatch.properties.labels": {
+    "anyOf": [
+      {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "cmapi.net/app": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+                    "type": "string"
+                  }
+                ],
+                "maxLength": 63,
+                "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Links an app's environments. Must match ^[a-z0-9-]{2,40}$."
+          },
+          "cmapi.net/cost-center": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+                    "type": "string"
+                  }
+                ],
+                "examples": [
+                  "cc-4410"
+                ],
+                "maxLength": 63,
+                "pattern": "^(?:^cc-[0-9]{4}$)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Must match ^cc-[0-9]{4}$."
+          },
+          "cmapi.net/protected": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "cmapi-operator and above only (operatorOnly)."
+          },
+          "cmapi.net/rightsizing": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+                    "type": "string"
+                  }
+                ],
+                "maxLength": 63,
+                "pattern": "^(?:^(auto|manual)$)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opt-in to automatic rnd and qa decreases. Must match ^(auto|manual)$."
+          },
+          "cmapi.net/team": {
+            "allOf": [
+              {
+                "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$",
+                "type": "string"
+              }
+            ],
+            "description": "Ownership and cost; any team, not checked against the caller. Must match ^[a-z0-9-]{2,40}$.",
+            "examples": [
+              "payments"
+            ],
+            "maxLength": 63,
+            "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+            "type": "string"
+          }
+        },
+        "propertyNames": {
+          "anyOf": [
+            {
+              "enum": [
+                "cmapi.net/app",
+                "cmapi.net/cost-center",
+                "cmapi.net/protected",
+                "cmapi.net/rightsizing",
+                "cmapi.net/team"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "cmapi.net/beyond-tier",
+                      "cmapi.net/cluster-id",
+                      "cmapi.net/env",
+                      "cmapi.net/expires-at",
+                      "cmapi.net/expiry",
+                      "cmapi.net/instance",
+                      "cmapi.net/managed",
+                      "cmapi.net/request-id",
+                      "cmapi.net/requested-by",
+                      "cmapi.net/requested-by-user",
+                      "cmapi.net/team-dl",
+                      "cmapi.net/tier",
+                      "cmapi.net/tier-hash",
+                      "company.net/provisioner"
+                    ]
+                  },
+                  {
+                    "pattern": "^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/"
+                  }
+                ]
+              },
+              "pattern": "^(?:[^/]+|[^/]*\\.ephico2real\\.com/[^/]+)$"
+            }
+          ],
+          "maxLength": 317,
+          "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+        },
+        "type": "object"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "description": "Merge patch; null removes a key. Required: `cmapi.net/team` (must match ^[a-z0-9-]{2,40}$). Optional: `cmapi.net/cost-center` (must match ^cc-[0-9]{4}$); `cmapi.net/app` (must match ^[a-z0-9-]{2,40}$); `cmapi.net/rightsizing` (must match ^(auto|manual)$). Any other key with no prefix, `*.ephico2real.com/`, at most 50.",
+    "examples": [
+      {
+        "cmapi.net/cost-center": "cc-4410"
+      }
+    ],
+    "title": "Labels"
+  },
+  "NamespacePatch.properties.annotations": {
+    "anyOf": [
+      {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "cmapi.net/protected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "cmapi-operator and above only (operatorOnly)."
+          },
+          "cmapi.net/team-dl": {
+            "description": "The team's mail list, an address in one of emailDomains. An address in ['ephico2real.com'].",
+            "examples": [
+              "payments-team@ephico2real.com"
+            ],
+            "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[eE][pP][hH][iI][cC][oO]2[rR][eE][aA][lL]\\.[cC][oO][mM])$",
+            "type": "string"
+          }
+        },
+        "propertyNames": {
+          "anyOf": [
+            {
+              "enum": [
+                "cmapi.net/protected",
+                "cmapi.net/team-dl"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "cmapi.net/app",
+                      "cmapi.net/beyond-tier",
+                      "cmapi.net/cluster-id",
+                      "cmapi.net/cost-center",
+                      "cmapi.net/env",
+                      "cmapi.net/expires-at",
+                      "cmapi.net/expiry",
+                      "cmapi.net/instance",
+                      "cmapi.net/managed",
+                      "cmapi.net/request-id",
+                      "cmapi.net/requested-by",
+                      "cmapi.net/requested-by-user",
+                      "cmapi.net/rightsizing",
+                      "cmapi.net/team",
+                      "cmapi.net/tier",
+                      "cmapi.net/tier-hash"
+                    ]
+                  },
+                  {
+                    "pattern": "^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/"
+                  }
+                ]
+              },
+              "pattern": "^(?:[^/]+|[^/]*\\.ephico2real\\.com/[^/]+)$"
+            }
+          ],
+          "maxLength": 317,
+          "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+        },
+        "type": "object"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "description": "Merge patch; null removes a key. Required: `cmapi.net/team-dl` (an address in ['ephico2real.com']). Optional: none. Any other key with no prefix, `*.ephico2real.com/`, at most 50.",
+    "examples": [
+      null
+    ],
+    "title": "Annotations"
+  }
+}

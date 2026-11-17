@@ -1,0 +1,691 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "#328 sample: the company metadata configuration",
+    "version": "design"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "NamespaceCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "additionalProperties": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "description": "Required: none. Optional: `company.net/mnemonic-group-contact` (an address in ['company.net']); `company.net/mnemonic-confluence` (an http or https URL). Any other key with no prefix, `*.company.net/`, at most 50. Set by cmapi, not by the requester: `company.net/app-environment` (set by cmapi from the environment). A request may send the same value, never another.",
+            "examples": [
+              {}
+            ],
+            "properties": {
+              "cmapi.net/protected": {
+                "description": "cmapi-operator and above only; a requester gets 403",
+                "type": "string",
+                "x-cmapi-operator-only": true
+              },
+              "company.net/app-environment": {
+                "description": "Set by cmapi from the environment; a request may send the same value, never another",
+                "readOnly": true,
+                "type": "string",
+                "x-cmapi-derived-from": "environment"
+              },
+              "company.net/mnemonic-confluence": {
+                "description": "The mnemonic's Confluence space",
+                "examples": [
+                  "https://wiki.company.net/abc"
+                ],
+                "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#]+",
+                "type": "string",
+                "x-cmapi-format": "url"
+              },
+              "company.net/mnemonic-group-contact": {
+                "description": "The mnemonic's group contact",
+                "examples": [
+                  "abc-team@company.net"
+                ],
+                "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC][oO][mM][pP][aA][nN][yY]\\.[nN][eE][tT])$",
+                "type": "string",
+                "x-cmapi-format": "email-in-domains"
+              }
+            },
+            "propertyNames": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "company.net/app-environment",
+                    "company.net/mnemonic-group-contact",
+                    "company.net/mnemonic-confluence",
+                    "cmapi.net/protected"
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+                    },
+                    {
+                      "not": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "name"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "title": "Annotations",
+            "type": "object",
+            "x-cmapi-other-keys": {
+              "max": 50,
+              "maxBytesTotal": 65536,
+              "maxValueBytes": 4096,
+              "prefixes": [
+                "",
+                "*.company.net/"
+              ]
+            }
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional expiry; never in prod",
+            "examples": [
+              "2026-12-15"
+            ],
+            "title": "Expiresat"
+          },
+          "justification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the namespace is needed",
+            "examples": [
+              "Payments service dev namespace"
+            ],
+            "title": "Justification"
+          },
+          "labels": {
+            "additionalProperties": {
+              "maxLength": 63,
+              "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+              "type": "string"
+            },
+            "description": "Required: `company.net/mnemonic` (must match ^[a-z]{3}$; the start of the namespace name, before its first '-'); `company.net/lob` (one of ['amgsst']); `company.net/cl` (one of ['0', '1', '2', '3']). Optional: none. Any other key with no prefix, `*.company.net/`, at most 50. Set by cmapi, not by the requester: `name` (set by cmapi from the namespace); `company.net/app-environment` (set by cmapi from the environment). A request may send the same value, never another.",
+            "examples": [
+              {
+                "company.net/cl": "1",
+                "company.net/lob": "amgsst",
+                "company.net/mnemonic": "abc"
+              }
+            ],
+            "properties": {
+              "cmapi.net/protected": {
+                "description": "cmapi-operator and above only; a requester gets 403",
+                "maxLength": 63,
+                "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                "type": "string",
+                "x-cmapi-operator-only": true
+              },
+              "company.net/app-environment": {
+                "description": "The environment of the namespace's cluster. Set by cmapi from the environment; a request may send the same value, never another",
+                "maxLength": 63,
+                "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                "readOnly": true,
+                "type": "string",
+                "x-cmapi-derived-from": "environment"
+              },
+              "company.net/cl": {
+                "description": "Critical level",
+                "enum": [
+                  "0",
+                  "1",
+                  "2",
+                  "3"
+                ],
+                "examples": [
+                  "1"
+                ],
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              "company.net/lob": {
+                "description": "Line of business",
+                "enum": [
+                  "amgsst"
+                ],
+                "examples": [
+                  "amgsst"
+                ],
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              "company.net/mnemonic": {
+                "description": "The team's mnemonic: the start of the namespace name. The namespace name must start with this value and a '-'",
+                "examples": [
+                  "abc"
+                ],
+                "maxLength": 63,
+                "minLength": 1,
+                "pattern": "^(?:^[a-z]{3}$)$",
+                "type": "string",
+                "x-cmapi-namespace-prefix": true
+              },
+              "name": {
+                "description": "A copy of the namespace name. Set by cmapi from the namespace; a request may send the same value, never another",
+                "maxLength": 63,
+                "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                "readOnly": true,
+                "type": "string",
+                "x-cmapi-derived-from": "namespace"
+              }
+            },
+            "propertyNames": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "name",
+                    "company.net/app-environment",
+                    "company.net/mnemonic",
+                    "company.net/lob",
+                    "company.net/cl",
+                    "cmapi.net/protected"
+                  ]
+                },
+                {
+                  "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+                }
+              ]
+            },
+            "required": [
+              "company.net/mnemonic",
+              "company.net/lob",
+              "company.net/cl"
+            ],
+            "title": "Labels",
+            "type": "object",
+            "x-cmapi-other-keys": {
+              "max": 50,
+              "prefixes": [
+                "",
+                "*.company.net/"
+              ]
+            }
+          },
+          "limitRange": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Container and PVC limits that differ from the custom tier, custom tier only. A pvc value is taken only where storageLimitRange.enabled of GET /tiers is true, and is refused with storage-limits-off elsewhere. Each key is one of `overridable` of GET /tiers, without its limitRange. prefix. A key that is left out keeps the tier's value. Each value that differs from the tier needs the beyond-tier approval",
+            "examples": [
+              {
+                "container": {
+                  "default": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "max": {
+                    "cpu": "4",
+                    "memory": "8Gi"
+                  }
+                }
+              }
+            ],
+            "title": "Limitrange"
+          },
+          "namespace": {
+            "description": "Namespace name: DNS-1123, not reserved",
+            "examples": [
+              "payments-dev"
+            ],
+            "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+            "title": "Namespace",
+            "type": "string"
+          },
+          "onBehalfOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Username or employee ID, for services and automation",
+            "examples": [
+              null
+            ],
+            "title": "Onbehalfof"
+          },
+          "placementId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reservation from POST /capacity:place",
+            "examples": [
+              null
+            ],
+            "title": "Placementid"
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom tier only: each sizable quota key, and any overridable quota key of GET /tiers. An overridable value that differs from the tier needs the beyond-tier approval",
+            "examples": [
+              null
+            ],
+            "title": "Quota"
+          },
+          "tier": {
+            "default": "small",
+            "description": "A tier from the catalog, or custom",
+            "examples": [
+              "small"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "labels",
+          "namespace"
+        ],
+        "title": "NamespaceCreate",
+        "type": "object"
+      },
+      "NamespacePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "maxLength": 4096,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "properties": {
+                  "cmapi.net/protected": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "cmapi-operator and above only; a requester gets 403",
+                    "x-cmapi-operator-only": true
+                  },
+                  "company.net/app-environment": {
+                    "description": "Set by cmapi from the environment; a request may send the same value, never another",
+                    "readOnly": true,
+                    "type": "string",
+                    "x-cmapi-derived-from": "environment"
+                  },
+                  "company.net/mnemonic-confluence": {
+                    "anyOf": [
+                      {
+                        "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#]+",
+                        "type": "string",
+                        "x-cmapi-format": "url"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The mnemonic's Confluence space",
+                    "examples": [
+                      "https://wiki.company.net/abc"
+                    ]
+                  },
+                  "company.net/mnemonic-group-contact": {
+                    "anyOf": [
+                      {
+                        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[cC][oO][mM][pP][aA][nN][yY]\\.[nN][eE][tT])$",
+                        "type": "string",
+                        "x-cmapi-format": "email-in-domains"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The mnemonic's group contact",
+                    "examples": [
+                      "abc-team@company.net"
+                    ]
+                  }
+                },
+                "propertyNames": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "company.net/app-environment",
+                        "company.net/mnemonic-group-contact",
+                        "company.net/mnemonic-confluence",
+                        "cmapi.net/protected"
+                      ]
+                    },
+                    {
+                      "allOf": [
+                        {
+                          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+                        },
+                        {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "name"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "type": "object",
+                "x-cmapi-other-keys": {
+                  "max": 50,
+                  "maxBytesTotal": 65536,
+                  "maxValueBytes": 4096,
+                  "prefixes": [
+                    "",
+                    "*.company.net/"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Merge patch; null removes a key",
+            "examples": [
+              null
+            ],
+            "title": "Annotations"
+          },
+          "justification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why",
+            "examples": [
+              "More capacity for the batch"
+            ],
+            "title": "Justification"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "maxLength": 63,
+                      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "properties": {
+                  "cmapi.net/protected": {
+                    "anyOf": [
+                      {
+                        "maxLength": 63,
+                        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "cmapi-operator and above only; a requester gets 403",
+                    "x-cmapi-operator-only": true
+                  },
+                  "company.net/app-environment": {
+                    "description": "The environment of the namespace's cluster. Set by cmapi from the environment; a request may send the same value, never another",
+                    "maxLength": 63,
+                    "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                    "readOnly": true,
+                    "type": "string",
+                    "x-cmapi-derived-from": "environment"
+                  },
+                  "company.net/cl": {
+                    "description": "Critical level",
+                    "enum": [
+                      "0",
+                      "1",
+                      "2",
+                      "3"
+                    ],
+                    "examples": [
+                      "1"
+                    ],
+                    "maxLength": 63,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "company.net/lob": {
+                    "description": "Line of business",
+                    "enum": [
+                      "amgsst"
+                    ],
+                    "examples": [
+                      "amgsst"
+                    ],
+                    "maxLength": 63,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "company.net/mnemonic": {
+                    "description": "The team's mnemonic: the start of the namespace name. The namespace name must start with this value and a '-'",
+                    "examples": [
+                      "abc"
+                    ],
+                    "maxLength": 63,
+                    "minLength": 1,
+                    "pattern": "^(?:^[a-z]{3}$)$",
+                    "type": "string",
+                    "x-cmapi-namespace-prefix": true
+                  },
+                  "name": {
+                    "description": "A copy of the namespace name. Set by cmapi from the namespace; a request may send the same value, never another",
+                    "maxLength": 63,
+                    "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+                    "readOnly": true,
+                    "type": "string",
+                    "x-cmapi-derived-from": "namespace"
+                  }
+                },
+                "propertyNames": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "name",
+                        "company.net/app-environment",
+                        "company.net/mnemonic",
+                        "company.net/lob",
+                        "company.net/cl",
+                        "cmapi.net/protected"
+                      ]
+                    },
+                    {
+                      "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.company\\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+                    }
+                  ]
+                },
+                "type": "object",
+                "x-cmapi-other-keys": {
+                  "max": 50,
+                  "prefixes": [
+                    "",
+                    "*.company.net/"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Merge patch; null removes a key",
+            "examples": [
+              {
+                "cmapi.net/cost-center": "cc-4410"
+              }
+            ],
+            "title": "Labels"
+          },
+          "limitRange": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom container and PVC limits, custom tier only (a pvc value only where storageLimitRange.enabled of GET /tiers is true), merged over the namespace's values in Git, key by key. Send the tier's value to remove an override",
+            "examples": [
+              {
+                "container": {
+                  "default": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  },
+                  "max": {
+                    "cpu": "4",
+                    "memory": "8Gi"
+                  }
+                }
+              }
+            ],
+            "title": "Limitrange"
+          },
+          "onBehalfOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Username or employee ID, for services and automation",
+            "examples": [
+              null
+            ],
+            "title": "Onbehalfof"
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom quota values. On a namespace that is already on the custom tier, they are merged over its values in Git, key by key",
+            "examples": [
+              null
+            ],
+            "title": "Quota"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New tier",
+            "examples": [
+              "large"
+            ],
+            "title": "Tier"
+          }
+        },
+        "title": "NamespacePatch",
+        "type": "object"
+      }
+    }
+  }
+}

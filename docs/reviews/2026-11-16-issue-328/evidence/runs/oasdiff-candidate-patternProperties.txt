@@ -1,0 +1,44 @@
+10 changes: 10 error, 0 warning, 0 info
+error	[new-required-request-property] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		added the new required request property `annotations/cmapi.net/team-dl`
+
+error	[new-required-request-property] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		added the new required request property `labels/cmapi.net/team`
+
+error	[request-property-became-required] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		the request property `annotations` became required
+
+error	[request-property-became-required] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		the request property `labels` became required
+
+error	[request-property-max-properties-set] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		the `annotations` request property's maxProperties was set to `52`
+		Setting a bound rejects values the previous contract accepted, unless your clients are known to stay within the new limit.
+
+error	[request-property-max-properties-set] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		the `labels` request property's maxProperties was set to `55`
+		Setting a bound rejects values the previous contract accepted, unless your clients are known to stay within the new limit.
+
+error	[request-property-pattern-property-added] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		added the pattern property `^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\.ephico2real\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$` to the `annotations` request property
+
+error	[request-property-pattern-property-added] at doc-reference-patternProperties.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		added the pattern property `^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\.ephico2real\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$` to the `labels` request property
+
+error	[request-property-any-of-removed] at doc-reference-patternProperties.json
+	in API PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}
+		removed `subschema #1` from the `annotations` request property `anyOf` list
+
+error	[request-property-any-of-removed] at doc-reference-patternProperties.json
+	in API PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}
+		removed `subschema #1` from the `labels` request property `anyOf` list
+
+

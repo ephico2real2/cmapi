@@ -1,0 +1,8 @@
+
+doc-company-chosen-inline.json
+ 5699:31  error  oas3-valid-media-example  "annotations" property must be equal to one of the allowed values                                                                                                                    paths./api/v1/clusters/{cluster_id}/namespaces.post.requestBody.content.application/json.example.annotations
+ 5699:31  error  oas3-valid-media-example  "annotations" property must match pattern "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\.company\.net/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"  paths./api/v1/clusters/{cluster_id}/namespaces.post.requestBody.content.application/json.example.annotations
+ 5699:31  error  oas3-valid-media-example  "annotations" property must match a schema in anyOf. None of the schemas matched, see the other errors reported for this value                                                       paths./api/v1/clusters/{cluster_id}/namespaces.post.requestBody.content.application/json.example.annotations
+ 5699:31  error  oas3-valid-media-example  "annotations" property property name must be valid                                                                                                                                   paths./api/v1/clusters/{cluster_id}/namespaces.post.requestBody.content.application/json.example.annotations
+
+✖ 4 problems (4 errors, 0 warnings, 0 infos, 0 hints)

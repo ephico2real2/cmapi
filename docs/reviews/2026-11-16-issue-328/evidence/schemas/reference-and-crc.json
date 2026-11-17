@@ -1,0 +1,289 @@
+{
+  "create.label": {
+    "type": "object",
+    "properties": {
+      "cmapi.net/team": {
+        "type": "string",
+        "description": "Ownership and cost; any team, not checked against the caller",
+        "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "payments"
+        ]
+      },
+      "cmapi.net/cost-center": {
+        "type": "string",
+        "pattern": "^(?:^cc-[0-9]{4}$)$",
+        "maxLength": 63,
+        "examples": [
+          "cc-4410"
+        ]
+      },
+      "cmapi.net/app": {
+        "type": "string",
+        "description": "Links an app's environments",
+        "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+        "maxLength": 63
+      },
+      "cmapi.net/rightsizing": {
+        "type": "string",
+        "description": "Opt-in to automatic rnd and qa decreases",
+        "pattern": "^(?:^(auto|manual)$)$",
+        "maxLength": 63
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+        "maxLength": 63,
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "required": [
+      "cmapi.net/team"
+    ],
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/team",
+            "cmapi.net/cost-center",
+            "cmapi.net/app",
+            "cmapi.net/rightsizing",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.ephico2real\\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+      "maxLength": 63
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.ephico2real.com/"
+      ],
+      "max": 50
+    }
+  },
+  "create.annotation": {
+    "type": "object",
+    "properties": {
+      "cmapi.net/team-dl": {
+        "type": "string",
+        "description": "The team's mail list, an address in one of emailDomains",
+        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[eE][pP][hH][iI][cC][oO]2[rR][eE][aA][lL]\\.[cC][oO][mM])$",
+        "x-cmapi-format": "email-in-domains",
+        "minLength": 1,
+        "examples": [
+          "payments-team@ephico2real.com"
+        ]
+      },
+      "cmapi.net/protected": {
+        "type": "string",
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "required": [
+      "cmapi.net/team-dl"
+    ],
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/team-dl",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.ephico2real\\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.ephico2real.com/"
+      ],
+      "max": 50,
+      "maxValueBytes": 4096,
+      "maxBytesTotal": 65536
+    }
+  },
+  "patch.label": {
+    "type": "object",
+    "properties": {
+      "cmapi.net/team": {
+        "type": "string",
+        "description": "Ownership and cost; any team, not checked against the caller",
+        "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+        "maxLength": 63,
+        "minLength": 1,
+        "examples": [
+          "payments"
+        ]
+      },
+      "cmapi.net/cost-center": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:^cc-[0-9]{4}$)$",
+            "maxLength": 63
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "examples": [
+          "cc-4410"
+        ]
+      },
+      "cmapi.net/app": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
+            "maxLength": 63
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Links an app's environments"
+      },
+      "cmapi.net/rightsizing": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:^(auto|manual)$)$",
+            "maxLength": 63
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Opt-in to automatic rnd and qa decreases"
+      },
+      "cmapi.net/protected": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+            "maxLength": 63
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/team",
+            "cmapi.net/cost-center",
+            "cmapi.net/app",
+            "cmapi.net/rightsizing",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.ephico2real\\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
+          "maxLength": 63
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.ephico2real.com/"
+      ],
+      "max": 50
+    }
+  },
+  "patch.annotation": {
+    "type": "object",
+    "properties": {
+      "cmapi.net/team-dl": {
+        "type": "string",
+        "description": "The team's mail list, an address in one of emailDomains",
+        "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[eE][pP][hH][iI][cC][oO]2[rR][eE][aA][lL]\\.[cC][oO][mM])$",
+        "x-cmapi-format": "email-in-domains",
+        "minLength": 1,
+        "examples": [
+          "payments-team@ephico2real.com"
+        ]
+      },
+      "cmapi.net/protected": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "cmapi-operator and above only; a requester gets 403",
+        "x-cmapi-operator-only": true
+      }
+    },
+    "propertyNames": {
+      "anyOf": [
+        {
+          "enum": [
+            "cmapi.net/team-dl",
+            "cmapi.net/protected"
+          ]
+        },
+        {
+          "pattern": "^(?:(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)|(?:[a-z0-9.-]*\\.ephico2real\\.com/[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?))$"
+        }
+      ]
+    },
+    "additionalProperties": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "x-cmapi-other-keys": {
+      "prefixes": [
+        "",
+        "*.ephico2real.com/"
+      ],
+      "max": 50,
+      "maxValueBytes": 4096,
+      "maxBytesTotal": 65536
+    }
+  }
+}
