@@ -1,0 +1,92 @@
+OB3 review of PR #370 (head a252cd8, main 7ba5d78). Treated as deep: C1, because a split can drift unnoticed, so I dumped the live app; and C3, because base/head and loud-failure behaviour need runs to settle. Treated as shallow (read the source or ran a one-liner): C2, C4. C5 was medium: before/after runs plus 2 mutants.
+VERDICT: one finding (F1, fix below). Every claim holds except the helm-args edge case in F1.
+
+C1: CONFIRMED. drive/test_ob3_dump_370.py builds create_app through conftest.build_world, on the reference config and on the company config (metadata-keys.company.yaml). For each it records the routes (path, name, methods, in_schema, deps), the middleware, the exception handlers, the lifespan, app.state and the bytes of GET /openapi.json. main dump: "2 passed"; head dump: "2 passed". `diff main/X.json head/X.json` gives "same-meta" and `cmp` gives "same-openapi-bytes" for both configs: 47 routes, the same 2 middleware and 6 handlers, the same merged_lifespan, state [auth, cors_origins, ctx, plugins]; sha256 11b320d9… (reference) and f9b30977… (company). Control: the reference and company documents differ ("differ: char 5870"), so the dump does see a difference when one exists. The issuer is the same on both paths: context.py:77 takes it from inst["auth"]["issuer"], the value openapi_document passes.
+C2: CONFIRMED. Grep finds no `pull_request_target`, `secrets.` or token in either workflow; only a comment mentions pull_request_target. Both have `permissions: contents: read`. Run 44148501411 downloads checkout@3d3c42e5, setup-python@6d4fd22b and setup-helm@1a275c3b, the same pins as ci.yml. Its log also shows "oasdiff.tar.gz: OK" and the post-job cleanup removing the includeIf credentials. report.py:115-116 runs oasdiff with `--allow-external-refs=false` and `cwd=empty`. Mutant 1 drops cwd=empty, and the planted-config test fails ("oasdiff changelog -f json exited 1"). No `${{` appears in any run: block; inputs reach scripts through env. I ran the cmapi-ref check in bash: 40 lowercase hex is accepted; uppercase, 39 or 41 characters, a trailing newline, "main" and "<sha>; id" are refused.
+C3: CONFIRMED, apart from F1. Head service tests: 19 passed (drive/head-new-abs.log). They cover a broken oasdiff (exit 102), a broken cmapi-tools, a missing helm, a refused head, and an added or removed file; on a change the report exits 0 with a warning annotation. Mutant 2 (REFUSED changed to 99) fails test_a_head_that_cmapi_refuses. Base: the live log shows "Merge 15946ca into eba7107", and the worktree is "HEAD is now at eba7107", the first parent. A local git simulation of a base that moved after the PR forked: `diff HEAD^1..HEAD` shows only the PR's `a: PR`, while a fork-point base would also show main's `b: MAIN-MOVED`. A PR from a fork checks out refs/pull/N/merge in the base repository, so it gets the same trees. Not measured on a real fork.
+C4: CONFIRMED (read the source). templates/config.yaml writes metadata-keys.yaml from exactly four inputs: .Values.metadata, configFiles, Files.Get config/, and the template itself. The paths filter is those four plus deploy/environments/**. _helpers.tpl and values.schema.json do not affect the file's content. deploy/release-crc.sh:137 deploys with -f deploy/environments/crc.yaml. One note: deploy/environments/** also fires on non-yaml files, which match no values file; that is harmless.
+C5: CONFIRMED. On main: core 7 failed and 1 passed (the pull_request_target guard); the render test file fails at collection ("cannot import name 'openapi'"); the report tests: 11 failed. On head: core 8 passed; service 19 passed. Mutants 1 and 2 (above) show the report tests check behaviour. The core tests read the workflow YAML as text, which is why they did not catch F1.
+F1 (C3, REFUTED for any helm-args that is one word): the workflow passes `--helm-args "$HELM_ARGS"`. When the value is one word starting with "-" (`--skip-tests`, `--set=x=y`), argparse reads it as an option, and report.py stops with "argument --helm-args: expected one argument" (exit 2) before helm runs. Measured; this repository's caller passes several words, so it is not affected. Fix: `--helm-args="$HELM_ARGS"`. The new test runs the step's real script under bash -e with a stub helm: 2 failed before the fix, 11 passed after (drive/fix-before.log, drive/fix-after.log). The report tests on the fixed tree: 11 passed.
+Not checked: a real fork PR or a real base retarget (the `edited` event does not re-run the report); a values-repo caller with cmapi-ref; the full suites; whether a values file that is a symlink can echo runner files into the summary.
+Housekeeping: `git status --short` in /Users/olasumbo/gitRepos/cmapi-design was empty before and after; I made no git writes there. In the review folder I deleted my clones (main, head, mut, fix), the bt-* basetemps and c3-sim. Kept in /Users/olasumbo/gitRepos/workbench/cmapi/review-370/drive/: the scripts (run*.sh, mutants.sh, suite-abs.sh, test_ob3_dump_370.py), the logs, the main/ and head/ dumps, run-44148501411.log and fixes.patch. suite-abs.sh is suite.sh with an absolute PYTHONPATH, under the same lock. suite.sh sets a relative PYTHONPATH, so the cmapi-tools subprocess imported the venv's editable install, which points at the main repo. Through suite.sh the head run gave 6 false failures (head-new.log); they are an artefact of how I measured, not a defect in the PR.
+
+FIXES PATCH (drive/fixes.patch, verbatim):
+diff --git a/.github/workflows/api-contract-report.yml b/.github/workflows/api-contract-report.yml
+index f0c6d94..1d57983 100644
+--- a/.github/workflows/api-contract-report.yml
++++ b/.github/workflows/api-contract-report.yml
+@@ -128,6 +128,8 @@ jobs:
+             glob="${glob#"${glob%%[![:space:]]*}"}"; glob="${glob%"${glob##*[![:space:]]}"}"
+             if [ -n "$glob" ]; then args+=(--values "$glob"); fi
+           done <<< "$VALUES"
++          # --helm-args=VALUE, one word: argparse reads a separate value that starts with "-" and has no space, such as
++          # --skip-tests, as an option and stops on a usage error.
+           python "$CMAPI_SRC/cmapi/contract/report.py" --base base --head head "${args[@]}" \
+-            --chart-base "$CHART_BASE" --chart-head "$CHART_HEAD" --helm-args "$HELM_ARGS" \
++            --chart-base "$CHART_BASE" --chart-head "$CHART_HEAD" --helm-args="$HELM_ARGS" \
+             --cmapi "$(git -C "$CMAPI_SRC" rev-parse HEAD)"
+diff --git a/cmapi/contract/report.py b/cmapi/contract/report.py
+index 913b2e7..7585c05 100755
+--- a/cmapi/contract/report.py
++++ b/cmapi/contract/report.py
+@@ -2,7 +2,7 @@
+ """The API contract report of a Helm values change (#337): what a change of metadata-keys.yaml does to the API document.
+ 
+     report.py --base DIR --head DIR --values GLOB [--values GLOB ...] --chart-base DIR --chart-head DIR
+-              [--helm-args "ARGS"] [--summary FILE] [--cmapi COMMIT]
++              [--helm-args="ARGS"] [--summary FILE] [--cmapi COMMIT]
+ 
+ A running cmapi reads metadata-keys.yaml from its ConfigMap, which `helm template` renders from the chart and the site's
+ values file (the value `metadata`, the text `configFiles."metadata-keys.yaml"`, or the chart's config/metadata-keys.yaml;
+diff --git a/cmapi/tests/core/test_contract_report_workflow_337.py b/cmapi/tests/core/test_contract_report_workflow_337.py
+index 643c05a..9b7fb38 100644
+--- a/cmapi/tests/core/test_contract_report_workflow_337.py
++++ b/cmapi/tests/core/test_contract_report_workflow_337.py
+@@ -9,9 +9,14 @@ files that the chart's templates/config.yaml reads for metadata-keys.yaml.
+ """
+ from __future__ import annotations
+ 
++import os
+ import re
++import shlex
++import subprocess
++import sys
+ from pathlib import Path
+ 
++import pytest
+ import yaml
+ 
+ from conftest import EX
+@@ -101,3 +106,32 @@ def test_cmapi_ref_must_be_a_commit():
+     assert '[[ "$REF" =~ ^[0-9a-f]{40}$ ]]' in check["run"]
+     pinned = next(s for s in steps(doc) if s.get("with", {}).get("path") == "cmapi-src")
+     assert pinned["with"]["ref"] == "${{ inputs.cmapi-ref }}"
++
++
++@pytest.mark.parametrize("helm_args", [
++    "--skip-tests",                                                # one flag: a caller with nothing to set
++    "--set=cmapi.digest=sha256:" + "a" * 64,                       # one --set in its = form
++    "--set cmapi.digest=sha256:" + "a" * 64 + " --set x=y",        # the form this repository's caller passes
++])
++def test_the_report_step_hands_any_helm_args_to_helm(tmp_path, helm_args):
++    """The step's own script, run as the runner runs it (bash -e), on a stub helm that records its arguments.
++
++    A one-word helm-args such as --skip-tests starts with "-" and has no space, so argparse would read it as an option
++    rather than the value of --helm-args and the report would stop with a usage error before helm ran."""
++    script = next(s for s in steps(load(REUSABLE)) if s.get("name") == "The report")
++    for side in ("base", "head"):
++        (tmp_path / side / "deploy/environments").mkdir(parents=True)
++        (tmp_path / side / "deploy/environments/crc.yaml").write_text("instance: {}\n")
++    record = tmp_path / "helm-argv"
++    helm = tmp_path / "helm"
++    helm.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{record}"\necho "stub helm" >&2\nexit 1\n')
++    helm.chmod(0o755)
++    env = {**os.environ, "VALUES": "deploy/environments/*.yaml", "HELM_ARGS": helm_args, "CMAPI_SRC": str(ROOT),
++           "CHART_BASE": str(tmp_path / "chart"), "CHART_HEAD": str(tmp_path / "chart"), "HELM": str(helm),
++           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
++           "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}"}
++    r = subprocess.run(["bash", "-e", "-c", script["run"]], cwd=tmp_path, env=env, capture_output=True, text=True)
++    assert "expected one argument" not in r.stderr, r.stderr
++    assert r.returncode == 1, (r.returncode, r.stderr)        # the stub helm failed, so the report failed loudly
++    argv = record.read_text().splitlines()
++    assert argv[:2] == ["template", "cmapi"] and argv[-len(shlex.split(helm_args)):] == shlex.split(helm_args), argv
