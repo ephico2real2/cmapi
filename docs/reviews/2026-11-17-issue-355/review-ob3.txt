@@ -1,0 +1,55 @@
+OB3 review of PR #367 (head 9d7cf21, main c7ab6c4 = merge base). Depth: C1 and C2 deep (own generators + real Go readers built from the PR's yamlread, offline, go1.27.3); C3 medium (traced every YAML write site); C4 shallow-to-medium (CI log, tag API, offline build); C5 medium (PR tests run on main tree and head tree, source path printed).
+
+VERDICT: one blocker by the brief's bar (C1). Fix + failing test in /Users/olasumbo/gitRepos/workbench/cmapi/review-367/fixes.patch (applies cleanly to head, `patch -p1 --dry-run`).
+C1 REFUTED: go-yaml v3 reads 5 annotation-legal forms as time.Time (v2/sigs.k8s.io/yaml keeps them as strings). The cause is Go's time.Parse, which accepts a comma before the fraction (commaOrPeriod) and any run of spaces where the layout has one (skip), and `_TIMESTAMP_RE` misses both. Evidence: drive.py, 1926 strings (bool casings, ints/floats/nulls/dates, unicode look-alikes, ±space/tab) as label, annotation and key, gave 18 mismatches, all yaml12. Example: "2026-1-2  1:2:3" -> <time.Time 2026-01-02T01:02:03Z>, and the same for "2026-1-2 1:2:3,5", "2026-1-2T1:2:3,5Z" and others (drive-head.log). tsfuzz: 12000 timestamp-shaped strings gave 13 mismatches on head and 0 with the fix. The random number fuzz (26807 strings) gave 0 on head. Reachable: MetadataKeys(shipped).validate accepts annotation "2026-1-2  10:00:00" -> []. Fix: `_TIME` fraction `[.,]`, separator ` +`. Test test_a_timestamp_only_go_time_parse_accepts_reads_back_as_the_same_string: FAILS on head src (AssertionError yaml12 <time.Time ...>), PASSES on fixed src (kube_yaml path printed for each run). With the fix the PR's other 4 core tests still pass, and drive/fuzz/c2 give 0 mismatches and 0 corpus diffs.
+C2 CONFIRMED with harmless extras: `policies check` with head and with main src gives "8/8/5 rendered policy files match" for nonprod/staging/prod. 121 repo YAML files (292 docs) re-dumped with safe_dump vs KubeSafeDumper (both kwarg sets) differ in 0 files (c2.log). Extra quotes: 30 fuzz strings that both readers keep as strings are now quoted: floats that overflow in strconv (1e309, 6E778, 1e54_4) and impossible dates (2591-53-2, 0939-6-64). The PR documents this ("only adds quotes"). No other over-quoting found.
+C3 CONFIRMED: every manifest and policy write goes through _dump (manifests.py:203) or _yaml_all (policygen.py:409). git/workspace.py:403, validate/__init__.py:101 and :158, and tools/policies.py:95 write that text through unchanged. apply.py:109 and watch_sync.py:110 `safe_dump_all` only feed `ApplyDelivery.prune_objects` (core/sync.py:73-78), which safe_load_alls the text and deletes by kind/name, so PyYAML reads it back and it never reaches a file or kubectl. apply_folder (sync.py:65-68) also parses with PyYAML. Outside scope: main.py:224 /openapi.yaml still uses safe_dump (not Kubernetes tooling).
+C4 CONFIRMED with one caveat: `gh api .../setup-go/git/ref/tags/v7.0.0` gives b7ad1dad31e06c5925ef5d2fc7ad053ef454303e (commit), which matches ci.yml. With no go on PATH, CMAPI_REQUIRE_GO=1 fails ("Failed: CMAPI_REQUIRE_GO=1 and no go on PATH") and with it unset the test is SKIPPED. CI run 44119485880: go1.22.12 in both jobs, 661 and 1043 passed, nothing skipped. Caveat: the tests DO need the network. setup-go downloads Go 1.22.12, and on a cache miss (both jobs logged "Cache is not found") `go build` fetches sigs.k8s.io/yaml v1.6.0, go.yaml.in/yaml/v3 v3.0.4 and v2 v2.4.2 from proxy.golang.org. Proof: offline build with an empty GOMODCACHE fails with "module lookup disabled". go.sum pins their hashes (-mod=readonly build from a file:// proxy passed). The cache is now saved (key ...go-1.22.12-578f4a75...).
+C5 CONFIRMED: PR files dropped onto the main tree: core gives 2 failed, 2 passed (the by-design guards), kyverno skipped; the API test fails `assert '<bool true>' == 'y'`. Head: core 4 passed + 1 skip, API 1 passed. These tests check behaviour: a real render goes through the real Go readers. Gap: the property corpus has no ',' and no runs of spaces, which is why C1 slipped through.
+Not asked: docs/reviews/2026-11-17-issue-355/README.md should record the two time.Parse looseness rules when the fix lands (doc edit, no code).
+Not checked: the Kyverno test (no kyverno on this Mac); kubectl/Argo CD/kyaml binaries themselves (only the libraries); Go 1.22 vs 1.27 time.Parse differences (commaOrPeriod dates from Go 1.17, so both versions behave the same).
+Housekeeping: `git -C cmapi-design status --short` was empty before (session snapshot) and after. Deleted my exports head/, main/, before/, fix/, the built yamlread binary, basetemp and ci-run.log. Kept in /Users/olasumbo/gitRepos/workbench/cmapi/review-367/: fixes.patch, out.txt, scratch/{drive,fuzz,tsfuzz,c2}.py with their .log/.json files, and changed.json. To re-run: export head, `go build -o yamlread` in cmapi/tests/core/yamlread, then `python -I scratch/drive.py <head>/cmapi/src <yamlread> out.json`.
+
+--- fixes.patch (verbatim) ---
+--- a/cmapi/src/cmapi/core/kube_yaml.py	2026-11-17 09:53:20
++++ b/cmapi/src/cmapi/core/kube_yaml.py	2026-11-17 10:23:56
+@@ -48,9 +48,11 @@
+ _FLOAT_RE = re.compile(r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?")
+ # The shapes of go-yaml's parseTimestamp layouts: 2006-1-2, 2006-1-2T15:4:5.999999999Z07:00 (T or t), and
+ # 2006-1-2 15:4:5.999999999. The shape alone is matched, so a date such as 2026-13-45, which time.Parse refuses, is
+-# quoted too: like a number too large for 64 bits, that only adds quotes.
+-_TIME = r"[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}(?:\.[0-9]+)?"
+-_TIMESTAMP_RE = re.compile(rf"[0-9]{{4}}-[0-9]{{1,2}}-[0-9]{{1,2}}(?:[Tt]{_TIME}(?:Z|[-+][0-9]{{2}}:[0-9]{{2}})| {_TIME})?")
++# quoted too: like a number too large for 64 bits, that only adds quotes. time.Parse is looser than the layouts read:
++# a fraction of a second may follow a comma as well as a period (time/format.go commaOrPeriod), and the layout's one
++# space matches any run of spaces in the text (format.go skip), so 2026-1-2  1:2:3,5 is a timestamp too.
++_TIME = r"[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}(?:[.,][0-9]+)?"
++_TIMESTAMP_RE = re.compile(rf"[0-9]{{4}}-[0-9]{{1,2}}-[0-9]{{1,2}}(?:[Tt]{_TIME}(?:Z|[-+][0-9]{{2}}:[0-9]{{2}})| +{_TIME})?")
+ 
+ 
+ def foreign_tag(value: str) -> str | None:
+--- a/cmapi/tests/core/test_yaml_quoting_355.py	2026-11-17 09:53:20
++++ b/cmapi/tests/core/test_yaml_quoting_355.py	2026-11-17 10:23:56
+@@ -127,6 +127,22 @@
+     assert all(_dump([{"k": s}]) == yaml.safe_dump({"k": s}, sort_keys=False) for s in ORDINARY)
+ 
+ 
++# go-yaml's parseTimestamp hands the text to Go's time.Parse, which takes a comma before the fraction of a second and
++# any run of spaces where the layout has one. Annotation values may hold both, and go-yaml v3 read them as time.Time.
++GO_TIME_PARSE = ["2026-1-2  1:2:3", "2026-1-2   1:2:3.5", "2026-1-2 1:2:3,5", "2026-1-2T1:2:3,5Z",
++                 "2026-1-2t10:11:12,123456789+02:00"]
++
++
++def test_a_timestamp_only_go_time_parse_accepts_reads_back_as_the_same_string():
++    """Each form, as a key and as a value, reads back as itself in both readers; its plain form is not a string."""
++    doc = {s: s for s in GO_TIME_PARSE}
++    got = read(_dump([doc]))
++    for reader in READERS:
++        assert got[reader] == doc, (reader, got[reader])
++    plain = read("".join(f"k{i}: {s}\n" for i, s in enumerate(GO_TIME_PARSE)))["yaml12"]
++    assert all(v.startswith("<time.Time ") for v in plain.values()), plain
++
++
+ def test_the_policy_bundle_writes_through_the_same_dumper(catalog):
+     """policygen writes the bundle with kube_yaml, so a rendered policy reads back the same in both readers."""
+     keys = MetadataKeys.load(SHIPPED)
