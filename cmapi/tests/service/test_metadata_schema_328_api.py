@@ -68,12 +68,9 @@ def operation(spec: dict, method: str, path: str) -> dict:
 
 
 def curl_body(op: dict) -> dict:
-    """The body of the operation's curl sample, without its limitRange: the sample pairs it with a named tier, which every
-    instance refuses (limits-with-named-tier), whatever its metadata-keys.yaml says. That is #349, not this test's."""
+    """The body of the operation's curl sample, as a shell reads it, whole (#349)."""
     words = shlex.split(op["x-codeSamples"][0]["source"])
-    body = json.loads(words[words.index("-d") + 1])
-    assert body.pop("limitRange", None) is not None, "#349 is fixed: drop this pop"
-    return body
+    return json.loads(words[words.index("-d") + 1])
 
 
 def test_the_served_schema_accepts_each_map_that_the_instance_accepts_and_refuses_what_it_can_say(instance):
@@ -125,7 +122,9 @@ def test_the_document_requires_each_required_key_of_this_instance(instance):
 
 def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(instance):
     """#334: the create example ("Try it out"), the create curl sample, and the patch's, each pass the schema and a
-    dry run on this instance; the map examples pass their schemas."""
+    dry run on this instance; the map examples pass their schemas. #349: each curl sample is sent whole (on main 31e0794
+    the create and the patch samples sent limitRange with a named tier, and each dry run answered 422
+    limits-with-named-tier)."""
     name, (client, ctx, git, kube, validator, keys) = instance
     spec = document(client)
     check = SchemaReader()
@@ -154,6 +153,9 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
         assert r.status_code == 200, (body, r.text)
     if name == "company":
         assert tried["namespace"] == "abc-dev" and "cmapi.net/team" not in json.dumps(tried)
+    # The curl sample sends the "Try it out" body: the recorded request, with this instance's labels and annotations.
+    for op in (create, patch):
+        assert curl_body(op) == op["requestBody"]["content"]["application/json"]["example"], op["operationId"]
 
 
 def test_a_patch_cannot_remove_a_required_or_derived_key_in_the_schema_or_in_the_api(instance):

@@ -167,7 +167,7 @@ The answer was 200 (`application/json`):
 Permission: `namespaces:create`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{"namespace": "payments-dev", "tier": "small", "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}}}, "labels": {"cmapi.net/team": "payments"}, "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}, "expiresAt": "2026-12-15", "justification": "Payments service dev namespace"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'Content-Type: application/json' -d '{"annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}, "justification": "Payments service dev namespace", "labels": {"cmapi.net/cost-center": "cc-4410", "cmapi.net/team": "payments"}, "namespace": "payments-dev", "tier": "small"}'
 ```
 
 The run sent `POST /api/v1/clusters/CRC/namespaces` with this body:
@@ -536,7 +536,7 @@ The answer was 200 (`application/json`, `etag: "daa09971fd2463c8"`):
 Permission: `namespaces:write`.
 
 ```bash
-curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"tier": "large", "limitRange": {"container": {"default": {"cpu": "1", "memory": "1Gi"}, "max": {"cpu": "4", "memory": "8Gi"}}}, "labels": {"cmapi.net/cost-center": "cc-4410"}, "justification": "More capacity for the batch"}'
+curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"justification": "Load test next sprint", "tier": "large"}'
 ```
 
 The run sent `PATCH /api/v1/clusters/CRC/namespaces/payments-dev` with this body:
@@ -711,7 +711,7 @@ The answer was 200 (`application/json`):
 Permission: `namespaces:write`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:extend -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"days": 30, "until": "2026-12-15", "justification": "Another sprint"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:extend -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"days": 7, "justification": "Another sprint"}'
 ```
 
 The run sent `POST /api/v1/clusters/CRC/namespaces/sprint-dev/expiration:extend` with this body:
@@ -866,7 +866,7 @@ The answer was 200 (`application/json`):
 Permission: `namespaces:write`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:makePermanent -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"justification": "The service went to production use"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:makePermanent -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"justification": "In production use"}'
 ```
 
 The run sent `POST /api/v1/clusters/CRC/namespaces/sprint-dev/expiration:makePermanent` with this body:
@@ -1046,7 +1046,7 @@ The answer was 200 (`application/json`):
 Permission: `namespaces:write`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"until": "2026-12-15", "justification": "A test namespace for one sprint"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H "Authorization: Bearer $TOKEN" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: "3f9a1c0b7e2d4a68"' -H 'Content-Type: application/json' -d '{"justification": "A load test this sprint", "until": "2026-12-08"}'
 ```
 
 The run sent `POST /api/v1/clusters/CRC/namespaces/notes-dev/expiration:set` with this body:
@@ -1941,7 +1941,7 @@ The answer was 200 (`application/json`):
 Permission: `requests:reject`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:reject -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"comment": "sizing reviewed"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:reject -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"comment": "Use the medium tier"}'
 ```
 
 The run sent `POST /api/v1/requests/req-20261117-0006:reject` with this body:
@@ -2406,7 +2406,7 @@ The answer was 200 (`application/json`):
 Permission: `approvals:pause`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/auto-approval:resume -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"reason": "incident 1234"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/auto-approval:resume -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"reason": "incident 1234 closed"}'
 ```
 
 The run sent `POST /api/v1/admin/auto-approval:resume` with this body:
@@ -2600,7 +2600,7 @@ The answer was 200 (`application/json`):
 Permission: `operations:run`.
 
 ```bash
-curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/prune:confirm -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"namespace": "payments-dev", "clusterId": "CRC"}'
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/admin/prune:confirm -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"clusterId": "CRC", "namespace": "search-dev"}'
 ```
 
 The run sent `POST /api/v1/admin/prune:confirm` with this body:

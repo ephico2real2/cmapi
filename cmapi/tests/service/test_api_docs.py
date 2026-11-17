@@ -224,9 +224,11 @@ def test_each_operation_has_one_curl_sample_that_the_app_accepts(world):
         r = client.request(m, url[len(server):], headers=headers, content=body)
         code = r.json().get("code") if r.headers.get("content-type", "").startswith("application/problem+json") else None
         # The sample names objects that this empty world does not hold, so 404, 409 and 412 are what a real call would get.
-        # What it must never get is a refusal for something the sample left out or wrote wrongly.
+        # What it must never get is a refusal for something the sample left out or wrote wrongly: a body that breaks a rule
+        # of the instance is one (policy-violation, #349: limitRange with a named tier).
         assert r.status_code not in (400, 401, 405, 428) and code not in ("validation-failed", "idempotency-key-required",
-                                                                         "precondition-required", "unauthenticated"), \
+                                                                         "precondition-required", "unauthenticated",
+                                                                         "policy-violation"), \
             f"{samples[0]['source']} -> {r.status_code} {r.text[:300]}"
         count += 1
     assert count == len(list(operations(spec))) and count >= 31
