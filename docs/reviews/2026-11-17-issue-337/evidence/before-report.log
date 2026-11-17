@@ -1,0 +1,174 @@
+FFFFFFFFFFF                                                              [100%]
+=================================== FAILURES ===================================
+________ test_a_required_label_shows_as_a_new_required_field_and_passes ________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_required_label_shows_as_a_new_required_field_and_passes(tools, tmp_path):
+        r, summary = report(tmp_path, with_values({"metadata": chart_keys_with_label()}))
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:101: AssertionError
+_____________ test_an_optional_key_is_reported_and_is_not_breaking _____________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_an_optional_key_is_reported_and_is_not_breaking(tools, tmp_path):
+        keys = yaml.safe_load((CHART / "config/metadata-keys.yaml").read_text())
+        keys["extraLabels"]["keys"]["cmapi.net/data-class"] = NEW_LABEL
+        r, summary = report(tmp_path, with_values({"metadata": keys}))
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:114: AssertionError
+__________ test_a_change_that_leaves_metadata_keys_alone_runs_no_diff __________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_change_that_leaves_metadata_keys_alone_runs_no_diff(tools, tmp_path):
+        """oasdiff is a stub that fails: the run passes only because no document was compared."""
+        head = crc().replace("displayName: Non-production (CRC)", "displayName: Non-production (CRC, renamed)")
+        assert head != crc()
+        r, summary = report(tmp_path, head, env={"OASDIFF": stub(tmp_path, "oasdiff", 102)})
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:124: AssertionError
+______________________ test_a_broken_oasdiff_fails_loudly ______________________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_broken_oasdiff_fails_loudly(tools, tmp_path):
+        r, summary = report(tmp_path, with_values({"metadata": chart_keys_with_label()}),
+                            env={"OASDIFF": stub(tmp_path, "oasdiff", 102)})
+>       assert r.returncode == 1
+E       assert 2 == 1
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:132: AssertionError
+____________________ test_a_broken_cmapi_tools_fails_loudly ____________________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_broken_cmapi_tools_fails_loudly(tools, tmp_path):
+        r, _ = report(tmp_path, with_values({"metadata": chart_keys_with_label()}),
+                      env={"CMAPI_TOOLS": stub(tmp_path, "cmapi-tools", 2)})
+>       assert r.returncode == 1
+E       assert 2 == 1
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:140: AssertionError
+_______________________ test_a_missing_helm_fails_loudly _______________________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_missing_helm_fails_loudly(tools, tmp_path):
+        r, _ = report(tmp_path, with_values({"metadata": chart_keys_with_label()}), env={"HELM": str(tmp_path / "no-helm")})
+>       assert r.returncode == 1
+E       assert 2 == 1
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:146: AssertionError
+________ test_a_head_that_cmapi_refuses_fails_with_the_loaders_message _________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_head_that_cmapi_refuses_fails_with_the_loaders_message(tools, tmp_path):
+        """configFiles text passes Helm's schema unread; cmapi's loader refuses a required key with no example (#332)."""
+        text = (CHART / "config/metadata-keys.yaml").read_text().replace(
+            "requiredLabels:\n", 'requiredLabels:\n  cmapi.net/data-class: {pattern: "^[a-z]{2,20}$"}\n', 1)
+        r, summary = report(tmp_path, with_values({"configFiles": {"metadata-keys.yaml": text}}))
+>       assert r.returncode == 1, r.stdout
+E       AssertionError: 
+E       assert 2 == 1
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:155: AssertionError
+________________ test_a_planted_oasdiff_config_changes_nothing _________________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_planted_oasdiff_config_changes_nothing(tools, tmp_path):
+        """oasdiff reads .oasdiff.* from its working directory; `fail-on: INFO` there would turn this report into exit 1."""
+        work = tmp_path / "workspace"
+        work.mkdir()
+        (work / ".oasdiff.yaml").write_text("fail-on: INFO\n")
+        r, summary = report(tmp_path, with_values({"metadata": chart_keys_with_label()}), cwd=work, plant="fail-on: INFO\n")
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:166: AssertionError
+________ test_a_values_file_that_the_change_adds_is_rendered_and_passes ________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_values_file_that_the_change_adds_is_rendered_and_passes(tools, tmp_path):
+        r, summary = report(tmp_path, crc(), base=ABSENT)
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:172: AssertionError
+______________ test_a_values_file_that_the_change_removes_passes _______________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_a_values_file_that_the_change_removes_passes(tools, tmp_path):
+        r, summary = report(tmp_path, ABSENT)
+>       assert r.returncode == 0, r.stdout + r.stderr
+E       AssertionError: /usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '<main 7ba5d78>/cmapi/contract/report.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:179: AssertionError
+__________________________ test_no_values_file_fails ___________________________
+
+tools = None
+tmp_path = PosixPath('<tmp>')
+
+    def test_no_values_file_fails(tools, tmp_path):
+        r, _ = report(tmp_path, crc(), values="deploy/nothing/*.yaml")
+>       assert r.returncode == 1
+E       assert 2 == 1
+E        +  where 2 = CompletedProcess(args=['<path> '<path> [Errno 2] No such file or directory\n").returncode
+
+tests/service/test_contract_report_337.py:185: AssertionError
+=========================== short test summary info ============================
+FAILED tests/service/test_contract_report_337.py::test_a_required_label_shows_as_a_new_required_field_and_passes
+FAILED tests/service/test_contract_report_337.py::test_an_optional_key_is_reported_and_is_not_breaking
+FAILED tests/service/test_contract_report_337.py::test_a_change_that_leaves_metadata_keys_alone_runs_no_diff
+FAILED tests/service/test_contract_report_337.py::test_a_broken_oasdiff_fails_loudly
+FAILED tests/service/test_contract_report_337.py::test_a_broken_cmapi_tools_fails_loudly
+FAILED tests/service/test_contract_report_337.py::test_a_missing_helm_fails_loudly
+FAILED tests/service/test_contract_report_337.py::test_a_head_that_cmapi_refuses_fails_with_the_loaders_message
+FAILED tests/service/test_contract_report_337.py::test_a_planted_oasdiff_config_changes_nothing
+FAILED tests/service/test_contract_report_337.py::test_a_values_file_that_the_change_adds_is_rendered_and_passes
+FAILED tests/service/test_contract_report_337.py::test_a_values_file_that_the_change_removes_passes
+FAILED tests/service/test_contract_report_337.py::test_no_values_file_fails
+11 failed in 3.21s

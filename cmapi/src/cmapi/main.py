@@ -21,6 +21,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
+from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
@@ -93,13 +94,52 @@ class UnhandledToProblemMiddleware:
             await response(scope, receive, send)
 
 
+def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None) -> tuple[FastAPI, Any]:
+    """The routes of an instance and its API document, from its configuration alone (#337): (app, the sign-in dependency).
+
+    create_app adds what serving needs (middleware, error handlers, the docs pages, the context). `cmapi-tools openapi
+    render` calls this alone, with no database, identity provider, cluster, Git host or Kyverno, so the document that CI
+    reports on is built by the code that serves it."""
+    authed = caller_dependency(oauth2_scheme(issuer))
+    # FastAPI's own /openapi.json is off: the route below serves the document with an ETag, and behind sign-in when docs.public is false.
+    app = FastAPI(title=f"cmapi ({cfg.name})", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None,
+                  openapi_url=None,
+                  description=f"The {cfg.name} instance serves {sorted(cfg.allowed_environments)}. "
+                              "Every write is approved in cmapi, then becomes a bot pull request to cluster-configs.",
+                  swagger_ui_init_oauth={"clientId": "cmapi-docs", "usePkceWithAuthorizationCodeGrant": True,
+                                         "scopes": "openid"})
+    app.include_router(health.router)
+    app.include_router(health.version_router)
+    # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py).
+    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())
+    for r in authed_routers:
+        app.include_router(r, dependencies=[Depends(authed)])
+    check_documented(app)
+    _add_servers(app, cfg)
+    plugins = plugin_routers((health.version_router, *authed_routers))
+    app.state.plugins = plugins
+    public_url = cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
+    problem_base = type_base(cfg.raw_instance["instance"])
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is None:
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, cfg.metadata)
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
+    return app, authed
+
+
+def openapi_document(cfg: InstanceConfig) -> dict[str, Any]:
+    """The OpenAPI document that an instance with this configuration serves at /openapi.json (#337)."""
+    return api_app(cfg, cfg.raw_instance["instance"]["auth"]["issuer"])[0].openapi()
+
+
 def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> FastAPI:
     s = s or settings()
     configure_logging(s.log_level)
     ctx = ctx or build_context(s)
     issuer = ctx.issuer
-    scheme = oauth2_scheme(issuer)
-    authed = caller_dependency(scheme)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -114,13 +154,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     docs_cfg = (ctx.cfg.raw_instance["instance"].get("docs") or {})
     docs_enabled = docs_cfg.get("enabled", True)
-    # FastAPI's own /openapi.json is off: the route below serves the document with an ETag, and behind sign-in when docs.public is false.
-    app = FastAPI(title=f"cmapi ({ctx.cfg.name})", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None,
-                  openapi_url=None,
-                  description=f"The {ctx.cfg.name} instance serves {sorted(ctx.cfg.allowed_environments)}. "
-                              "Every write is approved in cmapi, then becomes a bot pull request to cluster-configs.",
-                  swagger_ui_init_oauth={"clientId": "cmapi-docs", "usePkceWithAuthorizationCodeGrant": True,
-                                         "scopes": "openid"})
+    app, authed = api_app(ctx.cfg, issuer, lifespan)
     app.state.ctx = ctx
     app.state.auth = ctx.auth
     problem_base = type_base(ctx.cfg.raw_instance["instance"])
@@ -161,24 +195,6 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def value_error_handler(_: Request, exc: ValueError) -> Response:
         return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
 
-    app.include_router(health.router)
-    app.include_router(health.version_router)
-    # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py).
-    authed_routers = (me.router, requests.router, admin.router, *ctx.cfg.plugins.routers())
-    for r in authed_routers:
-        app.include_router(r, dependencies=[Depends(authed)])
-    check_documented(app)
-    _add_servers(app, ctx)
-    plugins = plugin_routers((health.version_router, *authed_routers))
-    app.state.plugins = plugins
-    public_url = ctx.cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
-
-    def openapi() -> dict[str, Any]:
-        if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, ctx.cfg.metadata)
-        return app.openapi_schema
-
-    app.openapi = openapi  # type: ignore[method-assign]
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
         _add_docs(app, ctx, docs_cfg, authed, problem_response)
@@ -323,10 +339,10 @@ def _redoc_html(title: str, start_url: str, favicon_url: str) -> str:
 """
 
 
-def _add_servers(app: FastAPI, ctx: AppContext) -> None:
-    public = ctx.cfg.raw_instance["instance"].get("publicUrl")
+def _add_servers(app: FastAPI, cfg: InstanceConfig) -> None:
+    public = cfg.raw_instance["instance"].get("publicUrl")
     if public:
-        app.servers = [{"url": public, "description": f"the {ctx.cfg.name} instance"}]
+        app.servers = [{"url": public, "description": f"the {cfg.name} instance"}]
 
 
 def run() -> None:

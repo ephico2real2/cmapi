@@ -19,7 +19,31 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-16, 19:33Z
+## Current: 2026-11-17
+
+The plan and the owner's decisions are in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-17". Proof: CI is GitHub Actions
+on the exact head; kind is the throwaway `cmapi-test` cluster; none of these runs on CRC yet (CRC runs `9ba33b2`).
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Expiration list API and tab | #318 | Merged #322 (`9ba33b2`) | CI; CRC (deployed 2026-11-16) |
+| #328 design: two designs and the arbitration | #328 | Merged #329 | Records |
+| Validator: empty prefix, `*` prefix | #330, #331 | Merged #340, #341 | CI; review OB3 |
+| Helm `metadata:` values with `values.schema.json` | #335 | Merged #339 | CI; kind (engine none) |
+| Kyverno audit by default; CI check on audit | #342, #343 | Merged #344 | CI; review OB3 |
+| Pattern subset, shared anchored pattern, config shape | #332, #338 | Merged #346 | CI; three-engine corpus |
+| Required labels and annotations in the OpenAPI schema | #328, #334 | Merged #350 | CI; equivalence corpus, Swagger screenshots (local) |
+| Kyverno coverage, background scans, policy names | #333, #345, #356 | Merged #354 | CI; kind (Kyverno v1.20.0, audit) |
+| RE2 matching; curl samples | #348, #349 | Merged #351, #352 | CI; image stage built by hand (amd64) |
+| Company profile: LOB, CL, mnemonic | #358 | Merged #359 | CI; Kyverno CLI |
+| YAML quoting for Kubernetes tools | #355 | Merged #367 | CI; Go YAML readers |
+| New namespace form from the metadata config | #336 | Merged #368 (`7ba5d78`) | CI; Chromium 156, nginx CSP, axe |
+| Contract report in the cluster-configs CI | #337 | In progress | None |
+| Portal slice 4: Policies, Capacity | #302 | Next after the CRC deploy | None |
+
+Open bugs filed on 2026-11-17: #347, #353, #357, #360, #361, #362, #363, #364. Follow-ups: #365, #366.
+
+## Previous: 2026-11-16, 19:33Z
 
 The next steps and the owner's decisions are in [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), "Resume here". **Proof** is where the result was measured. CI is GitHub Actions on the exact head. CRC means a live run (OB1 runs 9, 11, 13 and 15, logs in `workbench/cmapi/ob1-run*`).
 

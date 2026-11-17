@@ -390,6 +390,49 @@ The examples in the document are this instance's too (#334): the `labels` and `a
 
 **Generated clients.** The committed contract, `cmapi/contract/openapi.json`, is the document of the reference file (`examples/cluster-configs/policies/metadata-keys.yaml`), and the contract gate sees only that file. A client for an instance with its own keys is generated from that instance's own document, for example `curl -fsS https://<instance-route>/openapi.json -o openapi.json` and then the generator (the portal uses openapi-typescript 7.13.0, through `cmapi-portal-ui/scripts/api-types.mjs`). An instance with `docs.enabled: false` serves no document.
 
+### The contract report of a values change
+
+The contract gate sees only the reference file. A site's own change of its keys reaches the API through its Helm values, so the report of that change runs where the values live (#337, the owner's ruling of 2026-11-17). It shows, on the pull request, what the change does to the instance's API document. It never fails the pull request: a change of required keys is the operator's decision (#328, question 4).
+
+**The document offline.** `cmapi-tools openapi render --metadata-keys <file> [--config-dir <dir>] --out <file>` writes the document that an instance with these files serves, through the code that serves it (`main.api_app`), with no database, identity provider, cluster, Git host or Kyverno. With `--config-dir`, the instance's own files; without it, the reference instance packaged with cmapi (`cmapi/src/cmapi/tools/reference_instance/`), whose document is the committed contract. Exit `3` means cmapi's loader refuses the files, so an instance with them would not start; any other non-zero exit is a broken tool. A test holds both renders byte-equal to `cmapi/contract/openapi.json`.
+
+**The report.** `.github/workflows/api-contract-report.yml` is a reusable workflow. For each values file, on the base branch and on the change, it runs `helm template` and takes the `metadata-keys.yaml` of the instance's ConfigMap, so the value `metadata`, the text `configFiles."metadata-keys.yaml"` and the chart's own file all count. Where the two differ, it renders each side's document on the reference instance, so every difference comes from `metadata-keys.yaml`, and runs oasdiff 1.37.0's `changelog` on the pair (`cmapi/contract/report.py`). The changelog goes to the job summary, with one annotation on the values file: a warning when oasdiff finds a breaking change, such as a new required label, a notice otherwise.
+
+| What happens | The job |
+|---|---|
+| Any change of the API, breaking or not | Passes; the summary lists each change |
+| A change that leaves `metadata-keys.yaml` as it was | Passes; no document is compared |
+| A values file added or removed | Passes, with a notice |
+| `helm template`, `cmapi-tools` or oasdiff fails or is missing, or cmapi refuses either side's file | Fails, with an error annotation that names the step |
+
+In this repository `.github/workflows/values-contract-report.yml` calls it on a pull request that changes `deploy/environments/**`, the chart's `config/metadata-keys.yaml`, `values.yaml` or `templates/config.yaml`. Each side renders with its own chart and the change's own `cmapi-tools`.
+
+A site's values repository calls it the same way, pinned by commit, with `cmapi-ref` set to the commit of the cmapi that its instances run (the image's `org.opencontainers.image.revision`); both sides then render with that cmapi's chart and code:
+
+```yaml
+on:
+  pull_request:
+    paths: [environments/**]
+permissions:
+  contents: read
+jobs:
+  api-contract:
+    uses: ephico2real2/cmapi/.github/workflows/api-contract-report.yml@<40-hex commit>
+    with:
+      values-files: environments/*.yaml
+      cmapi-ref: <the same commit>
+      helm-args: --set cmapi.digest=sha256:<64 a> --set cmapi_portal.digest=sha256:<64 a> --set trustedCA.certificates=x
+```
+
+`helm-args` carries what `helm template` requires and only a deploy passes, such as the image digests and the CA bundle; the ConfigMap reads none of them.
+
+- **Never a required check.** A workflow that its `paths` filter skips leaves a required check pending, which blocks the pull request ([workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax), `on.<push|pull_request>.paths`). The filter can also miss a change in a pull request of more than 3,000 files.
+- **Fork pull requests.** The trigger is `pull_request`: a fork's `GITHUB_TOKEN` is read-only and no secret is passed ([events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)), and the report needs neither. `pull_request_target` is never used: it must not check out untrusted code ([secure use](https://docs.github.com/en/actions/reference/security/secure-use)). A pull request that edits the workflow can make its own report say anything; the report is advice, and review of `.github/` is the control.
+- **Why a summary and not a comment.** A job summary needs no write permission and holds 1 MiB of Markdown for each step ([workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)). A comment needs `pull-requests: write`, which a fork's pull request never gets under `pull_request`.
+- **oasdiff's own files.** oasdiff reads a `.oasdiff.*` file from its working directory (its `docs/CONFIG-FILES.md`), and a pull request could add one: measured, `fail-on: INFO` there turned a report into exit 1. The report runs oasdiff from an empty directory, with `--allow-external-refs=false` (its `docs/EXTERNAL-REFS.md`), never with `--fail-on` or `--open`.
+
+The `## Info` line "a breaking change was detected but the version is still 0.2.0" is expected: both sides are one cmapi version. Generate a client from the instance's own `/openapi.json` (above), not from the report. The decision record is `docs/reviews/2026-11-17-issue-337/`.
+
 ### The example of the owner's company
 
 `examples/cluster-configs/policies/metadata-keys.company.yaml` is the owner's sample namespace `abc-rnd`. `company.net` stands for the company's domain. The test `cmapi/tests/core/test_metadata_stanzas.py` renders the sample from this file. The company's keys on the namespace are these. The namespace also carries the `cmapi.net/` system keys:
