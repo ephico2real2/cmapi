@@ -1,0 +1,245 @@
+OB3 (Opus 5.5) review of cmapi PR #346 (head 3be79f4, main 326a234), 2026-11-17. Exports under
+/Users/olasumbo/gitRepos/workbench/cmapi/review-346/ (head/, main/, fix/ = head + the fix, before/ = head + the fix's tests,
+mainT/ = main + head's tests + name stubs). No cluster; Kyverno CLI v1.20.0 from ob1-run5/tools/bin; Go 1.27.3; Node 26.9.0;
+cel-go v0.30.0 built offline from the module cache.
+
+DEPTH: deep = C1 (differential fuzz over 4 engine legs) and C2 (main vs head verdict diff over 22k generated values),
+because both are "no difference exists" claims that only a broad measurement can attack. Medium = C3, C5, C6, C7 (one
+drive each). Shallow-to-medium = C4 (one drive over typos and types plus a read of every field the loader reads).
+
+VERDICT: FIX FIRST. One blocker (F1, the URL regex accepts what main refused); one minor (F2).
+
+C1: CONFIRMED. 654 patterns (113 hand edge-accepts, 141 hand refusals, 400 seeded random subset patterns): reader accepts
+  512; 0 accepted patterns differ across Python re.fullmatch, Node RegExp(rx,"u"), Go regexp and cel-go matches() on
+  42,675 verdicts per leg (c1/c1-run.log); Kyverno CLI v1.20.0 leg (141 accepted patterns x 998 values = 140,718 results): 0 differ
+  (c1/c1-kyverno.log; a first run's 12 'error' results were PyYAML writing the value y bare, which Kyverno's YAML 1.1
+  reads as a bool; c1/c1-kyverno-run1-yaml-y.log). Harness has teeth: the refused
+  `a.c`, `\d`, `a$\n?`, `\s`, `x{,3}`, `\-` each differ (c1/c1-controls.log). All 141 refusals refused; 1 random refused
+  (`[-||-|]`, correct). Refused yet alike in all three AND plausibly needed by a real config: a `-` mid-class after a range,
+  `[a-z0-9-_]`, `[a-z-0-9]`, `[A-Za-z0-9-_.]` (message gives the rewrite; ECMA v-flag would differ, so refusing is safe).
+  Also alike but rarely needed: `\f \v \0 \x41`, `$`/`^` inside a group. 6 random patterns timed out (>5 s) in Python's
+  backtracking on <=80-char values: pre-existing ReDoS exposure of a configured pattern, not compared.
+C2: REFUTED. PR says "Nothing accepted now that main refused". On 68,024 verdicts (4 shipped configs), 460 URL values that
+  main refused (urlsplit ValueError -> 422 validation-failed) head accepts (c2/c2-run.log): (a) 376 with an NFKC delimiter
+  in the netloc (`http://a℀b`, `http://x／y`; CVE-2019-9636 check), (b) 84 with text before `[` or after `]`
+  that is not userinfo/port (`http://[::1]x`, `http://a[::1]b`; urllib _check_bracketed_netloc). Through the API with
+  policy.engine none, head APPROVES `http://wiki℀company.net/abc` and `http://[::1]x/abc` (service-before.log).
+  Tightenings (847): leading C0 (reported), IPvFuture (reported), IPv6 zone ID `[fe80::1%25eth0]` (NOT reported; the
+  README says the host equals ipaddress, which accepts zone IDs). Email and pattern verdicts: 0 differences.
+  With F1 applied: 0 loosened, same 847 tightenings (c2/c2-fix-run.log).
+C3: CONFIRMED. All 6 shipped copies load on head and `helm template` with each as `metadata:` exits 0 (c3/c3-run.log); the
+  #335 kind evidence values file also loads.
+C4: CONFIRMED with one gap (F2). Every typo tried gets the right hint (requiredLabel/required_labels/RequiredLabels ->
+  requiredLabels, operatorsOnly -> operatorOnly ...); text/mapping/int/bool for each list stanza and list/text/int for
+  each map stanza refused; a file using every field the loader reads loads; loader stanzas == schema properties (10).
+  Gap: a key's rule given as "", 0, false or [] loads as an unrestricted key (`spec or {}`), while "x"/1/true are refused
+  (c4/c4-run.log). Pre-existing on main; same #338 class.
+C5: CONFIRMED. 65 (config, env, key) validations rendered by render_bundle: the CEL literal decoded equals value_regex byte
+  for byte, 0 differ; the 25 committed pattern/format validations equal too; `policies check` passes for nonprod (8),
+  prod (5), staging (8) (c5/c5-run.log).
+C6: CONFIRMED. test_metadata_url_332_api.py asserts `ctx.cfg.policy.engine == "none"` and no kyverno on PATH; on main+stubs
+  its 2 refusal cases fail (202; 422 validation-failed "Invalid IPv6 URL"), on head 3 pass (service-mainT.log,
+  service-before.log).
+C7: CONFIRMED. On main with name-only stubs (mainT): 332 file 41 fail / 28 pass / 1 skip (passes are guards or carried by
+  the stubs' anchored/_SPACE; the PR's 62/8 used other stubs), 338 file 44 fail / 1 pass (matches PR), service files
+  9 fail / 58 pass. Head: core 144 pass with Node and Kyverno required (core-kyverno.log); service 67 pass (without my 2).
+
+FINDINGS
+F1 (blocker): metadata.py _HOST/_URL. Fix: exclude the 19 NFKC-delimiter code points from the authority, and allow a
+  bracket only as [userinfo@][IPv6][:port] (port without "@"). Tests: test_the_validator_refuses_an_authority_that_
+  urlsplit_refused (10), test_the_nfkc_delimiter_class_is_every_code_point_whose_nfkc_form_holds_a_url_delimiter,
+  test_the_url_regex_accepts_nothing_that_the_urlsplit_check_refused (20,000 seeded), 2 accepted URLs, 2 API cases.
+  Before (head): 12 core + 2 API fail; after: core 163 pass (Node + Kyverno required), service 69 pass. Fixed URL regex is
+  in the subset and reads alike in Python/Node/Go/cel-go on 18,207 values (c1/c1-fix-url.log). README and docs/18 updated,
+  including the zone-ID tightening.
+F2 (minor): metadata.py _add `spec = spec or {}` -> `{} if spec is None else spec`, message names the type. Tests:
+  4 cases fail on head, pass after; null still a key with any value.
+
+NOT CHECKED: CRC/kind; the full service suite; the UBI python-312 image's urllib (the bracket check needs the
+CVE-2025-0938 backport; the NFKC check is in every 3.12); Python ReDoS of configured patterns.
+
+HOUSEKEEPING: git -C /Users/olasumbo/gitRepos/cmapi-design status --short: empty before (session start) and after.
+Deleted (mine): the exports head/ main/ fix/ before/ mainT/ design/, tmp/, c1/kyv/, c1/items.json, c2 values and
+verdict json, every __pycache__ in the exports. Kept: c1..c5 drive scripts, logs and result json, c1/celgo (source +
+binary; build: GOPROXY=file://$HOME/go/pkg/mod/cache/download GOSUMDB=off GOFLAGS=-mod=mod go build), run-service.sh,
+service-*.log, fix-core-*.log, core-kyverno.log, c7-main.log, ob3-346-fixes.patch, out.txt. To re-run: git archive the
+two refs into head/ and main/, cp -R head fix && git apply ob3-346-fixes.patch in fix/.
+
+FIXES PATCH (ob3-346-fixes.patch, verbatim):
+--- a/cmapi/src/cmapi/core/metadata.py
++++ b/cmapi/src/cmapi/core/metadata.py
+@@ -294,9 +294,17 @@
+ # Python's str.isspace(), written out: RE2 reads no \u escape and ECMA-262 no \x{..}, so the characters past \r are
+ # literal (tests/core/test_metadata_pattern_subset_332.py holds it equal to isspace over every code point).
+ _SPACE = "\\t-\\r\x1c- \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+-# The authority of a URL: no "/", "?", "#" or whitespace, and a "[" only around an IPv6 address, as RFC 3986 section
+-# 3.2.2 writes IPv6address (ls32 is two 16-bit pieces or an IPv4 address).
+-_HOST = f"[^/?#\\[\\]{_SPACE}]"
++# The characters whose NFKC form holds "/", "?", "#", "@" or ":" (U+2100 ACCOUNT OF is "a/c"). urllib.parse refuses a
++# netloc with one ("contains invalid characters under NFKC normalization", CVE-2019-9636), and so did the validator
++# before #332, because a client that normalises the host for IDNA would split it there. Literal, as _SPACE is
++# (tests/core/test_metadata_pattern_subset_332.py holds it equal to unicodedata over every code point).
++_NFKC_DELIMITERS = ("\u2047\u2048\u2049\u2100\u2101\u2105\u2106\u2a74\ufe13\ufe16\ufe55\ufe56\ufe5f\ufe6b\uff03\uff0f"
++                    "\uff1a\uff1f\uff20")
++# The authority of a URL (RFC 3986 section 3.2): no "/", "?", "#", whitespace or NFKC delimiter. A "[" only in
++# [userinfo "@"] "[" IPv6address "]" [":" port]: nothing before "[" but a userinfo and nothing after "]" but a port, as
++# RFC 3986's IP-literal and urllib.parse (_check_bracketed_netloc) say; ls32 is two 16-bit pieces or an IPv4 address.
++_HOST = f"[^/?#\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
++_PORT = f"[^/?#@\\[\\]{_SPACE}{_NFKC_DELIMITERS}]"
+ _H16 = "[0-9A-Fa-f]{1,4}"
+ _OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+ _LS32 = f"(?:{_H16}:{_H16}|{_OCTET}(?:\\.{_OCTET}){{3}})"
+@@ -304,7 +312,7 @@
+                   *(f"(?:(?:{_H16}:){{0,{n}}}{_H16})?::(?:{_H16}:){{{4 - n}}}{_LS32}" for n in (1, 2)),
+                   f"(?:(?:{_H16}:){{0,3}}{_H16})?::{_H16}:{_LS32}", f"(?:(?:{_H16}:){{0,4}}{_H16})?::{_LS32}",
+                   f"(?:(?:{_H16}:){{0,5}}{_H16})?::{_H16}", f"(?:(?:{_H16}:){{0,6}}{_H16})?::"])
+-_URL = (f"^{_literal('http')}[sS]?://(?:{_HOST}+|{_HOST}*\\[(?:{_IPV6})\\]{_HOST}*)"
++_URL = (f"^{_literal('http')}[sS]?://(?:{_HOST}+|(?:{_HOST}*@)?\\[(?:{_IPV6})\\](?::{_PORT}*)?)"
+         f"(?:[/?#][^{_SPACE}]*)?$")
+ 
+ 
+@@ -467,9 +475,11 @@
+         if not isinstance(key, str):
+             problems.append(f"{stanza}: the key {key!r} is not text")
+             return
+-        spec = spec or {}
++        # An empty rule (key:) is a key with any value. "", 0, false and [] are not empty: `spec or {}` read each as
++        # one, so a typo loaded an unrestricted key where a truthy scalar was refused (#338).
++        spec = {} if spec is None else spec
+         if not isinstance(spec, Mapping):
+-            problems.append(f"{where}: a key's rule is a mapping")
++            problems.append(f"{where}: a key's rule is a mapping, not {_kind_of(spec)}")
+             return
+         unknown = set(spec) - _RULE_FIELDS
+         if unknown:
+--- a/cmapi/tests/core/test_metadata_pattern_subset_332.py
++++ b/cmapi/tests/core/test_metadata_pattern_subset_332.py
+@@ -17,6 +17,8 @@
+ import shutil
+ import subprocess
+ import sys
++import unicodedata
++from urllib.parse import urlsplit
+ 
+ import pytest
+ import yaml
+@@ -123,12 +125,57 @@
+ 
+ 
+ @pytest.mark.parametrize("value", ["https://wiki.company.net/abc", "HTTP://x", "http://[::1]:8080/a?b#c",
+-                                   "http://u@[fe80::1]/"])
++                                   "http://u@[fe80::1]/", "http://u:p@[::1]:/", "http://x/a\u2100b"])
+ def test_the_validator_accepts_a_url(value):
+     keys = MetadataKeys.load(COMPANY)
+     assert keys.validate(SENT, {URL_KEY: value}, operator=False, sources=SOURCES) == []
+ 
+ 
++# Before #332 urlsplit raised ValueError on each, so the validator refused it (a 422): an NFKC delimiter in the netloc
++# (CVE-2019-9636: U+2100 is "a/c", U+FF0F "/", U+FF1A ":", U+FE6B "@"), and text before "[" or after "]" that is not a
++# userinfo or a port (_check_bracketed_netloc). The one regex must not accept what the validator refused.
++@pytest.mark.parametrize("value", ["http://a\u2100b/", "http://x\uff0fy/", "https://wiki\uff1acompany.net/",
++                                   "http://x\ufe6by/", "http://u\uff20x/", "http://[::1]x/", "http://a[::1]/",
++                                   "http://[::1]:80@x/", "http://u@[::1]x:80/", "http://[::1]:8\u2100/"])
++def test_the_validator_refuses_an_authority_that_urlsplit_refused(value):
++    keys = MetadataKeys.load(COMPANY)
++    errs = keys.validate(SENT, {URL_KEY: value}, operator=False, sources=SOURCES)
++    assert [(e["code"], e["key"], e["detail"]) for e in errs] == [("invalid_value", URL_KEY, "an http or https URL")]
++
++
++def test_the_nfkc_delimiter_class_is_every_code_point_whose_nfkc_form_holds_a_url_delimiter():
++    from cmapi.core.metadata import _NFKC_DELIMITERS
++    want = [hex(c) for c in range(0x80, sys.maxunicode + 1) if not 0xD800 <= c <= 0xDFFF
++            and any(d in unicodedata.normalize("NFKC", chr(c)) for d in "/?#@:")]
++    assert [hex(ord(c)) for c in _NFKC_DELIMITERS] == want
++
++
++def _urlsplit_check(value: str) -> bool:
++    """The validator's URL check before #332 (main 5a8f817), kept here as the reference that the regex must not loosen."""
++    try:
++        parts = urlsplit(value)
++    except ValueError:
++        return False
++    return parts.scheme in ("http", "https") and bool(parts.netloc) and not any(c.isspace() for c in value)
++
++
++def test_the_url_regex_accepts_nothing_that_the_urlsplit_check_refused():
++    """20,000 seeded authorities from the pieces where the two differ: brackets, "@", ":", "%", NFKC delimiters and
++    non-ASCII letters. The regex may refuse more (a leading C0 control, IPvFuture, a zone ID), never accept more."""
++    keys = MetadataKeys.load(COMPANY)
++    url = re.compile(value_regex(keys.rules["annotation"][URL_KEY], keys.email_domains))
++    rand = random.Random(332)
++    pieces = ["a", "1", "f", ":", "@", "[", "]", ".", "%", "-", "::1", "[::1]", "fe80::1", "[fe80::1]", "\u2100",
++              "\uff0f", "\uff1a", "\uff20", "\ufe56", "\xe9", ":80"]
++    loosened = []
++    for _ in range(20000):
++        value = (rand.choice(["http://", "HTTPS://"]) + "".join(rand.choice(pieces) for _ in range(rand.randint(1, 6)))
++                 + rand.choice(["", "/", "/x", "?q", "#f", "/\u2100"]))
++        if url.fullmatch(value) and not _urlsplit_check(value):
++            loosened.append(value)
++    assert loosened == [], loosened[:10]
++
++
+ def test_the_url_host_reads_an_ipv6_address_as_python_ipaddress_does():
+     """RFC 3986's IPv6address, written out in the subset: each address that ipaddress parses is accepted in brackets,
+     and each corrupted one is refused, on 3,000 random addresses in each form (seeded, so a failure repeats)."""
+--- a/cmapi/tests/core/test_metadata_loader_shape_338.py
++++ b/cmapi/tests/core/test_metadata_loader_shape_338.py
+@@ -133,3 +133,17 @@
+     with pytest.raises(ConfigError, match=re.escape("metadata-keys.yaml: invalid metadata-keys.yaml: ")) as e:
+         load_instance(EX / "instances/nonprod", tmp_path / "metadata-keys.yaml")
+     assert message in str(e.value)
++
++
++@pytest.mark.parametrize("value, shown", [("", "the text ''"), (0, "the int 0"), (False, "the bool False"), ([], "a list")])
++def test_a_rule_given_as_an_empty_value_that_is_not_a_mapping_is_refused(raw, value, shown):
++    """key: (null) is a key with any value. "", 0, false and [] are typos, and `spec or {}` loaded each as that, while a
++    truthy text or number was refused."""
++    raw["extraAnnotations"]["keys"]["company.net/x"] = value
++    refused(raw, f"extraAnnotations.company.net/x: a key's rule is a mapping, not {shown}")
++
++
++def test_an_empty_rule_is_a_key_with_any_value(raw):
++    raw["extraAnnotations"]["keys"]["company.net/x"] = None
++    rule = MetadataKeys(raw).rules["annotation"]["company.net/x"]
++    assert (rule.pattern, rule.enum, rule.format, rule.required) == (None, None, None, False)
+--- a/cmapi/tests/service/test_metadata_url_332_api.py
++++ b/cmapi/tests/service/test_metadata_url_332_api.py
+@@ -54,7 +54,8 @@
+         assert r.status_code == 200 and r.json()["findings"] == [], r.text
+ 
+ 
+-@pytest.mark.parametrize("url", ["\x01https://wiki.company.net/abc", "http://[wiki.company.net/abc"])
++@pytest.mark.parametrize("url", ["\x01https://wiki.company.net/abc", "http://[wiki.company.net/abc",
++                                 "http://wiki\u2100company.net/abc", "http://[::1]x/abc"])
+ def test_a_url_that_the_policy_refuses_is_refused_by_cmapi_alone(company_no_kyverno, url):
+     client, ctx, git, kube, validator, keys = company_no_kyverno
+     r = client.post(URL, json=body(url), headers=auth(keys, "ola", **OLA))
+--- a/docs/18-configuration.md
++++ b/docs/18-configuration.md
+@@ -208,7 +208,7 @@
+ | `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A request can send the same value. Any other value, or a removal, is refused (`derived_key`). A key with `value` takes no `pattern`, `enum`, `format` or `namespacePrefix` |
+ | `pattern` | regular expression | The whole value must match. Written in the subset that Python, Kyverno and the API document read alike: see "Patterns" below |
+ | `enum` | list of text | The value is one of these. A label value must be a valid label value |
+-| `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#` or whitespace (a `[` only around an IPv6 address), then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
++| `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#`, whitespace or character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (as `℀`, CVE-2019-9636), and a `[` only as `[userinfo@][IPv6 address]` with an optional `:port` after it, then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
+ | `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes |
+ | `description`, `example` | text | Text for people and for the API document. A required key that cmapi does not derive needs an `example`, and every `example` must pass its key's own rule (the owner's answer to #328, question 3) |
+ 
+--- a/docs/reviews/2026-11-17-issue-332-338/README.md
++++ b/docs/reviews/2026-11-17-issue-332-338/README.md
+@@ -64,8 +64,13 @@
+ Measured by `evidence/url-email-verdicts.py` on main 5a8f817 and on this branch, 162 verdicts of the company file's URL and
+ email keys: 10 differ (`evidence/validator-main-vs-branch.txt`).
+ 
+-- Refused now, accepted on main: `"\x01http://x"` (the policy refused it already), and `http://[v1.x]/` (an IPvFuture
+-  literal; RFC 3986's `IPvFuture` is not written into the regex).
++- Refused now, accepted on main: `"\x01http://x"` (the policy refused it already), `http://[v1.x]/` (an IPvFuture
++  literal; RFC 3986's `IPvFuture` is not written into the regex), and `http://[fe80::1%25eth0]/` (an IPv6 zone ID, which
++  `ipaddress` reads and RFC 3986 and the WHATWG URL standard do not).
++- Refused, as on main: a netloc with a character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (`http://a℀b/`,
++  CVE-2019-9636), and text before `[` that is not a userinfo or after `]` that is not a port (`http://[::1]x/`). urlsplit
++  raised `ValueError` on both; `test_the_url_regex_accepts_nothing_that_the_urlsplit_check_refused` holds the regex to that
++  (review of #346, OB3).
+ - Refused now with the key's `invalid_value`, a 422 `validation-failed` from `urlsplit` on main: `http://[x`, `http://x]`,
+   `http://[x]`, `http://[:::::]/`, `http://[1::2::3]/`, `http://[12345::]/`, `http://[1.2.3.4]/`,
+   `http://[::ffff:256.0.0.1]/`.
