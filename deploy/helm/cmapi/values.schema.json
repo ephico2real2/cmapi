@@ -15,8 +15,10 @@
           "type": "array",
           "items": {"type": "string", "pattern": "^[^\\s/]+/?$"}
         },
-        "requiredLabels": {"description": "Labels that each namespace carries, each with its rule", "$ref": "#/definitions/labelRules"},
-        "requiredAnnotations": {"description": "Annotations that each namespace carries, each with its rule", "$ref": "#/definitions/annotationRules"},
+        "requiredLabels": {"description": "Labels that each namespace carries, each with its rule",
+                           "allOf": [{"$ref": "#/definitions/labelRules"}, {"$ref": "#/definitions/requiredExample"}]},
+        "requiredAnnotations": {"description": "Annotations that each namespace carries, each with its rule",
+                                "allOf": [{"$ref": "#/definitions/annotationRules"}, {"$ref": "#/definitions/requiredExample"}]},
         "extraLabels": {
           "type": "object",
           "additionalProperties": false,
@@ -99,6 +101,10 @@
     }
   },
   "definitions": {
+    "requiredExample": {
+      "description": "A required key that cmapi does not derive (value) needs an example, which the API document shows; the loader refuses one without (#328 question 3, #332)",
+      "additionalProperties": {"anyOf": [{"required": ["value"]}, {"required": ["example"]}]}
+    },
     "key": {
       "description": "A label or annotation key: an optional DNS-1123 subdomain prefix and /, then a name of at most 63 characters",
       "type": "string",

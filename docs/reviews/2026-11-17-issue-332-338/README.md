@@ -19,6 +19,7 @@ implementer. One model family for this step: Codex is out of quota until 2026-11
 | `examples/cluster-configs/policies/env/*/cmapi-metadata-*.yaml` | Re-rendered (`cmapi-tools policies render`): the `cmapi.net/team-dl` validation now carries the email regex |
 | `.github/workflows/ci.yml`, `reference-code` | Node 24 and `CMAPI_REQUIRE_NODE=1`, so the ECMA-262 leg fails rather than skips |
 | `docs/18-configuration.md` | The shape checks, the rule table, the loader's refusals and a "Patterns" section |
+| `deploy/helm/cmapi/values.schema.json` (#335, merged as 326a234) | `requiredExample`: a key of `requiredLabels` or `requiredAnnotations` needs `example` or `value`, so Helm refuses the block before a render, as the loader refuses the file at start. The rest of the loader's new refusals the schema already held (unknown stanza and field, a text for a list, an `adoptionLabels` field, a non-text `example`, the domain syntax, an empty `pattern`). Two stay in the loader only, since JSON Schema cannot say them: the pattern subset (a grammar with nested parentheses is not a regular language, so no `pattern` keyword describes it) and an `example` that its own rule refuses (the rule is data, and a schema cannot use data as a pattern) |
 | Shipped configs | None changed. All six copies load (chart, three examples, CRC and kind ConfigMaps): `test_every_shipped_copy_loads` |
 
 ## The method of the subset check
@@ -103,6 +104,7 @@ Before is main 5a8f817 (`git archive`), after is this branch. Logs in the implem
 | `test_policygen.py::test_python_and_kyverno_refuse_the_same_value`, the two new URL cases | 2 fail | pass |
 | `tests/service/test_metadata_url_332_api.py`, `policy.engine: none`, no `kyverno` on PATH | 2 fail (202 for `\x01https://...`, 422 `validation-failed` for `http://[...`), 1 pass | 3 pass |
 | `tests/core` in full, Node and Kyverno required | | 532 pass |
+| `tests/service/test_helm_metadata_values.py` (helm 4.3.1, no database), the 8 new cases | 8 fail on main 326a234 (Helm renders a required key with no example; the loader loads the misspelt stanza, the text for a list, a non-text example, a required key with no example and `\d`; `_LIST_STANZAS` is new) | 64 pass |
 
 ## Sources, read on 2026-11-17
 
@@ -124,5 +126,3 @@ Before is main 5a8f817 (`git archive`), after is this branch. Logs in the implem
 ## Not tested here
 
 - CRC and kind: nothing ran on a cluster. The service suite ran one new file locally; CI's `service` job is the full run.
-- The Helm chart's `values.schema.json` (#335, PR #339) is not merged at the time of writing; see the PR for the check
-  against it.
