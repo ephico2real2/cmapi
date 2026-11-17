@@ -19,11 +19,12 @@ and `tests/parity.test.mjs` fails if a string it shows is missing here.
 
 - **Settings.** `config.json` lies beside `index.html`. It gives `apiUrl`, `issuer`, `clientId`, `instance`, `displayName`, `environments` and `otherInstances` (the portals of the other instances, each an https URL). `config.example.json` is a sample. With no valid `config.json`, the portal shows "The portal is not configured." and starts nothing.
 - **Sign-in.** Authorization Code with PKCE (`S256`) through `oidc-client-ts` and `react-oidc-context` (`src/portal/auth.ts`). The tokens stay in the memory of the page. `docs/15-keycloak-integration.md` gives the flow and the sources.
-- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`; for the Quotas and KPIs tabs (#301) `useQuotas`, `useSuggest`, `useExport`, `useNamespace`, `useCatalog`, `usePatchPlan` (the dry run of a change), `useSubmitPatch` and `useKpi`.
+- **Data.** `src/api/schema.generated.ts` holds the types of `cmapi/contract/openapi.json` (`npm run api:types`). `src/api/client.ts` is the one client. `src/api/hooks.ts` has one TanStack Query hook for each endpoint: `useMe`, `useRequests`, `useRequest`, `useEvents`, `useTiers`, `useClusters`, `usePlan` (the dry run), `useSubmitNamespace`, `useApprove` and `useReject`; for the Quotas and KPIs tabs (#301) `useQuotas`, `useSuggest`, `useExport`, `useNamespace`, `useCatalog`, `usePatchPlan` (the dry run of a change), `useSubmitPatch` and `useKpi`; for the Expiration tab (#318) `useExpirations`, `useExpiryPlan` (the dry run of an expiry change) and `useSubmitExpiry`.
 - **Permissions.** A tab shows only when `GET /api/v1/me` gives its permission in `access.permissions`. The permission of each call comes from the OpenAPI document (`src/api/permissions.generated.ts`). The browser reads no role from the token.
 - **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each request that the New namespace form sends (#282, docs/04 "Rules for each call"). The same form sent again, after a refusal or a lost answer, carries the same key, so it cannot make a second request. A form changed since its last submit is another request and gets a new key: the API answers an old key with another body with 409 `idempotency-replay`. Leaving the tab ends the form, and the next one starts with no key. Approve and reject take no key: they are not writes to a namespace. Each of the three sends one call at a time: a second click while the first is in flight sends nothing.
 - **The quota change (#301)** is `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`, with `tier`, or `tier: custom` and `quota`. Its dry run (`?dryRun=true`) and its submit each send `If-Match`: the `etag` of `GET .../namespaces/{ns}`, quoted (RFC 9110, section 8.8.3). Submit sends the plan on the page, with the etag that it was planned at: a form with no plan, or changed since its plan, is planned first. A 412 `precondition-failed` or 428 `precondition-required`, of the dry run or of the submit, reads the namespace again and plans the same change on its new etag (docs/04, If-Match); the stale etag is never sent again, and the next Submit sends the new plan with the same `Idempotency-Key`. Its `Idempotency-Key` belongs to the change (cluster, namespace and body): the same change sent again keeps it, a changed one gets a new one. One submit at a time, as above. The export (`GET /api/v1/quotas:export`) is audited by the API, so it is sent once for each click and not cached.
-- **On the API today (#204, #300, #301):** the page frame and the Workflow, New namespace, Quotas, Requests, Approvals and KPIs tabs. Each other tab says "This tab is not on the API yet."
+- **The expiry change (#318)** is `POST .../namespaces/{ns}/expiration:extend` with `days`, `:set` with `until` (a namespace with no date) or `:makePermanent`. It follows the quota change: a dry run (`?dryRun=true`) and a submit, each with `If-Match`, Submit sends the plan on the page and plans first when there is none, a 412 or 428 reads the namespace again and plans the same change on its new etag, the `Idempotency-Key` belongs to the change (cluster, namespace, route and body), and one submit at a time. The page computes no date or approval of its own for the write: the plan shows the date that it writes (`cmapi.net/expires-at` in its `namespace.yaml`) and the API's approval.
+- **On the API today (#204, #300, #301, #318):** the page frame and the Workflow, New namespace, Quotas, Expiration, Requests, Approvals and KPIs tabs. Each other tab says "This tab is not on the API yet."
 
 The states of the Requests tab:
 
@@ -46,6 +47,7 @@ while loading, `EmptyState` with `LockIcon` and the problem's `detail` for a 403
 | Approvals | "Loading approvals…" | The mockup's "Nothing waiting for you" card | "You do not have permission to see approvals." | "The approvals did not load." |
 | Quotas | "Loading quotas…" | The mockup's "No namespace on the {instance} instance matches these filters." | "You do not have permission to see quotas." | "The quotas did not load."; a 400 `invalid-cursor` is the mockup's "This page link is out of date" callout instead |
 | KPIs | "Loading the KPIs…" | none: the API always answers with its figures | "You do not have permission to see the KPIs." | "The KPIs did not load." |
+| Expiration | "Loading expirations…" | The mockup's "No namespace matches this state and search." | "You do not have permission to see expirations." | "The expirations did not load."; a 400 `invalid-cursor` is the "This page link is out of date" callout |
 
 A refusal of a write is the API's decision, not an error: it shows as the mockup's "Refused: {code}" callout with the
 problem's `detail` (a refused dry run, a 409 `self-approval`), or "Not submitted" for the create. A refused quota change
@@ -150,6 +152,28 @@ The API has no usage analysis yet (#310): no verdict, no recommendation and no l
 | The database footnote says the figures are measured when the page asks | The API reads them on each call; no worker measures them every 30 s |
 | No Dashboards card | No PersesDashboard ships in `deploy/` yet, and docs/17 says the dashboards are not proven on a cluster |
 | The API's `unavailable` sentence is under the cards | It is how to read a null value |
+
+### Where the portal's Expiration tab differs from the mockup
+
+The list is `GET /api/v1/expirations` (#318). It reads `cmapi.net/expires-at` from the watch cache; the writes plan from Git
+under `If-Match`. The PR of #318 records why the two agree.
+
+| Difference | Why |
+|---|---|
+| The numbers of the lede (30, 180, 14, 7 and 1, 7) and the actions' limits come from the API's `rules`; the lede says "approver-platform approves" and ends at "an operator confirms" | `rules` is per environment (config/expiration.yaml). The approving group of the API is approver-platform, and the mockup's "platform-leads" is its sample. The prune confirmation is in Argo CD only in argocd mode |
+| "Make permanent" says "adds approver-platform"; "Set a date" says "at most 30 days from today", and its date field takes tomorrow to 30 days out | The API's rules: `:set` takes a date at most maxExtensionDays away (`rules.py`, plan_set), not "within 180 days of creation" |
+| "Today" is the API's `today`, not the browser's clock | The days left, the states and the plan are counted from the day the API plans from |
+| A row past grace reads "-9 (grace over)" | The mockup's formula gives a negative count of grace days left |
+| No "Extensions" row in the detail | The API does not count extensions yet |
+| "Notices sent" is what the database records; no `expire_check` job sends notices yet, so it reads "none yet" | The job is not built (docs/08) |
+| The detail's footnote names `GET /api/v1/clusters/{c}/namespaces/{ns}` and its ETag, and says the list reads the date from the watch cache | `GET .../namespaces/{ns}/expiration` is not built; the namespace read gives the etag of If-Match |
+| "Plan change" beside the Submit button, and the plan's checks "If-Match matches the current ETag" and "The plan writes cmapi.net/expires-at: {date}" (or "no cmapi.net/expires-at"), with the API's approval | As the Quotas tab: the person sees the plan of the API before anything is written. The mockup computes the approval in the browser |
+| The lock is "Open request: {id}", "{id} holds this namespace in cmapi. One open request per namespace, so another change waits until it closes.", with "Open at current step" | The row has the request's ID only |
+| The 202 shows the call, the request's ID and status, the date that the plan writes and the approval's rule and remaining approvals | The answer of the API, not the mockup's sample body |
+| The footnote shows the call that the page sent, with its `limit` and `q`, and "today is" the API's day | The mockup's footnote is its sample |
+| An address that names a namespace shows it when it is on the page; the search narrows the list to it | The list is sorted by urgency, and the API places a page by its cursor only |
+| The change form is shown only to a person with `namespaces:write` | docs/02: the portal shows only the actions that a person can take |
+| On an instance where no namespace can expire (the API's `rules` is empty), the mockup's prod callout, with "{instance} · never expires" and no sample rows | The mockup's prod rows name its sample policies and clusters |
 
 ### On CRC
 

@@ -17,6 +17,7 @@ import type { ReturnState } from "./auth";
 import { ConfigError, loadConfig } from "./config";
 import type { PortalConfig } from "./config";
 import { ApprovalsTab } from "./ApprovalsTab";
+import { ExpirationTab } from "./ExpirationTab";
 import { KpisTab } from "./KpisTab";
 import { NewNamespaceTab } from "./NewNamespaceTab";
 import { QuotasTab } from "./QuotasTab";
@@ -40,7 +41,7 @@ const TABS: TabDef[] = [
   { id: "workflow", label: "Workflow", needs: PERMISSION["GET /api/v1/requests/{request_id}/events"], panel: WorkflowTab },
   { id: "new", label: "New namespace", needs: PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces"], panel: NewNamespaceTab },
   { id: "quotas", label: "Quotas", needs: PERMISSION["GET /api/v1/quotas"], panel: QuotasTab },
-  { id: "expiration", label: "Expiration", needs: null },
+  { id: "expiration", label: "Expiration", needs: PERMISSION["GET /api/v1/expirations"], panel: ExpirationTab },
   { id: "requests", label: "Requests", needs: PERMISSION["GET /api/v1/requests"], panel: RequestsTab },
   { id: "approvals", label: "Approvals", needs: PERMISSION["POST /api/v1/requests/{request_id}:approve"], panel: ApprovalsTab },
   { id: "policies", label: "Policies", needs: null },

@@ -269,6 +269,73 @@ export function quotaCsv(rows, q) {
   return [QUOTA_COLUMNS.join(","), ...ordered.slice(0, 10_000).map(line)].map((l) => `${l}\r\n`).join("");
 }
 
+
+// The expiration list of the API (cmapi/src/cmapi/plugins/expiration/router.py): the same states, filters, sorts, counts and
+// keyset cursor bound to the filters and the state, counted from one fixed day, so that the portal is held to its rules.
+const EXP_SAMPLE = SAMPLES.operations.expiration_expirations.response.body;
+export const EXP_RULES = EXP_SAMPLE.rules;
+const URGENCY = { grace: 0, expiring: 1, pending_delete: 2, active: 3, permanent: 4 };
+const EXP_STATES = { attention: (r) => ["expiring", "grace", "pending_delete"].includes(r.state), expiring: (r) => r.state === "expiring", grace: (r) => r.state === "grace",
+  pending_delete: (r) => r.state === "pending_delete", active: (r) => r.state === "active", permanent: (r) => r.state === "permanent" };
+const EXP_SORTS = { urgency: (r) => [URGENCY[r.state] * 1_000_000 + (r.daysLeft ?? 99_999), r.name, r.clusterId], name: (r) => ["", r.name, r.clusterId] };
+const isoPlus = (iso, days) => new Date(Date.parse(iso) + days * 864e5).toISOString().slice(0, 10);
+/** The state of a date counted from `today`, as rules.py decides it (notices at 14 days, grace of 7). */
+export function expiryState(expiresAt, today, rules = EXP_RULES.dev) {
+  if (!expiresAt) return "permanent";
+  const left = Math.round((Date.parse(expiresAt) - Date.parse(today)) / 864e5);
+  return left > Math.max(...rules.notifyDaysBefore) ? "active" : left > 0 ? "expiring" : -left < rules.graceDays ? "grace" : "pending_delete";
+}
+/** One row of the list for a namespace, its date and its creation day, counted from `today`. */
+export function expiryRow({ name, clusterId = "CRC", env = "dev", team = "payments", created, expiresAt = null, today, noticesSent = 0, openRequest = null }) {
+  const rules = EXP_RULES.dev, daysLeft = expiresAt ? Math.round((Date.parse(expiresAt) - Date.parse(today)) / 864e5) : null;
+  return { ...EXP_SAMPLE.items[0], name, clusterId, env, team, app: null, created, expiresAt, daysLeft, state: expiryState(expiresAt, today),
+    graceEnds: expiresAt ? isoPlus(expiresAt, rules.graceDays) : null, lifetimeDays: expiresAt && created ? Math.round((Date.parse(expiresAt) - Date.parse(created)) / 864e5) : null,
+    noticesSent, openRequest };
+}
+/** `count` rows over every state: permanent, active, expiring, in grace and past grace. Not sorted. */
+export function expirationsFrom(count, today, { envs = ["dev", "rnd"] } = {}) {
+  const offsets = [null, 40, 9, 1, 0, -3, -6, -9, 20, null, 14, 15];
+  return Array.from({ length: count }, (_, i) => {
+    const team = TEAMS[i % TEAMS.length], env = envs[i % envs.length], offset = offsets[i % offsets.length];
+    return expiryRow({ name: `${team}-${APPS[Math.floor(i / TEAMS.length) % APPS.length]}-${env}`, env, team, created: isoPlus(today, -30 - (i % 50)),
+      expiresAt: offset === null ? null : isoPlus(today, offset), today, noticesSent: offset !== null && offset <= 7 ? 2 : 0 });
+  });
+}
+export function expiryQueryOf(params) {
+  const get = (k) => params.get(k) || "";
+  return { q: get("q"), env: get("env"), clusterId: get("clusterId"), team: get("team"), state: get("state"), sort: get("sort") || "urgency",
+    limit: Number(params.get("limit") ?? 50), cursor: params.get("cursor") };
+}
+const expiryHash = (q) => JSON.stringify([q.q.toLowerCase(), q.env, q.clusterId, q.team, q.state, q.sort]);
+/** GET /api/v1/expirations: a page, or a problem as [status, code, detail]. */
+export function expirationPage(rows, q, today) {
+  if (q.state && !EXP_STATES[q.state]) return [422, "validation-failed", `state is one of ${Object.keys(EXP_STATES).sort()}, not ${q.state}`];
+  if (![25, 50, 100].includes(q.limit) && !(q.limit > 0 && q.limit <= 200)) return [400, "invalid-limit", "limit is one of (25, 50, 100), at most 200"];
+  const key = EXP_SORTS[q.sort];
+  if (!key) return [400, "invalid-sort", `Unknown sort ${q.sort}`];
+  const filters = [["env", q.env], ["clusterId", q.clusterId], ["team", q.team]].filter(([, v]) => v);
+  const others = rows.filter((r) => filters.every(([k, v]) => String(r[k]) === v) && (!q.q || matchRank(r, q.q))).sort((a, b) => compareKeys(key(a), key(b)));
+  const ordered = q.state ? others.filter(EXP_STATES[q.state]) : others;
+  const keys = ordered.map(key), total = ordered.length;
+  let start = 0, end = Math.min(total, q.limit);
+  if (q.cursor) {
+    let c = null;
+    try { c = JSON.parse(Buffer.from(q.cursor, "base64url").toString()); } catch { /* refused below */ }
+    if (!c || c.h !== expiryHash(q)) return [400, "invalid-cursor", "Filters or sort changed since this cursor was issued"];
+    if (c.d === "next") { start = keys.findIndex((k) => compareKeys(k, c.k) > 0); if (start < 0) start = total; end = Math.min(total, start + q.limit); }
+    else { end = keys.findIndex((k) => compareKeys(k, c.k) >= 0); if (end < 0) end = total; start = Math.max(0, end - q.limit); }
+  }
+  const items = ordered.slice(start, end);
+  const sign = (k, d) => Buffer.from(JSON.stringify({ k, d, h: expiryHash(q) })).toString("base64url");
+  const letters = {};
+  for (const r of ordered) letters[r.name[0].toUpperCase()] = (letters[r.name[0].toUpperCase()] ?? 0) + 1;
+  const facets = Object.fromEntries(Object.entries(EXP_STATES).map(([name, test]) => [name, others.filter(test).length]));
+  const envs = [...new Set(rows.map((r) => r.env))].sort();
+  return { items, letters, facets, rules: rows.length ? Object.fromEntries(envs.map((e) => [e, EXP_RULES.dev])) : {}, today,
+    page: { limit: q.limit, total, from: items.length ? start + 1 : 0, to: end,
+      nextCursor: items.length && end < total ? sign(keys[end - 1], "next") : null, prevCursor: items.length && start > 0 ? sign(keys[start], "prev") : null } };
+}
+
 const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
 /** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
 const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
@@ -313,7 +380,9 @@ export async function startApi({ issuer, portalOrigin }) {
     etags: new Map(),
     kpi: SAMPLES.operations.admin_kpi.response.body,
     planUpdate: SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body,
-    updated: SAMPLES.operations.namespaces_update_namespace.response.body
+    updated: SAMPLES.operations.namespaces_update_namespace.response.body,
+    /** The namespaces of GET /api/v1/expirations, and the day that the API counts from. */
+    expirations: [], today: EXP_SAMPLE.today, never: false
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -473,12 +542,75 @@ export async function startApi({ issuer, portalOrigin }) {
       if (Array.isArray(page)) return problem(res, refuse(...page), cors);
       return ok(page);
     }
+    if (url.pathname === "/api/v1/expirations") {
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const rows = state.mode === "empty" || state.never ? [] : state.expirations;
+      const page = expirationPage(rows, expiryQueryOf(url.searchParams), state.today);
+      if (Array.isArray(page)) return problem(res, refuse(...page), cors);
+      if (state.mode === "empty" && !state.never) page.rules = { dev: EXP_RULES.dev, rnd: EXP_RULES.dev };
+      return ok(page);
+    }
+    const expiry = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)\/expiration:(extend|set|makePermanent)$/.exec(url.pathname);
+    if (expiry && req.method === "POST") {
+      const [, clusterId, ns, route] = expiry;
+      const denied = lacks("namespaces:write");
+      if (denied) return problem(res, denied, cors);
+      const row = state.expirations.find((r) => r.clusterId === clusterId && r.name === ns);
+      if (!row) return problem(res, refuse(404, "object-not-found", `${ns} is not managed on ${clusterId}`), cors);
+      const dry = url.searchParams.get("dryRun") === "true";
+      if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      // The API's replay comes first: the same key and caller with the same route and body is the first answer again.
+      const print = fingerprint({ ...body, route, clusterId, namespace: ns });
+      const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
+      if (held) return held.fingerprint === print ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+      const etag = state.etags.get(`${clusterId}/${ns}`) ?? createHash("sha256").update(`${clusterId}/${ns}`).digest("hex").slice(0, 16);
+      state.etags.set(`${clusterId}/${ns}`, etag);
+      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
+      // cmapi/src/cmapi/plugins/expiration/rules.py: plan_extend, plan_set and plan_make_permanent.
+      const max = EXP_RULES.dev.maxExtensionDays;
+      let date = null;
+      if (route === "extend") {
+        if (!row.expiresAt) return problem(res, refuse(422, "expiration-not-set", "The namespace is permanent; use :set"), cors);
+        if (!Number.isInteger(body?.days) || body.days < 1) return problem(res, refuse(422, "validation-failed", "Send days or until"), cors);
+        if (body.days > max) return problem(res, refuse(422, "expiration-limit", `One extension adds at most ${max} days`), cors);
+        date = isoPlus(row.expiresAt > state.today ? row.expiresAt : state.today, body.days);
+      } else if (route === "set") {
+        if (row.expiresAt) return problem(res, SAMPLES.problems["expiration-already-set"].response.body, cors);
+        if (typeof body?.until !== "string" || body.until <= state.today) return problem(res, refuse(422, "expiration-in-past", "The expiry must be after today"), cors);
+        if (Math.round((Date.parse(body.until) - Date.parse(state.today)) / 864e5) > max) return problem(res, refuse(422, "expiration-limit", `A new date is at most ${max} days out`), cors);
+        date = body.until;
+      } else if (!row.expiresAt) {
+        return problem(res, refuse(422, "expiration-not-set", "The namespace is already permanent"), cors);
+      }
+      const sample = SAMPLES.operations[`namespaces_${route === "extend" ? "extend" : route === "set" ? "set_expiry" : "make_permanent"}:dryRun`].response.body;
+      const approval = sample.approval;
+      if (dry) {
+        const [[path, text]] = Object.entries(sample.files);
+        const file = text.replaceAll(/(sprint|notes)-dev/g, ns).replace(/cmapi\.net\/expires-at: '\d{4}-\d{2}-\d{2}'/, `cmapi.net/expires-at: '${date}'`);
+        const where = path.replace(/namespaces\/[^/]+\//, `namespaces/${ns}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`);
+        return ok({ ...sample, etag, changes: { [where]: "changed" }, files: { [where]: file }, capacity: { ...sample.capacity, clusterId } });
+      }
+      // cmapi/src/cmapi/core/db/repo.py: one open request for each namespace.
+      if (row.openRequest) return problem(res, refuse(409, "change-pending", `${row.openRequest} holds ${ns}`), cors);
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-7${String(++state.created).padStart(3, "0")}`;
+      const pending = approval.slots.length > 0;
+      const request = requestWith(state.updated, { requestId, namespace: ns, status: pending ? "pending_approval" : "approved", pr: null, mergeSha: null,
+        events: [{ at: now, by: user.username, event: pending ? "plan_needs_approval" : "plan_auto_approved", note: "", status: pending ? "pending_approval" : "approved" }] });
+      Object.assign(request, { clusterId, approval, reason: `expiration:${route}`, justification: body?.justification ?? null });
+      state.items = [request, ...state.items];
+      state.expirations = state.expirations.map((r) => (r === row ? { ...r, openRequest: requestId } : r));
+      state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
+      return ok(request, 202);
+    }
     const nsPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)$/.exec(url.pathname);
     if (nsPath && (req.method === "GET" || req.method === "PATCH")) {
       const [, clusterId, ns] = nsPath;
       const denied = lacks(req.method === "GET" ? "objects:read" : "namespaces:write");
       if (denied) return problem(res, denied, cors);
-      const row = state.quotas.find((r) => r.clusterId === clusterId && r.name === ns);
+      const row = state.quotas.find((r) => r.clusterId === clusterId && r.name === ns) ?? (req.method === "GET" ? state.expirations.find((r) => r.clusterId === clusterId && r.name === ns) : undefined);
       if (!row) return problem(res, refuse(404, "object-not-found", `No managed namespace ${ns} on ${clusterId}`), cors);
       const etag = state.etags.get(`${clusterId}/${ns}`) ?? createHash("sha256").update(`${clusterId}/${ns}`).digest("hex").slice(0, 16);
       state.etags.set(`${clusterId}/${ns}`, etag);

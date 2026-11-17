@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
+import { expirationsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -30,12 +30,14 @@ const AUTH = `${issuer.url}/protocol/openid-connect/auth`;
 let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
-async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body } = {}) {
+async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
+  expirations = [], never = false } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
-    tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi });
+    tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -1579,6 +1581,435 @@ try {
     assert.equal(together, 1);
     assert.deepEqual(second.errors, []);
     await second.context.close();
+  });
+
+  // Portal slice 4a (#318): the Expiration tab. The fleet is 40 namespaces of the stand-in in dev and rnd, over every state,
+  // counted from the API's day. Each expectation is written from the mockup's forms (expirationView()) and the API's contract.
+  const EXP_TODAY = SAMPLES.operations.expiration_expirations.response.body.today;
+  const expFleet = expirationsFrom(40, EXP_TODAY);
+  const EXP_WORD = { grace: "In grace", expiring: "Expiring", pending_delete: "Pending delete", active: "Active", permanent: "Permanent" };
+  const EXP_RANK = { grace: 0, expiring: 1, pending_delete: 2, active: 3, permanent: 4 };
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dayOf = (iso) => `${MON[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}`;
+  const plus = (iso, n) => new Date(Date.parse(iso) + n * 864e5).toISOString().slice(0, 10);
+  const urgent = (a, b) => (EXP_RANK[a.state] - EXP_RANK[b.state]) || ((a.daysLeft ?? 99999) - (b.daysLeft ?? 99999)) || byName(a, b);
+  const attention = (r) => ["expiring", "grace", "pending_delete"].includes(r.state);
+  // The mockup's row: namespace, cluster, env, team, "Nov 3" or "never", days left (in grace: "-3 (grace 4 left)"), "75 of 180 d", the state, the button.
+  const expectedExp = (r, selected = false) => [r.name, r.clusterId, r.env, r.team, r.expiresAt ? dayOf(r.expiresAt) : "never",
+    r.daysLeft === null ? "—" : r.daysLeft >= 0 ? String(r.daysLeft) : r.state === "grace" ? `${r.daysLeft} (grace ${7 + r.daysLeft} left)` : `${r.daysLeft} (grace over)`,
+    r.expiresAt ? `${r.lifetimeDays} of 180 d` : "—", EXP_WORD[r.state], selected ? "Selected" : "Manage"];
+  const expRows = (page) => page.locator("table[aria-label=Expiration] tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
+  const expCalls = () => calls("/api/v1/expirations");
+  const sentExp = (want, why) => assert.ok(expCalls().some((c) => isDeepStrictEqual(c.query, want)), `${why ?? "the page's call"}: ${JSON.stringify(want)} was not sent; the calls were ${JSON.stringify(expCalls().map((c) => c.query))}`);
+  const expFresh = (options) => fresh({ expirations: expFleet, ...options });
+  const openExp = async (page, hash = "#expiration") => {
+    await open(page, hash);
+    await page.locator("table[aria-label=Expiration] tbody tr").first().waitFor();
+  };
+  const expCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: /^Change expiration · / }) });
+  const dated = [...expFleet].filter((r) => r.state === "active" && r.env === "dev").sort(urgent)[0];
+  const undated = [...expFleet].filter((r) => r.state === "permanent" && r.env === "dev").sort(byName)[0];
+  // Open the tab on one namespace: the search narrows the list to it, as the mockup's Approvals link does (xq, xsel).
+  const manageExp = async (page, r) => {
+    await openExp(page, `#expiration?state=all&q=${r.name}&ns=${encodeURIComponent(`${r.clusterId}/${r.name}`)}`);
+    await panel(page).getByRole("heading", { name: `${r.name} on ${r.clusterId}` }).waitFor();
+  };
+  const expPosts = (r, route) => api.state.seen.filter((c) => c.method === "POST" && c.path === `/api/v1/clusters/${r.clusterId}/namespaces/${r.name}/expiration:${route}`);
+  const actOf = async (page, name) => {
+    if (name) await expCard(page).getByRole("group", { name: "Action" }).getByRole("button", { name: new RegExp(`^${name}`) }).click();
+    await expCard(page).getByRole("button", { name: "Plan change" }).click();
+  };
+
+  await check("14 Expiration: the rows of GET /api/v1/expirations cell by cell, most urgent first; the state and env chips, the search and the pages are API parameters", async () => {
+    const { context, page, errors } = await expFresh();
+    await openExp(page);
+    const needs = expFleet.filter(attention).sort(urgent);
+    sentExp({ limit: "25", state: "attention" }, "the mockup opens on Needs action, 25 rows");
+    assert.deepEqual(await expRows(page), needs.slice(0, 25).map((r, i) => expectedExp(r, i === 0)), "the first page, cell by cell; the first namespace is shown below");
+    const count = (s) => expFleet.filter((r) => r.state === s).length;
+    assert.match(await panel(page).innerText(), new RegExp(`${count("expiring")} expiring · ${count("grace")} in grace · ${count("pending_delete")} pending delete`));
+    assert.deepEqual(await chips(page, "State"), [`Needs action ${needs.length}`, `Expiring ≤ 14 d ${count("expiring")}`, `In grace ${count("grace")}`, `Pending delete ${count("pending_delete")}`,
+      `Active ${count("active")}`, `Permanent ${count("permanent")}`, `All ${expFleet.length}`]);
+    assert.match(await panel(page).innerText(), new RegExp(`1–${Math.min(25, needs.length)} of ${needs.length} · most urgent first`));
+    assert.match(await panel(page).innerText(), new RegExp(`GET /api/v1/expirations\\?limit=25&state=attention · paged and searched like Quotas · today is ${dayOf(EXP_TODAY)}\\.`));
+    // All, then the pages forward and back: each row one time.
+    await panel(page).getByRole("group", { name: "State" }).getByRole("button", { name: /^All/ }).click();
+    const all = [...expFleet].sort(urgent);
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `1–25 of ${all.length} · most urgent first`);
+    sentExp({ limit: "25" }, "All sends no state");
+    assert.deepEqual((await expRows(page)).map((r) => r[0]), all.slice(0, 25).map((r) => r.name));
+    await page.getByRole("button", { name: "Next ›" }).first().click();
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `26–${all.length} of ${all.length}`);
+    assert.deepEqual((await expRows(page)).map((r) => r[0]), all.slice(25).map((r) => r.name), "the second page follows the first, no row twice");
+    assert.ok(expCalls().at(-1).query.cursor, "Next sends the API's cursor");
+    await page.getByRole("button", { name: "‹ Previous" }).first().click();
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `1–25 of ${all.length}`);
+    // A state chip, an env chip and the search: each is a parameter of the call, and the rows are the API's.
+    await panel(page).getByRole("group", { name: "State" }).getByRole("button", { name: /^In grace/ }).click();
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `of ${count("grace")} · most urgent first`);
+    sentExp({ limit: "25", state: "grace" });
+    assert.deepEqual((await expRows(page)).map((r) => r[0]), expFleet.filter((r) => r.state === "grace").sort(urgent).map((r) => r.name));
+    await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "rnd", exact: true }).click();
+    const graceRnd = expFleet.filter((r) => r.state === "grace" && r.env === "rnd").sort(urgent);
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), graceRnd.length ? `of ${graceRnd.length} · most urgent first` : "0 namespaces");
+    sentExp({ limit: "25", state: "grace", env: "rnd" });
+    await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "All", exact: true }).click();
+    await panel(page).getByRole("group", { name: "State" }).getByRole("button", { name: /^All/ }).click();
+    await panel(page).getByPlaceholder("Find a namespace or team").fill("ledger");
+    const ledger = expFleet.filter((r) => r.name.includes("ledger") || r.team.includes("ledger")).sort(urgent);
+    await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `of ${ledger.length} · most urgent first`);
+    sentExp({ limit: "25", q: "ledger" }, "the search is the API's q");
+    assert.deepEqual((await expRows(page)).map((r) => r[0]), ledger.map((r) => r.name));
+    assert.equal(new URL(page.url()).hash, "#expiration?state=all&q=ledger", "the view is in the address");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("15 Expiration detail and extend: the API's row, the plan's approval and date, then a submit of exactly the planned body with If-Match and an Idempotency-Key", async () => {
+    const { context, page, errors } = await expFresh();
+    await manageExp(page, dated);
+    const etag = api.state.etags.get(`${dated.clusterId}/${dated.name}`);
+    assert.match(etag, /^[0-9a-f]{16}$/);
+    const detail = panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: `${dated.name} on ${dated.clusterId}` }) });
+    const kv = (await detail.locator(".pf-v6-c-description-list__group").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
+    assert.deepEqual(kv, [`Expires ${dayOf(dated.expiresAt)} (${dated.expiresAt})`, `Days left ${dated.daysLeft}`, `Created ${dayOf(dated.created)}`, `Lifetime ${dated.lifetimeDays} of 180 days`,
+      dated.noticesSent ? `Notices sent ${dated.noticesSent} of 3 (14, 7, 1 days)` : "Notices sent none yet", "After grace delete request (expired-namespace), then an operator confirms the prune"]);
+    assert.match(await detail.innerText(), new RegExp(`GET /api/v1/clusters/${dated.clusterId}/namespaces/${dated.name} · ETag ${etag} · the date lives in Git as cmapi.net/expires-at`));
+    assert.deepEqual((await expCard(page).getByRole("group", { name: "Action" }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")),
+      ["Extend 7 days +7", "Extend 14 days +14", "Extend 30 days +30, the most per step", "Make permanent adds approver-platform"]);
+    // Submit with no plan plans first and writes nothing; the next Submit sends the plan that is on the page.
+    await expCard(page).getByRole("group", { name: "Action" }).getByRole("button", { name: /^Extend 14 days/ }).click();
+    const to = plus(dated.expiresAt, 14);
+    assert.deepEqual((await expCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).slice(0, 3),
+      [`✓ Non-prod namespace dev allows expiration`, `✓ Extension within 30 days +14 days, to ${dayOf(to)}`, `✓ Lifetime within 180 days ${dated.lifetimeDays + 14} days from creation (${dayOf(dated.created)})`]);
+    await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+    const approval = expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" });
+    await approval.waitFor();
+    assert.equal(expPosts(dated, "extend").filter((c) => c.query.dryRun !== "true").length, 0, "a change that was not planned is planned first");
+    const [dry] = expPosts(dated, "extend");
+    assert.deepEqual({ query: dry.query, ifMatch: dry.ifMatch, key: dry.key, body: dry.body }, { query: { dryRun: "true" }, ifMatch: `"${etag}"`, key: null, body: { days: 14 } });
+    await expCard(page).locator("li").filter({ hasText: `The plan writes cmapi.net/expires-at: ${to}` }).waitFor();
+    await expCard(page).locator("li").filter({ hasText: `If-Match matches the current ETag ${etag}` }).waitFor();
+    await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+    const accepted = expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" });
+    await accepted.waitFor();
+    const writes = expPosts(dated, "extend").filter((c) => c.query.dryRun !== "true");
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].body, dry.body, "the submitted body is the planned one");
+    assert.equal(writes[0].ifMatch, `"${etag}"`);
+    assert.match(writes[0].key, /^[0-9a-f-]{36}$/, "an Idempotency-Key that the portal made");
+    assert.match(await accepted.innerText(), /202 Accepted · req-\d{8}-7001 · approved\s+Approved at once; the bot PR updates cmapi\.net\/expires-at when CI passes\./);
+    assert.match(await expCard(page).locator(".pf-v6-c-code-block").innerText(), new RegExp(`POST /api/v1/clusters/${dated.clusterId}/namespaces/${dated.name}/expiration:extend[\\s\\S]*"expiresAt": "${to}"`));
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("15 Expiration: a date for a permanent namespace through :set, and make permanent through :makePermanent with its approval", async () => {
+    {
+      const { context, page, errors } = await expFresh();
+      await manageExp(page, undated);
+      assert.deepEqual((await expCard(page).getByRole("group", { name: "Action" }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")), ["Set a date at most 30 days from today"]);
+      const field = expCard(page).getByLabel("New expiry date");
+      assert.deepEqual([await field.getAttribute("min"), await field.getAttribute("max"), await field.inputValue()], [plus(EXP_TODAY, 1), plus(EXP_TODAY, 30), plus(EXP_TODAY, 30)], "the rules' limits, from the API's day");
+      const until = plus(EXP_TODAY, 12);
+      await field.fill(until);
+      await expCard(page).getByRole("button", { name: "Set expiry" }).click();
+      await expCard(page).locator("li").filter({ hasText: `The plan writes cmapi.net/expires-at: ${until}` }).waitFor();
+      await expCard(page).getByRole("button", { name: "Set expiry" }).click();
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+      const posts = expPosts(undated, "set");
+      assert.deepEqual(posts.map((c) => [c.query.dryRun ?? "write", c.body]), [["true", { until }], ["write", { until }]]);
+      assert.equal(expPosts(undated, "extend").length, 0, "a date for a permanent namespace is :set, not :extend");
+      // A date that is not after today is refused by the page, and nothing is sent.
+      await field.fill(EXP_TODAY);
+      await expCard(page).getByRole("button", { name: "Set expiry" }).click();
+      await expCard(page).locator("li").filter({ hasText: "Date must be tomorrow or later" }).waitFor();
+      assert.equal(expPosts(undated, "set").length, 2);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh();
+      await manageExp(page, dated);
+      await actOf(page, "Make permanent");
+      const approval = expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi from approver-platform" });
+      await approval.waitFor();
+      assert.match(await approval.innerText(), /threshold expirationBeyondLimits: \+1 approver-platform\. Nothing reaches Git until they approve\./);
+      await expCard(page).locator("li").filter({ hasText: "The plan writes no cmapi.net/expires-at" }).waitFor();
+      await expCard(page).getByRole("button", { name: "Request make permanent" }).click();
+      const accepted = expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" });
+      await accepted.waitFor();
+      assert.match(await accepted.innerText(), /pending_approval\s+The approvers are notified; the expiry changes in Git once they approve\./);
+      assert.deepEqual(expPosts(dated, "makePermanent").map((c) => [c.query.dryRun ?? "write", c.body]), [["true", {}], ["write", {}]]);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("F3 Expiration: a 412 reads the namespace again and plans on its new ETag; Submit never sends the stale ETag again", async () => {
+    const { context, page, errors } = await expFresh();
+    expectedStatus = [412];
+    const where = `${dated.clusterId}/${dated.name}`;
+    const reads = () => api.state.seen.filter((c) => c.method === "GET" && c.path === `/api/v1/clusters/${dated.clusterId}/namespaces/${dated.name}`).length;
+    const until = async (ok, why) => {
+      const end = Date.now() + 5000;
+      while (!ok()) {
+        if (Date.now() > end) assert.fail(why());
+        await page.waitForTimeout(50);
+      }
+    };
+    await manageExp(page, dated);
+    const old = api.state.etags.get(where);
+    await actOf(page);
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" }).waitFor();
+    const now = "0123456789abcdef";
+    api.state.etags.set(where, now);
+    const readsBefore = reads();
+    await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "412 precondition-failed · nothing written" }).waitFor();
+    const writes = () => expPosts(dated, "extend").filter((c) => c.query.dryRun !== "true");
+    await until(() => reads() > readsBefore, () => `the namespace was not read again after the 412 (GETs: ${reads()})`);
+    await until(() => expPosts(dated, "extend").some((c) => c.query.dryRun === "true" && c.ifMatch === `"${now}"`),
+      () => `the change was not planned again on the new etag; the POSTs were ${JSON.stringify(expPosts(dated, "extend").map((c) => [c.query.dryRun ?? "write", c.ifMatch]))}`);
+    await expCard(page).locator("li").filter({ hasText: `If-Match matches the current ETag ${now}` }).waitFor();
+    await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    assert.equal(writes().filter((c) => c.ifMatch === `"${old}"`).length, 1, "the stale etag was sent one time, never again");
+    assert.equal(writes().at(-1).ifMatch, `"${now}"`);
+    assert.ok(writes().every((c) => c.key === writes()[0].key), "the same body keeps its key across the new etag");
+    assert.equal(api.state.created, 1);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("R7 Expiration: a double click sends one write; the same change after a lost answer keeps its key, a changed one gets a new key", async () => {
+    {
+      const { context, page, errors } = await expFresh();
+      await manageExp(page, dated);
+      await actOf(page);
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" }).waitFor();
+      api.state.delayMs = 300;
+      await expCard(page).locator("form").evaluate((form) => { form.requestSubmit(); form.requestSubmit(); });
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+      await page.waitForTimeout(800);
+      const together = expPosts(dated, "extend").filter((c) => c.query.dryRun !== "true").length;
+      console.log(`  expiry writes on two submits in one task: ${together}`);
+      assert.equal(together, 1);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh();
+      expectedStatus = [409];
+      const route = `POST /api/v1/clusters/${dated.clusterId}/namespaces/${dated.name}/expiration:extend`;
+      await manageExp(page, dated);
+      await actOf(page);
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" }).waitFor();
+      api.state.lose.add(route);
+      await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Not submitted" }).getByText(/Submit again: the same request is sent, and the API makes it at most once\./).waitFor();
+      api.state.lose.clear();
+      assert.equal(api.state.created, 1, "the lost answer's request was made");
+      await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+      const writes = () => expPosts(dated, "extend").filter((c) => c.query.dryRun !== "true");
+      assert.ok(writes().every((c) => c.key === writes()[0].key), "the retries of one change share one key");
+      assert.equal(api.state.created, 1, "no second request");
+      await actOf(page, "Extend 30 days");
+      await expCard(page).locator("li").filter({ hasText: `The plan writes cmapi.net/expires-at: ${plus(dated.expiresAt, 30)}` }).waitFor();
+      await expCard(page).getByRole("button", { name: "Extend", exact: true }).click();
+      await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "409 change-pending · nothing written" }).waitFor();
+      assert.notEqual(writes().at(-1).key, writes()[0].key, "a changed body is sent with a new key");
+      assert.deepEqual(writes().at(-1).body, { days: 30 });
+      assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE/.test(e)), []);
+      await context.close();
+    }
+  });
+
+  await check("16 Expiration states: loading, empty, a 403, a 5xx with Try again, a stale cursor, a lock, a viewer, and an instance where nothing expires", async () => {
+    {
+      const { context, page, errors } = await expFresh();
+      api.state.delayMs = 700;
+      await page.goto(`${portal.page}#expiration`);
+      await page.getByRole("status").filter({ hasText: "Loading expirations…" }).waitFor();
+      await page.locator("table[aria-label=Expiration] tbody tr").first().waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh({ mode: "empty" });
+      await open(page, "#expiration");
+      await panel(page).getByText("No namespace matches this state and search.").waitFor();
+      assert.match(await panel(page).innerText(), /0 namespaces/);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/expirations", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission objects:read: no role in your token grants it (roles: ['cmapi-none'])" } });
+      await open(page, "#expiration?state=grace");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see expirations." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission objects:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0, "no action");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh();
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/expirations", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The watch cache did not answer." } });
+      await open(page, "#expiration?state=grace");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The expirations did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The watch cache did not answer\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await page.locator("table[aria-label=Expiration] tbody tr").first().waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await expFresh();
+      expectedStatus = [400];
+      await openExp(page, "#expiration?state=all");
+      api.state.answers.push({ route: "GET /api/v1/expirations", status: 400, body: { type: "https://cmapi.ephico2real.com/problems/invalid-cursor", title: "invalid-cursor", status: 400, code: "invalid-cursor", detail: "Filters or sort changed since this cursor was issued" } });
+      await page.getByRole("button", { name: "Next ›" }).first().click();
+      const stale = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "This page link is out of date" });
+      await stale.waitFor();
+      await stale.getByRole("button", { name: "Back to the first page" }).click();
+      await page.waitForFunction((t) => document.querySelector("[role=tabpanel]")?.innerText.includes(t), `1–25 of ${expFleet.length}`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // A namespace that a request holds: the lock, and its way to the request. No form.
+      const held = { ...dated, openRequest: "req-20261116-0042" };
+      const { context, page, errors } = await expFresh({ expirations: expFleet.map((r) => (r === dated ? held : r)) });
+      await manageExp(page, held);
+      const lock = expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Open request: req-20261116-0042" });
+      await lock.waitFor();
+      assert.match(await lock.innerText(), /req-20261116-0042 holds this namespace in cmapi\. One open request per namespace, so another change waits until it closes\./);
+      assert.equal(await expCard(page).getByRole("button", { name: "Plan change" }).count(), 0);
+      await lock.getByRole("button", { name: "Open at current step" }).click();
+      await page.waitForURL(/#workflow\?request=req-20261116-0042$/);
+      assert.deepEqual(errors.filter((e) => !/status of 404/.test(e)), []);
+      await context.close();
+    }
+    {
+      // A viewer reads the list and the detail, and has no change form: the permission of :extend is not in /me.
+      const { context, page, errors } = await expFresh({ user: "viewer" });
+      await manageExp(page, dated);
+      assert.equal(await panel(page).getByRole("heading", { name: /^Change expiration/ }).count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // An instance where no namespace can expire (prod): the API's rules are empty, and the mockup's prod callout shows.
+      const { context, page, errors } = await expFresh({ never: true });
+      await open(page, "#expiration");
+      await panel(page).getByText("Production namespaces never expire").waitFor();
+      assert.match(await panel(page).innerText(), /Expiration is optional for rnd, dev, qa and uat namespaces, and never applies in prod\.[\s\S]*nonprod · never expires/);
+      assert.equal(await panel(page).locator("table").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("6 the Expiration tab says what the mockup says, and adds only what is listed", async () => {
+    const { context, page, errors } = await expFresh();
+    const shown = [];
+    await openExp(page);
+    shown.push(...await shownText(page));
+    await manageExp(page, dated);
+    await actOf(page, "Make permanent");
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    shown.push(...await shownText(page));
+    await expCard(page).getByRole("button", { name: "Request make permanent" }).click();
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "202 Accepted" }).waitFor();
+    shown.push(...await shownText(page));
+    await manageExp(page, undated);
+    await expCard(page).getByRole("button", { name: "Set expiry" }).click();
+    await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "No approval needed" }).waitFor();
+    shown.push(...await shownText(page));
+    await manageExp(page, { ...dated });
+    api.state.mode = "empty";
+    await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "dev", exact: true }).click();
+    await panel(page).getByText("No namespace matches this state and search.").waitFor();
+    shown.push(...await shownText(page));
+    await context.close();
+    // An instance where nothing expires: the mockup's prod card.
+    const prod = await expFresh({ never: true });
+    await open(prod.page, "#expiration");
+    await panel(prod.page).getByText("Production namespaces never expire").waitFor();
+    shown.push(...await shownText(prod.page));
+    // The mockup's prod card names sample policies and clusters; its detail has an Extensions count that the API does not give,
+    // a footnote on GET .../expiration (not built) and expire_check (not built), and a lede that names platform-leads.
+    const MOCKUP_ONLY = ["Extensions"];
+    const fromMockup = mockupBlock("isExpiration", "isRequests").filter((t) => !MOCKUP_ONLY.includes(t));
+    const data = [...expFleet.flatMap((r) => [r.name, r.clusterId, r.env, r.team])].filter(Boolean);
+    // The mockup's logic builds these (expirationView()).
+    const FROM_LOGIC = [/^\d+$/, /^-\d+ \(grace \d+ left\)$/, /^[A-Z][a-z]{2} \d{1,2}$/, /^[A-Z][a-z]{2} \d{1,2} \(\d{4}-\d{2}-\d{2}\)$/, /^\d+ of 180 d(ays)?$/, /^\d+–\d+ of \d+ · most urgent first$/,
+      /^\d+ expiring · \d+ in grace · \d+ pending delete$/, /^[a-z-]+ on [A-Z_]+$/, /^Change expiration · [a-z-]+$/, /^(dev|rnd) · [A-Z_]+$/, /^(dev|rnd) allows expiration$/, /^\+\d+ days, to [A-Z][a-z]{2} \d{1,2}$/,
+      /^\d+ days from creation \([A-Z][a-z]{2} \d{1,2}\)$/, /^Extension within 30 days$/, /^Lifetime within 180 days$/, /^Extend \d+ days$/, /^\+\d+(, the most per step)?$/, /^\d+ approvals? in cmapi from /,
+      /^202 Accepted · req-\d{8}-\d{4} · (pending_approval|approved)$/, /^POST \/api\/v1\/clusters\/[A-Z_]+\/namespaces\/[a-z-]+\/expiration:(extend|set|makePermanent) \{/, /^past the date; \d+ grace days left$/, /^Open request: req-\d{8}-\d+$/, /^[✓!✕]$/, /^\d+ of 3 \(14, 7, 1 days\)$/,
+      /^\{|^"|^\}|^\]|^\[/, /^\d{4}-\d{2}-\d{2}$/];
+    const LOGIC = ["Needs action", "Expiring ≤ 14 d", "In grace", "Pending delete", "Active", "Permanent", "Expiring", "All", "Selected", "Manage", "never", "—", "never (permanent)", "none yet",
+      "delete request (expired-namespace), then an operator confirms the prune", "nothing: permanent", "Expires", "Days left", "Created", "Lifetime", "Notices sent", "After grace",
+      "Make permanent", "Set a date", "Non-prod namespace", "Removes cmapi.net/expires-at and cmapi.net/expiry", "No open request on the namespace", "Request make permanent", "Set expiry", "Extend",
+      "No approval needed", "The approvers are notified; the expiry changes in Git once they approve.", "Approved at once; the bot PR updates cmapi.net/expires-at when CI passes.", "0 namespaces",
+      "New expiry date", "Action", "Expiration is optional for rnd, dev, qa and uat namespaces, and never applies in prod."];
+    // The portal's own words, each in MOCKUP-CONTRACT.md.
+    const ADDED = ["Plan change", "Planning…", "If-Match matches the current ETag", "The plan writes", /^cmapi\.net\/expires-at: \d{4}-\d{2}-\d{2}$/, "no cmapi.net/expires-at", "adds approver-platform",
+      /^at most 30 days from today$/, /^-\d+ \(grace over\)$/, /^[0-9a-f]{16}$/, /^GET \/api\/v1\/expirations\?[\w=&-]+ · paged and searched like Quotas · today is [A-Z][a-z]{2} \d{1,2}\.$/,
+      /^GET \/api\/v1\/clusters\/[A-Z_]+\/namespaces\/[a-z-]+ · ETag [0-9a-f]{16} · the date lives in Git as cmapi\.net\/expires-at; this list reads it from the watch cache\.$/,
+      /^Every namespace on the nonprod instance that has, or could have, an expiry date\. Expiry is optional and prod never has it\. Extend in steps of up to 30 days, up to 180 days from creation; past that, or to make a namespace permanent, approver-platform approves\. Notices go out at 14, 7 and 1 days, a 7-day grace follows the date, and then cmapi opens a delete request that an operator confirms\.$/,
+      /^dev change: 0 from approver-platform; threshold expirationBeyondLimits: \+1 approver-platform\. Nothing reaches Git until they approve\.$/, /^dev change: 0 from approver-platform\. The bot PR merges when CI passes\.$/,
+      /^nonprod · never expires$/, /^req-\d{8}-\d+ holds this namespace in cmapi\. One open request per namespace, so another change waits until it closes\.$/, "Open at current step", "rnd", "dev", "nonprod", "approver-platform", "Search input", "Reset", "Used of hard"];
+    const strings = [...data, ...LOGIC, ...ADDED].filter((k) => typeof k === "string");
+    const patterns = [...FROM_LOGIC, ...ADDED].filter((k) => k instanceof RegExp);
+    const n = compare("Expiration", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+    console.log(`  strings of the mockup compared on the Expiration tab: ${n}`);
+    assert.deepEqual([...errors, ...prod.errors], []);
+    await prod.context.close();
+  });
+
+  await check("7 the Expiration tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+    const VIEWS = [
+      ["expiration", async (page) => {
+        await manageExp(page, dated);
+        await actOf(page, "Make permanent");
+        await expCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+      }],
+      ["expiration-set", async (page) => { await manageExp(page, undated); await expCard(page).getByLabel("New expiry date").waitFor(); }],
+      ["expiration-list", async (page) => { await openExp(page, "#expiration?state=all"); }]
+    ];
+    let scans = 0;
+    for (const [view, reach] of VIEWS) {
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await expFresh({ width });
+        await reach(page);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
+          await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
   });
 
   // The KPIs of a pod: the recorded answer with the cgroup figures that a container has (the sample was recorded on macOS).
