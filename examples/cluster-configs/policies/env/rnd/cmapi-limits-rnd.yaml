@@ -11,6 +11,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -45,6 +48,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -79,6 +85,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -113,6 +122,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -147,6 +159,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -181,6 +196,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:

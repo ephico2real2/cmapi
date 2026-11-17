@@ -54,6 +54,26 @@
     "kind": "annotation",
     "rule": "format"
   },
+  "cmapi-metadata-dev-annotation-other-keys-max": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-max-bytes-total": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-bytes-total"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-max-value-bytes": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-value-bytes"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-prefix": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "prefix"
+  },
   "cmapi-metadata-dev-label-cmapi-net-app-pattern": {
     "key": "cmapi.net/app",
     "kind": "label",
@@ -88,6 +108,16 @@
     "key": "cmapi.net/team",
     "kind": "label",
     "rule": "pattern"
+  },
+  "cmapi-metadata-dev-label-other-keys-max": {
+    "key": null,
+    "kind": "label",
+    "rule": "max"
+  },
+  "cmapi-metadata-dev-label-other-keys-prefix": {
+    "key": null,
+    "kind": "label",
+    "rule": "prefix"
   },
   "cmapi-quota-dev-quota-persistentvolumeclaims-max": {
     "key": "persistentvolumeclaims",
