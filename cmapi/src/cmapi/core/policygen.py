@@ -28,7 +28,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
-from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys
+from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, value_regex
 from cmapi.core.policy import PolicySettings
 from cmapi.core.tiers import LIMIT_KINDS, STORAGE_KIND, TierCatalog, flatten_limits, limit_key_parts, qty
 
@@ -108,26 +108,17 @@ def _same(kind: str, key: str) -> str:
 
 
 def _value_rule(rule: KeyRule, value: str, domains: list[str]) -> tuple[str, str, str] | None:
-    """(rule name, CEL that is true when the value is good, the rule in words) for a declared key's value."""
-    if rule.pattern is not None:
-        # Python checks with re.fullmatch; CEL's matches() finds a match anywhere, so the pattern is anchored.
-        return "pattern", f"{value}.matches({cel('^(?:' + rule.pattern + ')$')})", f"must match {rule.pattern}"
+    """(rule name, CEL that is true when the value is good, the rule in words) for a declared key's value. A pattern or
+    a format is metadata.value_regex: the one string that cmapi's validator matches too, already anchored for CEL's
+    matches(), which finds a match anywhere (#332)."""
+    regex = value_regex(rule, domains)
+    if regex is not None:
+        if rule.pattern is not None:
+            return "pattern", f"{value}.matches({cel(regex)})", f"must match {rule.pattern}"
+        words = f"an address in {', '.join(domains)}" if rule.format == "email-in-domains" else "an http or https URL"
+        return "format", f"{value}.matches({cel(regex)})", words
     if rule.enum is not None:
         return "enum", f"{value} in {cel(list(rule.enum))}", f"one of {', '.join(rule.enum)}"
-    if rule.format == "email-in-domains":
-        # core/identity/checks.py email_in_domains: one "@", a local part of the allowed characters, a listed domain.
-        local = r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$"
-        return ("format",
-                f"size({value}.split('@')) == 2 && {value}.split('@')[0].matches({cel(local)}) && "
-                f"{value}.split('@')[1].lowerAscii() in {cel([d.lower() for d in domains])}",
-                f"an address in {', '.join(domains)}")
-    if rule.format == "url":
-        # Match metadata._governed's scheme, nonempty authority and Python isspace() checks.
-        # Go's URL parser adds restrictions (e.g. percent escapes) that Python does not impose.
-        whitespace = r"[\t-\r\x{1c}-\x{20}\x{85}\p{Z}]"
-        return ("format",
-                f"{value}.matches({cel('(?i)^https?://[^/?#]+')}) && !{value}.matches({cel(whitespace)})",
-                "an http or https URL")
     return None
 
 
