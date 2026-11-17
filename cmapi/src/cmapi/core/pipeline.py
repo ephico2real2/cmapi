@@ -184,7 +184,7 @@ class Pipeline:
         if action == "create":
             # The label is only written at create; refuse here, not as a 422 from the API server at apply.
             label_value_of(requester.person.username)
-        operator = "cmapi-operator" in who.roles or "cmapi-admin" in who.roles
+        operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
         prev_ns = next((yaml.safe_load(t) for p, t in prev_files.items() if p.endswith("namespace.yaml")), None)
         if action == "create" and prev_ns:
@@ -331,15 +331,23 @@ class Pipeline:
                     beyond_tier=beyond_view)
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
-        """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only cmapi-operator may set
-        is a 403 at once: that request is never rendered."""
+        """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only an operator may set
+        is a 403 at once: that request is never rendered.
+
+        A label of protected.labels (approval-rules.yaml) takes only the value that protects, or null to remove it (#366):
+        another value ("false") would be stored and shown while the namespace stays deletable."""
+        want = self.cfg.approvals.protected_values()
+        protection = [{"code": "invalid_value", "key": k, "kind": "label",
+                       "detail": f"only {want[k]!r}, the value that protects; null removes it"}
+                      for k, v in labels.items() if k in want and v is not None and v != want[k]]
         try:
             self.cfg.metadata.check(labels, annotations, **kw)
         except Problem as refusal:
             if refusal.code != "policy-violation":
                 raise
+            refusal.errors.extend(protection)
             return refusal
-        return None
+        return Problem.policy_violation("Metadata refused", protection) if protection else None
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
         req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)

@@ -4,7 +4,7 @@ One file, cluster-configs/policies/metadata-keys.yaml, decides every key's class
 feeds the Kyverno bundle, so plan time, CI and admission agree (docs/02, "Labels and annotations"; #215).
 
     system               set only by the renderer (cluster-id, tier, requested-by, expiry, ...)
-    operatorOnly         cmapi-operator and above (cmapi.net/protected)
+    operatorOnly         an operator only, who holds namespaces:protect (cmapi.net/protected, do-not-delete)
     reservedPrefixes     Kubernetes, OpenShift and platform-controller prefixes
     requiredLabels       keys the namespace must carry, each with a rule; a key with value.from is set by cmapi
     requiredAnnotations
@@ -936,7 +936,7 @@ class MetadataKeys:
                              require_governed=require_governed, current_labels=current_labels,
                              current_annotations=current_annotations, sources=sources, existing=existing)
         if any(e["code"] == "operator_only_key" for e in errs):
-            raise Problem.forbidden("Only cmapi-operator may set " +
+            raise Problem.forbidden("Only an operator (namespaces:protect) may set " +
                                     ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key"))
         if errs:
             raise Problem.policy_violation("Metadata refused", errs)
@@ -1020,7 +1020,7 @@ class MetadataKeys:
         out: dict[str, Any] = {"type": "string"}
         if kind == "label":
             out.update(pattern=_LABEL_VALUE, maxLength=63)
-        out["description"] = "cmapi-operator and above only: a requester gets 403 forbidden."
+        out["description"] = "An operator only (namespaces:protect): another caller gets 403 forbidden."
         out["x-cmapi-operator-only"] = True
         return out
 

@@ -9,7 +9,7 @@
       "additionalProperties": false,
       "properties": {
         "system": {"description": "Keys that only the renderer sets", "$ref": "#/definitions/keyList"},
-        "operatorOnly": {"description": "Keys that cmapi-operator and above can set", "$ref": "#/definitions/keyList"},
+        "operatorOnly": {"description": "Keys that only an operator (namespaces:protect) can set", "$ref": "#/definitions/keyList"},
         "reservedPrefixes": {
           "description": "Prefixes of Kubernetes, OpenShift and platform controllers; * matches as in fnmatch, a trailing / is allowed",
           "type": "array",

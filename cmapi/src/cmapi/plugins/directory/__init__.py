@@ -21,21 +21,17 @@ router = DocumentedRouter("directory", prefix="/api/v1", version=__version__, gr
                           description="The people that Keycloak knows: a search for the people picker, and one person by username.")
 
 
-def _operator(who: Identity) -> bool:
-    return bool({"cmapi-operator", "cmapi-admin"} & who.roles)
-
-
 @router.read("/directory/users", summary="Search people", permission="objects:read", response_model=DirectoryUsers,
              problems=["idp-unavailable"])
 def search(q: str = Query(min_length=2, examples=["ada"],
                           description="Two or more characters of a username, a name or an email address."),
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
-    """Up to ten people matching the text, for the portal's people picker. The employee ID is returned to
-    cmapi-operator and above only."""
+    """Up to ten people matching the text, for the portal's people picker. The employee ID is returned to an
+    operator (namespaces:protect) only."""
     if c.directory is None:
         raise Problem(503, "idp-unavailable", "No directory is configured", extra={"retryAfter": 60})
     try:
-        return {"items": [p.public(_operator(who)) for p in c.directory.search(q)]}
+        return {"items": [p.public(c.cfg.roles.is_operator(who)) for p in c.directory.search(q)]}
     except DirectoryUnavailable as exc:
         raise Problem(503, "idp-unavailable", f"Directory unavailable: {exc}", extra={"retryAfter": 30}) from exc
 
@@ -52,4 +48,4 @@ def get_user(username: Username, who: Identity = Depends(require("objects:read")
         raise Problem(503, "idp-unavailable", f"Directory unavailable: {exc}", extra={"retryAfter": 30}) from exc
     if p is None:
         raise Problem(404, "object-not-found", f"No user {username}")
-    return p.public(_operator(who))
+    return p.public(c.cfg.roles.is_operator(who))

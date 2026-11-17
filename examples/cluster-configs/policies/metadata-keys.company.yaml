@@ -23,7 +23,7 @@
 # carries them as labels keeps those labels when it is adopted, and each is a finding (story #26).
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
-operatorOnly: [cmapi.net/protected]
+operatorOnly: [cmapi.net/protected, do-not-delete]   # the labels of protected.labels: only an operator protects (#366)
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
                    olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
@@ -45,5 +45,5 @@ extraAnnotations:
   allowOther: {prefixes: ["", "*.company.net/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
 adoptionLabels:
   company.net/provisioner: {recognise: [cluster-configs]}
-sensitiveKeys: [company.net/mnemonic, company.net/lob]
+sensitiveKeys: [company.net/mnemonic, company.net/lob, cmapi.net/protected, do-not-delete]
 emailDomains: [company.net]

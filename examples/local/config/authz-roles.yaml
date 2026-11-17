@@ -16,7 +16,7 @@ roles:
                             # For people and local automation accounts (bot-user, an AI agent)
   cmapi-requester: {}       # onboarding + namespaces:write, quotas:write, serviceaccounts:write, grants:write, requests:cancel
   cmapi-approver: {}        # viewer + requests:approve, requests:reject
-  cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run
+  cmapi-operator: {}        # requester + requests:retry, adoption:write, reports:read, operations:run, namespaces:protect
   cmapi-admin: {}           # operator + config:write, clusters:onboard, admin:reload, approvals:pause
   cmapi-auditor: {}         # viewer + events:read, audit:export
   cmapi-approval-relay: {}  # requests:read, approvals:relay (the email, ServiceNow and chat channels)

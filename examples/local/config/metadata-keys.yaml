@@ -2,7 +2,7 @@
 # cluster-configs/policies/metadata-keys.yaml
 system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
-operatorOnly: [cmapi.net/protected]
+operatorOnly: [cmapi.net/protected, do-not-delete]   # the labels of protected.labels: only an operator protects (#366)
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
                    argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
                    olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
@@ -28,7 +28,7 @@ extraAnnotations:
 # cluster-configs repository wrote company.net/provisioner: cluster-configs on the namespaces it made.
 adoptionLabels:
   company.net/provisioner: {recognise: [cluster-configs]}
-sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone]   # a change adds one platform-leads approval
+sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone, cmapi.net/protected, do-not-delete]   # a change adds one platform-leads approval
 # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
 # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
 emailDomains: [ephico2real.com]

@@ -116,8 +116,22 @@ class ApprovalRules:
     def tier_names(self) -> set[str]:
         return {t for p in self.policies for t in p.get("match", {}).get("tiers", [])}
 
+    def protected_by(self, labels: Mapping[str, str]) -> list[str]:
+        """The entries of protected.labels ("key=value") that these labels match, in the file's order. One answer for the
+        delete refusal (is_protected) and for GET on a namespace (protectedBy, #366)."""
+        matched = []
+        for entry in self.protected:
+            key, _, value = entry.partition("=")
+            if labels.get(key) == value:
+                matched.append(entry)
+        return matched
+
     def is_protected(self, labels: Mapping[str, str]) -> bool:
-        return any(labels.get(k) == v for k, _, v in (p.partition("=") for p in self.protected))
+        return bool(self.protected_by(labels))
+
+    def protected_values(self) -> dict[str, str]:
+        """Each label of protected.labels with the value that protects: the only value a request may set it to (#366)."""
+        return {k: v for k, _, v in (p.partition("=") for p in self.protected)}
 
     def _added(self, facts: Mapping[str, Any]) -> list[tuple[Slot, str, frozenset[str]]]:
         """What the thresholds add for these facts: (slot, the line for `reasons`, the facts that the rule reads).

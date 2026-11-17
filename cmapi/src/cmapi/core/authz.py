@@ -22,7 +22,10 @@ _VIEW = {"clusters:read", "objects:read", "capacity:read", "requests:read"}
 # namespaces:create is asking for a new namespace; namespaces:write is changing or deleting one.
 _ONBOARD = _VIEW | {"namespaces:create", "requests:cancel"}
 _REQUEST = _ONBOARD | {"namespaces:write", "quotas:write", "serviceaccounts:write", "grants:write"}
-_OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read", "operations:run"}
+# namespaces:protect is what makes an operator (#366): setting and removing the operator-only labels and annotations of
+# metadata-keys.yaml (cmapi.net/protected), cancelling another person's request and reading employee IDs.
+OPERATOR_PERMISSION = "namespaces:protect"
+_OPERATE = _REQUEST | {"requests:retry", "adoption:write", "reports:read", "operations:run", OPERATOR_PERMISSION}
 
 # The built-in roles: used when authz-roles.yaml does not define a role, and the vocabulary of
 # permissions a config file may use.
@@ -153,6 +156,24 @@ class RolePolicy:
                     return None if self.served is None else set(self.served)
                 envs |= g.environments
         return envs
+
+    def is_operator(self, who: Identity, env: str | None = None) -> bool:
+        """An operator in env, or with no env in some environment: the caller holds namespaces:protect there (#366).
+
+        The one answer for the pipeline's operator-only keys, GET /me and the routes that treat an operator apart. A
+        permission, not a role name, so a role that inherits cmapi-operator, or one limited to some environments, counts
+        as authz-roles.yaml says."""
+        return self.allowed(who, OPERATOR_PERMISSION, env)
+
+    def operator_environments(self, who: Identity) -> list[str] | str:
+        """GET /me: "all" when a role grants namespaces:protect in every environment, else the environments that do."""
+        envs: set[str] = set()
+        for g in self.held(who):
+            if OPERATOR_PERMISSION in g.permissions:
+                if g.environments is None:
+                    return "all"
+                envs |= g.environments
+        return sorted(envs)
 
     def require(self, who: Identity, permission: str, env: str | None = None) -> None:
         if self.allowed(who, permission, env):
