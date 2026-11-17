@@ -178,7 +178,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:136` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
-| List expirations | Only the environments where the caller has `objects:read`, and where a namespace can expire | `cmapi/src/cmapi/plugins/expiration/router.py:108` |
+| List expirations | Only the environments where the caller has `objects:read`, and where a namespace can expire | `cmapi/src/cmapi/plugins/expiration/router.py:109` |
 
 If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:160-163`). A list does not refuse: it leaves out the rows of the other environments.
 
