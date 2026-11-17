@@ -9,6 +9,7 @@ This folder holds the contract of the cmapi API and the tools that guard it. The
 | `accepted-breaking.txt` | The breaking changes that the gate lets through, one for each line, each with its reason above it |
 | `gate.sh` | Compares two documents with oasdiff. It fails on a breaking change |
 | `gate-test.sh` | Proves the gate: a removed response field must fail, and an added one must pass |
+| `report.py` | The API contract report of a Helm values change (#337): for each values file, the `metadata-keys.yaml` that `helm template` puts in the ConfigMap on each side, the two documents of `cmapi-tools openapi render`, and oasdiff's changelog to the job summary. Report only. `.github/workflows/api-contract-report.yml` runs it; docs/18, "The contract report of a values change" |
 | `changelog.py` | Writes `../src/cmapi/contract/changelog.json` from `released/`. `/docs/changelog` serves that file |
 | `spectral/` | Spectral, pinned by `package-lock.json`, cmapi's ruleset `.spectral.yaml`, and its functions in `functions/` |
 | `lint.sh` | Lints a document with the ruleset. It fails on an error of cmapi's rules and on a warning of Spectral's own OpenAPI rules |

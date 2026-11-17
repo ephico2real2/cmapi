@@ -1,0 +1,15 @@
+
+==================================== ERRORS ====================================
+__________ ERROR collecting tests/service/test_openapi_render_337.py ___________
+ImportError while importing test module '<main 7ba5d78>/cmapi/tests/service/test_openapi_render_337.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/service/test_openapi_render_337.py:16: in <module>
+    from cmapi.tools import openapi as tool
+E   ImportError: cannot import name 'openapi' from 'cmapi.tools' (<main 7ba5d78>/cmapi/src/cmapi/tools/__init__.py)
+=========================== short test summary info ============================
+ERROR tests/service/test_openapi_render_337.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.97s
