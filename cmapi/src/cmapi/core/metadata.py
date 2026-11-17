@@ -952,12 +952,22 @@ class MetadataKeys:
                 out[k] = v
         return out
 
-    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str]) -> dict[str, Any]:
-        """Facts for the approval engine: which classes changed, and whether a sensitive key did."""
-        changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        # a sensitive key counts when an existing value changes or goes; setting it the first time
-        # (every create sets cmapi.net/team) is not a change of ownership
-        sensitive = {k for k in changed & self.sensitive if k in before}
+    def change_facts(self, before: Mapping[str, str], after: Mapping[str, str],
+                     before_annotations: Mapping[str, str] | None = None,
+                     after_annotations: Mapping[str, str] | None = None) -> dict[str, Any]:
+        """Facts for the approval engine: which classes changed, and whether a sensitive key did.
+
+        before/after are the labels, and the annotations come apart: a key can be both (do-not-delete, any operator-only or
+        team key), and one map merged over the other would hide a change in it, such as a protection label removed while an
+        annotation of the same key stays (#378)."""
+        changed: set[str] = set()
+        sensitive: set[str] = set()
+        for b, a in ((before, after), (before_annotations or {}, after_annotations or {})):
+            moved = {k for k in set(b) | set(a) if b.get(k) != a.get(k)}
+            changed |= moved
+            # a sensitive key counts when an existing value changes or goes; setting it the first time
+            # (every create sets cmapi.net/team) is not a change of ownership
+            sensitive |= {k for k in moved & self.sensitive if k in b}
         return {"keyClasses": sorted({self.classify(k) for k in changed}),
                 "sensitiveKeyChanged": bool(sensitive)}
 

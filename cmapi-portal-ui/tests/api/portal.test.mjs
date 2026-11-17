@@ -1974,7 +1974,8 @@ try {
     await dialog(page).getByRole("button", { name: "Cancel" }).click();
     await dialog(page).waitFor({ state: "detached" });
     assert.equal(patches(protectedTarget).filter((c) => c.query.dryRun !== "true").length, 0, "Cancel writes nothing");
-    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Remove protection", "the focus is back on the button");
+    // PatternFly's focus trap gives the focus back after the dialog leaves the DOM, not with it: wait for it, with a bound.
+    await page.waitForFunction(() => document.activeElement?.textContent === "Remove protection", null, { timeout: 5_000 });
     await opener.click();
     await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
     await dialog(page).getByRole("button", { name: "Submit request" }).click();

@@ -308,7 +308,7 @@ class Pipeline:
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
-                 **exp_facts, **self.cfg.metadata.change_facts({**cur_l, **cur_a}, {**labels, **anns})}
+                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns)}
         if old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
