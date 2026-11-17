@@ -1,9 +1,14 @@
 {{/*
 One ConfigMap holds the instance's files: instance.yaml, clusters.yaml, integrations.yaml and
 capacity.yaml rendered from values; the policy files from the chart's config/ unless the site
-overrides one in configFiles. Mounted read-only at /etc/cmapi/config.
+overrides one in configFiles. metadata-keys.yaml can also come from the structured value metadata,
+which values.schema.json checks before anything renders (#335). Mounted read-only at /etc/cmapi/config.
 */}}
 {{- $inst := .Values.instance -}}
+{{- $metadata := .Values.metadata | default dict -}}
+{{- if and $metadata (index .Values.configFiles "metadata-keys.yaml") }}
+{{- fail "metadata and configFiles.\"metadata-keys.yaml\" both set metadata-keys.yaml: set one of them (docs/18-configuration.md, \"metadata-keys.yaml\")" }}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -57,7 +62,9 @@ data:
 {{- range $name := list "approval-rules.yaml" "authz-roles.yaml" "tiers.yaml" "expiration.yaml" "metadata-keys.yaml" }}
   {{ $name }}: |
 {{- $override := index $.Values.configFiles $name }}
-{{- if $override }}
+{{- if and (eq $name "metadata-keys.yaml") $metadata }}
+{{ toYaml $metadata | indent 4 }}
+{{- else if $override }}
 {{ $override | indent 4 }}
 {{- else }}
 {{ $.Files.Get (printf "config/%s" $name) | indent 4 }}

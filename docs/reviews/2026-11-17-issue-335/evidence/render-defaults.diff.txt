@@ -1,0 +1,2 @@
+# helm template, defaults with deploy/environments/crc.yaml, Secrets dropped (their values are random per render)
+# main 9ba33b2 vs this branch: 0 lines of diff over 29 documents

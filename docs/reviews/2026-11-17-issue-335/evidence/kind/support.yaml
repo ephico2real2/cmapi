@@ -1,0 +1,50 @@
+# The #335 kind proof's stand-ins, in namespace cmapi of the throwaway cmapi-test cluster: a PostgreSQL 16 and a JWKS
+# server (the cmapi image's python serving one ConfigMap). Neither is part of the chart.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pg, namespace: cmapi}
+spec:
+  selector: {matchLabels: {app: pg}}
+  template:
+    metadata: {labels: {app: pg}}
+    spec:
+      containers:
+        - name: pg
+          image: docker.io/library/postgres:16-alpine
+          imagePullPolicy: Never
+          env:
+            - {name: POSTGRES_USER, value: cmapi}
+            - {name: POSTGRES_DB, value: cmapi}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: pg-password, key: password}}
+          ports: [{containerPort: 5432}]
+          readinessProbe: {exec: {command: [pg_isready, -U, cmapi]}, periodSeconds: 3}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: pg, namespace: cmapi}
+spec: {selector: {app: pg}, ports: [{port: 5432}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: jwks, namespace: cmapi}
+spec:
+  selector: {matchLabels: {app: jwks}}
+  template:
+    metadata: {labels: {app: jwks}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 1001}
+      containers:
+        - name: jwks
+          image: IMAGE
+          imagePullPolicy: Never
+          command: [python, -m, http.server, "8000", --directory, /jwks]
+          ports: [{containerPort: 8000}]
+          volumeMounts: [{name: jwks, mountPath: /jwks, readOnly: true}]
+          readinessProbe: {httpGet: {path: /certs, port: 8000}, periodSeconds: 3}
+      volumes: [{name: jwks, configMap: {name: jwks}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: jwks, namespace: cmapi}
+spec: {selector: {app: jwks}, ports: [{port: 8000}]}
