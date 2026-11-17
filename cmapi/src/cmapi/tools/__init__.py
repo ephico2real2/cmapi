@@ -4,6 +4,7 @@
     cmapi-tools realm-sync      the realm's mutable parts through the cmapi-realm-admin client
     cmapi-tools docs-assets     Swagger UI and ReDoc for a source checkout, at the Containerfile's versions and hashes
     cmapi-tools policies        the Kyverno bundle rendered from an instance's configuration, and its check (#212)
+    cmapi-tools openapi         the API document an instance serves, rendered offline from its configuration (#337)
 
 Each is idempotent: a second run changes nothing and exits 0.
 """
@@ -15,7 +16,7 @@ import sys
 # Each command's module is imported only when it runs: git-bootstrap needs the database layer, policies needs none, and
 # a command must not fail on another's dependencies.
 COMMANDS = {"git-bootstrap": "cmapi.tools.git_bootstrap", "realm-sync": "cmapi.tools.realm_sync",
-            "docs-assets": "cmapi.tools.docs_assets", "policies": "cmapi.tools.policies"}
+            "docs-assets": "cmapi.tools.docs_assets", "policies": "cmapi.tools.policies", "openapi": "cmapi.tools.openapi"}
 
 
 def run(argv: list[str] | None = None) -> None:
