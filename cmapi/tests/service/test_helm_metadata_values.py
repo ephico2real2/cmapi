@@ -5,10 +5,12 @@ through the real loader, MetadataKeys. The loader stays the final check at start
 at helm install, upgrade, lint and template (https://helm.sh/docs/topics/charts/#schema-files)."""
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
 import pathlib
+import shutil
 import subprocess
 
 import pytest
@@ -31,8 +33,10 @@ REFERENCE_FILES = {
 SCHEMA_REFUSAL = "values don't meet the specifications of the schema"
 
 
-def _helm(command: str, tmp_path: pathlib.Path, values: dict | None = None) -> subprocess.CompletedProcess:
-    """helm template or helm lint of the chart with the CRC site file and, when given, one more values file."""
+def _helm(command: str, tmp_path: pathlib.Path, values: dict | None = None,
+          chart: pathlib.Path = CHART) -> subprocess.CompletedProcess:
+    """helm template or helm lint of the chart (or a copy of it) with the CRC site file and, when given, one more values
+    file."""
     extra = []
     if values is not None:
         # JSON is YAML that every reader types alike: PyYAML would write 1e3 bare, and Helm would read that as a number.
@@ -40,7 +44,7 @@ def _helm(command: str, tmp_path: pathlib.Path, values: dict | None = None) -> s
         path.write_text(json.dumps(values))
         extra = ["-f", str(path)]
     release = ["cmapi"] if command == "template" else []
-    return subprocess.run(["helm", command, *release, str(CHART), "-n", "cmapi", "-f", str(CRC), *extra,
+    return subprocess.run(["helm", command, *release, str(chart), "-n", "cmapi", "-f", str(CRC), *extra,
                            "--set", f"cmapi.digest={DIG}", "--set", f"cmapi_portal.digest={DIG}",
                            "--set", "trustedCA.certificates=x"], capture_output=True, text=True)
 
@@ -221,17 +225,29 @@ def test_the_schema_names_what_the_loader_reads():
     assert schema["$schema"] == "http://json-schema.org/draft-07/schema#"
 
 
+# A template added to a copy of the chart that prints, base64, the bytes that checksum/config hashes.
+PROBE = ('apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: probe-335\ndata:\n'
+         '  raw: {{ include (print $.Template.BasePath "/config.yaml") . | b64enc | quote }}\n')
+
+
 @pytest.mark.parametrize("values", ["defaults", "metadata", "configFiles"])
-def test_checksum_config_is_the_hash_of_the_config_map_as_rendered(tmp_path, values):
-    """The API and the worker hash the raw output of templates/config.yaml (checksum/config), while Helm prints that
-    output trimmed: a stray blank line from a guard (the first version of #335's) changes the checksum and restarts both
-    on an upgrade that changes no file. The checksum must be the hash of the ConfigMap exactly as rendered."""
+def test_checksum_config_hashes_no_leading_whitespace(tmp_path, values):
+    """The API and the worker hash the raw output of templates/config.yaml (checksum/config). Helm trims each document
+    before it prints it (Helm 3 on both sides, Helm 4 on the left only), so whitespace before the ConfigMap is invisible
+    in the output yet changes the checksum and restarts both on an upgrade that changes no file: the blank line of the
+    first version of #335's guard did. The raw output is read through a probe template, not from helm's printed output,
+    so the check is the same on every Helm version."""
     given = {"defaults": None, "metadata": {"metadata": _chart_keys()},
              "configFiles": {"configFiles": {"metadata-keys.yaml": CHART_FILE.read_text()}}}[values]
-    r = _helm("template", tmp_path, given)
+    chart = tmp_path / "chart"
+    shutil.copytree(CHART, chart)
+    (chart / "templates/zz-probe-335.yaml").write_text(PROBE)
+    r = _helm("template", tmp_path, given, chart=chart)
     assert r.returncode == 0, r.stderr[-600:]
-    doc = r.stdout.split("# Source: cmapi/templates/config.yaml\n", 1)[1].split("\n---\n", 1)[0]
+    docs = [d for d in yaml.safe_load_all(r.stdout) if d]
+    raw = base64.b64decode(next(d for d in docs if d["metadata"]["name"] == "probe-335")["data"]["raw"]).decode()
     sums = {d["metadata"]["name"]: d["spec"]["template"]["metadata"]["annotations"]["checksum/config"]
-            for d in yaml.safe_load_all(r.stdout)
-            if d and d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker")}
-    assert sums == dict.fromkeys(("cmapi-api", "cmapi-worker"), hashlib.sha256(doc.encode()).hexdigest()), sums
+            for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker")}
+    # The probe reads what the pods hash; then that text starts with the ConfigMap itself.
+    assert sums == dict.fromkeys(("cmapi-api", "cmapi-worker"), hashlib.sha256(raw.encode()).hexdigest()), sums
+    assert raw.startswith("apiVersion: v1\nkind: ConfigMap\n"), repr(raw[:80])
