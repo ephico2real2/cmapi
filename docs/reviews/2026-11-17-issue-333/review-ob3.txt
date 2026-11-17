@@ -1,0 +1,516 @@
+OB3 review of PR #354 (head 318e18c), 2026-11-17. VERDICT: FIX FIRST (one finding, config-only, patch + test below).
+Depth: C1 and C2 deep (no kyverno CLI on PATH, not downloaded: I measured with my own evaluator of the RENDERED CEL, self-checked
+against the PR's CLI-measured messages); C3, C4 and C6 medium; C5 shallow (one Go command). Artefacts are in this folder (drive.py and its logs).
+
+C1 PLAUSIBLE (no CLI). drive.py c1/c1a, my own random corpus (not metadata_corpus), creates and patches as plan_namespace merges them,
+for reference, company and CRC: 0 maps that validate() accepts and the 6 new policies refuse (c1-head.log: 4000 maps/config;
+c1a-head.log: 1500/config biased to acceptance). The accepted side is thin (67-121 maps per config). Evaluator self-check matches the
+PR's CLI expectations 3/3 (selfcheck). The pre-existing rules were not re-run (CLI absent).
+C2 REFUTED, FINDING F1. c2-head.log: on reference and CRC configs, olm.operatorgroup.uid/<uid> (OLM labels each target ns of a
+non-global OperatorGroup: operator-lifecycle-manager olm/operator.go syncNamespace, "!namespaceSet.IsAllNamespaces()") and
+openshift-pipelines.tekton.dev/namespace-reconcile-version (tektoncd/operator tektonconfig/rbac.go:48-51, "applied by the old rbac.go
+batch loop", removed on upgrade by current releases) -> class=disallowed, fails=[...-label-other-keys-prefix]. That prefix rule runs in background,
+so the scan writes a `fail` to the PolicyReport, which the Policies tab shows, for a namespace cmapi created and accepts. Covered and pass: kubernetes.io/metadata.name,
+pod-security.kubernetes.io/*, security.openshift.io/*, openshift.io/sa.scc.*, openshift.io/requester|display-name|description,
+argocd.argoproj.io/tracking-id, app.kubernetes.io/instance, kubectl.kubernetes.io/last-applied-configuration (70 KB: reserved, so
+never counted in the bytes rules). docs/18:117 on head already says OLM "need[s] olm.operatorgroup.uid/ in reservedPrefixes", but no shipped
+file, CRC included, has it. Fix: fix-platform-reserved-prefixes.patch (the 8 reservedPrefixes lists, docs/18 note, re-rendered bundle,
+test cmapi/tests/core/test_platform_namespace_keys_354.py). Before: 8 failed (fix-before.log). After: c2-fix.log fails=[] for both keys;
+core 549 passed versus head 541, with the same 9 failures on both (no kyverno: SAME-FAIL-SET); service tests that read the configs 155 passed
+(svc-fix.log). For requests nothing changes: these keys were refused as disallowed and are now refused as reserved.
+C3 CONFIRMED (source and CI). Kyverno v1.20.0: background controller.go:754 RemoveNoneBackgroundPolicies(vpols); scanner.go:149 builds
+admissionv1.Create with oldObject nil; CRD validatingpolicies:160-161 has the "must be set to false" text. cmd/cli has no RemoveNoneBackground or BackgroundEnabled,
+so the CLI still evaluates the ratchet rules. CI reference-code with CMAPI_REQUIRE_KYVERNO=1: "626 passed", 0 skipped, which includes test_policygen CLI
+tests on declared keys. The PR's background test fails 3/3 on main and passes on head.
+C4 CONFIRMED. Fresh render: reference 156 names / 156 unique / max 63 / 14 hashed; company 171/171/63/29; two renders are equal;
+index.json == YAML names; the committed bundle == render for all 5 envs. kyverno_check.py keys on metadata.name (lines 42 and 82); CliValidator uses
+index_of(bundle); /policies/results is not implemented (only listquery.py:3 mentions it); Policies.tsx renders names from mock data. The kyverno_check run itself was not executed (no CLI).
+C5 CONFIRMED. c5-yaml11.log (sigs.k8s.io/yaml v1.4.0, offline): y/Y -> bool true, n/N -> bool false, 'y' -> string; PyYAML
+safe_dump({'a':'y'}) writes `a: y` unquoted. Worse: yes, at plan time instead of at sync (I reasoned this from the CEL size(bytes(bool)); not measured, no CLI). Acceptable until #355:
+on main such an annotation never applies (string field), so failing earlier loses nothing.
+C6 CONFIRMED. With main's generator: 5 failed (3 background, 2 names), with the CLI tests skipped; head: 5 passed, 13 skipped. engine:none service test: 4 passed on
+head and 4 on main (a guard, as the PR says). It asserts which("kyverno") is None and findings == [].
+Not checked: CLI agreement of the old rules, a kind/CRC run, Argo CD, the portal against real reports. I copied suite.sh to suite-re2.sh because ob1-run's venv lacks re2; the copy takes the same lock and uses the ob-358 venv.
+Housekeeping: git status --short of cmapi-design was empty before and after. I deleted fix/, mainx/, applycheck/, ob3/tmp, the caches and scratch rbac.go, and kept head/, main/ and ob3/.
+=== fix-platform-reserved-prefixes.patch (verbatim) ===
+diff --git a/cmapi/tests/core/test_platform_namespace_keys_354.py b/cmapi/tests/core/test_platform_namespace_keys_354.py
+new file mode 100644
+index 0000000..d67ec53
+--- /dev/null
++++ b/cmapi/tests/core/test_platform_namespace_keys_354.py
+@@ -0,0 +1,64 @@
++"""PR #354 review (OB3): keys that a platform controller writes on a namespace that cmapi created are reserved, so the
++other-keys policies of #333 never report them as a failure (the portal's Policies tab reads those PolicyReports).
++
++The API server, the Pod Security label syncer, OpenShift's SCC allocator and Argo CD write under kubernetes.io/,
++*.kubernetes.io/, *.openshift.io/, openshift.io/ and argocd.argoproj.io/, which every shipped file reserves. Two more write
++outside them, on namespaces that teams own:
++- OLM labels each target namespace of an OperatorGroup that does not target all namespaces with
++  olm.operatorgroup.uid/<uid> (operator-lifecycle-manager, pkg/controller/operators/olm/operator.go, syncNamespace).
++- OpenShift Pipelines' RBAC loop labelled every non-system namespace with
++  openshift-pipelines.tekton.dev/namespace-reconcile-version (tektoncd/operator, pkg/reconciler/openshift/tektonconfig/rbac.go,
++  namespaceVersionLabel; newer releases remove it on upgrade, older ones keep writing it).
++A requester was refused these keys before (disallowed) and is refused them after (reserved): only the object side changes.
++
++No kyverno CLI is needed: the test reads the regexes of the rendered labelOutside variable as Kyverno's RE2 would
++(k.matches is a search; each pattern starts with ^).
++"""
++from __future__ import annotations
++
++import re
++from pathlib import Path
++
++import pytest
++import yaml
++
++from cmapi.core.metadata import MetadataKeys
++from cmapi.core.policy import PolicySettings
++from cmapi.core.policygen import render_bundle
++from cmapi.core.tiers import TierCatalog
++from conftest import ALL_ENVS, EX
++
++ROOT = EX.parent
++PLATFORM_LABELS = ["olm.operatorgroup.uid/7c5b3c3e-8f2d-4a71-9a1f-0d6c2f1e5a10",
++                   "openshift-pipelines.tekton.dev/namespace-reconcile-version"]
++
++
++def _files() -> list[tuple[str, MetadataKeys]]:
++    out = []
++    for rel in ("examples/cluster-configs/policies/metadata-keys.yaml", "examples/cluster-configs/policies/metadata-keys.company.yaml",
++                "examples/local/config/metadata-keys.yaml", "deploy/helm/cmapi/config/metadata-keys.yaml"):
++        out.append((rel, MetadataKeys.load(ROOT / rel)))
++    for rel in ("deploy/manifests/environments/crc/20-config.yaml", "deploy/manifests/environments/kind/20-config.yaml"):
++        doc = next(d for d in yaml.safe_load_all((ROOT / rel).read_text()) if d and "metadata-keys.yaml" in (d.get("data") or {}))
++        out.append((rel, MetadataKeys(yaml.safe_load(doc["data"]["metadata-keys.yaml"]))))
++    return out
++
++
++FILES = _files()
++
++
++@pytest.mark.parametrize("rel, keys", FILES, ids=[r for r, _ in FILES])
++def test_platform_written_namespace_labels_are_reserved(rel, keys):
++    assert {k: keys.classify(k, "label") for k in PLATFORM_LABELS} == {k: "reserved" for k in PLATFORM_LABELS}
++
++
++@pytest.mark.parametrize("rel, keys", FILES[:1] + FILES[4:5], ids=[FILES[0][0], FILES[4][0]])
++def test_the_rendered_prefix_policy_allows_them(rel, keys):
++    catalog = TierCatalog.load(EX / "config/tiers.yaml", ALL_ENVS)
++    bundle = render_bundle(catalog, keys, PolicySettings(), {"dev"}, "nonprod")
++    doc = next(d for d in yaml.safe_load_all(bundle["env/dev/cmapi-metadata-dev.yaml"])
++               if d["metadata"]["name"] == "cmapi-metadata-dev-label-other-keys-prefix")
++    expr = next(v["expression"] for v in doc["spec"]["variables"] if v["name"] == "labelOutside")
++    regexes = [bytes(r, "ascii").decode("unicode_escape") for r in re.findall(r'k\.matches\("((?:[^"\\]|\\.)*)"\)', expr)]
++    assert regexes, expr
++    assert [k for k in PLATFORM_LABELS if not any(re.search(r, k) for r in regexes)] == []
+diff --git a/deploy/helm/cmapi/config/metadata-keys.yaml b/deploy/helm/cmapi/config/metadata-keys.yaml
+index 2757a57..39566c9 100644
+--- a/deploy/helm/cmapi/config/metadata-keys.yaml
++++ b/deploy/helm/cmapi/config/metadata-keys.yaml
+@@ -4,7 +4,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
+          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+ operatorOnly: [cmapi.net/protected]
+ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+ # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+ # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+ # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+diff --git a/deploy/manifests/environments/crc/20-config.yaml b/deploy/manifests/environments/crc/20-config.yaml
+index f7db372..2c59b1a 100644
+--- a/deploy/manifests/environments/crc/20-config.yaml
++++ b/deploy/manifests/environments/crc/20-config.yaml
+@@ -342,7 +342,8 @@ data:
+              cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+     operatorOnly: [cmapi.net/protected]
+     reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                       argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                       argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                       olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+     # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+     # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+     # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+diff --git a/deploy/manifests/environments/kind/20-config.yaml b/deploy/manifests/environments/kind/20-config.yaml
+index 52ccb82..5b87f36 100644
+--- a/deploy/manifests/environments/kind/20-config.yaml
++++ b/deploy/manifests/environments/kind/20-config.yaml
+@@ -336,7 +336,8 @@ data:
+              cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+     operatorOnly: [cmapi.net/protected]
+     reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                       argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                       argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                       olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+     # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+     # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+     # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+diff --git a/docs/02-technical-design-v2.md b/docs/02-technical-design-v2.md
+index 85b05d5..bf92980 100644
+--- a/docs/02-technical-design-v2.md
++++ b/docs/02-technical-design-v2.md
+@@ -1010,7 +1010,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
+          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+ operatorOnly: [cmapi.net/protected]
+ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+ # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+ # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+ # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+diff --git a/docs/18-configuration.md b/docs/18-configuration.md
+index ec7c003..4364083 100644
+--- a/docs/18-configuration.md
++++ b/docs/18-configuration.md
+@@ -114,7 +114,7 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
+ - When a served environment runs Kyverno and the image has no `kyverno` binary, cmapi does not start (`PolicyEngineMissing`, `core/validate/__init__.py`). When the variable `CMAPI_KYVERNO_VERSION` is set, the binary must be that version. The image sets it (`cmapi/Containerfile`: v1.20.0).
+ - `GET /api/v1/admin/integrations` reports the engine, the mode of each environment, and the Kyverno version (`routers/admin.py`). The metric `cmapi_policy_mode{environment, mode}` is 1 for each (`core/context.py`).
+ - The policies come from the configuration, not from files that a person writes. `core/policygen.py` renders them from `metadata-keys.yaml`, `tiers.yaml` and `instance.yaml` `policy`, as `policies.kyverno.io/v1` `ValidatingPolicy` objects. A hand-written policy in `CMAPI_POLICIES_DIR` (default `/etc/cmapi/policies`) runs with them (`core/validate/__init__.py`).
+-- The rendered metadata policies check each declared key, and the keys that no stanza declares (#333): for labels and for annotations, `cmapi-metadata-<env>-<kind>-other-keys-prefix` reports a key that `classify` calls `disallowed`, and `...-other-keys-max` more other keys than `allowOther.max`; for annotations, `...-max-value-bytes` and `...-max-bytes-total` report the bytes over `maxValueBytes` and `maxBytesTotal`. Each message names the keys and the setting, for example `the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]`. A `system`, `operatorOnly` or reserved key is allowed on the namespace, since cmapi's renderer, an operator's request or the platform writes it; that a requester may not send one stays cmapi's own check. So a controller that labels namespaces outside `reservedPrefixes` gets a report: on OpenShift, OLM's `olm.operatorgroup.uid/<uid>` labels, for example, need `"olm.operatorgroup.uid/"` in `reservedPrefixes`.
++- The rendered metadata policies check each declared key, and the keys that no stanza declares (#333): for labels and for annotations, `cmapi-metadata-<env>-<kind>-other-keys-prefix` reports a key that `classify` calls `disallowed`, and `...-other-keys-max` more other keys than `allowOther.max`; for annotations, `...-max-value-bytes` and `...-max-bytes-total` report the bytes over `maxValueBytes` and `maxBytesTotal`. Each message names the keys and the setting, for example `the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]`. A `system`, `operatorOnly` or reserved key is allowed on the namespace, since cmapi's renderer, an operator's request or the platform writes it; that a requester may not send one stays cmapi's own check. So a controller that labels namespaces outside `reservedPrefixes` gets a `fail` in the PolicyReport, which the portal's Policies tab shows. The shipped files reserve the two such controllers measured on OpenShift: OLM labels each target namespace of an OperatorGroup that does not target all namespaces `olm.operatorgroup.uid/<uid>` (operator-lifecycle-manager, `syncNamespace`), and OpenShift Pipelines' older RBAC loop labelled every non-system namespace `openshift-pipelines.tekton.dev/namespace-reconcile-version` (tektoncd/operator, `pkg/reconciler/openshift/tektonconfig/rbac.go`). Add the prefix of any other controller that labels or annotates team namespaces.
+ - A policy that keeps a value through `oldObject` (each declared key, `cmapi.net/cluster-id`, `cmapi.net/managed`, `cmapi.net/env`, and the bounds of a ResourceQuota and a LimitRange) has `evaluation.background.enabled: false` (#345): it reports at admission, where an UPDATE that keeps a value passes, and the background scan, which has no `oldObject`, does not run it. The other policies (the other keys, the order of a LimitRange, `deny-expiry-in-prod`) are also scanned in the background. A policy name over 63 characters is shortened to its first characters and 8 hex digits of its SHA-256, since Kyverno labels each report with the policy's name (#356). The decision record is `docs/reviews/2026-11-17-issue-333/`.
+ - To write the rendered files into the cluster-configs repository, run `cmapi-tools policies render --config-dir <dir> --metadata-keys <file> --out <dir>`. `cmapi-tools policies check --config-dir <dir> --metadata-keys <file> --dir <dir>` fails when a file differs from the render (`cmapi/src/cmapi/tools/policies.py`). The rendered files of an instance are the folders `env/<env>/` of its own environments. The decision record is `docs/reviews/2026-11-14-issue-212/` and `docs/reviews/2026-11-14-issue-213/`.
+ 
+@@ -325,7 +325,8 @@ metadata:
+            cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+   operatorOnly: [cmapi.net/protected]
+   reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                     argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                     argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                     olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+   requiredLabels:
+     cmapi.net/team:     {pattern: "^[a-z0-9-]{2,40}$", example: payments}
+     acme.example/owner: {pattern: "^[a-z]{2,20}$", description: "The owning group", example: payments}
+diff --git a/examples/cluster-configs/policies/env/dev/cmapi-metadata-dev.yaml b/examples/cluster-configs/policies/env/dev/cmapi-metadata-dev.yaml
+index 4119b04..101ef1d 100644
+--- a/examples/cluster-configs/policies/env/dev/cmapi-metadata-dev.yaml
++++ b/examples/cluster-configs/policies/env/dev/cmapi-metadata-dev.yaml
+@@ -320,7 +320,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOutside
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOutside) == 0
+     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -355,7 +355,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOther
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOther) <= 50
+     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+@@ -390,7 +390,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOutside
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOutside) == 0
+     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -425,7 +425,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOther) <= 50
+     message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+@@ -460,7 +460,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+     message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+@@ -495,7 +495,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+     message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+diff --git a/examples/cluster-configs/policies/env/prod/cmapi-metadata-prod.yaml b/examples/cluster-configs/policies/env/prod/cmapi-metadata-prod.yaml
+index 9e0d81a..bc6800d 100644
+--- a/examples/cluster-configs/policies/env/prod/cmapi-metadata-prod.yaml
++++ b/examples/cluster-configs/policies/env/prod/cmapi-metadata-prod.yaml
+@@ -320,7 +320,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOutside
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOutside) == 0
+     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -355,7 +355,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOther
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOther) <= 50
+     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+@@ -390,7 +390,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOutside
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOutside) == 0
+     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -425,7 +425,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOther) <= 50
+     message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+@@ -460,7 +460,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+     message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+@@ -495,7 +495,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+     message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+diff --git a/examples/cluster-configs/policies/env/qa/cmapi-metadata-qa.yaml b/examples/cluster-configs/policies/env/qa/cmapi-metadata-qa.yaml
+index 59d91d5..d2e8245 100644
+--- a/examples/cluster-configs/policies/env/qa/cmapi-metadata-qa.yaml
++++ b/examples/cluster-configs/policies/env/qa/cmapi-metadata-qa.yaml
+@@ -320,7 +320,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOutside
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOutside) == 0
+     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -355,7 +355,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOther
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOther) <= 50
+     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+@@ -390,7 +390,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOutside
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOutside) == 0
+     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -425,7 +425,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOther) <= 50
+     message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+@@ -460,7 +460,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+     message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+@@ -495,7 +495,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+     message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+diff --git a/examples/cluster-configs/policies/env/rnd/cmapi-metadata-rnd.yaml b/examples/cluster-configs/policies/env/rnd/cmapi-metadata-rnd.yaml
+index 9945a8d..860dd40 100644
+--- a/examples/cluster-configs/policies/env/rnd/cmapi-metadata-rnd.yaml
++++ b/examples/cluster-configs/policies/env/rnd/cmapi-metadata-rnd.yaml
+@@ -320,7 +320,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOutside
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOutside) == 0
+     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -355,7 +355,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOther
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOther) <= 50
+     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+@@ -390,7 +390,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOutside
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOutside) == 0
+     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -425,7 +425,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOther) <= 50
+     message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+@@ -460,7 +460,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+     message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+@@ -495,7 +495,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+     message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+diff --git a/examples/cluster-configs/policies/env/uat/cmapi-metadata-uat.yaml b/examples/cluster-configs/policies/env/uat/cmapi-metadata-uat.yaml
+index 5caa560..5da5fef 100644
+--- a/examples/cluster-configs/policies/env/uat/cmapi-metadata-uat.yaml
++++ b/examples/cluster-configs/policies/env/uat/cmapi-metadata-uat.yaml
+@@ -320,7 +320,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOutside
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOutside) == 0
+     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -355,7 +355,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: labelOther
+-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.labelOther) <= 50
+     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+@@ -390,7 +390,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOutside
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOutside) == 0
+     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+@@ -425,7 +425,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: size(variables.annotationOther) <= 50
+     message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+@@ -460,7 +460,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+     message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+@@ -495,7 +495,7 @@ spec:
+   - name: update
+     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+   - name: annotationOther
+-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
++    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+   validations:
+   - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+     message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+diff --git a/examples/cluster-configs/policies/metadata-keys.company.yaml b/examples/cluster-configs/policies/metadata-keys.company.yaml
+index 0f90162..dba74f7 100644
+--- a/examples/cluster-configs/policies/metadata-keys.company.yaml
++++ b/examples/cluster-configs/policies/metadata-keys.company.yaml
+@@ -22,7 +22,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
+          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+ operatorOnly: [cmapi.net/protected]
+ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+ requiredLabels:
+   name:                        {value: {from: namespace}, description: "A copy of the namespace name"}
+   company.net/app-environment: {value: {from: environment}, description: "The environment of the namespace's cluster"}
+diff --git a/examples/cluster-configs/policies/metadata-keys.yaml b/examples/cluster-configs/policies/metadata-keys.yaml
+index 2757a57..39566c9 100644
+--- a/examples/cluster-configs/policies/metadata-keys.yaml
++++ b/examples/cluster-configs/policies/metadata-keys.yaml
+@@ -4,7 +4,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
+          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+ operatorOnly: [cmapi.net/protected]
+ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+ # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+ # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+ # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
+diff --git a/examples/local/config/metadata-keys.yaml b/examples/local/config/metadata-keys.yaml
+index ba6db33..d9b1b80 100644
+--- a/examples/local/config/metadata-keys.yaml
++++ b/examples/local/config/metadata-keys.yaml
+@@ -4,7 +4,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
+          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+ operatorOnly: [cmapi.net/protected]
+ reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
++                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
++                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+ # Required and extra keys (#215; docs/02, "Labels and annotations"). Each key takes one of value.from (cmapi sets
+ # it: namespace, environment, cluster, instance), pattern, enum or format (email-in-domains; url for annotations
+ # only), and optional namespacePrefix, description and example. A requester never sends a value.from key with
