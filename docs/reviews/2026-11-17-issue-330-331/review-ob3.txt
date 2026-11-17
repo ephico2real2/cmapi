@@ -1,0 +1,78 @@
+OB3 on #340 (b9b4b7b) and #341 (9a5dd6c), base main 9ba33b2. Depth: C1 and C2 deep (689 keys x 2 kinds x 15 pattern sets, compared main against each head, with the API server's own IsLabelKey built in Go as the oracle); C3 and C4 medium (run); C5 shallow (read only; a second model should re-check it first).
+VERDICT #341: merge. VERDICT #340: apply F1 first, a 3-line change (or merge and land F1 straight after). They merge cleanly in either order.
+C1 CONFIRMED. The oracle is k8s.io/apimachinery v0.37.0 content.IsLabelKey (kube.go:43-72), which util/validation.IsQualifiedName aliases (validation.go:36). The API server calls it as written for labels (meta/v1/validation.go:108) and on the lowercased key for annotations (objectmeta.go:51). main->h340: 10 key/kind cases newly refused, all of them a key with an empty prefix (/foo, /simple, /1, ...). Kubernetes refuses all 10 and accepts none of them, and nothing is newly accepted. The listed edge cases (a/, /, a//b, A.b/c as a label, a 254-character prefix, a 64-character name, é and fullwidth characters, a\n) are refused on both sides, and the oracle agrees. h340 differs from the oracle in 18 cases, all annotations whose prefix has a capital (Example.com/foo, A.b/c, Kelvin-sign K.io/x). main has the same 18, so they were not introduced by this PR, the PR's docs/18 already records them, and refusing them keeps the case-sensitive reserved check working (Kubernetes.io/x). The loader now refuses /foo as a declared key; nothing else changed. Evidence: drive.log, lines starting "[C1]".
+C2 CONFIRMED. main->h341: 552 classify differences and 208 validate differences. The check that every one is a key with an empty prefix under a pattern set that has no "" but does have a pattern matching "" ("*", "**", "*/", "*"+"company.net") found 0 that are not (drive.log "[C2] ... outside: 0"). _prefix_in differs only for prefix "" with those four sets, True->False. *.company.net, company.net, ?*, [a-z]*, [], "", "/", and the shipped ["", "*.ephico2real.com/"] have 0 differences. All 6 shipped configs include "" (git grep allowOther origin/main: helm, crc and kind 20-config, examples x3), so no deployment changes. h340 changes 0 classify results.
+C3 CONFIRMED. `git merge-tree --write-tree p340 p341` and `p341 p340` (in a throwaway clone) both exit 0 with the same tree, 28f2027. On the merged tree, the classify and validate differences from main are exactly the union of the two heads' (equal sets: True), and both PRs' core tests pass (49 passed).
+C4 CONFIRMED. On main plus the new tests: 330 core gives 8 failed, 30 passed; 331 core gives 6 failed, 5 passed; the two API files give 4 failed, 2 passed, through suite.sh (svc-main.log), and each failure shows main accepting the create. Each head passes its own tests. Core suite: main 292 passed, h340 330, h341 303, merged 341. The same 9 test_review_212 tests fail on all four because there is no kyverno binary on this host, so they are not from these PRs. The tests check validate() and classify() results, the loader's ValueError, and a 422 with no request created. They do not test strings.
+C5 CONFIRMED (read). Both API fixtures set instance.yaml policy {engine: none}, use the real CliValidator, and put on PATH only a stub kubeconform. They assert engine=="none" and which("kyverno") is None. The refusal comes from metadata.check at pipeline.py:208, before the validator runs at :270, so Kyverno plays no part in it.
+F1 (#340, regression, measured). A namespace created with /foo before the fix (main returned 202 approved for it) holds /foo in Git. pipeline.py:201-204 keeps it, because classify("/foo") is "team" on both heads. Every later change re-renders it, and the API server refuses it at apply. The one way to remove it through the API, PATCH {"/foo": null}, is now refused: validate returns [{"code":"invalid_key","key":"/foo"}] on h340 and on the merged tree, and [] on main and h341. Fix: skip the syntax check only for removing a key that current_labels or current_annotations holds. Patch: /Users/olasumbo/gitRepos/workbench/cmapi/review-340-341/fixes.patch (applied in fix340/). New test tests/core/test_metadata_held_key_removal_330.py: on h340, 2 of 5 fail; after the fix, 5 pass. The patch applies cleanly to the merged tree, and the core suite there gives 346 passed, with only the 9 kyverno-less test_review_212 failures. Every other result is unchanged, because for a held key that passes syntax, _syntax(key, None) was already None.
+Not checked: F1 end to end through a PATCH on the API (I read pipeline.py:201-210, and the core test calls validate as pipeline.py:208 does); whether any namespace with /foo exists in a config repo or on CRC (no cluster); the service suite on the heads (CI passed 940); the portal (git grep finds no key parsing in its source).
+Housekeeping: `git -C cmapi-design status --short` was empty before and after. I ran one `git fetch -q origin` in the operator's checkout at the start; it updated only the remote-tracking refs, and I record it here as a git write I should not have made. I deleted clone/, c4main/, fixmerged/, pt/, oracle/.gocache and every __pycache__. I kept: drive.py, drive.log, drive.json (18 MB), fixes.patch, svc-main.log, oracle/ (source and binary), the exports main/, h340/, h341/, merged/ and fix340/. Re-run: `ob1-run/venv/bin/python -I -B drive.py` from the review folder.
+----- fixes.patch (verbatim; apply with `patch -p1` from an export root) -----
+diff -ruN h340/cmapi/src/cmapi/core/metadata.py fix340/cmapi/src/cmapi/core/metadata.py
+--- h340/cmapi/src/cmapi/core/metadata.py	2026-11-17 01:14:06
++++ fix340/cmapi/src/cmapi/core/metadata.py	2026-11-17 02:36:38
+@@ -261,8 +261,11 @@
+         merged = {"label": self.merge_patch(current_labels or {}, labels),
+                   "annotation": self.merge_patch(current_annotations or {}, annotations)}
+         for kind, items in (("label", labels), ("annotation", annotations)):
++            held = (current_labels if kind == "label" else current_annotations) or {}
+             for key, value in items.items():
+-                e = self._syntax(key, value, kind)
++                # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
++                # holds from before #330 ("/foo") can be removed, though no request may set it now.
++                e = None if value is None and key in held else self._syntax(key, value, kind)
+                 if e:
+                     errs.append(e)
+                     continue
+diff -ruN h340/cmapi/tests/core/test_metadata_held_key_removal_330.py fix340/cmapi/tests/core/test_metadata_held_key_removal_330.py
+--- h340/cmapi/tests/core/test_metadata_held_key_removal_330.py	1969-12-31 18:00:00
++++ fix340/cmapi/tests/core/test_metadata_held_key_removal_330.py	2026-11-17 02:36:04
+@@ -0,0 +1,47 @@
++"""#330 follow-up: a key that Git already holds from before the fix ("/foo", accepted and merged on main 9ba33b2) can be
++removed by a merge patch, though no request may set it now.
++
++The pipeline (core/pipeline.py, plan_namespace) keeps each current key that classifies as governed or team, and "/foo"
++classifies as team under the reference config's "" entry, so every later change re-renders it and the API server refuses
++it at apply. Removing it (`{"/foo": null}`) writes nothing, so its syntax must not block the removal.
++"""
++from __future__ import annotations
++
++import pytest
++import yaml
++
++from cmapi.core.metadata import MetadataKeys
++from conftest import EX
++
++REFERENCE = EX / "cluster-configs/policies/metadata-keys.yaml"
++CUR_A = {"cmapi.net/team-dl": "payments-team@ephico2real.com"}
++
++
++@pytest.fixture(scope="module")
++def keys() -> MetadataKeys:
++    return MetadataKeys(yaml.safe_load(REFERENCE.read_text()))
++
++
++@pytest.mark.parametrize("kind", ["label", "annotation"])
++def test_a_held_key_with_an_empty_prefix_can_be_removed(keys, kind):
++    cur_l = {"cmapi.net/team": "payments", **({"/foo": "x"} if kind == "label" else {})}
++    cur_a = {**CUR_A, **({"/foo": "x"} if kind == "annotation" else {})}
++    # The premise: the pipeline keeps "/foo" from Git, because it classifies as team.
++    assert keys.classify("/foo", kind) == "team"
++    labels = {"/foo": None} if kind == "label" else {}
++    annotations = {"/foo": None} if kind == "annotation" else {}
++    assert keys.validate(labels, annotations, operator=False, current_labels=cur_l, current_annotations=cur_a,
++                         existing=True) == []
++    assert "/foo" not in keys.merge_patch(cur_l if kind == "label" else cur_a, labels or annotations)
++
++
++@pytest.mark.parametrize("value", ["x", ""])
++def test_a_held_key_with_an_empty_prefix_still_cannot_be_set(keys, value):
++    cur_l = {"cmapi.net/team": "payments", "/foo": "x"}
++    assert keys.validate({"/foo": value}, {}, operator=False, current_labels=cur_l, current_annotations=CUR_A,
++                         existing=True) == [{"code": "invalid_key", "key": "/foo"}]
++
++
++def test_removing_an_invalid_key_that_git_does_not_hold_is_still_refused(keys):
++    assert keys.validate({"/foo": None}, {}, operator=False, current_labels={"cmapi.net/team": "payments"},
++                         current_annotations=CUR_A, existing=True) == [{"code": "invalid_key", "key": "/foo"}]
