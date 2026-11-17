@@ -2,7 +2,7 @@
 """The API contract report of a Helm values change (#337): what a change of metadata-keys.yaml does to the API document.
 
     report.py --base DIR --head DIR --values GLOB [--values GLOB ...] --chart-base DIR --chart-head DIR
-              [--helm-args "ARGS"] [--summary FILE] [--cmapi COMMIT]
+              [--helm-args="ARGS"] [--summary FILE] [--cmapi COMMIT]
 
 A running cmapi reads metadata-keys.yaml from its ConfigMap, which `helm template` renders from the chart and the site's
 values file (the value `metadata`, the text `configFiles."metadata-keys.yaml"`, or the chart's config/metadata-keys.yaml;

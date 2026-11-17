@@ -128,6 +128,8 @@ jobs:
             glob="${glob#"${glob%%[![:space:]]*}"}"; glob="${glob%"${glob##*[![:space:]]}"}"
             if [ -n "$glob" ]; then args+=(--values "$glob"); fi
           done <<< "$VALUES"
+          # --helm-args=VALUE, one word: argparse reads a separate value that starts with "-" and has no space, such as
+          # --skip-tests, as an option and stops on a usage error.
           python "$CMAPI_SRC/cmapi/contract/report.py" --base base --head head "${args[@]}" \
-            --chart-base "$CHART_BASE" --chart-head "$CHART_HEAD" --helm-args "$HELM_ARGS" \
+            --chart-base "$CHART_BASE" --chart-head "$CHART_HEAD" --helm-args="$HELM_ARGS" \
             --cmapi "$(git -C "$CMAPI_SRC" rev-parse HEAD)"

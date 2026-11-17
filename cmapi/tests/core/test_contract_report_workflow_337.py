@@ -9,9 +9,14 @@ files that the chart's templates/config.yaml reads for metadata-keys.yaml.
 """
 from __future__ import annotations
 
+import os
 import re
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from conftest import EX
@@ -101,3 +106,32 @@ def test_cmapi_ref_must_be_a_commit():
     assert '[[ "$REF" =~ ^[0-9a-f]{40}$ ]]' in check["run"]
     pinned = next(s for s in steps(doc) if s.get("with", {}).get("path") == "cmapi-src")
     assert pinned["with"]["ref"] == "${{ inputs.cmapi-ref }}"
+
+
+@pytest.mark.parametrize("helm_args", [
+    "--skip-tests",                                                # one flag: a caller with nothing to set
+    "--set=cmapi.digest=sha256:" + "a" * 64,                       # one --set in its = form
+    "--set cmapi.digest=sha256:" + "a" * 64 + " --set x=y",        # the form this repository's caller passes
+])
+def test_the_report_step_hands_any_helm_args_to_helm(tmp_path, helm_args):
+    """The step's own script, run as the runner runs it (bash -e), on a stub helm that records its arguments.
+
+    A one-word helm-args such as --skip-tests starts with "-" and has no space, so argparse would read it as an option
+    rather than the value of --helm-args and the report would stop with a usage error before helm ran."""
+    script = next(s for s in steps(load(REUSABLE)) if s.get("name") == "The report")
+    for side in ("base", "head"):
+        (tmp_path / side / "deploy/environments").mkdir(parents=True)
+        (tmp_path / side / "deploy/environments/crc.yaml").write_text("instance: {}\n")
+    record = tmp_path / "helm-argv"
+    helm = tmp_path / "helm"
+    helm.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{record}"\necho "stub helm" >&2\nexit 1\n')
+    helm.chmod(0o755)
+    env = {**os.environ, "VALUES": "deploy/environments/*.yaml", "HELM_ARGS": helm_args, "CMAPI_SRC": str(ROOT),
+           "CHART_BASE": str(tmp_path / "chart"), "CHART_HEAD": str(tmp_path / "chart"), "HELM": str(helm),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+           "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(["bash", "-e", "-c", script["run"]], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert "expected one argument" not in r.stderr, r.stderr
+    assert r.returncode == 1, (r.returncode, r.stderr)        # the stub helm failed, so the report failed loudly
+    argv = record.read_text().splitlines()
+    assert argv[:2] == ["template", "cmapi"] and argv[-len(shlex.split(helm_args)):] == shlex.split(helm_args), argv
