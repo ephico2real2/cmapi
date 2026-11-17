@@ -182,8 +182,9 @@ export function Code({ label, text }: { label?: ReactNode; text: string }) {
   );
 }
 
-export function Hint({ children }: { children: ReactNode }) {
-  return <FormHelperText><HelperText><HelperTextItem>{children}</HelperTextItem></HelperText></FormHelperText>;
+/** A field's helper text. Its `id` is what the field's aria-describedby names, so a screen reader reads it with the field. */
+export function Hint({ id, children }: { id?: string; children: ReactNode }) {
+  return <FormHelperText><HelperText><HelperTextItem id={id}>{children}</HelperTextItem></HelperText></FormHelperText>;
 }
 
 // A blank column heading stays blank on screen, as in the mockup; blank names it for a screen reader.

@@ -12,6 +12,10 @@ import { fileURLToPath } from "node:url";
 
 const repo = fileURLToPath(new URL("../../..", import.meta.url));
 export const SAMPLES = JSON.parse(readFileSync(join(repo, "cmapi", "src", "cmapi", "contract", "samples.json"), "utf8"));
+// GET /api/v1/metadata-keys (#336): the recorded answer of the reference file, and the company file's answer, which
+// cmapi/tests/core/test_metadata_form_336.py holds equal to what the service serves for that file.
+export const REFERENCE_KEYS = SAMPLES.operations.core_metadata_keys.response.body;
+export const COMPANY_KEYS = JSON.parse(readFileSync(new URL("metadata-keys.company.json", import.meta.url), "utf8"));
 
 const b64url = (data) => Buffer.from(data).toString("base64url");
 const token = (kind) => `${kind}-${randomBytes(24).toString("base64url")}`;
@@ -387,7 +391,9 @@ export async function startApi({ issuer, portalOrigin }) {
     planUpdate: SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body,
     updated: SAMPLES.operations.namespaces_update_namespace.response.body,
     /** The namespaces of GET /api/v1/expirations, and the day that the API counts from. */
-    expirations: [], today: EXP_SAMPLE.today, never: false
+    expirations: [], today: EXP_SAMPLE.today, never: false,
+    /** The answer of GET /api/v1/metadata-keys: the instance's rules of labels and annotations. */
+    metadataKeys: REFERENCE_KEYS
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -407,7 +413,8 @@ export async function startApi({ issuer, portalOrigin }) {
     const user = bearer ? issuer.whoHas(bearer) : null;
     const body = req.method === "POST" || req.method === "PATCH" ? await bodyOf(req) : null;
     const call = { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), user: user?.username ?? null, cookie: req.headers.cookie ?? null,
-      origin: req.headers.origin ?? null, key: req.headers["idempotency-key"] ?? null, ifMatch: req.headers["if-match"] ?? null, body };
+      origin: req.headers.origin ?? null, key: req.headers["idempotency-key"] ?? null, ifMatch: req.headers["if-match"] ?? null,
+      ifNoneMatch: req.headers["if-none-match"] ?? null, body };
     state.seen.push(call);
     if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
     const unauthenticated = SAMPLES.problems.unauthenticated.response.body;
@@ -501,6 +508,22 @@ export async function startApi({ issuer, portalOrigin }) {
       const env = url.searchParams.get("environment");
       return ok({ ...state.tiers, environments: env ? Object.fromEntries(Object.entries(state.tiers.environments).filter(([k]) => k === env)) : state.tiers.environments });
     }
+    if (url.pathname === "/api/v1/metadata-keys") {
+      // cmapi/src/cmapi/routers/me.py: objects:read; a strong ETag over the bytes, private, no-cache; 304 on If-None-Match
+      // by the weak comparison (RFC 9110, 13.1.2).
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const text = JSON.stringify(state.metadataKeys);
+      const etag = `"${createHash("sha256").update(text).digest("hex").slice(0, 32)}"`;
+      const headers = { ...cors, etag, "cache-control": "private, no-cache" };
+      const tags = (call.ifNoneMatch ?? "").split(",").map((t) => t.trim().replace(/^W\//, ""));
+      if (tags.includes(etag) || tags.includes("*")) {
+        res.writeHead(304, headers);
+        return res.end();
+      }
+      res.writeHead(200, { ...headers, "content-type": "application/json" });
+      return res.end(text);
+    }
     if (url.pathname === "/api/v1/clusters") {
       const denied = lacks("clusters:read");
       if (denied) return problem(res, denied, cors);
@@ -514,6 +537,12 @@ export async function startApi({ issuer, portalOrigin }) {
       if (!state.clusters.some((c) => c.clusterId === clusterId)) return problem(res, refuse(404, "cluster-not-found", `Unknown cluster ${clusterId}`), cors);
       if (!body || typeof body.namespace !== "string" || !NAME.test(body.namespace)) return problem(res, refuse(422, "invalid-namespace-name", `${JSON.stringify(body?.namespace)} is not a DNS-1123 name`), cors);
       if (RESERVED.test(body.namespace)) return problem(res, refuse(422, "reserved-namespace", `${body.namespace} is reserved`), cors);
+      // cmapi/src/cmapi/core/metadata.py, validate(): each required key of the instance's rules, in the shape of the recorded
+      // refusal. The stand-in runs no configured pattern: an operator's pattern can backtrack, and cmapi matches with RE2.
+      const missing = ["labels", "annotations"].flatMap((map) => (state.metadataKeys[map].required ?? [])
+        .filter((key) => !body[map]?.[key])
+        .map((key) => ({ code: "missing_required_key", key, kind: map.slice(0, -1), detail: state.metadataKeys[map].properties[key]["x-cmapi-rule"] })));
+      if (missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: missing }, cors);
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
         return ok({ ...state.plan, changes, capacity: { ...state.plan.capacity, clusterId } });

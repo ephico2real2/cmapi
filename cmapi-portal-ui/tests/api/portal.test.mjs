@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { expirationsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
+import { COMPANY_KEYS, expirationsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -31,13 +31,13 @@ let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
 async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
-  expirations = [], never = false } = {}) {
+  expirations = [], never = false, metadataKeys = REFERENCE_KEYS } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -511,7 +511,7 @@ try {
     await panel(page).getByRole("button", { name: "Dry run" }).waitFor();
   };
   const fillForm = async (page, { team = "payments", dl = "payments-team@ephico2real.com" } = {}) => {
-    await page.getByLabel("Team", { exact: true }).fill(team);
+    await page.getByLabel("Team (required)").fill(team);
     await page.getByLabel("Team DL (required)").fill(dl);
     await page.getByLabel("Justification").fill("Payments service dev namespace");
   };
@@ -712,6 +712,257 @@ try {
     assert.deepEqual(writes()[0].body, dryRuns().at(-1).body, "the submitted body is the dry run's");
     assert.deepEqual(errors, []);
     await context.close();
+  });
+
+  // #336: the labels and annotations of the form come from GET /api/v1/metadata-keys, the instance's own metadata-keys.yaml.
+  // Each expectation is written from the API's answer and the validator's words, not from the page's code.
+  const section = (page, title) => panel(page).locator(".pf-v6-c-form__section").filter({ has: page.locator(".pf-v6-c-form__section-title", { hasText: new RegExp(`^${title}$`) }) });
+  const labelsOf = (where) => where.locator("label.pf-v6-c-form__label").evaluateAll((ls) => ls.map((l) => l.textContent.trim()));
+  /** The error under a field, read through its aria-describedby, as a screen reader finds it; null when it has none. */
+  const errorOf = async (input) => {
+    const id = (await input.getAttribute("aria-describedby") ?? "").split(" ").find((x) => x.endsWith("-error"));
+    return id ? (await input.page().locator(`#${id}`).textContent()).trim() : null;
+  };
+  async function waitError(input, want) {
+    for (let i = 0; i < 40; i++) {
+      const text = await errorOf(input);
+      if (want === null ? text === null : text !== null && want.test(text)) return text;
+      await input.page().waitForTimeout(100);
+    }
+    assert.fail(`the field's error is ${JSON.stringify(await errorOf(input))}, not ${want}`);
+  }
+  const dryRuns = () => posts().filter((c) => c.query.dryRun === "true");
+  const passed = (page) => panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
+  const refusedWith = (errors) => ({ route: "POST /api/v1/clusters/CRC/namespaces", status: 422, body: { ...SAMPLES.problems["policy-violation"].response.body, errors } });
+
+  await check("18 New namespace on a company instance: the fields of GET /api/v1/metadata-keys, the keys cmapi sets read-only, refusals in the browser, and the body", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: COMPANY_KEYS });
+    try {
+      await newTab(page);
+      assert.deepEqual(await labelsOf(section(page, "Labels")), ["company.net/mnemonic (required)", "company.net/lob (required)", "company.net/cl (required)", "name", "company.net/app-environment"]);
+      assert.deepEqual(await labelsOf(section(page, "Annotations")), ["company.net/app-environment", "company.net/mnemonic-group-contact (optional)", "company.net/mnemonic-confluence (optional)"]);
+      assert.doesNotMatch(await panel(page).evaluate((el) => el.textContent), /cmapi\.net\/protected|cmapi\.net\/team|Team DL/, "no operator-only key, and none of the reference file's");
+      const mnemonic = page.getByLabel("company.net/mnemonic (required)"), lob = page.getByLabel("company.net/lob (required)"), cl = page.getByLabel("company.net/cl (required)");
+      assert.equal(await mnemonic.inputValue(), "", "an example is a placeholder, never a value");
+      assert.equal(await mnemonic.getAttribute("placeholder"), "abc");
+      assert.deepEqual(await Promise.all([mnemonic, lob, cl].map((f) => f.evaluate((el) => el.required))), [true, true, true]);
+      assert.deepEqual(await cl.locator("option").allInnerTexts(), ["—", "0", "1", "2", "3", "4", "5", "6"]);
+      const name = section(page, "Labels").getByLabel("name", { exact: true }), labelEnv = section(page, "Labels").getByLabel("company.net/app-environment", { exact: true });
+      const annotationEnv = section(page, "Annotations").getByLabel("company.net/app-environment", { exact: true });
+      assert.deepEqual(await Promise.all([name, labelEnv, annotationEnv].map((f) => f.evaluate((el) => [el.readOnly, el.disabled]))), [[true, false], [true, false], [true, false]],
+        "read-only, not disabled: read by a screen reader, never sent");
+      assert.equal(await annotationEnv.inputValue(), "dev", "the environment that cmapi writes");
+
+      // A value that cmapi refuses is refused in the browser, in the validator's words, and nothing goes to the API.
+      await mnemonic.fill("ABC");
+      await lob.fill("amg sst");
+      await cl.selectOption("1");
+      await waitError(mnemonic, /^Not valid: must match \^\[a-z\]\{3,4\}\$; the start of the namespace name, before its first '-'/);
+      await waitError(lob, /^Not a valid label value/);
+      assert.equal(await mnemonic.getAttribute("aria-invalid"), "true");
+      assert.equal(await name.inputValue(), "ABC-dev", "the name that cmapi copies follows the namespace");
+      const before = posts().length;
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await panel(page).getByRole("button", { name: "Submit request" }).click();
+      await page.waitForTimeout(500);
+      assert.equal(posts().length, before, "nothing is planned or sent while a field is refused");
+
+      // The mnemonic starts the namespace name (namespacePrefix): the suggested name follows it, and another name is refused.
+      await mnemonic.fill("abc");
+      await lob.fill("amgsst");
+      await waitError(mnemonic, null);
+      assert.equal(await page.getByLabel("Namespace name").inputValue(), "abc-dev");
+      await page.getByLabel("Namespace name").fill("xyz-dev");
+      await waitError(mnemonic, /^xyz-dev does not start with abc-/);
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await page.waitForTimeout(500);
+      assert.equal(posts().length, before, "a name that the mnemonic does not start is not planned");
+      await page.getByLabel("Namespace name").fill("");
+      assert.equal(await page.getByLabel("Namespace name").inputValue(), "abc-dev", "an empty name is the suggestion again");
+
+      // An optional URL that cmapi accepts and <input type=url> refuses (#336, design B): text with the URL keyboard.
+      await panel(page).getByRole("button", { name: "Optional annotations (2)" }).click();
+      const wiki = page.getByLabel("company.net/mnemonic-confluence (optional)");
+      assert.deepEqual([await wiki.getAttribute("type"), await wiki.getAttribute("inputmode")], ["text", "url"]);
+      assert.equal(await page.getByLabel("company.net/mnemonic-group-contact (optional)").getAttribute("type"), "email");
+      await wiki.fill("https://wiki.company.net:abc/x");
+      await page.getByLabel("Justification").fill("ABC rnd namespace");
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await passed(page).waitFor();
+      assert.deepEqual(dryRuns().at(-1).body, { namespace: "abc-dev", tier: "medium",
+        labels: { "company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1" },
+        annotations: { "company.net/mnemonic-confluence": "https://wiki.company.net:abc/x" }, justification: "ABC rnd namespace" },
+        "the requester's keys only: no key that cmapi sets, no empty optional key");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("18 New namespace on the reference instance: Team and Team DL from GET /api/v1/metadata-keys with the mockup's words, the optional labels, and a revalidated read", async () => {
+    const { context, page, errors } = await fresh();
+    try {
+      await newTab(page);
+      const labels = REFERENCE_KEYS.labels;
+      const optional = Object.keys(labels.properties).filter((k) => !labels.required.includes(k) && !labels.properties[k]["x-cmapi-operator-only"]);
+      assert.deepEqual(await labelsOf(section(page, "Labels")), ["Team (required)", ...optional.map((k) => `${k} (optional)`)]);
+      assert.deepEqual(await labelsOf(section(page, "Annotations")), ["Team DL (required)"]);
+      assert.equal(optional.length, 3);
+      assert.equal(await panel(page).getByRole("button", { name: "Optional labels (3)" }).getAttribute("aria-expanded"), "false", "the optional keys wait in a collapsed group");
+      const team = page.getByLabel("Team (required)");
+      assert.deepEqual([await team.inputValue(), await team.getAttribute("placeholder")], ["", "payments"]);
+      const help = await team.getAttribute("aria-describedby");
+      assert.match((await page.locator(`#${help}`).textContent()).replace(/\s+/g, " "),
+        /^cmapi\.net\/team Who owns it, for cost and notices: any team name\. Not checked against who you are; your Keycloak roles decide what you may do\. Must match \^\[a-z0-9-\]\{2,40\}\$\.$/,
+        "the key, then the config's words: the mockup's hint, from the instance's file");
+      // The answer has a strong ETag and private, no-cache: the next opening of the tab revalidates it.
+      const first = calls("/api/v1/metadata-keys");
+      assert.equal(first.length, 1);
+      assert.equal(first[0].ifNoneMatch, null);
+      await page.getByRole("tab", { name: "Requests" }).click();
+      await page.getByRole("tab", { name: "New namespace" }).click();
+      await panel(page).getByRole("button", { name: "Dry run" }).waitFor();
+      await page.waitForFunction(() => true);
+      for (let i = 0; i < 30 && calls("/api/v1/metadata-keys").length < 2; i++) await page.waitForTimeout(100);
+      assert.match(calls("/api/v1/metadata-keys")[1]?.ifNoneMatch ?? "none", /^"[0-9a-f]{32}"$/, "the browser asks with the tag it holds, and the API answers 304");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("18 New namespace: a refused dry run's errors on their fields, the others in a summary that takes the focus; a key the form lacks reads the rules again", async () => {
+    const { context, page, errors } = await fresh();
+    expectedStatus = [422];
+    try {
+      await newTab(page);
+      await fillForm(page);
+      api.state.answers.push(refusedWith([{ code: "invalid_value", key: "cmapi.net/team", detail: "must match ^[a-z0-9-]{2,40}$" }, { code: "reserved_key", key: "cmapi.net/x" },
+        { code: "missing_required_key", key: "cmapi.net/owner", kind: "label", detail: "must match ^[a-z]+$" }]));
+      const reads = calls("/api/v1/metadata-keys").length;
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      const refused = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Refused: policy-violation" });
+      await refused.waitFor();
+      const team = page.getByLabel("Team (required)");
+      await waitError(team, /^must match \^\[a-z0-9-\]\{2,40\}\$/);
+      assert.equal(await team.getAttribute("aria-invalid"), "true");
+      assert.deepEqual((await refused.locator("li").allInnerTexts()).map((t) => t.trim()),
+        ["cmapi.net/team: must match ^[a-z0-9-]{2,40}$", "cmapi.net/x: reserved_key", "cmapi.net/owner: must match ^[a-z]+$"]);
+      assert.ok(await page.evaluate(() => Boolean(document.activeElement?.querySelector?.(".pf-v6-c-alert.pf-m-danger"))), "the summary has the focus");
+      for (let i = 0; i < 30 && calls("/api/v1/metadata-keys").length === reads; i++) await page.waitForTimeout(100);
+      assert.equal(calls("/api/v1/metadata-keys").length, reads + 1, "a missing key that the form does not show: the rules are read again");
+      await refused.getByRole("button", { name: "cmapi.net/team: must match ^[a-z0-9-]{2,40}$" }).click();
+      await page.waitForFunction(() => document.activeElement?.getAttribute("aria-describedby")?.includes("-error"));
+      assert.equal(await team.evaluate((el) => el === document.activeElement), true, "the summary's link moves the focus to its field");
+      // An edit is another form: the refusal and its field errors are of the old one.
+      await team.fill("payments2");
+      await waitError(team, null);
+      assert.equal(await refused.count(), 0);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("18 New namespace: a configured pattern that backtracks is not checked here; the page stays responsive and the dry run decides", async () => {
+    // main's loader accepts this pattern (#336, design B, redos-loader.log); V8 needs 944 ms for 26 characters, four times as long for each two more.
+    const slow = "^(?:[a-z0-9]+-?)*[a-z0-9]$";
+    const keys = structuredClone(REFERENCE_KEYS);
+    Object.assign(keys.labels.properties["cmapi.net/team"], { pattern: `^(?:${slow})$`, "x-cmapi-rule": `must match ${slow}`, description: `Must match ${slow}.` });
+    const { context, page, errors } = await fresh({ metadataKeys: keys });
+    expectedStatus = [422];
+    try {
+      await newTab(page);
+      await page.getByLabel("Team DL (required)").fill("payments-team@ephico2real.com");
+      // A label value that the pattern almost matches: it backtracks on it for far longer than this suite runs.
+      const value = `${"a".repeat(40)}A`;
+      await page.getByLabel("Team (required)").fill(value);
+      await page.waitForTimeout(300);
+      const started = Date.now();
+      assert.equal(await Promise.race([page.evaluate(() => 1), new Promise((resolve) => setTimeout(() => resolve("no answer"), 1000))]), 1, "the page answers");
+      await page.getByLabel("Justification").pressSequentially("ok", { timeout: 1000 });
+      assert.equal(await page.getByLabel("Justification").inputValue(), "ok", "a field takes keys while the pattern runs");
+      assert.ok(Date.now() - started < 2000, `answered in ${Date.now() - started} ms`);
+      await page.waitForTimeout(400);
+      assert.equal(await errorOf(page.getByLabel("Team (required)")), null, "not checked here: no error, cmapi decides");
+      api.state.answers.push(refusedWith([{ code: "invalid_value", key: "cmapi.net/team", detail: `must match ${slow}` }]));
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Refused: policy-violation" }).waitFor();
+      await waitError(page.getByLabel("Team (required)"), new RegExp(`^must match ${slow.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}`));
+      assert.equal(dryRuns().at(-1).body.labels["cmapi.net/team"], value);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("18 New namespace: rules that change while the form is open; the fields follow them, a removed key is not sent, and a warning says so", async () => {
+    const { context, page, errors } = await fresh();
+    try {
+      await newTab(page);
+      await fillForm(page);
+      const changed = structuredClone(REFERENCE_KEYS);
+      delete changed.annotations.properties["cmapi.net/team-dl"];
+      delete changed.annotations.required;
+      changed.labels.properties["cmapi.net/owner"] = { type: "string", pattern: "^(?:^[a-z]+$)$", maxLength: 63, minLength: 1, description: "The owning group. Must match ^[a-z]+$.",
+        "x-cmapi-rule": "must match ^[a-z]+$", examples: ["platform"] };
+      changed.labels.required = [...changed.labels.required, "cmapi.net/owner"];
+      api.state.metadataKeys = changed;
+      // The window has the focus again: TanStack Query reads the rules again (useMetadataKeys, refetchOnWindowFocus).
+      await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+      await panel(page).getByText("The label and annotation rules of this instance changed. Check the fields below.").waitFor();
+      assert.equal(await page.getByLabel("Team DL (required)").count(), 0, "the removed key's field is gone");
+      assert.equal(await page.getByLabel("Team (required)").inputValue(), "payments", "a key that remains keeps its value");
+      const owner = page.getByLabel("cmapi.net/owner (required)");
+      assert.deepEqual([await owner.inputValue(), await owner.evaluate((el) => el.required)], ["", true], "a new required key is empty and required");
+      const before = posts().length;
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await page.waitForTimeout(400);
+      assert.equal(posts().length, before, "the browser stops on the new required key");
+      await owner.fill("platform");
+      await panel(page).getByRole("button", { name: "Dry run" }).click();
+      await passed(page).waitFor();
+      const sent = dryRuns().at(-1).body;
+      assert.deepEqual([sent.labels, sent.annotations], [{ "cmapi.net/team": "payments", "cmapi.net/owner": "platform" }, {}], "the removed key's value is not sent");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("18 New namespace states with the rules: a 403, a 5xx with Try again, an answer of another shape, and a role limited to rnd", async () => {
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/metadata-keys", status: 403, body: { ...SAMPLES.problems.forbidden.response.body, detail: "Missing permission objects:read: no role in your token grants it (roles: ['cmapi-approval-relay'])" } });
+      await open(page, "#new");
+      await panel(page).getByRole("heading", { name: "You do not have permission to request a namespace." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission objects:read/);
+      assert.equal(await panel(page).getByRole("button").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/metadata-keys", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The rules did not load." } });
+      await open(page, "#new");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The form did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The rules did not load\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await page.getByLabel("Team (required)").waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ metadataKeys: { labels: [], annotations: {} } });
+      await open(page, "#new");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "The form did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The metadata rules of this instance are not in the form this portal reads/);
+      assert.equal(await panel(page).getByRole("button", { name: "Dry run" }).count(), 0, "never a form with fields missing");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // A role limited to rnd reads the rules: they are the instance's, the same for every caller (objects:read in any environment).
+      const { context, page, errors } = await fresh({ user: "rndRequester" });
+      await newTab(page);
+      assert.equal(await page.getByLabel("Team (required)").count(), 1);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
   });
 
   const ola = SAMPLES.operations.requests_list_requests.response.body.items[0];
@@ -956,7 +1207,7 @@ try {
       const shown = [];
       try {
         await newTab(page);
-        await page.getByLabel("Team", { exact: true }).fill("payments");
+        await page.getByLabel("Team (required)").fill("payments");
         await page.getByLabel("Team DL (required)").fill("payments-team@ephico2real.com");
         await page.getByLabel("Justification").fill("Payments service namespace for the settlement API.");
         shown.push(...await shownText(page));
@@ -985,15 +1236,26 @@ try {
         /^\d{4}-\d{2}-\d{2}, \d+ days \(limit 180\)$/, /^Requested by ola \(ola@ephico2real\.com\), from your sign-in\.$/, /^[✓!✕]$/];
       const LOGIC = ["Leave empty for a permanent namespace. At most 180 days from today; extend later from the Expiration tab.", "Self-approval is allowed in dev.", "Environment served",
         "Capacity", "fits on fresh data", "Expiry", "none: permanent", "Approval", "never (permanent)", "never (prod)", "Your team's distribution list, in one of the organisation's email domains (emailDomains); format only."];
-      // The portal's own words, each in MOCKUP-CONTRACT.md: the cluster field until placement is on the API (#303), and the approval before a dry run.
+      // The labels and annotations come from GET /api/v1/metadata-keys (#336): each field's key, its label, its words and its
+      // example (the placeholder), from the API's answer. Operator-only keys are not offered.
+      const rules = Object.values(REFERENCE_KEYS).flatMap((map) => Object.entries(map.properties).filter(([, p]) => !p["x-cmapi-operator-only"])
+        .map(([key, p]) => [key, `${p.title ?? key} (${(map.required ?? []).includes(key) ? "required" : "optional"})`, p.description, ...(p.examples ?? [])])).flat();
+      // The portal's own words, each in MOCKUP-CONTRACT.md: the cluster field until placement is on the API (#303), the approval before a dry run,
+      // and the two sections of the instance's keys with the group of its optional ones (#336).
       const ADDED = ["Cluster", "The dev clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
         "The prod clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
         "The cluster is your choice until placement is on the API (#303). The dry run checks its capacity.", "Not planned yet", "Dry run asks the API which approval applies.",
-        /^(dev|prod) · us-central · connected$/, /^cpu \d+% · memory \d+% · binds on (cpu|memory)$/, "clusters/CRC/namespaces/payments-dev/"];
+        /^(dev|prod) · us-central · connected$/, /^cpu \d+% · memory \d+% · binds on (cpu|memory)$/, "clusters/CRC/namespaces/payments-dev/",
+        "Labels", "Annotations", /^Optional (labels|annotations) \(\d+\)$/, ...rules];
       const strings = [...data, ...LOGIC, ...ADDED].filter((k) => typeof k === "string");
       const patterns = [...FROM_LOGIC, ...data, ...ADDED].filter((k) => k instanceof RegExp);
       const MOCKUP_ONLY = [];
-      const fromMockup = mockupBlock("isNew", "isQuotas").filter((t) => !MOCKUP_ONLY.includes(t));
+      // The mockup's Team DL hint holds the requester's line; the portal shows that line once, under the annotations, and the
+      // DL field's hint is the API's words for its key (MOCKUP-CONTRACT.md, "New namespace").
+      const SPLIT = { "Your team's distribution list, in one of the organisation's email domains (emailDomains); format only. Requested by ola (ola@ephico2real.com), from your sign-in.":
+        ["Your team's distribution list, in one of the organisation's email domains (emailDomains); format only.", "Requested by ola (ola@ephico2real.com), from your sign-in."] };
+      const fromMockup = mockupBlock("isNew", "isQuotas").flatMap((t) => SPLIT[t] ?? [t]).filter((t) => !MOCKUP_ONLY.includes(t));
+      assert.ok(Object.keys(SPLIT).every((t) => mockupBlock("isNew", "isQuotas").includes(t)), "the split string is the mockup's");
       counts.new = compare("New namespace", fromMockup, shown, [...strings, ...LIBRARY], patterns);
       assert.deepEqual(errors, []);
       await context.close();
@@ -1083,12 +1345,21 @@ try {
         // The reason field is a state that opens on a click: it is scanned too.
         await cardOf(page, second.requestId).getByRole("button", { name: "Reject" }).click();
         await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").waitFor();
-      }]
+      }],
+      // The company instance's form (#336), with a value refused in the browser and the optional annotations open.
+      ["new-company", "requester", undefined, async (page) => {
+        await newTab(page);
+        await page.getByLabel("company.net/mnemonic (required)").fill("ABC");
+        await page.getByLabel("company.net/lob (required)").fill("amgsst");
+        await page.getByLabel("company.net/cl (required)").selectOption("1");
+        await panel(page).getByRole("button", { name: "Optional annotations (2)" }).click();
+        await waitError(page.getByLabel("company.net/mnemonic (required)"), /^Not valid: /);
+      }, { metadataKeys: COMPANY_KEYS }]
     ];
     let scans = 0;
-    for (const [tab, user, items, reach] of VIEWS) {
+    for (const [tab, user, items, reach, options = {}] of VIEWS) {
       for (const width of [390, 820, 1440]) {
-        const { context, page, errors } = await fresh({ user, items, width });
+        const { context, page, errors } = await fresh({ user, items, width, ...options });
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");

@@ -2,7 +2,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useRef } from "react";
 import type { Api } from "./client";
+import { fieldsOf, RulesUnreadable } from "../portal/metadataForm";
+import type { MetaForm } from "../portal/metadataForm";
 import { ApiProblem, problemOf } from "./problem";
+import type { ProblemItem } from "./problem";
 import type { components, operations } from "./schema.generated";
 
 export type Me = components["schemas"]["Me"];
@@ -14,6 +17,13 @@ export type ClusterList = components["schemas"]["ClusterList"];
 export type Cluster = components["schemas"]["ClusterView"];
 export type Plan = components["schemas"]["PlanView"];
 export type NamespaceCreate = components["schemas"]["NamespaceCreate"];
+/**
+ * A create as the New namespace form builds it. Its labels and annotations are the instance's keys, read from
+ * GET /api/v1/metadata-keys (#336); the committed contract types the reference file's keys (cmapi.net/team required), so a
+ * body of another instance's keys is not a NamespaceCreate to the compiler. contractBody is the one place that says so.
+ */
+export type CreateBody = Omit<NamespaceCreate, "labels" | "annotations"> & { labels: Record<string, string>; annotations: Record<string, string> };
+const contractBody = (body: CreateBody): NamespaceCreate => body as NamespaceCreate;
 export type RequestEvents = components["schemas"]["RequestEvents"];
 export type RequestEvent = components["schemas"]["RequestEvent"];
 export type QuotaPage = components["schemas"]["QuotaPage"];
@@ -42,7 +52,7 @@ export type Result<T> =
 export type Outcome<T> =
   | { state: "idle" }
   | { state: "sending" }
-  | { state: "refused"; status: number; code: string; detail: string }
+  | { state: "refused"; status: number; code: string; detail: string; errors: ProblemItem[] }
   | { state: "error"; cause: string; code: string }
   | { state: "ok"; data: T };
 
@@ -69,7 +79,7 @@ function outcomeOf<T>(run: { isPending: boolean; isIdle: boolean; error: unknown
   const { error } = run;
   if (error instanceof ApiProblem) {
     // A 5xx says that the API could not answer, not that it refused: the person may send the same call again.
-    return error.status >= 500 ? { state: "error", cause: error.detail, code: error.code } : { state: "refused", status: error.status, code: error.code, detail: error.detail };
+    return error.status >= 500 ? { state: "error", cause: error.detail, code: error.code } : { state: "refused", status: error.status, code: error.code, detail: error.detail, errors: error.errors };
   }
   if (error) return { state: "error", cause: "The network did not answer.", code: "network" };
   if (run.data !== undefined) return { state: "ok", data: run.data };
@@ -152,18 +162,51 @@ export function useClusters(): Result<ClusterList> & { reload: () => void } {
   return { ...resultOf(query), reload: () => void query.refetch() };
 }
 
+/** The rules of the New namespace form's labels and annotations, as the form reads them, and the answer they came from. */
+export interface MetadataRules {
+  form: MetaForm;
+  /** The answer as text: two answers with the same text are the same rules. */
+  fingerprint: string;
+}
+
+/**
+ * GET /api/v1/metadata-keys (#336): this instance's metadata-keys.yaml as the schema of a new namespace's labels and
+ * annotations. The API sends a strong ETag with `private, no-cache`, so each read is a revalidation that answers 304 when
+ * nothing changed: read again at each opening of the tab and when the window has the focus again, so rules that changed
+ * while the form was open (a config change restarts the pods) reach it. An answer of another shape is the error state.
+ */
+export function useMetadataKeys(): Result<MetadataRules> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["metadata-keys"],
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/metadata-keys", { signal });
+      if (!data) throw problemOf(response, error);
+      try {
+        return { form: fieldsOf(data), fingerprint: JSON.stringify(data) };
+      } catch (e) {
+        if (e instanceof RulesUnreadable) throw new ApiProblem({ status: response.status, code: "metadata-rules-unreadable", detail: e.message });
+        throw e;
+      }
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
 /**
  * POST /api/v1/clusters/{cluster_id}/namespaces?dryRun=true: the plan, the capacity check and the approval that would
  * apply. It writes nothing, so it is a read for Query, keyed on the body: the same form asks once. `body` null asks nothing.
  */
-export function usePlan(clusterId: string, body: NamespaceCreate | null): Outcome<Plan> & { reload: () => void } {
+export function usePlan(clusterId: string, body: CreateBody | null): Outcome<Plan> & { reload: () => void } {
   const api = useApi();
   const query = useQuery({
     queryKey: ["plan", clusterId, body],
     enabled: body !== null,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces", {
-        params: { path: { cluster_id: clusterId }, query: { dryRun: true } }, body: body!, signal
+        params: { path: { cluster_id: clusterId }, query: { dryRun: true } }, body: contractBody(body!), signal
       });
       if (!data) throw problemOf(response, error);
       // The dry run answers 200 with a plan. A 202 here would be a written request: the API broke its contract.
@@ -179,13 +222,13 @@ export function usePlan(clusterId: string, body: NamespaceCreate | null): Outcom
  * POST /api/v1/clusters/{cluster_id}/namespaces: submits the request. The caller gives the Idempotency-Key, one for each
  * opening of the form (#282): sending again after a refusal or a lost answer reuses it, so the API never makes two requests.
  */
-export function useSubmitNamespace(): Outcome<ChangeRequest> & { submit: (clusterId: string, body: NamespaceCreate, key: string) => Promise<ChangeRequest> } {
+export function useSubmitNamespace(): Outcome<ChangeRequest> & { submit: (clusterId: string, body: CreateBody, key: string) => Promise<ChangeRequest> } {
   const api = useApi();
   const client = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async ({ clusterId, body, key }: { clusterId: string; body: NamespaceCreate; key: string }) => {
+    mutationFn: async ({ clusterId, body, key }: { clusterId: string; body: CreateBody; key: string }) => {
       const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces", {
-        params: { path: { cluster_id: clusterId }, header: { "Idempotency-Key": key } }, body
+        params: { path: { cluster_id: clusterId }, header: { "Idempotency-Key": key } }, body: contractBody(body)
       });
       if (!data) throw problemOf(response, error);
       return data as ChangeRequest;
