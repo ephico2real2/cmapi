@@ -198,10 +198,14 @@ class Pipeline:
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
+        # The keys that a request may send, as Git holds them: a change merges its patch over them. Operator-only keys
+        # (cmapi.net/protected) are among them, so a change that does not name one keeps it, and only an operator's patch
+        # sets or removes it (#374). System keys are the renderer's own and are written again from the spec.
+        kept = ("governed", "team", "operatorOnly")
         cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
-                 if self.cfg.metadata.classify(k, "label") in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "label") in kept}
         cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
-                 if self.cfg.metadata.classify(k, "annotation") in ("governed", "team")}
+                 if self.cfg.metadata.classify(k, "annotation") in kept}
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
         # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
         sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
