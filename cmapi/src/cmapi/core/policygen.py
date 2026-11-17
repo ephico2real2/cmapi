@@ -2,7 +2,8 @@
 
     render_bundle(catalog, keys, policy, environments, instance) -> {relative path: YAML or JSON text}
 
-    env/<env>/cmapi-metadata.yaml     Namespace: the required and declared keys of metadata-keys.yaml (#215)
+    env/<env>/cmapi-metadata.yaml     Namespace: the required and declared keys of metadata-keys.yaml (#215), and the keys that
+                                      no stanza declares: their prefixes, count and bytes (allowOther, #333)
     env/<env>/cmapi-quota.yaml        ResourceQuota: each key at or below the environment's maximum (tiers.yaml)
     env/<env>/cmapi-limits.yaml       LimitRange: each key at or below its maximum; limits never below requests. The pvc
                                       keys only where tiers.yaml's storageLimitRange is on (#253)
@@ -19,18 +20,33 @@ validation of a policy. An environment whose mode is off gets no files; audit, t
 A value that the object already held is not checked again: at admission an UPDATE whose key keeps its oldObject value
 passes, and at plan time cmapi drops a failure on a key whose value Git already holds (core/validate). The bounds of
 tiers.py do the same (`_out_of_bounds`), so a later, lower bound never refuses an approved namespace.
+
+A policy whose validation reads oldObject runs at admission only: `evaluation.background.enabled: false` (#345). A
+background scan builds its request as a CREATE with no oldObject and no user (Kyverno v1.20.0,
+pkg/controllers/report/utils/scanner.go), so it would report a value that the namespace keeps as a failure; the CRD
+says the field "must be set to false if the policy rule uses variables that are only available in the admission review
+request". Each other policy keeps the background scan. The decision and its sources: docs/reviews/2026-11-17-issue-333/.
+
+The keys that no stanza declares (#333): for labels and for annotations, one policy refuses a key that classify() calls
+disallowed, one the count of other keys over allowOther.max, and for annotations two the bytes over maxValueBytes and
+maxBytesTotal. They read classify()'s own lists and its globs as metadata's regexes (`_glob_regex`), and they allow the
+keys that cmapi's renderer writes on every namespace, which a request never sends. Who sent a system, operator-only or
+reserved key is not on the object: those keys are allowed there, and refusing them to a requester stays cmapi's check.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Iterable, Mapping
 
 import yaml
 
-from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, value_regex
+from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, value_regex
 from cmapi.core.policy import PolicySettings
+from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from cmapi.core.tiers import LIMIT_KINDS, STORAGE_KIND, TierCatalog, flatten_limits, limit_key_parts, qty
 
 ACTIONS = {"enforce": ["Deny"], "audit": ["Audit", "Warn"]}
@@ -65,28 +81,39 @@ def cel(value: Any) -> str:
 class Check:
     """One validation: the key it checks, its rule, and its CEL."""
     kind: str                 # label | annotation | quota | limit
-    key: str
+    key: str | None           # None: a rule over the keys that no stanza declares (#333)
     rule: str                 # required | pattern | enum | format | namespacePrefix | derived | max | min | step | order | absent
+                              # | prefix | max-value-bytes | max-bytes-total
     expression: str
     message: str
     # The static message, with the key and the configured value and without the offending one. Kyverno falls back to it
     # at admission when the messageExpression fails or gives an empty or multi-line string (an annotation value may hold
     # a newline): "Kyverno falls back to the static message" (kyverno.io, ValidatingPolicy, read 2026-11-14).
     fallback: str
+    variables: tuple[tuple[str, str], ...] = ()     # (name, CEL) that the expression and the message read
+
+    @property
+    def reads_old(self) -> bool:
+        """The verdict depends on oldObject (the ratchet), which only an admission request has (#345). Read from the CEL
+        itself, so a check cannot gain the ratchet and keep the background scan."""
+        text = " ".join([self.expression, *(e for _, e in self.variables)])
+        return "oldObject" in text or "variables.update" in text
 
 
 def _policy(name: str, resource: str, actions: list[str], checks: list[Check], description: str,
             match: str | None = None) -> dict[str, Any]:
-    spec: dict[str, Any] = {
-        "validationActions": actions,
-        "matchConstraints": {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
-                                                "operations": ["CREATE", "UPDATE"], "resources": [resource]}]},
-    }
+    spec: dict[str, Any] = {"validationActions": actions}
+    if any(c.reads_old for c in checks):
+        # A background scan has no oldObject (#345): the policy reports at admission only.
+        spec["evaluation"] = {"background": {"enabled": False}}
+    spec["matchConstraints"] = {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
+                                                   "operations": ["CREATE", "UPDATE"], "resources": [resource]}]}
     if match:
         spec["matchConditions"] = [{"name": "cmapi-managed", "expression": match}]
     spec["variables"] = [
         # The CLI evaluates as CREATE with an empty oldObject (measured, M8), so offline every key is checked.
         {"name": "update", "expression": "request.operation == 'UPDATE' && has(oldObject.metadata)"},
+        *({"name": n, "expression": e} for c in checks for n, e in c.variables),
     ]
     spec["validations"] = [{"expression": c.expression, "message": c.fallback, "messageExpression": c.message} for c in checks]
     return {"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
@@ -183,6 +210,83 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
     return checks
 
 
+# ---------------------------------------------------------------------------------- the keys that no stanza declares
+def _written(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str) -> dict[str, set[str]]:
+    """{kind: keys} that cmapi's renderer writes on a namespace of env when the request sends none, with an expiry where
+    one is allowed. validate() never sees them, so whatever class metadata-keys.yaml gives them, the policies allow them
+    and never count them. Read from the renderer itself, not from a second list."""
+    offered = catalog.offered(env)
+    if not offered:
+        return {kind: set() for kind in KINDS}
+    spec = NamespaceSpec(namespace="cmapi-probe", cluster_id="cmapi-probe", instance=instance, env=env,
+                         tier=offered[0].name, request_id="cmapi-probe", requested_by_user="cmapi-probe",
+                         requested_by_email="cmapi-probe@example.invalid",
+                         expires_at=None if env == "prod" else date(2000, 1, 1))
+    files = ManifestRenderer(catalog, keys).render(spec)
+    meta = yaml.safe_load(next(t for p, t in files.items() if p.endswith("/namespace.yaml") and t))["metadata"]
+    return {kind: set(meta.get(_FIELD[kind]) or {}) for kind in KINDS}
+
+
+def _under(globs: Iterable[str], *, exact: bool) -> str | None:
+    """CEL that is true when the key k has a prefix (text before its first "/", not empty) that one of the globs matches,
+    as MetadataKeys._prefix_in reads a non-empty prefix; None when no glob can match one. exact=False may match more
+    keys and exact=True fewer or the same (metadata._glob_regex), so each set is bounded on the side that keeps the
+    policy from refusing what cmapi accepts."""
+    parts = [r for g in globs if g and (r := _glob_regex(g, exact=exact)) is not None]
+    if not parts:
+        return None
+    return f"(!k.startsWith('/') && k.matches({cel('^(?:' + '|'.join(parts) + ')/')}))"
+
+
+def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[Check]:
+    """The keys of one kind that no stanza declares (#333), as validate() reads them on the result of a request: a key
+    that classify() calls disallowed, more other keys than allowOther.max, and an annotation's bytes."""
+    other = keys.allow_other[kind]
+    stanza = "extraLabels" if kind == "label" else "extraAnnotations"
+    m = _meta(kind)
+    # classify()'s order: system, operatorOnly, an adoption label, a declared key; then a reserved prefix; then allowOther.
+    fixed = cel(sorted({*keys.system, *keys.operator_only, *(keys.adoption_labels if kind == "label" else ()),
+                        *keys.rules[kind], *written}))
+    no_prefix = "(!k.contains('/') || k.startsWith('/'))" if "" in other.prefixes else None
+    shown = ", ".join(json.dumps(p + "/" if p else "") for p in other.prefixes) or "none"
+    # Allowed: a wider reserved and allowOther match only admit more keys.
+    allowed = " || ".join(x for x in (f"k in {fixed}", _under(keys.reserved_prefixes, exact=False),
+                                       _under(other.prefixes, exact=False), no_prefix) if x)
+    # Counted: allowOther exact or narrower and reserved wider, so the policy never counts a key that validate() does not.
+    team = " || ".join(x for x in (_under(other.prefixes, exact=True), no_prefix) if x) or "false"
+    reserved = _under(keys.reserved_prefixes, exact=False)
+    counted = f"!(k in {fixed}){f' && !{reserved}' if reserved else ''} && ({team})"
+    v = f"variables.{kind}Other"
+    checks = [Check(kind, None, "prefix", f"size(variables.{kind}Outside) == 0",
+                    f"{cel(f'the {kind} keys ')} + variables.{kind}Outside.sort().join(', ') + "
+                    + cel(f" are not declared in metadata-keys.yaml, and are outside {stanza}.allowOther.prefixes "
+                          f"[{shown}]"),
+                    f"a {kind} key is not declared in metadata-keys.yaml, and is outside {stanza}.allowOther.prefixes "
+                    f"[{shown}]",
+                    ((f"{kind}Outside", f"{m}.filter(k, !({allowed}))"),)),
+              Check(kind, None, "max", f"size({v}) <= {other.max}",
+                    f"{cel('there are ')} + string(size({v})) + "
+                    + cel(f" other {kind}s (keys under {stanza}.allowOther.prefixes); at most {other.max} "
+                          f"({stanza}.allowOther.max)"),
+                    f"more than {other.max} other {kind}s (keys under {stanza}.allowOther.prefixes; {stanza}.allowOther.max)",
+                    ((f"{kind}Other", f"{m}.filter(k, {counted})"),))]
+    if kind == "annotation":
+        each, total = other.max_value_bytes or 0, other.max_bytes_total or 0
+        big = f"{v}.filter(k, size(bytes({m}[k])) > {each})"
+        checks.append(Check(kind, None, "max-value-bytes", f"size({big}) == 0",
+                            f"{cel('the annotations ')} + {big}.sort().join(', ') + "
+                            + cel(f" are over {each} bytes ({stanza}.allowOther.maxValueBytes)"),
+                            f"an other annotation is over {each} bytes ({stanza}.allowOther.maxValueBytes)",
+                            ((f"{kind}Other", f"{m}.filter(k, {counted})"),)))
+        size_of = f"{v}.map(k, size(bytes({m}[k]))).sum()"
+        checks.append(Check(kind, None, "max-bytes-total", f"{size_of} <= {total}",
+                            f"{cel('the other annotations hold ')} + string({size_of}) + "
+                            + cel(f" bytes; at most {total} ({stanza}.allowOther.maxBytesTotal)"),
+                            f"the other annotations hold more than {total} bytes ({stanza}.allowOther.maxBytesTotal)",
+                            ((f"{kind}Other", f"{m}.filter(k, {counted})"),)))
+    return checks
+
+
 # ------------------------------------------------------------------------------------------- ResourceQuota, LimitRange
 def _quota_checks(catalog: TierCatalog, env: str) -> list[Check]:
     b = catalog.bounds(env)
@@ -269,8 +373,10 @@ def _check_offered(catalog: TierCatalog, env: str) -> None:
 
 def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str, actions: list[str]) -> dict[str, str]:
     _check_offered(catalog, env)
+    written = _written(catalog, keys, env, instance)
+    metadata = _metadata_checks(keys, env, instance) + [c for kind in KINDS for c in _other_key_checks(keys, kind, written[kind])]
     families = [
-        (f"cmapi-metadata-{env}", "namespaces", _metadata_checks(keys, env, instance), _MANAGED_NS,
+        (f"cmapi-metadata-{env}", "namespaces", metadata, _MANAGED_NS,
          f"The labels and annotations that metadata-keys.yaml requires of a managed namespace in {env}."),
         (f"cmapi-quota-{env}", "resourcequotas", _quota_checks(catalog, env), _IN_MANAGED,
          f"Each ResourceQuota key of a managed namespace at or below the {env} maximum of tiers.yaml."),
@@ -294,7 +400,7 @@ def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str
             # and cmapi must see every failed key to drop only those whose value Git already holds.
             docs = []
             for c in checks:
-                name = f"{family}-{c.kind}-{_slug(c.key)}-{c.rule.lower()}"
+                name = policy_name(f"{family}-{c.kind}-{_slug(c.key) if c.key else 'other-keys'}-{c.rule.lower()}")
                 if name in index:
                     raise PolicyGenError(f"two checks render the policy name {name}")
                 docs.append(_policy(name, resource, actions, [c], description, match))
@@ -322,6 +428,20 @@ _HEADER = ("# Rendered by cmapi from its configuration (core/policygen.py, #212)
 
 def _yaml_all(docs: list[Mapping[str, Any]]) -> str:
     return _HEADER + yaml.safe_dump_all([dict(d) for d in docs], sort_keys=False, width=1000)
+
+
+# Kyverno labels each report with vpol.kyverno.io/<policy name> (pkg/utils/report/metadata.go, PolicyLabel, v1.20.0), and
+# the name part of a label is at most 63 characters, so a longer policy name makes the API server refuse the background
+# scan's report of every resource it scans (#356).
+NAME_MAX = 63
+
+
+def policy_name(name: str) -> str:
+    """name, or when it is longer than NAME_MAX its first characters and 8 hex digits of its SHA-256: deterministic, so a
+    render gives the same names each time, and unique where the full names are (index.json maps each to its key)."""
+    if len(name) <= NAME_MAX:
+        return name
+    return name[:NAME_MAX - 9].rstrip("-") + "-" + hashlib.sha256(name.encode()).hexdigest()[:8]
 
 
 def _slug(key: str) -> str:

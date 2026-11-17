@@ -9,23 +9,23 @@
     "kind": "limit",
     "rule": "order"
   },
+  "cmapi-limits-dev-limit-limitrange-container-default-me-084635f0": {
+    "key": "limitRange.container.default.memory",
+    "kind": "limit",
+    "rule": "order"
+  },
   "cmapi-limits-dev-limit-limitrange-container-default-memory-max": {
     "key": "limitRange.container.default.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-dev-limit-limitrange-container-default-memory-order": {
-    "key": "limitRange.container.default.memory",
-    "kind": "limit",
-    "rule": "order"
-  },
-  "cmapi-limits-dev-limit-limitrange-container-defaultrequest-cpu-max": {
-    "key": "limitRange.container.defaultRequest.cpu",
+  "cmapi-limits-dev-limit-limitrange-container-defaultreq-1acccb96": {
+    "key": "limitRange.container.defaultRequest.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-dev-limit-limitrange-container-defaultrequest-memory-max": {
-    "key": "limitRange.container.defaultRequest.memory",
+  "cmapi-limits-dev-limit-limitrange-container-defaultreq-df4ab28d": {
+    "key": "limitRange.container.defaultRequest.cpu",
     "kind": "limit",
     "rule": "max"
   },
@@ -53,6 +53,26 @@
     "key": "cmapi.net/team-dl",
     "kind": "annotation",
     "rule": "format"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-max": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-max-bytes-total": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-bytes-total"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-max-value-bytes": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-value-bytes"
+  },
+  "cmapi-metadata-dev-annotation-other-keys-prefix": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "prefix"
   },
   "cmapi-metadata-dev-label-cmapi-net-app-pattern": {
     "key": "cmapi.net/app",
@@ -88,6 +108,16 @@
     "key": "cmapi.net/team",
     "kind": "label",
     "rule": "pattern"
+  },
+  "cmapi-metadata-dev-label-other-keys-max": {
+    "key": null,
+    "kind": "label",
+    "rule": "max"
+  },
+  "cmapi-metadata-dev-label-other-keys-prefix": {
+    "key": null,
+    "kind": "label",
+    "rule": "prefix"
   },
   "cmapi-quota-dev-quota-persistentvolumeclaims-max": {
     "key": "persistentvolumeclaims",

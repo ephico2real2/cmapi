@@ -1,0 +1,11 @@
+Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 of 1 updated replicas are available...
+deployment "kyverno-admission-controller" successfully rolled out
+deployment "kyverno-background-controller" successfully rolled out
+deployment "kyverno-cleanup-controller" successfully rolled out
+deployment "kyverno-reports-controller" successfully rolled out
+NAME                            IMAGE
+kyverno-admission-controller    reg.kyverno.io/kyverno/kyverno:v1.20.0
+kyverno-background-controller   reg.kyverno.io/kyverno/background-controller:v1.20.0
+kyverno-cleanup-controller      reg.kyverno.io/kyverno/cleanup-controller:v1.20.0
+kyverno-reports-controller      reg.kyverno.io/kyverno/reports-controller:v1.20.0
+Server Version: v1.35.8

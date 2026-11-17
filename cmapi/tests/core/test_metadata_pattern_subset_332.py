@@ -26,7 +26,7 @@ import yaml
 
 from cmapi.core.metadata import (_SPACE, MetadataKeys, anchored, portable_pattern_problem, value_regex)
 from cmapi.core.policy import PolicySettings
-from cmapi.core.policygen import cel, render_bundle
+from cmapi.core.policygen import cel, policy_name, render_bundle
 from cmapi.core.tiers import TierCatalog
 from conftest import ALL_ENVS, EX
 
@@ -209,7 +209,7 @@ def test_the_rendered_policy_matches_with_the_one_anchored_regex_of_each_key():
         for key, rule in keys.rules[kind].items():
             if (regex := value_regex(rule, keys.email_domains)) is not None:
                 rule_name = "pattern" if rule.pattern is not None else "format"
-                name = f"cmapi-metadata-rnd-{kind}-{re.sub('[^a-z0-9]+', '-', key)}-{rule_name}"
+                name = policy_name(f"cmapi-metadata-rnd-{kind}-{re.sub('[^a-z0-9]+', '-', key)}-{rule_name}")   # #356
                 assert f".matches({cel(regex)})" in expressions[name], key
                 checked += 1
     assert checked == 3

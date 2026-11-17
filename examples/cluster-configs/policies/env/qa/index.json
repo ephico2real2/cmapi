@@ -19,13 +19,13 @@
     "kind": "limit",
     "rule": "order"
   },
-  "cmapi-limits-qa-limit-limitrange-container-defaultrequest-cpu-max": {
-    "key": "limitRange.container.defaultRequest.cpu",
+  "cmapi-limits-qa-limit-limitrange-container-defaultrequ-595941ff": {
+    "key": "limitRange.container.defaultRequest.memory",
     "kind": "limit",
     "rule": "max"
   },
-  "cmapi-limits-qa-limit-limitrange-container-defaultrequest-memory-max": {
-    "key": "limitRange.container.defaultRequest.memory",
+  "cmapi-limits-qa-limit-limitrange-container-defaultrequ-fac98118": {
+    "key": "limitRange.container.defaultRequest.cpu",
     "kind": "limit",
     "rule": "max"
   },
@@ -53,6 +53,26 @@
     "key": "cmapi.net/team-dl",
     "kind": "annotation",
     "rule": "format"
+  },
+  "cmapi-metadata-qa-annotation-other-keys-max": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max"
+  },
+  "cmapi-metadata-qa-annotation-other-keys-max-bytes-total": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-bytes-total"
+  },
+  "cmapi-metadata-qa-annotation-other-keys-max-value-bytes": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "max-value-bytes"
+  },
+  "cmapi-metadata-qa-annotation-other-keys-prefix": {
+    "key": null,
+    "kind": "annotation",
+    "rule": "prefix"
   },
   "cmapi-metadata-qa-label-cmapi-net-app-pattern": {
     "key": "cmapi.net/app",
@@ -88,6 +108,16 @@
     "key": "cmapi.net/team",
     "kind": "label",
     "rule": "pattern"
+  },
+  "cmapi-metadata-qa-label-other-keys-max": {
+    "key": null,
+    "kind": "label",
+    "rule": "max"
+  },
+  "cmapi-metadata-qa-label-other-keys-prefix": {
+    "key": null,
+    "kind": "label",
+    "rule": "prefix"
   },
   "cmapi-quota-qa-quota-persistentvolumeclaims-max": {
     "key": "persistentvolumeclaims",

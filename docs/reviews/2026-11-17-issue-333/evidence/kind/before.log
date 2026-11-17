@@ -1,0 +1,35 @@
+== before: the branch's bundle without #345's evaluation.background setting (with #333 and #356)
+policies: 31
+namespace/payments-dev created
+-- payments-dev created under the original rule (^cc-[0-9]{4}$), its report:
+cmapi-metadata-dev-annotation-cmapi-net-team-dl-format pass 1794922607 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max pass 1794922608 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max-bytes-total pass 1794922607 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max-value-bytes pass 1794922607 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-prefix pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-app-pattern pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-cluster-id-required pass 1794922607 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-cost-center-pattern pass 1794922607 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-env-derived pass 1794922607 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-managed-required pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-rightsizing-pattern pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-team-pattern pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-other-keys-max pass 1794922608 background_scan | success
+cmapi-metadata-dev-label-other-keys-prefix pass 1794922608 background_scan | success
+-- cost-center tightened to ^cc-[0-9]{5}$: cc-4410 is a value that cmapi keeps
+tightened bundle applied in place
+-- after the background scan, its report:
+cmapi-metadata-dev-annotation-cmapi-net-team-dl-format pass 1794922638 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max pass 1794922638 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max-bytes-total pass 1794922638 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-max-value-bytes pass 1794922638 background_scan | success
+cmapi-metadata-dev-annotation-other-keys-prefix pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-app-pattern pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-cluster-id-required pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-cost-center-pattern fail 1794922638 background_scan | the label cmapi.net/cost-center is "cc-4410"; it must be: must match ^cc-[0-9]{5}$
+cmapi-metadata-dev-label-cmapi-net-env-derived pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-managed-required pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-rightsizing-pattern pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-cmapi-net-team-pattern pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-other-keys-max pass 1794922638 background_scan | success
+cmapi-metadata-dev-label-other-keys-prefix pass 1794922638 background_scan | success

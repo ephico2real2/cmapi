@@ -11,6 +11,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -44,6 +47,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -77,6 +83,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -110,6 +119,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -144,6 +156,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -178,6 +193,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -211,6 +229,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -245,6 +266,9 @@ spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -266,3 +290,213 @@ spec:
   - expression: '(variables.update && ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {})) == ("cmapi.net/team-dl" in (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})) && (!("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {})) || (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})["cmapi.net/team-dl"])) || ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {}) && (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] != '''' && (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"].matches("^[A-Za-z0-9!#$%&''*+/=?^_`{|}~.-]+@(?:[eE][pP][hH][iI][cC][oO]2[rR][eE][aA][lL]\\.[cC][oO][mM])$"))'
     message: 'the annotation cmapi.net/team-dl must be: required; an address in ephico2real.com'
     messageExpression: '"the annotation cmapi.net/team-dl is " + ("cmapi.net/team-dl" in (has(object.metadata.annotations) ? object.metadata.annotations : {}) ? ''"'' + (has(object.metadata.annotations) ? object.metadata.annotations : {})["cmapi.net/team-dl"] + ''"'' : ''missing'') + "; it must be: required; an address in ephico2real.com"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-label-other-keys-prefix
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: labelOutside
+    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: size(variables.labelOutside) == 0
+    message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+    messageExpression: '"the label keys " + variables.labelOutside.sort().join('', '') + " are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes [\"\", \"*.ephico2real.com/\"]"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-label-other-keys-max
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: labelOther
+    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: size(variables.labelOther) <= 50
+    message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)
+    messageExpression: '"there are " + string(size(variables.labelOther)) + " other labels (keys under extraLabels.allowOther.prefixes); at most 50 (extraLabels.allowOther.max)"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-annotation-other-keys-prefix
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: annotationOutside
+    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: size(variables.annotationOutside) == 0
+    message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]
+    messageExpression: '"the annotation keys " + variables.annotationOutside.sort().join('', '') + " are not declared in metadata-keys.yaml, and are outside extraAnnotations.allowOther.prefixes [\"\", \"*.ephico2real.com/\"]"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-annotation-other-keys-max
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: annotationOther
+    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: size(variables.annotationOther) <= 50
+    message: more than 50 other annotations (keys under extraAnnotations.allowOther.prefixes; extraAnnotations.allowOther.max)
+    messageExpression: '"there are " + string(size(variables.annotationOther)) + " other annotations (keys under extraAnnotations.allowOther.prefixes); at most 50 (extraAnnotations.allowOther.max)"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-annotation-other-keys-max-value-bytes
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: annotationOther
+    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: 'size(variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096)) == 0'
+    message: an other annotation is over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)
+    messageExpression: '"the annotations " + variables.annotationOther.filter(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k])) > 4096).sort().join('', '') + " are over 4096 bytes (extraAnnotations.allowOther.maxValueBytes)"'
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cmapi-metadata-uat-annotation-other-keys-max-bytes-total
+  annotations:
+    policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
+    cmapi.net/generated: 'true'
+spec:
+  validationActions:
+  - Audit
+  - Warn
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - namespaces
+  matchConditions:
+  - name: cmapi-managed
+    expression: '("cmapi.net/managed" in (has(object.metadata.labels) ? object.metadata.labels : {}) && (has(object.metadata.labels) ? object.metadata.labels : {})["cmapi.net/managed"] == ''true'') || (request.operation == ''UPDATE'' && has(oldObject.metadata) && "cmapi.net/managed" in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})["cmapi.net/managed"] == ''true'')'
+  variables:
+  - name: update
+    expression: request.operation == 'UPDATE' && has(oldObject.metadata)
+  - name: annotationOther
+    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+  validations:
+  - expression: 'variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum() <= 65536'
+    message: the other annotations hold more than 65536 bytes (extraAnnotations.allowOther.maxBytesTotal)
+    messageExpression: '"the other annotations hold " + string(variables.annotationOther.map(k, size(bytes((has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))).sum()) + " bytes; at most 65536 (extraAnnotations.allowOther.maxBytesTotal)"'
