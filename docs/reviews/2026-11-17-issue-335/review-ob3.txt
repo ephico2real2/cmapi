@@ -1,0 +1,42 @@
+OB3 review of PR #339 (head 2fab428, main 9ba33b2), Helm 4.3.1 local. Deep: C1-C3 (render through real helm + real MetadataKeys, plus neighbours and a mutant); C5 medium (scratch chart); C4, C6 medium; none shallow.
+VERDICT: merge. No blocker. One test gap (Not asked) with its test, optional.
+C1 CONFIRMED - drive.py: chart, example, company, local, crc-configmap, kind-configmap each given as metadata: both as the file's own YAML text indented under metadata: and as JSON -> helm template rc 0, helm lint rc 0, rendered file parses equal to the source, MetadataKeys loads (drive.log lines "C1 ..."; cmapi imported from the export's src).
+C2 CONFIRMED - key pattern vs #340's _syntax (origin/fix/330-empty-prefix) over 22 keys: one mismatch only, a 259-char key with a >253 prefix (schema accepts, loader refuses at start; schema laxer, not a refusal of a valid file). "/foo" refused by both. Loader-valid neighbours refused by schema: extraLabels without allowOther, pattern "", reservedPrefixes "", 64-char label enum value, plus partial block/null rule/int example by design; none occurs in any shipped file. Bare 2026-12-31 renders "2026-12-31" (str for PyYAML); maxBytesTotal 1048576/10000000 render as ints and load.
+C3 CONFIRMED - defaults+crc.yaml, non-Secret bytes main vs head identical (29 docs, sha c8aed27a0f92c788 both); checksum/config api/worker ba396967... on both; configFiles text path identical main vs head; metadata change moves api/worker checksum (f1aaec96... -> 4af46f18...), portal unchanged.
+C4 CONFIRMED - both set: "Error: execution error at (cmapi/templates/worker.yaml:18:28): metadata and configFiles."metadata-keys.yaml" both set metadata-keys.yaml: set one of them (...)". configFiles.clusters.yaml -> "at '/configFiles': additional properties 'clusters.yaml' not allowed" (main rc 0). git grep configFiles on the branch: only the five names anywhere; each of the five via --set-file renders rc 0.
+C5 CONFIRMED, choice right - scratch chart, default metadata.requiredLabels{cmapi.net/team} + site {acme.example/owner}: render holds BOTH keys (map union), lists replace (system [c]), "cmapi.net/team: null" removes. Matches Helm docs ("Values Files": null deletes a key). Whole-file block is the only shape that lets a site replace keys and keeps the fail guard meaningful; cost (site copies must track new system keys) is documented in docs/18.
+C6 CONFIRMED - offline runner (runtests.py + stub pytest, no network for pytest): head 51 passed 0 failed; main + the test file 6 passed 45 failed (the six guards, as the PR says). Tests assert render/refusal/loader behaviour with schema locations, not source strings.
+Not asked (test gap): the PR's "defaults restart nothing" rests on a one-off evidence diff. Mutant {{- end -}} -> {{- end }} (the PR's own first version) moves api/worker checksum/config (ba3969 -> 85bc46) with the ConfigMap bytes unchanged, and all 51 tests still pass (tests-mutant.tsv). Fix = test test_checksum_config_is_the_hash_of_the_config_map_as_rendered (checksum == sha256 of the printed config.yaml doc; holds on main and head): head 54/54 pass, mutant 3 fail (added-head.tsv, added-mutant.tsv). Patch: /Users/olasumbo/gitRepos/workbench/cmapi/review-339/fixes.patch (applies with patch -p1 to the branch file).
+Not checked: Helm 3.19.0 (CI) or <=3.18 error text (only 4.3.1 here); kind/CRC install; full service suite.
+Housekeeping: git status --short of /Users/olasumbo/gitRepos/cmapi-design: empty before and after. Deleted my exports head/, main/, main-plus-test/, mutant/, tmp/, pr340/. Kept scripts/ (drive.py, drive.log, drive.json, c2b.py, c2b.log, runtests.py, stub/pytest.py, added_test.py, *.tsv), fixes.patch, out.txt. Re-run: re-export with git archive into head/ main/, git show origin/fix/330-empty-prefix:cmapi/src/cmapi/core/metadata.py > pr340/metadata_340.py, then <py with pyyaml> scripts/drive.py <review dir>.
+--- fixes.patch (verbatim) ---
+--- a/cmapi/tests/service/test_helm_metadata_values.py
++++ b/cmapi/tests/service/test_helm_metadata_values.py
+@@ -6,6 +6,7 @@
+ from __future__ import annotations
+ 
+ import copy
++import hashlib
+ import json
+ import pathlib
+ import subprocess
+@@ -218,3 +219,19 @@
+     block = schema["properties"]["metadata"]
+     assert set(block["then"]["required"]) == set(block["properties"]) == set(_chart_keys())
+     assert schema["$schema"] == "http://json-schema.org/draft-07/schema#"
++
++
++@pytest.mark.parametrize("values", ["defaults", "metadata", "configFiles"])
++def test_checksum_config_is_the_hash_of_the_config_map_as_rendered(tmp_path, values):
++    """The API and the worker hash the raw output of templates/config.yaml (checksum/config), while Helm prints that
++    output trimmed: a stray blank line from a guard (the first version of #335's) changes the checksum and restarts both
++    on an upgrade that changes no file. The checksum must be the hash of the ConfigMap exactly as rendered."""
++    given = {"defaults": None, "metadata": {"metadata": _chart_keys()},
++             "configFiles": {"configFiles": {"metadata-keys.yaml": CHART_FILE.read_text()}}}[values]
++    r = _helm("template", tmp_path, given)
++    assert r.returncode == 0, r.stderr[-600:]
++    doc = r.stdout.split("# Source: cmapi/templates/config.yaml\n", 1)[1].split("\n---\n", 1)[0]
++    sums = {d["metadata"]["name"]: d["spec"]["template"]["metadata"]["annotations"]["checksum/config"]
++            for d in yaml.safe_load_all(r.stdout)
++            if d and d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker")}
++    assert sums == dict.fromkeys(("cmapi-api", "cmapi-worker"), hashlib.sha256(doc.encode()).hexdigest()), sums
