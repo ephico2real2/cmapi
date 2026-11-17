@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Helm validates the merged values against this file on install, upgrade, lint and template. Draft-07, which both of Helm 3's validators read: xeipuuv/gojsonschema to 3.18 and santhosh-tekuri/jsonschema v6 from 3.19 and in Helm 4 (measured on 3.19.0 and 4.3.1). Patterns stay in the subset that Go's RE2 and ECMA-262 share. It describes metadata and configFiles; the other values are not described yet. The loader, MetadataKeys in cmapi/src/cmapi/core/metadata.py, stays the final check at start. docs/18-configuration.md, \"Setting the keys through the Helm values\" (#335).",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "description": "metadata-keys.yaml as structured values: the whole file, each stanza written out ({} or [] when empty). Empty ({}): the chart's config/metadata-keys.yaml, or configFiles.\"metadata-keys.yaml\". docs/18-configuration.md, \"metadata-keys.yaml\".",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "system": {"description": "Keys that only the renderer sets", "$ref": "#/definitions/keyList"},
+        "operatorOnly": {"description": "Keys that cmapi-operator and above can set", "$ref": "#/definitions/keyList"},
+        "reservedPrefixes": {
+          "description": "Prefixes of Kubernetes, OpenShift and platform controllers; * matches as in fnmatch, a trailing / is allowed",
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[^\\s/]+/?$"}
+        },
+        "requiredLabels": {"description": "Labels that each namespace carries, each with its rule", "$ref": "#/definitions/labelRules"},
+        "requiredAnnotations": {"description": "Annotations that each namespace carries, each with its rule", "$ref": "#/definitions/annotationRules"},
+        "extraLabels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["keys", "allowOther"],
+          "properties": {
+            "keys": {"description": "Optional labels, each with its rule", "$ref": "#/definitions/labelRules"},
+            "allowOther": {
+              "description": "Any other label under one of the prefixes, within the limit",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "prefixes": {"$ref": "#/definitions/prefixList"},
+                "max": {"$ref": "#/definitions/count"}
+              }
+            }
+          }
+        },
+        "extraAnnotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["keys", "allowOther"],
+          "properties": {
+            "keys": {"description": "Optional annotations, each with its rule", "$ref": "#/definitions/annotationRules"},
+            "allowOther": {
+              "description": "Any other annotation under one of the prefixes, within the limits",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "prefixes": {"$ref": "#/definitions/prefixList"},
+                "max": {"$ref": "#/definitions/count"},
+                "maxValueBytes": {"$ref": "#/definitions/count"},
+                "maxBytesTotal": {"$ref": "#/definitions/count"}
+              }
+            }
+          }
+        },
+        "adoptionLabels": {
+          "description": "Labels that mark a namespace another tool made, with the values recognised (story #26)",
+          "type": "object",
+          "patternProperties": {
+            "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["recognise"],
+              "properties": {
+                "recognise": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/labelValue"}}
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "sensitiveKeys": {"description": "A change of one of these keys adds an approver-platform approval", "$ref": "#/definitions/keyList"},
+        "emailDomains": {
+          "description": "The mail domains of the format email-in-domains",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$"
+          }
+        }
+      },
+      "if": {"minProperties": 1},
+      "then": {
+        "required": ["system", "operatorOnly", "reservedPrefixes", "requiredLabels", "requiredAnnotations",
+                     "extraLabels", "extraAnnotations", "adoptionLabels", "sensitiveKeys", "emailDomains"]
+      }
+    },
+    "configFiles": {
+      "description": "The full text of a policy file, in place of the chart's config/<name>",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approval-rules.yaml": {"type": "string"},
+        "authz-roles.yaml": {"type": "string"},
+        "tiers.yaml": {"type": "string"},
+        "expiration.yaml": {"type": "string"},
+        "metadata-keys.yaml": {"type": "string"}
+      }
+    }
+  },
+  "definitions": {
+    "key": {
+      "description": "A label or annotation key: an optional DNS-1123 subdomain prefix and /, then a name of at most 63 characters",
+      "type": "string",
+      "maxLength": 317,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"
+    },
+    "keyList": {"type": "array", "items": {"$ref": "#/definitions/key"}},
+    "labelValue": {
+      "description": "A label value: empty, or at most 63 characters of [A-Za-z0-9_.-] that start and end with a letter or a digit",
+      "type": "string",
+      "pattern": "^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$"
+    },
+    "prefixList": {
+      "description": "Prefixes; \"\" allows a key with no prefix, * matches as in fnmatch",
+      "type": "array",
+      "items": {"type": "string", "pattern": "^([^\\s/]+/?)?$"}
+    },
+    "count": {"type": "integer", "minimum": 0},
+    "rule": {
+      "description": "The rule of one key: at most one of value, pattern, enum and format",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "description": "cmapi sets the value from the target of the request",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {"from": {"enum": ["namespace", "environment", "cluster", "instance"]}}
+        },
+        "pattern": {"description": "The whole value must match", "type": "string", "minLength": 1},
+        "enum": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "format": {"enum": ["email-in-domains", "url"]},
+        "namespacePrefix": {"type": "boolean"},
+        "description": {"type": "string"},
+        "example": {"type": "string"}
+      },
+      "$comment": "Each dependency names the field that conflicts: a false schema at .../enum means that enum cannot stand beside the field named here",
+      "dependencies": {
+        "value": {
+          "description": "A key with value.from takes no pattern, enum, format or namespacePrefix: true",
+          "properties": {"pattern": false, "enum": false, "format": false, "namespacePrefix": {"const": false}}
+        },
+        "pattern": {"description": "Give one of pattern, enum and format", "properties": {"enum": false, "format": false}},
+        "enum": {"description": "Give one of pattern, enum and format", "properties": {"format": false}}
+      }
+    },
+    "labelRules": {
+      "description": "Label keys, each with its rule. A key that is not a valid label key is refused as an additional property",
+      "type": "object",
+      "patternProperties": {
+        "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$": {
+          "allOf": [
+            {"$ref": "#/definitions/rule"},
+            {
+              "description": "A format is for annotations only: a label value cannot hold an address or a URL; an enum value is a label value",
+              "properties": {
+                "format": false,
+                "enum": {"items": {"$ref": "#/definitions/labelValue"}}
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotationRules": {
+      "description": "Annotation keys, each with its rule. A key that is not a valid annotation key is refused as an additional property",
+      "type": "object",
+      "patternProperties": {"^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$": {"$ref": "#/definitions/rule"}},
+      "additionalProperties": false
+    }
+  }
+}

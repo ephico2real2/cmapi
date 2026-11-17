@@ -170,7 +170,7 @@ The switch of the storage `LimitRange` is not documented here. It is the work of
 
 ## `metadata-keys.yaml`
 
-The rules for the labels and the annotations that a requester sets on a namespace. The code is `cmapi/src/cmapi/core/metadata.py`. The same file feeds the rendered Kyverno policies, so plan time, CI and admission use the same rules (`core/policygen.py`). The chart file is `deploy/helm/cmapi/config/metadata-keys.yaml`. The decision record is `docs/reviews/2026-11-14-issue-215/README.md`.
+The rules for the labels and the annotations that a requester sets on a namespace. The code is `cmapi/src/cmapi/core/metadata.py`. The same file feeds the rendered Kyverno policies, so plan time, CI and admission use the same rules (`core/policygen.py`). The chart file is `deploy/helm/cmapi/config/metadata-keys.yaml`; with Helm, a site sets its own as the value `metadata` (see "Setting the keys through the Helm values"). The decision record is `docs/reviews/2026-11-14-issue-215/README.md`.
 
 ### The keys of the file
 
@@ -269,6 +269,55 @@ Some key names are in the code, not only in the file. The `system` list of the r
 | `cmapi.net/expires-at`, `cmapi.net/expiry`, `cleanup.kyverno.io/ttl` | `core/policygen.py` (`EXPIRY_KEYS`) | The rendered policy `deny-expiry-in-prod` refuses each of them in `prod` |
 
 A file that does not declare `cmapi.net/team` is valid. Then the per-team allowance does not apply (the fact `team` is empty and `Pipeline.submit` skips the count). The owner's company example declares no `cmapi.net/team`, so with that file no namespace has a team in cmapi's sense.
+
+### Setting the keys through the Helm values
+
+With the Helm chart, an operator sets the file as the structured value `metadata` (#335). The chart writes it as `metadata-keys.yaml` into the `cmapi-config` ConfigMap, and the `checksum/config` annotation restarts the API and the worker on a change. The chart's `values.schema.json` checks the block on `helm install`, `helm upgrade`, `helm lint` and `helm template`, so a malformed block is refused before any pod starts. The loader stays the final check at start.
+
+The rules of the value:
+
+- **The block is the whole file**, not a patch of the chart's file. Write each of the ten stanzas of the table above, `{}` or `[]` when one is empty. The schema refuses a block that leaves one out, so a partial block cannot silently drop the reserved keys or the required ones.
+- **Empty (`metadata: {}`, the default):** the chart's `config/metadata-keys.yaml`, or the full text in `configFiles."metadata-keys.yaml"`. That text stays the fallback, and the schema does not read inside it.
+- **Both set:** the render fails: `metadata and configFiles."metadata-keys.yaml" both set metadata-keys.yaml: set one of them`.
+- **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format` or `namespacePrefix: true`; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
+- `configFiles` takes only the five names of the chart's files. Another name, such as `metadata-key.yaml`, is refused; before #335 the chart ignored it and rendered its own file.
+
+An example, a site that requires its own owner label beside the reference keys (`deploy/environments/<site>.yaml`):
+
+```yaml
+metadata:
+  system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
+           cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash,
+           cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+  operatorOnly: [cmapi.net/protected]
+  reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+                     argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
+  requiredLabels:
+    cmapi.net/team:     {pattern: "^[a-z0-9-]{2,40}$", example: payments}
+    acme.example/owner: {pattern: "^[a-z]{2,20}$", description: "The owning group", example: payments}
+  requiredAnnotations:
+    cmapi.net/team-dl:  {format: email-in-domains, example: payments-team@acme.example}
+  extraLabels:
+    keys: {}
+    allowOther: {prefixes: ["", "*.acme.example/"], max: 50}
+  extraAnnotations:
+    keys: {}
+    allowOther: {prefixes: ["", "*.acme.example/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
+  adoptionLabels: {}
+  sensitiveKeys: [cmapi.net/team]
+  emailDomains: [acme.example]
+```
+
+Check a values file before an upgrade with `helm lint deploy/helm/cmapi -f deploy/environments/<site>.yaml -f deploy/images.lock.yaml`. The `system` list above is the reference list: keep each key that the renderer writes in it (see "What the code reads by name").
+
+The plain manifests do not change: on CRC and kind the file stays the text of `metadata-keys.yaml` in `deploy/manifests/environments/<env>/20-config.yaml`, with no schema in front of it, and the loader is the check there.
+
+**Why this shape.** Helm validates the final merged values against `values.schema.json` on install, upgrade, lint and template ([Helm, "Schema Files"](https://helm.sh/docs/topics/charts/#schema-files)). The chart keeps the default empty and takes the block as the whole file, as cert-manager's chart does with `config` (`config: {}`, rendered with `toYaml` into its `config.yaml`, with a draft-07 schema: [values.yaml](https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/values.yaml), [controller-config.yaml](https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/templates/controller-config.yaml)). Two other shapes were rejected:
+
+- **The reference file as the default of `metadata` in `values.yaml`**, as the Prometheus chart does with `serverFiles` ([values.yaml](https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml)). Helm merges a map of a site's values into the default map, so a site's `requiredLabels` would add to `cmapi.net/team` rather than replace it, and removing a key takes a `null` for it. The rendered file would then differ from the site's own `metadata-keys.yaml` in its cluster-configs repository, from which its Kyverno policies are rendered. A default block also could not tell "the site set both" from "the site set the text", so the fallback could not stay.
+- **The block merged over the chart's file in the template.** The same union problem, and the schema could not require a stanza, since it sees only the site's part.
+
+The schema is draft-07: Helm up to 3.18 validates with `xeipuuv/gojsonschema` (drafts 4, 6 and 7), Helm 3.19 and 4 with `santhosh-tekuri/jsonschema` v6 (drafts 4 to 2020-12) (`go.mod` of [v3.18.0](https://github.com/helm/helm/blob/v3.18.0/go.mod) and [v3.19.0](https://github.com/helm/helm/blob/v3.19.0/go.mod)). Measured on 3.19.0 (CI) and 4.3.1; Helm 3.18 and older were not run. Key maps use `patternProperties` with `additionalProperties: false`, not `propertyNames`: on Helm 4.3.1 a `propertyNames` refusal names the right key but a wrong, changing location (measured on a two-property chart).
 
 ### The example of the owner's company
 
@@ -615,7 +664,8 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `monitoring.serviceMonitor`, `.prometheusRule`, `.perses` | | `enabled: false` | The scrape, the alerts and the dashboards |
 | `networkPolicy.enabled`, `.monitoringNamespace` | | `true`, `openshift-user-workload-monitoring` | The network policies |
 | `securityContext`, `containerSecurityContext`, `podDisruptionBudget` | | Restricted | Non-root, no capabilities, the runtime default seccomp profile |
-| `configFiles.<name>` | text | `{}` | The full text of `approval-rules.yaml`, `authz-roles.yaml`, `tiers.yaml`, `expiration.yaml` or `metadata-keys.yaml`, to use in place of the file of the chart |
+| `metadata` | mapping | `{}` | `metadata-keys.yaml` as structured values: the whole file, each stanza written out. Checked by `values.schema.json`. Empty: the chart's file, or `configFiles."metadata-keys.yaml"`. Setting both fails (see "Setting the keys through the Helm values") |
+| `configFiles.<name>` | text | `{}` | The full text of `approval-rules.yaml`, `authz-roles.yaml`, `tiers.yaml`, `expiration.yaml` or `metadata-keys.yaml`, to use in place of the file of the chart. Another name is refused |
 
 A site sets its own values in `deploy/environments/<site>.yaml`, and passes the file with `-f`. The chart refuses an image with no digest, so deploy from `deploy/images.lock.yaml`.
 
@@ -628,6 +678,7 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | Kyverno optional, with a mode for each environment | `docs/reviews/2026-11-14-issue-213/README.md` |
 | The policies rendered from the configuration | `docs/reviews/2026-11-14-issue-212/README.md` |
 | The metadata stanzas, and the company example | `docs/reviews/2026-11-14-issue-215/README.md` |
+| The metadata keys as Helm values, with `values.schema.json` | This file, "Setting the keys through the Helm values" (#335) |
 | Custom limits, values beyond the tier, approval as the gate | `docs/reviews/2026-11-14-issue-211/README.md` |
 | The names of instances and environments, and `prod` | `docs/02`, "The names of instances and environments" (#232) |
 | The links of the email channel name the instance | `docs/reviews/2026-11-14-issue-222/README.md` |

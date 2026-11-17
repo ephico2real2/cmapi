@@ -1,0 +1,114 @@
+[08:07:56Z] localhost/cmapi:sha-9ba33b2064 already in the node
+[08:07:57Z] docker.io/library/postgres:16-alpine already in the node
+[08:08:00Z] image localhost/cmapi:sha-9ba33b2064 in the node as localhost/cmapi@sha256:ef6aff950b09cf63de6194de72a16ded817911ea635ec41e6eda85b0c8db2342
+[08:08:02Z] stand-ins ready: PostgreSQL 16, JWKS
+[08:08:04Z] Gitea ready: 1 replica, image docker.gitea.com/gitea@sha256:be0b89adf2fc8657df508303d919c3be33e6413605882919f702177d62960c9a
+[08:08:04Z] helm lint and helm upgrade --install with the metadata value
+==> Linting /Users/olasumbo/gitRepos/workbench/cmapi/wt-helm-335-metadata-values/deploy/helm/cmapi
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+Release "cmapi" has been upgraded. Happy Helming!
+NAME: cmapi
+LAST DEPLOYED: Tue Nov 17 02:08:04 2026
+NAMESPACE: cmapi
+STATUS: deployed
+REVISION: 7
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+cmapi 0.2.0, instance nonprod in cmapi.
+
+  Host    none: the front door is off, and nothing outside the namespace reaches the API
+  Issuer  https://issuer.cmapi-test.invalid/realms/cmapi (audience cmapi-nonprod)
+  Git     gitea cmapi/cluster-configs-nonprod at http://cmapi-git-gitea:3000/api/v1
+  Delivery argocd
+
+Check it:
+  oc get pods -n cmapi
+  oc get route -n cmapi -o custom-columns=NAME:.metadata.name,HOST:.status.ingress[0].host
+  curl -s https://$(oc get route cmapi -n cmapi -o jsonpath='{.status.ingress[0].host}')/api/v1/version
+
+WARNING: argocd.controllerServiceAccount is empty (acknowledged), so no admission policy contains Argo CD's controller: once
+Argo CD applies this cluster's folders it can write any namespace, managed or not. Set it when the controller exists.
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                                                                                           SELECTOR
+deployment.apps/cmapi-api         1/1     1            1           15m     api          localhost/cmapi@sha256:ef6aff950b09cf63de6194de72a16ded817911ea635ec41e6eda85b0c8db2342          app.kubernetes.io/component=api,app.kubernetes.io/name=cmapi-api
+deployment.apps/cmapi-git-gitea   1/1     1            1           2m12s   gitea        docker.gitea.com/gitea@sha256:be0b89adf2fc8657df508303d919c3be33e6413605882919f702177d62960c9a   app.kubernetes.io/name=cmapi-git
+deployment.apps/cmapi-worker      1/1     1            1           15m     worker       localhost/cmapi@sha256:ef6aff950b09cf63de6194de72a16ded817911ea635ec41e6eda85b0c8db2342          app.kubernetes.io/component=worker,app.kubernetes.io/name=cmapi-worker
+deployment.apps/jwks              1/1     1            1           16m     jwks         localhost/cmapi:sha-9ba33b2064                                                                   app=jwks
+deployment.apps/pg                1/1     1            1           16m     pg           docker.io/library/postgres:16-alpine                                                             app=pg
+
+NAME                                   READY   STATUS        RESTARTS   AGE     IP            NODE                       NOMINATED NODE   READINESS GATES
+pod/cmapi-api-594447dbb8-jm4ks         1/1     Running       0          16s     10.244.0.20   cmapi-test-control-plane   <none>           <none>
+pod/cmapi-api-7c87d499bc-jj5hm         1/1     Terminating   0          3m51s   10.244.0.16   cmapi-test-control-plane   <none>           <none>
+pod/cmapi-git-gitea-7f8cb8d9c4-ghkfn   1/1     Running       0          2m12s   10.244.0.18   cmapi-test-control-plane   <none>           <none>
+pod/cmapi-worker-5566c6df8b-gmbbh      1/1     Running       0          16s     10.244.0.21   cmapi-test-control-plane   <none>           <none>
+pod/jwks-c6fcc7b55-97zrd               1/1     Running       0          5m54s   10.244.0.14   cmapi-test-control-plane   <none>           <none>
+pod/pg-779f7d4bf9-zvqvt                1/1     Running       0          7m53s   10.244.0.11   cmapi-test-control-plane   <none>           <none>
+[08:08:45Z] the rendered file in the ConfigMap: required labels
+['acme.example/owner', 'cmapi.net/team']
+[08:08:45Z] instance.yaml policy:   policy: {"engine":"none"}
+curl: (52) Empty reply from server
+[08:08:46Z] GET /api/v1/version: {"version":"0.2.0","commit":"9ba33b2064","component":"api"}
+[08:08:47Z] GET /readyz: {"status":"ok","database":"ok","schema":"ok"}
+[08:08:47Z] POST /api/v1/clusters/CRC/namespaces without acme.example/owner
+HTTP 422
+{
+    "type": "https://cmapi.ephico2real.com/problems/policy-violation",
+    "title": "policy violation",
+    "status": 422,
+    "detail": "Metadata refused",
+    "code": "policy-violation",
+    "errors": [
+        {
+            "code": "missing_required_key",
+            "key": "acme.example/owner",
+            "kind": "label",
+            "detail": "must match ^[a-z]{2,20}$"
+        }
+    ]
+}
+[08:08:48Z] POST /api/v1/clusters/CRC/namespaces?dryRun=true with acme.example/owner (the control: the same body passes validation; a dry run writes nothing)
+HTTP 200
+{
+    "changes": {
+        "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml": "added",
+        "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml": "added",
+        "clusters/CRC/namespaces/payments-dev/namespace.yaml": "added",
+        "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "added",
+        "clusters/CRC/namespaces/payments-dev/token-issuer-rolebinding.yaml": "added"
+    },
+    "planHash": "b0025e434a128be5154dcdafbcf9b72ffef66a9339121ec922775c707a0739c6",
+    "etag": "0",
+    "requester": {
+        "requester": {
+            "sub": "sub-ola",
+            "username": "ola",
+            "email": "ola@ephico2real.com",
+            "givenName": "Ola",
+            "middleName": null,
+            "familyName": "Doe",
+            "employeeId": "1001",
+            "kind": "user",
+            "clientId": "cmapi-portal"
+        },
+        "automated": false,
+        "submittedBy": null,
+        "submittedByClient": null
+    },
+    "capacity": {
+        "status": "fits",
+        "fresh": true,
+        "bindingResource": "cpu",
+        "cpu": 0.062,
+        "memory": 0.05,
+        "source": "simulated",
+        "clusterId": "CRC"
+    },
+    "approval": {
+        "rule": "dev-create",
+        "auto": "auto:baseline-rnd-namespace",
+        "autoFallback": null,
+        "selfApproval": true,
+./proof.sh: line 93: 33707 Terminated: 15          k -n cmapi port-forward deploy/cmapi-api 18335:8080 > "$T/pf.log" 2>&1
+rc=0
