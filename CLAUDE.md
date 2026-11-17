@@ -57,6 +57,16 @@ by opinion, and the coordinator keeps the final call and records it.
 Reviewers work on an export, never in a repository. Codex's read and write access covers its export, so it can write and run its
 fixes and tests there.
 
+**Watching agents.** The owner, 2026-11-16: "you are not monitoring things well". The coordinator watches every agent it
+starts, cheaply, and catches trouble before the owner does:
+
+- Every brief says: long runs in the background, wait for the notification, never poll in a loop.
+- At launch, note when the agent should be back. At that time, one cheap check: its notes folder, its newest log lines, the
+  pods it touches. Not its transcript.
+- Act at once on a stall, a wait with nothing new in its notes, a poll loop, duplicate work, or a token count that jumps
+  between notifications: message the agent with the fix, or stop it.
+- No "still waiting" turns to the owner; short replies.
+
 **Stories.** A pull request that delivers part of a story (#13 to #29) says `Part of #N`. A story closes after the owner approves,
 with a comment citing the proof for each acceptance criterion and the cluster it ran on. Paperclip is off for now (#6, #93).
 

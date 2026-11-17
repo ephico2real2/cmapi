@@ -29,6 +29,7 @@ Start a fresh agent per `CLAUDE.md`, "Who does what", in the background. Related
 - A test that fails before the fix and passes after. The test exercises real behaviour; searching a file for a string doesn't count.
 - The limits: nothing written to CRC, LDAP or Keycloak; explicit `--kubeconfig`; no secrets; a permission refusal stands.
 - Report the solution, its sources, each test's before and after, and what is measured, inferred and not tested.
+- Long runs (suites, mutants, builds, rollouts) go in the background, and the agent waits for their notification. Never a sleep or `until` loop: each wake re-reads the whole context.
 
 ## 3. Review, the same way as all reviews
 
