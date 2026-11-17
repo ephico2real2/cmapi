@@ -496,19 +496,19 @@
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-177": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|185-185": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|183-183": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|191-191": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|187-187": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|195-195": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|364-364": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|370-370": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|417-417": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|423-423": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [
@@ -533,10 +533,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|109-109": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env) or not c.cfg.expiration.allows(env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|116-116": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|119-119": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|132-132": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|135-135": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
@@ -564,7 +564,7 @@
   "            AUTHZ_DENIED.labels(permission).inc()",
   "            raise"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|133-133": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|21-30": [
@@ -950,7 +950,7 @@
  "docs/16-data-model.md|cmapi/src/cmapi/core/auth.py|37-37": [
   "    def __init__(self, issuer: str, url: str, *, verify: str | bool = True, lifespan: float = 600.0,"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|17-17": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|18-18": [
   "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"applied\", \"merge_failed\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|117-117": [

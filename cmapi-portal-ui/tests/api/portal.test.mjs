@@ -2812,6 +2812,7 @@ try {
     const failing = fleet.clusters.reduce((t, c) => t + (c.counts?.fail ?? 0), 0);
     await panel(page).getByText(`${failing} failing · 1 cluster off the bundle`).waitFor();
     // The policies: the API's, from the bundle, each with what it checks and its counts. None is named by the page.
+    await panel(page).getByText("1840 results on namespaces that cmapi does not manage, 41 of other policies and 2 of policies no longer on the cluster are counted and not shown.").waitFor();
     const policyRows = await tableRows(page, "Results by policy");
     assert.equal(policyRows.length, fleet.policies.length);
     const first = fleet.policies[0];
@@ -2958,6 +2959,7 @@ try {
     const shown = [];
     await openPol(page);
     await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
+    assert.deepEqual(await panel(page).getByRole("heading", { level: 1 }).allInnerTexts(), ["Policies"], "the mockup's heading");
     shown.push(...await shownText(page));
     await polCard(page, "Results by policy").locator("tbody tr").first().getByRole("button", { name: "Show failures" }).click();
     await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).waitFor();

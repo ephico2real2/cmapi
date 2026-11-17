@@ -393,7 +393,7 @@ export function policyFleet(rows = policyRowsFrom(30)) {
     policyCluster(base, { clusterId: "OCP_GF9", env: "rnd", state: "not-installed", stateDetail: "wgpolicyk8s.io/v1alpha2 is not served: Kyverno is not installed on the cluster", asOf: null }),
     policyCluster(base, { clusterId: "OCP_GF8", env: "rnd", state: "forbidden", stateDetail: "cmapi-reader may not list clusterpolicyreports: the reader's ClusterRole needs get, list and watch on them", asOf: null }),
     policyCluster(base, { clusterId: "OCP_GF10", env: "rnd", state: "capped", stateDetail: "140 rows past policy.reports.maxResultsPerCluster (20000) are counted and not listed", dropped: 140, counts: zero() }),
-    policyCluster(base, { clusterId: "OCP_GF11", env: "rnd", state: "stale", stateDetail: "no good read of the reports for 30 minutes: the counts are the last ones read", counts: zero() })];
+    policyCluster(base, { clusterId: "OCP_GF11", env: "rnd", mode: "enforce", liveActions: ["Deny"], state: "stale", stateDetail: "no good read of the reports for 30 minutes: the counts are the last ones read", counts: zero() })];
   const perCluster = { CRC: Object.fromEntries(POLICY_SAMPLE.policies.map((p) => [p.name, { ...zero(), pass: p.counts.pass + 3,
     fail: rows.filter((r) => r.policy === p.name && r.result === "fail").length, warn: rows.filter((r) => r.policy === p.name && r.result === "warn").length,
     error: rows.filter((r) => r.policy === p.name && r.result === "error").length }])) };

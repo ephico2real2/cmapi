@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 36 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 38 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
@@ -15,10 +15,10 @@ Nothing here was measured on a running system. No cmapi workload runs on a clust
 | Tabs in the mockup | 9, and the page frame |
 | Actions in the mockup | 64 |
 | Actions that make no call | 17 |
-| Endpoints that the actions need | 26 |
-| Endpoints built, in `openapi.json` | 16 |
+| Endpoints that the actions need | 25 |
+| Endpoints built, in `openapi.json` | 18 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
-| Endpoints not built | 8 |
+| Endpoints not built | 5 |
 
 ## How to read the figures
 
@@ -108,9 +108,9 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 57 | Expiration | Submit: Set expiry | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set` | built | 5 |  |
 | 58 | Expiration | Submit: Extend | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend` | built | 5 |  |
 | 59 | Expiration | Action buttons and date field | None | No endpoint | 5 | Extend 7, 14 or 30 days, Make permanent, Set a date. Submit sends the choice. |
-| 60 | Policies | Open the tab | `GET /api/v1/policies/results`<br>`GET /api/v1/policies/rejections`<br>`GET /api/v1/policies` | not built<br>not built<br>not built | 5 | The mockup names no call for its Clusters and Results by policy cards. `GET /api/v1/policies` is inferred from the design. |
-| 61 | Policies | Cluster chips | `GET /api/v1/policies/results` | not built | 5 | A filter on the results. |
-| 62 | Policies | Show failures (row) | `GET /api/v1/policies/results` | not built | 5 | A filter on the results. |
+| 60 | Policies | Open the tab | `GET /api/v1/policies/results`<br>`GET /api/v1/policies/rejections` | built<br>built | 5 | The Clusters and Results by policy cards are in the answer of `/policies/results` (`clusters`, `policies`), from one read of the watch: the design's `GET /api/v1/policies` is folded into it (#302, both designs and the arbitration). |
+| 61 | Policies | Cluster chips | `GET /api/v1/policies/results` | built | 5 | With `clusterId=`. |
+| 62 | Policies | Show failures (row) | `GET /api/v1/policies/results` | built | 5 | With `policy=`. |
 | 63 | Capacity | Open the tab | `GET /api/v1/capacity` | not built | 5 | The tab has no other action. |
 | 64 | KPIs | Open the tab | `GET /api/v1/admin/kpi` | built | 5 | The tab has no other action. The built endpoint returns four database KPIs and the figures of one component. |
 
@@ -119,7 +119,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 - **Placement preview.** The design has `POST /api/v1/capacity:place`, which also makes a reservation. It names no call that ranks clusters and reserves nothing. The figure maps the preview to `capacity:place`. This is inferred.
 - **Pick a suggestion.** The mockup jumps to one row by its key. The design names no parameter for this jump.
 - **Search box of the Expiration tab.** The design's parameter list for `GET /api/v1/expirations` has no search parameter. The built endpoint takes `q`, as `GET /api/v1/quotas` does (#318).
-- **Clusters and Results by policy cards.** The mockup names no call for these two cards. The figure uses `GET /api/v1/policies` from the design. This is inferred.
+- **Clusters and Results by policy cards.** The mockup names no call for these two cards. The built `GET /api/v1/policies/results` answers them with its `clusters` and `policies`, so the counts and the rows come from one read (#302).
 - **Capacity, Pull request and Argo CD panels of the Workflow tab.** The design names no call for them.
 - **Instance buttons, scenario buttons and replay buttons.** These are mockup controls. They have no endpoint, and they need none.
 
@@ -281,10 +281,9 @@ Expiration tab
     no call: the choice goes with Submit
 Policies tab
   Open the tab, Cluster chips, Show failures (row)
-    - - proposed - -> GET /api/v1/policies/results [not built]
-    - - proposed - -> GET /api/v1/policies/rejections [not built]
-    - - proposed - -> GET /api/v1/policies [not built]
-    behind: plugins/policies (not built)
+    - - proposed - -> GET /api/v1/policies/results [built]
+    - - proposed - -> GET /api/v1/policies/rejections [built]
+    behind: plugins/policies (built): the watch of each cluster's policy reports, and policy_rejections
 Capacity tab
   Open the tab
     - - proposed - -> GET /api/v1/capacity [not built]

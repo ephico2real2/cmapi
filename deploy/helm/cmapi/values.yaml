@@ -48,7 +48,8 @@ instance:
   # The policy engine and the mode of each environment (#213; docs/02, "Policy in one place"): engine kyverno or none,
   # mode audit, enforce or off, and environments: {prod: {mode: enforce}}. Empty: Kyverno audits in each environment
   # (#342): cmapi's own checks refuse a request, and the clusters admit and report what Kyverno finds. A change of mode is a
-  # change of this file, reviewed by the platform group.
+  # change of this file, reviewed by the platform group. The Policies tab (#302): reports: {maxResultsPerCluster: 20000}, the
+  # rows kept per cluster, and rejections: {retentionDays: 90}, how long a stored refusal is kept (docs/18).
   policy: {}
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)

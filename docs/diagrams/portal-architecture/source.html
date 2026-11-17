@@ -72,7 +72,7 @@ a { color: var(--remote); }
       <div class="fig-scroll">
         <!-- Three lanes: the portal, cmapi's own parts, and what cmapi uses but does not own. Solid = built or
              existing; dashed = not built or not installed for cmapi. Every dashed arrow is labelled. -->
-        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity, 8 worker jobs and the routes for policies and capacity are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
+        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity, 8 worker jobs and the routes for capacity are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
           <defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="200" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -154,7 +154,7 @@ a { color: var(--remote); }
             <text x="514" y="359">me, readyz, version</text>
             <rect x="312" y="378" width="376" height="58" rx="6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
             <text x="322" y="397"><tspan font-weight="600">Not built:</tspan> one namespace's expiry read,</text>
-            <text x="322" y="413">policies, capacity, placement, metadata, operations,</text>
+            <text x="322" y="413">capacity, placement, metadata, operations,</text>
             <text x="322" y="429">service accounts, grants, tokens, webhooks</text>
             <rect x="300" y="474" width="190" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="312" y="495" font-weight="600">PostgreSQL 16</text>
@@ -821,20 +821,20 @@ a { color: var(--remote); }
             <text x="40" y="698.5">Cluster chips</text>
             <rect x="30" y="710" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="726.5">Show failures (row)</text>
-            <rect x="376" y="628" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="376" y="628" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="388" y="649" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">GET /policies/results</text>
-            <text x="388" y="666">not in openapi.json</text>
-            <text x="388" y="682" fill="var(--muted)">filters: cluster and policy</text>
-            <rect x="376" y="698" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="388" y="666">in openapi.json · clusters, policies, rows</text>
+            <text x="388" y="682" fill="var(--muted)">filters: clusterId and policy</text>
+            <rect x="376" y="698" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="388" y="719" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">GET /policies/rejections</text>
-            <text x="388" y="736" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">GET /policies</text>
-            <text x="388" y="752" fill="var(--muted)">not in openapi.json · when the tab opens</text>
+            <text x="388" y="736">in openapi.json · since=7d</text>
+            <text x="388" y="752" fill="var(--muted)">when the tab opens</text>
             <text x="337" y="653" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <text x="337" y="723" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
-            <rect x="802" y="628" width="278" height="132" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="814" y="684" font-weight="600">plugins/policies</text>
-            <text x="814" y="701">reads Kyverno policy reports</text>
-            <text x="814" y="717" fill="var(--muted)">not built</text>
+            <rect x="802" y="628" width="278" height="132" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="814" y="684" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">plugins/policies</text>
+            <text x="814" y="701">watches each cluster's policy reports</text>
+            <text x="814" y="717">and reads policy_rejections</text>
             <text x="765" y="653" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <text x="765" y="723" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <text x="34" y="806" font-weight="600" fill="var(--host)">Capacity tab</text>

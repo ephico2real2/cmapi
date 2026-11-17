@@ -17,6 +17,7 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 | `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:320`) | `SwitchRepo.get` (`repo.py:316`) |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
+| `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |
 
 ## Relations
 
@@ -56,7 +57,7 @@ These indexes and constraints carry correctness. The code relies on each of them
 | A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:258`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
-The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:17`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
+The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:18`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
 
 ## The models and the migrations agree
 
@@ -191,6 +192,10 @@ One row is one notice of one channel for one request. `channel` is `portal` or `
 
 No code writes this table. The design is in `docs/01`, "Namespace expiration". `expires_at` is a date as text. `threshold_days` is 14, 7 or 1 for a notice before the date, 0 for the grace, and -1 for the delete (`models.py`).
 
+### `policy_rejections`
+
+Migration 0006 (#302). One row is one refusal on one UTC day: `stage` `plan` with `outcome` `refused` (a 422 that never became a request: `request_id` is NULL and `problem` holds its code), `plan` with `warned` (Kyverno's findings on a plan in audit mode, with its `request_id`), or `ci` with `refused` (the worker's checks failed the pull request). Two CHECK constraints hold that pairing. The same refusal again that day (`fingerprint`, a SHA-256 of who, where, what and the findings, unique with `day`) adds to `count` and moves `last_at`; the list is in the order of `first_at`, which never moves. `findings` is at most 20 items, each with `source`, `policy`, `rule`, `kyvernoRule`, `path`, `severity` and a `message` of at most 300 characters. Who asked is `username` and `automated` only: never the email, the employee ID or the justification (the owner, 2026-11-17). The daily job `rejections_prune` deletes the rows last seen more than `policy.rejections.retentionDays` ago (90 by default).
+
 ## Planned adoption quota view (#26, #251; not built)
 
 This section describes the proposed model in docs/reviews/2026-11-14-issue-26-adoption/README.md, D8 and D17–D19.
@@ -247,7 +252,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0005`. Tables: 9.
+Migration head: `0006`. Tables: 10.
 
 ### `admin_switches`
 
@@ -420,6 +425,42 @@ Migration head: `0005`. Tables: 9.
 | Constraint or index | Kind | Definition |
 |---|---|---|
 | `jwks_keys_pkey` | Primary key | `PRIMARY KEY (issuer)` |
+
+### `policy_rejections`
+
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `id` | bigint | no | `nextval('policy_rejections_id_seq'::regclass)` |
+| `day` | date | no |  |
+| `first_at` | timestamptz | no | `now()` |
+| `last_at` | timestamptz | no | `now()` |
+| `count` | integer | no | `1` |
+| `stage` | varchar(4) | no |  |
+| `outcome` | varchar(8) | no |  |
+| `problem` | varchar(60) | yes |  |
+| `cluster_id` | varchar(63) | no |  |
+| `env` | varchar(20) | no |  |
+| `namespace` | varchar(63) | no |  |
+| `plugin` | varchar(40) | no |  |
+| `action` | varchar(40) | no |  |
+| `request_id` | varchar(40) | yes |  |
+| `username` | varchar(100) | no |  |
+| `automated` | boolean | no |  |
+| `findings` | jsonb | no |  |
+| `fingerprint` | varchar(64) | no |  |
+
+| Constraint or index | Kind | Definition |
+|---|---|---|
+| `ck_rej_count` | Check | `CHECK ((count >= 1))` |
+| `ck_rej_outcome` | Check | `CHECK (((outcome)::text = ANY ((ARRAY['refused'::character varying, 'warned'::character varying])::text[])))` |
+| `ck_rej_problem` | Check | `CHECK (((((stage)::text = 'plan'::text) AND ((outcome)::text = 'refused'::text)) = (problem IS NOT NULL)))` |
+| `ck_rej_request` | Check | `CHECK (((((stage)::text = 'plan'::text) AND ((outcome)::text = 'refused'::text)) = (request_id IS NULL)))` |
+| `ck_rej_stage` | Check | `CHECK (((stage)::text = ANY ((ARRAY['plan'::character varying, 'ci'::character varying])::text[])))` |
+| `policy_rejections_request_id_fkey` | Foreign key | `FOREIGN KEY (request_id) REFERENCES change_requests(request_id)` |
+| `policy_rejections_pkey` | Primary key | `PRIMARY KEY (id)` |
+| `idx_rej_env_first` | Index | `btree (env, first_at, id)` |
+| `idx_rej_last` | Index | `btree (last_at)` |
+| `uq_rej_fingerprint_day` | Unique index | `btree (fingerprint, day)` |
 
 ### `request_events`
 

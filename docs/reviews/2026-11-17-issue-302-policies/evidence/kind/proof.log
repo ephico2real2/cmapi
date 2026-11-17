@@ -1,0 +1,169 @@
+migrated to head
+
+== the six checks against kind, as cmapi-reader
+{
+ "status": "connected",
+ "findings": [],
+ "version": "v1.37.0"
+}
+
+== 1. no Kyverno on the cluster: GET /api/v1/policies/results
+[
+ {
+  "clusterId": "CRC",
+  "env": "dev",
+  "mode": "audit",
+  "liveActions": [],
+  "state": "not-installed",
+  "stateDetail": "wgpolicyk8s.io/v1alpha2 is not served: Kyverno is not installed on the cluster",
+  "asOf": null,
+  "bundle": null,
+  "counts": null,
+  "hidden": null,
+  "dropped": null
+ }
+]
+
+== install Kyverno v1.20.0 (install.yaml of #333, sha256 in docs/reviews/2026-11-17-issue-333/evidence/kind)
+erno-cleanup-controller-metrics created
+service/kyverno-reports-controller-metrics created
+deployment.apps/kyverno-admission-controller created
+deployment.apps/kyverno-background-controller created
+deployment.apps/kyverno-cleanup-controller created
+deployment.apps/kyverno-reports-controller created
+
+
+== Kyverno's images
+NAME                            IMAGE
+kyverno-admission-controller    reg.kyverno.io/kyverno/kyverno:v1.20.0
+kyverno-background-controller   reg.kyverno.io/kyverno/background-controller:v1.20.0
+kyverno-cleanup-controller      reg.kyverno.io/kyverno/cleanup-controller:v1.20.0
+kyverno-reports-controller      reg.kyverno.io/kyverno/reports-controller:v1.20.0
+
+
+== the dev bundle, rendered by cmapi with cmapi.net/policy-digest
+31
+
+== a change outside cmapi: kubectl label namespace orders-dev other.example/x=1
+Warning: Policy cmapi-metadata-dev-label-other-keys-prefix failed: the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+{"cmapi.net/cluster-id":"KIND","cmapi.net/cost-center":"cc-4410","cmapi.net/env":"dev","cmapi.net/managed":"true","cmapi.net/requested-by-user":"ola","cmapi.net/team":"payments","cmapi.net/tier":"small","kubernetes.io/metadata.name":"orders-dev","other.example/x":"1"}
+
+== 2. Kyverno in audit: the cluster
+[
+ {
+  "clusterId": "CRC",
+  "env": "dev",
+  "mode": "audit",
+  "liveActions": [
+   "Audit",
+   "Warn"
+  ],
+  "state": "ok",
+  "stateDetail": null,
+  "asOf": "2026-11-17T22:07:43.067706Z",
+  "bundle": {
+   "expected": 31,
+   "live": 31,
+   "current": 31,
+   "ready": 31,
+   "missing": [],
+   "differing": [],
+   "actionsDiffer": []
+  },
+  "counts": {
+   "pass": 13,
+   "fail": 1,
+   "warn": 0,
+   "error": 0,
+   "skip": 0
+  },
+  "hidden": {
+   "unmanaged": 0,
+   "otherPolicies": 0,
+   "stale": 0
+  },
+  "dropped": 0
+ }
+]
+
+== 2. the row of orders-dev
+[
+ {
+  "clusterId": "CRC",
+  "env": "dev",
+  "mode": "audit",
+  "namespace": "orders-dev",
+  "resource": {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "name": "orders-dev"
+  },
+  "policy": "cmapi-metadata-dev-label-other-keys-prefix",
+  "rule": "prefix",
+  "kyvernoRule": "validation",
+  "result": "fail",
+  "message": "the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes [\"\", \"*.ephico2real.com/\"]",
+  "process": "background scan",
+  "source": "KyvernoValidatingPolicy",
+  "observedAt": "2026-11-17T22:08:18Z"
+ }
+]
+
+== the cluster's own report, for comparison
+cmapi-metadata-dev-label-other-keys-prefix validation fail the label keys other.example/x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
+
+
+== 3. a policy edited on the cluster: drift
+{
+ "clusterId": "CRC",
+ "env": "dev",
+ "mode": "audit",
+ "liveActions": [
+  "Audit",
+  "Warn"
+ ],
+ "state": "drift",
+ "stateDetail": "0 missing, 1 differ from the render, 0 without the actions Audit, Warn of mode audit",
+ "asOf": "2026-11-17T22:07:43.067706Z",
+ "bundle": {
+  "expected": 31,
+  "live": 31,
+  "current": 30,
+  "ready": 31,
+  "missing": [],
+  "differing": [
+   "cmapi-metadata-dev-label-other-keys-prefix"
+  ],
+  "actionsDiffer": []
+ },
+ "counts": {
+  "pass": 13,
+  "fail": 1,
+  "warn": 0,
+  "error": 0,
+  "skip": 0
+ },
+ "hidden": {
+  "unmanaged": 0,
+  "otherPolicies": 0,
+  "stale": 0
+ },
+ "dropped": 0
+}
+
+== 4. the reader's report rule removed
+{
+ "clusterId": "CRC",
+ "env": "dev",
+ "mode": "audit",
+ "liveActions": [],
+ "state": "forbidden",
+ "stateDetail": "cmapi-reader may not list policyreports, clusterpolicyreports: the reader's ClusterRole needs get, list and watch on them",
+ "asOf": null,
+ "bundle": null,
+ "counts": null,
+ "hidden": null,
+ "dropped": null
+}
+.
+1 passed in 256.61s (0:04:16)

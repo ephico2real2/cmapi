@@ -1,0 +1,8 @@
+ERROR tests/service/test_policies_302.py
+ERROR tests/core/test_policy_reports_302.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!
+2 errors in 1.28s
+ImportError while importing test module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-302p/before/cmapi/tests/service/test_policies_302.py'.
+E   ImportError: cannot import name 'PolicyRejectionRow' from 'cmapi.core.db.models' (/Users/olasumbo/gitRepos/workbench/cmapi/ob-302p/before/cmapi/src/cmapi/core/db/models.py)
+ImportError while importing test module '/Users/olasumbo/gitRepos/workbench/cmapi/ob-302p/before/cmapi/tests/core/test_policy_reports_302.py'.
+E   ModuleNotFoundError: No module named 'cmapi.core.clients.policyreports'
