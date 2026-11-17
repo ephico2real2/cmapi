@@ -504,10 +504,13 @@
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|169-169": [
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|114-114": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|107-107": [
+  "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env) or not c.cfg.expiration.allows(env):"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|109-109": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|98-98": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|125-125": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [

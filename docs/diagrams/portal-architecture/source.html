@@ -72,7 +72,7 @@ a { color: var(--remote); }
       <div class="fig-scroll">
         <!-- Three lanes: the portal, cmapi's own parts, and what cmapi uses but does not own. Solid = built or
              existing; dashed = not built or not installed for cmapi. Every dashed arrow is labelled. -->
-        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity, 8 worker jobs and the routes for expirations, policies and capacity are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
+        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity, 8 worker jobs and the routes for policies and capacity are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
           <defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="200" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -153,7 +153,7 @@ a { color: var(--remote); }
             <text x="514" y="342" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">routers/me, health</text>
             <text x="514" y="359">me, readyz, version</text>
             <rect x="312" y="378" width="376" height="58" rx="6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-            <text x="322" y="397"><tspan font-weight="600">Not built:</tspan> expirations list, set and make permanent,</text>
+            <text x="322" y="397"><tspan font-weight="600">Not built:</tspan> one namespace's expiry read,</text>
             <text x="322" y="413">policies, capacity, placement, metadata, operations,</text>
             <text x="322" y="429">service accounts, grants, tokens, webhooks</text>
             <rect x="300" y="474" width="190" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -700,7 +700,7 @@ a { color: var(--remote); }
       <div class="fig-scroll">
         <!-- Left: each action of the mockup, in its tab. Middle: the call it would make, solid when the endpoint is in
              openapi.json. Right: the service and worker part behind the call. A grey box is an action with no call. -->
-        <svg viewBox="0 0 1100 1107" role="img" aria-label="Of the calls that the Expiration, Policies, Capacity and KPIs tabs would make, two endpoints are built: the extend of an expiry and GET /admin/kpi. Eight are not built: the expiration list, read, make permanent and set, the three policy reads, and GET /capacity. No call happens today, because the portal runs on sample data.">
+        <svg viewBox="0 0 1100 1107" role="img" aria-label="Of the calls that the Expiration, Policies, Capacity and KPIs tabs would make, five endpoints are built: the expiration list, its extend, set and make permanent, and GET /admin/kpi. Five are not built: the expiry read of one namespace, the three policy reads, and GET /capacity. No call happens today, because the portal runs on sample data.">
           <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="272" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -728,10 +728,10 @@ a { color: var(--remote); }
             <line x1="302" y1="485" x2="372" y2="485" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ah5)"/>
             <line x1="282" y1="549" x2="302" y2="549" stroke="var(--none)" stroke-width="1.2"/>
             <line x1="302" y1="549" x2="376" y2="549" stroke="var(--none)" stroke-width="1.2"/>
-            <line x1="732" y1="160" x2="798" y2="160" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ah5)"/>
+            <line x1="732" y1="160" x2="798" y2="160" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah5)"/>
             <line x1="732" y1="269" x2="798" y2="269" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ah5)"/>
-            <line x1="732" y1="341" x2="798" y2="341" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ah5)"/>
-            <line x1="732" y1="413" x2="798" y2="413" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ah5)"/>
+            <line x1="732" y1="341" x2="798" y2="341" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah5)"/>
+            <line x1="732" y1="413" x2="798" y2="413" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah5)"/>
             <line x1="732" y1="485" x2="798" y2="485" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah5)"/>
             <line x1="282" y1="666" x2="302" y2="666" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5"/>
             <line x1="282" y1="694" x2="302" y2="694" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="6 5"/>
@@ -764,10 +764,10 @@ a { color: var(--remote); }
             <text x="40" y="192.5">Env chips</text>
             <rect x="30" y="204" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="220.5">Previous and Next</text>
-            <rect x="376" y="129" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="388" y="150" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">GET /expirations</text>
-            <text x="388" y="167">not in openapi.json</text>
-            <text x="388" y="183" fill="var(--muted)">the list, with state, env and search</text>
+            <rect x="376" y="129" width="356" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="388" y="150" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="var(--remote)">GET /expirations</text>
+            <text x="388" y="167">Namespaces by expiry, paged · objects:read</text>
+            <text x="388" y="183" fill="var(--muted)">state, env, cluster, team and q</text>
             <text x="337" y="154" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <rect x="30" y="257" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="273.5">Manage (row)</text>
@@ -778,40 +778,42 @@ a { color: var(--remote); }
             <text x="337" y="263" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <rect x="30" y="329" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="345.5">Submit: Request make permanent</text>
-            <rect x="376" y="310" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="388" y="331" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">POST …/namespaces/{ns}/expiration:makePermanent</text>
-            <text x="388" y="348">not in openapi.json</text>
+            <rect x="376" y="310" width="356" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="388" y="331" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="var(--remote)">POST …/namespaces/{ns}/expiration:makePermanent</text>
+            <text x="388" y="348">Remove a namespace's expiry · namespaces:write</text>
+            <text x="388" y="364" fill="var(--muted)">needs If-Match; has a dry run</text>
             <text x="337" y="335" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <rect x="30" y="401" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="417.5">Submit: Set expiry</text>
-            <rect x="376" y="382" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="388" y="403" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">POST …/namespaces/{ns}/expiration:set</text>
-            <text x="388" y="420">not in openapi.json</text>
+            <rect x="376" y="382" width="356" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="388" y="403" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="var(--remote)">POST …/namespaces/{ns}/expiration:set</text>
+            <text x="388" y="420">Give a permanent namespace a date</text>
+            <text x="388" y="436" fill="var(--muted)">needs If-Match; has a dry run</text>
             <text x="337" y="407" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <rect x="30" y="473" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="489.5">Submit: Extend</text>
             <rect x="376" y="454" width="356" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
             <text x="388" y="475" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="var(--remote)">POST …/namespaces/{ns}/expiration:extend</text>
             <text x="388" y="492">Extend a namespace's expiry · namespaces:write</text>
-            <text x="388" y="508" fill="var(--muted)">needs If-Match</text>
+            <text x="388" y="508" fill="var(--muted)">needs If-Match; has a dry run</text>
             <text x="337" y="479" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <rect x="30" y="537" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="553.5">Action buttons and date field</text>
             <rect x="376" y="526" width="356" height="46" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.5"/>
             <text x="388" y="545" font-weight="600" fill="var(--none)">No call</text>
             <text x="388" y="562">the choice goes with Submit</text>
-            <rect x="802" y="129" width="278" height="315" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="814" y="276.5" font-weight="600">Expiration routes, expire_check</text>
-            <text x="814" y="293.5">rules exist: plugins/expiration/rules.py</text>
-            <text x="814" y="309.5" fill="var(--muted)">routes and job: not built</text>
-            <text x="765" y="154" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
+            <rect x="802" y="129" width="278" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="814" y="150" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">plugins/expiration</text>
+            <text x="814" y="167">the watch cache and rules.py</text>
+            <rect x="802" y="238" width="278" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="814" y="259" font-weight="600">One namespace's expiry, expire_check</text>
+            <text x="814" y="276" fill="var(--muted)">not built</text>
             <text x="765" y="263" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
-            <text x="765" y="335" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
-            <text x="765" y="407" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
-            <rect x="802" y="454" width="278" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-            <text x="814" y="475" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">plugins/namespaces</text>
-            <text x="814" y="492">pipeline: authorize, lock, plan, decide</text>
-            <text x="814" y="508" fill="var(--muted)">worker: open_pr, pr_checks, watch_sync</text>
+            <rect x="802" y="310" width="278" height="206" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="814" y="331" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">plugins/namespaces</text>
+            <text x="814" y="348">plan from Git under If-Match</text>
+            <text x="814" y="365">pipeline: authorize, lock, plan, decide</text>
+            <text x="814" y="381" fill="var(--muted)">worker: open_pr, pr_checks, watch_sync</text>
             <text x="34" y="618" font-weight="600" fill="var(--host)">Policies tab</text>
             <rect x="30" y="654" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="670.5">Open the tab</text>
@@ -866,7 +868,7 @@ a { color: var(--remote); }
           </g>
         </svg>
       </div>
-      <figcaption>These four tabs have the least behind them. Extend is built, because it is a normal namespace change. The KPI endpoint is built, but it returns four database KPIs and one component, not the board that the mockup shows. The expiration list, the policy reads and the capacity read are not built.</figcaption>
+      <figcaption>These four tabs have the least behind them. The expiration list, extend, set and make permanent are built (#318): the writes are normal namespace changes. The KPI endpoint is built, but it returns four database KPIs and one component, not the board that the mockup shows. The expiry read of one namespace, the policy reads and the capacity read are not built.</figcaption>
     </figure>
   </section>
 </div>

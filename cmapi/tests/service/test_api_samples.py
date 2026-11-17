@@ -299,7 +299,38 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body={**NS, "namespace": "kube-tools"}, key=True)      # 422 reserved
     rec.call("quotas_quotas", "GET", "/api/v1/quotas?sort=nope", ola)                                         # 400 invalid-sort
 
-    data = {"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items()))}
+    # ---- expiry (#318): the dry run of each write, a date for a permanent namespace, a date made permanent, then the list
+    def etag_of(ns: str) -> str:
+        return client.get(f"{base}/{ns}", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
+
+    until = (date.today() + timedelta(days=21)).isoformat()
+    fresh = client.post(base, json={**NS, "namespace": "notes-dev"},
+                        headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": str(uuid.uuid4())})
+    assert fresh.status_code == 202, fresh.text
+    if fresh.json()["status"] == "pending_approval":
+        client.post(f"/api/v1/requests/{fresh.json()['requestId']}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})
+    run_jobs(ctx)
+    rec.call("namespaces_extend:dryRun", "POST", f"{base}/sprint-dev/expiration:extend?dryRun=true", ola, json_body={"days": 7},
+             headers={"If-Match": f'"{etag_of("sprint-dev")}"'})
+    rec.call("namespaces_set_expiry", "POST", f"{base}/sprint-dev/expiration:set", ola, json_body={"until": until},
+             headers={"If-Match": f'"{etag_of("sprint-dev")}"'}, key=True)                                  # 422 expiration-already-set
+    rec.call("namespaces_set_expiry:dryRun", "POST", f"{base}/notes-dev/expiration:set?dryRun=true", ola,
+             json_body={"until": until, "justification": "A load test this sprint"}, headers={"If-Match": f'"{etag_of("notes-dev")}"'})
+    dated = rec.call("namespaces_set_expiry", "POST", f"{base}/notes-dev/expiration:set", ola,
+                     json_body={"until": until, "justification": "A load test this sprint"}, headers={"If-Match": f'"{etag_of("notes-dev")}"'}, key=True)
+    assert dated.status_code == 202, dated.text
+    run_jobs(ctx)
+    rec.call("namespaces_make_permanent:dryRun", "POST", f"{base}/sprint-dev/expiration:makePermanent?dryRun=true", ola,
+             json_body={"justification": "In production use"}, headers={"If-Match": f'"{etag_of("sprint-dev")}"'})
+    permanent = rec.call("namespaces_make_permanent", "POST", f"{base}/sprint-dev/expiration:makePermanent", ola,
+                         json_body={"justification": "In production use"}, headers={"If-Match": f'"{etag_of("sprint-dev")}"'}, key=True)
+    assert permanent.status_code == 202 and permanent.json()["status"] == "pending_approval", permanent.text
+    ctx.registry.cache("CRC")._list("Namespace")
+    listed = rec.call("expiration_expirations", "GET", "/api/v1/expirations?limit=25", ola)
+    rows = {i["name"]: (i["expiresAt"], i["state"], i["openRequest"]) for i in listed.json()["items"]}
+    assert rows["notes-dev"] == (until, "active", None) and rows["sprint-dev"][2] == permanent.json()["requestId"], listed.text
+
+    data ={"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items()))}
     spec = client.get("/openapi.json").json()
     wanted = {op["operationId"] for ops in spec["paths"].values() for op in ops.values()}
     have = {k.split(":")[0] for k in rec.operations} | {p["operationId"] for p in rec.problems.values()}
