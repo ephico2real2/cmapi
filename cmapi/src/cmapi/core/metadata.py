@@ -336,10 +336,12 @@ def value_regex(rule: "KeyRule", domains: list[str]) -> str | None:
 # Each regex below is in the subset of _Subset (tests/core/test_metadata_schema_328.py holds it), so ECMA-262 reads it as
 # the validator does. A label value: empty, or _NAME of at most 63 characters (maxLength says the 63).
 _LABEL_VALUE = f"^(?:{_NAME_TEXT})?$"
-# A key: an optional DNS-1123 subdomain and "/", then a name of 1 to 63 characters. The prefix's 253 is maxLength's
-# 317 (253 + 1 + 63) only: a length bound on one part of a regex needs a lookahead, which RE2 lacks.
+# A key: an optional DNS-1123 subdomain and "/", then a name of 1 to 63 characters. The prefix's 253 characters are a
+# second schema, in "not" (_LONG_PREFIX): a length bound on one part of a single regex would need a lookahead, which
+# RE2 lacks. _KEY allows one "/" at most, so the text before it is the prefix that _syntax reads.
 _KEY = f"^(?:{_DNS1123_SUB_TEXT}/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{{0,61}}[A-Za-z0-9])?$"
 _KEY_MAX = 253 + 1 + 63
+_LONG_PREFIX = "^[^/]{254}"
 _OPS = ("create", "patch")
 
 
@@ -372,24 +374,37 @@ def _glob_regex(glob: str, *, exact: bool) -> str | None:
                     return None
                 klass = "[^/]"
             out.append(klass)
+        elif c == "/":
+            # A prefix holds no "/", so fnmatchcase never matches this glob: as keys that are refused it is none (None);
+            # as keys that are admitted, a "/" only widens the set. The regex is read on a whole key (^(?:R)/ in
+            # _key_names), where a "/" here would reach past the prefix into a key that the validator admits.
+            if exact:
+                return None
+            out.append("\\/")
         else:
             out.append("\\" + c if c in _SYNTAX else c)
     return "".join(out)
 
 
 def _glob_class(body: str, negate: bool) -> str | None:
-    """One fnmatch class as a regex class in the subset, or None. Ranges as a-z; every other character is itself."""
+    """One fnmatch class as a regex class in the subset, or None. Ranges as a-z; every other character is itself. A
+    prefix holds no "/", so "/" is left out of the class (a range over it is split around it), as [^/ leaves it out of
+    a negated one: the class is read on a whole key, and must not match the "/" that ends the prefix."""
     parts, i = [], 0
     while i < len(body):
         if i + 2 < len(body) and body[i + 1] == "-":
             low, high = body[i], body[i + 2]
             if low > high:
                 return None                                 # fnmatch drops an empty range; say it as unknown
-            parts.append(_class_char(low) + "-" + _class_char(high))
+            spans = [(low, "."), ("0", high)] if low <= "/" <= high else [(low, high)]   # "." and "0" are "/" -1, +1
+            parts += [_class_char(a) if a == b else _class_char(a) + "-" + _class_char(b) for a, b in spans if a <= b]
             i += 3
         else:
-            parts.append(_class_char(body[i]))
+            if body[i] != "/":
+                parts.append(_class_char(body[i]))
             i += 1
+    if negate and not parts:
+        return "[^/]"                                       # [!/]: any character of a prefix
     text = ("[^/" if negate else "[") + "".join(parts) + "]"
     return text if parts and portable_pattern_problem(text) is None else None
 
@@ -896,7 +911,7 @@ class MetadataKeys:
         It documents validate(); it never replaces it. It is sound: each map that validate() accepts passes it
         (tests/core/test_metadata_schema_328.py runs both on one corpus). What JSON Schema cannot say stays loose and is
         said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix), the
-        count of other keys and the sizes in bytes (allowOther), and the 253 characters of a key's prefix."""
+        count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a key's prefix."""
         if kind not in KINDS or op not in _OPS:
             raise ValueError(f"json_schema: kind is one of {KINDS} and op one of {_OPS}, not {kind!r}, {op!r}")
         patch = op == "patch"
@@ -1015,6 +1030,6 @@ class MetadataKeys:
             if nots:
                 branch["not"] = {"anyOf": nots}
             any_of.append(branch)
-        names: dict[str, Any] = {} if patch else {"maxLength": _KEY_MAX, "pattern": _KEY}
+        names: dict[str, Any] = {} if patch else {"maxLength": _KEY_MAX, "pattern": _KEY, "not": {"pattern": _LONG_PREFIX}}
         names["anyOf"] = any_of or [{"enum": []}]
         return names

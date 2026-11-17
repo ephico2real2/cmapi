@@ -207,3 +207,35 @@ def test_a_kind_or_an_operation_that_is_not_one_is_refused():
         keys.json_schema("labels", "create")
     with pytest.raises(ValueError, match="json_schema"):
         keys.json_schema("label", "update")
+
+
+def test_a_reserved_glob_with_a_slash_never_refuses_a_held_key_that_a_patch_may_remove():
+    """A prefix holds no "/", so a reserved glob with one (literal, in a class, or in a range over it) matches no prefix.
+    The schema reads the glob on a whole key (^(?:R)/), where that "/" would reach past the prefix: it refused a patch
+    that removes a held key which allowOther admits and validate() accepts (OB3 on #350)."""
+    data = raw(SHIPPED)
+    for stanza in ("extraLabels", "extraAnnotations"):
+        data[stanza]["allowOther"]["prefixes"] = ["", "a*", "x*"]
+    data["reservedPrefixes"] = ["kubernetes.io/", "a/b/", "a[/]c/", "x[+-0]y/"]
+    keys, reader = MetadataKeys(data), SchemaReader()
+    for kind in KINDS:
+        schema = reader.validator(keys.json_schema(kind, "patch"))
+        for key in ("a/b/c", "a/c/d", "x/y/z"):
+            sent, held = ({key: None}, {}), {"current_labels" if kind == "label" else "current_annotations": {key: "x"}}
+            assert keys.validate(*(sent if kind == "label" else sent[::-1]), operator=False, existing=True, **held) == []
+            assert schema.is_valid({key: None}), (kind, key)
+        for key in ("x+y/k", "x.y/k", "x0y/k"):          # the class still refuses each prefix that it reads
+            assert keys.classify(key, kind) == "reserved" and not schema.is_valid({key: None}), (kind, key)
+    assert _glob_regex("x[+-0]y", exact=True) == "x[+-.0]y" and _glob_regex("a/b", exact=True) is None
+    assert _glob_regex("a[!/]c", exact=True) == "a[^/]c"
+
+
+def test_a_create_refuses_a_key_whose_prefix_is_over_253_characters():
+    """JSON Schema says the 253 with a second pattern under "not", with no lookahead (OB3 on #350)."""
+    keys, reader = MetadataKeys.load(SHIPPED), SchemaReader()
+    for kind in KINDS:
+        names = reader.validator(keys.json_schema(kind, "create")["propertyNames"])
+        for length, ok in ((253, True), (254, False)):
+            key = "a" * (length - len(".ephico2real.com")) + ".ephico2real.com/k"
+            assert (keys._syntax(key, None, kind) is None) is ok
+            assert names.is_valid(key) is ok, (kind, length)
