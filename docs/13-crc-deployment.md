@@ -671,6 +671,42 @@ deploy/crc-trust.sh --write          # asks for ca.crt alone; the API has no fie
 git add deploy/manifests/environments/crc/30-trust.yaml              # a pull request; then render, and apply the environment, then the components
 ```
 
+## Kyverno
+
+cmapi's chart installs no Kyverno (docs/11). On CRC it is installed once, beside cmapi, so the policy bundle can run in audit mode (#342) and the Policies tab (#302) has reports to show. CRC is shared, so the install sees only namespaces cmapi manages and never refuses a request.
+
+```sh
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm install kyverno kyverno/kyverno --version 3.10.0 -n kyverno --create-namespace \
+  -f deploy/kyverno/crc-values.yaml --wait --timeout 8m
+```
+
+Chart 3.10.0 is Kyverno v1.20.0, the version of the CLI in cmapi's image. What `deploy/kyverno/crc-values.yaml` changes, and why:
+
+| Value | Why |
+|---|---|
+| `config.webhooks.namespaceSelector`: `cmapi.net/managed In [true]` | The bundle's policies match every Namespace, ResourceQuota and LimitRange and narrow to managed ones inside Kyverno (`core/policygen.py`, `matchConditions`). The selector keeps other projects' requests from reaching Kyverno at all |
+| `features.forceFailurePolicyIgnore` | If Kyverno is down, nothing is refused. cmapi's own checks still refuse (#342) |
+| `backgroundController` and `cleanupController` off | The bundle has no generate or mutate-existing rules, and cmapi does not use cleanup policies. Fewer pods on a node at 80% memory |
+| `runAsUser` and `runAsGroup` null | OpenShift's `restricted-v2` assigns them from the namespace's range and refuses the chart's 65534 ([platform notes](https://kyverno.io/docs/installation/platform-notes/)) |
+
+**Measured on CRC, 2026-11-17** (OpenShift 4.22.14, Kubernetes v1.35.6):
+
+- Both pods ran under `restricted-v2`: `kyverno-admission-controller` and `kyverno-reports-controller`, with no restarts.
+- A no-op `ValidatingPolicy` on namespaces, applied and then deleted, got the webhook `vpol.validate.kyverno.svc-ignore`, with failure policy `Ignore` and the `cmapi.net/managed` selector. So the selector applies to the webhooks Kyverno builds per policy.
+- Kyverno's only webhook on `*/*` is `protect-generation-labels`. It matches only objects labelled `generate.kyverno.io/policy-name`, and fails open.
+- The webhooks that still fail closed cover only Kyverno's own types: policies, exceptions and global context entries.
+- Memory, two minutes after start:
+  - the admission controller used 54 Mi, with a 128 Mi request;
+  - the reports controller used 86 Mi, with a 64 Mi request and a 128 Mi limit;
+  - the node went from 80% to 82%.
+
+Background reports follow each policy's own `matchConditions`, not the webhook selector. The probe had none, so it reported on all 87 namespaces until it was deleted. cmapi's policies narrow to managed namespaces.
+
+**Not yet on CRC:** cmapi's policy bundle. It reaches a cluster through `cluster-configs`, so until it is delivered, Kyverno runs with no cmapi policies and the Policies tab shows no results.
+
+**Removal:** `helm uninstall kyverno -n kyverno`. The chart's pre-delete hook removes the webhooks first.
+
 ## Memory
 
 From the manifests, by Kubernetes' rule that a pod's effective request is the larger of the sum of its containers and its largest init container. `test_crc_memory_requests_are_the_planned_576_mi` holds it.

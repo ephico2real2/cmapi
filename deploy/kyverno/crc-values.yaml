@@ -1,0 +1,54 @@
+# Kyverno v1.20.0 (chart 3.10.0) on CRC, for cmapi's policy bundle in audit mode (#342) and the Policies tab (#302).
+# CRC is shared with other projects, so Kyverno sees only namespaces cmapi manages, and never blocks a request. docs/13 "Kyverno".
+
+config:
+  webhooks:
+    # Only namespaces labelled cmapi.net/managed=true, and the resources inside them. For a Namespace object the API server
+    # matches the object's own labels.
+    namespaceSelector:
+      matchExpressions:
+        - key: cmapi.net/managed
+          operator: In
+          values: ["true"]
+
+features:
+  # Fail open: if Kyverno is down, no request anywhere on the cluster is refused. cmapi's own checks still refuse (#342).
+  forceFailurePolicyIgnore:
+    enabled: true
+
+# cmapi's bundle has no generate or mutate-existing rules, and does not use cleanup policies or the TTL label
+# (core/policygen.py only refuses cleanup.kyverno.io/ttl in prod). Off, to keep Kyverno small on a node at 80% memory.
+backgroundController:
+  enabled: false
+cleanupController:
+  enabled: false
+
+# OpenShift's restricted-v2 SCC assigns the UID and GID from the namespace's range; the chart's fixed 65534 is refused.
+# https://kyverno.io/docs/installation/platform-notes/
+admissionController:
+  initContainer:
+    securityContext:
+      runAsUser: null
+      runAsGroup: null
+  container:
+    securityContext:
+      runAsUser: null
+      runAsGroup: null
+reportsController:
+  securityContext:
+    runAsUser: null
+    runAsGroup: null
+webhooksCleanup:
+  securityContext:
+    runAsUser: null
+    runAsGroup: null
+crds:
+  migration:
+    securityContext:
+      runAsUser: null
+      runAsGroup: null
+upgrade:
+  legacyPolicyCheck:
+    securityContext:
+      runAsUser: null
+      runAsGroup: null
