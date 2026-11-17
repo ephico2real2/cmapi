@@ -55,12 +55,38 @@ def namespace(catalog: TierCatalog, keys: MetadataKeys, sources: dict, labels: d
     return yaml.safe_load(next(t for p, t in files.items() if p.endswith("/namespace.yaml")))
 
 
+class Namespaces:
+    """namespace() for many requests of one configuration, without a YAML round trip each (about 12 ms): the renderer
+    writes the request's keys, then the keys derived from the target, then its own keys, each later one winning
+    (core/render/manifests.py, render). The renderer's own keys come from one render with no request key, and
+    `check` holds the result equal to namespace() on a sample of the corpus."""
+
+    def __init__(self, catalog: TierCatalog, keys: MetadataKeys, sources: dict):
+        self.catalog, self.keys = catalog, keys
+        base = namespace(catalog, keys, sources, {}, {})["metadata"]
+        derived = dict(zip(KINDS, keys.derived(sources)))
+        self.own = {kind: {k: v for k, v in (base.get(f"{kind}s") or {}).items() if k not in derived[kind]}
+                    for kind in KINDS}
+
+    def __call__(self, sources: dict, labels: dict, annotations: dict) -> dict:
+        derived = dict(zip(KINDS, self.keys.derived(sources)))
+        meta = {"name": sources["namespace"]}
+        for kind, sent in (("label", labels), ("annotation", annotations)):
+            meta[f"{kind}s"] = {**sent, **derived[kind], **self.own[kind]}
+        return {"apiVersion": "v1", "kind": "Namespace", "metadata": meta}
+
+    def check(self, sources: dict, labels: dict, annotations: dict) -> None:
+        fast = self(sources, labels, annotations)["metadata"]
+        slow = namespace(self.catalog, self.keys, sources, labels, annotations)["metadata"]
+        assert {k: slow.get(k) for k in ("name", "labels", "annotations")} == fast, (fast, slow)
+
+
 def failed(kyverno: str, policies: Path, docs: list[dict], tmp: Path) -> dict[str, list[tuple[str, str]]]:
     """{namespace: [(policy, message)]} of the failed results of one `kyverno apply` on the docs; any other result than
     pass, skip or fail stops the test (a policy that the CLI could not evaluate is a defect of the bundle)."""
     tmp.mkdir(parents=True, exist_ok=True)
     res = tmp / "resources.yaml"
-    res.write_text(yaml.safe_dump_all(docs, width=1000))
+    res.write_text("\n---\n".join(json.dumps(d) for d in docs) + "\n")   # JSON is YAML, and much faster to write
     r = subprocess.run([kyverno, "apply", str(policies), "--resource", str(res), "-p", "--output-format", "json"],
                        capture_output=True, text=True, timeout=600)
     report = json.loads(r.stdout)
@@ -214,6 +240,7 @@ def test_each_map_that_the_rendered_policies_refuse_cmapi_refuses(kyverno, catal
     bundle = render_bundle(catalog, keys, PolicySettings(), {base["environment"]}, base["instance"])
     index = index_of(bundle)
     policies = write(tmp_path / "b", bundle) / "env" / base["environment"]
+    render = Namespaces(catalog, keys, base)
     rows = []
     for i, case in enumerate(cases(keys)):
         # One namespace for each case; a namespacePrefix key's example ("abc") starts each name.
@@ -224,8 +251,10 @@ def test_each_map_that_the_rendered_policies_refuse_cmapi_refuses(kyverno, catal
             current = {case.kind: {**good(keys, case.kind), **case.held}, other: good(keys, other)}
         sent = {case.kind: dict(case.body), other: good(keys, other) if case.op == "create" else {}}
         result = {k: keys.merge_patch(current[k], sent[k]) for k in KINDS}
-        new = namespace(catalog, keys, sources, result["label"], result["annotation"])
-        old = namespace(catalog, keys, sources, current["label"], current["annotation"]) if case.op == "patch" else None
+        new = render(sources, result["label"], result["annotation"])
+        old = render(sources, current["label"], current["annotation"]) if case.op == "patch" else None
+        if i % 250 == 0:
+            render.check(sources, result["label"], result["annotation"])
         rows.append((case, sources, new, old))
     batches = [rows[i:i + 2000] for i in range(0, len(rows), 2000)]
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -233,7 +262,7 @@ def test_each_map_that_the_rendered_policies_refuse_cmapi_refuses(kyverno, catal
                                 enumerate(batches)))
     fails = {k: v for r in results for k, v in r.items()}
     counts = {"cases": len(rows), "cmapi refuses": 0, "kyverno refuses": 0, "both": 0, "cmapi only": 0}
-    kyverno_only = []
+    kyverno_only, only = [], {}                     # only: the codes of the maps that cmapi alone refuses
     for case, sources, new, old in rows:
         refused = [p for p, _ in fails.get(sources["namespace"], []) if not (old and _held(index[p], new, old))]
         errors = verdict(keys, case, sources)
@@ -241,11 +270,15 @@ def test_each_map_that_the_rendered_policies_refuse_cmapi_refuses(kyverno, catal
         counts["kyverno refuses"] += bool(refused)
         counts["both"] += bool(errors) and bool(refused)
         counts["cmapi only"] += bool(errors) and not refused
+        if errors and not refused:
+            for code in {e["code"] for e in errors}:
+                only[code] = only.get(code, 0) + 1
         if refused and not errors:
             kyverno_only.append((case.kind, case.op, dict(case.body), refused))
     log = os.environ.get("CMAPI_AGREEMENT_LOG")
     if log:
         with open(log, "a") as f:
-            f.write(json.dumps({"config": name, **counts, "kyverno only": len(kyverno_only)}) + "\n")
+            f.write(json.dumps({"config": name, **counts, "kyverno only": len(kyverno_only),
+                                "codes of cmapi only": dict(sorted(only.items()))}) + "\n")
     assert kyverno_only == [], (counts, kyverno_only[:5])
     assert counts["kyverno refuses"] > 0, counts
