@@ -1,6 +1,7 @@
 """Routes of the namespaces plugin."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from fastapi import Depends, Response
@@ -36,6 +37,16 @@ class ExtendBody(Api):
     days: int | None = Field(default=None, description="Days to extend by, up to the environment's limit", examples=[30])
     until: str | None = Field(default=None, description="A date to extend to", examples=["2026-12-15"])
     justification: str | None = Field(default=None, description="Why", examples=["Another sprint"])
+
+
+class SetBody(Api):
+    until: date = Field(description="The expiry date: after today, and at most the environment's maxExtensionDays away",
+                        examples=["2026-12-15"])
+    justification: str | None = Field(default=None, description="Why", examples=["A test namespace for one sprint"])
+
+
+class PermanentBody(Api):
+    justification: str | None = Field(default=None, description="Why", examples=["The service went to production use"])
 
 
 def _idem(key: str | None, dry_run: bool) -> str | None:
@@ -194,25 +205,70 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None =
     return _submit(c, who, plan, key, raw, None)
 
 
+EXPIRY_PROBLEMS = WRITE_PROBLEMS + ["object-not-found", "expiration-not-allowed", "expiration-limit", "expiration-not-set",
+                                   "expiration-in-past", "precondition-required", "precondition-failed"]
+
+
+def _expiry_write(c: AppContext, who: Identity, cluster_id: str, raw: dict[str, Any], *, key: str | None, etag: str | None,
+                  dry_run: bool, reason: str, justification: str | None, fingerprinted: dict[str, Any] | None = None):
+    """The one path of :extend, :set and :makePermanent: a namespace update planned from the date in Git, under If-Match.
+
+    `fingerprinted` is the body that the Idempotency-Key is bound to, when it must differ from what the plan reads: the route
+    is part of :set's fingerprint, so the same key sent to another route is another request, not a replay."""
+    body = fingerprinted or raw
+    key = _idem(key, dry_run)
+    replay = _replay(c, who, key, body)
+    if replay:
+        return replay
+    plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag, reason=reason)
+    if dry_run:
+        return JSONResponse(PlanView.model_validate(plan.view()).model_dump(by_alias=True), status_code=200)
+    return _submit(c, who, plan, key, body, justification)
+
+
 @router.write("/namespaces/{ns}/expiration:extend", summary="Extend a namespace's expiry", permission="namespaces:write",
-              response_model=ChangeRequest,
-              problems=WRITE_PROBLEMS + ["object-not-found", "expiration-not-allowed", "expiration-limit", "expiration-not-set", "expiration-in-past",
-                                         "precondition-required", "precondition-failed"])
-def extend(cluster_id: ClusterId, ns: NamespaceName, body: ExtendBody, key: str | None = Depends(idempotency_key),
+              response_model=ChangeRequest, dry_run_model=PlanView, problems=EXPIRY_PROBLEMS)
+def extend(cluster_id: ClusterId, ns: NamespaceName, body: ExtendBody, dry_run: DryRun = False, key: str | None = Depends(idempotency_key),
            etag: str | None = Depends(if_match), who: Identity = Depends(require("namespaces:write")),
            c: AppContext = Depends(ctx)):
     """Extends the expiry by `days` (up to the environment's limit) or to `until`. A normal request: plan,
-    approval, bot PR. Needs If-Match."""
+    approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan and the approval that would apply."""
     raw: dict[str, Any] = {"namespace": ns, "clusterId": cluster_id}
     if body.days:
         raw["extendDays"] = body.days
     elif body.until:
-        raw["expiresAt"] = body.until
+        # extendUntil, not expiresAt: the pipeline plans expiresAt as :set, which refuses a namespace that has a date.
+        try:
+            raw["extendUntil"] = date.fromisoformat(body.until).isoformat()
+        except ValueError:
+            raise Problem.unprocessable("validation-failed", "until is a date, YYYY-MM-DD") from None
     else:
         raise Problem.unprocessable("validation-failed", "Send days or until")
-    key = _idem(key, False)
-    replay = _replay(c, who, key, raw)
-    if replay:
-        return replay
-    plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag, reason="expiration:extend")
-    return _submit(c, who, plan, key, raw, body.justification)
+    return _expiry_write(c, who, cluster_id, raw, key=key, etag=etag, dry_run=dry_run, reason="expiration:extend",
+                         justification=body.justification)
+
+
+@router.write("/namespaces/{ns}/expiration:set", summary="Give a permanent namespace an expiry date", permission="namespaces:write",
+              response_model=ChangeRequest, dry_run_model=PlanView, problems=EXPIRY_PROBLEMS + ["expiration-already-set"])
+def set_expiry(cluster_id: ClusterId, ns: NamespaceName, body: SetBody, dry_run: DryRun = False,
+               key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
+               who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
+    """Gives a namespace that has no expiry the date `until`: after today, and at most the environment's maxExtensionDays
+    away. A namespace that has a date is refused with 422 expiration-already-set: use :extend. A normal request: plan,
+    approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan and the approval that would apply."""
+    raw: dict[str, Any] = {"namespace": ns, "clusterId": cluster_id, "expiresAt": body.until.isoformat()}
+    return _expiry_write(c, who, cluster_id, raw, key=key, etag=etag, dry_run=dry_run, reason="expiration:set",
+                         justification=body.justification, fingerprinted={**raw, "route": "expiration:set"})
+
+
+@router.write("/namespaces/{ns}/expiration:makePermanent", summary="Remove a namespace's expiry", permission="namespaces:write",
+              response_model=ChangeRequest, dry_run_model=PlanView, problems=EXPIRY_PROBLEMS)
+def make_permanent(cluster_id: ClusterId, ns: NamespaceName, body: PermanentBody, dry_run: DryRun = False,
+                   key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
+                   who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
+    """Removes the expiry date (`cmapi.net/expires-at` and `cmapi.net/expiry`), so the namespace no longer expires. It always
+    adds an approval from approver-platform (docs/01, Namespace expiration). A namespace with no date is refused with 422
+    expiration-not-set. A normal request: plan, approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan."""
+    raw: dict[str, Any] = {"namespace": ns, "clusterId": cluster_id, "makePermanent": True}
+    return _expiry_write(c, who, cluster_id, raw, key=key, etag=etag, dry_run=dry_run, reason="expiration:makePermanent",
+                         justification=body.justification)

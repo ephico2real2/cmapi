@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 32 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 35 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
@@ -16,9 +16,9 @@ Nothing here was measured on a running system. No cmapi workload runs on a clust
 | Actions in the mockup | 64 |
 | Actions that make no call | 17 |
 | Endpoints that the actions need | 26 |
-| Endpoints built, in `openapi.json` | 13 |
+| Endpoints built, in `openapi.json` | 16 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
-| Endpoints not built | 11 |
+| Endpoints not built | 8 |
 
 ## How to read the figures
 
@@ -98,14 +98,14 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 47 | Quotas | Close (export preview) | None | No endpoint | 4 | It hides the preview. |
 | 48 | Quotas | Use this size | None | No endpoint | 4 | It fills the form from the recommendation. Recommendations come from cmapi-capacity, which is not built. |
 | 49 | Quotas | New size buttons and fields | None | No endpoint | 4 | Small, medium, large, custom, the cpu and memory fields, Justification. Plan and Submit send the values. |
-| 50 | Expiration | Open the tab | `GET /api/v1/expirations` | not built | 5 |  |
-| 51 | Expiration | State chips | `GET /api/v1/expirations` | not built | 5 | With `state=`. |
-| 52 | Expiration | Search box | `GET /api/v1/expirations` | not built | 5 | The design's parameter list for this endpoint has no search parameter. |
-| 53 | Expiration | Env chips | `GET /api/v1/expirations` | not built | 5 | With `env=`. |
-| 54 | Expiration | Previous and Next | `GET /api/v1/expirations` | not built | 5 | With `?cursor=`. |
+| 50 | Expiration | Open the tab | `GET /api/v1/expirations` | built | 5 |  |
+| 51 | Expiration | State chips | `GET /api/v1/expirations` | built | 5 | With `state=`. |
+| 52 | Expiration | Search box | `GET /api/v1/expirations` | built | 5 | With `q=`. The design's parameter list had no search parameter; the API takes `q` as GET /api/v1/quotas does (#318). |
+| 53 | Expiration | Env chips | `GET /api/v1/expirations` | built | 5 | With `env=`. |
+| 54 | Expiration | Previous and Next | `GET /api/v1/expirations` | built | 5 | With `?cursor=`. |
 | 55 | Expiration | Manage (row) | `GET /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration` | not built | 5 |  |
-| 56 | Expiration | Submit: Request make permanent | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent` | not built | 5 |  |
-| 57 | Expiration | Submit: Set expiry | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set` | not built | 5 |  |
+| 56 | Expiration | Submit: Request make permanent | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent` | built | 5 |  |
+| 57 | Expiration | Submit: Set expiry | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set` | built | 5 |  |
 | 58 | Expiration | Submit: Extend | `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend` | built | 5 |  |
 | 59 | Expiration | Action buttons and date field | None | No endpoint | 5 | Extend 7, 14 or 30 days, Make permanent, Set a date. Submit sends the choice. |
 | 60 | Policies | Open the tab | `GET /api/v1/policies/results`<br>`GET /api/v1/policies/rejections`<br>`GET /api/v1/policies` | not built<br>not built<br>not built | 5 | The mockup names no call for its Clusters and Results by policy cards. `GET /api/v1/policies` is inferred from the design. |
@@ -118,7 +118,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 
 - **Placement preview.** The design has `POST /api/v1/capacity:place`, which also makes a reservation. It names no call that ranks clusters and reserves nothing. The figure maps the preview to `capacity:place`. This is inferred.
 - **Pick a suggestion.** The mockup jumps to one row by its key. The design names no parameter for this jump.
-- **Search box of the Expiration tab.** The design's parameter list for `GET /api/v1/expirations` has no search parameter.
+- **Search box of the Expiration tab.** The design's parameter list for `GET /api/v1/expirations` has no search parameter. The built endpoint takes `q`, as `GET /api/v1/quotas` does (#318).
 - **Clusters and Results by policy cards.** The mockup names no call for these two cards. The figure uses `GET /api/v1/policies` from the design. This is inferred.
 - **Capacity, Pull request and Argo CD panels of the Workflow tab.** The design names no call for them.
 - **Instance buttons, scenario buttons and replay buttons.** These are mockup controls. They have no endpoint, and they need none.
@@ -149,7 +149,7 @@ PORTAL (dashed: not on the API)
 CMAPI
   cmapi-api (built): core/auth.py, routers/requests.py, plugins/namespaces, routers/admin.py, core/pipeline.py,
     plugins/quotas and tiers, core/validate, plugins/directory, core/registry.py, routers/me and health
-    not built: routes for the expirations list, set and make permanent, policies, capacity, placement, metadata,
+    not built: routes for one namespace's expiry read, policies, capacity, placement, metadata,
     operations, service accounts, grants, tokens, webhooks
     ------> Keycloak (JWKS, admin API)
     ------> PostgreSQL (requests, approvals, audit, jobs)
@@ -262,17 +262,17 @@ Quotas tab
 Figure 5: Expiration, Policies, Capacity and KPIs
 Expiration tab
   Open the tab, State chips, Search box, Env chips, Previous and Next
-    - - proposed - -> GET /api/v1/expirations [not built]
-    behind: Expiration routes, expire_check (not built)
+    - - proposed - -> GET /api/v1/expirations [built]
+    behind: plugins/expiration (built): the watch cache and rules.py
   Manage (row)
     - - proposed - -> GET /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration [not built]
-    behind: Expiration routes, expire_check (not built)
+    behind: one namespace's expiry, expire_check (not built)
   Submit: Request make permanent
-    - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent [not built]
-    behind: Expiration routes, expire_check (not built)
+    - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent [built]
+    behind: plugins/namespaces (built): plan from Git under If-Match
   Submit: Set expiry
-    - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set [not built]
-    behind: Expiration routes, expire_check (not built)
+    - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set [built]
+    behind: plugins/namespaces (built): plan from Git under If-Match
   Submit: Extend
     - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend [built]
     behind: plugins/namespaces (built)

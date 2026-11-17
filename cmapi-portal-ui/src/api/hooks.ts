@@ -24,6 +24,9 @@ export type Suggestion = components["schemas"]["Suggestion"];
 export type NamespaceView = components["schemas"]["NamespaceView"];
 export type NamespacePatch = components["schemas"]["NamespacePatch"];
 export type KpiView = components["schemas"]["KpiView"];
+export type ExpirationPage = components["schemas"]["ExpirationPage"];
+export type ExpirationRow = components["schemas"]["ExpirationRow"];
+export type ExpirationsQuery = NonNullable<operations["expiration_expirations"]["parameters"]["query"]>;
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -436,4 +439,87 @@ export function useKpi(): Result<KpiView> & { reload: () => void } {
     }
   });
   return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** GET /api/v1/expirations: one query for each page, with its filters and its cursor as the key. */
+export function useExpirations(params: ExpirationsQuery): Result<ExpirationPage> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["expirations", params],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/expirations", { params: { query: params }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    },
+    // The rows of the last page stay while the next page loads.
+    placeholderData: keepPreviousData
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** The three expiry writes of the namespaces plugin, each a POST with its own body. */
+export type ExpiryChange =
+  | { route: "extend"; body: { days: number } }
+  | { route: "set"; body: { until: string } }
+  | { route: "makePermanent"; body: Record<string, never> };
+
+/** One expiry change as the person planned it: where, the etag it was read at, the route and the body. */
+export type PlannedExpiry = { clusterId: string; ns: string; etag: string } & ExpiryChange;
+
+/** The call of one expiry change, as a dry run or as the write: If-Match always, the Idempotency-Key on the write only. */
+async function postExpiry(api: Api, change: PlannedExpiry, opts: { dryRun?: true; key?: string; signal?: AbortSignal }) {
+  const path = { cluster_id: change.clusterId, ns: change.ns };
+  const header = { "If-Match": ifMatchOf(change.etag), ...(opts.key ? { "Idempotency-Key": opts.key } : {}) };
+  const query = opts.dryRun ? { dryRun: true } : undefined;
+  const init = { params: { path, query, header }, signal: opts.signal };
+  switch (change.route) {
+    case "extend": return api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend", { ...init, body: change.body });
+    case "set": return api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set", { ...init, body: change.body });
+    case "makePermanent": return api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent", { ...init, body: change.body });
+  }
+}
+
+/**
+ * The dry run of an expiry change (`?dryRun=true`): the plan and the approval that would apply. It writes nothing and needs
+ * no Idempotency-Key, so it is a read for Query, keyed on the change. `change` null asks nothing.
+ */
+export function useExpiryPlan(change: PlannedExpiry | null): Outcome<Plan> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["expiry-plan", change],
+    enabled: change !== null,
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await postExpiry(api, change!, { dryRun: true, signal });
+      if (!data) throw problemOf(response, error);
+      // The dry run answers 200 with a plan. A 202 here would be a written request: the API broke its contract.
+      if (response.status !== 200) throw new ApiProblem({ status: 500, code: "not-a-plan", detail: `The dry run answered ${response.status}, not 200.` });
+      return data as Plan;
+    }
+  });
+  if (change === null) return { state: "idle", reload: () => undefined };
+  return { ...outcomeOf({ isPending: query.isFetching, isIdle: false, error: query.error, data: query.data }), reload: () => void query.refetch() };
+}
+
+/**
+ * Submits the expiry change that was planned, with the etag that it was planned at as If-Match and the caller's
+ * Idempotency-Key. One write at a time. The namespace and the lists are stale after it.
+ */
+export function useSubmitExpiry(): Outcome<ChangeRequest> & { submit: (change: PlannedExpiry, key: string) => Promise<ChangeRequest> } {
+  const api = useApi();
+  const client = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ change, key }: { change: PlannedExpiry; key: string }) => {
+      const { data, error, response } = await postExpiry(api, change, { key });
+      if (!data) throw problemOf(response, error);
+      return data as ChangeRequest;
+    },
+    // Read again when shown next, not now: the form keeps its answer on the page, as the mockup's does.
+    onSuccess: (_, { change }) => {
+      void client.invalidateQueries({ queryKey: ["requests"], refetchType: "none" });
+      void client.invalidateQueries({ queryKey: ["expirations"], refetchType: "none" });
+      void client.invalidateQueries({ queryKey: ["namespace", change.clusterId, change.ns], refetchType: "none" });
+    }
+  });
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), submit: (planned, key) => send({ change: planned, key }) };
 }

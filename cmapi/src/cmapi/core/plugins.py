@@ -30,6 +30,7 @@ BUILT_IN: dict[str, str] = {
     "tiers": "cmapi.plugins.tiers:router",
     "directory": "cmapi.plugins.directory:router",
     "quotas": "cmapi.plugins.quotas:router",
+    "expiration": "cmapi.plugins.expiration.router:router",
 }
 # The built-in plugins with a write, which is what an override stops. tests/service/test_plugins_switch.py holds this to the routers.
 WRITERS: frozenset[str] = frozenset({"namespaces"})

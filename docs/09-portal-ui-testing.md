@@ -194,6 +194,28 @@ page from the first page (5 namespaces fit one page at the smallest size, 25), t
 axe: these ran built-mocked only (above). The first Chromium change run stopped at the 202 callout on a script locator,
 after the PATCH was sent; the request was followed in a second run, and its 202 picture is the Chrome one.
 
+## The portal on the API: Expiration (#318)
+
+Measured on 2026-11-16 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The
+stand-in now serves `GET /api/v1/expirations` (the states, filters, `urgency` sort, counts and keyset cursor of
+`cmapi/src/cmapi/plugins/expiration/router.py`, counted from the recorded `today`) and `POST .../expiration:extend`, `:set`
+and `:makePermanent` with their dry runs (If-Match, Idempotency-Key, `change-pending`, and the refusals of `rules.py`). The
+fleet is 40 namespaces in dev and rnd over every state. Stage: built-mocked. It does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| Everything | `npm test` | exit 0 in Chromium 156.0.8078.4; portal suite 49 checks (9 new: the review of #322 added check 17) |
+| The installed Chrome | `PW_CHANNEL=chrome npm test` | Chrome 157.0.8103.79: the first run, beside the 17-minute service suite on the same Mac, timed out the existing check "7 the Quotas and KPIs tabs" at its 90 s limit; run again with the machine idle, exit 0, 48 of 48, and the behaviour and parity suites passed |
+| Parity both ways | check "6 the Expiration tab" | 19 strings of the mockup's block found over 6 states (the list, make permanent planned and sent, a date set, empty, an instance where nothing expires); nothing shown that is not listed |
+| Layout at 390, 820, 1440 px, both themes | check "7 the Expiration tab" | 18 views (a planned make permanent, the date field, the list), no sideways scroll, no placeholder |
+| axe at 390 and 1440 px, both themes | the same check | 12 scans, no serious or critical finding |
+| One write at a time | check "R7" | two submits in one task sent 1 POST |
+| Mutants | `npm run test:mutants` | 140 mutants (119 before, 21 new), 140 killed, 0 survived. Of the first 20 new, 9 fail a direct assertion and 11 fail on a check's 8 s wait for text that the mutant removes. The review of #322 added the 21st (a role of another environment sees the expiry form), killed by check 17 |
+| New tests fail on main | each new check run alone with `CHECK=` on a build of main b7149d2 with this branch's `portal.test.mjs`, `standin.mjs` and samples | all 8 new checks fail (the tab says "This tab is not on the API yet.") |
+
+**Not proven here:** the tab against the real service and Keycloak (the live walk on CRC, extending `cmapi-live-a`, comes
+after the review), and keyboard use beyond PatternFly and axe.
+
 ## What testing found
 
 | Found by | Problem | Fix |

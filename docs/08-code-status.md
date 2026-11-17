@@ -49,6 +49,7 @@ This page summarises what the code tree holds today.
 | Requests: list (paged), get, events, approval-status, `:approve`, `:reject`, `:cancel`, `:retry`, `:revert`; decisions serialised by a row lock | `routers/requests.py` | Built and tested |
 | Admin: `prune:confirm`, the auto-approval kill switch, integrations, the plugins, Git log, KPIs | `routers/admin.py`, `core/kpi.py` | Built; KPIs read the database and the pod's cgroup |
 | Tiers, directory, quotas (list, suggest, CSV export) | `plugins/tiers`, `plugins/directory`, `plugins/quotas` | Built |
+| Expiration: `GET /expirations` (paged, filtered by state, env, cluster, team and text), and `:set` and `:makePermanent` beside `:extend`, each with a dry run (#318) | `plugins/expiration/router.py`, `plugins/namespaces/router.py` | Built and tested with fakes (`tests/service/test_expirations.py`). No `expire_check` job writes the notices yet, so `noticesSent` is 0 |
 | Cluster registry: the six import checks, a list-then-watch cache per cluster | `core/registry.py`, `core/clients/kube.py` | Built; the watch proven against a real kube-apiserver in the review, not on CRC |
 | Git host: Gitea (the stand-in on CRC, **being replaced by GitHub, GitHub Actions and GHCR**, #85) and GitHub | `core/git/` | Gitea proven against a real Gitea in the reviews; the provider contract (`contains()`, `changed_paths`, statuses, merge) holds on both adapters by mock, and so do GitHub's check runs (conclusions, pagination, re-runs: `tests/service/test_github_check_runs.py`, #87); **GitHub never exercised against GitHub** (#61) |
 | Validator: Kyverno CLI and kubeconform, schemas baked into the image | `core/validate/` | Built |
@@ -111,7 +112,7 @@ Not built: the `Sunset` header for a deprecated field, and the CLI and SDK that 
 
 ```yaml
 # config/plugins.yaml
-enabled: [namespaces, tiers, directory, quotas]
+enabled: [namespaces, tiers, directory, quotas, expiration]
 overrides:                # keyed by instance, then environment
   nonprod:
     dev:
@@ -128,7 +129,7 @@ overrides:                # keyed by instance, then environment
 | `GET /api/v1/admin/plugins` | Each core part and each built-in plugin with its version, whether it is enabled, and the environments where an override stops its writes. It needs `clusters:read`. `docs/04` has a recorded sample | `test_without_the_file_each_built_in_plugin_is_mounted`, `test_api_samples.py` |
 | The metric | `cmapi_plugin_disabled_total{plugin, environment}` counts each refused write | `test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads` |
 
-The plugins of this build are `namespaces`, `tiers`, `directory` and `quotas`. Only `namespaces` has a write. A test holds both lists to the routers (`test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes`). The sample for each instance is `examples/instances/<instance>/plugins.yaml`. The deployed ConfigMaps of kind and CRC do not have the file yet, so those instances enable each plugin.
+The plugins of this build are `namespaces`, `tiers`, `directory`, `quotas` and `expiration`. Only `namespaces` has a write: the expiry writes (`:extend`, `:set`, `:makePermanent`) are its routes, and `expiration` has the list. A test holds both lists to the routers (`test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes`). The sample for each instance is `examples/instances/<instance>/plugins.yaml`. The deployed ConfigMaps of kind and CRC do not have the file yet, so those instances enable each plugin.
 
 Three decisions add to the text of `docs/02`, and `docs/02` now says the first two:
 
@@ -152,7 +153,7 @@ rate limits on routes.
 **Adapters:** OpenShift reader beyond the kinds the namespaces plugin needs; policy report reader; LDAP
 directory provider; Argo CD mode proven against a real Argo CD (none has run).
 
-**Endpoints not yet wired:** expiration `:set`, `:makePermanent`, `GET /expirations`; `/tiers/{tier}`,
+**Endpoints not yet wired:** `GET .../namespaces/{ns}/expiration`; `/tiers/{tier}`,
 `/tiers/{tier}/namespaces`; quota writes other than the namespace PATCH; metadata; service accounts,
 grants, SCC grants, SA tokens; policies; cluster import endpoint; capacity and placement; adoption,
 reports, operations; admin reload.

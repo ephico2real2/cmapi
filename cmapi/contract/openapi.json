@@ -948,6 +948,326 @@
         "title": "DirectoryUsers",
         "type": "object"
       },
+      "ExpirationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "facets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Rows in each state, and `attention` (expiring, grace and pending_delete), over the other filters",
+            "examples": [
+              {
+                "active": 1,
+                "attention": 0,
+                "permanent": 2
+              }
+            ],
+            "title": "Facets",
+            "type": "object"
+          },
+          "items": {
+            "description": "One page",
+            "items": {
+              "$ref": "#/components/schemas/ExpirationRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "letters": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Rows per first letter",
+            "examples": [
+              {
+                "S": 1
+              }
+            ],
+            "title": "Letters",
+            "type": "object"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Paging"
+          },
+          "rules": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExpirationRulesView"
+            },
+            "description": "The expiration rules of each environment in the caller's scope where a namespace can expire (config/expiration.yaml). Empty on an instance where none can, such as prod",
+            "title": "Rules",
+            "type": "object"
+          },
+          "today": {
+            "description": "The day that `daysLeft` and `state` are counted from: the day the API plans an extension from",
+            "examples": [
+              "2026-11-16"
+            ],
+            "format": "date",
+            "title": "Today",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "letters",
+          "facets",
+          "rules",
+          "today"
+        ],
+        "title": "ExpirationPage",
+        "type": "object"
+      },
+      "ExpirationRow": {
+        "additionalProperties": false,
+        "properties": {
+          "app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`cmapi.net/app`",
+            "examples": [
+              null
+            ],
+            "title": "App"
+          },
+          "clusterId": {
+            "description": "Cluster",
+            "examples": [
+              "CRC"
+            ],
+            "title": "Clusterid",
+            "type": "string"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day the namespace was created on the cluster (its creationTimestamp), UTC",
+            "examples": [
+              "2026-10-01"
+            ],
+            "title": "Created"
+          },
+          "daysLeft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days from `today` of the page to the expiry date: 0 on the date, negative after it; null when the namespace is permanent",
+            "examples": [
+              29
+            ],
+            "title": "Daysleft"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Environment (`cmapi.net/env`)",
+            "examples": [
+              "dev"
+            ],
+            "title": "Env"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`cmapi.net/expires-at` as the cluster has it; null for a permanent namespace",
+            "examples": [
+              "2026-12-15"
+            ],
+            "title": "Expiresat"
+          },
+          "graceEnds": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first day after grace: from this day the namespace is `pending_delete`. Null when it is permanent",
+            "examples": [
+              "2026-12-22"
+            ],
+            "title": "Graceends"
+          },
+          "lifetimeDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days from `created` to the expiry date; null when either is not known",
+            "examples": [
+              75
+            ],
+            "title": "Lifetimedays"
+          },
+          "name": {
+            "description": "Namespace",
+            "examples": [
+              "sprint-dev"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "noticesSent": {
+            "description": "The expiry notices recorded for this date (of 14, 7 and 1 days before), from the database",
+            "examples": [
+              0
+            ],
+            "title": "Noticessent",
+            "type": "integer"
+          },
+          "openRequest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The request that holds the namespace; while it is open, another change is refused with 409 change-pending",
+            "examples": [
+              null
+            ],
+            "title": "Openrequest"
+          },
+          "state": {
+            "description": "`permanent` (no date), `active` (further away than the first notice), `expiring` (within the first notice, before the date), `grace` (from the date for graceDays; it still runs and can be extended) or `pending_delete` (grace is over)",
+            "enum": [
+              "permanent",
+              "active",
+              "expiring",
+              "grace",
+              "pending_delete"
+            ],
+            "examples": [
+              "active"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Team (`cmapi.net/team`)",
+            "examples": [
+              "payments"
+            ],
+            "title": "Team"
+          }
+        },
+        "required": [
+          "name",
+          "clusterId",
+          "env",
+          "team",
+          "created",
+          "expiresAt",
+          "daysLeft",
+          "state",
+          "graceEnds",
+          "lifetimeDays",
+          "noticesSent"
+        ],
+        "title": "ExpirationRow",
+        "type": "object"
+      },
+      "ExpirationRulesView": {
+        "additionalProperties": false,
+        "properties": {
+          "graceDays": {
+            "description": "Days from the date during which the namespace still runs",
+            "examples": [
+              7
+            ],
+            "title": "Gracedays",
+            "type": "integer"
+          },
+          "maxExtensionDays": {
+            "description": "The most days that one extension adds, and how far out a first date can be set",
+            "examples": [
+              30
+            ],
+            "title": "Maxextensiondays",
+            "type": "integer"
+          },
+          "maxLifetimeDays": {
+            "description": "Days from creation past which a date adds an approval from approver-platform",
+            "examples": [
+              180
+            ],
+            "title": "Maxlifetimedays",
+            "type": "integer"
+          },
+          "notifyDaysBefore": {
+            "description": "When the notices go out, in days before the date",
+            "examples": [
+              [
+                14,
+                7,
+                1
+              ]
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Notifydaysbefore",
+            "type": "array"
+          }
+        },
+        "required": [
+          "maxExtensionDays",
+          "maxLifetimeDays",
+          "notifyDaysBefore",
+          "graceDays"
+        ],
+        "title": "ExpirationRulesView",
+        "type": "object"
+      },
       "ExtendBody": {
         "additionalProperties": false,
         "properties": {
@@ -2325,6 +2645,28 @@
         "title": "PageInfo",
         "type": "object"
       },
+      "PermanentBody": {
+        "additionalProperties": false,
+        "properties": {
+          "justification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why",
+            "examples": [
+              "The service went to production use"
+            ],
+            "title": "Justification"
+          }
+        },
+        "title": "PermanentBody",
+        "type": "object"
+      },
       "PlanView": {
         "additionalProperties": false,
         "properties": {
@@ -3214,6 +3556,40 @@
         "title": "RoleAccess",
         "type": "object"
       },
+      "SetBody": {
+        "additionalProperties": false,
+        "properties": {
+          "justification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why",
+            "examples": [
+              "A test namespace for one sprint"
+            ],
+            "title": "Justification"
+          },
+          "until": {
+            "description": "The expiry date: after today, and at most the environment's maxExtensionDays away",
+            "examples": [
+              "2026-12-15"
+            ],
+            "format": "date",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "until"
+        ],
+        "title": "SetBody",
+        "type": "object"
+      },
       "Suggestion": {
         "additionalProperties": false,
         "properties": {
@@ -3582,7 +3958,7 @@
                 "example": {
                   "paused": true,
                   "reason": "incident 1234",
-                  "setAt": "2026-11-15T07:44:02.514933+00:00",
+                  "setAt": "2026-11-17T01:58:42.374721+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -3701,7 +4077,7 @@
                 "example": {
                   "paused": false,
                   "reason": "incident 1234 closed",
-                  "setAt": "2026-11-15T07:44:02.374003+00:00",
+                  "setAt": "2026-11-17T01:58:42.284849+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -3806,7 +4182,7 @@
               "application/json": {
                 "example": {
                   "log": [
-                    "4d7b43cc Merge cmapi/CRC/req-20261115-0001",
+                    "2a30c94f Merge cmapi/CRC/req-20261117-0001",
                     "aaaaaaaa initial"
                   ]
                 },
@@ -4026,7 +4402,7 @@
                       "cpuThrottledPeriods": null,
                       "cpuThrottledSeconds": null,
                       "cpuUsageSeconds": null,
-                      "measuredAt": 1794728637.4616761,
+                      "measuredAt": 1794880716.924781,
                       "memoryBytes": null,
                       "memoryLimitBytes": null
                     }
@@ -4037,7 +4413,7 @@
                     "oldestTransactionSeconds": 0.0,
                     "poolInUse": 0,
                     "poolSize": 5,
-                    "sizeBytes": 10304535,
+                    "sizeBytes": 10117647,
                     "walBytes": 83886080
                   },
                   "instance": "nonprod",
@@ -4049,7 +4425,7 @@
                       "target": "under 10 min",
                       "targetStatus": "proposed",
                       "unit": "seconds",
-                      "value": 0.176743
+                      "value": 0.475595
                     },
                     {
                       "id": "lead-time-approved-p90",
@@ -4231,6 +4607,13 @@
                       "core": false,
                       "disabledEnvironments": [],
                       "enabled": true,
+                      "name": "expiration",
+                      "version": "0.2.0"
+                    },
+                    {
+                      "core": false,
+                      "disabledEnvironments": [],
+                      "enabled": true,
                       "name": "namespaces",
                       "version": "0.2.0"
                     },
@@ -4348,7 +4731,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-15T07:44:06.456781Z",
+                        "at": "2026-11-17T01:58:46.603872Z",
                         "comment": "",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -4372,77 +4755,77 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "82ba150b3087ed60652a2c218ad25c6e060199f3",
+                  "baseSha": "dccdb97bb948c8fab03e33ba7ce7a7f26571db27",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:06.367895Z",
+                  "createdAt": "2026-11-17T01:58:46.504323Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:06.367895Z",
+                      "at": "2026-11-17T01:58:46.504323Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.456781Z",
+                      "at": "2026-11-17T01:58:46.603872Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.456781Z",
+                      "at": "2026-11-17T01:58:46.603872Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.622944Z",
+                      "at": "2026-11-17T01:58:47.023983Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
-                      "note": "cmapi/CRC/req-20261115-0008 at 9280f9d3 on 82ba150b (created)",
+                      "note": "cmapi/CRC/req-20261117-0008 at 438cbdd4 on dccdb97b (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.741000Z",
+                      "at": "2026-11-17T01:58:47.211541Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
-                      "note": "cmapi/CRC/req-20261115-0008 #7",
+                      "note": "cmapi/CRC/req-20261117-0008 #7",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.834061Z",
+                      "at": "2026-11-17T01:58:47.326936Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.917973Z",
+                      "at": "2026-11-17T01:58:47.428451Z",
                       "by": "worker",
                       "event": "merge_verified",
-                      "note": "merged 9280f9d3; the folder at it is the plan's",
+                      "note": "merged 438cbdd4; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:06.917973Z",
+                      "at": "2026-11-17T01:58:47.428451Z",
                       "by": "cmapi-bot",
                       "event": "merged",
-                      "note": "merged 9280f9d3",
+                      "note": "merged 438cbdd4",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-15T07:44:07.015198Z",
+                      "at": "2026-11-17T01:58:47.541157Z",
                       "by": "cmapi-deliverer",
                       "event": "prune_pending",
                       "note": "Prune=confirm: waiting for an operator to confirm the prune",
                       "status": "awaiting_prune"
                     },
                     {
-                      "at": "2026-11-15T07:44:07.477663Z",
+                      "at": "2026-11-17T01:58:48.022091Z",
                       "by": "opal",
                       "event": "prune_confirm",
                       "note": "operator confirmed the prune",
@@ -4459,22 +4842,22 @@
                   "instance": "nonprod",
                   "justification": null,
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0008/events",
+                    "events": "/api/v1/requests/req-20261117-0008/events",
                     "pr": "https://git.test/pulls/7",
-                    "self": "/api/v1/requests/req-20261115-0008"
+                    "self": "/api/v1/requests/req-20261117-0008"
                   },
-                  "mergeSha": "9280f9d3",
+                  "mergeSha": "438cbdd4",
                   "namespace": "search-dev",
                   "planHash": "c490196334dad591c3196aa59224d119861392145360aee1d428c93109235dbe",
                   "plugin": "namespaces",
                   "pr": {
-                    "branch": "cmapi/CRC/req-20261115-0008",
-                    "head": "9280f9d3",
+                    "branch": "cmapi/CRC/req-20261117-0008",
+                    "head": "438cbdd4",
                     "number": 7,
                     "url": "https://git.test/pulls/7"
                   },
                   "reason": null,
-                  "requestId": "req-20261115-0008",
+                  "requestId": "req-20261117-0008",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -4492,7 +4875,7 @@
                     "submittedByClient": null
                   },
                   "status": "awaiting_prune",
-                  "updatedAt": "2026-11-15T07:44:07.256613Z"
+                  "updatedAt": "2026-11-17T01:58:47.837852Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -4627,7 +5010,7 @@
                 "example": {
                   "items": [
                     {
-                      "checkedAt": "2026-11-15T07:43:55.411398Z",
+                      "checkedAt": "2026-11-17T01:58:34.401778Z",
                       "clusterId": "CRC",
                       "environment": "dev",
                       "findings": [],
@@ -4742,7 +5125,7 @@
                       "annotations": {
                         "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
                         "cmapi.net/instance": "nonprod",
-                        "cmapi.net/request-id": "req-20261115-0001",
+                        "cmapi.net/request-id": "req-20261117-0001",
                         "cmapi.net/requested-by": "ola@ephico2real.com",
                         "cmapi.net/team-dl": "payments-team@ephico2real.com"
                       },
@@ -5115,11 +5498,11 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:43:56.484597Z",
+                  "createdAt": "2026-11-17T01:58:35.666940Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:43:56.484597Z",
+                      "at": "2026-11-17T01:58:35.666940Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
@@ -5136,16 +5519,16 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0001/events",
-                    "self": "/api/v1/requests/req-20261115-0001"
+                    "events": "/api/v1/requests/req-20261117-0001/events",
+                    "self": "/api/v1/requests/req-20261117-0001"
                   },
                   "mergeSha": null,
                   "namespace": "payments-dev",
-                  "planHash": "67e4aa6a94a2d2b67ec7e93ca431a95a111f7435209188e14f8d85fd6abd50f1",
+                  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0001",
+                  "requestId": "req-20261117-0001",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -5163,7 +5546,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-15T07:43:56.328900Z"
+                  "updatedAt": "2026-11-17T01:58:35.649977Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -5658,14 +6041,14 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "82ba150b3087ed60652a2c218ad25c6e060199f3",
+                  "baseSha": "dccdb97bb948c8fab03e33ba7ce7a7f26571db27",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:06.367895Z",
+                  "createdAt": "2026-11-17T01:58:46.504323Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:06.367895Z",
+                      "at": "2026-11-17T01:58:46.504323Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -5682,8 +6065,8 @@
                   "instance": "nonprod",
                   "justification": null,
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0008/events",
-                    "self": "/api/v1/requests/req-20261115-0008"
+                    "events": "/api/v1/requests/req-20261117-0008/events",
+                    "self": "/api/v1/requests/req-20261117-0008"
                   },
                   "mergeSha": null,
                   "namespace": "search-dev",
@@ -5691,7 +6074,7 @@
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0008",
+                  "requestId": "req-20261117-0008",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -5709,7 +6092,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-15T07:44:06.150997Z"
+                  "updatedAt": "2026-11-17T01:58:46.327752Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -6125,13 +6508,13 @@
                   "annotations": {
                     "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
                     "cmapi.net/instance": "nonprod",
-                    "cmapi.net/request-id": "req-20261115-0001",
+                    "cmapi.net/request-id": "req-20261117-0001",
                     "cmapi.net/requested-by": "ola@ephico2real.com",
                     "cmapi.net/team-dl": "payments-team@ephico2real.com"
                   },
                   "clusterId": "CRC",
                   "env": "dev",
-                  "etag": "ba376f6abad40439",
+                  "etag": "daa09971fd2463c8",
                   "expiresAt": null,
                   "labels": {
                     "cmapi.net/cluster-id": "CRC",
@@ -6428,7 +6811,7 @@
                     "clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed",
                     "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "changed"
                   },
-                  "etag": "ba376f6abad40439",
+                  "etag": "daa09971fd2463c8",
                   "files": {
                     "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-cpu\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n    default:\n      cpu: 500m\n    max:\n      cpu: '4'\n",
                     "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-memory\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      memory: 256Mi\n    default:\n      memory: 512Mi\n    max:\n      memory: 8Gi\n",
@@ -6436,7 +6819,7 @@
                     "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: payments-dev-quota\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  hard:\n    requests.cpu: '16'\n    requests.memory: 32Gi\n    pods: '100'\n    persistentvolumeclaims: '30'\n    requests.storage: 500Gi\n    services.loadbalancers: '0'\n    services.nodeports: '0'\n"
                   },
                   "findings": [],
-                  "planHash": "4af23397be8e03971c7000b0add56da998d56d67549798030c840e59f8568886",
+                  "planHash": "198b0813d1fa0813deb7e278c6fb29471ef12a502540605f5f6acd3f9b235ab4",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -6491,14 +6874,14 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "4d7b43ccb7ce7b8511d89719e439c9fcaa81b90f",
+                  "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:43:57.930101Z",
+                  "createdAt": "2026-11-17T01:58:37.339199Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:43:57.930101Z",
+                      "at": "2026-11-17T01:58:37.339199Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -6515,16 +6898,16 @@
                   "instance": "nonprod",
                   "justification": "Load test next sprint",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0002/events",
-                    "self": "/api/v1/requests/req-20261115-0002"
+                    "events": "/api/v1/requests/req-20261117-0002/events",
+                    "self": "/api/v1/requests/req-20261117-0002"
                   },
                   "mergeSha": null,
                   "namespace": "payments-dev",
-                  "planHash": "0deac03847a7c4106c8ca8e8e4b076a66b667f77203be731a18c098cdbdd5bf7",
+                  "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0002",
+                  "requestId": "req-20261117-0002",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -6542,7 +6925,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-15T07:43:57.795196Z"
+                  "updatedAt": "2026-11-17T01:58:37.226760Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -6691,7 +7074,7 @@
                     "value": {
                       "code": "precondition-failed",
                       "detail": "The namespace changed in Git since you read it",
-                      "etag": "ba376f6abad40439",
+                      "etag": "daa09971fd2463c8",
                       "status": 412,
                       "title": "precondition failed",
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
@@ -6912,7 +7295,7 @@
     },
     "/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend": {
       "post": {
-        "description": "Extends the expiry by `days` (up to the environment's limit) or to `until`. A normal request: plan,\napproval, bot PR. Needs If-Match.\n\n**Requires** `namespaces:write`.",
+        "description": "Extends the expiry by `days` (up to the environment's limit) or to `until`. A normal request: plan,\napproval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan and the approval that would apply.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_extend",
         "parameters": [
           {
@@ -6941,6 +7324,21 @@
               ],
               "title": "Ns",
               "type": "string"
+            }
+          },
+          {
+            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "examples": [
+                true
+              ],
+              "title": "Dryrun",
+              "type": "boolean"
             }
           },
           {
@@ -7001,6 +7399,66 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "approval": {
+                    "approvals": [],
+                    "auto": "none-required",
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform"
+                    ],
+                    "remaining": [],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [],
+                    "timeoutHours": 8
+                  },
+                  "beyondTier": null,
+                  "capacity": {
+                    "bindingResource": "cpu",
+                    "clusterId": "CRC",
+                    "cpu": 0.062,
+                    "fresh": true,
+                    "memory": 0.05,
+                    "source": "simulated",
+                    "status": "fits"
+                  },
+                  "changes": {
+                    "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
+                  },
+                  "etag": "f7b5e9f10e46c345",
+                  "files": {
+                    "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-20'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
+                  },
+                  "findings": [],
+                  "planHash": "f93013f1be61625d9a1623b80d6e54152b3162947617d4c87e64f29136e001da",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+          },
           "202": {
             "content": {
               "application/json": {
@@ -7019,14 +7477,14 @@
                     "slots": [],
                     "timeoutHours": 8
                   },
-                  "baseSha": "de59322b07e885c8087c40b679e9e6ab186890d7",
+                  "baseSha": "f213316058207011014b646c1b2a7df2f0f83bcc",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:00.838223Z",
+                  "createdAt": "2026-11-17T01:58:40.485200Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:00.838223Z",
+                      "at": "2026-11-17T01:58:40.485200Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "none-required",
@@ -7043,16 +7501,16 @@
                   "instance": "nonprod",
                   "justification": "Another sprint",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0004/events",
-                    "self": "/api/v1/requests/req-20261115-0004"
+                    "events": "/api/v1/requests/req-20261117-0004/events",
+                    "self": "/api/v1/requests/req-20261117-0004"
                   },
                   "mergeSha": null,
                   "namespace": "sprint-dev",
-                  "planHash": "5dd3978000c9d35c39a369ed9ea9c739bd5893c26166c3db2953c05b4d734bbe",
+                  "planHash": "f302ecb54112c9174d24d59c0ce883d096f2fecbd275655e7473d42d22609167",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": "expiration:extend",
-                  "requestId": "req-20261115-0004",
+                  "requestId": "req-20261117-0004",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -7070,7 +7528,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-15T07:44:00.682820Z"
+                  "updatedAt": "2026-11-17T01:58:40.373051Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -7473,6 +7931,1314 @@
         "x-plugin-version": "0.2.0"
       }
     },
+    "/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent": {
+      "post": {
+        "description": "Removes the expiry date (`cmapi.net/expires-at` and `cmapi.net/expiry`), so the namespace no longer expires. It always\nadds an approval from approver-platform (docs/01, Namespace expiration). A namespace with no date is refused with 422\nexpiration-not-set. A normal request: plan, approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan.\n\n**Requires** `namespaces:write`.",
+        "operationId": "namespaces_make_permanent",
+        "parameters": [
+          {
+            "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+            "in": "path",
+            "name": "cluster_id",
+            "required": true,
+            "schema": {
+              "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Cluster Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The name of the namespace on that cluster.",
+            "in": "path",
+            "name": "ns",
+            "required": true,
+            "schema": {
+              "description": "The name of the namespace on that cluster.",
+              "examples": [
+                "payments-dev"
+              ],
+              "title": "Ns",
+              "type": "string"
+            }
+          },
+          {
+            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "examples": [
+                true
+              ],
+              "title": "Dryrun",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "examples": [
+                "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "description": "The namespace's etag from GET; required on a change or delete",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The namespace's etag from GET; required on a change or delete",
+              "examples": [
+                "\"3f9a1c0b7e2d4a68\""
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "justification": "In production use"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PermanentBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "approval": {
+                    "approvals": [],
+                    "auto": null,
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform",
+                      "threshold expirationBeyondLimits: +1 approver-platform"
+                    ],
+                    "remaining": [
+                      {
+                        "group": "approver-platform",
+                        "needed": 1
+                      }
+                    ],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [
+                      {
+                        "count": 1,
+                        "group": "approver-platform",
+                        "reason": "Expiry beyond limits"
+                      }
+                    ],
+                    "timeoutHours": 8
+                  },
+                  "beyondTier": null,
+                  "capacity": {
+                    "bindingResource": "cpu",
+                    "clusterId": "CRC",
+                    "cpu": 0.062,
+                    "fresh": true,
+                    "memory": 0.05,
+                    "source": "simulated",
+                    "status": "fits"
+                  },
+                  "changes": {
+                    "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
+                  },
+                  "etag": "f7b5e9f10e46c345",
+                  "files": {
+                    "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
+                  },
+                  "findings": [],
+                  "planHash": "e3a0b3287110e470e81d64e192b747d46c3be351822bb960f8a9907ad4164cd9",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "action": "update",
+                  "approval": {
+                    "approvals": [],
+                    "auto": null,
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform",
+                      "threshold expirationBeyondLimits: +1 approver-platform"
+                    ],
+                    "remaining": [
+                      {
+                        "group": "approver-platform",
+                        "needed": 1
+                      }
+                    ],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [
+                      {
+                        "count": 1,
+                        "group": "approver-platform",
+                        "reason": "Expiry beyond limits"
+                      }
+                    ],
+                    "timeoutHours": 8
+                  },
+                  "baseSha": "3a90d799ca80fc9576cbd559adac359f1126d1fb",
+                  "beyondTier": null,
+                  "clusterId": "CRC",
+                  "createdAt": "2026-11-17T01:58:52.800696Z",
+                  "env": "dev",
+                  "events": [
+                    {
+                      "at": "2026-11-17T01:58:52.800696Z",
+                      "by": "ola",
+                      "event": "plan_needs_approval",
+                      "note": "waiting for [('approver-platform', 1)]",
+                      "status": "pending_approval"
+                    }
+                  ],
+                  "files": {
+                    "clusters/CRC/namespaces/sprint-dev/limitrange-sprint-dev-limits-cpu.yaml": "unchanged",
+                    "clusters/CRC/namespaces/sprint-dev/limitrange-sprint-dev-limits-memory.yaml": "unchanged",
+                    "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed",
+                    "clusters/CRC/namespaces/sprint-dev/resourcequota-sprint-dev-quota.yaml": "unchanged",
+                    "clusters/CRC/namespaces/sprint-dev/token-issuer-rolebinding.yaml": "unchanged"
+                  },
+                  "instance": "nonprod",
+                  "justification": "In production use",
+                  "links": {
+                    "events": "/api/v1/requests/req-20261117-0013/events",
+                    "self": "/api/v1/requests/req-20261117-0013"
+                  },
+                  "mergeSha": null,
+                  "namespace": "sprint-dev",
+                  "planHash": "ddffdabe0161096a6fbcb6389459aa7f095f482a4ab903245298b07e076937e0",
+                  "plugin": "namespaces",
+                  "pr": null,
+                  "reason": "expiration:makePermanent",
+                  "requestId": "req-20261117-0013",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  },
+                  "status": "pending_approval",
+                  "updatedAt": "2026-11-17T01:58:52.681517Z"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idempotency-key-required": {
+                    "value": {
+                      "code": "idempotency-key-required",
+                      "detail": "Idempotency-Key header is required on writes",
+                      "status": 400,
+                      "title": "idempotency key required",
+                      "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "idempotency-key-required"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "environment-forbidden": {
+                    "value": {
+                      "code": "environment-forbidden",
+                      "detail": "Your roles grant namespaces:create only in ['rnd'], not dev",
+                      "status": 403,
+                      "title": "environment forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-forbidden"
+                    }
+                  },
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission namespaces:create",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "forbidden, environment-forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-not-found": {
+                    "value": {
+                      "code": "cluster-not-found",
+                      "detail": "Unknown cluster OCP_X",
+                      "status": 404,
+                      "title": "cluster not found",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
+                    }
+                  },
+                  "object-not-found": {
+                    "value": {
+                      "code": "object-not-found",
+                      "detail": "No request req-20261105-0001",
+                      "status": 404,
+                      "title": "object not found",
+                      "type": "https://cmapi.ephico2real.com/problems/object-not-found"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-not-found, object-not-found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "change-pending": {
+                    "value": {
+                      "code": "change-pending",
+                      "detail": "req-20261105-0001 holds payments-dev",
+                      "status": 409,
+                      "title": "change pending",
+                      "type": "https://cmapi.ephico2real.com/problems/change-pending"
+                    }
+                  },
+                  "idempotency-replay": {
+                    "value": {
+                      "code": "idempotency-replay",
+                      "detail": "Idempotency-Key was used for a different request",
+                      "status": 409,
+                      "title": "idempotency replay",
+                      "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "change-pending, idempotency-replay"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "precondition-failed": {
+                    "value": {
+                      "code": "precondition-failed",
+                      "detail": "The namespace changed in Git since you read it",
+                      "status": 412,
+                      "title": "precondition failed",
+                      "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "precondition-failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "capacity-exceeded": {
+                    "value": {
+                      "code": "capacity-exceeded",
+                      "detail": "memory would exceed the cluster",
+                      "status": 422,
+                      "title": "capacity exceeded",
+                      "type": "https://cmapi.ephico2real.com/problems/capacity-exceeded"
+                    }
+                  },
+                  "cluster-not-writable": {
+                    "value": {
+                      "code": "cluster-not-writable",
+                      "detail": "CRC is imported but has no clusters.yaml entry",
+                      "status": 422,
+                      "title": "cluster not writable",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-writable"
+                    }
+                  },
+                  "environment-not-served": {
+                    "value": {
+                      "code": "environment-not-served",
+                      "detail": "qa is served by the staging instance",
+                      "status": 422,
+                      "title": "environment not served",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
+                    }
+                  },
+                  "expiration-in-past": {
+                    "value": {
+                      "code": "expiration-in-past",
+                      "detail": "The new date must be later than the current one",
+                      "status": 422,
+                      "title": "expiration in past",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-in-past"
+                    }
+                  },
+                  "expiration-limit": {
+                    "value": {
+                      "code": "expiration-limit",
+                      "detail": "An extension is at most 30 days",
+                      "status": 422,
+                      "title": "expiration limit",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-limit"
+                    }
+                  },
+                  "expiration-not-allowed": {
+                    "value": {
+                      "code": "expiration-not-allowed",
+                      "detail": "Production namespaces never expire",
+                      "status": 422,
+                      "title": "expiration not allowed",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-not-allowed"
+                    }
+                  },
+                  "expiration-not-set": {
+                    "value": {
+                      "code": "expiration-not-set",
+                      "detail": "The namespace is permanent; use :set",
+                      "status": 422,
+                      "title": "expiration not set",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-not-set"
+                    }
+                  },
+                  "identity-incomplete": {
+                    "value": {
+                      "code": "identity-incomplete",
+                      "detail": "The token has no employee_id claim",
+                      "status": 422,
+                      "title": "identity incomplete",
+                      "type": "https://cmapi.ephico2real.com/problems/identity-incomplete"
+                    }
+                  },
+                  "invalid-team-dl": {
+                    "value": {
+                      "code": "invalid-team-dl",
+                      "detail": "x@other.com is not an address in ['ephico2real.com']",
+                      "status": 422,
+                      "title": "invalid team dl",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-team-dl"
+                    }
+                  },
+                  "no-change": {
+                    "value": {
+                      "code": "no-change",
+                      "detail": "The request changes nothing",
+                      "status": 422,
+                      "title": "no change",
+                      "type": "https://cmapi.ephico2real.com/problems/no-change"
+                    }
+                  },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
+                  "policy-violation": {
+                    "value": {
+                      "code": "policy-violation",
+                      "detail": "Metadata refused",
+                      "status": 422,
+                      "title": "policy violation",
+                      "type": "https://cmapi.ephico2real.com/problems/policy-violation"
+                    }
+                  },
+                  "unknown-serviceaccount": {
+                    "value": {
+                      "code": "unknown-serviceaccount",
+                      "detail": "ci-deployer is not a ServiceAccount of payments-dev",
+                      "status": 422,
+                      "title": "unknown serviceaccount",
+                      "type": "https://cmapi.ephico2real.com/problems/unknown-serviceaccount"
+                    }
+                  },
+                  "unknown-user": {
+                    "value": {
+                      "code": "unknown-user",
+                      "detail": "1009 is not an enabled user",
+                      "status": 422,
+                      "title": "unknown user",
+                      "type": "https://cmapi.ephico2real.com/problems/unknown-user"
+                    }
+                  },
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "precondition-required": {
+                    "value": {
+                      "code": "precondition-required",
+                      "detail": "If-Match is required on a change",
+                      "status": 428,
+                      "title": "precondition required",
+                      "type": "https://cmapi.ephico2real.com/problems/precondition-required"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "precondition-required"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "git-unavailable": {
+                    "value": {
+                      "code": "git-unavailable",
+                      "detail": "The Git host answered 500",
+                      "status": 502,
+                      "title": "git unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "git-unavailable"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-unreachable": {
+                    "value": {
+                      "code": "cluster-unreachable",
+                      "detail": "CRC did not answer",
+                      "status": 503,
+                      "title": "cluster unreachable",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "validator-unavailable": {
+                    "value": {
+                      "code": "validator-unavailable",
+                      "detail": "kubeconform did not start",
+                      "status": 503,
+                      "title": "validator unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-unreachable, validator-unavailable"
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Remove a namespace's expiry",
+        "tags": [
+          "namespaces"
+        ],
+        "x-cmapi-permission": "namespaces:write",
+        "x-cmapi-plugin": "namespaces",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:makePermanent -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"The service went to production use\"}'"
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
+    "/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set": {
+      "post": {
+        "description": "Gives a namespace that has no expiry the date `until`: after today, and at most the environment's maxExtensionDays\naway. A namespace that has a date is refused with 422 expiration-already-set: use :extend. A normal request: plan,\napproval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan and the approval that would apply.\n\n**Requires** `namespaces:write`.",
+        "operationId": "namespaces_set_expiry",
+        "parameters": [
+          {
+            "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+            "in": "path",
+            "name": "cluster_id",
+            "required": true,
+            "schema": {
+              "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Cluster Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The name of the namespace on that cluster.",
+            "in": "path",
+            "name": "ns",
+            "required": true,
+            "schema": {
+              "description": "The name of the namespace on that cluster.",
+              "examples": [
+                "payments-dev"
+              ],
+              "title": "Ns",
+              "type": "string"
+            }
+          },
+          {
+            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "examples": [
+                true
+              ],
+              "title": "Dryrun",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "examples": [
+                "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "description": "The namespace's etag from GET; required on a change or delete",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The namespace's etag from GET; required on a change or delete",
+              "examples": [
+                "\"3f9a1c0b7e2d4a68\""
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "justification": "A load test this sprint",
+                "until": "2026-12-07"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/SetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "approval": {
+                    "approvals": [],
+                    "auto": "none-required",
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform"
+                    ],
+                    "remaining": [],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [],
+                    "timeoutHours": 8
+                  },
+                  "beyondTier": null,
+                  "capacity": {
+                    "bindingResource": "cpu",
+                    "clusterId": "CRC",
+                    "cpu": 0.062,
+                    "fresh": true,
+                    "memory": 0.05,
+                    "source": "simulated",
+                    "status": "fits"
+                  },
+                  "changes": {
+                    "clusters/CRC/namespaces/notes-dev/namespace.yaml": "changed"
+                  },
+                  "etag": "a86d7f3590b57c8d",
+                  "files": {
+                    "clusters/CRC/namespaces/notes-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: notes-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-07'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
+                  },
+                  "findings": [],
+                  "planHash": "8236a1559ca9cdaf0f8669ebe48642c71a9220b99adc7d8b280ff37058a0243b",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "action": "update",
+                  "approval": {
+                    "approvals": [],
+                    "auto": "none-required",
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev change: 0 from approver-platform"
+                    ],
+                    "remaining": [],
+                    "rule": "dev-change",
+                    "selfApproval": true,
+                    "slots": [],
+                    "timeoutHours": 8
+                  },
+                  "baseSha": "809d43eed30a202759e8baea825f911b2fa6c7e6",
+                  "beyondTier": null,
+                  "clusterId": "CRC",
+                  "createdAt": "2026-11-17T01:58:51.952994Z",
+                  "env": "dev",
+                  "events": [
+                    {
+                      "at": "2026-11-17T01:58:51.952994Z",
+                      "by": "ola",
+                      "event": "plan_auto_approved",
+                      "note": "none-required",
+                      "status": "approved"
+                    }
+                  ],
+                  "files": {
+                    "clusters/CRC/namespaces/notes-dev/limitrange-notes-dev-limits-cpu.yaml": "unchanged",
+                    "clusters/CRC/namespaces/notes-dev/limitrange-notes-dev-limits-memory.yaml": "unchanged",
+                    "clusters/CRC/namespaces/notes-dev/namespace.yaml": "changed",
+                    "clusters/CRC/namespaces/notes-dev/resourcequota-notes-dev-quota.yaml": "unchanged",
+                    "clusters/CRC/namespaces/notes-dev/token-issuer-rolebinding.yaml": "unchanged"
+                  },
+                  "instance": "nonprod",
+                  "justification": "A load test this sprint",
+                  "links": {
+                    "events": "/api/v1/requests/req-20261117-0012/events",
+                    "self": "/api/v1/requests/req-20261117-0012"
+                  },
+                  "mergeSha": null,
+                  "namespace": "notes-dev",
+                  "planHash": "ab7da9091b81950a28261fbb5a5fe119e215dfa1dfb83569a2686be5509cbe3c",
+                  "plugin": "namespaces",
+                  "pr": null,
+                  "reason": "expiration:set",
+                  "requestId": "req-20261117-0012",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  },
+                  "status": "approved",
+                  "updatedAt": "2026-11-17T01:58:51.840065Z"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idempotency-key-required": {
+                    "value": {
+                      "code": "idempotency-key-required",
+                      "detail": "Idempotency-Key header is required on writes",
+                      "status": 400,
+                      "title": "idempotency key required",
+                      "type": "https://cmapi.ephico2real.com/problems/idempotency-key-required"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "idempotency-key-required"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "environment-forbidden": {
+                    "value": {
+                      "code": "environment-forbidden",
+                      "detail": "Your roles grant namespaces:create only in ['rnd'], not dev",
+                      "status": 403,
+                      "title": "environment forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-forbidden"
+                    }
+                  },
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission namespaces:create",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "forbidden, environment-forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-not-found": {
+                    "value": {
+                      "code": "cluster-not-found",
+                      "detail": "Unknown cluster OCP_X",
+                      "status": 404,
+                      "title": "cluster not found",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
+                    }
+                  },
+                  "object-not-found": {
+                    "value": {
+                      "code": "object-not-found",
+                      "detail": "No request req-20261105-0001",
+                      "status": 404,
+                      "title": "object not found",
+                      "type": "https://cmapi.ephico2real.com/problems/object-not-found"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-not-found, object-not-found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "change-pending": {
+                    "value": {
+                      "code": "change-pending",
+                      "detail": "req-20261105-0001 holds payments-dev",
+                      "status": 409,
+                      "title": "change pending",
+                      "type": "https://cmapi.ephico2real.com/problems/change-pending"
+                    }
+                  },
+                  "idempotency-replay": {
+                    "value": {
+                      "code": "idempotency-replay",
+                      "detail": "Idempotency-Key was used for a different request",
+                      "status": 409,
+                      "title": "idempotency replay",
+                      "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "change-pending, idempotency-replay"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "precondition-failed": {
+                    "value": {
+                      "code": "precondition-failed",
+                      "detail": "The namespace changed in Git since you read it",
+                      "status": 412,
+                      "title": "precondition failed",
+                      "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "precondition-failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "capacity-exceeded": {
+                    "value": {
+                      "code": "capacity-exceeded",
+                      "detail": "memory would exceed the cluster",
+                      "status": 422,
+                      "title": "capacity exceeded",
+                      "type": "https://cmapi.ephico2real.com/problems/capacity-exceeded"
+                    }
+                  },
+                  "cluster-not-writable": {
+                    "value": {
+                      "code": "cluster-not-writable",
+                      "detail": "CRC is imported but has no clusters.yaml entry",
+                      "status": 422,
+                      "title": "cluster not writable",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-writable"
+                    }
+                  },
+                  "environment-not-served": {
+                    "value": {
+                      "code": "environment-not-served",
+                      "detail": "qa is served by the staging instance",
+                      "status": 422,
+                      "title": "environment not served",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
+                    }
+                  },
+                  "expiration-already-set": {
+                    "value": {
+                      "code": "expiration-already-set",
+                      "detail": "Use :extend to move an existing date",
+                      "status": 422,
+                      "title": "expiration already set",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-already-set"
+                    }
+                  },
+                  "expiration-in-past": {
+                    "value": {
+                      "code": "expiration-in-past",
+                      "detail": "The new date must be later than the current one",
+                      "status": 422,
+                      "title": "expiration in past",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-in-past"
+                    }
+                  },
+                  "expiration-limit": {
+                    "value": {
+                      "code": "expiration-limit",
+                      "detail": "An extension is at most 30 days",
+                      "status": 422,
+                      "title": "expiration limit",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-limit"
+                    }
+                  },
+                  "expiration-not-allowed": {
+                    "value": {
+                      "code": "expiration-not-allowed",
+                      "detail": "Production namespaces never expire",
+                      "status": 422,
+                      "title": "expiration not allowed",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-not-allowed"
+                    }
+                  },
+                  "expiration-not-set": {
+                    "value": {
+                      "code": "expiration-not-set",
+                      "detail": "The namespace is permanent; use :set",
+                      "status": 422,
+                      "title": "expiration not set",
+                      "type": "https://cmapi.ephico2real.com/problems/expiration-not-set"
+                    }
+                  },
+                  "identity-incomplete": {
+                    "value": {
+                      "code": "identity-incomplete",
+                      "detail": "The token has no employee_id claim",
+                      "status": 422,
+                      "title": "identity incomplete",
+                      "type": "https://cmapi.ephico2real.com/problems/identity-incomplete"
+                    }
+                  },
+                  "invalid-team-dl": {
+                    "value": {
+                      "code": "invalid-team-dl",
+                      "detail": "x@other.com is not an address in ['ephico2real.com']",
+                      "status": 422,
+                      "title": "invalid team dl",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-team-dl"
+                    }
+                  },
+                  "no-change": {
+                    "value": {
+                      "code": "no-change",
+                      "detail": "The request changes nothing",
+                      "status": 422,
+                      "title": "no change",
+                      "type": "https://cmapi.ephico2real.com/problems/no-change"
+                    }
+                  },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
+                  "policy-violation": {
+                    "value": {
+                      "code": "policy-violation",
+                      "detail": "Metadata refused",
+                      "status": 422,
+                      "title": "policy violation",
+                      "type": "https://cmapi.ephico2real.com/problems/policy-violation"
+                    }
+                  },
+                  "unknown-serviceaccount": {
+                    "value": {
+                      "code": "unknown-serviceaccount",
+                      "detail": "ci-deployer is not a ServiceAccount of payments-dev",
+                      "status": 422,
+                      "title": "unknown serviceaccount",
+                      "type": "https://cmapi.ephico2real.com/problems/unknown-serviceaccount"
+                    }
+                  },
+                  "unknown-user": {
+                    "value": {
+                      "code": "unknown-user",
+                      "detail": "1009 is not an enabled user",
+                      "status": 422,
+                      "title": "unknown user",
+                      "type": "https://cmapi.ephico2real.com/problems/unknown-user"
+                    }
+                  },
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past, expiration-already-set"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "precondition-required": {
+                    "value": {
+                      "code": "precondition-required",
+                      "detail": "If-Match is required on a change",
+                      "status": 428,
+                      "title": "precondition required",
+                      "type": "https://cmapi.ephico2real.com/problems/precondition-required"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "precondition-required"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "git-unavailable": {
+                    "value": {
+                      "code": "git-unavailable",
+                      "detail": "The Git host answered 500",
+                      "status": 502,
+                      "title": "git unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/git-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "git-unavailable"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-unreachable": {
+                    "value": {
+                      "code": "cluster-unreachable",
+                      "detail": "CRC did not answer",
+                      "status": 503,
+                      "title": "cluster unreachable",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "validator-unavailable": {
+                    "value": {
+                      "code": "validator-unavailable",
+                      "detail": "kubeconform did not start",
+                      "status": 503,
+                      "title": "validator unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-unreachable, validator-unavailable"
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Give a permanent namespace an expiry date",
+        "tags": [
+          "namespaces"
+        ],
+        "x-cmapi-permission": "namespaces:write",
+        "x-cmapi-plugin": "namespaces",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"until\": \"2026-12-15\", \"justification\": \"A test namespace for one sprint\"}'"
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
     "/api/v1/directory/users": {
       "get": {
         "description": "Up to ten people matching the text, for the portal's people picker. The employee ID is returned to\ncmapi-operator and above only.\n\n**Requires** `objects:read`.",
@@ -7780,6 +9546,380 @@
             "label": "curl",
             "lang": "Shell",
             "source": "curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/directory/users/cmapi.requester -H \"Authorization: Bearer $TOKEN\""
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
+    "/api/v1/expirations": {
+      "get": {
+        "description": "One page of the managed namespaces that can expire, in the caller's environments: each one's expiry date from the\nwatch cache, the days left, its state and the notices sent, the count of each state over the other filters, and the\nrules of each environment. Environments where no namespace can expire (no entry in expiration.yaml, such as prod) are\nleft out. `today` is the day the API counts from.\n\n**Requires** `objects:read`.",
+        "operationId": "expiration_expirations",
+        "parameters": [
+          {
+            "description": "Text that the name, the team label or the app label contains. Case does not matter.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Text that the name, the team label or the app label contains. Case does not matter.",
+              "examples": [
+                "payments"
+              ],
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the namespaces of this environment (`cmapi.net/env`).",
+            "in": "query",
+            "name": "env",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the namespaces of this environment (`cmapi.net/env`).",
+              "examples": [
+                "dev"
+              ],
+              "title": "Env"
+            }
+          },
+          {
+            "description": "Only the namespaces on this cluster.",
+            "in": "query",
+            "name": "clusterId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the namespaces on this cluster.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Clusterid"
+            }
+          },
+          {
+            "description": "Only the namespaces of this team (`cmapi.net/team`).",
+            "in": "query",
+            "name": "team",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the namespaces of this team (`cmapi.net/team`).",
+              "examples": [
+                "payments"
+              ],
+              "title": "Team"
+            }
+          },
+          {
+            "description": "Only the namespaces in one state: `permanent`, `active`, `expiring`, `grace` or `pending_delete`, or `attention` for the three that need action (expiring, grace and pending_delete). Another value returns 422 `validation-failed`.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the namespaces in one state: `permanent`, `active`, `expiring`, `grace` or `pending_delete`, or `attention` for the three that need action (expiring, grace and pending_delete). Another value returns 422 `validation-failed`.",
+              "examples": [
+                "attention"
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "description": "`urgency` puts the most urgent first: grace, expiring, pending_delete, active, then permanent, and in each the fewest days left first. `name` sorts by name, A to Z.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "urgency",
+              "description": "`urgency` puts the most urgent first: grace, expiring, pending_delete, active, then permanent, and in each the fewest days left first. `name` sorts by name, A to Z.",
+              "examples": [
+                "urgency"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of rows in one page: 25, 50 or 100, and never more than 200. A larger result is not cut: `page.nextCursor` gives the next page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "The number of rows in one page: 25, 50 or 100, and never more than 200. A larger result is not cut: `page.nextCursor` gives the next page.",
+              "examples": [
+                50
+              ],
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "`page.nextCursor` or `page.prevCursor` of an earlier page of the same filters and sort. A cursor of other filters returns 400 `invalid-cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`page.nextCursor` or `page.prevCursor` of an earlier page of the same filters and sort. A cursor of other filters returns 400 `invalid-cursor`.",
+              "examples": [
+                "eyJrIjpbInBheW1lbnRzLWRldiIsIkNSQyJdLCJkIjoibmV4dCJ9.2f1c"
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "facets": {
+                    "active": 2,
+                    "attention": 0,
+                    "expiring": 0,
+                    "grace": 0,
+                    "pending_delete": 0,
+                    "permanent": 1
+                  },
+                  "items": [
+                    {
+                      "app": null,
+                      "clusterId": "CRC",
+                      "created": "2026-11-17",
+                      "daysLeft": 21,
+                      "env": "dev",
+                      "expiresAt": "2026-12-07",
+                      "graceEnds": "2026-12-14",
+                      "lifetimeDays": 20,
+                      "name": "notes-dev",
+                      "noticesSent": 0,
+                      "openRequest": null,
+                      "state": "active",
+                      "team": "payments"
+                    },
+                    {
+                      "app": null,
+                      "clusterId": "CRC",
+                      "created": "2026-11-17",
+                      "daysLeft": 27,
+                      "env": "dev",
+                      "expiresAt": "2026-12-13",
+                      "graceEnds": "2026-12-20",
+                      "lifetimeDays": 26,
+                      "name": "sprint-dev",
+                      "noticesSent": 0,
+                      "openRequest": "req-20261117-0013",
+                      "state": "active",
+                      "team": "payments"
+                    },
+                    {
+                      "app": null,
+                      "clusterId": "CRC",
+                      "created": "2026-11-17",
+                      "daysLeft": null,
+                      "env": "dev",
+                      "expiresAt": null,
+                      "graceEnds": null,
+                      "lifetimeDays": null,
+                      "name": "payments-dev",
+                      "noticesSent": 0,
+                      "openRequest": "req-20261117-0002",
+                      "state": "permanent",
+                      "team": "payments"
+                    }
+                  ],
+                  "letters": {
+                    "N": 1,
+                    "P": 1,
+                    "S": 1
+                  },
+                  "page": {
+                    "from": 1,
+                    "limit": 25,
+                    "nextCursor": null,
+                    "prevCursor": null,
+                    "to": 3,
+                    "total": 3
+                  },
+                  "rules": {
+                    "dev": {
+                      "graceDays": 7,
+                      "maxExtensionDays": 30,
+                      "maxLifetimeDays": 180,
+                      "notifyDaysBefore": [
+                        14,
+                        7,
+                        1
+                      ]
+                    }
+                  },
+                  "today": "2026-11-16"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ExpirationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "invalid-cursor": {
+                    "value": {
+                      "code": "invalid-cursor",
+                      "detail": "The cursor is not valid",
+                      "status": 400,
+                      "title": "invalid cursor",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-cursor"
+                    }
+                  },
+                  "invalid-limit": {
+                    "value": {
+                      "code": "invalid-limit",
+                      "detail": "limit is one of (25, 50, 100), at most 200",
+                      "status": 400,
+                      "title": "invalid limit",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-limit"
+                    }
+                  },
+                  "invalid-sort": {
+                    "value": {
+                      "code": "invalid-sort",
+                      "detail": "Unknown sort used2",
+                      "status": 400,
+                      "title": "invalid sort",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-sort"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "invalid-cursor, invalid-sort, invalid-limit"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission namespaces:create",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "validation-failed"
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Namespaces by expiry, paged",
+        "tags": [
+          "expiration"
+        ],
+        "x-cmapi-permission": "objects:read",
+        "x-cmapi-plugin": "expiration",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/expirations -H \"Authorization: Bearer $TOKEN\""
           }
         ],
         "x-plugin-version": "0.2.0"
@@ -8856,14 +10996,14 @@
                         ],
                         "timeoutHours": 8
                       },
-                      "baseSha": "4d7b43ccb7ce7b8511d89719e439c9fcaa81b90f",
+                      "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                       "beyondTier": null,
                       "clusterId": "CRC",
-                      "createdAt": "2026-11-15T07:43:57.930101Z",
+                      "createdAt": "2026-11-17T01:58:37.339199Z",
                       "env": "dev",
                       "events": [
                         {
-                          "at": "2026-11-15T07:43:57.930101Z",
+                          "at": "2026-11-17T01:58:37.339199Z",
                           "by": "ola",
                           "event": "plan_needs_approval",
                           "note": "waiting for [('approver-platform', 1)]",
@@ -8880,16 +11020,16 @@
                       "instance": "nonprod",
                       "justification": "Load test next sprint",
                       "links": {
-                        "events": "/api/v1/requests/req-20261115-0002/events",
-                        "self": "/api/v1/requests/req-20261115-0002"
+                        "events": "/api/v1/requests/req-20261117-0002/events",
+                        "self": "/api/v1/requests/req-20261117-0002"
                       },
                       "mergeSha": null,
                       "namespace": "payments-dev",
-                      "planHash": "0deac03847a7c4106c8ca8e8e4b076a66b667f77203be731a18c098cdbdd5bf7",
+                      "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
                       "plugin": "namespaces",
                       "pr": null,
                       "reason": null,
-                      "requestId": "req-20261115-0002",
+                      "requestId": "req-20261117-0002",
                       "requester": {
                         "automated": false,
                         "requester": {
@@ -8907,7 +11047,7 @@
                         "submittedByClient": null
                       },
                       "status": "pending_approval",
-                      "updatedAt": "2026-11-15T07:43:57.795196Z"
+                      "updatedAt": "2026-11-17T01:58:37.226760Z"
                     }
                   ],
                   "letters": {
@@ -9087,67 +11227,67 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:43:56.484597Z",
+                  "createdAt": "2026-11-17T01:58:35.666940Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:43:56.484597Z",
+                      "at": "2026-11-17T01:58:35.666940Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.622567Z",
+                      "at": "2026-11-17T01:58:35.979972Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
-                      "note": "cmapi/CRC/req-20261115-0001 at 4d7b43cc on aaaaaaaa (created)",
+                      "note": "cmapi/CRC/req-20261117-0001 at 2a30c94f on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.671798Z",
+                      "at": "2026-11-17T01:58:36.059838Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
-                      "note": "cmapi/CRC/req-20261115-0001 #1",
+                      "note": "cmapi/CRC/req-20261117-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.720109Z",
+                      "at": "2026-11-17T01:58:36.127462Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.778851Z",
+                      "at": "2026-11-17T01:58:36.204612Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
-                      "note": "applying 4d7b43cc before the merge",
+                      "note": "applying 2a30c94f before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.765010Z",
+                      "at": "2026-11-17T01:58:36.186889Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
-                      "note": "5 objects from cmapi/CRC/req-20261115-0001 at 4d7b43cc, before the merge, confirmed by a read: quota matches the plan",
+                      "note": "5 objects from cmapi/CRC/req-20261117-0001 at 2a30c94f, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "worker",
                       "event": "merge_verified",
-                      "note": "merged 4d7b43cc; the folder at it is the plan's",
+                      "note": "merged 2a30c94f; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "cmapi-bot",
                       "event": "merged",
-                      "note": "merged 4d7b43cc",
+                      "note": "merged 2a30c94f",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
@@ -9164,22 +11304,22 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0001/events",
+                    "events": "/api/v1/requests/req-20261117-0001/events",
                     "pr": "https://git.test/pulls/1",
-                    "self": "/api/v1/requests/req-20261115-0001"
+                    "self": "/api/v1/requests/req-20261117-0001"
                   },
-                  "mergeSha": "4d7b43cc",
+                  "mergeSha": "2a30c94f",
                   "namespace": "payments-dev",
-                  "planHash": "67e4aa6a94a2d2b67ec7e93ca431a95a111f7435209188e14f8d85fd6abd50f1",
+                  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
                   "plugin": "namespaces",
                   "pr": {
-                    "branch": "cmapi/CRC/req-20261115-0001",
-                    "head": "4d7b43cc",
+                    "branch": "cmapi/CRC/req-20261117-0001",
+                    "head": "2a30c94f",
                     "number": 1,
                     "url": "https://git.test/pulls/1"
                   },
                   "reason": null,
-                  "requestId": "req-20261115-0001",
+                  "requestId": "req-20261117-0001",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -9197,7 +11337,7 @@
                     "submittedByClient": null
                   },
                   "status": "synced",
-                  "updatedAt": "2026-11-15T07:43:56.664542Z"
+                  "updatedAt": "2026-11-17T01:58:36.146488Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -9338,8 +11478,8 @@
               "application/json": {
                 "example": {
                   "approved": true,
-                  "planHash": "67e4aa6a94a2d2b67ec7e93ca431a95a111f7435209188e14f8d85fd6abd50f1",
-                  "requestId": "req-20261115-0001",
+                  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
+                  "requestId": "req-20261117-0001",
                   "status": "synced"
                 },
                 "schema": {
@@ -9482,70 +11622,70 @@
                 "example": {
                   "events": [
                     {
-                      "at": "2026-11-15T07:43:56.484597Z",
+                      "at": "2026-11-17T01:58:35.666940Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.622567Z",
+                      "at": "2026-11-17T01:58:35.979972Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
-                      "note": "cmapi/CRC/req-20261115-0001 at 4d7b43cc on aaaaaaaa (created)",
+                      "note": "cmapi/CRC/req-20261117-0001 at 2a30c94f on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.671798Z",
+                      "at": "2026-11-17T01:58:36.059838Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
-                      "note": "cmapi/CRC/req-20261115-0001 #1",
+                      "note": "cmapi/CRC/req-20261117-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.720109Z",
+                      "at": "2026-11-17T01:58:36.127462Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.778851Z",
+                      "at": "2026-11-17T01:58:36.204612Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
-                      "note": "applying 4d7b43cc before the merge",
+                      "note": "applying 2a30c94f before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.765010Z",
+                      "at": "2026-11-17T01:58:36.186889Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
-                      "note": "5 objects from cmapi/CRC/req-20261115-0001 at 4d7b43cc, before the merge, confirmed by a read: quota matches the plan",
+                      "note": "5 objects from cmapi/CRC/req-20261117-0001 at 2a30c94f, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "worker",
                       "event": "merge_verified",
-                      "note": "merged 4d7b43cc; the folder at it is the plan's",
+                      "note": "merged 2a30c94f; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "cmapi-bot",
                       "event": "merged",
-                      "note": "merged 4d7b43cc",
+                      "note": "merged 2a30c94f",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-15T07:43:56.859297Z",
+                      "at": "2026-11-17T01:58:36.296031Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
                       "status": "synced"
                     }
                   ],
-                  "requestId": "req-20261115-0001",
+                  "requestId": "req-20261117-0001",
                   "status": "synced"
                 },
                 "schema": {
@@ -9710,7 +11850,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-15T07:43:58.221073Z",
+                        "at": "2026-11-17T01:58:37.595160Z",
                         "comment": "sizing reviewed",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -9735,28 +11875,28 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "4d7b43ccb7ce7b8511d89719e439c9fcaa81b90f",
+                  "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:43:57.930101Z",
+                  "createdAt": "2026-11-17T01:58:37.339199Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:43:57.930101Z",
+                      "at": "2026-11-17T01:58:37.339199Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:43:58.221073Z",
+                      "at": "2026-11-17T01:58:37.595160Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "sizing reviewed",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:43:58.221073Z",
+                      "at": "2026-11-17T01:58:37.595160Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
@@ -9773,16 +11913,16 @@
                   "instance": "nonprod",
                   "justification": "Load test next sprint",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0002/events",
-                    "self": "/api/v1/requests/req-20261115-0002"
+                    "events": "/api/v1/requests/req-20261117-0002/events",
+                    "self": "/api/v1/requests/req-20261117-0002"
                   },
                   "mergeSha": null,
                   "namespace": "payments-dev",
-                  "planHash": "0deac03847a7c4106c8ca8e8e4b076a66b667f77203be731a18c098cdbdd5bf7",
+                  "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0002",
+                  "requestId": "req-20261117-0002",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -9800,7 +11940,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-15T07:43:58.031900Z"
+                  "updatedAt": "2026-11-17T01:58:37.453047Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10022,21 +12162,21 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "9280f9d38e683a4ed1869001f61fffc5d9767bf8",
+                  "baseSha": "438cbdd4d6d3558ce56c53170157c129738282c4",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:02.092672Z",
+                  "createdAt": "2026-11-17T01:58:41.921924Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:02.092672Z",
+                      "at": "2026-11-17T01:58:41.921924Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:44:02.424198Z",
+                      "at": "2026-11-17T01:58:42.282748Z",
                       "by": "ola",
                       "event": "cancel",
                       "note": "",
@@ -10053,16 +12193,16 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0005/events",
-                    "self": "/api/v1/requests/req-20261115-0005"
+                    "events": "/api/v1/requests/req-20261117-0005/events",
+                    "self": "/api/v1/requests/req-20261117-0005"
                   },
                   "mergeSha": null,
                   "namespace": "ledger-dev",
-                  "planHash": "becab0c50021fc12d7098414e6e5b167185733eac37ba6d1ce141129cde5e527",
+                  "planHash": "ddbcfef90a244f8cc695fdc80b8a7ac9b52f660a40b47607b7712102bd7b2b3f",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0005",
+                  "requestId": "req-20261117-0005",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -10080,7 +12220,7 @@
                     "submittedByClient": null
                   },
                   "status": "cancelled",
-                  "updatedAt": "2026-11-15T07:44:02.207988Z"
+                  "updatedAt": "2026-11-17T01:58:42.102578Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10279,21 +12419,21 @@
                     ],
                     "timeoutHours": 8
                   },
-                  "baseSha": "9280f9d38e683a4ed1869001f61fffc5d9767bf8",
+                  "baseSha": "438cbdd4d6d3558ce56c53170157c129738282c4",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:02.227417Z",
+                  "createdAt": "2026-11-17T01:58:42.077258Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:02.227417Z",
+                      "at": "2026-11-17T01:58:42.077258Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-15T07:44:02.335042Z",
+                      "at": "2026-11-17T01:58:42.191188Z",
                       "by": "amy",
                       "event": "rejected",
                       "note": "Use the medium tier",
@@ -10310,16 +12450,16 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0006/events",
-                    "self": "/api/v1/requests/req-20261115-0006"
+                    "events": "/api/v1/requests/req-20261117-0006/events",
+                    "self": "/api/v1/requests/req-20261117-0006"
                   },
                   "mergeSha": null,
                   "namespace": "billing-dev",
-                  "planHash": "09182149e0f335653ad133729c867cd09964ea3a026b2a137ae7edbd691d6902",
+                  "planHash": "f01228f17eb2e70ffa702f970c19fedab4fd955605b2858fe2d1767c375ea8ab",
                   "plugin": "namespaces",
                   "pr": null,
                   "reason": null,
-                  "requestId": "req-20261115-0006",
+                  "requestId": "req-20261117-0006",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -10337,7 +12477,7 @@
                     "submittedByClient": null
                   },
                   "status": "rejected",
-                  "updatedAt": "2026-11-15T07:44:02.118886Z"
+                  "updatedAt": "2026-11-17T01:58:42.012596Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10522,70 +12662,70 @@
                     "slots": [],
                     "timeoutHours": 8
                   },
-                  "baseSha": "9280f9d38e683a4ed1869001f61fffc5d9767bf8",
+                  "baseSha": "438cbdd4d6d3558ce56c53170157c129738282c4",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:03.745995Z",
+                  "createdAt": "2026-11-17T01:58:43.655336Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:03.745995Z",
+                      "at": "2026-11-17T01:58:43.655336Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:03.866768Z",
+                      "at": "2026-11-17T01:58:43.773082Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
-                      "note": "cmapi/CRC/req-20261115-0007 at 82ba150b on 9280f9d3 (created)",
+                      "note": "cmapi/CRC/req-20261117-0007 at dccdb97b on 438cbdd4 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:03.963647Z",
+                      "at": "2026-11-17T01:58:43.875690Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
-                      "note": "cmapi/CRC/req-20261115-0007 #5",
+                      "note": "cmapi/CRC/req-20261117-0007 #5",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:04.134069Z",
+                      "at": "2026-11-17T01:58:44.039749Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:04.134069Z",
+                      "at": "2026-11-17T01:58:44.039749Z",
                       "by": "ci",
                       "event": "head_moved",
-                      "note": "PR head moved from 82ba150b to 3e63dda9 after approval",
+                      "note": "PR head moved from dccdb97b to 05f69248 after approval",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:04.134069Z",
+                      "at": "2026-11-17T01:58:44.039749Z",
                       "by": "ci",
                       "event": "pr_failed",
                       "note": "checks failed",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-15T07:44:04.134069Z",
+                      "at": "2026-11-17T01:58:44.039749Z",
                       "by": "worker",
                       "event": "pr_closed",
                       "note": "#5: its checks failed; the request is failed and may be retried",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-15T07:44:04.243604Z",
+                      "at": "2026-11-17T01:58:44.148623Z",
                       "by": "worker",
                       "event": "branch_deleted",
-                      "note": "cmapi/CRC/req-20261115-0007 at 3e63dda9",
+                      "note": "cmapi/CRC/req-20261117-0007 at 05f69248",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-15T07:44:05.169468Z",
+                      "at": "2026-11-17T01:58:45.135244Z",
                       "by": "opal",
                       "event": "retry",
                       "note": "retry requested",
@@ -10602,22 +12742,22 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0007/events",
+                    "events": "/api/v1/requests/req-20261117-0007/events",
                     "pr": "https://git.test/pulls/5",
-                    "self": "/api/v1/requests/req-20261115-0007"
+                    "self": "/api/v1/requests/req-20261117-0007"
                   },
                   "mergeSha": null,
                   "namespace": "search-dev",
-                  "planHash": "2b15c23057ac2c54a40d308d3d0688aaf45f10a12b9c90d2c33beeaf9f16a0d0",
+                  "planHash": "b942eedd50f45d55e07621dc3a7704b7d32cce10c3000d1c425c4a0c961b2250",
                   "plugin": "namespaces",
                   "pr": {
-                    "branch": "cmapi/CRC/req-20261115-0007",
-                    "head": "82ba150b",
+                    "branch": "cmapi/CRC/req-20261117-0007",
+                    "head": "dccdb97b",
                     "number": 5,
                     "url": "https://git.test/pulls/5"
                   },
                   "reason": null,
-                  "requestId": "req-20261115-0007",
+                  "requestId": "req-20261117-0007",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -10635,7 +12775,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-15T07:44:04.956717Z"
+                  "updatedAt": "2026-11-17T01:58:44.960706Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10820,63 +12960,63 @@
                     "slots": [],
                     "timeoutHours": 8
                   },
-                  "baseSha": "9280f9d38e683a4ed1869001f61fffc5d9767bf8",
+                  "baseSha": "438cbdd4d6d3558ce56c53170157c129738282c4",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-15T07:44:08.599042Z",
+                  "createdAt": "2026-11-17T01:58:49.278933Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-15T07:44:08.599042Z",
+                      "at": "2026-11-17T01:58:49.278933Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.781964Z",
+                      "at": "2026-11-17T01:58:49.401239Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
-                      "note": "cmapi/CRC/req-20261115-0009 at ee61a06d on 9280f9d3 (created)",
+                      "note": "cmapi/CRC/req-20261117-0009 at 063fa9d9 on 438cbdd4 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.824222Z",
+                      "at": "2026-11-17T01:58:49.463530Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
-                      "note": "cmapi/CRC/req-20261115-0009 #8",
+                      "note": "cmapi/CRC/req-20261117-0009 #8",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.865138Z",
+                      "at": "2026-11-17T01:58:49.537305Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.901348Z",
+                      "at": "2026-11-17T01:58:49.589874Z",
                       "by": "worker",
                       "event": "merge_verified",
-                      "note": "merged ee61a06d; the folder at it is the plan's",
+                      "note": "merged 063fa9d9; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.901348Z",
+                      "at": "2026-11-17T01:58:49.589874Z",
                       "by": "cmapi-bot",
                       "event": "merged",
-                      "note": "merged ee61a06d",
+                      "note": "merged 063fa9d9",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-15T07:44:08.952456Z",
+                      "at": "2026-11-17T01:58:49.661730Z",
                       "by": "worker",
                       "event": "sync_timeout",
                       "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                       "status": "sync_failed"
                     },
                     {
-                      "at": "2026-11-15T07:44:09.118502Z",
+                      "at": "2026-11-17T01:58:49.916748Z",
                       "by": "opal",
                       "event": "revert_requested",
                       "note": "",
@@ -10893,22 +13033,22 @@
                   "instance": "nonprod",
                   "justification": "Payments service dev namespace",
                   "links": {
-                    "events": "/api/v1/requests/req-20261115-0009/events",
+                    "events": "/api/v1/requests/req-20261117-0009/events",
                     "pr": "https://git.test/pulls/8",
-                    "self": "/api/v1/requests/req-20261115-0009"
+                    "self": "/api/v1/requests/req-20261117-0009"
                   },
-                  "mergeSha": "ee61a06d",
+                  "mergeSha": "063fa9d9",
                   "namespace": "orders-dev",
-                  "planHash": "b779a35afff12cc2186de72ecd26185e8a0b4d9cf2a7ec6f8f35505d74068322",
+                  "planHash": "0150ad6b6ad98f79a5bc45dd669e2537ede65f7801bcb05dfc2aad43b1f2062e",
                   "plugin": "namespaces",
                   "pr": {
-                    "branch": "cmapi/CRC/req-20261115-0009",
-                    "head": "ee61a06d",
+                    "branch": "cmapi/CRC/req-20261117-0009",
+                    "head": "063fa9d9",
                     "number": 8,
                     "url": "https://git.test/pulls/8"
                   },
                   "reason": null,
-                  "requestId": "req-20261115-0009",
+                  "requestId": "req-20261117-0009",
                   "requester": {
                     "automated": false,
                     "requester": {
@@ -10926,7 +13066,7 @@
                     "submittedByClient": null
                   },
                   "status": "sync_failed",
-                  "updatedAt": "2026-11-15T07:44:08.896620Z"
+                  "updatedAt": "2026-11-17T01:58:49.731879Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -11438,6 +13578,11 @@
       "x-plugin-version": "0.2.0"
     },
     {
+      "description": "The managed namespaces by expiry: a paged list of each namespace that can expire, with its date, the days left and its state. A date is changed with :extend, :set or :makePermanent of the namespaces plugin.",
+      "name": "expiration",
+      "x-plugin-version": "0.2.0"
+    },
+    {
       "description": "The managed namespaces of a cluster: read them, and create, change, delete or extend one. Each write returns a change request and becomes a pull request after approval.",
       "name": "namespaces",
       "x-plugin-version": "0.2.0"
@@ -11462,6 +13607,7 @@
     {
       "name": "Namespaces and metadata",
       "tags": [
+        "expiration",
         "namespaces"
       ]
     },

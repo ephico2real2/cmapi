@@ -309,6 +309,58 @@ class QuotaPage(Api):
     facets: dict[str, int] = Field(description="Attention counts over the filters", examples=[{"near-limit": 0}])
 
 
+# --------------------------------------------------------------------------- expirations
+
+ExpiryState = Literal["permanent", "active", "expiring", "grace", "pending_delete"]
+
+
+class ExpirationRow(Api):
+    name: str = Field(description="Namespace", examples=["sprint-dev"])
+    cluster_id: str = Field(description="Cluster", examples=["CRC"])
+    env: str | None = Field(description="Environment (`cmapi.net/env`)", examples=["dev"])
+    team: str | None = Field(description="Team (`cmapi.net/team`)", examples=["payments"])
+    app: str | None = Field(default=None, description="`cmapi.net/app`", examples=[None])
+    created: date | None = Field(description="The day the namespace was created on the cluster (its creationTimestamp), UTC",
+                                 examples=["2026-10-01"])
+    expires_at: str | None = Field(description="`cmapi.net/expires-at` as the cluster has it; null for a permanent namespace",
+                                   examples=["2026-12-15"])
+    days_left: int | None = Field(description="Days from `today` of the page to the expiry date: 0 on the date, negative after it; "
+                                              "null when the namespace is permanent", examples=[29])
+    state: ExpiryState = Field(description="`permanent` (no date), `active` (further away than the first notice), `expiring` "
+                                           "(within the first notice, before the date), `grace` (from the date for graceDays; it still "
+                                           "runs and can be extended) or `pending_delete` (grace is over)", examples=["active"])
+    grace_ends: date | None = Field(description="The first day after grace: from this day the namespace is `pending_delete`. "
+                                                "Null when it is permanent", examples=["2026-12-22"])
+    lifetime_days: int | None = Field(description="Days from `created` to the expiry date; null when either is not known",
+                                      examples=[75])
+    notices_sent: int = Field(description="The expiry notices recorded for this date (of 14, 7 and 1 days before), from the "
+                                          "database", examples=[0])
+    open_request: str | None = Field(default=None, description="The request that holds the namespace; while it is open, another "
+                                                               "change is refused with 409 change-pending", examples=[None])
+
+
+class ExpirationRulesView(Api):
+    max_extension_days: int = Field(description="The most days that one extension adds, and how far out a first date can be set",
+                                    examples=[30])
+    max_lifetime_days: int = Field(description="Days from creation past which a date adds an approval from approver-platform",
+                                   examples=[180])
+    notify_days_before: list[int] = Field(description="When the notices go out, in days before the date", examples=[[14, 7, 1]])
+    grace_days: int = Field(description="Days from the date during which the namespace still runs", examples=[7])
+
+
+class ExpirationPage(Api):
+    items: list[ExpirationRow] = Field(description="One page")
+    page: PageInfo = Field(description="Paging")
+    letters: dict[str, int] = Field(description="Rows per first letter", examples=[{"S": 1}])
+    facets: dict[str, int] = Field(description="Rows in each state, and `attention` (expiring, grace and pending_delete), over the "
+                                               "other filters", examples=[{"attention": 0, "active": 1, "permanent": 2}])
+    rules: dict[str, ExpirationRulesView] = Field(description="The expiration rules of each environment in the caller's scope where "
+                                                              "a namespace can expire (config/expiration.yaml). Empty on an instance "
+                                                              "where none can, such as prod")
+    today: date = Field(description="The day that `daysLeft` and `state` are counted from: the day the API plans an extension from",
+                        examples=["2026-11-16"])
+
+
 class Suggestion(Api):
     name: str = Field(description="Namespace", examples=["payments-dev"])
     cluster_id: str = Field(description="Cluster", examples=["CRC"])
