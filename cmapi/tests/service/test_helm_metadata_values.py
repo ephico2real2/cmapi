@@ -6,6 +6,7 @@ at helm install, upgrade, lint and template (https://helm.sh/docs/topics/charts/
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -218,3 +219,19 @@ def test_the_schema_names_what_the_loader_reads():
     block = schema["properties"]["metadata"]
     assert set(block["then"]["required"]) == set(block["properties"]) == set(_chart_keys())
     assert schema["$schema"] == "http://json-schema.org/draft-07/schema#"
+
+
+@pytest.mark.parametrize("values", ["defaults", "metadata", "configFiles"])
+def test_checksum_config_is_the_hash_of_the_config_map_as_rendered(tmp_path, values):
+    """The API and the worker hash the raw output of templates/config.yaml (checksum/config), while Helm prints that
+    output trimmed: a stray blank line from a guard (the first version of #335's) changes the checksum and restarts both
+    on an upgrade that changes no file. The checksum must be the hash of the ConfigMap exactly as rendered."""
+    given = {"defaults": None, "metadata": {"metadata": _chart_keys()},
+             "configFiles": {"configFiles": {"metadata-keys.yaml": CHART_FILE.read_text()}}}[values]
+    r = _helm("template", tmp_path, given)
+    assert r.returncode == 0, r.stderr[-600:]
+    doc = r.stdout.split("# Source: cmapi/templates/config.yaml\n", 1)[1].split("\n---\n", 1)[0]
+    sums = {d["metadata"]["name"]: d["spec"]["template"]["metadata"]["annotations"]["checksum/config"]
+            for d in yaml.safe_load_all(r.stdout)
+            if d and d["kind"] == "Deployment" and d["metadata"]["name"] in ("cmapi-api", "cmapi-worker")}
+    assert sums == dict.fromkeys(("cmapi-api", "cmapi-worker"), hashlib.sha256(doc.encode()).hexdigest()), sums
