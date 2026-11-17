@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 35 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 36 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
@@ -125,9 +125,10 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 
 ## Built endpoints that no mockup action calls
 
-The mockup has no action for these 19 operations of `openapi.json`:
+The mockup has no action for these 20 operations of `openapi.json`:
 
 - `GET /api/v1/me`, `GET /api/v1/version`, `GET /api/v1/clusters`
+- `GET /api/v1/metadata-keys`: the portal's New namespace form reads its labels and annotations from it (#336); the mockup hard-codes the CRC keys
 - `GET /api/v1/clusters/{cluster_id}/namespaces`, and `GET` and `DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`
 - `GET /api/v1/requests/{request_id}/approval-status`
 - `POST /api/v1/requests/{request_id}:cancel`, `:retry` and `:revert`
