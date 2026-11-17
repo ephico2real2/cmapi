@@ -1,0 +1,364 @@
+OB3 review of PR #368 (head 1b45865, main e45d966), Opus 5.5. Verdict: FIX FIRST. Two findings change behaviour you can see (F1, F2); F3 and F4 are small.
+Depth: deep for C2 (my own value set, 45,145 cases, plus the real Chromium email input), C3 (the real nginx image, the CSP, long tasks checked against a main-thread control) and C6 (the rule before and after, through the Spectral CLI). Medium for C1, C4, C5 and C7. Nothing was treated as shallow.
+
+C1 CONFIRMED. ob3/test_ob3_368_c1.py through suite.sh. The route's raw bytes equal the bytes of /openapi.json's NamespaceCreate labels/annotations with title, description and examples removed: reference 3397=3397 (sha e3f5930d1b193b0f), company 6137=6137. The ETag is sha256 of those bytes; a 304 has an empty body; Cache-Control is "private, no-cache"; a token with no role gets 403 forbidden; docs.enabled:false gives 200 while /openapi.json gives 404. On main the same test fails 3 of 3 (404) (c1-main.log).
+C2 CONFIRMED for both shipped configs. ob3/c2: verdicts.py uses validate() on my own values (mutations, Unicode and whitespace edges, URLs, emails), and form-vs-cmapi.mjs runs metadataForm.ts in Node. The form is stricter than cmapi on 0 of 10,696 reference cases and 0 of 18,225 company cases, and checked in Chromium 156 it is 0 on email too (email-chromium.mjs). On my adversarial config it is stricter on 12 cases, all one kind: an emailDomains label of 64 characters, which the loader accepts and `<input type=email>` refuses → F3.
+C3 CONFIRMED. ob3/c3/csp-nginx.mjs runs dist/ in the pinned nginx-unprivileged@sha256:f5116ed… with the repo's own nginx config. Page CSP: script-src 'self', no worker-src. /assets/patternWorker-*.js returns 200 application/javascript, the worker's pattern error appears, and 0 CSP violations are reported. Typing 41 characters on ^(?:[a-z0-9]+-?)*[a-z0-9]$ gave 0 long tasks (largest gap between ticks 27 ms). Control: the same regex in a page task took 334 ms and was seen as a 334 ms long task. The check that timed out showed no error; the dry run's refusal landed on the field.
+C4 REFUTED (one part). Derived keys are never sent, operator-only keys are never shown, and D10 behaves as designed: the PR's checks pass. The part that fails is the mapping of errors[]. ob3/c4: validate() gives no `kind` on invalid_value, so when a key is both a label and an annotation, an annotation error lands on the label field ("annotation-bad WRONG shown on label:x.io/both"). → F1.
+C5 REFUTED (one part). axe (wcag2a through wcag22aa) finds 0 violations on both configs at 390 px, light and dark, in 4 states. The summary div (tabindex -1) takes focus. Every aria-describedby id resolves, and labels come from title (ob3/c5/a11y.json). But at load every empty required field already has aria-invalid=true and shows "Required: …" (ob3/c5/initial.mjs; reference 2 fields, company 3). WAI-ARIA 1.2 says of aria-invalid: "authors SHOULD NOT set the aria-invalid attribute on required widgets simply because the user has not yet entered data". → F2.
+C6 PLAUSIBLE, risk named. Both earlier refusal cases are still refused. Three new misuses are missed, among them a create body's labels {properties:{"cmapi.net/team":…}} (rule-diff.mjs). In lint-test the rule misses that case on head, though oas3-valid-media-example still fails the document; with the fix it is refused (37 of 37). → F4.
+C7 CONFIRMED. On main: the PR's service test fails 9 of 9, the core test 10 of 10. On head: 9 of 9 and 10 of 10 pass. I ran 3 mutants (c7-mutants.log), and each is killed by the check named for it. "enum not checked" is killed by direct M5. "patterns on the page's thread" is killed by "18 …backtracks" (the page answers). "errors not on their fields" is killed by "18 …a refused".
+Findings, all in ob3/ob3-368-fixes.patch (it applies to a fresh export: patch -p1 --dry-run is clean):
+F1 core/metadata.py: every value refusal from _syntax and _governed now carries "kind". Hand edits to samples.json, openapi.json and docs/04, and two exact assertions updated. New test test_metadata_error_kind_368 fails on head and passes with the fix; service tests 116 of 116 and core metadata/policygen 331 pass.
+F2 NewNamespaceTab: an empty field is not shown in error until the first Dry run or Submit. New check "OB3-368…" fails on head and passes with the fix. The 18, 6 and 9 checks pass. Mutant 93 is re-anchored and one mutant is added.
+F3 _DOMAIN and the chart's pattern limit a label to 63 characters (RFC 1035). test_metadata_email_domain_368 fails 3 on head, passes 4 with the fix; helm test passes.
+F4 cmapiLabelKeys.js: a key under `properties` counts only when the map's schema has type: object. New lint-test case fails on head, passes with the fix.
+Not checked: the full suites, CRC, other browsers, api-types --check (its generator is not installed), the remaining 23 mutants with F2 applied. I ran npm ci for the portal (registry) and the Spectral install offline from cache.
+Housekeeping: the operator's worktree was clean before and after (`git status --short`: 0 lines). No git writes, nothing on CRC. Deleted my exports (head, main, fix, pristine), the bt-* temp dirs, c3/www and c6/headcase. The nginx container is removed and no server or browser is left running. Kept under ob3/: drive scripts, logs, json, the patch and this file.
+
+===== ob3-368-fixes.patch (verbatim) =====
+--- a/cmapi/src/cmapi/core/metadata.py	2026-11-17 10:54:36
++++ b/cmapi/src/cmapi/core/metadata.py	2026-11-17 11:37:49
+@@ -42,8 +42,10 @@
+ _NAME_TEXT = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
+ _DNS1123_SUB = re.compile(f"^{_DNS1123_SUB_TEXT}$")
+ _NAME = re.compile(f"^{_NAME_TEXT}$")
+-# A mail domain: DNS labels of letters, digits and "-", as the chart's values.schema.json says (#335).
+-_DOMAIN = re.compile(r"^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$")
++# A mail domain: DNS labels of 1 to 63 letters, digits and "-" (RFC 1035, 2.3.4), as the chart's values.schema.json says
++# (#335). The 63 is also the label limit of HTML's "valid e-mail address", which the portal's <input type=email> checks
++# (#336): a longer label would make the browser refuse every address that cmapi accepts in that domain.
++_DOMAIN = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$")
+ 
+ KeyClass = str   # "system" | "operatorOnly" | "reserved" | "governed" | "team" | "disallowed"
+ KINDS = ("label", "annotation")
+@@ -570,7 +572,7 @@
+         domains = self._texts(raw, "emailDomains", problems)
+         bad = [d for d in domains if len(d) > 253 or not _DOMAIN.fullmatch(d)]
+         if bad:
+-            problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
++            problems.append(f"emailDomains: {bad} are not domain names (labels of 1 to 63 letters, digits and -, joined by .)")
+         self.email_domains = [d.lower() for d in domains]
+         if self.email_domains and not bad:
+             # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
+@@ -894,14 +896,16 @@
+                 len(name) > 63 or not _NAME.fullmatch(name):
+             return {"code": "invalid_key", "key": key}
+         if kind == "label" and value not in (None, "") and (len(value) > 63 or not _NAME.fullmatch(value)):
+-            return {"code": "invalid_value", "key": key, "detail": "not a valid label value"}
++            return {"code": "invalid_value", "key": key, "kind": kind, "detail": "not a valid label value"}
+         return None
+ 
+     def _governed(self, key: str, value: str | None, kind: str, sources: Mapping[str, str]) -> list[dict[str, Any]]:
++        # Each refusal of a value names its kind, as missing_required_key and derived_key do: a key can be a label and an
++        # annotation, each with its own rule, and a client puts the refusal on the field of that kind (#336).
+         rule = self.rules[kind].get(key)
+         if rule is None:
+             other = "annotation" if kind == "label" else "label"
+-            return [{"code": "invalid_key", "key": key, "detail": f"{key} is a {other}"}]
++            return [{"code": "invalid_key", "key": key, "kind": kind, "detail": f"{key} is a {other}"}]
+         if rule.derived:
+             expected = sources.get(rule.derived)
+             # The same value is accepted, so a client that sends back what it read is not refused.
+@@ -916,14 +920,14 @@
+         if regex is not None and not value_matches(regex, value):
+             if rule.format == "email-in-domains":
+                 code = "invalid-team-dl" if key == "cmapi.net/team-dl" else "invalid_value"
+-                return [{"code": code, "key": key, "detail": f"not an address in {self.email_domains}"}]
++                return [{"code": code, "key": key, "kind": kind, "detail": f"not an address in {self.email_domains}"}]
+             detail = f"must match {rule.pattern}" if rule.pattern is not None else rule.text(self.email_domains)
+-            return [{"code": "invalid_value", "key": key, "detail": detail}]
++            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": detail}]
+         if rule.enum is not None and value not in rule.enum:
+-            return [{"code": "invalid_value", "key": key, "detail": f"one of {list(rule.enum)}"}]
++            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"one of {list(rule.enum)}"}]
+         namespace = sources.get("namespace")
+         if rule.namespace_prefix and namespace and not namespace.startswith(f"{value}-"):
+-            return [{"code": "invalid_value", "key": key, "detail": f"{namespace} does not start with {value}-"}]
++            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not start with {value}-"}]
+         return []
+ 
+     def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,
+--- a/cmapi/src/cmapi/contract/samples.json	2026-11-17 10:54:36
++++ b/cmapi/src/cmapi/contract/samples.json	2026-11-17 11:39:33
+@@ -3490,7 +3490,8 @@
+             {
+               "code": "invalid_value",
+               "detail": "must match ^[a-z0-9-]{2,40}$",
+-              "key": "cmapi.net/team"
++              "key": "cmapi.net/team",
++              "kind": "label"
+             },
+             {
+               "code": "missing_required_key",
+--- a/cmapi/contract/openapi.json	2026-11-17 10:54:36
++++ b/cmapi/contract/openapi.json	2026-11-17 11:39:33
+@@ -6196,7 +6196,8 @@
+                         {
+                           "code": "invalid_value",
+                           "detail": "must match ^[a-z0-9-]{2,40}$",
+-                          "key": "cmapi.net/team"
++                          "key": "cmapi.net/team",
++                          "kind": "label"
+                         },
+                         {
+                           "code": "missing_required_key",
+--- a/docs/04-api-examples.md	2026-11-17 10:54:36
++++ b/docs/04-api-examples.md	2026-11-17 11:39:33
+@@ -2999,7 +2999,8 @@
+     {
+       "code": "invalid_value",
+       "detail": "must match ^[a-z0-9-]{2,40}$",
+-      "key": "cmapi.net/team"
++      "key": "cmapi.net/team",
++      "kind": "label"
+     },
+     {
+       "code": "missing_required_key",
+--- a/cmapi/tests/core/test_metadata_stanzas.py	2026-11-17 10:54:36
++++ b/cmapi/tests/core/test_metadata_stanzas.py	2026-11-17 11:35:40
+@@ -85,7 +85,7 @@
+     sent = {**SENT, "company.net/mnemonic": mnemonic}
+     assert keys.validate(sent, {}, operator=False, sources=sources) == []
+     assert keys.validate(sent, {}, operator=False, sources={**sources, "namespace": "abcde-rnd"}) == [
+-        {"code": "invalid_value", "key": "company.net/mnemonic", "detail": f"abcde-rnd does not start with {mnemonic}-"}]
++        {"code": "invalid_value", "key": "company.net/mnemonic", "kind": "label", "detail": f"abcde-rnd does not start with {mnemonic}-"}]
+ 
+ 
+ def test_a_derived_key_with_its_own_value_is_accepted_and_one_removed_is_refused(keys):
+--- a/cmapi/tests/service/test_metadata_url_332_api.py	2026-11-17 10:54:36
++++ b/cmapi/tests/service/test_metadata_url_332_api.py	2026-11-17 11:35:40
+@@ -60,6 +60,6 @@
+     client, ctx, git, kube, validator, keys = company_no_kyverno
+     r = client.post(URL, json=body(url), headers=auth(keys, "ola", **OLA))
+     assert r.status_code == 422 and r.json()["code"] == "policy-violation", r.text
+-    assert r.json()["errors"] == [{"code": "invalid_value", "key": KEY, "detail": "an http or https URL"}]
++    assert r.json()["errors"] == [{"code": "invalid_value", "key": KEY, "kind": "annotation", "detail": "an http or https URL"}]
+     listed = client.get("/api/v1/requests", headers=auth(keys, "ola", **OLA))
+     assert listed.status_code == 200 and listed.json()["page"]["total"] == 0, listed.text
+--- /dev/null
++++ b/cmapi/tests/core/test_metadata_error_kind_368.py	2026-11-17 11:35:40
+@@ -0,0 +1,25 @@
++"""OB3's review of #368: each refusal of a value names its kind, so a client puts it on the right field when one key is a
++label and an annotation, each with its own rule (the portal's errorsByField reads item.kind; #336, design B D9)."""
++from __future__ import annotations
++
++from cmapi.core.metadata import MetadataKeys
++
++RAW = {
++    "system": [], "operatorOnly": [], "reservedPrefixes": [], "adoptionLabels": {}, "sensitiveKeys": [],
++    "emailDomains": ["company.net"],
++    "requiredLabels": {"x.io/both": {"pattern": "^a+$", "example": "a"}},
++    "requiredAnnotations": {"x.io/both": {"pattern": "^b+$", "example": "b"}},
++    "extraLabels": {"keys": {"x.io/lv": {"enum": ["a"]}}, "allowOther": {"prefixes": [], "max": 0}},
++    "extraAnnotations": {"keys": {"x.io/mail": {"format": "email-in-domains"}},
++                         "allowOther": {"prefixes": [], "max": 0, "maxValueBytes": 10, "maxBytesTotal": 10}},
++}
++
++
++def test_a_value_refusal_names_the_kind_of_the_map_it_is_in():
++    keys = MetadataKeys(RAW)
++    assert keys.validate({"x.io/both": "a"}, {"x.io/both": "c"}, operator=False) == [
++        {"code": "invalid_value", "key": "x.io/both", "kind": "annotation", "detail": "must match ^b+$"}]
++    assert keys.validate({"x.io/both": "c"}, {"x.io/both": "b"}, operator=False) == [
++        {"code": "invalid_value", "key": "x.io/both", "kind": "label", "detail": "must match ^a+$"}]
++    errs = keys.validate({"x.io/both": "a", "x.io/lv": "a b"}, {"x.io/both": "b", "x.io/mail": "x@y.org"}, operator=False)
++    assert [(e["key"], e.get("kind")) for e in errs] == [("x.io/lv", "label"), ("x.io/mail", "annotation")], errs
+--- a/deploy/helm/cmapi/values.schema.json	2026-11-17 10:54:36
++++ b/deploy/helm/cmapi/values.schema.json	2026-11-17 11:37:49
+@@ -77,7 +77,7 @@
+           "items": {
+             "type": "string",
+             "maxLength": 253,
+-            "pattern": "^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?)*$"
++            "pattern": "^[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$"
+           }
+         }
+       },
+--- /dev/null
++++ b/cmapi/tests/core/test_metadata_email_domain_368.py	2026-11-17 11:38:10
+@@ -0,0 +1,45 @@
++"""OB3's review of #368: an emailDomains entry is a domain name whose labels hold 1 to 63 characters (RFC 1035, 2.3.4).
++The portal's <input type=email> (#336) checks HTML's "valid e-mail address", whose labels hold at most 63: with a longer
++label, the browser refused every address that cmapi accepted (Chromium 156, 12 of 12 such addresses)."""
++from __future__ import annotations
++
++import json
++import re
++from pathlib import Path
++
++import pytest
++
++from cmapi.core import metadata
++from cmapi.core.metadata import MetadataKeys
++
++REPO = Path(__file__).resolve().parents[3]
++# HTML Living Standard, 4.10.5.1.5 (input type=email): the domain part of a valid e-mail address.
++HTML_DOMAIN = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
++
++
++def raw(domains: list[str]) -> dict:
++    return {"system": [], "operatorOnly": [], "reservedPrefixes": [], "adoptionLabels": {}, "sensitiveKeys": [],
++            "emailDomains": domains, "requiredLabels": {}, "requiredAnnotations": {},
++            "extraLabels": {"keys": {}, "allowOther": {"prefixes": [], "max": 0}},
++            "extraAnnotations": {"keys": {"x.io/dl": {"format": "email-in-domains"}},
++                                 "allowOther": {"prefixes": [], "max": 0, "maxValueBytes": 1, "maxBytesTotal": 1}}}
++
++
++@pytest.mark.parametrize("label", ["a" * 64, "A" + "-" * 62 + "b"])
++def test_a_domain_label_over_63_characters_is_refused(label):
++    with pytest.raises(ValueError, match="are not domain names"):
++        MetadataKeys(raw([f"{label}.example.org"]))
++
++
++def test_a_63_character_label_loads_and_every_accepted_domain_is_an_html_email_domain():
++    MetadataKeys(raw(["a" * 63 + ".example.org", "Sub.Example-1.Org"]))
++    for n in range(1, 70):
++        for label in ("a" * n, "a" + "-" * max(n - 2, 0) + "b" if n > 1 else "a"):
++            domain = f"{label}.example.org"
++            assert bool(metadata._DOMAIN.fullmatch(domain)) == bool(HTML_DOMAIN.fullmatch(domain)), domain
++
++
++def test_the_chart_schema_says_the_same_pattern():
++    schema = json.loads((REPO / "deploy/helm/cmapi/values.schema.json").read_text())
++    domains = schema["properties"]["metadata"]["properties"]["emailDomains"]["items"]
++    assert domains["pattern"] == metadata._DOMAIN.pattern
+--- a/cmapi-portal-ui/src/portal/NewNamespaceTab.tsx	2026-11-17 10:54:36
++++ b/cmapi-portal-ui/src/portal/NewNamespaceTab.tsx	2026-11-17 11:36:57
+@@ -137,6 +137,10 @@
+   // A result is of the inputs it was run on; it shows only while the form still has them.
+   const inputs = JSON.stringify([fingerprint, values, nsName]);
+   const [checked, setChecked] = useState<{ inputs: string; errors: Record<string, string | null> } | null>(null);
++  // WAI-ARIA 1.2, aria-invalid: "if the user has not attempted to submit the form, authors SHOULD NOT set the aria-invalid
++  // attribute on required widgets simply because the user has not yet entered data". An empty required field shows its
++  // error after the first Dry run or Submit; until then the browser's own check (required) still stops both.
++  const [attempted, setAttempted] = useState(false);
+   const clientErrors = checked?.inputs === inputs ? checked.errors : {};
+   /** The checks of the form as this render has it: the last result when it is of these inputs, else a new run. */
+   const checkNow = async (): Promise<Record<string, string | null>> => {
+@@ -230,8 +234,10 @@
+   const expDays = expAllowed && expires ? daysUntil(expires, now) : null;
+   const target: Record<Source, string> = { namespace: nsName, environment: env, cluster: cluster?.clusterId ?? "",
+     instance: me.state === "ok" ? me.data.instance : "" };
++  const shownError = (f: MetaField): string | null =>
++    !attempted && (values[valueKey(f)] ?? "") === "" ? null : clientErrors[f.id] ?? null;
+   const fieldErrors: Record<string, string | null | undefined> = Object.fromEntries(
+-    form.fields.map((f) => [f.id, clientErrors[f.id] ?? mapped?.byField[f.id] ?? null]));
++    form.fields.map((f) => [f.id, shownError(f) ?? mapped?.byField[f.id] ?? null]));
+   const planOk = plan.state === "ok" ? plan.data : null;
+ 
+   /**
+@@ -239,6 +245,7 @@
+    * the form may be planned. A field in error inside a collapsed group opens the group, so the browser can focus it.
+    */
+   const valid = async (): Promise<boolean> => {
++    setAttempted(true);
+     const errors = await checkNow();
+     setValidity(formRef.current, form.fields, errors);
+     const closed = form.fields.filter((f) => errors[f.id] && !f.required && f.derivedFrom === null && !expanded[f.kind]);
+--- a/cmapi-portal-ui/MOCKUP-CONTRACT.md	2026-11-17 10:54:36
++++ b/cmapi-portal-ui/MOCKUP-CONTRACT.md	2026-11-17 11:39:09
+@@ -96,7 +96,7 @@
+ | A field's hint is its key (in code, when a title is shown) and the API's words: the config's description and the rule in words. The reference file's descriptions are the mockup's hints, so the CRC form shows "Who owns it, for cost and notices: …" and "Your team's distribution list, …; format only.", each followed by its rule ("Must match ^[a-z0-9-]{2,40}$.", "An address in ['ephico2real.com'].") | One source for the words: the instance's file. The rule in words is what a refusal says |
+ | "Requested by {user} ({email}), from your sign-in." is its own hint, under the annotations, not part of the Team DL hint | It is about the request's system key `requested-by`, which every instance writes, not about the DL key, which another instance may not have |
+ | Each field starts empty; its first example is its placeholder. A select (an `enum` key) starts on "—" | An example is a sample, not a default (JSON Schema 2020-12, Validation 9.5); the mockup's values are its sample |
+-| A value is checked in the browser by the API's own rules, in the validator's order and words: "Required: {rule}", "Not a valid label value", "Not valid: {rule}", "{name} does not start with {value}-". Each pattern runs in a Web Worker with a 200 ms limit; a check that runs out shows nothing, and the dry run decides | cmapi decides; the form never refuses what cmapi accepts (a differential test over the #328 corpus). A configured pattern can backtrack in the browser's engine for minutes (docs/18, "Patterns") |
++| A value is checked in the browser by the API's own rules, in the validator's order and words: "Required: {rule}", "Not a valid label value", "Not valid: {rule}", "{name} does not start with {value}-". Each pattern runs in a Web Worker with a 200 ms limit; a check that runs out shows nothing, and the dry run decides. An empty required field shows "Required" only after the first Dry run or Submit (WAI-ARIA 1.2, `aria-invalid`) | cmapi decides; the form never refuses what cmapi accepts (a differential test over the #328 corpus). A configured pattern can backtrack in the browser's engine for minutes (docs/18, "Patterns") |
+ | A refused dry run or submit puts each error that names a shown key under its field, and lists every error in the "Refused" callout, which takes the focus; each listed error of a field is a link to it. An error that names a key the form does not show reads the rules again | WCAG 2.2, 3.3.1 and 3.3.3. The mockup has no field errors |
+ | When the rules change while the form is open (read again when the window has the focus, and at each opening of the tab), the fields follow them, a removed key's value is not sent, and a warning says "The label and annotation rules of this instance changed. Check the fields below." | A config change restarts the pods; a form open across it would send the old keys |
+ | The suggested name is `{value}-{environment}` of the key that starts the name (`namespacePrefix`), else of the first required label: `payments-dev` on CRC, `abc-dev` on the company file | The mockup's name is `team-env`. A recorded default of #336 that the owner may change |
+--- a/cmapi-portal-ui/tests/api/mutants.mjs	2026-11-17 10:54:36
++++ b/cmapi-portal-ui/tests/api/mutants.mjs	2026-11-17 11:39:03
+@@ -90,7 +90,8 @@
+   ["#336 the patterns run on the page's thread", "src/portal/patterns.ts", "export const sharedPatternTest: PatternTest = (pattern, value) => (shared ??= patternChecker()).test(pattern, value);", `export const sharedPatternTest: PatternTest = (pattern, value) => new RegExp(pattern, "u").test(value);`, "portal", "18 New namespace: a configured"],
+   ["#336 no time limit on a pattern", "src/portal/patterns.ts", "export const PATTERN_LIMIT_MS = 200;", "export const PATTERN_LIMIT_MS = 600_000;", "portal", "18 New namespace: a configured"],
+   ["#336 a refusal's errors are dropped", "src/api/problem.ts", "errors: itemsOf(body.errors) });", "errors: [] });", "portal", "18 New namespace: a refused"],
+-  ["#336 a refusal's errors are not on their fields", "src/portal/NewNamespaceTab.tsx", "clientErrors[f.id] ?? mapped?.byField[f.id] ?? null", "clientErrors[f.id] ?? null", "portal", "18 New namespace: a refused"],
++  ["#336 a refusal's errors are not on their fields", "src/portal/NewNamespaceTab.tsx", "shownError(f) ?? mapped?.byField[f.id] ?? null", "shownError(f) ?? null", "portal", "18 New namespace: a refused"],
++  ["#336 an empty required field is in error before the person tries the form", "src/portal/NewNamespaceTab.tsx", "!attempted && (values[valueKey(f)] ?? \"\") === \"\" ? null", "false ? null", "portal", "OB3-368 New namespace"],
+   ["#336 a key the form lacks does not read the rules again", "src/portal/NewNamespaceTab.tsx", "if (mapped?.unknownKey) rules.reload();", "", "portal", "18 New namespace: a refused"],
+   ["#336 the summary does not take the focus", "src/portal/NewNamespaceTab.tsx", "summaryRef.current?.focus();", "", "portal", "18 New namespace: a refused"],
+   ["#336 the summary's link goes nowhere", "src/portal/NewNamespaceTab.tsx", "onClick={() => focusField(field)}", "onClick={() => undefined}", "portal", "18 New namespace: a refused"],
+--- a/cmapi-portal-ui/tests/api/portal.test.mjs	2026-11-17 10:54:36
++++ b/cmapi-portal-ui/tests/api/portal.test.mjs	2026-11-17 11:37:11
+@@ -734,6 +734,26 @@
+   const dryRuns = () => posts().filter((c) => c.query.dryRun === "true");
+   const passed = (page) => panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Dry run passed · nothing written" });
+   const refusedWith = (errors) => ({ route: "POST /api/v1/clusters/CRC/namespaces", status: 422, body: { ...SAMPLES.problems["policy-violation"].response.body, errors } });
++
++  await check("OB3-368 New namespace: no field is in error before the person tries the form; an empty required field is, after a Dry run", async () => {
++    // WAI-ARIA 1.2, aria-invalid: not on a required widget only because nothing was entered before the user tried to submit.
++    for (const metadataKeys of [REFERENCE_KEYS, COMPANY_KEYS]) {
++      const { context, page, errors } = await fresh({ metadataKeys });
++      try {
++        await newTab(page);
++        await page.waitForTimeout(600);
++        assert.deepEqual(await panel(page).locator("[aria-invalid=true]").count(), 0, "no field is invalid before the person tries the form");
++        assert.deepEqual(await panel(page).locator("[id$=-error]").count(), 0, "and no error text");
++        const first = page.locator("#ns-label-0");
++        const before = posts().length;
++        await panel(page).getByRole("button", { name: "Dry run" }).click();
++        await waitError(first, /^Required: /);
++        assert.equal(await first.getAttribute("aria-invalid"), "true");
++        assert.equal(posts().length, before, "nothing is planned");
++        assert.deepEqual(errors, []);
++      } finally { await context.close(); }
++    }
++  });
+ 
+   await check("18 New namespace on a company instance: the fields of GET /api/v1/metadata-keys, the keys cmapi sets read-only, refusals in the browser, and the body", async () => {
+     const { context, page, errors } = await fresh({ metadataKeys: COMPANY_KEYS });
+--- a/cmapi/contract/spectral/functions/cmapiLabelKeys.js	2026-11-17 10:54:36
++++ b/cmapi/contract/spectral/functions/cmapiLabelKeys.js	2026-11-17 11:30:49
+@@ -10,28 +10,32 @@
+ }
+ const owner = (path) => owners(path)[0];
+ 
+-// A metadata map, or the `properties` of the schema of one.
+-function inMap(path) {
++// The `properties` of the JSON Schema of a metadata map: `properties` under `labels` or `annotations`, in an object that
++// says it is the schema of an object (`type: object`). A labels map of a body that nests a `properties` object is a
++// misuse, and stays refused, as it was before #336.
++function inMapSchema(path, parent) {
+   const [first, second] = owners(path);
+-  return MAPS.has(first) || (first === 'properties' && MAPS.has(second));
++  return first === 'properties' && MAPS.has(second) &&
++    parent !== null && typeof parent === 'object' && !Array.isArray(parent) && parent.type === 'object';
+ }
+ 
+-function walk(node, path, inExample, out) {
++// parent: the object or list that holds `node`, so the schema test can read the map's own `type`.
++function walk(node, path, inExample, out, parent) {
+   if (Array.isArray(node)) {
+-    node.forEach((item, index) => walk(item, [...path, index], inExample, out));
++    node.forEach((item, index) => walk(item, [...path, index], inExample, out, node));
+     return;
+   }
+   if (node === null || typeof node !== 'object') return;
+   for (const [key, value] of Object.entries(node)) {
+-    if (inExample && key.startsWith(PREFIX) && !inMap(path)) {
++    if (inExample && key.startsWith(PREFIX) && !MAPS.has(owner(path)) && !inMapSchema(path, parent)) {
+       out.push({ message: `the key ${key} is in an example of ${owner(path)}, and cmapi.net/ keys are only in labels and annotations`, path: [...path, key] });
+     }
+-    walk(value, [...path, key], inExample || EXAMPLE_KEYS.has(key), out);
++    walk(value, [...path, key], inExample || EXAMPLE_KEYS.has(key), out, node);
+   }
+ }
+ 
+ export default (document) => {
+   const out = [];
+-  walk(document, [], false, out);
++  walk(document, [], false, out, null);
+   return out;
+ };
+--- a/cmapi/contract/lint-test.py	2026-11-17 10:54:36
++++ b/cmapi/contract/lint-test.py	2026-11-17 11:31:10
+@@ -90,6 +90,8 @@
+      lambda s: set_(s["components"]["schemas"]["NamespaceCreate"]["properties"]["tier"], "examples", [{"cmapi.net/tier": "small"}])),
+     ("a cmapi.net/ key is a property of a schema in an example that is not of a metadata map", "cmapi-net-keys-only-in-labels",
+      lambda s: set_(op(s)["responses"]["202"]["content"]["application/json"]["example"], "quota", {"properties": {"cmapi.net/tier": {}}})),
++    ("a cmapi.net/ key is under a properties object of a body's labels map, not of the schema of one", "cmapi-net-keys-only-in-labels",
++     lambda s: set_(op(s)["requestBody"]["content"]["application/json"]["example"], "labels", {"properties": {"cmapi.net/team": "payments"}})),
+ ]
+ 
+ 
