@@ -48,9 +48,11 @@ _INT_RE = re.compile(r"[-+]?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|0[0-7]*|
 _FLOAT_RE = re.compile(r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?")
 # The shapes of go-yaml's parseTimestamp layouts: 2006-1-2, 2006-1-2T15:4:5.999999999Z07:00 (T or t), and
 # 2006-1-2 15:4:5.999999999. The shape alone is matched, so a date such as 2026-13-45, which time.Parse refuses, is
-# quoted too: like a number too large for 64 bits, that only adds quotes.
-_TIME = r"[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}(?:\.[0-9]+)?"
-_TIMESTAMP_RE = re.compile(rf"[0-9]{{4}}-[0-9]{{1,2}}-[0-9]{{1,2}}(?:[Tt]{_TIME}(?:Z|[-+][0-9]{{2}}:[0-9]{{2}})| {_TIME})?")
+# quoted too: like a number too large for 64 bits, that only adds quotes. time.Parse is looser than the layouts read:
+# a fraction of a second may follow a comma as well as a period (time/format.go commaOrPeriod), and the layout's one
+# space matches any run of spaces in the text (format.go skip), so 2026-1-2  1:2:3,5 is a timestamp too.
+_TIME = r"[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}(?:[.,][0-9]+)?"
+_TIMESTAMP_RE = re.compile(rf"[0-9]{{4}}-[0-9]{{1,2}}-[0-9]{{1,2}}(?:[Tt]{_TIME}(?:Z|[-+][0-9]{{2}}:[0-9]{{2}})| +{_TIME})?")
 
 
 def foreign_tag(value: str) -> str | None:

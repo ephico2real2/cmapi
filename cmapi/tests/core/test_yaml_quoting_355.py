@@ -127,6 +127,22 @@ def test_only_a_string_that_a_reader_would_retype_gains_quotes():
     assert all(_dump([{"k": s}]) == yaml.safe_dump({"k": s}, sort_keys=False) for s in ORDINARY)
 
 
+# go-yaml's parseTimestamp hands the text to Go's time.Parse, which takes a comma before the fraction of a second and
+# any run of spaces where the layout has one. Annotation values may hold both, and go-yaml v3 read them as time.Time.
+GO_TIME_PARSE = ["2026-1-2  1:2:3", "2026-1-2   1:2:3.5", "2026-1-2 1:2:3,5", "2026-1-2T1:2:3,5Z",
+                 "2026-1-2t10:11:12,123456789+02:00"]
+
+
+def test_a_timestamp_only_go_time_parse_accepts_reads_back_as_the_same_string():
+    """Each form, as a key and as a value, reads back as itself in both readers; its plain form is not a string."""
+    doc = {s: s for s in GO_TIME_PARSE}
+    got = read(_dump([doc]))
+    for reader in READERS:
+        assert got[reader] == doc, (reader, got[reader])
+    plain = read("".join(f"k{i}: {s}\n" for i, s in enumerate(GO_TIME_PARSE)))["yaml12"]
+    assert all(v.startswith("<time.Time ") for v in plain.values()), plain
+
+
 def test_the_policy_bundle_writes_through_the_same_dumper(catalog):
     """policygen writes the bundle with kube_yaml, so a rendered policy reads back the same in both readers."""
     keys = MetadataKeys.load(SHIPPED)
