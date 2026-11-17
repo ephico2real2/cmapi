@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from cmapi.core import kube_yaml
 from cmapi.core.errors import Problem
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.tiers import TierCatalog
@@ -97,7 +98,8 @@ def plan_hash(files: Mapping[str, str | None]) -> str:
 
 
 def _dump(docs: list[dict[str, Any]]) -> str:
-    return "---\n".join(yaml.safe_dump(d, sort_keys=False, default_flow_style=False) for d in docs)
+    # kube_yaml quotes each string that kubectl, Argo CD or Kyverno would read as a bool, number or null (#355)
+    return "---\n".join(kube_yaml.dump(d, sort_keys=False, default_flow_style=False) for d in docs)
 
 
 def _load(text: str | None) -> list[dict[str, Any]]:

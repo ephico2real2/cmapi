@@ -44,6 +44,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from cmapi.core import kube_yaml
 from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, value_regex
 from cmapi.core.policy import PolicySettings
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
@@ -427,7 +428,7 @@ _HEADER = ("# Rendered by cmapi from its configuration (core/policygen.py, #212)
 
 
 def _yaml_all(docs: list[Mapping[str, Any]]) -> str:
-    return _HEADER + yaml.safe_dump_all([dict(d) for d in docs], sort_keys=False, width=1000)
+    return _HEADER + kube_yaml.dump_all([dict(d) for d in docs], sort_keys=False, width=1000)
 
 
 # Kyverno labels each report with vpol.kyverno.io/<policy name> (pkg/utils/report/metadata.go, PolicyLabel, v1.20.0), and
