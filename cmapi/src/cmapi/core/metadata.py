@@ -303,6 +303,11 @@ def _linear(regex: str) -> Any:
     return re2.compile(regex, options=_RE2_OPTIONS)
 
 
+def _re2_reason(exc: Exception) -> str:
+    """RE2's own reason for refusing a regex: google-re2 raises it as bytes."""
+    return exc.args[0].decode() if exc.args and isinstance(exc.args[0], bytes) else str(exc)
+
+
 def value_matches(regex: str, value: str) -> bool:
     """value is a whole match of regex, in time linear in the value (#348). A value with a lone surrogate never
     matches: RE2 reads UTF-8, which cannot hold one, and neither can a Kubernetes string, which Go's JSON decoder would
@@ -566,6 +571,17 @@ class MetadataKeys:
         if bad:
             problems.append(f"emailDomains: {bad} are not domain names (labels of letters, digits and -, joined by .)")
         self.email_domains = [d.lower() for d in domains]
+        if self.email_domains and not bad:
+            # The address regex joins every domain, so its size is the file's: compiled here in the validator's engine
+            # (#348), or RE2's memory budget would refuse it on the first value of an email-in-domains key (a 500) or in
+            # the example check of _add below. The file stops here, as one with a pattern that RE2 refuses does.
+            try:
+                _linear(value_regex(KeyRule(kind="annotation", required=False, format="email-in-domains"),
+                                    self.email_domains))
+            except re2.error as exc:
+                problems.append(f"emailDomains: the {len(domains)} domains make an address regex that does not compile "
+                                f"in RE2, the validator's engine: {_re2_reason(exc)}")
+                raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems)) from None
         # {kind: {key: KeyRule}}: a key can be a label and an annotation at once, each with its own rule.
         self.rules: dict[str, dict[str, KeyRule]] = {"label": {}, "annotation": {}}
         self.allow_other: dict[str, AllowOther] = {}
@@ -725,8 +741,8 @@ class MetadataKeys:
             # whose program exceeds RE2's memory budget (8 MiB by default), such as a hundred [^a]{1000} in a row.
             _linear(anchored(pattern))
         except re2.error as exc:
-            reason = exc.args[0].decode() if exc.args and isinstance(exc.args[0], bytes) else str(exc)
-            problems.append(f"{where}: pattern {pattern!r} does not compile in RE2, the validator's engine: {reason}")
+            problems.append(f"{where}: pattern {pattern!r} does not compile in RE2, the validator's engine: "
+                            f"{_re2_reason(exc)}")
             return False
         return True
 

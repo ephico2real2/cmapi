@@ -112,3 +112,16 @@ def test_a_value_with_a_lone_surrogate_is_refused_and_never_raises(value):
     assert keys.validate({}, {"example.net/any": "x"}, operator=False) == []
     errs = keys.validate({}, {"example.net/any": value}, operator=False)
     assert [(e["code"], e["key"]) for e in errs] == [("invalid_value", "example.net/any")], errs
+
+
+def test_an_address_regex_too_large_for_re2_stops_the_start_and_never_raises_on_a_request():
+    """The email-in-domains regex joins every emailDomains entry, and the loader compiled only configured patterns in RE2:
+    20,000 domains of 62 to 66 characters (a 5 MB regex) loaded, then each value of the key raised re2.error, a 500, where
+    main's re.fullmatch answered. The loader refuses it at start with RE2's reason (OB3, review of #351)."""
+    domains = [f"d{i}-{'x' * 47}.example.com" for i in range(20_000)]
+    config = {"emailDomains": domains,
+              "extraAnnotations": {"keys": {"example.net/dl": {"format": "email-in-domains"}},
+                                   "allowOther": {"prefixes": [], "max": 0, "maxValueBytes": 0, "maxBytesTotal": 0}}}
+    with pytest.raises(ValueError, match=re.escape("emailDomains: the 20000 domains make an address regex that does not "
+                                                   "compile in RE2, the validator's engine: pattern too large")):
+        MetadataKeys(config)
