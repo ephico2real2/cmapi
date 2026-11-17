@@ -496,13 +496,13 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|142-144": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|116-116": [
+  "        app.include_router(r, dependencies=[Depends(authed)])"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|176-178": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
- ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|169-169": [
-  "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|109-109": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env) or not c.cfg.expiration.allows(env):"
@@ -774,7 +774,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|122-123": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|109-110": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
