@@ -22,7 +22,8 @@ system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.ne
          cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash, cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
 operatorOnly: [cmapi.net/protected]
 reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
-                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/]
+                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
+                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
 requiredLabels:
   name:                        {value: {from: namespace}, description: "A copy of the namespace name"}
   company.net/app-environment: {value: {from: environment}, description: "The environment of the namespace's cluster"}
