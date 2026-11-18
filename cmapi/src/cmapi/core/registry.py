@@ -12,8 +12,10 @@ and the six checks before a cluster is read (docs/01, "Cluster connections and m
     6. Capability: list namespaces.
 
 Each refusal is a finding on that cluster only. A connected cluster with no clusters.yaml entry
-is read-only (writes get 422 cluster-not-writable). Every connected cluster gets a WatchCache, and, when the instance runs
-Kyverno in its environment, a ReportCache of its policy reports (core/clients/policyreports.py, #302) from `reports_factory`.
+is read-only (writes get 422 cluster-not-writable). Every connected cluster gets a WatchCache with the CapacityLedger that its
+ResourceQuotas feed (core/capacity_ledger.py, #302); when the instance runs Kyverno in its environment, a ReportCache of its
+policy reports (core/clients/policyreports.py, #302) from `reports_factory`; and a NodeCache of its nodes for capacity
+(core/clients/nodes.py, #302) from `nodes_factory`.
 """
 from __future__ import annotations
 
@@ -33,10 +35,13 @@ from urllib.parse import urlparse
 import httpx
 import yaml
 
+from cmapi.core.capacity_ledger import CapacityLedger
 from cmapi.core.clients.kube import ClusterUnreachable, KubeClient, KubeError, WatchCache
+from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, log
+from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 INSECURE_ALLOWED = {"rnd"}
@@ -70,7 +75,9 @@ class ClusterState:
     checked_at: datetime | None = None
     client: KubeClient | None = None
     cache: WatchCache | None = None
+    ledger: CapacityLedger | None = None          # fed by `cache`'s hooks: set and cleared with it
     reports: ReportCache | None = None
+    nodes: NodeCache | None = None
     token_expires_at: str | None = None
 
     @property
@@ -84,6 +91,24 @@ class ClusterState:
                 "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at}
 
 
+def _size_problem(size: Any) -> str | None:
+    """Why a clusters.yaml `simulatedCapacity` cannot size a cluster, or None. The plan's check and GET /api/v1/capacity divide
+    by it and read both resources, so a missing resource, a value that is not a quantity, or 0 would fail each of them on every
+    call instead of once at the start (#302)."""
+    if not isinstance(size, Mapping):
+        return "must be a mapping of cpu and memory"
+    for r in ("cpu", "memory"):
+        if r not in size:
+            return f"has no {r}"
+        try:
+            value = qty(size[r])
+        except (TypeError, ValueError, ArithmeticError):
+            return f"{r} is not a Kubernetes quantity: {size[r]!r}"
+        if not value.is_finite() or value <= 0:
+            return f"{r} must be above 0, not {size[r]!r}"
+    return None
+
+
 def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, ClusterPolicy]:
     raw = yaml.safe_load(path.read_text()) or {}
     entries = raw.get("clusters") or {}
@@ -94,6 +119,10 @@ def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, Clust
         env = e.get("environment")
         if env not in allowed_environments:
             problems.append(f"cluster {cid}: environment {env!r} is not served by this instance")
+            continue
+        size = e.get("simulatedCapacity")
+        if size is not None and (why := _size_problem(size)):
+            problems.append(f"cluster {cid}: simulatedCapacity {why}")
             continue
         out[cid] = ClusterPolicy(cluster_id=cid, environment=env, gitops_path=e.get("gitopsPath", f"clusters/{cid}"),
                                  writes=bool(e.get("writes", True)), sync_signal=e.get("syncSignal", "poll"),
@@ -167,12 +196,15 @@ class ClusterRegistry:
     def __init__(self, policies: Mapping[str, ClusterPolicy], source: ImportSource | None, *,
                  trusted_bundle: str | None = None, relist_seconds: int = 300,
                  client_factory: Callable[..., KubeClient] = KubeClient, start_caches: bool = True,
-                 reports_factory: Callable[[ClusterState, KubeClient], ReportCache | None] | None = None):
+                 reports_factory: Callable[[ClusterState, KubeClient], ReportCache | None] | None = None,
+                 nodes_factory: Callable[[ClusterState, KubeClient], NodeCache | None] | None = None):
         self.policies = dict(policies)
         self.source, self.trusted_bundle, self.relist_seconds = source, trusted_bundle, relist_seconds
         self.client_factory, self.start_caches = client_factory, start_caches
         # None, or None from the factory: no report cache for that cluster (engine none, or its environment's mode off).
         self.reports_factory = reports_factory
+        # None, or None from the factory: no node cache for that cluster, so its allocatable is not known.
+        self.nodes_factory = nodes_factory
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -248,13 +280,19 @@ class ClusterRegistry:
         fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
         if st.client is None or self._fingerprints.get(cluster_id) != fp:
             self._stop_caches(st)
-            st.client = client
-            st.cache = WatchCache(client)
+            ledger = CapacityLedger()
+            cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
+            with self._lock:
+                # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
+                st.client, st.ledger, st.cache = client, ledger, cache
             st.reports = self.reports_factory(st, client) if self.reports_factory else None
+            st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
             if self.start_caches:
                 st.cache.start()
                 if st.reports is not None:
                     st.reports.start()
+                if st.nodes is not None:
+                    st.nodes.start()
             self._fingerprints[cluster_id] = fp
         else:
             client.close()
@@ -265,7 +303,7 @@ class ClusterRegistry:
         with self._lock:
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)
-                st.cache, st.client = None, None
+                st.cache, st.ledger, st.client = None, None, None
             st.status, st.findings, st.server_version = status, findings, version
             st.checked_at = datetime.now(timezone.utc)
             st.token_expires_at = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
@@ -303,7 +341,7 @@ class ClusterRegistry:
                 if cid not in seen and st.status != "not-imported":
                     st.status, st.findings = "not-imported", ["no import Secret"]
                     self._stop_caches(st)
-                    st.cache, st.client = None, None
+                    st.cache, st.ledger, st.client = None, None, None
 
     def start(self) -> None:
         self.refresh()
@@ -325,6 +363,9 @@ class ClusterRegistry:
         if st.reports is not None:
             st.reports.stop()
             st.reports = None
+        if st.nodes is not None:
+            st.nodes.stop()
+            st.nodes = None
 
     # ---- questions the API asks
     def get(self, cluster_id: str) -> ClusterState:
@@ -347,6 +388,13 @@ class ClusterRegistry:
             raise Problem(503, "cluster-unreachable", f"{cluster_id} is {st.status}: {'; '.join(st.findings)}",
                           extra={"retryAfter": 30})
         return st.cache
+
+    def quota_watch(self, cluster_id: str) -> tuple[WatchCache, CapacityLedger | None]:
+        """The cluster's watch cache and the ledger its ResourceQuotas feed, read together under the lock that `_connect` and
+        `_set` replace them under. Read one at a time, a read could check the freshness of the old cache and then sum the new,
+        empty ledger: 0 committed on fresh data, the #393 fault."""
+        with self._lock:
+            return self.cache(cluster_id), self.get(cluster_id).ledger
 
     def connected(self) -> list[ClusterState]:
         return [st for st in self.clusters.values() if st.status == "connected"]

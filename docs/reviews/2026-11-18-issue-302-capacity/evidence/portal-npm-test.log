@@ -1,0 +1,175 @@
+
+> test
+> node ../scripts/build-portal.mjs --check && node scripts/extract-model.mjs --check && node scripts/api-types.mjs --check && node tests/extract-model.test.mjs && node tests/contract.test.mjs && node scripts/check-discipline.mjs && tsc --noEmit && vite build && vite build --mode demo --outDir dist-demo && node tests/api/direct.test.mjs && node tests/api/bundle.test.mjs && node tests/api/portal.test.mjs && node tests/behaviour.test.mjs && node tests/parity.test.mjs
+
+mockups/portal/dist/portal.html is up to date
+ok - the API types match cmapi/contract/openapi.json
+ok - extract-model
+ok - contract
+ok - the New namespace form reads each keyword of GET /api/v1/metadata-keys or lists it as ignored
+ok - app styles use PatternFly tokens only
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 3974 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/patternWorker-Bka9Pd31.js                  0.21 kB
+dist/index.html                                        0.39 kB │ gzip:   0.27 kB
+dist/assets/PF-Bkg-Generic-Dark-BXzEO4HC.svg           4.85 kB │ gzip:   1.21 kB
+dist/assets/PF-Bkg-Generic-Light-BCQFATCY.svg          4.92 kB │ gzip:   1.20 kB
+dist/assets/Felt-Bkg-Generic-Dark-C47rH4Qs.svg         6.80 kB │ gzip:   1.60 kB
+dist/assets/Felt-Bkg-Generic-Light-CLIWo2pl.svg        7.01 kB │ gzip:   1.61 kB
+dist/assets/pf-v6-pficon-Dy6oiu9u.woff2               18.45 kB
+dist/assets/RedHatMonoVF-DR_keSsW.woff2               29.91 kB
+dist/assets/RedHatMonoVF-Italic-DxqvCP8M.woff2        32.70 kB
+dist/assets/RedHatTextVF-DNKNjMr3.woff2               40.16 kB
+dist/assets/RedHatDisplayVF-D7m-OdR-.woff2            40.78 kB
+dist/assets/RedHatTextVF-Italic-Bw8r3dX4.woff2        42.28 kB
+dist/assets/RedHatDisplayVF-Italic-DWi3aqlN.woff2     42.42 kB
+dist/assets/index-Cc0pz2f3.css                       266.54 kB │ gzip:  22.90 kB
+dist/assets/PortalApp-CFUcd7y9.css                 1,041.13 kB │ gzip:  85.98 kB
+dist/assets/index-BPanyvlr.js                        221.85 kB │ gzip:  69.58 kB
+dist/assets/PortalApp-BQ8XkS0W.js                    573.47 kB │ gzip: 161.72 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 931ms
+vite v8.3.5 building client environment for demo...
+transforming...
+✓ 1013 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-demo/index.html                                        0.39 kB │ gzip:   0.27 kB
+dist-demo/assets/PF-Bkg-Generic-Dark-BXzEO4HC.svg           4.85 kB │ gzip:   1.21 kB
+dist-demo/assets/PF-Bkg-Generic-Light-BCQFATCY.svg          4.92 kB │ gzip:   1.20 kB
+dist-demo/assets/Felt-Bkg-Generic-Dark-C47rH4Qs.svg         6.80 kB │ gzip:   1.60 kB
+dist-demo/assets/Felt-Bkg-Generic-Light-CLIWo2pl.svg        7.01 kB │ gzip:   1.61 kB
+dist-demo/assets/pf-v6-pficon-Dy6oiu9u.woff2               18.45 kB
+dist-demo/assets/RedHatMonoVF-DR_keSsW.woff2               29.91 kB
+dist-demo/assets/RedHatMonoVF-Italic-DxqvCP8M.woff2        32.70 kB
+dist-demo/assets/RedHatTextVF-DNKNjMr3.woff2               40.16 kB
+dist-demo/assets/RedHatDisplayVF-D7m-OdR-.woff2            40.78 kB
+dist-demo/assets/RedHatTextVF-Italic-Bw8r3dX4.woff2        42.28 kB
+dist-demo/assets/RedHatDisplayVF-Italic-DWi3aqlN.woff2     42.42 kB
+dist-demo/assets/index-Cc0pz2f3.css                       266.54 kB │ gzip:  22.90 kB
+dist-demo/assets/App-fyJaRNsY.css                       1,009.57 kB │ gzip:  82.38 kB
+dist-demo/assets/index-C7wWOFRc.js                        221.83 kB │ gzip:  69.57 kB
+dist-demo/assets/App-CS-Xzfde.js                          495.63 kB │ gzip: 144.34 kB
+
+✓ built in 478ms
+ok - F1 logout: the ID token goes in the body of a POST, and no token is in a URL
+ok - F3 staggered 401s share the replacement token
+ok - F6 bearer insertion enforces credentials and redirect
+ok - F7 an in-flight renewal cannot restore a signed-out user
+ok - F8 discovery cannot downgrade sign-in or token endpoints
+ok - correct PKCE, transaction storage and callback cleanup
+ok - correct config service URL boundaries
+ok - F10 config rejects empty query and fragment delimiters
+  differential: {"reference":{"cases":1310,"accepted":96,"agree":1307,"looser":3},"company":{"cases":1655,"accepted":170,"agree":1653,"looser":2}}
+ok - M1 the form never refuses a body that cmapi accepts: every case of the #328 corpus and design B's values, on both files
+ok - M2 the fields of each file: inputs in the order of required, then the keys cmapi sets, then the optional ones; no operator-only key
+ok - M3 an answer of another shape is the error state, never a form with fields missing
+ok - M4 the body: each field with a value; never an empty optional key, a key that cmapi sets, or an operator-only key
+ok - M5 a field's check: the validator's order and words, characters as code points, and a pattern not checked here counts as passed
+ok - M6 a refusal's errors: each on the field that it names, the others in the summary; a key the form lacks reads the rules again
+ok - direct: 14 of 14
+ok - the portal's build holds no sample data (38 names checked)
+ok - with no valid config.json the portal shows an error and starts nothing (10 cases)
+ok - F2 persistent API 401s stop for an explicit sign-in
+ok - F4 automatic renewal failure has a visible recovery action
+ok - F9 an issuer error without state cannot trigger automatic sign-in
+ok - F5 failed callbacks scrub the current address and history entry
+ok - 1 no session: the browser goes to the issuer with code, S256, the client and a state; no token in a URL or in storage
+ok - 2 the Requests tab shows the recorded request of GET /api/v1/requests, cell by cell
+ok - 2 cursor paging: forward to the last page and back, each row one time; search and status are API parameters
+ok - 3 loading, then empty with the mockup's words
+ok - 3 a 403 shows the problem's detail and offers no action
+ok - 3 a 401: one silent renewal and the same call again; then, with the session ended, sign-in again
+ok - 3 a 5xx shows the problem's detail, and Try again sends the call again
+ok - 5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator, and the approval relay with no capacity:read
+ok - 6 the tab says what the mockup says, and adds only what is listed
+ok - 8 Workflow: Open at current step in Requests shows the request's events as its steps; applied and merge_failed keep their tones; an open request is followed to synced
+ok - 8 Workflow states: loading, no request, a 404 with Try again, and a 403 with no action
+ok - 9 New namespace: the tiers and clusters of the API, the dry run's plan and approval, and a submit that opens the new request
+ok - 9 New namespace refusals and states: a refused dry run, the browser's own checks, a 403, a 5xx and loading
+ok - R1 New namespace: a form changed after a lost answer is another request, with its own Idempotency-Key
+ok - R2 New namespace: Submit sends only the plan that the person saw; a form not planned, or changed since its dry run, is planned first
+ok - OB3-368 New namespace: no field is in error before the person tries the form; an empty required field is, after a Dry run
+ok - 18 New namespace on a company instance: the fields of GET /api/v1/metadata-keys, the keys cmapi sets read-only, refusals in the browser, and the body
+ok - 18 New namespace on the reference instance: Team and Team DL from GET /api/v1/metadata-keys with the mockup's words, the optional labels, and a revalidated read
+ok - 18 New namespace: a refused dry run's errors on their fields, the others in a summary that takes the focus; a key the form lacks reads the rules again
+ok - 18 New namespace: a configured pattern that backtracks is not checked here; the page stays responsive and the dry run decides
+ok - 18 New namespace: rules that change while the form is open; the fields follow them, a removed key is not sent, and a warning says so
+ok - 18 New namespace states with the rules: a 403, a 5xx with Try again, an answer of another shape, and a role limited to rnd
+ok - 10 Approvals: the requests waiting for me; Approve records one approval; Reject needs a reason; Open at current step
+ok - 10 Approvals: the API refuses a self-approval and the page shows it; empty, 403 and 5xx
+  writes on a double click: {"submit":1,"approve":1,"approveRefusalShown":0,"reject":1,"rejectRefusalShown":0}
+ok - R3 a double click on Submit, Approve or Confirm reject sends one write
+ok - R4 Approvals: the eligibility's requester check compares the sub, as the API does (docs/14), not the username
+  strings of the mockup compared: {"workflow":15,"new":34,"approvals":11}
+ok - 6 the Workflow, New namespace and Approvals tabs say what the mockup says, and add only what is listed
+ok - 7 layout at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+  4 tabs, 3 widths, 2 themes, 16 axe scans
+ok - 7 the Workflow, New namespace and Approvals tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - 11 Quotas: the rows of GET /api/v1/quotas cell by cell; the page, the sort, the filters, the state chips, the letter jump and the search are API parameters
+ok - 11 Quotas type-ahead: GET /api/v1/quotas:suggest as one types; the keyboard picks a match, and the page starts at it
+ok - 11 Quotas export: GET /api/v1/quotas:export with the list's filters and sort; its rows, its first lines and the file
+ok - 12 Quotas change: the plan's checks and approval, then a submit of exactly the planned body with If-Match and an Idempotency-Key; the same size plans nothing
+ok - 12 Quotas change: custom sizes within the catalog's bounds; a lock opens its request; a viewer has no change form
+ok - 12 Quotas refusals and states: loading, empty, a 403, a 5xx with Try again, a stale cursor, a refused plan and a 412
+ok - R5 Quotas: the same change sent again after a lost answer keeps its Idempotency-Key; a changed one gets a new key
+ok - F1 Quotas: a 412 reads the namespace again and plans on its new ETag; Submit never sends the stale ETag again
+  writes on a double click of Submit change: 1
+  writes on two submits in one task: 1
+ok - R6 a double click on Submit change sends one write
+ok - 19 Protection: everyone sees the badge and why a delete request is refused; only an operator has the control
+ok - 19 Protection: the operator's dialog plans exactly the label with If-Match, shows the approval, and submits that body with one key
+ok - 19 Protection: an operator limited to rnd has the control and the create box in rnd, and neither in dev
+ok - 19 Protection: removing it sends null, needs approver-platform, and says what still protects; Cancel sends nothing
+ok - 19 Protection: a 412 reads the namespace again and plans on its new ETag; a refusal shows its code
+ok - 19 New namespace: Protect from deletion for an operator, absent for a requester; the body has the label only when checked
+ok - 19 Protection at 390 and 1440 px in each theme, with the dialog open, and axe
+ok - 14 Expiration: the rows of GET /api/v1/expirations cell by cell, most urgent first; the state and env chips, the search and the pages are API parameters
+ok - 15 Expiration detail and extend: the API's row, the plan's approval and date, then a submit of exactly the planned body with If-Match and an Idempotency-Key
+ok - 15 Expiration: a date for a permanent namespace through :set, and make permanent through :makePermanent with its approval
+ok - F3 Expiration: a 412 reads the namespace again and plans on its new ETag; Submit never sends the stale ETag again
+  expiry writes on two submits in one task: 1
+ok - R7 Expiration: a double click sends one write; the same change after a lost answer keeps its key, a changed one gets a new key
+ok - 16 Expiration states: loading, empty, a 403, a 5xx with Try again, a stale cursor, a lock, a viewer, and an instance where nothing expires
+ok - 17 Expiration: a role limited to rnd has the change form on an rnd namespace and not on a dev one
+  strings of the mockup compared on the Expiration tab: 19
+ok - 6 the Expiration tab says what the mockup says, and adds only what is listed
+  3 views, 3 widths, 2 themes, 12 axe scans
+ok - 7 the Expiration tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - 13 KPIs: the operator's tab shows GET /api/v1/admin/kpi: the process, the database, each live KPI; a null is unavailable; the thresholds mark a watch
+ok - 13 KPIs states: loading, a 403 with no action, a 5xx with Try again; the requester has no KPIs tab
+  strings of the mockup compared: {"quotas":49,"kpis":5}
+ok - 6 the Quotas and KPIs tabs say what the mockup says, and add only what is listed
+  4 views, 3 widths, 2 themes, 16 axe scans
+ok - 7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - 20 Policies: the clusters, the policies and the rows of GET /api/v1/policies/results cell by cell; a state is never a zero; the cluster chips, Show failures and the pages are API parameters
+ok - 20 Policies: the refusals of GET /api/v1/policies/rejections, with the stage, the policy or check, Kyverno's warnings beside cmapi's errors, and the username only
+ok - 21 Policies states: loading, empty, a 403, a 5xx with Try again, a stale cursor, the refusals' 403 in their panel only, and engine none
+ok - 22 Policies: no zero for what is not known: a policy on no cluster with counts, the head with no cluster counted, and CRC with Kyverno and none of cmapi's policies (OB3, #384)
+  strings of the mockup compared on the Policies tab: 31
+ok - 6 the Policies tab says what the mockup says, and adds only what is listed
+  2 views, 3 widths, 2 themes, 8 axe scans
+ok - 7 the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - 23 Capacity: the group cards and the Clusters table of GET /api/v1/capacity cell by cell; unknown is —, never 0 or a bar; over 100 % fills the bar and says its figure; the footnote from the API's targets
+ok - 24 Capacity states: loading, empty, a 403 with no action, a 5xx with Try again, no tab without capacity:read, and a read again on focus that the browser's cache answers with the API's 304
+  strings of the mockup compared on the Capacity tab: 12
+ok - 6 the Capacity tab says what the mockup says, and adds only what is listed
+  2 views, 3 widths, 2 themes, 8 axe scans
+ok - 7 the Capacity tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - sign out ends the session at the issuer
+ok - portal on the API: 73 checks, chromium 156.0.8078.4
+ok - behaviour
+content parity: 98 states, 15938 strings compared, 0 states with a missing string
+structure: 0 states differ
+added by the page: 0
+ok - layout at 1440, 820, 390 and axe on every tab
+ok - parity, layout, accessibility, console
+rc=0

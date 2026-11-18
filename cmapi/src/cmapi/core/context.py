@@ -11,9 +11,11 @@ import httpx
 import yaml
 
 from cmapi.core.auth import Authenticator, Jwks
-from cmapi.core.clients.kube import KubeClient
-from cmapi.core.clients.policyreports import ReportCache
+from cmapi.core.capacity import CapacitySettings
 from cmapi.core.capacity_backend import SimulatedCapacity
+from cmapi.core.clients.kube import KubeClient
+from cmapi.core.clients.nodes import NodeCache
+from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.config import InstanceConfig, load_instance
 from cmapi.core.db import Database
 from cmapi.core.db.repo import DbKeyStore, SwitchRepo
@@ -45,6 +47,7 @@ class AppContext:
     delivery: DeliveryConfig
     integrations: dict[str, Any]
     capacity_cfg: dict[str, Any]
+    capacity: CapacitySettings
     issuer: str
     audience: str
     bundle: PolicyBundle | None = None                      # the policies of the bundle, by environment (#302)
@@ -98,6 +101,14 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
             return None
         return ReportCache(client, policy_bundle.for_environment(env), max_rows=cfg.policy.max_results_per_cluster)
 
+    capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")
+    capacity_settings = CapacitySettings(capacity_cfg)
+
+    def nodes_for(st: ClusterState, client: KubeClient) -> NodeCache:
+        """The nodes of every connected cluster, for its allocatable (#302): a cluster without the grant answers 403, which
+        is the node part's `forbidden` state, and the commitment against a simulated size is still known."""
+        return NodeCache(client, capacity_settings.count_taints)
+
     policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)
     if import_source is None:
         if settings.imports_dir:
@@ -106,7 +117,9 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
             import_source = HubImportSource(settings.kube_api_url, settings.kube_token_file, settings.kube_ca_file,
                                             settings.imports_namespace)
     registry = ClusterRegistry(policies, import_source, trusted_bundle=str(settings.ca_bundle) if settings.ca_bundle else None,
-                               start_caches=start_registry, reports_factory=reports_for)
+                               start_caches=start_registry, reports_factory=reports_for,
+                               # Only the API reads allocatable (GET /api/v1/capacity): the worker opens no Node watch.
+                               nodes_factory=nodes_for if settings.component == "api" else None)
     if start_registry:
         registry.start()
 
@@ -126,8 +139,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                              policy=cfg.policy, environments=cfg.allowed_environments, bundle=bundle)
     for env, mode in cfg.policy.modes(cfg.allowed_environments).items():
         POLICY_MODE.labels(env, mode).set(1)
-    capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")
-    capacity = SimulatedCapacity(registry, capacity_cfg.get("overcommit") or {}, capacity_cfg.get("targets") or {})
+    capacity = SimulatedCapacity(registry, capacity_settings)
 
     directory = None
     ident = inst.get("identity") or {}
@@ -145,7 +157,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                    Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
                                           "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
-                     capacity_cfg=capacity_cfg, issuer=issuer, audience=audience, bundle=policy_bundle)
+                     capacity_cfg=capacity_cfg, capacity=capacity_settings, issuer=issuer, audience=audience, bundle=policy_bundle)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []
     ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused)
     return ctx

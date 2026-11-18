@@ -45,6 +45,10 @@ export type PolicyResultsQuery = NonNullable<operations["policies_results"]["par
 export type RejectionPage = components["schemas"]["RejectionPage"];
 export type Rejection = components["schemas"]["Rejection"];
 export type RejectionsQuery = NonNullable<operations["policies_rejections"]["parameters"]["query"]>;
+export type CapacityPage = components["schemas"]["CapacityPage"];
+export type CapacityCluster = components["schemas"]["CapacityCluster"];
+export type CapacityGroup = components["schemas"]["CapacityGroup"];
+export type CapacityResource = components["schemas"]["CapacityResource"];
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -519,6 +523,31 @@ export function usePolicyRejections(params: RejectionsQuery): Result<RejectionPa
       return data;
     },
     placeholderData: keepPreviousData
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** How often the Capacity tab reads GET /api/v1/capacity again while it is open (the arbitration of #302: on focus, and 60 s). */
+export const CAPACITY_REFRESH_MS = 60_000;
+
+/**
+ * GET /api/v1/capacity: each cluster's commitment and the groups (#302). The answer carries a strong ETag and
+ * `Cache-Control: private, no-cache`, so the browser's own cache sends If-None-Match on each read again and turns a 304 into
+ * the stored answer: a read with nothing new costs the API a hash and moves no byte. So the query is never fresh (staleTime 0)
+ * and is read again on focus and every CAPACITY_REFRESH_MS.
+ */
+export function useCapacity(): Result<CapacityPage> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["capacity"],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/capacity", { signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    },
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    refetchInterval: CAPACITY_REFRESH_MS
   });
   return { ...resultOf(query), reload: () => void query.refetch() };
 }

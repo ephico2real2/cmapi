@@ -39,6 +39,8 @@ const ROLE_PERMISSIONS = {
 };
 // An operator limited to rnd (#366): /me says operator, with operatorEnvironments ["rnd"].
 ROLE_PERMISSIONS["cmapi-operator-rnd"] = ROLE_PERMISSIONS["cmapi-operator"];
+// The approval relay (docs/14): requests:read and approvals:relay, and no capacity:read, so no Capacity tab (#302).
+ROLE_PERMISSIONS["cmapi-approval-relay"] = ["requests:read", "approvals:relay"];
 // #366: the operator's permission, and the labels of approval-rules.yaml protected.labels (operator-only on every instance).
 const PROTECT_PERMISSION = "namespaces:protect";
 const PROTECT_KEY = "cmapi.net/protected";
@@ -56,7 +58,8 @@ export const USERS = {
   requester: { sub: "sub-ola", username: "ola", role: "cmapi-requester", groups: ["/cmapi/app-cmapi-rbac-requester"], email: "ola@ephico2real.com" },
   operator: { sub: "sub-operator", username: "cmapi.operator", role: "cmapi-operator", groups: ["/cmapi/app-cmapi-rbac-operator"], email: "cmapi.operator@ephico2real.com" },
   rndRequester: { sub: "sub-rnd", username: "rnd.requester", role: "cmapi-requester-rnd", groups: ["/cmapi/app-cmapi-rbac-requester-rnd"], email: "rnd.requester@ephico2real.com" },
-  rndOperator: { sub: "sub-rnd-operator", username: "rnd.operator", role: "cmapi-operator-rnd", groups: ["/cmapi/app-cmapi-rbac-operator-rnd"], email: "rnd.operator@ephico2real.com" }
+  rndOperator: { sub: "sub-rnd-operator", username: "rnd.operator", role: "cmapi-operator-rnd", groups: ["/cmapi/app-cmapi-rbac-operator-rnd"], email: "rnd.operator@ephico2real.com" },
+  relay: { sub: "sub-relay", username: "cmapi.relay", role: "cmapi-approval-relay", groups: [] }
 };
 
 /** One realm, `cmapi`, with one public client that must use PKCE with S256. */
@@ -468,6 +471,91 @@ export function rejectionsPage(rows, params) {
       prevCursor: start > 0 ? at(Math.max(0, start - limit)) : null } };
 }
 
+// The Capacity tab's API (cmapi/src/cmapi/plugins/capacity/router.py, #302): the recorded answer of GET /api/v1/capacity, and a
+// fleet built from it with a cluster in each state. capacityGroups is a test fixture of the API's group rules (core/capacity.py,
+// group_figures): the page sums nothing, so the fixture gives it the figures the API would.
+export const CAPACITY_SAMPLE = SAMPLES.operations.capacity_capacity.response.body;
+const GIB = 2 ** 30;
+const STATUS_ORDER = ["ok", "warn", "critical", "over"];
+const levelOf = (r, warn = 0.85, critical = 0.95) => (r > 1 ? "over" : r >= critical ? "critical" : r >= warn ? "warn" : "ok");
+const boundOf = (c, m) => (c === null || m === null ? null : Math.round(c * 1000) === Math.round(m * 1000) ? "both" : c > m ? "cpu" : "memory");
+const worstOf = (statuses) => statuses.filter(Boolean).sort((a, b) => STATUS_ORDER.indexOf(b) - STATUS_ORDER.indexOf(a))[0] ?? null;
+/** One resource as the API gives it: unit, size, limit = basis × overcommit, and the figures that follow, null when unknown. */
+function capResource(base, { committed, simulated, allocatable, basis, overcommit }) {
+  const size = basis === "simulated" ? simulated : basis === "allocatable" ? allocatable : null;
+  const limit = size === null ? null : Math.floor(size * overcommit);
+  const known = committed !== null && limit !== null;
+  const commitment = known ? Math.round((committed / limit) * 1e4) / 1e4 : null;
+  return { ...base, simulated, allocatable, overcommit, limit, committed, quotaUsed: committed === null ? null : 0, quotaUsedMissing: committed === null ? null : 0,
+    headroom: known ? limit - committed : null, commitment, status: commitment === null ? null : levelOf(commitment), requested: null, usedAvg: null, usedPeak: null };
+}
+/** A cluster of the recorded answer in another state, with its figures: millicores and bytes, null when the API does not know them. */
+export function capacityCluster(base, { clusterId, env = "rnd", region = "us-central", writes = true, state = "ok", stateDetail = null, asOf = "2026-11-18T09:14:00Z",
+  basis = "allocatable", nodesState = "ok", nodesDetail = null, zones = ["us-central-1a", "us-central-1b", "us-central-1c"], cpu = 0, memory = 0,
+  simulated = null, allocatable = { cpu: 96000, memory: 384 * GIB }, overcommit = { cpu: 2, memory: 1.25 } }) {
+  const committedKnown = ["ok", "stale", "no-size"].includes(state);
+  const nodesKnown = ["ok", "stale"].includes(nodesState);
+  const resource = (r) => capResource(base[r], { committed: committedKnown ? (r === "cpu" ? cpu : memory) : null, simulated: simulated ? simulated[r] : null,
+    allocatable: nodesKnown ? allocatable[r] : null, basis: state === "no-size" ? null : basis, overcommit: overcommit[r] });
+  const c = resource("cpu"), m = resource("memory");
+  return { ...base, clusterId, env, region, writes, state, stateDetail, asOf: state === "loading" || state === "forbidden" ? null : asOf,
+    basis: state === "no-size" ? null : basis, nodesState, nodesDetail, nodes: nodesKnown ? { total: 3, counted: 3, notReady: 0, cordoned: 0, tainted: 0 } : null,
+    zones: nodesKnown ? zones : null, managedNamespaces: committedKnown ? 12 : null, scopedQuotas: committedKnown ? 0 : null,
+    status: worstOf([c.status, m.status]), boundBy: boundOf(c.commitment, m.commitment), cpu: c, memory: m, history: null };
+}
+/** The groups of a set of clusters by region and environment, by the API's rules: included when ok and writable; the ratio from the
+ * summed figures; headroom floored at 0 per cluster; the largest placement per resource with its cluster; the worst status. */
+export function capacityGroups(clusters) {
+  const keyOf = (c) => `${c.region ?? "—"} · ${c.env}`;
+  const names = [...new Set(clusters.map(keyOf))].sort();
+  return names.map((name) => {
+    const members = clusters.filter((c) => keyOf(c) === name);
+    const included = members.filter((c) => c.state === "ok" && c.writes);
+    const excluded = members.filter((c) => !included.includes(c)).map((c) => ({ clusterId: c.clusterId, reason: c.state !== "ok" ? c.state : "not-writable", asOf: c.asOf }));
+    const sum = (r) => {
+      if (!included.length) return null;
+      const committed = included.reduce((n, c) => n + c[r].committed, 0), limit = included.reduce((n, c) => n + c[r].limit, 0);
+      const floored = included.map((c) => [Math.max(c[r].headroom, 0), c.clusterId]).sort((a, b) => b[0] - a[0] || (a[1] < b[1] ? -1 : 1));
+      return { unit: r === "cpu" ? "millicores" : "bytes", committed, limit, commitment: Math.round((committed / limit) * 1e4) / 1e4,
+        headroom: floored.reduce((n, [h]) => n + h, 0), largestPlacement: { value: floored[0][0], clusterId: floored[0][1] } };
+    };
+    const cpu = sum("cpu"), memory = sum("memory"), status = worstOf(included.map((c) => c.status));
+    return { key: { region: members[0].region, environment: members[0].env }, name, clusterIds: members.map((c) => c.clusterId), matching: members.length,
+      included: included.length, coverage: Math.round((included.length / members.length) * 1e4) / 1e4, excluded, status,
+      statusCounts: Object.fromEntries(STATUS_ORDER.map((s) => [s, included.filter((c) => c.status === s).length])),
+      boundBy: cpu && memory ? boundOf(cpu.commitment, memory.commitment) : null, cpu, memory };
+  });
+}
+/** The fleet of the Capacity checks: CRC as the arbitration says it must show, a second dev cluster whose memory has the most room, and a
+ * cluster in each other state of the API. rnd's overcommit is 1.5 and 1.1, so the footnote cannot come from one constant. */
+export function capacityFleet() {
+  const base = CAPACITY_SAMPLE.clusters[0];
+  const rnd = { cpu: 1.5, memory: 1.1 };
+  const forbiddenNodes = { nodesState: "forbidden", nodesDetail: "cmapi-reader may not list nodes (403): its ClusterRole needs get, list and watch on nodes" };
+  const clusters = [
+    capacityCluster(base, { clusterId: "CRC", env: "dev", basis: "simulated", zones: [], cpu: 72000, memory: 144 * GIB, simulated: { cpu: 64000, memory: 256 * GIB },
+      allocatable: { cpu: 7800, memory: 20013044 * 1024 } }),
+    capacityCluster(base, { clusterId: "OCP_GF15", env: "dev", zones: ["us-central-1a", "us-central-1b"], cpu: 170000, memory: 100 * GIB }),
+    capacityCluster(base, { clusterId: "OCP_GF6", overcommit: rnd, cpu: 126000, memory: 300 * GIB }),
+    capacityCluster(base, { clusterId: "OCP_GF7", overcommit: rnd, state: "stale", stateDetail: "the ResourceQuota watch is stale: no good read for over 1800s",
+      asOf: "2026-11-18T07:30:00Z", cpu: 90000, memory: 300 * GIB }),
+    capacityCluster(base, { clusterId: "OCP_GF8", overcommit: rnd, cpu: 886200, memory: 1600 * GIB }),
+    capacityCluster(base, { clusterId: "OCP_GF9", overcommit: rnd, state: "unreachable", stateDetail: "the cluster is unreachable: OCP_GF9: ConnectError",
+      nodesState: "unreachable", nodesDetail: "the cluster is unreachable", asOf: "2026-11-18T06:02:00Z" }),
+    capacityCluster(base, { clusterId: "OCP_GF10", region: "eu-west", overcommit: rnd, state: "loading", stateDetail: "the cluster's ResourceQuotas have not listed yet",
+      nodesState: "loading", nodesDetail: "the nodes are being listed" }),
+    capacityCluster(base, { clusterId: "OCP_GF11", region: "eu-west", overcommit: rnd, state: "forbidden",
+      stateDetail: "the API server refuses the reader's ResourceQuota reads (403): 403 on /api/v1/resourcequotas: forbidden" }),
+    capacityCluster(base, { clusterId: "OCP_GF12", region: "eu-west", overcommit: rnd, state: "no-size", ...forbiddenNodes,
+      stateDetail: `no simulatedCapacity in clusters.yaml, and the nodes' allocatable is not known: ${forbiddenNodes.nodesDetail}`, cpu: 12000, memory: 24 * GIB }),
+    capacityCluster(base, { clusterId: "OCP_GF14", region: "eu-west", overcommit: rnd, writes: false, basis: "simulated", simulated: { cpu: 32000, memory: 128 * GIB },
+      ...forbiddenNodes, cpu: 8000, memory: 16 * GIB })
+  ].sort((a, b) => (a.clusterId < b.clusterId ? -1 : 1));
+  const targets = CAPACITY_SAMPLE.targets.map((t) => (t.env === "rnd" ? { ...t, overcommit: rnd } : t));
+  // Two clusters of an environment that the caller cannot read: the API counts them and names none.
+  return { ...CAPACITY_SAMPLE, hiddenClusters: 2, targets, clusters, groups: capacityGroups(clusters) };
+}
+
 const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
 /** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
 const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
@@ -520,7 +608,9 @@ export async function startApi({ issuer, portalOrigin }) {
     /** "cluster/namespace" → its protectedBy, the protected.labels entries that its labels in Git match (#366). */
     protection: new Map(),
     /** GET /api/v1/policies/results (policyFleet) and the rows of GET /api/v1/policies/rejections (#302). */
-    policies: policyFleet(), rejections: rejectionsFrom(3)
+    policies: policyFleet(), rejections: rejectionsFrom(3),
+    /** GET /api/v1/capacity (capacityFleet), and how many of its reads were answered 304 Not Modified (#302). */
+    capacity: capacityFleet(), notModified: 0
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -733,6 +823,21 @@ export async function startApi({ issuer, portalOrigin }) {
       const fleet = state.mode === "empty" ? { ...state.policies, items: [] } : state.policies;
       const page = policyResultsPage(fleet, url.searchParams);
       return Array.isArray(page) ? problem(res, refuse(...page), cors) : ok(page);
+    }
+    if (url.pathname === "/api/v1/capacity") {
+      const denied = lacks("capacity:read");
+      if (denied) return problem(res, denied, cors);
+      const page = state.mode === "empty" ? { ...state.capacity, clusters: [], groups: [] } : state.capacity;
+      // As the API's: a strong ETag over the exact bytes and private, no-cache; an If-None-Match that matches is a 304 with no body.
+      const text = JSON.stringify(page), etag = `"${createHash("sha256").update(text).digest("hex").slice(0, 32)}"`;
+      const headers = { ...cors, etag, "cache-control": "private, no-cache" };
+      if ((call.ifNoneMatch ?? "").split(",").map((t) => t.trim().replace(/^W\//, "")).includes(etag)) {
+        state.notModified++;
+        res.writeHead(304, headers);
+        return res.end();
+      }
+      res.writeHead(200, { ...headers, "content-type": "application/json" });
+      return res.end(text);
     }
     if (url.pathname === "/api/v1/policies/rejections") {
       const denied = lacks("requests:read");

@@ -1,6 +1,7 @@
 # The reader baseline as plain YAML: what cmapi needs to read a cluster, and nothing more. From examples/baseline/cmapi-reader-rbac.yaml,
-# cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts, and
-# the policy reports and ValidatingPolicies of core/clients/policyreports.py (#302). Discovery needs no rule (system:discovery).
+# cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts, the
+# policy reports and ValidatingPolicies of core/clients/policyreports.py (#302), and the nodes of core/clients/nodes.py for the
+# Capacity tab (#302; the owner, 2026-11-18). Discovery needs no rule (system:discovery).
 # The identity check needs no rule here: users/~ and selfsubjectreviews are for every authenticated user. Later waves add their own
 # rule in their own pull request. The import Secret holding this token is not YAML: deploy/crc-reader-import.sh writes it.
 apiVersion: v1
@@ -34,6 +35,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [namespaces, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [""]                      # allocatable, zones and readiness, watched for the Capacity tab (#302, core/clients/nodes.py)
+    resources: [nodes]
     verbs: [get, list, watch]
   - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
     resources: [pods, persistentvolumeclaims]

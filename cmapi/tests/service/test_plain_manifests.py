@@ -569,10 +569,13 @@ def test_none_of_the_old_names_is_in_what_ships():
 
 def test_crc_reader_reads_only_what_the_code_reads():
     from cmapi.core.clients.kube import RESOURCES
+    from cmapi.core.clients.nodes import KIND as NODE_KIND
     from cmapi.core.clients.policyreports import POLICY_KINDS, REPORT_KINDS
-    # The core kinds of the WatchCache and the workload counts, and (#302) the kinds of the report cache, by their API group.
+    # The core kinds of the WatchCache and the workload counts, and (#302) the kinds of the report cache, by their API group, and
+    # the node cache's kind (a core kind: /api/v1/nodes).
     from_code = {("", r) for r in ("namespaces", "resourcequotas", "limitranges", "pods", "persistentvolumeclaims")}
     from_code |= {(RESOURCES[k][0].split("/")[2], RESOURCES[k][0].rsplit("/", 1)[1]) for k in REPORT_KINDS + POLICY_KINDS}
+    from_code.add(("", RESOURCES[NODE_KIND][0].rsplit("/", 1)[1]))
     rules = crc("ClusterRole", "cmapi-reader")["rules"]
     assert {(g, r) for rule in rules for g in rule["apiGroups"] for r in rule["resources"]} == from_code
     assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules)

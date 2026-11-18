@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 38 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 39 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
@@ -16,9 +16,9 @@ Nothing here was measured on a running system. No cmapi workload runs on a clust
 | Actions in the mockup | 64 |
 | Actions that make no call | 17 |
 | Endpoints that the actions need | 25 |
-| Endpoints built, in `openapi.json` | 18 |
+| Endpoints built, in `openapi.json` | 19 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
-| Endpoints not built | 5 |
+| Endpoints not built | 4 |
 
 ## How to read the figures
 
@@ -111,7 +111,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 60 | Policies | Open the tab | `GET /api/v1/policies/results`<br>`GET /api/v1/policies/rejections` | built<br>built | 5 | The Clusters and Results by policy cards are in the answer of `/policies/results` (`clusters`, `policies`), from one read of the watch: the design's `GET /api/v1/policies` is folded into it (#302, both designs and the arbitration). |
 | 61 | Policies | Cluster chips | `GET /api/v1/policies/results` | built | 5 | With `clusterId=`. |
 | 62 | Policies | Show failures (row) | `GET /api/v1/policies/results` | built | 5 | With `policy=`. |
-| 63 | Capacity | Open the tab | `GET /api/v1/capacity` | not built | 5 | The tab has no other action. |
+| 63 | Capacity | Open the tab | `GET /api/v1/capacity` | built | 5 | The tab has no other action. Live from each cluster's watch of its quotas and nodes (#302); usage and history wait for cmapi-capacity's snapshots (#21). |
 | 64 | KPIs | Open the tab | `GET /api/v1/admin/kpi` | built | 5 | The tab has no other action. The built endpoint returns four database KPIs and the figures of one component. |
 
 ## Actions with no endpoint in the design
@@ -150,7 +150,7 @@ PORTAL (dashed: not on the API)
 CMAPI
   cmapi-api (built): core/auth.py, routers/requests.py, plugins/namespaces, routers/admin.py, core/pipeline.py,
     plugins/quotas and tiers, core/validate, plugins/directory, core/registry.py, routers/me and health
-    not built: routes for one namespace's expiry read, policies, capacity, placement, metadata,
+    not built: routes for one namespace's expiry read, capacity snapshots, placement, metadata,
     operations, service accounts, grants, tokens, webhooks
     ------> Keycloak (JWKS, admin API)
     ------> PostgreSQL (requests, approvals, audit, jobs)
@@ -286,8 +286,8 @@ Policies tab
     behind: plugins/policies (built): the watch of each cluster's policy reports, and policy_rejections
 Capacity tab
   Open the tab
-    - - proposed - -> GET /api/v1/capacity [not built]
-    behind: Capacity gateway, cmapi-capacity (not built)
+    - - proposed - -> GET /api/v1/capacity [built]
+    behind: plugins/capacity (built): each cluster's quota ledger and node watch; cmapi-capacity's snapshots (not built)
 KPIs tab
   Open the tab
     - - proposed - -> GET /api/v1/admin/kpi [built]

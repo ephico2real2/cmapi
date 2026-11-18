@@ -1,0 +1,348 @@
+FFFFF..FFF................................                               [100%]
+=================================== FAILURES ===================================
+________________ test_crc_reader_reads_only_what_the_code_reads ________________
+
+    def test_crc_reader_reads_only_what_the_code_reads():
+        from cmapi.core.clients.kube import RESOURCES
+>       from cmapi.core.clients.nodes import KIND as NODE_KIND
+E       ModuleNotFoundError: No module named 'cmapi.core.clients.nodes'
+
+tests/service/test_plain_manifests.py:569: ModuleNotFoundError
+____________ test_without_the_file_each_built_in_plugin_is_mounted _____________
+
+world = (<starlette.testclient.TestClient object at 0x110e68ef0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x110d11670>, <conftest.FakeValidator object at 0x110d11700>, <conftest.Keys object at 0x110c351c0>)
+
+    def test_without_the_file_each_built_in_plugin_is_mounted(world):
+        client, _, _, _, _, keys = world
+        spec = client.get("/openapi.json").json()
+>       assert {t["name"] for t in spec["tags"]} == {"core", "requests", "admin", *ALL}
+E       AssertionError: assert {'admin', 'co...olicies', ...} == {'admin', 'ca...espaces', ...}
+E         
+E         Extra items in the right set:
+E         'capacity'
+E         Use -v to get more diff
+
+tests/service/test_plugins_switch.py:48: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+migrated to head
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-18T04:29:08.534528Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/openapi.json", "status": 200, "caller_sub": null, "client": null, "ms": 165.5, "event": "http", "request_id": "1857bf195a624818", "level": "info", "timestamp": "2026-11-18T04:29:08.702571Z"}
+_ test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[nonprod] _
+
+instance = 'nonprod'
+
+    @pytest.mark.parametrize("instance", ["nonprod", "staging", "prod"])
+    def test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin(instance):
+        folder = EXAMPLES / "instances" / instance
+        cfg = load_instance(folder, EXAMPLES / "cluster-configs" / "policies" / "metadata-keys.yaml")
+        assert (folder / "plugins.yaml").exists() and cfg.plugins.configured
+>       assert sorted(cfg.plugins.enabled) == sorted(ALL)
+E       AssertionError: assert ['directory',...tas', 'tiers'] == ['capacity', ...'quotas', ...]
+E         
+E         At index 0 diff: 'directory' != 'capacity'
+E         Right contains one more item: 'tiers'
+E         Use -v to get more diff
+
+tests/service/test_plugins_switch.py:64: AssertionError
+_ test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[staging] _
+
+instance = 'staging'
+
+    @pytest.mark.parametrize("instance", ["nonprod", "staging", "prod"])
+    def test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin(instance):
+        folder = EXAMPLES / "instances" / instance
+        cfg = load_instance(folder, EXAMPLES / "cluster-configs" / "policies" / "metadata-keys.yaml")
+        assert (folder / "plugins.yaml").exists() and cfg.plugins.configured
+>       assert sorted(cfg.plugins.enabled) == sorted(ALL)
+E       AssertionError: assert ['directory',...tas', 'tiers'] == ['capacity', ...'quotas', ...]
+E         
+E         At index 0 diff: 'directory' != 'capacity'
+E         Right contains one more item: 'tiers'
+E         Use -v to get more diff
+
+tests/service/test_plugins_switch.py:64: AssertionError
+_ test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[prod] _
+
+instance = 'prod'
+
+    @pytest.mark.parametrize("instance", ["nonprod", "staging", "prod"])
+    def test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin(instance):
+        folder = EXAMPLES / "instances" / instance
+        cfg = load_instance(folder, EXAMPLES / "cluster-configs" / "policies" / "metadata-keys.yaml")
+        assert (folder / "plugins.yaml").exists() and cfg.plugins.configured
+>       assert sorted(cfg.plugins.enabled) == sorted(ALL)
+E       AssertionError: assert ['directory',...tas', 'tiers'] == ['capacity', ...'quotas', ...]
+E         
+E         At index 0 diff: 'directory' != 'capacity'
+E         Right contains one more item: 'tiers'
+E         Use -v to get more diff
+
+tests/service/test_plugins_switch.py:64: AssertionError
+_ test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads __
+
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/config0')
+tmp_path = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_refuses_each_0')
+fresh_db = <cmapi.core.db.Database object at 0x110c37e00>
+keys = <conftest.Keys object at 0x110c351c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110fdcfb0>
+
+    def test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads(test_config, tmp_path, fresh_db, keys, monkeypatch):
+        d = config_with(test_config, tmp_path, {"enabled": ALL, "overrides": {"nonprod": {"dev": {"disabled": ["namespaces"]}}}})
+>       with build_world(d, keys, monkeypatch) as (client, ctx, git, *_):
+
+tests/service/test_plugins_switch.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+tests/service/conftest.py:449: in build_world
+    ctx = build_context(s, start_registry=False, import_source=OneSecret())
+src/cmapi/core/context.py:79: in build_context
+    cfg = load_instance(settings.config_dir, settings.metadata_keys_path)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_dir = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_refuses_each_0/config')
+metadata_keys = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_refuses_each_0/config/metadata-keys.yaml')
+
+    def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> InstanceConfig:
+        d = Path(config_dir)
+        problems: list[str] = []
+        inst, h_inst = _read(d / "instance.yaml")
+        me = inst["instance"]
+        allowed = set(me["allowedEnvironments"])
+        hashes = {"instance.yaml": h_inst}
+    
+        def build(name: str, fn):
+            raw, h = _read(d / name)
+            hashes[name] = h
+            try:
+                return fn(raw)
+            except (ValueError, CatalogError) as exc:
+                problems.append(f"{name}: {exc}")
+                return None
+    
+        template = (me.get("identity") or {}).get("groupPath", DEFAULT_GROUP_PATH)
+        try:
+            check_group_path(template)
+        except ValueError as exc:
+            problems.append(f"instance.yaml: identity.groupPath: {exc}")
+            template = DEFAULT_GROUP_PATH
+    
+        approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed, group_path=template))
+        tiers = build("tiers.yaml", lambda r: TierCatalog(r, allowed))
+        expiration = build("expiration.yaml", lambda r: ExpirationRules(r, allowed))
+        roles = build("authz-roles.yaml", lambda r: RolePolicy(r, allowed))
+        mk_raw, mk_h = _read(Path(metadata_keys))
+        hashes["metadata-keys.yaml"] = mk_h
+        try:
+            metadata = MetadataKeys(mk_raw)
+        except ValueError as exc:
+            problems.append(f"metadata-keys.yaml: {exc}")
+            metadata = None
+    
+        # Optional: without the file each built-in plugin is enabled, as before the file was read.
+        if (d / "plugins.yaml").exists():
+            plugins = build("plugins.yaml", lambda r: PluginSwitch(r, me["name"], allowed))
+        else:
+            plugins = PluginSwitch(None, me["name"], allowed)
+    
+        if approvals and tiers:
+            known = {r.name for e in tiers.environments() for r in tiers.offered(e)}
+            for t in sorted(approvals.tier_names() - known):
+                problems.append(f"approval-rules.yaml: auto-approval names tier {t}, not in tiers.yaml")
+            missing = allowed - set(approvals.environments)
+            if missing:
+                problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
+        if expiration and "prod" in allowed and expiration.allows("prod"):
+            problems.append("expiration.yaml: prod can never expire")
+        problems.extend(_git_problems(me.get("git") or {}))
+        policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
+        problems.extend(policy_problems)
+        if problems:
+>           raise ConfigError(problems)
+E           cmapi.core.config.ConfigError: invalid instance configuration:
+E             plugins.yaml: enabled: unknown plugin 'capacity' (the plugins of this build are ['directory', 'expiration', 'namespaces', 'policies', 'quotas', 'tiers'])
+
+src/cmapi/core/config.py:118: ConfigError
+______________ test_the_permission_is_checked_before_the_override ______________
+
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/config0')
+tmp_path = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_the_permission_is_checked0')
+fresh_db = <cmapi.core.db.Database object at 0x110c37e00>
+keys = <conftest.Keys object at 0x110c351c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110fdf4d0>
+
+    def test_the_permission_is_checked_before_the_override(test_config, tmp_path, fresh_db, keys, monkeypatch):
+        """A caller who cannot write learns nothing about plugins.yaml: the answer is the 403 that it was before."""
+        d = config_with(test_config, tmp_path, {"enabled": ALL, "overrides": {"nonprod": {"dev": {"disabled": ["namespaces"]}}}})
+>       with build_world(d, keys, monkeypatch) as (client, *_):
+
+tests/service/test_plugins_switch.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+tests/service/conftest.py:449: in build_world
+    ctx = build_context(s, start_registry=False, import_source=OneSecret())
+src/cmapi/core/context.py:79: in build_context
+    cfg = load_instance(settings.config_dir, settings.metadata_keys_path)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_dir = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_the_permission_is_checked0/config')
+metadata_keys = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_the_permission_is_checked0/config/metadata-keys.yaml')
+
+    def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> InstanceConfig:
+        d = Path(config_dir)
+        problems: list[str] = []
+        inst, h_inst = _read(d / "instance.yaml")
+        me = inst["instance"]
+        allowed = set(me["allowedEnvironments"])
+        hashes = {"instance.yaml": h_inst}
+    
+        def build(name: str, fn):
+            raw, h = _read(d / name)
+            hashes[name] = h
+            try:
+                return fn(raw)
+            except (ValueError, CatalogError) as exc:
+                problems.append(f"{name}: {exc}")
+                return None
+    
+        template = (me.get("identity") or {}).get("groupPath", DEFAULT_GROUP_PATH)
+        try:
+            check_group_path(template)
+        except ValueError as exc:
+            problems.append(f"instance.yaml: identity.groupPath: {exc}")
+            template = DEFAULT_GROUP_PATH
+    
+        approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed, group_path=template))
+        tiers = build("tiers.yaml", lambda r: TierCatalog(r, allowed))
+        expiration = build("expiration.yaml", lambda r: ExpirationRules(r, allowed))
+        roles = build("authz-roles.yaml", lambda r: RolePolicy(r, allowed))
+        mk_raw, mk_h = _read(Path(metadata_keys))
+        hashes["metadata-keys.yaml"] = mk_h
+        try:
+            metadata = MetadataKeys(mk_raw)
+        except ValueError as exc:
+            problems.append(f"metadata-keys.yaml: {exc}")
+            metadata = None
+    
+        # Optional: without the file each built-in plugin is enabled, as before the file was read.
+        if (d / "plugins.yaml").exists():
+            plugins = build("plugins.yaml", lambda r: PluginSwitch(r, me["name"], allowed))
+        else:
+            plugins = PluginSwitch(None, me["name"], allowed)
+    
+        if approvals and tiers:
+            known = {r.name for e in tiers.environments() for r in tiers.offered(e)}
+            for t in sorted(approvals.tier_names() - known):
+                problems.append(f"approval-rules.yaml: auto-approval names tier {t}, not in tiers.yaml")
+            missing = allowed - set(approvals.environments)
+            if missing:
+                problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
+        if expiration and "prod" in allowed and expiration.allows("prod"):
+            problems.append("expiration.yaml: prod can never expire")
+        problems.extend(_git_problems(me.get("git") or {}))
+        policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
+        problems.extend(policy_problems)
+        if problems:
+>           raise ConfigError(problems)
+E           cmapi.core.config.ConfigError: invalid instance configuration:
+E             plugins.yaml: enabled: unknown plugin 'capacity' (the plugins of this build are ['directory', 'expiration', 'namespaces', 'policies', 'quotas', 'tiers'])
+
+src/cmapi/core/config.py:118: ConfigError
+_ test_an_override_of_another_environment_or_another_instance_changes_nothing_here _
+
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/config0')
+tmp_path = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_of_another_en0')
+fresh_db = <cmapi.core.db.Database object at 0x110c37e00>
+keys = <conftest.Keys object at 0x110c351c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110fdd220>
+
+    def test_an_override_of_another_environment_or_another_instance_changes_nothing_here(test_config, tmp_path, fresh_db, keys, monkeypatch):
+        plugins = {"enabled": ALL, "overrides": {"nonprod": {"rnd": {"disabled": ["namespaces"]}},
+                                                  "prod": {"prod": {"disabled": ["namespaces"]}}}}
+>       with build_world(config_with(test_config, tmp_path, plugins), keys, monkeypatch) as (client, *_):
+
+tests/service/test_plugins_switch.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+tests/service/conftest.py:449: in build_world
+    ctx = build_context(s, start_registry=False, import_source=OneSecret())
+src/cmapi/core/context.py:79: in build_context
+    cfg = load_instance(settings.config_dir, settings.metadata_keys_path)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_dir = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_of_another_en0/config')
+metadata_keys = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-950/test_an_override_of_another_en0/config/metadata-keys.yaml')
+
+    def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> InstanceConfig:
+        d = Path(config_dir)
+        problems: list[str] = []
+        inst, h_inst = _read(d / "instance.yaml")
+        me = inst["instance"]
+        allowed = set(me["allowedEnvironments"])
+        hashes = {"instance.yaml": h_inst}
+    
+        def build(name: str, fn):
+            raw, h = _read(d / name)
+            hashes[name] = h
+            try:
+                return fn(raw)
+            except (ValueError, CatalogError) as exc:
+                problems.append(f"{name}: {exc}")
+                return None
+    
+        template = (me.get("identity") or {}).get("groupPath", DEFAULT_GROUP_PATH)
+        try:
+            check_group_path(template)
+        except ValueError as exc:
+            problems.append(f"instance.yaml: identity.groupPath: {exc}")
+            template = DEFAULT_GROUP_PATH
+    
+        approvals = build("approval-rules.yaml", lambda r: ApprovalRules(r, allowed, group_path=template))
+        tiers = build("tiers.yaml", lambda r: TierCatalog(r, allowed))
+        expiration = build("expiration.yaml", lambda r: ExpirationRules(r, allowed))
+        roles = build("authz-roles.yaml", lambda r: RolePolicy(r, allowed))
+        mk_raw, mk_h = _read(Path(metadata_keys))
+        hashes["metadata-keys.yaml"] = mk_h
+        try:
+            metadata = MetadataKeys(mk_raw)
+        except ValueError as exc:
+            problems.append(f"metadata-keys.yaml: {exc}")
+            metadata = None
+    
+        # Optional: without the file each built-in plugin is enabled, as before the file was read.
+        if (d / "plugins.yaml").exists():
+            plugins = build("plugins.yaml", lambda r: PluginSwitch(r, me["name"], allowed))
+        else:
+            plugins = PluginSwitch(None, me["name"], allowed)
+    
+        if approvals and tiers:
+            known = {r.name for e in tiers.environments() for r in tiers.offered(e)}
+            for t in sorted(approvals.tier_names() - known):
+                problems.append(f"approval-rules.yaml: auto-approval names tier {t}, not in tiers.yaml")
+            missing = allowed - set(approvals.environments)
+            if missing:
+                problems.append(f"approval-rules.yaml: no rules for served environments {sorted(missing)}")
+        if expiration and "prod" in allowed and expiration.allows("prod"):
+            problems.append("expiration.yaml: prod can never expire")
+        problems.extend(_git_problems(me.get("git") or {}))
+        policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
+        problems.extend(policy_problems)
+        if problems:
+>           raise ConfigError(problems)
+E           cmapi.core.config.ConfigError: invalid instance configuration:
+E             plugins.yaml: enabled: unknown plugin 'capacity' (the plugins of this build are ['directory', 'expiration', 'namespaces', 'policies', 'quotas', 'tiers'])
+
+src/cmapi/core/config.py:118: ConfigError
+=========================== short test summary info ============================
+FAILED tests/service/test_plain_manifests.py::test_crc_reader_reads_only_what_the_code_reads
+FAILED tests/service/test_plugins_switch.py::test_without_the_file_each_built_in_plugin_is_mounted
+FAILED tests/service/test_plugins_switch.py::test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[nonprod]
+FAILED tests/service/test_plugins_switch.py::test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[staging]
+FAILED tests/service/test_plugins_switch.py::test_the_sample_of_each_instance_loads_and_enables_each_built_in_plugin[prod]
+FAILED tests/service/test_plugins_switch.py::test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads
+FAILED tests/service/test_plugins_switch.py::test_the_permission_is_checked_before_the_override
+FAILED tests/service/test_plugins_switch.py::test_an_override_of_another_environment_or_another_instance_changes_nothing_here
+8 failed, 34 passed in 9.33s

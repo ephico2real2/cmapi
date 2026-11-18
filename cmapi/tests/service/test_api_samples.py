@@ -351,6 +351,15 @@ def test_each_operation_has_a_sample_from_a_run(world):
     refused = rec.call("policies_rejections", "GET", "/api/v1/policies/rejections?since=7d", ola)
     assert refused.status_code == 200 and refused.json()["items"], refused.text
 
+    # ---- capacity (#302): the managed quotas of the namespaces above against CRC's simulated size, with the allocatable of
+    # one node as measured on CRC beside it
+    from test_capacity_ledger_302 import node
+    kube.objects[("Node", "", "crc")] = node("crc", cpu="7800m", memory="20013044Ki")
+    ctx.registry.cache("CRC")._list("ResourceQuota")
+    ctx.registry.clusters["CRC"].nodes.sync()
+    capacity = rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola)
+    assert capacity.status_code == 200 and capacity.json()["clusters"][0]["state"] == "ok", capacity.text
+
     data ={"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items()))}
     spec = client.get("/openapi.json").json()
     wanted = {op["operationId"] for ops in spec["paths"].values() for op in ops.values()}

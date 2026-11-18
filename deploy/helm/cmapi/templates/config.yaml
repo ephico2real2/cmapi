@@ -59,6 +59,9 @@ data:
     snapshotInterval: {{ .Values.capacity.snapshotInterval }}
     overcommit: {{ toJson .Values.capacity.overcommit }}
     targets: {{ toJson .Values.capacity.targets }}
+{{- with .Values.capacity.countTaints }}
+    countTaints: {{ toJson . }}
+{{- end }}
 {{- range $name := list "approval-rules.yaml" "authz-roles.yaml" "tiers.yaml" "expiration.yaml" "metadata-keys.yaml" }}
   {{ $name }}: |
 {{- $override := index $.Values.configFiles $name }}

@@ -161,6 +161,9 @@ capacity:
   targets:
     rnd: {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
     dev: {commitment: {warn: 0.85, critical: 0.95}, utilisation: {warn: 0.75, critical: 0.90}}
+  # Taint keys whose NoSchedule and NoExecute nodes still count toward allocatable on the Capacity tab (docs/18, #302).
+  # Empty: a node counts when it is Ready, not cordoned and has no such taint. Rendered into capacity.yaml only when set.
+  countTaints: []
 
 notifier:
   smtp: {}                         # host, port, from, starttls; empty: the email channel is off

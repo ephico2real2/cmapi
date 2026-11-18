@@ -1,0 +1,10 @@
+ok - 23 Capacity: the group cards and the Clusters table of GET /api/v1/capacity cell by cell; unknown is —, never 0 or a bar; over 100 % fills the bar and says its figure; the footnote from the API's targets
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 24 Capacity states: loading, empty, a 403 with no action, a 5xx with Try again, no tab without capacity:read, and a read again on focus that the browser's cache answers with the API's 304
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 6 the Capacity tab says what the mockup says, and adds only what is listed
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 7 the Capacity tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+ok - portal on the API: 1 checks, chromium 157.0.8103.79
+ok - 5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator, and the approval relay with no capacity:read
+ok - portal on the API: 1 checks, chromium 157.0.8103.79

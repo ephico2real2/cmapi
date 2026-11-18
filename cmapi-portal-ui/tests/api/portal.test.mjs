@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { COMPANY_KEYS, expirationsFrom, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
   startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -32,13 +32,13 @@ let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
 async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
-  expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3) } = {}) {
+  expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3), capacity = capacityFleet() } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0 });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -341,7 +341,7 @@ try {
     await context.close();
   });
 
-  await check("5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator", async () => {
+  await check("5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator, and the approval relay with no capacity:read", async () => {
     // The stand-in's access token is an opaque string, so the browser cannot read a role from it.
     const base = ["Workflow", "Quotas", "Expiration", "Requests", "Policies", "Capacity"];
     const want = {
@@ -349,7 +349,9 @@ try {
       approver: ["Workflow", "Quotas", "Expiration", "Requests", "Approvals", "Policies", "Capacity"],
       requester: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity"],
       // KPIs is operator and above: reports:read (docs/14).
-      operator: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity", "KPIs"]
+      operator: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity", "KPIs"],
+      // requests:read and approvals:relay only (docs/14): no capacity:read, so no Capacity tab (#302).
+      relay: ["Workflow", "Requests"]
     };
     for (const [user, tabs] of Object.entries(want)) {
       const { context, page, errors } = await fresh({ user });
@@ -3054,6 +3056,244 @@ try {
           assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
           assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
           await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
+  });
+
+  // Portal slice 4, the Capacity part (#302). The fleet is CRC as the arbitration says it must show, a second dev cluster, and a
+  // cluster in each other state of the API. Each expectation is written from the mockup's forms (CAPACITY, the capacity view of
+  // renderVals) and the API's contract, not from the page's code.
+  const GIB = 2 ** 30;
+  const tenth = (x) => String(Math.round(x * 10) / 10);
+  const coresOf = (m) => `${tenth(m / 1000)} ${tenth(m / 1000) === "1" ? "core" : "cores"}`;
+  const giOf = (b) => `${tenth(b / GIB)} Gi`;
+  const amountOf = (r, v) => (r === "cpu" ? coresOf(v) : giOf(v));
+  const roomOf = (r, v) => (v === null ? "—" : v < 0 ? `over by ${amountOf(r, -v)}` : amountOf(r, v));
+  const pctOf = (x) => `${Math.round(x * 100)}%`;
+  const hhmm = (iso) => iso.slice(11, 16);
+  const boundOf = (b) => (b === null ? "—" : b === "both" ? "cpu and memory" : b);
+  const CAP_WORD = { ok: (c) => (c.status === "ok" ? "ok" : `${c.status} · ${c.boundBy}`), loading: () => "loading", unreachable: (c) => `unreachable since ${hhmm(c.asOf)}`,
+    forbidden: () => "no access to the quotas", "no-size": () => "no size", stale: (c) => `stale since ${hhmm(c.asOf)}` };
+  const CAP_TONE = { ok: "success", warn: "warning", critical: "danger", over: "danger" };
+  const sizeOf = (r, f, basis) => {
+    const simulated = f.simulated === null ? null : `simulated ${amountOf(r, f.simulated)}`, nodes = f.allocatable === null ? null : `nodes ${amountOf(r, f.allocatable)}`;
+    return (basis === "allocatable" ? [nodes, simulated] : [simulated, nodes]).filter(Boolean).join(" · ");
+  };
+  const meterOf = (r, f, basis) => [f.commitment === null ? "—" : pctOf(f.commitment), sizeOf(r, f, basis)].filter(Boolean).join(" ");
+  const expectedCap = (c) => [c.clusterId, c.env, c.zones?.length ? c.zones.join(" · ") : "—", meterOf("cpu", c.cpu, c.basis), meterOf("memory", c.memory, c.basis),
+    c.cpu.headroom === null && c.memory.headroom === null ? "—" : `${roomOf("cpu", c.cpu.headroom)} · ${roomOf("memory", c.memory.headroom)}`,
+    boundOf(c.boundBy), c.asOf ? hhmm(c.asOf) : "—", CAP_WORD[c.state](c)];
+  const LEFT_OUT = { stale: (e) => `stale since ${hhmm(e.asOf)}`, forbidden: () => "no access to the quotas", "no-size": () => "no size" };
+  const expectedGroup = (g) => {
+    const coverage = Number.isInteger(g.coverage * 10) ? g.coverage.toFixed(1) : g.coverage.toFixed(2);
+    const left = g.excluded.map((e) => (e.reason === "not-writable" ? `${e.clusterId} placement off` : `${e.clusterId} left out: ${(LEFT_OUT[e.reason] ?? (() => e.reason))(e)}`));
+    const status = g.status === null ? "—" : g.status === "ok" ? "ok" : `${g.status} · ${g.statusCounts[g.status]} of ${g.included}`;
+    const stat = (r) => (g[r] ? [pctOf(g[r].commitment), `quota headroom ${amountOf(r, g[r].headroom)}`] : ["—", "quota headroom —"]);
+    const largest = g.cpu ? [`${coresOf(g.cpu.largestPlacement.value)} · ${giOf(g.memory.largestPlacement.value)}`, g.cpu.largestPlacement.clusterId === g.memory.largestPlacement.clusterId
+      ? `on ${g.cpu.largestPlacement.clusterId}` : `cpu on ${g.cpu.largestPlacement.clusterId} · memory on ${g.memory.largestPlacement.clusterId}`] : ["—", ""];
+    const why = g.cpu ? (g.boundBy === "memory" ? `memory ${pctOf(g.memory.commitment)} vs cpu ${pctOf(g.cpu.commitment)} committed` : `cpu ${pctOf(g.cpu.commitment)} vs memory ${pctOf(g.memory.commitment)} committed`) : "";
+    return { name: g.name, status, meta: [`${g.included} of ${g.matching} cluster${g.matching === 1 ? "" : "s"}`, `coverage ${coverage}`, ...left].join(" · "),
+      stats: [["CPU commitment", ...stat("cpu")], ["Memory commitment", ...stat("memory")], ["Largest placement", ...largest], ["Bound by", boundOf(g.boundBy), why]] };
+  };
+  const capCalls = () => calls("/api/v1/capacity");
+  const openCap = async (page, hash = "#capacity") => {
+    await open(page, hash);
+    await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+  };
+  const capCard = (page, title) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+  /** Each group card as the page shows it: its name, the pill, the meta line and the four stats, each [term, value, note]. */
+  const groupCards = (page) => panel(page).locator(".pf-v6-l-gallery > .pf-v6-c-card").evaluateAll((cards) => cards.map((card) => {
+    const text = (el) => (el?.innerText ?? "").replace(/\s+/g, " ").trim();
+    return { name: text(card.querySelector(".pf-v6-c-card__title")), status: text(card.querySelector(".pf-v6-c-label")),
+      meta: text(card.querySelector(".pf-v6-c-card__body small")),
+      stats: [...card.querySelectorAll(".pf-v6-c-description-list__group")].map((g) => [text(g.querySelector("dt")), text(g.querySelector("dd b")), text(g.querySelector("dd small"))]) };
+  }));
+  /** Each cluster's two meters: null when it draws none, else what a screen reader gets and the bar's tone. */
+  const meters = (page) => page.locator("table[aria-label=Clusters] tbody tr").evaluateAll((trs) => trs.map((tr) => [3, 4].map((i) => {
+    const bar = tr.children[i].querySelector("[role=progressbar]");
+    if (!bar) return null;
+    return { now: bar.getAttribute("aria-valuenow"), text: bar.getAttribute("aria-valuetext"), tone: bar.closest(".pf-v6-c-progress").className.match(/pf-m-(danger|warning)/)?.[1] ?? "" };
+  })));
+  const expectedMeters = (c) => ["cpu", "memory"].map((r) => (c[r].commitment === null ? null
+    : { now: String(Math.min(100, Math.round(c[r].commitment * 100))), text: pctOf(c[r].commitment), tone: { ok: "", warn: "warning", critical: "danger", over: "danger" }[c[r].status] }));
+  const capFoot = (page) => `${page.targets.map((t) => `${t.env}: overcommit cpu ${t.overcommit.cpu.toFixed(2).replace(/0$/, "")}, memory ${t.overcommit.memory.toFixed(2).replace(/0$/, "")}${t.overcommitDefault ? " (not in capacity.yaml)" : ""}; commitment warns at ${Math.round(t.commitment.warn * 100)}%, critical at ${Math.round(t.commitment.critical * 100)}%`).join(" · ")}. Each resource is judged on its own; a cluster takes the worse status. Memory cannot be throttled, so its overcommit stays tighter.`;
+
+  await check("23 Capacity: the group cards and the Clusters table of GET /api/v1/capacity cell by cell; unknown is —, never 0 or a bar; over 100 % fills the bar and says its figure; the footnote from the API's targets", async () => {
+    const fleet = capacityFleet();
+    const { context, page, errors } = await fresh({ capacity: fleet });
+    await openCap(page);
+    assert.deepEqual(await tableRows(page, "Clusters"), fleet.clusters.map(expectedCap));
+    assert.deepEqual(await meters(page), fleet.clusters.map(expectedMeters), "a null draws no meter (no aria-valuenow); over 100 % is a full danger bar with its own figure");
+    const tones = await page.locator("table[aria-label=Clusters] tbody tr").evaluateAll((trs) => trs.map((tr) => tr.lastElementChild.querySelector(".pf-v6-c-label").className.match(/pf-m-(success|warning|danger|info)/)?.[1] ?? "grey"));
+    assert.deepEqual(tones, fleet.clusters.map((c) => (c.state === "ok" ? CAP_TONE[c.status] : { loading: "info", "no-size": "info", stale: "danger", unreachable: "danger", forbidden: "danger" }[c.state])));
+    // CRC as the arbitration says: 56 % of 128 cores and 45 % of 320 Gi against its simulated size, the nodes' 7.8 cores and 19.1 Gi beside them.
+    assert.deepEqual((await tableRows(page, "Clusters"))[0].slice(2, 6), ["—", "56% simulated 64 cores · nodes 7.8 cores", "45% simulated 256 Gi · nodes 19.1 Gi", "56 cores · 176 Gi"]);
+    assert.deepEqual(await groupCards(page), fleet.groups.map(expectedGroup));
+    const dev = fleet.groups.find((g) => g.name === "us-central · dev");
+    assert.deepEqual(expectedGroup(dev).stats[2], ["Largest placement", "56 cores · 380 Gi", "cpu on CRC · memory on OCP_GF15"], "each resource's own cluster");
+    await panel(page).getByText(capFoot(fleet), { exact: true }).waitFor();
+    assert.match(capFoot(fleet), /^dev: overcommit cpu 2\.0, memory 1\.25; .* · rnd: overcommit cpu 1\.5, memory 1\.1;/, "the API's targets, not the mockup's constants");
+    for (const c of fleet.clusters.filter((x) => x.stateDetail)) await panel(page).getByText(`${c.clusterId}: ${c.stateDetail}.`, { exact: true }).waitFor();
+    await panel(page).getByText("OCP_GF14: writes are off in clusters.yaml, so it takes no placement and is left out of its group.", { exact: true }).waitFor();
+    await panel(page).getByText("2 clusters of environments where your roles do not read capacity are not shown.", { exact: true }).waitFor();
+    await panel(page).getByText(`OCP_GF14 nodes: ${fleet.clusters.find((c) => c.clusterId === "OCP_GF14").nodesDetail}.`, { exact: true }).waitFor();
+    const text = await panel(page).innerText();
+    assert.doesNotMatch(text, /\b0%|\d G\b|\bGB\b/, "no 0 % for what is not known, and memory in Gi only");
+    assert.deepEqual(capCalls().map((c) => c.query), [{}], "one call, with the API's default groupBy");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("24 Capacity states: loading, empty, a 403 with no action, a 5xx with Try again, no tab without capacity:read, and a read again on focus that the browser's cache answers with the API's 304", async () => {
+    {
+      const { context, page, errors } = await fresh();
+      api.state.delayMs = 400;
+      await page.goto(`${portal.page}#capacity`);
+      await page.getByRole("status").filter({ hasText: "Loading capacity…" }).waitFor();
+      await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+      api.state.delayMs = 0;
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh({ mode: "empty" });
+      await open(page, "#capacity");
+      await panel(page).getByText("No cluster of your environments is known to this instance.").waitFor();
+      assert.equal(await panel(page).locator(".pf-v6-l-gallery").count(), 0, "no group card with no cluster");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [403];
+      api.state.answers.push({ route: "GET /api/v1/capacity", status: 403, body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Missing permission capacity:read: no role in your token grants it (roles: ['cmapi-none'])" } });
+      await open(page, "#capacity");
+      await panel(page).getByRole("heading", { name: "You do not have permission to see capacity." }).waitFor();
+      assert.match(await panel(page).innerText(), /Missing permission capacity:read/);
+      assert.equal(await panel(page).getByRole("button", { name: "Try again" }).count(), 0, "a 403 offers no action");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await fresh();
+      expectedStatus = [500];
+      api.state.answers.push({ route: "GET /api/v1/capacity", status: 500, body: { type: "https://cmapi.ephico2real.com/problems/internal-error", title: "internal-error", status: 500, code: "internal-error", detail: "The watch cache did not answer." } });
+      await open(page, "#capacity");
+      const alert = panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Capacity did not load." });
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /The watch cache did not answer\./);
+      await alert.getByRole("button", { name: "Try again" }).click();
+      await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // The approval relay holds requests:read only: no Capacity tab, and its address shows the first tab it has.
+      const { context, page, errors } = await fresh({ user: "relay" });
+      await open(page, "#capacity");
+      assert.deepEqual(await tabNames(page), ["Workflow", "Requests"]);
+      assert.equal(await page.getByRole("tab", { selected: true }).innerText(), "Workflow");
+      assert.equal(capCalls().length, 0, "no call that the person may not make");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // Read again on focus: the browser's cache sends If-None-Match with the API's strong ETag, the API answers 304, and the page
+      // keeps its figures. A change on the API is a new tag and new figures.
+      const fleet = capacityFleet();
+      const { context, page, errors } = await fresh({ capacity: fleet });
+      await openCap(page);
+      const focus = () => page.evaluate(() => { window.dispatchEvent(new Event("visibilitychange")); window.dispatchEvent(new Event("focus")); });
+      await focus();
+      await page.waitForFunction(() => true);
+      await new Promise((resolve) => { const t = setInterval(() => { if (capCalls().length >= 2) { clearInterval(t); resolve(); } }, 50); setTimeout(() => { clearInterval(t); resolve(); }, 5000); });
+      const [first, second] = capCalls();
+      assert.ok(second, `a read on focus: the calls were ${JSON.stringify(capCalls())}`);
+      assert.equal(first.ifNoneMatch, null);
+      assert.match(second.ifNoneMatch ?? "", /^"[0-9a-f]{32}"$/, "the browser revalidates with the API's tag");
+      assert.equal(api.state.notModified, 1, "the API answered 304");
+      assert.deepEqual(await tableRows(page, "Clusters"), fleet.clusters.map(expectedCap), "a 304 keeps the figures");
+      api.state.capacity = { ...fleet, clusters: fleet.clusters.map((c) => (c.clusterId === "CRC" ? { ...c, state: "stale", stateDetail: "the ResourceQuota watch is stale: no good read for over 1800s" } : c)) };
+      await focus();
+      await panel(page).getByText("stale since 09:14", { exact: true }).waitFor();
+      assert.equal(api.state.notModified, 1, "a changed answer is a 200");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("6 the Capacity tab says what the mockup says, and adds only what is listed", async () => {
+    const fleet = capacityFleet();
+    const { context, page, errors } = await fresh({ capacity: fleet });
+    await openCap(page);
+    assert.deepEqual(await panel(page).getByRole("heading", { level: 1 }).allInnerTexts(), ["Capacity"], "the mockup's heading");
+    const shown = await shownText(page);
+    await context.close();
+    // The mockup's lede and pill speak of snapshots, which are not built (#21): the page says where its figures come from.
+    const MOCKUP_ONLY = ["Cluster capacity from the latest complete snapshots, grouped by clusters.yaml metadata. CPU and memory are measured, committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
+      "snapshot 17:00 · every 30 min", "Snapshot"];
+    const fromMockup = mockupBlock("isCapacity", "isKpis").filter((t) => !MOCKUP_ONLY.includes(t));
+    const data = fleet.clusters.flatMap((c) => [c.clusterId, c.env, ...(c.zones ?? []), c.stateDetail && `${c.clusterId}: ${c.stateDetail}.`, c.nodesDetail && `${c.clusterId} nodes: ${c.nodesDetail}.`])
+      .concat(fleet.groups.map((g) => g.name)).filter(Boolean);
+    // The mockup's logic builds these (the capacity view of renderVals and CAPACITY).
+    const FROM_LOGIC = [/^\d+%$/, /^—$/, "ok", "cpu", "memory", "cpu and memory", /^(warn|critical) · (cpu|memory|both)$/, /^\d+(\.\d)? cores? · \d+(\.\d)? Gi$/, /^\d{2}:\d{2}$/,
+      /^(ok|warn|critical|over)( · \d+ of \d+)?$/, /^quota headroom \d+(\.\d)? (cores?|Gi)$/, /^on [A-Z0-9_]+$/, /^(cpu|memory) \d+% vs (cpu|memory) \d+% committed$/,
+      /^\d+ of \d+ clusters?( · .*)?$/, /^[a-z]+ overcommit: CPU [\d.]+, memory [\d.]+\.( Sized by .*)?$/, capFoot(fleet)];
+    // The portal's own words, each in MOCKUP-CONTRACT.md.
+    const ADDED = ["As of", "live from the watch · no snapshots yet",
+      "Cluster capacity from each cluster's watch of its quotas and nodes, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
+      /^(simulated|nodes) \d+(\.\d)? (cores?|Gi)( · (simulated|nodes) \d+(\.\d)? (cores?|Gi))?$/, /^over by \d+(\.\d)? (cores?|Gi) · over by \d+(\.\d)? (cores?|Gi)$/, /^(over by )?\d+(\.\d)? cores? · (over by )?\d+(\.\d)? Gi$/,
+      /^over · (cpu|memory|both)$/, /^(stale|unreachable) since \d{2}:\d{2}$/, "loading", "no access to the quotas", "no size", "quota headroom —", /^cpu on [A-Z0-9_]+ · memory on [A-Z0-9_]+$/,
+      "OCP_GF14: writes are off in clusters.yaml, so it takes no placement and is left out of its group.",
+      /^\d+ clusters? of environments where your roles do not read capacity (is|are) not shown\.$/,
+      /^Committed is the hard requests of the ResourceQuotas that cmapi manages on the nonprod instance, per namespace its smallest unscoped one, against the size × overcommit\. Pods of other namespaces are not subtracted\. Not measured until the capacity snapshots: requested, usedAvg, usedPeak, history\.$/,
+      "Clusters", "nonprod", "dev", "rnd", "us-central", "eu-west",
+      // Each meter's accessible name: the demo tab's, from the mockup's column headings.
+      /^[A-Z][A-Z0-9_]+ (CPU|memory) commitment$/];
+    const strings = [...data, ...FROM_LOGIC, ...ADDED].filter((k) => typeof k === "string");
+    const patterns = [...FROM_LOGIC, ...ADDED].filter((k) => k instanceof RegExp);
+    const counted = compare("Capacity", fromMockup, shown, [...strings, ...LIBRARY], patterns);
+    console.log(`  strings of the mockup compared on the Capacity tab: ${counted}`);
+    assert.deepEqual(errors, []);
+  });
+
+  await check("7 the Capacity tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+    // The fleet of every state, and CRC alone: what the arbitration says CRC must show.
+    const crcOnly = () => {
+      const fleet = capacityFleet(), clusters = fleet.clusters.filter((c) => c.clusterId === "CRC");
+      return { ...fleet, targets: fleet.targets.filter((t) => t.env === "dev"), clusters, groups: capacityGroups(clusters) };
+    };
+    const VIEWS = [["capacity", capacityFleet], ["capacity-crc", crcOnly]];
+    let scans = 0;
+    for (const [view, fleetOf] of VIEWS) {
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await fresh({ width, capacity: fleetOf() });
+        await openCap(page);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
+          // The page scrolls an inner container, not the document: the viewport grows to the tallest scroller for the picture, then
+          // goes back.
+          const tall = await page.evaluate(() => Math.max(...[...document.querySelectorAll("html, body, .pf-v6-c-page, .pf-v6-c-page *")].map((el) => el.scrollHeight)));
+          await page.setViewportSize({ width, height: Math.max(1000, tall + 140) });
+          await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          await page.setViewportSize({ width, height: 1000 });
           if (width !== 820) {
             const scan = await new AxeBuilder({ page }).analyze();
             scans++;

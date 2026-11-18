@@ -340,6 +340,32 @@ stale with mode enforce; the keyset cursor bound to `clusterId`, `policy` and `r
 service side ran against a real cluster: `docs/reviews/2026-11-17-issue-302-policies/evidence/kind/` (kind, Kyverno
 v1.20.0 in audit, the reader of `deploy/manifests/environments/crc/reader/`).
 
+## The portal on the API: Capacity (#302)
+
+Measured on 2026-11-18 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The
+stand-in now serves `GET /api/v1/capacity`: the recorded answer, and a fleet built from it (CRC as the arbitration says it
+must show, 72 of 128 cores and 144 of 320 Gi against its simulated size with the node's 7.8 cores and 19.1 Gi beside them; a
+second dev cluster; and one cluster in each other state: warn, over 100 %, stale, unreachable, loading, no access to the
+quotas, no size, and read-only with its nodes forbidden). Its groups follow the API's rules (a fixture, `capacityGroups`). It
+answers with a strong ETag and `private, no-cache`, and 304 to an `If-None-Match` that matches. Stage: built-mocked. It does
+not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| Everything | `npm test` | exit 0 in Chromium 156.0.8078.4: the portal suite 73 checks (4 new), then the behaviour and parity suites: 98 states, 15,938 strings, 0 with a missing string (`docs/reviews/2026-11-18-issue-302-capacity/evidence/portal-npm-test.log`) |
+| The installed Chrome | `CHECK=<name> PW_CHANNEL=chrome node tests/api/portal.test.mjs` for checks 23, 24, 6, 7 and 5 | all 5 pass in Chrome 157.0.8103.79 (`evidence/portal-chrome.log`) |
+| The groups and the clusters, cell by cell | check "23 Capacity" | the 10 clusters' 9 cells, "—" and no meter for each unknown commitment (no `aria-valuenow`), a full danger bar with "615%" for the cluster over 100 %, "over by 742.2 cores", each status's tone; the 3 group cards (pill, meta line with the coverage and each cluster left out, the four stats, "cpu on CRC · memory on OCP_GF15"); the footnote from the API's `targets` (rnd's 1.5 and 1.1, not the mockup's constants); one call, with the API's default `groupBy` |
+| States | check "24 Capacity" | loading, empty, a 403 with no action, a 5xx and Try again; the approval relay (no `capacity:read`) has no Capacity tab and makes no call; a read again on focus goes out with `If-None-Match` from the browser's own cache, the API answers 304 and the figures stay; a changed answer is a 200 and shows "stale since 09:14" |
+| Tabs by permission | check "5 a role sees the tabs" | the four roles as before, and the approval relay: Workflow and Requests only |
+| Parity both ways | check "6 the Capacity tab" | 12 strings of the mockup's block found; nothing shown that is not listed in MOCKUP-CONTRACT.md. The mockup's lede, its pill and its "Snapshot" heading are the strings listed as mockup only (no snapshot exists) |
+| Layout at 390, 820, 1440 px, both themes | check "7 the Capacity tab" | 12 views (the fleet, and CRC alone), no sideways scroll, no placeholder. Each screenshot is the full height of the tab: `docs/reviews/2026-11-18-issue-302-capacity/screenshots/` |
+| axe at 390 and 1440 px, both themes | the same check | 8 scans, no serious or critical finding |
+| Mutants | `node tests/api/mutants.mjs "302 Capacity"` | 18 new mutants, 18 killed (`docs/reviews/2026-11-18-issue-302-capacity/evidence/portal-mutants.log`) |
+| New checks fail on main | each Capacity check and check 5 with `CHECK=`, on a build of main e48dbb4 with this branch's tests, stand-in and samples | all 5 fail: the tab says "This tab is not on the API yet.", so no Clusters table appears within the 8 s wait, and the approval relay still sees a Capacity tab (`evidence/portal-before.log`) |
+
+**Not proven here:** the tab against the real service and Keycloak, and the walk on CRC (the coordinator deploys). The service
+side ran against fake clusters only (`tests/service/test_capacity_302.py`), not against kind or CRC.
+
 ## What testing found
 
 | Found by | Problem | Fix |

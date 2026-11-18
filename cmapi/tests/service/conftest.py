@@ -452,6 +452,7 @@ def build_world(config_dir: Path, keys: Keys, monkeypatch):
     ctx.registry.refresh()
     assert ctx.registry.clusters["CRC"].status == "connected", ctx.registry.clusters["CRC"].findings
     ctx.registry.cache("CRC").wait_ready(5)
+    ctx.registry.clusters["CRC"].nodes.wait_ready(5)      # #302: the node watch's first list, so no test races it
     ctx.deliverer_factory = lambda cid: kube
     ctx.auth = Authenticator(ISSUER, AUDIENCE, Jwks(ISSUER, "https://keycloak.test/certs", fetch=lambda url: [keys.jwk]))
     app = create_app(s, ctx)
