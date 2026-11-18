@@ -16,11 +16,14 @@ MANIFESTS = os.path.join(ROOT, "deploy/manifests")
 STUB = r'''#!/usr/bin/env bash
 key="$(basename "$0") $*"
 case "$key" in "crc-guard.py watch "*) [ -z "${STUB_WATCH_DELAY:-}" ] || /bin/sleep "$STUB_WATCH_DELAY";; esac
+# The proof is given the run's start in its environment (#425), which the call's key does not show.
+case "$key" in "crc-proof.sh "*) printf '%s\n' "${CMAPI_PROOF_SINCE-unset}" >>"$CALLS.since";; esac
 printf '%s\n' "$key" >>"$CALLS"
 [ "$key" != "$FAIL" ] || exit 7
 case "$key" in
   "crc-guard.py gate "*) [ ! -e "$2" ]; exit;;
   "crc-guard.py issuer") exit "$STUB_ISSUER";;
+  "crc-guard.py preflight "*) printf '%s\n' "$PREFLIGHT";;
   "git status"*) printf '%s' "${STUB_DIRTY:-}";;
   "oc get sa "*) echo x;;
   "oc get secret cmapi-git-bot "*) echo present;;
@@ -28,6 +31,10 @@ case "$key" in
 esac
 exit 0
 '''
+
+
+RUN_START = "2026-11-18T16:34:15Z"
+PREFLIGHT = RUN_START + " request headroom 3250 Mi, this step needs 768 Mi, leaving 2482 Mi; the stop line is 2048 Mi\nnote    : namespace cmapi-system exists: it is cmapi's only if an earlier step of this run made it"
 
 
 def run_to_the_end(cmd, timeout=120, **kwargs):
@@ -63,12 +70,16 @@ def run_blocks(doc, steps, only=None, watch_delay="", failing=""):
             os.chmod(n, os.stat(n).st_mode | stat.S_IXUSR)
         run_dir = os.path.join(work, "deploy", "rendered", "wave1-run"); os.makedirs(run_dir)
         stop = os.path.join(run_dir, "stop"); calls = os.path.join(work, "calls"); calls_next = calls + ".next"; script = os.path.join(work, "script")
+        # Step 2's record, as crc-guard.py preflight prints it: its first time is the run's start, which step 23 gives the proof (#425).
+        # Written here too, so that a step run alone finds what step 2 leaves.
+        with open(os.path.join(run_dir, "preflight.txt"), "w") as f:
+            f.write(PREFLIGHT + "\n")
         # What the issuer must answer for each step to pass, and what it must stop on.
         passes = {4: 10, 15: 10, 18: 0}
         wrong = {4: (0, 20), 15: (0, 20), 18: (10, 20)}
 
         def go(n, fail="", last="watch ended rc=0", then_next=True, **env):
-            for f in (stop, calls, calls_next):
+            for f in (stop, calls, calls_next, calls + ".since"):
                 if os.path.exists(f): os.unlink(f)
             with open(os.path.join(run_dir, "watch.log"), "w") as f:
                 f.write(last + "\n")
@@ -77,8 +88,9 @@ def run_blocks(doc, steps, only=None, watch_delay="", failing=""):
             with open(script, "w") as f:
                 f.write(prelude + "\n" + 'echo prelude >>"$CALLS"\n' + steps[n] + 'echo SURVIVED; export CALLS="$CALLS.next"\n' + (steps.get(n + 1, "") if then_next else "") + "echo SURVIVED_NEXT\n")
             r = run_to_the_end([os.environ.get("DOC13_BASH", "bash"), script], cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                               env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "CALLS": calls, "FAIL": fail, "STUB_WATCH_DELAY": watch_delay, "STUB_ISSUER": str(env.pop("issuer", passes.get(n, 10))), **env})
+                               env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "CALLS": calls, "FAIL": fail, "STUB_WATCH_DELAY": watch_delay, "STUB_ISSUER": str(env.pop("issuer", passes.get(n, 10))), "PREFLIGHT": PREFLIGHT, **env})
             log = open(calls).read().splitlines() if os.path.exists(calls) else []
+            go.since = open(calls + ".since").read().splitlines() if os.path.exists(calls + ".since") else []
             at = log.index("prelude") if "prelude" in log else 0
             after = open(calls_next).read().splitlines() if os.path.exists(calls_next) else []
             return r, log[at + 1:], after, os.path.exists(stop)
@@ -117,6 +129,16 @@ def run_blocks(doc, steps, only=None, watch_delay="", failing=""):
             if n == 3:
                 r2, sc, after2, st = go(n, STUB_LISTED="namespace/cmapi-system")
                 stopped_right("something listed", n, r2, sc, after2, st)
+            if n == 23:
+                # The proof was given step 2's first time, and nothing else (#425). With no record of step 2, the step stops.
+                if go.since != [RUN_START]:
+                    out.append(f"step 23 gives the proof CMAPI_PROOF_SINCE {go.since}, not step 2's first time {RUN_START}")
+                os.unlink(os.path.join(run_dir, "preflight.txt"))
+                r2, sc, after2, st = go(n)
+                stopped_right("no preflight.txt from step 2", n, r2, sc, after2, st)
+                if any(c.startswith("crc-proof.sh ") for c in sc): out.append("step 23 ran the proof with no record of the run's start")
+                with open(os.path.join(run_dir, "preflight.txt"), "w") as f:
+                    f.write(PREFLIGHT + "\n")
             if n == 24:
                 r2, sc, after2, st = go(n, last="watch ended rc=3")
                 stopped_right("a watch that ended rc=3", n, r2, sc, after2, st)
@@ -327,6 +349,10 @@ MUTANTS = {
     "a stale done file ends the new watch": ('  rm -f "$RUN/watch.log.done"\n', ""),
     "the issuer of another host": ("--issuer https://keycloak.apps-crc.testing/realms/cmapi", "--issuer https://keycloak.example/realms/cmapi"),
     "the CRC proof said to record a request it does not make": ("`GET /apis/wgpolicyk8s.io/v1alpha2`", "`GET /apis/wgpolicyk8s.io/v1beta1`"),
+    "the proof not given the run's start": ('  CMAPI_PROOF_SINCE=$since deploy/crc-proof.sh "$R"', '  deploy/crc-proof.sh "$R"'),
+    "the run's start read from the snapshot of step 12": ("since=$(head -1 \"$RUN/preflight.txt\" | cut -d' ' -f1)", 'since=$(date -u -r "$RUN/s0.json" +%Y-%m-%dT%H:%M:%SZ)'),
+    "the run's start read from the last line of step 2": ('since=$(head -1 "$RUN/preflight.txt"', 'since=$(tail -1 "$RUN/preflight.txt"'),
+    "a lost record of the run's start excused": ("since=$(head -1 \"$RUN/preflight.txt\" | cut -d' ' -f1)", "since=$(head -1 \"$RUN/preflight.txt\" 2>/dev/null | cut -d' ' -f1 || true)"),
     "a dirty checkout is only printed": ('  [ -z "$(git status --porcelain)" ]\n', '  git status --porcelain\n'),
 }
 
