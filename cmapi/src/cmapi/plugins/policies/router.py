@@ -21,6 +21,7 @@ from typing import Annotated, Any, Mapping
 from fastapi import Depends, Query
 
 from cmapi import __version__
+from cmapi.core.clients.kube import WatchCache
 from cmapi.core.clients.policyreports import LISTED, VERDICTS, Snapshot
 from cmapi.core.context import AppContext
 from cmapi.core.docs import DocumentedRouter
@@ -61,10 +62,8 @@ Outcome = Annotated[str | None, Query(examples=["refused"], description="Only `r
 
 # --------------------------------------------------------------------------- results
 
-def _managed(st: ClusterState) -> set[str]:
-    if st.cache is None:
-        return set()
-    return {ns["metadata"]["name"] for ns in st.cache.all("Namespace")
+def _managed(cache: WatchCache) -> set[str]:
+    return {ns["metadata"]["name"] for ns in cache.all("Namespace")
             if (ns["metadata"].get("labels") or {}).get("cmapi.net/managed") == "true"}
 
 
@@ -113,9 +112,12 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         return unknown("mode-off", f"the mode of {env} is off: no policy is rendered for it and no report is read")
     if st.status != "connected":
         return unknown("unreachable", f"the cluster is {st.status}: {'; '.join(st.findings)}"[:300], st.checked_at)
-    if st.reports is None:
+    # Each cache once: the registry clears or replaces them (`_stop_caches`, `_set`) while this view is built, and a second
+    # read would be None, a 500, or another cache than the one checked (#402).
+    reports, cache = st.reports, st.cache
+    if reports is None:
         return unknown("loading", "the report cache has not started")
-    snap = st.reports.snapshot()
+    snap = reports.snapshot()
     if snap.installed is None:
         return unknown("loading", snap.probe_error or "discovery has not answered yet")
     if snap.installed is False:
@@ -125,12 +127,12 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         return unknown("forbidden", f"cmapi-reader may not list {kinds}: the reader's ClusterRole needs get, list and watch on them")
     if not snap.listed:
         return unknown("loading", "the reports are being listed")
-    if st.cache is None or st.cache.state["Namespace"].last_good is None:
+    if cache is None or cache.state["Namespace"].last_good is None:
         # Which namespaces cmapi manages is not known yet: every result would read as unmanaged.
         return unknown("loading", "the namespaces are being listed")
 
     bundle = c.bundle.for_environment(env) if c.bundle else {}
-    managed, live = _managed(st), snap.policies
+    managed, live = _managed(cache), snap.policies
     counts, hidden = _empty(), {"unmanaged": 0, "otherPolicies": 0, "stale": 0}
     # A policy of the bundle that runs on this cluster has known counts here, zero until a result says otherwise; one that
     # is not on the cluster has none, so the caller never reads a zero for it from this cluster.
