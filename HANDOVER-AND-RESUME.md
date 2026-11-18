@@ -1,10 +1,51 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-17. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-18. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-17
+## Resume here: 2026-11-18
+
+Start the next session as section 1 of the 2026-11-16 state says, then read this section, then "State on 2026-11-17"
+below it for the #328 program and the owner's decisions of that day. Sections 4, 6 to 10 of 2026-11-16 still hold.
+
+### Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `6565d9d` (PR #384). CI green on its head 39aa002 (one re-run of `portal-ui` for the known flake #347) |
+| CRC | Runs `6565d9d` (OB1 run 21, `workbench/cmapi/ob1-run21/`): `crc-proof.sh` all passed (24 lines); alembic 0006; 4 pods Ready, 0 restarts; keycloak-0 0 restarts. The run stopped once at step 22 when realm `corp` missed one 3 s watch poll during the rollout (no restart, snapshot equal to s0; evidence on #157); the owner said resume |
+| Kyverno on CRC | **Installed** 2026-11-17 at the owner's request: v1.20.0 (chart 3.10.0), namespace `kyverno`, `deploy/kyverno/crc-values.yaml`, docs/13 "Kyverno" (#386). Webhooks see only `cmapi.net/managed=true` namespaces and fail open; background and cleanup controllers off. cmapi's policy bundle is **not delivered** to CRC, so the Policies tab shows CRC "off the bundle", 31 missing |
+| Portal | 8 of 9 tabs on the API: Policies added (#384). Capacity is next (#302) |
+| Agents | Implementer on #388 and #387 (two PRs) |
+
+### What was done on 2026-11-17 and 18
+
+| Issue | PR | What | Proof |
+|---|---|---|---|
+| #337 | #370 | Report-only API contract diff of a Helm values change (`cmapi-tools openapi render`, reusable workflow) | CI; review OB3 |
+| #366, #374 | #378 | Operators protect a namespace from deletion from the portal (`namespaces:protect`, `/me` operator, `protectedBy`); removing protection needs approver-platform; `do-not-delete` operator-only | CI; review OB3; CRC run 20 (req-20261117-0004 and -0005, cluster-configs PRs #15, #16; delete refused 422 `namespace-protected`) |
+| #302 (Policies) | #384 | `GET /api/v1/policies/results` and `/rejections`; the Policies tab; migration 0006 `policy_rejections` (username only, retention 90 days by default); `cmapi.net/policy-digest`; the `Policy` schema. Two designs, arbitrated (`docs/reviews/2026-11-17-issue-302-policies/`) | CI; kind with Kyverno v1.20.0 audit; review OB3 (4 findings, fixed: unknown counts null, chunked list memory 276 to 71 MiB, drift totals, an unused gauge); CRC run 21: results, a stored refusal (username only), the tab at 1440 and 390 px |
+| — | #386 | Kyverno on CRC: the values and what was measured | CRC: a no-op probe policy showed the scoped, fail-open webhook |
+| #385 | in #384 | A migration test named 0004 "a later release" | CI |
+
+**The owner's decisions:** `do-not-delete` is operator-only; the contract report runs where the Helm values live; stored
+refusals show the username only (never email, employee ID or justification); deploy, then Policies; install Kyverno on CRC.
+
+### What is next, in order
+
+1. #388 (the image's `CMAPI_KYVERNO_VERSION` is empty, so the pinned-CLI start check is off and the tab says no CLI is
+   pinned) and #387 (docs/13 claims a proof line `crc-proof.sh` lacks): PRs being built, then review, merge, deploy.
+2. **Portal slice 4, Capacity** (#302).
+3. Deliver cmapi's policy bundle to CRC through cluster-configs, so the Policies tab shows real results (not yet asked).
+4. Open defects: #347, #353, #357, #360 to #364, #372, #373, #375 to #377, #379 to #381; deferred: #382, #383; follow-up #365.
+
+### Waiting for the owner
+
+- The live Claude Docs of docs/01 and docs/02: this account cannot read them. Open the doc's "Start chat", or share edit
+  access. docs/02 still says "cmapi-operator and above" and lacks `do-not-delete`.
+
+## State on 2026-11-17 (superseded by the section above)
 
 Start the next session as section 1 of the 2026-11-16 state below says, then read this section first: it replaces that
 state's sections 2, 3 and 5. Sections 4, 6 to 10 still hold, with the changes listed here.
