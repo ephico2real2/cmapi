@@ -41,6 +41,7 @@ from cmapi.core.capacity_ledger import CapacityLedger
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError, WatchCache
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
+from cmapi.core.clients.redact import redact, secret_forms
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, log
 from cmapi.core.tiers import qty
@@ -178,13 +179,19 @@ class HubImportSource(ImportSource):
 
     def __init__(self, api_url: str, token_file: Path, ca_file: Path, namespace: str):
         self.namespace = namespace
+        token = token_file.read_text().strip()
+        self._forms = secret_forms(token)
         self.client = httpx.Client(base_url=api_url, verify=str(ca_file) if ca_file.exists() else True, timeout=10,
-                                   headers={"Authorization": f"Bearer {token_file.read_text().strip()}"})
+                                   headers={"Authorization": f"Bearer {token}"})
 
     def list(self) -> list[dict[str, Any]]:
-        r = self.client.get(f"/api/v1/namespaces/{self.namespace}/secrets",
-                            params={"labelSelector": "cmapi.net/secret-type=cluster"})
-        r.raise_for_status()
+        try:
+            r = self.client.get(f"/api/v1/namespaces/{self.namespace}/secrets",
+                                params={"labelSelector": "cmapi.net/secret-type=cluster"})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            # The hub's own token never reaches the log `imports_list_failed`, whatever the error text holds (#420).
+            raise RuntimeError(redact(f"{type(exc).__name__}: {exc}", self._forms)) from exc
         return [_secret(s) for s in r.json().get("items", [])]
 
 
@@ -375,6 +382,10 @@ class ClusterRegistry:
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
              secret: Mapping[str, Any]) -> ClusterState:
+        # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
+        # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
+        forms = secret_forms((secret.get("data") or {}).get("token"))
+        findings = [redact(f, forms) for f in findings]
         with self._lock:
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)

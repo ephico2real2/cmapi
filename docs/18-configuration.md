@@ -743,7 +743,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. Empty: cmapi signs with the fixed text `unset-link-key` (`core/channels.py`). A secret |
 | `CMAPI_IMPORTS_NAMESPACE` | `cmapi-imports` | The hub namespace that holds the cluster import Secrets. A Secret that cannot be checked is a finding on its own cluster in `GET /api/v1/clusters`; it never stops the start or the 5-minute relist of the others (`ClusterRegistry.refresh`, #419) |
 | `CMAPI_IMPORTS_DIR` | None | Reads import Secrets from YAML files in this folder, for tests |
-| `CMAPI_KUBE_TOKEN_FILE`, `CMAPI_KUBE_CA_FILE`, `CMAPI_KUBE_API_URL` | The service account files, and `https://kubernetes.default.svc` | How cmapi reads the import Secrets of the hub |
+| `CMAPI_KUBE_TOKEN_FILE`, `CMAPI_KUBE_CA_FILE`, `CMAPI_KUBE_API_URL` | The service account files, and `https://kubernetes.default.svc` | How cmapi reads the import Secrets of the hub. Neither this token nor the token of an import Secret appears in an error, a cluster finding or a log line: each is replaced with `***` before the text is cut (`core/clients/redact.py`, #420) |
 | `CMAPI_COMPONENT` | `api` | `api`, `worker` or `capacity`. The label `component` of the metrics |
 | `CMAPI_LOG_LEVEL` | `INFO` | The log level |
 | `CMAPI_BIND_PORT`, `CMAPI_METRICS_PORT` | `8080`, `9090` | The ports of the API and of the metrics |

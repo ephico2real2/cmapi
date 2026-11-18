@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 import httpx
 
+from cmapi.core.clients.redact import redact, secret_forms
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_CALLS, log
 
@@ -74,6 +75,7 @@ class KubeClient:
     def __init__(self, cluster_id: str, api_url: str, token: str, ca_file: str | None = None, *,
                  insecure: bool = False, timeout: float = 10.0):
         self.cluster_id, self.api_url = cluster_id, api_url.rstrip("/")
+        self._forms = secret_forms(token)            # what `redact` removes from every error this client builds (#420)
         verify: bool | str = False if insecure else (ca_file or True)
         self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout,
                                     headers={"Authorization": f"Bearer {token}"})
@@ -81,12 +83,19 @@ class KubeClient:
     def close(self) -> None:
         self._client.close()
 
+    def redact(self, text: str) -> str:
+        """`text` without this client's token in any form; the whole text, before anything cuts it (#420)."""
+        return redact(text, self._forms)
+
+    def _error(self, status: int, path: str, body: str) -> KubeError:
+        return KubeError(status, path, self.redact(body))
+
     def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
         try:
             r = self._client.request(method, path, **kw)
         except httpx.HTTPError as exc:
             CLUSTER_CALLS.labels(self.cluster_id, "error").inc()
-            raise ClusterUnreachable(f"{self.cluster_id}: {type(exc).__name__}: {exc}") from exc
+            raise ClusterUnreachable(self.redact(f"{self.cluster_id}: {type(exc).__name__}: {exc}")) from exc
         CLUSTER_CALLS.labels(self.cluster_id, "ok" if r.status_code < 400 else str(r.status_code)).inc()
         return r
 
@@ -117,13 +126,13 @@ class KubeClient:
         if r.status_code == 404:
             return None
         if r.status_code >= 400:
-            raise KubeError(r.status_code, path, r.text)
+            raise self._error(r.status_code, path, r.text)
         return self._object(r, path)
 
     def version(self) -> str:
         r = self._request("GET", "/version")
         if r.status_code >= 400:
-            raise KubeError(r.status_code, "/version", r.text)
+            raise self._error(r.status_code, "/version", r.text)
         version = self._object(r, "/version").get("gitVersion")
         return version if isinstance(version, str) and version else "?"
 
@@ -137,7 +146,7 @@ class KubeClient:
         r = self._request("POST", path, json={"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"})
         if r.status_code in (200, 201):
             return self._text(self._object(r, path), r, path, "status", "userInfo", "username")
-        raise KubeError(r.status_code, "whoami", r.text)
+        raise self._error(r.status_code, "whoami", r.text)
 
     def served(self, group_version: str) -> bool:
         """Whether the API server serves a group version, from discovery (GET /apis/<group>/<version>).
@@ -149,7 +158,7 @@ class KubeClient:
         if r.status_code == 404:
             return False
         if r.status_code >= 400:
-            raise KubeError(r.status_code, f"/apis/{group_version}", r.text)
+            raise self._error(r.status_code, f"/apis/{group_version}", r.text)
         return True
 
     def list(self, kind: str, namespace: str | None = None, label_selector: str | None = None,
@@ -186,7 +195,7 @@ class KubeClient:
                     if line:
                         yield json.loads(line)
         except httpx.HTTPError as exc:
-            raise ClusterUnreachable(f"{self.cluster_id}: watch {kind}: {exc}") from exc
+            raise ClusterUnreachable(self.redact(f"{self.cluster_id}: watch {kind}: {exc}")) from exc
 
     # ---- the one write path, used only by the delivery job with the deliverer identity
     def apply(self, doc: Mapping[str, Any], field_manager: str = APPLY_FIELD_MANAGER) -> dict[str, Any]:
@@ -195,17 +204,19 @@ class KubeClient:
         r = self._request("PATCH", f"{path}/{meta['name']}", params={"fieldManager": field_manager, "force": "true"},
                           content=json.dumps(doc), headers={"Content-Type": "application/apply-patch+yaml"})
         if r.status_code >= 400:
-            raise KubeError(r.status_code, path, r.text)
+            raise self._error(r.status_code, path, r.text)
         return self._object(r, path)
 
     def delete(self, kind: str, namespace: str | None, name: str) -> None:
         path = resource_path(kind, namespace)
         r = self._request("DELETE", f"{path}/{name}")
         if r.status_code not in (200, 202, 404):
-            raise KubeError(r.status_code, path, r.text)
+            raise self._error(r.status_code, path, r.text)
 
 
 class KubeError(RuntimeError):
+    """An HTTP error answer. `body` is cut to 300 characters here, so a KubeClient redacts it first (`_error`, #420)."""
+
     def __init__(self, status: int, path: str, body: str):
         super().__init__(f"{status} on {path}: {body[:300]}")
         self.status, self.path = status, path
@@ -288,7 +299,9 @@ class WatchCache:
         BOOKMARK only moves the resourceVersion and the last good read. ERROR raises, so the loop lists again."""
         t, obj = ev.get("type"), ev.get("object", {})
         if t == "ERROR":
-            raise KubeError(410, kind, json.dumps(obj)[:200])
+            # The client redacts before the cut (#420); a test's fake client, which holds no token, has no `redact`.
+            text = json.dumps(obj)
+            raise KubeError(410, kind, (getattr(self.client, "redact", None) or str)(text)[:200])
         with self._lock:
             st = self.state[kind]
             st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
