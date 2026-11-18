@@ -7,6 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs/13-crc-deployment.md")
 DOC = open(PATH).read()
 GUARD = open(os.path.join(ROOT, "deploy/crc-guard.py")).read()
+PROOF = open(os.path.join(ROOT, "deploy/crc-proof.sh")).read()
 MANIFESTS = os.path.join(ROOT, "deploy/manifests")
 
 
@@ -255,6 +256,12 @@ def problems(doc, only=None):
     subcommands = set(re.findall(r'sub\.add_parser\("([a-z-]+)"\)', GUARD)) | set(re.findall(r'p = sub\.add_parser\("([a-z-]+)"\)', GUARD))
     for sub in set(re.findall(r"\$G ([a-z-]+)", run)):
         need(sub in subcommands, f"crc-guard.py has no {sub}")
+    # What the document says the CRC proof records is in the proof (#387): each quoted request, command or name in the parenthesis
+    # that says so, a GET read as its path and `oc` as the proof's oc_.
+    for claim in re.findall(r"\(([^()]*?\bthe CRC proof (?:records|makes|checks)[^()]*)\)", doc):
+        for quoted in re.findall(r"`([^`]+)`", claim):
+            said = re.sub(r"^GET ", "", re.sub(r"^oc ", "oc_ ", quoted))
+            need(said in PROOF, f"docs/13 says the CRC proof records `{quoted}`, and deploy/crc-proof.sh does not hold it")
     for path in set(re.findall(r"\b(?:deploy|examples)/[\w./-]+\.(?:sh|py)", doc)):
         need(os.path.isfile(os.path.join(ROOT, path)), f"no file {path}")
     for sub, base in (("components", "components"), ("environment", "environments/crc")):
@@ -319,6 +326,7 @@ MUTANTS = {
     "nothing checks the watch began": ('  $G watching "$STOP"\n', ""),
     "a stale done file ends the new watch": ('  rm -f "$RUN/watch.log.done"\n', ""),
     "the issuer of another host": ("--issuer https://keycloak.apps-crc.testing/realms/cmapi", "--issuer https://keycloak.example/realms/cmapi"),
+    "the CRC proof said to record a request it does not make": ("`GET /apis/wgpolicyk8s.io/v1alpha2`", "`GET /apis/wgpolicyk8s.io/v1beta1`"),
     "a dirty checkout is only printed": ('  [ -z "$(git status --porcelain)" ]\n', '  git status --porcelain\n'),
 }
 

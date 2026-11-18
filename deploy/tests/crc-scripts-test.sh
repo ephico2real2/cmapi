@@ -76,6 +76,8 @@ print(json.dumps({"items":items}))'; exit 0;;
   "exec -i -n ldap-testing"*'echo "stranger $dn"'*) sed -n 's/^dn: /same /p'; exit 0;;
   "exec -i -n ldap-testing"*) cat; exit 0;;
   "delete secret cmapi-ldap-test-users"*) exit 0;;
+  # The reader's list of Kyverno's reports in every namespace (#387), before the wide checks that must answer no.
+  "auth can-i list "*"policyreports.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader") echo "${STUB_READER_REPORTS:-yes}"; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
@@ -84,6 +86,14 @@ print(json.dumps({"items":items}))'; exit 0;;
   "exec cmapi-db-1"*"psql -U cnpg_metrics_exporter "*) echo "${STUB_SSL:-3|0}"; exit 0;;
   "exec cmapi-db-1"*) echo 'psql: error: FATAL:  Peer authentication failed for user "1000720000"' >&2; exit 2;;
   "exec deploy/cmapi-"*) echo "${STUB_SSLMODE:-verify-full}"; exit "${STUB_SSLMODE_RC:-0}";;
+  # Discovery as the reader (#387): the served groups, CRC's as measured on 2026-11-17 by default, and the Policies tab's group.
+  "get --raw /apis --as=system:serviceaccount:cmapi-system:cmapi-reader")
+    [ -z "${STUB_GROUPS_RC:-}" ] || { echo "Unable to connect to the server: EOF" >&2; exit "$STUB_GROUPS_RC"; }
+    g='{"name":"apps","versions":[{"groupVersion":"apps/v1","version":"v1"}]},{"name":"wgpolicyk8s.io","versions":[{"groupVersion":"wgpolicyk8s.io/v1alpha2","version":"v1alpha2"}]}'
+    printf '{"kind":"APIGroupList","groups":[%s]}\n' "${STUB_GROUPS-$g}"; exit 0;;
+  "get --raw /apis/wgpolicyk8s.io/v1alpha2 --as=system:serviceaccount:cmapi-system:cmapi-reader")
+    r='{"name":"clusterpolicyreports","kind":"ClusterPolicyReport"},{"name":"policyreports","kind":"PolicyReport"},{"name":"policyreports/status","kind":"PolicyReport"}'
+    printf '{"kind":"APIResourceList","groupVersion":"wgpolicyk8s.io/v1alpha2","resources":[%s]}\n' "${STUB_REPORTS-$r}"; exit 0;;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
 OC
@@ -270,6 +280,16 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+# The Policies tab's premise, recorded as the reader's discovery serves it (#387): the request the API's own probe makes.
+grep -qxF 'proof: discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with clusterpolicyreports policyreports, the reports of the Policies tab; openreports.io: not served' "$W/out" \
+  && grep -qxF 'oc get --raw /apis/wgpolicyk8s.io/v1alpha2 --as=system:serviceaccount:cmapi-system:cmapi-reader' "$ARGV_LOG" \
+  && ok "the proof records the report groups that discovery serves to the reader" || bad "the report groups' record: $(grep -i 'discovery' "$W/out" | head -1)"
+for kind in clusterpolicyreports policyreports; do
+  grep -qxF "oc auth can-i list $kind.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader" "$ARGV_LOG" \
+    && ok "the proof asks whether the reader may list $kind in every namespace" || bad "no can-i list $kind as the reader in every namespace"
+done
+want "proof passes with openreports.io served beside wgpolicyk8s.io" 0 "$(STUB_GROUPS='{"name":"wgpolicyk8s.io","versions":[{"groupVersion":"wgpolicyk8s.io/v1alpha2","version":"v1alpha2"}]},{"name":"openreports.io","versions":[{"groupVersion":"openreports.io/v1alpha1","version":"v1alpha1"}]}' run "$D/crc-proof.sh" "$P")"
+grep -q '; openreports.io: v1alpha1$' "$W/out" && ok "and records openreports.io's version" || bad "openreports.io's record: $(grep -i 'discovery' "$W/out" | head -1)"
 # The plan, the slowest call, may take as long as the front door gives it: CRC's first answered 200 after 27.7 s (#275).
 want "proof passes when the plan takes 28 s" 0 "$(: >"$ARGV_LOG"; STUB_PLAN_SECONDS=28 "$D/crc-proof.sh" "$P" >"$W/out" 2>&1; echo $?)"
 # Each call's own bound, read from what curl was given: the plan the Route's timeout, every other call 15 s. A grep for one
@@ -318,6 +338,20 @@ pstop "the worker refused a managed namespace: nothing could be delivered" STUB_
 pstop "the worker labelling namespace default: not contained" STUB_DEFAULT_RC=0
 pstop "namespace default refused, but not by the policy" "STUB_DEFAULT_ERR=error: unable to connect"
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
+# Each stopped by the discovery check itself, not by something after it that the stub does not answer.
+says() { grep -qxF "$1" "$W/out" && ok "and it says why" || bad "the proof stopped without saying '$1': $(tail -1 "$W/out")"; }
+pstop "wgpolicyk8s.io not served: the Policies tab reads Kyverno not installed" 'STUB_GROUPS={"name":"apps","versions":[{"groupVersion":"apps/v1","version":"v1"}]}'
+says 'FAIL: discovery as cmapi-reader does not serve wgpolicyk8s.io/v1alpha2 (wgpolicyk8s.io: not served; openreports.io: not served): the Policies tab reads "Kyverno not installed" (#382)'
+pstop "only openreports.io served (#382)" 'STUB_GROUPS={"name":"openreports.io","versions":[{"groupVersion":"openreports.io/v1alpha1","version":"v1alpha1"}]}'
+says 'FAIL: discovery as cmapi-reader does not serve wgpolicyk8s.io/v1alpha2 (wgpolicyk8s.io: not served; openreports.io: v1alpha1): the Policies tab reads "Kyverno not installed" (#382)'
+pstop "wgpolicyk8s.io served at another version alone" 'STUB_GROUPS={"name":"wgpolicyk8s.io","versions":[{"groupVersion":"wgpolicyk8s.io/v1beta1","version":"v1beta1"}]}'
+says 'FAIL: discovery as cmapi-reader does not serve wgpolicyk8s.io/v1alpha2 (wgpolicyk8s.io: v1beta1; openreports.io: not served): the Policies tab reads "Kyverno not installed" (#382)'
+pstop "wgpolicyk8s.io/v1alpha2 without clusterpolicyreports" 'STUB_REPORTS={"name":"policyreports","kind":"PolicyReport"}'
+says "FAIL: wgpolicyk8s.io/v1alpha2 serves 'policyreports', without clusterpolicyreports"
+pstop "discovery failing: nothing was read" STUB_GROUPS_RC=1
+says 'FAIL: discovery as cmapi-reader gave no list of the served groups'
+pstop "a reader that may not list the reports in every namespace" STUB_READER_REPORTS=no
+says 'FAIL: cmapi-reader may not list clusterpolicyreports.wgpolicyk8s.io in every namespace: the Policies tab reads "no access to the reports"'
 pstop "a plan refused" STUB_PLAN=422
 pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
 pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
