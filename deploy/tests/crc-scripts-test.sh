@@ -56,10 +56,21 @@ J
   delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*|"run cmapi-np-target -n cmapi "*|"wait pod/cmapi-np-target -n cmapi "*) exit 0;;
   "get pods -n cmapi -o json") python3 -c 'import json,os
 img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); portal=os.environ.get("STUB_PORTAL_IMAGE_ID","sha256:pppp"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
-pod=lambda n,c,i,t=start:{"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":{"phase":"Running","startTime":t,"containerStatuses":[{"restartCount":r,"imageID":"x@"+i}]}}
-items=[pod("a","api",img),pod("w","worker",img)]+([] if os.environ.get("STUB_NO_PORTAL") else [pod("p","portal",portal,os.environ.get("STUB_PORTAL_START",start))])
+# Each container as the kubelet reports it: running since its last (re-)start, and the last termination once it has restarted. STUB_NOT_READY names a pod whose Ready is False.
+def pod(n,c,i,t=start,rc=r,running=None,last=None):
+    cs={"name":c,"restartCount":rc,"imageID":"x@"+i,"state":{"running":{"startedAt":running or t}} if running!="" else {"waiting":{"reason":"CrashLoopBackOff"}}}
+    if last: cs["lastState"]={"terminated":{"exitCode":0,"finishedAt":last,"reason":"Completed","startedAt":t}}
+    ready="False" if n==os.environ.get("STUB_NOT_READY") else "True"
+    st={"phase":"Running","startTime":t,"conditions":[{"type":"Ready","status":ready}],"containerStatuses":[cs]}
+    # The api and the worker run migrate first, as on CRC; STUB_MIGRATE_RESTARTS and STUB_MIGRATE_STARTED are its count and its last run.
+    if c in ("api","worker"): st["initContainerStatuses"]=[{"name":"migrate","restartCount":int(os.environ.get("STUB_MIGRATE_RESTARTS","0")),"state":{"terminated":{"exitCode":0,"reason":"Completed","startedAt":os.environ.get("STUB_MIGRATE_STARTED",t),"finishedAt":os.environ.get("STUB_MIGRATE_STARTED",t)}}}]
+    return {"metadata":{"name":n,"labels":{"app.kubernetes.io/component":c},"annotations":{"openshift.io/scc":scc}},"spec":{"containers":[{}]},"status":st}
+# The CloudNativePG instance, labelled as on CRC (component database), which no step of docs/13 recreates (#425).
+db_rc=int(os.environ.get("STUB_CMAPI_DB_RESTARTS",r))
+db=pod("cmapi-db-1","database","sha256:dddd",rc=db_rc,running=os.environ.get("STUB_CMAPI_DB_RUNNING"),last=os.environ.get("STUB_CMAPI_DB_LAST","2026-11-06T09:44:56Z") if db_rc else None)
+items=[pod("a","api",img),pod("w","worker",img),db]+([] if os.environ.get("STUB_NO_PORTAL") else [pod("p","portal",portal,os.environ.get("STUB_PORTAL_START",start))])
 print(json.dumps({"items":items}))'; exit 0;;
-  "get networkpolicy cmapi-metrics"*|"get networkpolicy cmapi-front-door"*) printf '2026-11-06T09:00:00Z'; exit 0;;
+  "get networkpolicy cmapi-metrics"*|"get networkpolicy cmapi-front-door"*) case "$*" in *"${STUB_NP_GONE:-none}"*) echo "Error from server (NotFound)" >&2; exit 1;; esac; printf '2026-11-06T09:00:00Z'; exit 0;;
   "get pod cmapi-np-target -n cmapi -o jsonpath"*) printf '%s' "${STUB_TARGET_IP-10.0.0.9}"; exit 0;;
   "exec np-probe"*"http://10.0.0.9:8080/"*) exit "${STUB_CONTROL_RC:-0}";;
   "exec np-probe"*"cmapi-api.cmapi.svc"*) : >"$ARGV_LOG.probed"; echo "${STUB_BLOCK_ERR-wget: download timed out}" >&2; exit "${STUB_BLOCK_RC:-1}";;
@@ -309,6 +320,9 @@ pstop "the front door on another image" STUB_PORTAL_IMAGE_ID=sha256:bbbb
 pstop "no front door pod" STUB_NO_PORTAL=1
 pstop "the front door started before its policy" STUB_PORTAL_START=2026-11-06T08:00:00Z
 pstop "the front door's /healthz not 200" STUB_HEALTHZ=503
+pstop "NetworkPolicy cmapi-metrics not there" STUB_NP_GONE=cmapi-metrics
+grep -qxF "FAIL: NetworkPolicy cmapi-metrics cannot be read" "$W/out" && ok "and it says which policy" || bad "the missing policy is not named: $(tail -1 "$W/out")"
+pstop "NetworkPolicy cmapi-front-door not there" STUB_NP_GONE=cmapi-front-door
 pstop "another commit" STUB_COMMIT=other
 pstop "/metrics reaching the API through the Route" 'STUB_METRICS=200 text/plain; version=0.0.4'
 pstop "/readyz reaching the API through the Route" 'STUB_READYZ_PAGE=200 application/json'
@@ -384,6 +398,33 @@ pstop "cmapi.noaccess in a group" 'STUB_CLAIMS=cmapi.noaccess:groups:["/cmapi/ap
 pstop "the wrong employee_id" 'STUB_CLAIMS=cmapi.admin:employee_id:"1"'
 pstop "cmapi.noaccess answered 200" STUB_NOACCESS=200
 pstop "the control: cmapi.viewer not answered 200" STUB_VIEWER=403
+# A restart is the run's only from the run's start on (#425): CMAPI_PROOF_SINCE, step 2's first time in docs/13's step 23.
+# Here the run began at 10:30; each pod started at 10:00, after the policies (09:00).
+since=2026-11-06T10:30:00Z
+want "proof passes with the database restarted before the run" 0 "$(CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=2026-11-06T09:45:24Z run "$D/crc-proof.sh" "$P")"
+grep -qxF '    cmapi-db-1 restarted before the run, which began 2026-11-06T10:30:00Z (container database: 1 restarts, last terminated 2026-11-06T09:44:56Z, Completed, exit 0; running since 2026-11-06T09:45:24Z): reported, not failed' "$W/out" \
+  && ok "and reports the pod, its count, its last termination's time and reason" || bad "the restart before the run is not reported: $(grep -i 'cmapi-db-1' "$W/out" | head -2)"
+grep -qxF "proof: pods under restricted-v2 and Ready, no restart since the run began at $since, api and worker on sha256:aaaa, the front door on sha256:pppp" "$W/out" \
+  && [ "$(tail -1 "$W/out")" = "proof: all passed" ] && ok "and every later proof ran" || bad "the proof after the pods: $(tail -1 "$W/out")"
+pstop "the database restarted during the run" CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=2026-11-06T10:41:07Z STUB_CMAPI_DB_LAST=2026-11-06T10:41:00Z
+says "FAIL: pods"; grep -q '^cmapi-db-1 restarted during the run, which began 2026-11-06T10:30:00Z (container database: 1 restarts, last terminated 2026-11-06T10:41:00Z, Completed, exit 0; running since 2026-11-06T10:41:07Z)$' "$W/out" \
+  && ok "and names the pod, its termination and its start" || bad "the restart during the run is not named: $(head -1 "$W/out")"
+pstop "a container back at the run's very second" CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=$since
+pstop "a container down since before the run, not running" CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=
+pstop "the api, worker and front door restarted after their rollout" CMAPI_PROOF_SINCE=$since STUB_START=2026-11-06T10:45:00Z STUB_RESTARTS=1 STUB_CMAPI_DB_RESTARTS=0
+pstop "the database not Ready" STUB_NOT_READY=cmapi-db-1
+says "FAIL: pods"; grep -q '^cmapi-db-1 not Ready$' "$W/out" && ok "and says which pod is not Ready" || bad "the pod not Ready is not named: $(head -1 "$W/out")"
+pstop "the database restarted before the run and not Ready" CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=2026-11-06T09:45:24Z STUB_NOT_READY=cmapi-db-1
+pstop "the front door not Ready" STUB_NOT_READY=p
+pstop "a restart before the run with no run start given" STUB_CMAPI_DB_RESTARTS=1 STUB_CMAPI_DB_RUNNING=2026-11-06T09:45:24Z
+pstop "migrate run again during the run" CMAPI_PROOF_SINCE=$since STUB_START=2026-11-06T10:45:00Z STUB_MIGRATE_RESTARTS=1 STUB_MIGRATE_STARTED=2026-11-06T10:46:10Z
+says "FAIL: pods"; grep -q '^a restarted during the run, which began 2026-11-06T10:30:00Z (init container migrate: 1 restarts, last terminated unrecorded, no reason recorded, exit unrecorded; last run started 2026-11-06T10:46:10Z)' "$W/out" \
+  && ok "and names the init container" || bad "the init container's restart is not named: $(head -1 "$W/out")"
+want "proof passes with migrate run again before the run" 0 "$(CMAPI_PROOF_SINCE=$since STUB_MIGRATE_RESTARTS=2 STUB_MIGRATE_STARTED=2026-11-06T10:00:30Z run "$D/crc-proof.sh" "$P")"
+pstop "the database back since the run began with its count at 0" CMAPI_PROOF_SINCE=$since STUB_CMAPI_DB_RESTARTS=0 STUB_CMAPI_DB_RUNNING=2026-11-06T10:41:07Z
+want "proof passes with pods the run rolled, each at 0" 0 "$(CMAPI_PROOF_SINCE=$since STUB_START=2026-11-06T10:45:00Z run "$D/crc-proof.sh" "$P")"
+for v in "" 2026-11-06 "2026-11-06 10:30:00" 2026-11-06T10:30:00+00:00 2026-13-06T10:30:00Z; do pstop "a run start of '$v'" "CMAPI_PROOF_SINCE=$v"
+  ! grep -q '^oc ' "$ARGV_LOG" && grep -q '^FAIL: CMAPI_PROOF_SINCE' "$W/out" && ok "a run start of '$v' stops before the cluster is touched" || bad "a run start of '$v' was not refused first: $(tail -1 "$W/out")"; done
 unset STUB_PROOF
 
 # crc-rollback.sh: every delete names one object, from a fixed list.

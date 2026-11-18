@@ -495,12 +495,26 @@ The two policies go first by themselves: `-R` applies files in name order, `20-a
 ```bash
 ( set -euo pipefail
   $G gate "$STOP"
-  deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"
+  since=$(head -1 "$RUN/preflight.txt" | cut -d' ' -f1)
+  CMAPI_PROOF_SINCE=$since deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"
 ); stopped $? 23
 ```
 
 Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at** the first failure. Each call has 15 s, except the
 dry-run namespace plan, the API's slowest call, which has as long as the Route gives it: 130 s, `CMAPI_PROOF_PLAN_SECONDS` (#275).
+
+**A restart is the run's from the run's start on (#425).** `CMAPI_PROOF_SINCE` is the time on the first line of step 2's
+`preflight.txt`, the run's first record, written before any step writes to the cluster or loads the Mac as step 5's build does (#157).
+A container that restarted before it is printed with its pod, count, last termination's time, reason and exit code, and passes:
+no step recreates `cmapi-db-1`, so a restart from before the run would otherwise stop every later run (run 24 stopped here on
+one from 15:44:56Z, during the host stall of #157). A container running since that time or later, or not running at all, fails, and
+so does any pod that is not Ready. A restart is dated by the container's `state.running.startedAt`, "the time at which the container
+was last (re-)started" in the [Pod API](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodStatus)
+(read with `oc explain` on CRC, Kubernetes v1.35.6): `lastState` can be empty, and `restartCount` can go back to 0 after a node
+restart. Not chosen: restart counts recorded before the rollout and compared after, which is new state and leans on that count; and
+checking only the pods the run rolls, which would pass a database restart the run caused (step 19 applies its cluster). A resume
+goes on from step 12, so it keeps step 2's time, and a restart since the run first began still fails. The proof compares the Mac's
+clock with the node's; they agreed within the second on 2026-11-18 (`Date` of `https://api.crc.testing:6443/version`).
 
 ### Step 24: the end of the watch
 
@@ -534,7 +548,7 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 
 | Proof | How | Where |
 |---|---|---|
-| Admitted under `restricted-v2` and started under the policy | Each pod's `openshift.io/scc`, 0 restarts, `status.startTime` after its policy's `creationTimestamp`: the api and the worker after `cmapi-metrics`, the front door after `cmapi-front-door` | `crc-proof.sh` |
+| Admitted under `restricted-v2` and started under the policy | Each pod's `openshift.io/scc`, Ready, no container restarted since the run began (step 2's time; a restart before it is printed with its count, last termination time and reason, and passes, #425), `status.startTime` after its policy's `creationTimestamp`: the api and the worker after `cmapi-metrics`, the front door after `cmapi-front-door` | `crc-proof.sh` |
 | The front door answers | `/healthz` 200 through the Route, `curl --cacert`; the front door's `imageID` holds the `cmapi-portal` digest | `crc-proof.sh` |
 | `/api/v1/version` names the built commit | Through the front door; equals `git rev-parse --short=10 HEAD`; the api's and worker's `imageID` hold the digest | `crc-proof.sh` |
 | Only the API's paths reach the API | `/metrics` and `/readyz` through the Route answer the portal's page (`200 text/html`), never the API's metrics or probe | `crc-proof.sh` |
