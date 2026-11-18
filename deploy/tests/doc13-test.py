@@ -220,6 +220,7 @@ BUNDLE_FILES = ("cmapi-metadata-dev.yaml", "cmapi-quota-dev.yaml", "cmapi-limits
 BUNDLE_STUB = r'''#!/usr/bin/env bash
 key="$(basename "$0") $*"
 printf '%s|%s\n' "$PWD" "$key" >>"$CALLS"
+case "$key" in "oc apply "*"--dry-run=server "*) [ -n "$DRY_RUN_FAILS" ] && exit 1;; esac
 case "$key" in
   "mktemp -d") /usr/bin/mktemp -d "$WORK/tmp.XXXXXX";;
   "gh repo clone "*) mkdir -p "$4/policies/env" && cp -R "$FIXTURE" "$4/policies/env/dev";;
@@ -288,6 +289,10 @@ def bundle_problems(doc):
         need([c for _, c in applies] == [f"oc apply --server-side --field-manager=cmapi-policies --dry-run=server {three}", f"oc apply --server-side --field-manager=cmapi-policies {three}"],
              f"the bundle is not a server dry run then a server-side apply as cmapi-policies of the three files: {[c for _, c in applies]}")
         need(all(os.path.realpath(cwd) == os.path.realpath(os.path.join(ccfg, "policies/env/dev")) for cwd, _ in applies), "the bundle is applied from another folder than policies/env/dev")
+        # A server dry run that Kyverno or the API server refuses writes nothing: the apply waits on its exit status, not only on its line.
+        _, calls = run(apply_block, w, DRY_RUN_FAILS="1")
+        need([c for _, c in calls if c.startswith("oc apply") and "--dry-run=server" not in c] == [],
+             "the bundle is applied after a server dry run that failed")
         # The stale list: dev's cmapi policies on the cluster that the files lack, and no other.
         stdout, _ = run(stale_block, fixture, LIVE_NAMES=good["LIVE_NAMES"] + [kind + "cmapi-quota-dev-quota-old-max"])
         need(stdout.split() == [kind + "cmapi-quota-dev-quota-old-max"], f"the stale list is not the one dev policy the files lack: {stdout.split()}")
@@ -305,6 +310,10 @@ def bundle_problems(doc):
                  "a policy missing": ({"LIVE_STATUS": good["LIVE_STATUS"][1:]}, lambda s: "30 policies" in lines(s) and "31 policies" not in lines(s)),
                  "a digest that is not the file's": ({"LIVE_DIGESTS": [f"{first} 0"] + good["LIVE_DIGESTS"][1:]}, lambda s: "digests: the files'" not in lines(s)),
                  "a vpol-* policy": ({"LIVE_VAPS": good["LIVE_VAPS"] + ["validatingadmissionpolicy.admissionregistration.k8s.io/vpol-" + first]}, lambda s: "no vpol-* policy" not in lines(s))}
+        # The digests' template reads the annotation only where a policy has annotations: oc's go-template stops at the first policy with none
+        # ("index of untyped nil"), and a policy of another team sorted before cmapi-* would leave no line of cmapi's to compare.
+        need("{{with .metadata.annotations}}{{index . \"cmapi.net/policy-digest\"}}{{end}}" in verify_block and "index .metadata.annotations" not in verify_block,
+             "the digests' template indexes the annotations of a policy that may have none")
         for label, (change, said_no) in wrong.items():
             stdout, _ = run(verify_block, fixture, **change)
             need(said_no(stdout), f"the verify block does not say no to {label}: {stdout[:160]!r}")
@@ -461,7 +470,9 @@ MUTANTS = {
     "a dirty checkout is only printed": ('  [ -z "$(git status --porcelain)" ]\n', '  git status --porcelain\n'),
     # cmapi's policy bundle on CRC (#428)
     "the bundle applied as a folder, index.json too": ("--field-manager=cmapi-policies -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml\n```", "--field-manager=cmapi-policies -f .\n```"),
-    "the bundle without its server dry run": ("oc apply --server-side --field-manager=cmapi-policies --dry-run=server -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml\n", ""),
+    "the bundle without its server dry run": ("oc apply --server-side --field-manager=cmapi-policies --dry-run=server -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml \\\n  && ", ""),
+    "the apply not waiting on its dry run": (" \\\n  && oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "\noc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata"),
+    "the digests' template indexes absent annotations": ('{{with .metadata.annotations}}{{index . "cmapi.net/policy-digest"}}{{end}}', '{{index .metadata.annotations "cmapi.net/policy-digest"}}'),
     "the bundle without its field manager": ("oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "oc apply --server-side -f cmapi-metadata"),
     "the bundle applied client-side": ("oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "oc apply --field-manager=cmapi-policies -f cmapi-metadata"),
     "the bundle from the default branch": ('git -C "$CCFG" checkout --detach "$MERGED"\n', ""),
