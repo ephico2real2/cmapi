@@ -4,7 +4,7 @@ This document shows each operation of the cmapi API that is built, with a curl s
 
 ## How to read it
 
-- **Where the payloads come from.** `cmapi/tests/service/test_api_samples.py` walks the API in one scenario on the test instance of the service suite: PostgreSQL 16, a fake Git host and a fake cluster named `CRC` in environment `dev`. It writes `cmapi/src/cmapi/contract/samples.json`. Recorded on macOS on 2026-11-13. No payload here is from CRC or from kind yet.
+- **Where the payloads come from.** `cmapi/tests/service/test_api_samples.py` walks the API in one scenario on the test instance of the service suite: PostgreSQL 16, a fake Git host and a fake cluster named `CRC` in environment `dev`, with a fake Kyverno report and a fake Node for the Policies and Capacity calls. It writes `cmapi/src/cmapi/contract/samples.json`, whose last commit is of 2026-11-17. Every operation of `cmapi/contract/openapi.json` has a recorded call, and the same test fails when one has none (`test_each_operation_has_a_sample_from_a_run`). No payload here is from CRC or from kind.
 - **What differs on a real instance.** Request IDs, times, etags, cursors and hashes are those of that run. The host in each curl sample is the `publicUrl` of the test instance.
 - **Tokens.** Each sample sends `Authorization: Bearer $TOKEN`. No token is in the samples. [`docs/15-keycloak-integration.md`](15-keycloak-integration.md) says how a caller gets a token, and [`docs/14-authorization.md`](14-authorization.md) says which role each permission needs.
 - **Long lists.** A list in a response is cut to its first item, and a line under the block says so.
@@ -15,9 +15,10 @@ This document shows each operation of the cmapi API that is built, with a curl s
 |---|---|
 | The instance | Call the instance that serves the environment of the cluster. Another instance answers 422 `environment-not-served` |
 | Writes | A write to a namespace returns 202 with a change request. The change reaches the cluster through a pull request after approval |
-| `Idempotency-Key` | Necessary on each write to a namespace. The same key and caller get the first response again, for 24 hours. Without it the answer is 400 `idempotency-key-required`. The same key with a different request is 409 `idempotency-replay`. Make a new key for each new action (`$(uuidgen)` in a shell), and send the same key again only to retry that same call. The fixed keys in the samples below are examples, not values to copy. Clients that generate the key, so that a person never types one, are #282 |
-| `If-Match` | Necessary on a change, a delete and an extension. Its value is the `etag` of `GET .../namespaces/{ns}`. Without it the answer is 428, and with an old value it is 412 |
-| `?dryRun=true` | On a create or a change, it returns 200 with the plan and writes nothing |
+| `Idempotency-Key` | Necessary on each write to a namespace, at most 100 characters, and not read on a `?dryRun=true` call (`plugins/namespaces/router.py`, `_idem`). The same key and caller get the first response again, for 24 hours. Without it the answer is 400 `idempotency-key-required`. The same key with a different request is 409 `idempotency-replay`. Make a new key for each new action (`$(uuidgen)` in a shell), and send the same key again only to retry that same call. The fixed keys in the samples below are examples, not values to copy. Clients that generate the key, so that a person never types one, are #282 |
+| `If-Match` | Necessary on a change, a delete, an extension, a new expiry date and the removal of the expiry (`:extend`, `:set`, `:makePermanent`). Its value is the `etag` of `GET .../namespaces/{ns}`. Without it the answer is 428, and with an old value it is 412 |
+| `?dryRun=true` | On a create, a change and each of the three expiry calls, it returns 200 with the plan and writes nothing. A delete has no dry run |
+| Protected namespaces | A delete of a namespace whose labels in Git match `protected.labels` of `approval-rules.yaml` is 422 `namespace-protected`. `GET .../namespaces/{ns}` shows `protected` and `protectedBy` (`core/approvals.py`, `decide`; `core/models.py`) |
 | Errors | RFC 9457 problems, media type `application/problem+json`, with a `code` field. The last section lists the ones that the run met |
 
 ## To write this document again
@@ -32,7 +33,17 @@ The CI job `api-contract` fails when the part below is not what `scripts/api-exa
 
 ## Designed and not built
 
-`docs/01` and `docs/02` specify more endpoints than the code has. These have no example here, because no code answers them yet: the expiry of one namespace (`GET .../namespaces/{ns}/expiration`), the tier detail, quota writes other than the namespace `PATCH`, metadata, service accounts, grants, SCC grants, tokens, policies, cluster import, capacity and placement, adoption, reports, operations and the admin reload. `docs/08-code-status.md`, section 4, is the full list.
+`docs/02` specifies more endpoints than the code has. These have no example here, because `cmapi/contract/openapi.json` has no operation for them. The list is the paths of `docs/01` and `docs/02` that the OpenAPI document lacks, compared on 2026-11-18:
+
+- Namespaces: `GET .../namespaces/{ns}/expiration`, `.../quota` writes, `.../limitrange`, `.../usage`, `.../analysis`, `.../drift`, namespace and service-account metadata, service accounts with their grants, SCC grants and tokens, `:promote`, and adoption (`/adoption/candidates`, `/adoption/skipped`, `:adopt`, `/adoption:scan`). The built namespace calls are the list, create, read, change, delete and `:extend`, `:set` and `:makePermanent`.
+- Clusters: `GET /clusters/{id}`, `GET` and `/health` on the cluster path, `/clusters/{id}:probe`, `/admin/clusters:propose`, `/sync`, the analysis routes with `/analysis/sweeps:run`, and `/analysis/summary`. Cluster import has no endpoint: it is done with Secrets (`docs/18-configuration.md`).
+- Live RBAC and identity reads: `.../namespaces/{ns}/roles` and `/rolebindings`, `/clusterroles`, `/clusterrolebindings`, `/sccs`, `/users`, `/users/{name}` with its bindings, and `/groups`, `/groups/{name}` with its bindings.
+- Tiers: `GET /tiers/{tier}` and `/tiers/{tier}/namespaces`. Only `GET /tiers` is built.
+- Capacity: `/capacity:check`, `/capacity:place`, `/capacity/forecast`, `/capacity/history`, `/clusters/{id}/capacity`, its history and `snapshots:run`. Only `GET /capacity` is built.
+- Policies: `GET /policies`. Only `GET /policies/results` and `GET /policies/rejections` are built.
+- Reports (`/reports/*`), operations (`/operations`, `/operations/{id}`, `:cancel`), `/changesets`, the webhooks (`/webhooks/git`, `/webhooks/argocd`) and `POST /admin/reload`.
+
+The routes `/healthz`, `/readyz`, `/problems`, `/problems/{code}`, `/openapi.json`, `/openapi.yaml`, `/docs`, `/docs/oauth2-redirect`, `/docs/redoc-start.js`, `/redoc` and `/docs/changelog`, and the files under `/static/swagger` and `/static/redoc`, are built and have no example, because they are not in the OpenAPI document (`include_in_schema=False` in `cmapi/main.py` and `routers/health.py`; the static files are mounts). `docs/08-code-status.md`, section 4, lists the same gaps and may lag the code.
 
 <!-- examples:begin -->
 ## Namespaces and metadata
