@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 38 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 39 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
 
@@ -16,9 +16,9 @@ Nothing here was measured on a running system. No cmapi workload runs on a clust
 | Actions in the mockup | 64 |
 | Actions that make no call | 17 |
 | Endpoints that the actions need | 25 |
-| Endpoints built, in `openapi.json` | 18 |
+| Endpoints built, in `openapi.json` | 19 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
-| Endpoints not built | 5 |
+| Endpoints not built | 4 |
 
 ## How to read the figures
 
