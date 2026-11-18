@@ -57,6 +57,18 @@ class PolicyEngineMissing(RuntimeError):
     """The instance's policy runs Kyverno in an environment, and the image has no kyverno binary: cmapi does not start."""
 
 
+def kyverno_version(out: str) -> str | None:
+    """The version that `kyverno version` prints, or None. Kyverno v1.20.0 prints three lines, the first
+    `fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", version.Version())` (cmd/cli/kubectl-kyverno/commands/version/
+    command.go at the tag v1.20.0), so the version is the whole value of the line whose key is `Version`: compared whole,
+    `v1.20.0-rc1` and `v1.20.01` are not `v1.20.0` (#395)."""
+    for line in out.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key == "Version":
+            return value.strip()
+    return None
+
+
 class CliValidator:
     def __init__(self, policies_dir: str | Path, *, kubeconform: str = "kubeconform", kyverno: str = "kyverno",
                  schema_location: str | None = None, kubernetes_version: str | None = None, timeout: float = 60.0,
@@ -77,10 +89,10 @@ class CliValidator:
         # rendered policies with other semantics than the clusters run (Codex's design of #212, Q8).
         pinned = os.environ.get("CMAPI_KYVERNO_VERSION")
         if pinned and environments and self.policy.needs_kyverno(environments):
-            out = self._run([self.kyverno, "version"]).stdout
-            if f"Version: {pinned}" not in out:
-                found = next((ln for ln in out.splitlines() if ln.startswith("Version:")), "no version")
-                raise PolicyEngineMissing(f"{self.kyverno} is not the pinned {pinned} ({found})")
+            found = kyverno_version(self._run([self.kyverno, "version"]).stdout)
+            if found != pinned:
+                raise PolicyEngineMissing(f"{self.kyverno} is not the pinned {pinned} "
+                                          f"({f'Version: {found}' if found is not None else 'no version'})")
 
     def _run(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, check=False)
