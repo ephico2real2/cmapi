@@ -214,6 +214,119 @@ def keychain_problems(doc):
     return out
 
 
+BUNDLE_FILES = ("cmapi-metadata-dev.yaml", "cmapi-quota-dev.yaml", "cmapi-limits-dev.yaml")
+# Stands in for oc, gh, git and mktemp in the bundle's blocks: logs each call with its folder, clones the fixture, answers the reads from files,
+# and makes temporary folders in the test's own (BSD mktemp -d on macOS does not follow TMPDIR).
+BUNDLE_STUB = r'''#!/usr/bin/env bash
+key="$(basename "$0") $*"
+printf '%s|%s\n' "$PWD" "$key" >>"$CALLS"
+case "$key" in "oc apply "*"--dry-run=server "*) [ -n "$DRY_RUN_FAILS" ] && exit 1;; esac
+case "$key" in
+  "mktemp -d") /usr/bin/mktemp -d "$WORK/tmp.XXXXXX";;
+  "gh repo clone "*) mkdir -p "$4/policies/env" && cp -R "$FIXTURE" "$4/policies/env/dev";;
+  "oc get validatingpolicies.policies.kyverno.io -o name") cat "$LIVE_NAMES";;
+  "oc get validatingpolicies.policies.kyverno.io -o go-template="*policy-digest*) cat "$LIVE_DIGESTS";;
+  "oc get validatingpolicies.policies.kyverno.io -o go-template="*) cat "$LIVE_STATUS";;
+  "oc apply --dry-run=client -o name "*) cat "$FILE_NAMES";;
+  "oc get validatingadmissionpolicies -o name") cat "$LIVE_VAPS";;
+esac
+exit 0
+'''
+
+
+def bundle_problems(doc):
+    """"cmapi's policy bundle on CRC" (#428), run: its four blocks in a plain bash on stubs, on a bundle of the renderer's own layout (the example
+    prod bundle, named as dev). The apply names the three YAML files and never index.json, under its own field manager, after a server dry run;
+    the stale list holds only dev's cmapi policies the files lack; each check of the verify block says yes on the right cluster and no on a wrong one;
+    the rollback deletes the same three files."""
+    out = []
+    section = re.search(r"^### cmapi's policy bundle on CRC\n(.*?)(?=^##)", doc, re.S | re.M)
+    blocks = re.findall(r"```bash\n(.*?)```", section[1], re.S) if section else []
+    if len(blocks) != 4:
+        return [f"\"cmapi's policy bundle on CRC\" has {len(blocks)} bash blocks, not 4: apply, stale, verify, rollback"]
+    apply_block, stale_block, verify_block, rollback_block = blocks
+    w = tempfile.mkdtemp(prefix="doc13-bundle.")
+    try:
+        fixture = os.path.join(w, "fixture"); os.makedirs(fixture); bin_dir = os.path.join(w, "bin"); os.makedirs(bin_dir)
+        example = os.path.join(ROOT, "examples/cluster-configs/policies/env/prod")
+        digests = {}
+        for name in BUNDLE_FILES + ("index.json",):
+            text = open(os.path.join(example, name.replace("-dev", "-prod"))).read().replace("-prod", "-dev")
+            open(os.path.join(fixture, name), "w").write(text)
+            for d in text.split("\n---\n") if name.endswith(".yaml") else ():
+                m, g = re.search(r"^  name: (\S+)", d, re.M), re.search(r"cmapi\.net/policy-digest: (\S+)", d)
+                if m and g:
+                    digests[m[1]] = g[1]
+        if len(digests) != 31:
+            return [f"the fixture holds {len(digests)} rendered policies, not 31"]
+        for n in ("oc", "gh", "git", "mktemp"):
+            open(os.path.join(bin_dir, n), "w").write(BUNDLE_STUB); os.chmod(os.path.join(bin_dir, n), 0o755)
+        def data(name, lines):
+            path = os.path.join(w, name); open(path, "w").write("".join(l + "\n" for l in lines)); return path
+        kind = "validatingpolicy.policies.kyverno.io/"
+        good = {"LIVE_NAMES": [kind + n for n in digests] + [kind + "other-policy", kind + "cmapi-quota-rnd-quota-pods-max"],
+                "FILE_NAMES": [kind + n for n in digests],
+                "LIVE_STATUS": [f"{n} [Audit Warn] true" for n in digests] + ["other-policy [Deny] true"],
+                "LIVE_DIGESTS": [f"{n} {g}" for n, g in digests.items()] + ["other-policy 0"],
+                "LIVE_VAPS": ["validatingadmissionpolicy.admissionregistration.k8s.io/cmapi-deliverer-managed-only"]}
+        def run(block, cwd, **change):
+            calls = os.path.join(w, "calls")
+            if os.path.exists(calls): os.unlink(calls)
+            env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "CALLS": calls, "FIXTURE": fixture, "MERGED": "4f2c1d0", "WORK": w}
+            env.update({k: data(k, change.get(k, v)) for k, v in good.items()})
+            env.update({k: v for k, v in change.items() if k not in good})
+            r = subprocess.run([os.environ.get("DOC13_BASH", "bash"), "-c", block], cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
+            return r.stdout, [tuple(l.split("|", 1)) for l in open(calls).read().splitlines()] if os.path.exists(calls) else []
+        three = " ".join("-f " + f for f in BUNDLE_FILES)
+        # The apply: a checkout of the merged commit, then a server dry run and the apply, both naming the three files from the dev folder.
+        _, calls = run(apply_block, w)
+        ccfg = next((c.split()[4] for _, c in calls if c.startswith("gh repo clone ")), None)
+        if ccfg is None:
+            return ["the apply block clones no cmapi-cluster-configs"]
+        need = lambda ok, label: ok or out.append(label)  # noqa: E731
+        need(("git -C " + ccfg + " checkout --detach 4f2c1d0") in [c for _, c in calls], "the apply block does not check out the merged commit")
+        applies = [(cwd, c) for cwd, c in calls if c.startswith("oc apply")]
+        need([c for _, c in applies] == [f"oc apply --server-side --field-manager=cmapi-policies --dry-run=server {three}", f"oc apply --server-side --field-manager=cmapi-policies {three}"],
+             f"the bundle is not a server dry run then a server-side apply as cmapi-policies of the three files: {[c for _, c in applies]}")
+        need(all(os.path.realpath(cwd) == os.path.realpath(os.path.join(ccfg, "policies/env/dev")) for cwd, _ in applies), "the bundle is applied from another folder than policies/env/dev")
+        # A server dry run that Kyverno or the API server refuses writes nothing: the apply waits on its exit status, not only on its line.
+        _, calls = run(apply_block, w, DRY_RUN_FAILS="1")
+        need([c for _, c in calls if c.startswith("oc apply") and "--dry-run=server" not in c] == [],
+             "the bundle is applied after a server dry run that failed")
+        # The stale list: dev's cmapi policies on the cluster that the files lack, and no other.
+        stdout, _ = run(stale_block, fixture, LIVE_NAMES=good["LIVE_NAMES"] + [kind + "cmapi-quota-dev-quota-old-max"])
+        need(stdout.split() == [kind + "cmapi-quota-dev-quota-old-max"], f"the stale list is not the one dev policy the files lack: {stdout.split()}")
+        stdout, _ = run(stale_block, fixture)
+        need(stdout.strip() == "", f"the stale list is not empty when the cluster holds the files' policies: {stdout.split()[:3]}")
+        # The verify block: every line it prints on the right cluster, then a wrong cluster for each of its checks.
+        right = "31 policies\ndigests: the files'\nno vpol-* policy\n"
+        stdout, _ = run(verify_block, fixture)
+        need(stdout.startswith(right), f"the verify block does not pass on the right cluster: {stdout[:160]!r}")
+        first = next(iter(digests))
+        # Each wrong cluster, and how its check must say no: by its own line, never only by another line printed beside the yes.
+        lines = lambda s: s.splitlines()  # noqa: E731
+        wrong = {"a policy in Deny": ({"LIVE_STATUS": [f"{first} [Deny] true"] + good["LIVE_STATUS"][1:]}, lambda s: f"NOT AUDIT OR NOT READY: {first} [Deny] true" in lines(s)),
+                 "a policy not ready": ({"LIVE_STATUS": [f"{first} [Audit Warn] <no value>"] + good["LIVE_STATUS"][1:]}, lambda s: f"NOT AUDIT OR NOT READY: {first} [Audit Warn] <no value>" in lines(s)),
+                 "a policy missing": ({"LIVE_STATUS": good["LIVE_STATUS"][1:]}, lambda s: "30 policies" in lines(s) and "31 policies" not in lines(s)),
+                 "a digest that is not the file's": ({"LIVE_DIGESTS": [f"{first} 0"] + good["LIVE_DIGESTS"][1:]}, lambda s: "digests: the files'" not in lines(s)),
+                 "a vpol-* policy": ({"LIVE_VAPS": good["LIVE_VAPS"] + ["validatingadmissionpolicy.admissionregistration.k8s.io/vpol-" + first]}, lambda s: "no vpol-* policy" not in lines(s))}
+        # The digests' template reads the annotation only where a policy has annotations: oc's go-template stops at the first policy with none
+        # ("index of untyped nil"), and a policy of another team sorted before cmapi-* would leave no line of cmapi's to compare.
+        need("{{with .metadata.annotations}}{{index . \"cmapi.net/policy-digest\"}}{{end}}" in verify_block and "index .metadata.annotations" not in verify_block,
+             "the digests' template indexes the annotations of a policy that may have none")
+        for label, (change, said_no) in wrong.items():
+            stdout, _ = run(verify_block, fixture, **change)
+            need(said_no(stdout), f"the verify block does not say no to {label}: {stdout[:160]!r}")
+        # The rollback: the same three files, from the same folder.
+        _, calls = run(rollback_block, w, CCFG=ccfg)
+        deletes = [(cwd, c) for cwd, c in calls if c.startswith("oc delete")]
+        need([c for _, c in deletes] == [f"oc delete {three}"] and all(cwd.endswith("policies/env/dev") for cwd, _ in deletes),
+             f"the rollback is not oc delete of the three files from policies/env/dev: {deletes}")
+    finally:
+        shutil.rmtree(w)
+    return out
+
+
 def steps_of(doc):
     steps = {}
     for m in re.finditer(r"^### Step (\d+):[^\n]*\n(.*?)(?=^##|\Z)", doc, re.S | re.M):
@@ -292,6 +405,7 @@ def problems(doc, only=None):
     # The two steps only the owner can take, and what must never be there.
     need("security add-trusted-cert" in doc and "security delete-certificate" in doc, "the owner's keychain step, in and out")
     out.extend(keychain_problems(doc))
+    out.extend(bundle_problems(doc))
     need("Sign in once as `cmapi.requester`" in doc, "the owner's LDAP sign-in")
     need("jsonpath={.data.cmapi\\.requester}' \\| base64 -d \\| pbcopy" in doc, "the owner's password to the clipboard")
     need("LDAP person" not in doc, "the owner signs in as an LDAP person, whom the realm cannot read any more")
@@ -354,6 +468,19 @@ MUTANTS = {
     "the run's start read from the last line of step 2": ('since=$(head -1 "$RUN/preflight.txt"', 'since=$(tail -1 "$RUN/preflight.txt"'),
     "a lost record of the run's start excused": ("since=$(head -1 \"$RUN/preflight.txt\" | cut -d' ' -f1)", "since=$(head -1 \"$RUN/preflight.txt\" 2>/dev/null | cut -d' ' -f1 || true)"),
     "a dirty checkout is only printed": ('  [ -z "$(git status --porcelain)" ]\n', '  git status --porcelain\n'),
+    # cmapi's policy bundle on CRC (#428)
+    "the bundle applied as a folder, index.json too": ("--field-manager=cmapi-policies -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml\n```", "--field-manager=cmapi-policies -f .\n```"),
+    "the bundle without its server dry run": ("oc apply --server-side --field-manager=cmapi-policies --dry-run=server -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml \\\n  && ", ""),
+    "the apply not waiting on its dry run": (" \\\n  && oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "\noc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata"),
+    "the digests' template indexes absent annotations": ('{{with .metadata.annotations}}{{index . "cmapi.net/policy-digest"}}{{end}}', '{{index .metadata.annotations "cmapi.net/policy-digest"}}'),
+    "the bundle without its field manager": ("oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "oc apply --server-side -f cmapi-metadata"),
+    "the bundle applied client-side": ("oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata", "oc apply --field-manager=cmapi-policies -f cmapi-metadata"),
+    "the bundle from the default branch": ('git -C "$CCFG" checkout --detach "$MERGED"\n', ""),
+    "the stale list of every environment": ("grep -E '/cmapi-(metadata|quota|limits)-dev-'", "grep -E '/cmapi-'"),
+    "the verify block takes any actions": ("!/ \\[Audit Warn\\] true$/", "!/ true$/"),
+    "the digests' check always passes": ("\n  && echo \"digests: the files'\"", "\n  ; echo \"digests: the files'\""),
+    "the vpol-* check always passes": ("grep '/vpol-' || echo", "grep '/vpol-' ; echo"),
+    "the rollback deletes the folder": ("oc delete -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml", "oc delete -f ."),
 }
 
 # Each must fail by the run itself, with the watch logging late: (what to replace, with what, what the failure says). run_blocks is called directly, so the document's shape cannot be what catches them.
