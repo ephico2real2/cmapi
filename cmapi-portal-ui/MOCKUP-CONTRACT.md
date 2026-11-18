@@ -24,7 +24,20 @@ and `tests/parity.test.mjs` fails if a string it shows is missing here.
 - **Writes.** The create sends an `Idempotency-Key` that the portal makes with `crypto.randomUUID()`: one for each request that the New namespace form sends (#282, docs/04 "Rules for each call"). The same form sent again, after a refusal or a lost answer, carries the same key, so it cannot make a second request. A form changed since its last submit is another request and gets a new key: the API answers an old key with another body with 409 `idempotency-replay`. Leaving the tab ends the form, and the next one starts with no key. Approve and reject take no key: they are not writes to a namespace. Each of the three sends one call at a time: a second click while the first is in flight sends nothing.
 - **The quota change (#301)** is `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`, with `tier`, or `tier: custom` and `quota`. Its dry run (`?dryRun=true`) and its submit each send `If-Match`: the `etag` of `GET .../namespaces/{ns}`, quoted (RFC 9110, section 8.8.3). Submit sends the plan on the page, with the etag that it was planned at: a form with no plan, or changed since its plan, is planned first. A 412 `precondition-failed` or 428 `precondition-required`, of the dry run or of the submit, reads the namespace again and plans the same change on its new etag (docs/04, If-Match); the stale etag is never sent again, and the next Submit sends the new plan with the same `Idempotency-Key`. Its `Idempotency-Key` belongs to the change (cluster, namespace and body): the same change sent again keeps it, a changed one gets a new one. One submit at a time, as above. The export (`GET /api/v1/quotas:export`) is audited by the API, so it is sent once for each click and not cached.
 - **The expiry change (#318)** is `POST .../namespaces/{ns}/expiration:extend` with `days`, `:set` with `until` (a namespace with no date) or `:makePermanent`. It follows the quota change: a dry run (`?dryRun=true`) and a submit, each with `If-Match`, Submit sends the plan on the page and plans first when there is none, a 412 or 428 reads the namespace again and plans the same change on its new etag, the `Idempotency-Key` belongs to the change (cluster, namespace, route and body), and one submit at a time. The page computes no date or approval of its own for the write: the plan shows the date that it writes (`cmapi.net/expires-at` in its `namespace.yaml`) and the API's approval.
-- **On the API today (#204, #300, #301, #318, #302):** the page frame and every tab of the mockup: Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs. A tab shows only to a person who holds the permission of its first call.
+- **On the API today (#204, #300, #301, #318, #302):** the page frame and every tab of the mockup: Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs. The New namespace form reads its labels and annotations from `GET /api/v1/metadata-keys` (#336, #368), and an operator protects or unprotects a namespace in the Quotas detail (#366, #378). The portal calls none of the four endpoints of the map that are not built: `POST /api/v1/capacity:place`, `GET` and `PATCH .../namespaces/{ns}/quota`, and `GET .../namespaces/{ns}/expiration` (`docs/diagrams/portal-architecture/README.md`; no call of them is in `src/`).
+- **The permission of each tab** is `needs` in `TABS` of `src/portal/PortalApp.tsx`, taken from `src/api/permissions.generated.ts`. A tab shows only to a person whose `access.permissions` holds it:
+
+| Tab | Permission | Of the call |
+|---|---|---|
+| Workflow | `requests:read` | `GET /api/v1/requests/{request_id}/events` |
+| New namespace | `namespaces:create` | `POST /api/v1/clusters/{cluster_id}/namespaces` |
+| Quotas | `objects:read` | `GET /api/v1/quotas` |
+| Expiration | `objects:read` | `GET /api/v1/expirations` |
+| Requests | `requests:read` | `GET /api/v1/requests` |
+| Approvals | `requests:approve` | `POST /api/v1/requests/{request_id}:approve` (the list itself is `GET /api/v1/requests`, `requests:read`) |
+| Policies | `objects:read` | `GET /api/v1/policies/results` |
+| Capacity | `capacity:read` | `GET /api/v1/capacity` |
+| KPIs | `reports:read` | `GET /api/v1/admin/kpi` |
 
 The states of the Requests tab:
 
@@ -264,6 +277,8 @@ Chromium 156 and Chrome 157. Screenshots: `screenshots/slice-3-crc/`; measured r
 
 Open from that walk: the 202 callout's "Argo CD re-stamps the quota" on an `apply` instance, added to #309.
 
+The Expiration tab was walked on CRC on 2026-11-17 (OB1 run 17, main 9ba33b2; `docs/09-portal-ui-testing.md`, "Expiration live on CRC"). The Policies and Capacity tabs and the protection control are recorded in `docs/09-portal-ui-testing.md` at the stage built-mocked, against the built portal, the stand-in issuer and the stand-in API: no walk of them on CRC is recorded there.
+
 The demo build has none of these differences. The sections below describe it.
 
 ## The demo build: the mockup's logic stands in for the API
@@ -283,12 +298,12 @@ Consequences in the demo build:
 | Tab | State in the model | Datasets, and the API behind each | Actions |
 |---|---|---|---|
 | Workflow | `tab`, `inst`, `scn`, `i`, `pos`, `playing` | `wf`: `GET /api/v1/requests/{id}/events` | Scenario, step, Back, Next, Reset, Play |
-| New namespace | `env`, `tier`, `team`, `region`, `name`, `nsExp`, `dry` | `place`, `appr`: `POST ...?dryRun=true`; `GET /api/v1/tiers`; the labels and annotations: `GET /api/v1/metadata-keys` | Dry run, Submit |
-| Quotas | `qq`, `qsugOpen`, `qsugIdx`, `qapplied`, `qenv`, `qcluster`, `qtier`, `qstate`, `qsort`, `qlimit`, `qcursor`, `qstarts`, `qat`, `qexport`, `qns`, `qsize`, `qcpu`, `qmem`, `qcpuRaw`, `qmemRaw`, `qplan`, `qsent` | `quotas`: `GET /api/v1/quotas` | Filter, sort, page, letter jump, type-ahead, export, plan, submit |
-| Expiration | `xstate`, `xenv`, `xq`, `xcursor`, `xsel`, `xact`, `xuntil`, `xsent` | `exp`: `GET /api/v1/expirations` | Extend, set a date, make permanent |
-| Requests | `filter`, `rq`, `rcursor` | `requests`: `GET /api/v1/requests` | Open at current step, replay |
+| New namespace | `env`, `tier`, `team`, `region`, `name`, `nsExp`, `dry` | `place`, `appr`: `POST ...?dryRun=true`; `GET /api/v1/tiers`; the clusters: `GET /api/v1/clusters`; the labels and annotations: `GET /api/v1/metadata-keys` | Dry run, Submit |
+| Quotas | `qq`, `qsugOpen`, `qsugIdx`, `qapplied`, `qenv`, `qcluster`, `qtier`, `qstate`, `qsort`, `qlimit`, `qcursor`, `qstarts`, `qat`, `qexport`, `qns`, `qsize`, `qcpu`, `qmem`, `qcpuRaw`, `qmemRaw`, `qplan`, `qsent` | `quotas`: `GET /api/v1/quotas`, `:suggest`, `:export`; the detail: `GET .../namespaces/{ns}`; the change: `PATCH .../namespaces/{ns}` | Filter, sort, page, letter jump, type-ahead, export, plan, submit, protect, remove protection |
+| Expiration | `xstate`, `xenv`, `xq`, `xcursor`, `xsel`, `xact`, `xuntil`, `xsent` | `exp`: `GET /api/v1/expirations`; the change: `POST .../expiration:extend`, `:set`, `:makePermanent` | Extend, set a date, make permanent |
+| Requests | `filter`, `rq`, `rcursor` | `requests`: `GET /api/v1/requests` (with `state=`, `q=` and `cursor=`) | Open at current step, replay |
 | Approvals | `apvDone`, `apvRejecting`, `apvComment` | `apv`: approvals on `/api/v1/requests` | Approve, reject with a reason, open |
-| Policies | `pcluster`, `ppolicy` | `pol`: `GET /api/v1/policies/results`, `/rejections` | Choose cluster, choose policy |
+| Policies | `pcluster`, `ppolicy` | `pol`: `GET /api/v1/policies/results`, `GET /api/v1/policies/rejections?since=7d` | Choose cluster, choose policy |
 | Capacity | none | `groups`, `clusters`: `GET /api/v1/capacity` (live from the watch; the snapshots of #21 fill usage and history later) | None |
 | KPIs | none | `sys`, `db`, `kpis`, `dashboards`: `GET /api/v1/admin/kpi` | None |
 
@@ -315,4 +330,4 @@ Consequences in the demo build:
 Then it runs the extractor and contract tests, the style check, the type check, the two builds, the portal's suites
 (`tests/api`), the behaviour test and the parity test. The browser tests need `npx playwright install chromium`. The type
 check of the API needs `npm ci --ignore-scripts` in `tools/openapi-types`. `npm run test:mutants` breaks the portal's
-source 215 ways, one at a time, and each must fail the suite or the checks named with it.
+source 220 ways, one at a time, and each must fail the suite or the checks named with it.
