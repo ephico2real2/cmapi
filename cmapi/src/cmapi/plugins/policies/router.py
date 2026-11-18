@@ -112,7 +112,7 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
     if mode == "off":
         return unknown("mode-off", f"the mode of {env} is off: no policy is rendered for it and no report is read")
     if st.status != "connected":
-        return unknown("unreachable", f"the cluster is {st.status}: {'; '.join(st.findings)}"[:300], st.checked_at)
+        return unknown(*st.not_connected(), st.checked_at)
     if st.reports is None:
         return unknown("loading", "the report cache has not started")
     snap = st.reports.snapshot()

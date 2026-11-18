@@ -47,6 +47,7 @@ READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 INSECURE_ALLOWED = {"rnd"}
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "environment-not-served")
+NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
@@ -70,7 +71,9 @@ class ClusterState:
     cluster_id: str
     policy: ClusterPolicy | None
     status: str = "not-imported"
-    findings: list[str] = field(default_factory=list)
+    # The finding of the default status: a cluster that clusters.yaml names and no import Secret does reads the same after a
+    # start as after its Secret is deleted (#404).
+    findings: list[str] = field(default_factory=lambda: [NO_IMPORT_SECRET])
     server_version: str | None = None
     checked_at: datetime | None = None
     client: KubeClient | None = None
@@ -83,6 +86,16 @@ class ClusterState:
     @property
     def environment(self) -> str | None:
         return self.policy.environment if self.policy else None
+
+    def not_connected(self) -> tuple[str, str]:
+        """The named state and its detail for a view of this cluster's data while it is not connected (Capacity, Policies):
+        `not-imported` when no import Secret names it, so nothing was tried; else `unreachable`, with the import status of
+        GET /api/v1/clusters and its findings (#404)."""
+        state = "not-imported" if self.status == "not-imported" else "unreachable"
+        detail = f"the cluster is {self.status}"
+        if self.findings:
+            detail += f": {'; '.join(self.findings)}"
+        return state, detail[:300]
 
     def view(self) -> dict[str, Any]:
         p = self.policy
@@ -339,7 +352,7 @@ class ClusterRegistry:
         with self._lock:
             for cid, st in self.clusters.items():
                 if cid not in seen and st.status != "not-imported":
-                    st.status, st.findings = "not-imported", ["no import Secret"]
+                    st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
 
