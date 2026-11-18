@@ -25,28 +25,53 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 say() { echo "proof: $*"; }
 # Checked before anything runs: curl takes -m 0 as no limit at all, and a word only at the plan, after the probes.
 case $PLAN_SECONDS in 0*|*[!0-9]*) fail "CMAPI_PROOF_PLAN_SECONDS is a whole number of seconds above 0, not '$PLAN_SECONDS'";; esac
+# The run's start (#425): docs/13's step 23 passes the time on the first line of step 2's preflight.txt, written before any step
+# writes to the cluster or loads the Mac. A restart before it is reported and passes; one at or after it fails. Unset, every restart
+# fails, as before. Set, it must be a UTC time as the run prints it, so a lost record stops here rather than excusing anything.
+if [ -n "${CMAPI_PROOF_SINCE+set}" ]; then
+  python3 -c 'import datetime,sys; datetime.datetime.strptime(sys.argv[1],"%Y-%m-%dT%H:%M:%SZ")' "$CMAPI_PROOF_SINCE" 2>/dev/null \
+    || fail "CMAPI_PROOF_SINCE is the run's start as a UTC time, YYYY-MM-DDTHH:MM:SSZ, not '$CMAPI_PROOF_SINCE'"
+fi
 image=$(cat "$RENDERED/IMAGE"); digest=${image#*@}
 portal_image=$(cat "$RENDERED/PORTAL_IMAGE"); portal_digest=${portal_image#*@}
 
-# Admission: each workload pod under restricted-v2, started after the policy existed.
+# Admission: each workload pod under restricted-v2, Ready, started after the policy existed, and not restarted during the run.
+# A container's restart is dated by its state.running.startedAt, "the time at which the container was last (re-)started" (the Pod API):
+# it is there for every running container, where lastState can be empty and restartCount can go back to 0 after a node restart.
+# A container that is not running is not Ready, and fails on that.
 pods=$(oc_ get pods -n cmapi -o json)
 printf '%s' "$pods" | python3 -c '
-import json,sys
-want,want_portal=sys.argv[1:3]; items=json.load(sys.stdin)["items"]; bad=[]; seen=set()
+import datetime,json,sys
+want,want_portal,since=sys.argv[1:4]; items=json.load(sys.stdin)["items"]; bad=[]; seen=set()
+def at(t):
+    try: return datetime.datetime.strptime(t or "","%Y-%m-%dT%H:%M:%SZ")
+    except ValueError: return None
+start=at(since) if since else None
 for p in items:
     if p["status"].get("phase") in ("Succeeded","Failed"): continue
+    name=p["metadata"]["name"]
     comp=p["metadata"].get("labels",{}).get("app.kubernetes.io/component") or p["metadata"].get("labels",{}).get("cnpg.io/cluster","?")
     seen.add(comp); scc=p["metadata"].get("annotations",{}).get("openshift.io/scc")
-    restarts=sum(c.get("restartCount",0) for c in p["status"].get("containerStatuses",[]))
-    print("  ",p["metadata"]["name"],"scc",scc,"restarts",restarts,"uid",(p["spec"]["containers"][0].get("securityContext") or {}).get("runAsUser"))
-    if scc!="restricted-v2": bad.append(p["metadata"]["name"]+" scc "+str(scc))
-    if restarts: bad.append(p["metadata"]["name"]+" restarted")
-    if comp in ("api","worker") and not all(want in c.get("imageID","") for c in p["status"]["containerStatuses"]): bad.append(p["metadata"]["name"]+" runs another image")
-    if comp=="portal" and not all(want_portal in c.get("imageID","") for c in p["status"]["containerStatuses"]): bad.append(p["metadata"]["name"]+" runs another image than the front door'"'"'s")
+    statuses=p["status"].get("containerStatuses",[])
+    restarts=sum(c.get("restartCount",0) for c in statuses)
+    print("  ",name,"scc",scc,"restarts",restarts,"uid",(p["spec"]["containers"][0].get("securityContext") or {}).get("runAsUser"))
+    if scc!="restricted-v2": bad.append(name+" scc "+str(scc))
+    if not any(c.get("type")=="Ready" and c.get("status")=="True" for c in p["status"].get("conditions",[])): bad.append(name+" not Ready")
+    if restarts and not since: bad.append(name+" restarted")
+    for c in statuses if since else []:
+        if not c.get("restartCount",0): continue
+        running=(c.get("state") or {}).get("running") or {}; last=(c.get("lastState") or {}).get("terminated") or {}
+        said="container %s: %s restarts, last terminated %s, %s, exit %s; running since %s" % (c.get("name"),c["restartCount"],last.get("finishedAt","unrecorded"),last.get("reason","no reason recorded"),last.get("exitCode","unrecorded"),running.get("startedAt","not running"))
+        began=at(running.get("startedAt"))
+        if began is None or began>=start: bad.append(name+" restarted during the run, which began "+since+" ("+said+")")
+        else: print("   ",name,"restarted before the run, which began",since,"("+said+"): reported, not failed")
+    if comp in ("api","worker") and not all(want in c.get("imageID","") for c in p["status"]["containerStatuses"]): bad.append(name+" runs another image")
+    if comp=="portal" and not all(want_portal in c.get("imageID","") for c in p["status"]["containerStatuses"]): bad.append(name+" runs another image than the front door'"'"'s")
 missing={"api","worker","portal"}-seen
 if missing: bad.append("no pod for "+",".join(sorted(missing)))
-sys.exit("; ".join(bad) if bad else 0)' "$digest" "$portal_digest" || fail "pods"
-say "pods under restricted-v2, no restarts, api and worker on $digest, the front door on $portal_digest"
+sys.exit("; ".join(bad) if bad else 0)' "$digest" "$portal_digest" "${CMAPI_PROOF_SINCE:-}" || fail "pods"
+restarts_said="no restarts"; [ -z "${CMAPI_PROOF_SINCE:-}" ] || restarts_said="no restart since the run began at $CMAPI_PROOF_SINCE"
+say "pods under restricted-v2 and Ready, $restarts_said, api and worker on $digest, the front door on $portal_digest"
 # started_after <policy> <component...>: each pod of those components started once the policy existed; prints the policy's creation time.
 # Called in an assignment, so that its failure stops the script under set -e.
 started_after() {
