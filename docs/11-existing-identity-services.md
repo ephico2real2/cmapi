@@ -3,7 +3,7 @@
 On this CRC, cmapi uses an **existing LDAP server** and an **existing Keycloak**. It installs neither. Both serve other
 projects, so cmapi adds only what it owns, and changes nothing else on them.
 
-Checked on 2026-11-05.
+Checked on 2026-11-05. Updated on 2026-11-18 to what runs on CRC now: realm `cmapi` exists, and the 13 test users sign in through the LDAP federation (`deploy/crc-proof.sh`, lines 125 to 152; `CRC-BUILD-STATUS.md`, row "CRC", OB1 run 21).
 
 | Service | Where | cmapi adds | cmapi never touches |
 |---|---|---|---|
@@ -99,7 +99,7 @@ A dedicated GroupSync may come later. Nothing mirrors these groups into OpenShif
 
 ### What is measured, and what is not
 
-Not run on CRC: nothing in this section has been applied to the real server. [`deploy/tests/ldap-identities-test.sh`](../deploy/tests/ldap-identities-test.sh) runs the script against a real OpenLDAP of the server's image, `osixia/openldap:1.5.0`, with a stub `oc`, rules shaped as the server's ConfigMap `ldap-acls`, and the `memberOf` overlay both ways, since which way the server's is configured cannot be read from outside the pod. [`deploy/tests/realm-test.py`](../deploy/tests/realm-test.py) holds each user's token against the table on Keycloak 26.6.4, and shows that a person outside the filter cannot sign in. The server's own rules and overlay, RHBK, and `ldaps` through Keycloak's truststore are what the CRC run proves.
+The groups, the 13 users and the bind user have been applied to the real server, and `deploy/crc-rollback.sh` has removed them once, with the digest of the rest of the directory unchanged (`CRC-BUILD-STATUS.md`, bullet "Rollback"). The tests below run the same scripts against a throwaway server. [`deploy/tests/ldap-identities-test.sh`](../deploy/tests/ldap-identities-test.sh) runs the script against a real OpenLDAP of the server's image, `osixia/openldap:1.5.0`, with a stub `oc`, rules shaped as the server's ConfigMap `ldap-acls`, and the `memberOf` overlay both ways, since which way the server's is configured cannot be read from outside the pod. [`deploy/tests/realm-test.py`](../deploy/tests/realm-test.py) holds each user's token against the table on Keycloak 26.6.4, and shows that a person outside the filter cannot sign in. The server's own rules and overlay, RHBK, and `ldaps` through Keycloak's truststore are what the CRC run proves: in OB1 run 21, `deploy/crc-proof.sh` signed in the 13 test users through the federation, and each token held the groups, roles and `employee_id` of the table (`deploy/crc-proof.sh`, lines 125 to 152).
 
 The previous groups' numbers, for the record, from 2026-11-05: 43 groups before and 53 after, the hash of every other group's name and members `f99c22d9fa25` before and after, a second run rc 0, and 0 OpenShift groups named `cmapi*`.
 
@@ -112,8 +112,7 @@ credential. [`examples/cmapi-sso/ldap/apply-bind-user.sh`](../examples/cmapi-sso
 with the measurements): `cn=cmapi-ldap-bind,ou=TrustedApplications,dc=ephico2real,dc=com` read `ou=People` and the ten
 old `cmapi-*` groups, saw no password hash, cannot read `ou=TrustedApplications`, and a write fails (exit 50); the server's rules
 are still five, two of them extended by the one `by dn=... read` line. Secret `cmapi-ldap-bind` (`bindDN`, `password`) is in
-namespaces `cmapi` and `keycloak`. **Keycloak federating through this user is unproven**: no realm has been imported yet, and
-no login through the federation has been tested. The script is tracked as executable since #86 (it was `100644`, so running
+namespaces `cmapi` and `keycloak`. Keycloak federating through this user is proven on CRC since OB1 run 21: realm `cmapi` is imported, and `deploy/crc-proof.sh` signs in each of the 13 test users through the federation (lines 125 to 152). The script is tracked as executable since #86 (it was `100644`, so running
 it by its path failed with rc 126; `sh <path>` worked).
 
 The server's rules are exhaustive, so a user they do not name gets "No such object (32)", which looks like missing data. The
@@ -153,5 +152,4 @@ above and on this design's own numbers. Revisit it if several applications come 
 
 ## Not covered here
 
-The runbook that creates realm `cmapi` is [`docs/13-crc-deployment.md`](13-crc-deployment.md). It has not been run yet, so the
-realm does not exist yet; `CRC-BUILD-STATUS.md` is the deployment record and `docs/08-code-status.md` says what the code holds.
+The runbook that creates realm `cmapi` is [`docs/13-crc-deployment.md`](13-crc-deployment.md). It has run on CRC, and the realm exists there. `CRC-BUILD-STATUS.md` is the deployment record and `docs/08-code-status.md` says what the code holds.
