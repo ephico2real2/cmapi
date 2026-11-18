@@ -35,6 +35,9 @@
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|331-331": [
+  "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-338": [
   "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
   "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")"
@@ -491,6 +494,12 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
   "            employee_id=claims.get(\"employee_id\"),"
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|123-123": [
+  "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|939-939": [
+  "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|124-126": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
@@ -590,6 +599,9 @@
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|173-173": [
   "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|178-178": [
+  "                  actor_is_operator=c.cfg.roles.is_operator(who, row.env))"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|193-193": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
