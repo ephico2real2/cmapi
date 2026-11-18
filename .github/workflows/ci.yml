@@ -48,6 +48,8 @@ jobs:
           CMAPI_REQUIRE_KYVERNO: "1"
           CMAPI_REQUIRE_NODE: "1"
           CMAPI_REQUIRE_GO: "1"
+          # tests/core/test_containerfile_args_388.py builds the Containerfiles' ARG and ENV lines on scratch (#388).
+          CMAPI_REQUIRE_CONTAINER_ENGINE: "1"
         run: python -m pytest tests -q
 
   service:
