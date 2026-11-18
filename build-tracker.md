@@ -19,7 +19,32 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-18, 07:00Z
+## Current: 2026-11-18, 18:00Z
+
+`main` is `721cb64`. CRC runs `721cb64` (OB1 run 24), but its proofs stopped at step 23 on a restart from before the run
+(#425, fix in PR #426). kind is down until run 24 resumes.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Portal CI flakes: the settle wait, the Quotas pager | #347, #392, #312, #317 | Merged #406 | CI; 0 of 50 under throttle; review OB3 (1 fix) |
+| Story #302 (Expiration, Policies, Capacity) | #302 | **Closed** by the owner | Proof comment on #302 |
+| Figures light theme only (docs) | — | Merged #408 | CI |
+| Caches read once | #402 | Merged #409 | CI; review OB3 (1 fix) |
+| The not-imported state | #404 | Merged #411 | CI; review OB3 |
+| Kyverno pin, exact match | #395 | Merged #412 | CI; review OB3; CRC run 24 (env and binary v1.20.0) |
+| Docs: contract, payloads, components (Sonnet 5.5 writers) | #413 | Merged #414, #415, #416 | CI; OB3 fact-check (17 statements corrected) |
+| One bad cluster answer stops discovery | #419 | Merged #422 | CI; review OB3 (4 fixes) |
+| SEC: the token in cluster findings | #420 | Merged #423 | CI; review OB3 (no findings) |
+| Swagger required fields per instance | #350 | Live on CRC | Run 24 check 5: `required` equals the config |
+| The proof fails on a restart from before the run | #425 | PR #426, in CI | None |
+| diagram-kit: contracts first in /app-architect | — | diagram-kit #64, refreshed, **waiting for the owner's merge** | CI |
+| diagram-kit: light-theme diagrams only | — | diagram-kit #72, **waiting for the owner's merge** | CI |
+| Disk cleanup (owner's rules) | — | Done: free 97 → 135 GiB | `workbench/cmapi/cleanup-2026-11-18/` |
+
+Filed today and open: #396, #397, #398, #403, #407, #410, #417, #418, #421, #424, #425. The fstrim of the cleanup restarted
+cmapi-db-1, cmapi-portal and Kyverno's controllers (not Keycloak): recorded on #157.
+
+## Previous: 2026-11-18, 07:00Z
 
 CRC runs `1537977` (OB1 run 23). All nine portal tabs are on the API.
 
@@ -34,7 +59,7 @@ CRC runs `1537977` (OB1 run 23). All nine portal tabs are on the API.
 
 Filed 2026-11-18: #392, #395 to #398, #402 to #404.
 
-## Previous: 2026-11-18
+## Earlier: 2026-11-18
 
 The plan is in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-18". CRC runs `6565d9d` (OB1 run 21).
 

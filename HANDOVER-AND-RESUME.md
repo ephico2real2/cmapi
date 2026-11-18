@@ -4,7 +4,28 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-18, 07:00Z
+## Resume here: 2026-11-18, 18:00Z
+
+Read this, then the 07:00Z section below it. Sections 4, 6 to 10 of 2026-11-16 still hold.
+
+| Item | State |
+|---|---|
+| `main` | `721cb64` (PR #423) |
+| CRC | Runs `721cb64` (OB1 run 24, `workbench/cmapi/ob1-run24/`). Steps through 22 passed; **step 23 stopped** on `cmapi-db-1` restarted at 15:44:56Z, before the run, caused by the cleanup's fstrim (#157). The stop file is in place, the step-13 backup is kept, and steps 24 and 25 are not run. The owner chose: fix the proof (#425, PR #426), then resume from step 12 |
+| kind | **Down** (down.sh ran in run 24). `up.sh` after step 24 re-imports it and renews the 7-day token |
+| Portal | All nine tabs on the API; story #302 closed by the owner |
+| diagram-kit | #64 (contracts first) and #72 (light only): CI green, the owner merges |
+
+**Next, in order:** review and merge #426; resume run 24 from step 12 (new watch), then 22, 23, the live checks (Quotas
+pager, Capacity, Policies, clusters, Swagger), 24, `up.sh`, 25. Then the open defects (#396, #397, #398, #403, #407, #410,
+#417, #418, #421, #424) and the #413 leftovers (docs/08 section 4, a not-imported sample, figures #418 and #209).
+
+**Lessons recorded today:**
+- A merge waiter checks every check passed and pins the reviewed head.
+- fstrim of the Podman VM is heavy load for CRC (#157).
+- Agents run local tests only through `suite.sh`, never whole suites.
+
+## Resume here: 2026-11-18, 07:00Z (superseded by the section above)
 
 Start the next session as section 1 of the 2026-11-16 state says, then read this section, then the earlier 2026-11-18
 section below it, then "State on 2026-11-17". Sections 4, 6 to 10 of 2026-11-16 still hold.
