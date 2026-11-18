@@ -175,7 +175,9 @@ def cases(guard):
     # preflight
     save(base_state())
     yield "preflight passes", run(guard, "preflight", "--needs", "768", STUB_KIND="").returncode == 0
-    yield "preflight stops on a kind cluster", run(guard, "preflight", STUB_KIND="cmapi-test").returncode == 1
+    r = run(guard, "preflight", STUB_KIND="cmapi-test")
+    yield "preflight stops on a kind cluster", r.returncode == 1
+    yield "and names the way out, deploy/kind-import/down.sh", "deploy/kind-import/down.sh" in r.stdout + r.stderr
     s = base_state(); s["server"] = "https://127.0.0.1:6443"; save(s)
     yield "preflight stops on another cluster", run(guard, "preflight", STUB_KIND="").returncode == 1
     for user in ("kube:admin", "kubeadmin"):

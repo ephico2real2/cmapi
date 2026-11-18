@@ -279,7 +279,10 @@ def test_crc_writes_through_github_and_apply_delivery():
     clusters = yaml.safe_load(config_file("crc", "clusters.yaml"))["clusters"]
     instance = yaml.safe_load(config_file("crc", "instance.yaml"))["instance"]
     assert integrations["delivery"]["mode"] == "apply"
-    assert list(clusters) == ["CRC"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
+    assert list(clusters) == ["CRC", "KIND_CMAPI_TEST"] and clusters["CRC"]["writes"] is True and "delivery" not in clusters["CRC"]
+    # The kind cluster on the same Mac is read only: no GitOps and no Argo CD there, so cmapi must never deliver to it.
+    assert clusters["KIND_CMAPI_TEST"] == {"environment": "rnd", "gitopsPath": "clusters/KIND_CMAPI_TEST", "labels": {"region": "us-central"},
+                                           "writes": False}
     # The Git layer over SSH with the bot account's key (docs/19), the token for the PR alone, host CI off (#286).
     assert instance["git"] == {"repository": "ephico2real2/cmapi-cluster-configs", "webUrl": "https://github.com",
                                "url": "git@github.com:ephico2real2/cmapi-cluster-configs.git", "username": "cmapi-git-bot",
@@ -709,6 +712,13 @@ def test_the_services_and_the_policies_are_the_charts(chart):
     for kind, name in (("Service", "cmapi-portal"), ("Service", "cmapi-api-pods"), ("NetworkPolicy", "cmapi-metrics"), ("NetworkPolicy", "cmapi-front-door")):
         plain = next(d for d in docs() if d["kind"] == kind and d["metadata"]["name"] == name)
         assert plain["spec"] == charts(chart, kind, name)["spec"], f"{kind}/{name}"
+
+
+def test_crc_clusters_are_the_charts(chart):
+    """The registry's policy is one list on both paths: a cluster added to the plain ConfigMap and not to deploy/environments/crc.yaml would
+    vanish on a chart release, and the other way round."""
+    ours = yaml.safe_load(charts(chart, "ConfigMap", "cmapi-config")["data"]["clusters.yaml"])
+    assert ours == yaml.safe_load(config_file("crc", "clusters.yaml"))
 
 
 def test_crc_routes_are_the_charts(chart):

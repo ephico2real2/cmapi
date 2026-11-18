@@ -132,3 +132,20 @@ def test_the_cluster_the_config_names_is_the_one_the_reader_import_names(crc):
     client, _, bot, *_ = crc
     assert re.search(r'"cmapi.net/cluster-id":"CRC"', (ROOT / "deploy/crc-reader-import.sh").read_text())
     assert client.get("/api/v1/clusters", headers=bot).json()["items"][0]["clusterId"] == "CRC"
+
+
+def test_the_kind_cluster_is_rnd_and_never_written(crc):
+    """KIND_CMAPI_TEST, the kind cluster on the same Mac (docs/13, "A second cluster: kind"), is served in rnd and read only: a plan or a
+    request on it is refused with 422 cluster-not-writable before anything is planned, so no branch, no PR, no request and no apply."""
+    client, ctx, bot, git, kube, _ = crc
+    kind = next(c for c in client.get("/api/v1/clusters", headers=bot).json()["items"] if c["clusterId"] == "KIND_CMAPI_TEST")
+    assert (kind["environment"], kind["writes"], kind["gitopsPath"]) == ("rnd", False, "clusters/KIND_CMAPI_TEST")
+    assert kind["status"] == "not-imported", "this test imports CRC alone"
+    path, body = proof_request()
+    path = path.replace("/clusters/CRC/", "/clusters/KIND_CMAPI_TEST/")
+    for url, extra in ((path, {}), (path.split("?")[0], {"Idempotency-Key": str(uuid.uuid4())})):
+        r = client.post(url, content=body, headers={**bot, "Content-Type": "application/json", **extra})
+        assert r.status_code == 422 and r.json()["type"].endswith("/cluster-not-writable"), r.text
+        assert "writes are off for KIND_CMAPI_TEST" in r.json()["detail"], r.text
+    assert git.prs == {} and set(git.branches) == {"main"} and not kube.applied
+    assert client.get("/api/v1/requests", headers=bot).json()["page"]["total"] == 0

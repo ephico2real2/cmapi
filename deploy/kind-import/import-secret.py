@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""deploy/kind-import/import-secret.py: reads a TokenRequest token on stdin and prints the import Secret of docs/02's contract as JSON on
+stdout, for `oc apply -f -` (docs/02, "How the connection reaches the hub"). up.sh is its one caller.
+The token goes from kubectl to oc through pipes only: never an argument, a file or a log line. Prints nothing else.
+Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE | oc apply --server-side -f -"""
+import base64, datetime, json, re, sys
+
+cluster_id, api_url, ca_file = sys.argv[1:4]
+if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,62}", cluster_id):
+    sys.exit(f"cluster id {cluster_id!r} is not ^[A-Z][A-Z0-9_]{{1,62}}$ (docs/02 ClusterId)")
+token = sys.stdin.read().strip()
+if token.count(".") != 2:
+    sys.exit("stdin is not a JWT")
+payload = token.split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+if claims.get("sub") != "system:serviceaccount:cmapi-system:cmapi-reader":
+    sys.exit(f"token subject is {claims.get('sub')!r}, not cmapi-system:cmapi-reader")
+expires = datetime.datetime.fromtimestamp(claims["exp"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+ca = open(ca_file).read()
+b64 = lambda s: base64.b64encode(s.encode()).decode()
+print(json.dumps({
+    "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+    "metadata": {
+        "name": "cmapi-cluster-" + cluster_id.lower().replace("_", "-"), "namespace": "cmapi-imports",
+        "labels": {"cmapi.net/secret-type": "cluster", "cmapi.net/cluster-id": cluster_id, "app.kubernetes.io/part-of": "cmapi"},
+        "annotations": {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": expires}},
+    "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false")}}))
+rotate = datetime.datetime.fromtimestamp(claims["iat"] + 0.8 * (claims["exp"] - claims["iat"]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+print(f"import Secret for {cluster_id}: the token expires {expires}; rewrite it (up.sh again) by {rotate}, 80% of its life", file=sys.stderr)

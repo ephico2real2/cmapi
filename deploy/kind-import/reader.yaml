@@ -1,0 +1,47 @@
+# The baseline's part on the kind cluster cmapi-test, applied by deploy/kind-import/up.sh: the reader of deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml,
+# rule for rule, plus nodes get/list/watch (the owner's grant, 2026-11-18). No long-lived token Secret: the import carries a
+# TokenRequest token with a 7-day lifetime (docs/02, "Tokens are bounded and rotated by the writer").
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmapi-system
+  labels: {app.kubernetes.io/part-of: cmapi}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cmapi-reader
+  namespace: cmapi-system
+  labels: {app.kubernetes.io/part-of: cmapi}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cmapi-reader
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
+    resources: [pods, persistentvolumeclaims]
+    verbs: [list]
+  - apiGroups: [""]                      # the owner's grant of 2026-11-18: the import check's zones, capacity
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, for the Policies tab (#302); Kyverno is not on this cluster
+    resources: [policyreports, clusterpolicyreports]
+    verbs: [get, list, watch]
+  - apiGroups: [policies.kyverno.io]
+    resources: [validatingpolicies]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cmapi-reader
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}

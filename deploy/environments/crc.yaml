@@ -65,6 +65,12 @@ clusters:
     writes: true
     labels: {region: us-central}
     simulatedCapacity: {cpu: 64, memory: 256Gi}
+  # The kind cluster cmapi-test on the same Mac, imported read-only (docs/13, "A second cluster: kind"): no GitOps, no Argo CD.
+  KIND_CMAPI_TEST:
+    environment: rnd
+    gitopsPath: clusters/KIND_CMAPI_TEST
+    writes: false
+    labels: {region: us-central}
 
 delivery:
   mode: argocd                      # the design's delivery (#63): Argo CD applies merged folders, cmapi only reads

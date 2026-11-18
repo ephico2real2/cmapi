@@ -36,7 +36,10 @@ data:
       docs: {"enabled":true}
       problems: {"typeBase":"https://cmapi.apps-crc.testing/problems/"}
   clusters.yaml: |
-    clusters: {"CRC":{"environment":"dev","gitopsPath":"clusters/CRC","labels":{"region":"us-central"},"simulatedCapacity":{"cpu":64,"memory":"256Gi"},"writes":true}}
+    # KIND_CMAPI_TEST: the long-lived kind cluster cmapi-test on the same Mac, imported through Secret cmapi-imports/cmapi-cluster-kind-cmapi-test
+    # (docs/02, "Cluster connections and auto-import"; docs/13, "A second cluster: kind"). writes: false, because it has no GitOps folder and no
+    # Argo CD, and delivery here is apply on the hub: cmapi reads it and never delivers to it (422 cluster-not-writable).
+    clusters: {"CRC":{"environment":"dev","gitopsPath":"clusters/CRC","labels":{"region":"us-central"},"simulatedCapacity":{"cpu":64,"memory":"256Gi"},"writes":true},"KIND_CMAPI_TEST":{"environment":"rnd","gitopsPath":"clusters/KIND_CMAPI_TEST","labels":{"region":"us-central"},"writes":false}}
   integrations.yaml: |
     delivery:
       mode: apply
