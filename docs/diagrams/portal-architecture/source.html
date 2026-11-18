@@ -72,7 +72,7 @@ a { color: var(--remote); }
       <div class="fig-scroll">
         <!-- Three lanes: the portal, cmapi's own parts, and what cmapi uses but does not own. Solid = built or
              existing; dashed = not built or not installed for cmapi. Every dashed arrow is labelled. -->
-        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity, 8 worker jobs and the routes for capacity are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
+        <svg viewBox="0 0 1100 884" role="img" aria-label="cmapi today is built code that runs on no cluster. The API with 31 operations, the worker with 7 jobs and the PostgreSQL database through CloudNativePG are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. cmapi-capacity with its snapshots, 8 worker jobs and the routes for placement are not built. Argo CD is not installed for cmapi, no cluster is registered and no Git host is connected.">
           <defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="200" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -154,8 +154,8 @@ a { color: var(--remote); }
             <text x="514" y="359">me, readyz, version</text>
             <rect x="312" y="378" width="376" height="58" rx="6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
             <text x="322" y="397"><tspan font-weight="600">Not built:</tspan> one namespace's expiry read,</text>
-            <text x="322" y="413">capacity, placement, metadata, operations,</text>
-            <text x="322" y="429">service accounts, grants, tokens, webhooks</text>
+            <text x="322" y="413">capacity snapshots, placement, metadata,</text>
+            <text x="322" y="429">operations, service accounts, grants, tokens, webhooks</text>
             <rect x="300" y="474" width="190" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="312" y="495" font-weight="600">PostgreSQL 16</text>
             <text x="312" y="512">through CloudNativePG</text>
@@ -700,7 +700,7 @@ a { color: var(--remote); }
       <div class="fig-scroll">
         <!-- Left: each action of the mockup, in its tab. Middle: the call it would make, solid when the endpoint is in
              openapi.json. Right: the service and worker part behind the call. A grey box is an action with no call. -->
-        <svg viewBox="0 0 1100 1107" role="img" aria-label="Of the calls that the Expiration, Policies, Capacity and KPIs tabs would make, five endpoints are built: the expiration list, its extend, set and make permanent, and GET /admin/kpi. Five are not built: the expiry read of one namespace, the three policy reads, and GET /capacity. No call happens today, because the portal runs on sample data.">
+        <svg viewBox="0 0 1100 1107" role="img" aria-label="Of the calls that the Expiration, Policies, Capacity and KPIs tabs make, eight endpoints are built: the expiration list, its extend, set and make permanent, the two policy reads, GET /capacity and GET /admin/kpi. The expiry read of one namespace is not built. No call happens today, because the portal runs on sample data.">
           <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="272" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -840,15 +840,15 @@ a { color: var(--remote); }
             <text x="34" y="806" font-weight="600" fill="var(--host)">Capacity tab</text>
             <rect x="30" y="835" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="40" y="851.5">Open the tab</text>
-            <rect x="376" y="816" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="376" y="816" width="356" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="388" y="837" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">GET /capacity</text>
-            <text x="388" y="854">not in openapi.json</text>
-            <text x="388" y="870" fill="var(--muted)">groups and clusters, from snapshots</text>
+            <text x="388" y="854">in openapi.json · groups and clusters</text>
+            <text x="388" y="870" fill="var(--muted)">strong ETag: read again on focus, 304</text>
             <text x="337" y="841" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
-            <rect x="802" y="816" width="278" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
-            <text x="814" y="837" font-weight="600">Capacity gateway, cmapi-capacity</text>
-            <text x="814" y="854">reads snapshots made from Thanos</text>
-            <text x="814" y="870" fill="var(--muted)">not built</text>
+            <rect x="802" y="816" width="278" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="814" y="837" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">plugins/capacity</text>
+            <text x="814" y="854">quota ledger and node watch</text>
+            <text x="814" y="870" fill="var(--muted)">snapshots (#21): not built</text>
             <text x="765" y="841" text-anchor="middle" font-size="11" fill="var(--muted)">proposed</text>
             <text x="34" y="924" font-weight="600" fill="var(--host)">KPIs tab</text>
             <rect x="30" y="953" width="252" height="24" rx="5" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1" stroke-dasharray="4 3"/>
@@ -868,7 +868,7 @@ a { color: var(--remote); }
           </g>
         </svg>
       </div>
-      <figcaption>These four tabs have the least behind them. The expiration list, extend, set and make permanent are built (#318): the writes are normal namespace changes. The KPI endpoint is built, but it returns four database KPIs and one component, not the board that the mockup shows. The expiry read of one namespace, the policy reads and the capacity read are not built.</figcaption>
+      <figcaption>These four tabs have the least behind them. The expiration list, extend, set and make permanent are built (#318): the writes are normal namespace changes. The KPI endpoint is built, but it returns four database KPIs and one component, not the board that the mockup shows. The policy reads (#302) and the capacity read (#302) are built; the capacity read is live from each cluster's watch of its quotas and nodes, and the snapshots that would give usage and history (cmapi-capacity, #21) are not built. The expiry read of one namespace is not built.</figcaption>
     </figure>
   </section>
 </div>

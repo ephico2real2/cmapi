@@ -1,0 +1,8 @@
+== main e48dbb4
+one namespace, quotas of 8 and 2 cores: fits, fresh=True, cpu 0.078, memory 0.0
+one namespace, 8 cores and a BestEffort-scoped 120: warn, fresh=True, cpu 1.0, memory 0.0
+CRC's six quotas (72 cores, 144Gi), one per namespace: fits, fresh=True, cpu 0.562, memory 0.45
+== this branch
+one namespace, quotas of 8 and 2 cores: fits, fresh=True, cpu 0.016, memory 0.0
+one namespace, 8 cores and a BestEffort-scoped 120: fits, fresh=True, cpu 0.062, memory 0.0
+CRC's six quotas (72 cores, 144Gi), one per namespace: fits, fresh=True, cpu 0.562, memory 0.45

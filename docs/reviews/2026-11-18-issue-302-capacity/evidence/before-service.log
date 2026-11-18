@@ -1,0 +1,37 @@
+
+==================================== ERRORS ====================================
+__________ ERROR collecting tests/service/test_capacity_ledger_302.py __________
+ImportError while importing test module '/private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/f7ded52b-75f6-4c7e-b4dc-532bcd598fb3/scratchpad/main-e48/cmapi/tests/service/test_capacity_ledger_302.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/service/test_capacity_ledger_302.py:13: in <module>
+    from cmapi.core.capacity import CapacitySettings, group_figures, level, resource_figures
+E   ModuleNotFoundError: No module named 'cmapi.core.capacity'
+_____________ ERROR collecting tests/service/test_capacity_302.py ______________
+ImportError while importing test module '/private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/f7ded52b-75f6-4c7e-b4dc-532bcd598fb3/scratchpad/main-e48/cmapi/tests/service/test_capacity_302.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/service/test_capacity_302.py:15: in <module>
+    from cmapi.core.capacity_ledger import CapacityLedger
+E   ModuleNotFoundError: No module named 'cmapi.core.capacity_ledger'
+__________ ERROR collecting tests/service/test_capacity_scale_302.py ___________
+ImportError while importing test module '/private/tmp/claude-501/-Users-olasumbo-gitRepos-cmapi-design/f7ded52b-75f6-4c7e-b4dc-532bcd598fb3/scratchpad/main-e48/cmapi/tests/service/test_capacity_scale_302.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/service/test_capacity_scale_302.py:13: in <module>
+    from test_capacity_302 import URL, VIEWER, crc
+tests/service/test_capacity_302.py:15: in <module>
+    from cmapi.core.capacity_ledger import CapacityLedger
+E   ModuleNotFoundError: No module named 'cmapi.core.capacity_ledger'
+=========================== short test summary info ============================
+ERROR tests/service/test_capacity_ledger_302.py
+ERROR tests/service/test_capacity_302.py
+ERROR tests/service/test_capacity_scale_302.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+3 errors in 1.36s

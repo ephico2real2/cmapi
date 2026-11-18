@@ -1,0 +1,24 @@
+ok   01 the plan's check uses stale figures as fresh (fresh=True restored) - killed: 2 failed, 95 passed in 56.89s
+ok   02 an unknown commitment is 0 in the API - killed: 3 failed, 94 passed in 53.11s
+ok   03 a group averages its clusters' ratios - killed: 2 failed, 95 passed in 50.22s
+ok   04 headroom is not floored per cluster - killed: 2 failed, 95 passed in 47.11s
+ok   05 the largest placement is the group's sum - killed: 2 failed, 95 passed in 45.41s
+ok   06 a group's status is its best cluster's - killed: 1 failed, 96 passed in 46.38s
+ok   07 an excluded cluster is summed into its group - killed: 6 failed, 91 passed in 46.72s
+ok   08 the environment filter is dropped - killed: 1 failed, 96 passed in 46.95s
+ok   09 the overcommit is ignored - killed: 7 failed, 90 passed in 46.51s
+ok   10 the ETag is over a body with the read's seconds - killed: 2 failed, 95 passed in 45.92s
+ok   11 scoped quotas are counted - killed: 1 failed, 96 passed in 45.29s
+ok   12 a namespace commits its largest quota, not its smallest - killed: 3 failed, 94 passed in 47.61s
+ok   13 a quota that leaves the cache keeps its share - killed: 41 failed, 56 passed in 71.35s (0:01:11)
+ok   14 a node with a NoSchedule taint counts - killed: 1 failed, 96 passed in 99.06s (0:01:39)
+14 mutants, 14 killed, 0 survived. Source restored: yes
+cmapi/src/cmapi/contract/samples.json    | 685 +++++++++++++++++++------------
+ cmapi/src/cmapi/core/capacity_backend.py | 102 +++--
+ cmapi/src/cmapi/core/clients/kube.py     |  31 +-
+ cmapi/src/cmapi/core/context.py          |  22 +-
+ cmapi/src/cmapi/core/models.py           | 174 ++++++++
+ cmapi/src/cmapi/core/plugins.py          |   1 +
+ cmapi/src/cmapi/core/registry.py         |  28 +-
+ 7 files changed, 707 insertions(+), 336 deletions(-)
+rc=0

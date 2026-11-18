@@ -1,0 +1,21 @@
+ok   302 Capacity: an unknown commitment draws a 0 % bar - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: over 100 % reads as 100 % - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: the bar of a critical cluster has no tone - killed: AssertionError [ERR_ASSERTION]: a null draws no meter (no aria-valuenow); over 100 % is a full danger bar with its own figure + actual - expected
+ok   302 Capacity: the simulated size is not said - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: memory in G, not Gi - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: the memory placement is the CPU cluster's - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: a negative headroom reads as room - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: a stale cluster is not marked - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: the group pill counts every cluster - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: a cluster's Bound by is always cpu - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: the footnote's overcommit is a constant - killed: Timeout 8000ms exceeded.
+ok   302 Capacity: a left-out cluster is not named - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: the Capacity tab shows without capacity:read - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   302 Capacity: Capacity's Try again is connected to nothing - killed: Timeout 8000ms exceeded.
+ok   302 Capacity: capacity is not read again on focus - killed: AssertionError [ERR_ASSERTION]: a read on focus: the calls were [{"method":"GET","path":"/api/v1/capacity","query":{},"user":"ola","cookie":null,"orig
+ok   302 Capacity: a changed Capacity heading - killed: AssertionError [ERR_ASSERTION]: the mockup's heading + actual - expected
+ok   302 Capacity: an invented sentence on the Capacity tab - killed: AssertionError [ERR_ASSERTION]: Capacity: no string that the mockup does not have + actual - expected
+17 mutants, 17 killed, 0 survived. The source is restored and the portal is built again.
+rc=0
+ok   302 Capacity: the hidden clusters are not said - killed: Timeout 8000ms exceeded.
+1 mutants, 1 killed, 0 survived. The source is restored and the portal is built again.
