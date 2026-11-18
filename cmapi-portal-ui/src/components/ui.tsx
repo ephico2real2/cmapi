@@ -187,11 +187,12 @@ export function Hint({ id, children }: { id?: string; children: ReactNode }) {
   return <FormHelperText><HelperText><HelperTextItem id={id}>{children}</HelperTextItem></HelperText></FormHelperText>;
 }
 
-// A blank column heading stays blank on screen, as in the mockup; blank names it for a screen reader.
-export function DataTable<T>({ label, cols, rows, cells, selected, blank = "Action" }: { label: string; cols: string[]; rows: T[]; cells: (row: T) => ReactNode[]; selected?: (row: T) => boolean; blank?: string }) {
+// A blank column heading stays blank on screen, as in the mockup; blank names it for a screen reader. busy marks rows that are
+// the last answer's, kept on screen while the next answer loads (WAI-ARIA 1.2 aria-busy: the element is being updated).
+export function DataTable<T>({ label, cols, rows, cells, selected, blank = "Action", busy = false }: { label: string; cols: string[]; rows: T[]; cells: (row: T) => ReactNode[]; selected?: (row: T) => boolean; blank?: string; busy?: boolean }) {
   return (
     <InnerScrollContainer>
-      <Table aria-label={label} variant="compact" gridBreakPoint="grid-md">
+      <Table aria-label={label} aria-busy={busy || undefined} variant="compact" gridBreakPoint="grid-md">
         <Thead>
           <Tr>{cols.map((c, i) => (c ? <Th key={i} modifier="nowrap">{c}</Th> : <Th key={i} screenReaderText={blank} />))}</Tr>
         </Thead>

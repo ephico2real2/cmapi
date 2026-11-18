@@ -326,15 +326,22 @@ export function useReject(): Outcome<ChangeRequest> & { reject: (requestId: stri
   return { ...outcomeOf(mutation), reject: (requestId, comment) => send({ requestId, comment }) };
 }
 
+/**
+ * A page of GET /api/v1/quotas with the query that asked for it. The API's page does not say its sort, and while the next
+ * page loads Query shows this one in its place (keepPreviousData), so what the page says of its rows comes from `asked`,
+ * never from the query just sent (#392).
+ */
+export type AskedQuotaPage = QuotaPage & { asked: QuotasQuery };
+
 /** GET /api/v1/quotas: one query for each page, with its filters, its sort and its cursor as the key. */
-export function useQuotas(params: QuotasQuery): Result<QuotaPage> & { reload: () => void } {
+export function useQuotas(params: QuotasQuery): Result<AskedQuotaPage> & { reload: () => void } {
   const api = useApi();
   const query = useQuery({
     queryKey: ["quotas", params],
     queryFn: async ({ signal }) => {
       const { data, error, response } = await api.GET("/api/v1/quotas", { params: { query: params }, signal });
       if (!data) throw problemOf(response, error);
-      return data;
+      return { ...data, asked: params };
     },
     // The rows of the last page stay while the next page loads.
     placeholderData: keepPreviousData

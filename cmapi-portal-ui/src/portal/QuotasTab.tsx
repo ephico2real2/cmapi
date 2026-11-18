@@ -157,6 +157,8 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
   }
 
   const page = result.state === "ok" ? result.data : null;
+  // The sort of the rows on screen: while the next sort loads they are still the last answer's (#392).
+  const shownSort = pick<Sort>(page?.asked.sort ?? null, SORTS.map(([id]) => id), "name");
   const facets = page?.facets ?? {};
   const attention: Choice[] = [
     { label: "All", n: state ? (unstated.state === "ok" ? String(unstated.data.page.total) : "…") : page ? String(page.page.total) : "…", on: !state, pick: () => apply({ state: "" }) },
@@ -169,8 +171,8 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
   const tierOpts = [chip(tier, "", "All", "tier"), ...tierNames(catalog.state === "ok" ? catalog.data : null).map((t) => chip(tier, t, t, "tier"))];
   const sortOpts = SORTS.map(([id, label]) => chip(sort, id, label, "sort"));
   // A new page size keeps the first namespace of the page in view where the API can place a page: by name (startsWith).
-  const sizeOpts = LIMITS.map((n) => ({ label: String(n), on: limit === n, pick: () => apply({ limit: String(n) }, sort === "name" && page?.items[0] ? page.items[0].name : null) }));
-  const firstOnPage = page?.items[0]?.name.charAt(0) ?? "";
+  const sizeOpts = LIMITS.map((n) => ({ label: String(n), on: limit === n, pick: () => apply({ limit: String(n) }, sort === "name" && shownSort === "name" && page?.items[0] ? page.items[0].name : null) }));
+  const firstOnPage = shownSort === "name" ? page?.items[0]?.name.charAt(0) ?? "" : "";
 
   // The call that this page sent, as the mockup's pager shows it. A cursor is cut: it is long, and it is not for reading.
   const sent = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, k === "cursor" ? `${String(v).slice(0, 10)}…` : String(v)]));
@@ -188,7 +190,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
   lastShown.current = shown;
   const range = page
     ? page.page.total
-      ? `${page.page.from}–${page.page.to} of ${page.page.total}${inScope !== null && page.page.total !== inScope ? ` (filtered from ${inScope})` : ""} · ${SORTS.find(([id]) => id === sort)![2]}`
+      ? `${page.page.from}–${page.page.to} of ${page.page.total}${inScope !== null && page.page.total !== inScope ? ` (filtered from ${inScope})` : ""} · ${SORTS.find(([id]) => id === shownSort)![2]}`
       : "0 namespaces"
     : "";
   const pager = (text: string) => page && (
@@ -223,7 +225,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
           {LETTERS.map((l) => {
             const n = page?.letters[l.toUpperCase()] ?? 0;
             return (
-              <Button key={l} variant={n && sort === "name" && firstOnPage === l ? "primary" : "tertiary"} size="sm" isAriaDisabled={!n}
+              <Button key={l} variant={n && firstOnPage === l ? "primary" : "tertiary"} size="sm" isAriaDisabled={!n}
                 aria-label={`${l.toUpperCase()}: ${n} namespace${n === 1 ? "" : "s"}`} onClick={() => n && apply({ sort: "name" }, l)}>
                 {l}
               </Button>
@@ -253,6 +255,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
               label="Quotas"
               cols={["Namespace", "Cluster", "Env", "Tier", "CPU requests", "Memory requests", "Pods", "Attention", ""]}
               rows={items}
+              busy={result.state === "ok" && result.refreshing}
               selected={(r) => shown !== null && keyOf(r) === keyOf(shown)}
               cells={(r) => {
                 const s = sizesOf(r);
