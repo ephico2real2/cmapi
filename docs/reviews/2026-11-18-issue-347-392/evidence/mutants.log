@@ -1,0 +1,10 @@
+ok   392: the pager says the sort asked for, not the sort of the rows shown - killed: AssertionError [ERR_ASSERTION]: the pager says the order of the rows shown at file://cmapi-portal-
+ok   392: the table is not busy while it shows the last answer's rows - killed: Timeout 8000ms exceeded.
+2 mutants, 2 killed, 0 survived. The source is restored and the portal is built again.
+FAIL 347: a tab bar transition outlives the read - SURVIVED
+ok   347: a theme colour transition outlives the read - killed: did not end in 5 s
+2 mutants, 1 killed, 1 survived. The source is restored and the portal is built again.
+ok   the page size loses the first namespace - killed: AssertionError [ERR_ASSERTION]: the page's call: {"limit":"25","startsWith":"accounts-api-dev"} was not sent; the calls were [{"limit":"50"},{"limit":
+1 mutants, 1 killed, 0 survived. The source is restored and the portal is built again.
+ok   347: a tab bar transition outlives the read - killed: did not end in 5 s
+1 mutants, 1 killed, 0 survived. The source is restored and the portal is built again.
