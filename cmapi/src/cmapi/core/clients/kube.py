@@ -52,8 +52,23 @@ def resource_path(kind: str, namespace: str | None = None) -> str:
     return path
 
 
+_JSON_TYPES = {list: "array", str: "string", int: "number", float: "number", bool: "boolean", type(None): "null"}
+
+
 class ClusterUnreachable(RuntimeError):
     pass
+
+
+class BadResponse(ValueError):
+    """An answer of the cluster that the client cannot read: a body that is not JSON, JSON that is not an object, or an
+    object without a field the call needs. docs/02 "Client rules" names the outcome bad-response (#419).
+
+    A ValueError, as json's own decode error is, so every loop that already retries on a ValueError (`WatchCache._loop`,
+    `NodeCache`) keeps doing so. The message never holds the body: it names the path, the status and what was wrong."""
+
+    def __init__(self, path: str, status: int, why: str):
+        super().__init__(f"bad response on {path} ({status}): {why}")
+        self.path, self.status = path, status
 
 
 class KubeClient:
@@ -84,29 +99,53 @@ class KubeClient:
         CLUSTER_CALLS.labels(self.cluster_id, "ok" if r.status_code < 400 else str(r.status_code)).inc()
         return r
 
+    @staticmethod
+    def _object(r: httpx.Response, path: str) -> dict[str, Any]:
+        """The JSON object of a successful answer, or BadResponse: a proxy's login page, a truncated body or a JSON list
+        is the cluster's answer, never a crash of the caller (#419)."""
+        try:
+            body = r.json()
+        except (ValueError, RecursionError) as exc:     # JSONDecodeError, UnicodeDecodeError; a body nested past the limit
+            raise BadResponse(path, r.status_code, f"not JSON ({r.headers.get('content-type', 'no content type')[:60]})") from exc
+        if not isinstance(body, dict):
+            raise BadResponse(path, r.status_code, f"a JSON {_JSON_TYPES.get(type(body), 'value')}, not an object")
+        return body
+
+    @staticmethod
+    def _text(body: Mapping[str, Any], r: httpx.Response, path: str, *keys: str) -> str:
+        """The non-empty string at body[keys[0]][keys[1]]..., or BadResponse naming the field."""
+        value: Any = body
+        for k in keys:
+            value = value.get(k) if isinstance(value, Mapping) else None
+        if not isinstance(value, str) or not value:
+            raise BadResponse(path, r.status_code, f"no {'.'.join(keys)}")
+        return value
+
     def get(self, path: str, params: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         r = self._request("GET", path, params=params)
         if r.status_code == 404:
             return None
         if r.status_code >= 400:
             raise self._error(r.status_code, path, r.text)
-        return r.json()
+        return self._object(r, path)
 
     def version(self) -> str:
         r = self._request("GET", "/version")
         if r.status_code >= 400:
             raise self._error(r.status_code, "/version", r.text)
-        return r.json().get("gitVersion", "?")
+        version = self._object(r, "/version").get("gitVersion")
+        return version if isinstance(version, str) and version else "?"
 
     def whoami(self) -> str:
         """OpenShift's users/~ names the identity; on plain Kubernetes a SelfSubjectReview does."""
-        r = self._request("GET", "/apis/user.openshift.io/v1/users/~")
+        path = "/apis/user.openshift.io/v1/users/~"
+        r = self._request("GET", path)
         if r.status_code == 200:
-            return r.json()["metadata"]["name"]
-        r = self._request("POST", "/apis/authentication.k8s.io/v1/selfsubjectreviews",
-                          json={"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"})
+            return self._text(self._object(r, path), r, path, "metadata", "name")
+        path = "/apis/authentication.k8s.io/v1/selfsubjectreviews"
+        r = self._request("POST", path, json={"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"})
         if r.status_code in (200, 201):
-            return r.json()["status"]["userInfo"]["username"]
+            return self._text(self._object(r, path), r, path, "status", "userInfo", "username")
         raise self._error(r.status_code, "whoami", r.text)
 
     def served(self, group_version: str) -> bool:
@@ -166,7 +205,7 @@ class KubeClient:
                           content=json.dumps(doc), headers={"Content-Type": "application/apply-patch+yaml"})
         if r.status_code >= 400:
             raise self._error(r.status_code, path, r.text)
-        return r.json()
+        return self._object(r, path)
 
     def delete(self, kind: str, namespace: str | None, name: str) -> None:
         path = resource_path(kind, namespace)

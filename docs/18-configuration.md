@@ -721,7 +721,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_CONFIG_DIR` | `/etc/cmapi/config` | The folder of the files above |
 | `CMAPI_METADATA_KEYS` | `<config dir>/metadata-keys.yaml` | Another path for `metadata-keys.yaml` |
 | `CMAPI_POLICIES_DIR` | `/etc/cmapi/policies` | Hand-written Kyverno policies that run with the rendered ones |
-| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak and the clusters, and for Git unless `CMAPI_GIT_CA_BUNDLE` is set |
+| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak and the clusters, and for Git unless `CMAPI_GIT_CA_BUNDLE` is set. A cluster whose import Secret has no caData is checked against it: a bundle that is not there or does not load makes that cluster `cert-verify-failed`, with a finding that ends `; trust store: the hub bundle`, and the other clusters are still checked (`ClusterRegistry._check`, #419) |
 | `CMAPI_DATABASE_URL` | `""` | `postgresql://user:password@host:5432/db`. A secret |
 | `CMAPI_DATABASE_POOL_SIZE` | `5` | The pool of connections of one process |
 | `CMAPI_OIDC_JWKS_URL` | `<issuer>/protocol/openid-connect/certs` | Where to read the signing keys |
@@ -741,7 +741,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_GIT_CA_BUNDLE` | None: the trust of `CMAPI_CA_BUNDLE` | The PEM bundle the Git provider alone trusts, as an explicit TLS context that `SSL_CERT_FILE` cannot change. A file that is not there stops the process at start. CRC sets the image's system bundle, `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, since its `CMAPI_CA_BUNDLE` holds Keycloak's private CA alone (#97) |
 | `CMAPI_CURSOR_KEY` | `""` | The key that signs list cursors. Empty: cmapi signs with the fixed text `unset-cursor-key` (`core/context.py`), the same on each instance. A secret |
 | `CMAPI_LINK_KEY` | `""` | The key that signs the links of the email channel. Empty: cmapi signs with the fixed text `unset-link-key` (`core/channels.py`). A secret |
-| `CMAPI_IMPORTS_NAMESPACE` | `cmapi-imports` | The hub namespace that holds the cluster import Secrets |
+| `CMAPI_IMPORTS_NAMESPACE` | `cmapi-imports` | The hub namespace that holds the cluster import Secrets. A Secret that cannot be checked is a finding on its own cluster in `GET /api/v1/clusters`; it never stops the start or the 5-minute relist of the others (`ClusterRegistry.refresh`, #419) |
 | `CMAPI_IMPORTS_DIR` | None | Reads import Secrets from YAML files in this folder, for tests |
 | `CMAPI_KUBE_TOKEN_FILE`, `CMAPI_KUBE_CA_FILE`, `CMAPI_KUBE_API_URL` | The service account files, and `https://kubernetes.default.svc` | How cmapi reads the import Secrets of the hub. Neither this token nor the token of an import Secret appears in an error, a cluster finding or a log line: each is replaced with `***` before the text is cut (`core/clients/redact.py`, #420) |
 | `CMAPI_COMPONENT` | `api` | `api`, `worker` or `capacity`. The label `component` of the metrics |

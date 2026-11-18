@@ -11,7 +11,8 @@ and the six checks before a cluster is read (docs/01, "Cluster connections and m
     5. Identity: users/~ must be cmapi-system:cmapi-reader.
     6. Capability: list namespaces.
 
-Each refusal is a finding on that cluster only. A connected cluster with no clusters.yaml entry
+Each refusal is a finding on that cluster only, and nothing one cluster sends or holds stops the others, the start or the
+relist (#419): an answer the client cannot read is `bad-response`. A connected cluster with no clusters.yaml entry
 is read-only (writes get 422 cluster-not-writable). Every connected cluster gets a WatchCache with the CapacityLedger that its
 ResourceQuotas feed (core/capacity_ledger.py, #302); when the instance runs Kyverno in its environment, a ReportCache of its
 policy reports (core/clients/policyreports.py, #302) from `reports_factory`; and a NodeCache of its nodes for capacity
@@ -23,6 +24,7 @@ import base64
 import binascii
 import os
 import re
+import ssl
 import tempfile
 import threading
 import time
@@ -36,7 +38,7 @@ import httpx
 import yaml
 
 from cmapi.core.capacity_ledger import CapacityLedger
-from cmapi.core.clients.kube import ClusterUnreachable, KubeClient, KubeError, WatchCache
+from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError, WatchCache
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
@@ -47,8 +49,9 @@ from cmapi.core.tiers import qty
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 INSECURE_ALLOWED = {"rnd"}
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
-            "wrong-identity", "forbidden", "environment-not-served")
+            "wrong-identity", "forbidden", "bad-response", "environment-not-served")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
+HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
@@ -202,11 +205,25 @@ def _valid_ca_data(ca_data: str) -> bool:
 
 
 def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
-    meta = doc.get("metadata", {})
-    data = {k: base64.b64decode(v).decode() for k, v in (doc.get("data") or {}).items()}
-    data.update(doc.get("stringData") or {})
-    return {"name": meta.get("name"), "labels": meta.get("labels") or {}, "annotations": meta.get("annotations") or {},
-            "data": data}
+    """A Secret as the checks read it. A value that is not base64 of UTF-8 text (a binary file put in a Secret) is named in
+    `undecodable` for the parse step to refuse, so one Secret never fails the list of all of them (#419)."""
+    meta = _mapping(doc.get("metadata"))
+    data: dict[str, str] = {}
+    undecodable: list[str] = []
+    for k, v in _mapping(doc.get("data")).items():
+        try:
+            data[k] = base64.b64decode(v).decode()
+        except (binascii.Error, ValueError, TypeError):              # UnicodeDecodeError is a ValueError
+            undecodable.append(k)
+    data.update(_mapping(doc.get("stringData")))
+    return {"name": meta.get("name"), "labels": _mapping(meta.get("labels")), "annotations": _mapping(meta.get("annotations")),
+            "data": data, "undecodable": undecodable}
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """A field of a Secret that must be a mapping, or {}: CMAPI_IMPORTS_DIR reads YAML no API server validated, and a text
+    or a list there must not raise out of `refresh`, outside the net of each cluster (#419)."""
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 # --------------------------------------------------------------------------- the registry
@@ -234,7 +251,11 @@ class ClusterRegistry:
     # ---- the six checks
     def _ca_file(self, cluster_id: str, ca_data: str) -> str:
         path = self._ca_files.get(cluster_id)
-        if path is None or Path(path).read_text() != ca_data:
+        try:
+            current = Path(path).read_text() if path else None
+        except OSError:                     # removed under us (a cleaner of the temporary folder): write it again
+            current = None
+        if current != ca_data:
             fd, path = tempfile.mkstemp(prefix=f"cmapi-ca-{cluster_id}-", suffix=".crt")
             with os.fdopen(fd, "w") as f:
                 f.write(ca_data)
@@ -244,17 +265,28 @@ class ClusterRegistry:
     def _check(self, cluster_id: str, secret: Mapping[str, Any]) -> ClusterState:
         st = self.clusters.get(cluster_id) or ClusterState(cluster_id, None)
         d = secret["data"]
-        findings: list[str] = []
+        undecodable = secret.get("undecodable") or []
+        findings: list[str] = [f"field {k} is not base64 of UTF-8 text" for k in undecodable]
         # 2. parse
         for k in ("apiUrl", "token"):
-            if not d.get(k):
+            if not d.get(k) and k not in undecodable:
                 findings.append(f"missing field {k}")
+        token = d.get("token")
+        if token and not HEADER_TOKEN.fullmatch(token):
+            # `kubectl create token` ends its output with a newline that `--from-file` keeps: h11 refuses the header at the
+            # first call (`unreachable`), and a non-ASCII token raises in the client's constructor. The Secret is at fault.
+            findings.append("token has whitespace or a character an HTTP header cannot carry")
         api_url = d.get("apiUrl", "")
-        u = urlparse(api_url)
-        if u.username or u.password:
-            findings.append("userinfo in apiUrl")
-        if u.scheme != "https":
-            findings.append("apiUrl is not https")
+        try:
+            u = urlparse(api_url)
+            userinfo = bool(u.username or u.password)
+        except ValueError:                  # urlparse raises on a malformed IPv6 host, such as https://[::1:6443
+            findings.append("apiUrl is not a URL")
+        else:
+            if userinfo:
+                findings.append("userinfo in apiUrl")
+            if u.scheme != "https":
+                findings.append("apiUrl is not https")
         insecure = str(d.get("insecure", "false")).lower() == "true"
         ca_data = d.get("caData")
         if insecure and ca_data:
@@ -268,55 +300,85 @@ class ClusterRegistry:
         if findings:
             return self._set(st, "invalid-secret", findings, None, secret)
         ca_file = self._ca_file(cluster_id, ca_data) if ca_data else self.trusted_bundle
-        client = self.client_factory(cluster_id, api_url, d["token"], ca_file, insecure=insecure)
+        try:
+            # httpx loads the trust store here: a caData of valid base64 that is no certificate fails now, not at a call.
+            client = self.client_factory(cluster_id, api_url, d["token"], ca_file, insecure=insecure)
+        except OSError as exc:                                      # ssl.SSLError is an OSError, as a missing file is
+            if ca_data and isinstance(exc, ssl.SSLError):
+                return self._set(st, "invalid-secret", [f"invalid caData: {exc}"], None, secret)
+            store = "caData" if ca_data else "the hub bundle"
+            return self._set(st, "cert-verify-failed", [f"{exc}; trust store: {store}"], None, secret)
+        adopted = False                     # the client is closed unless the caches took it, whatever ends the check
+        try:
+            status, found, version = self._probe(client, bool(ca_data))
+            if status != "connected":
+                return self._set(st, status, found, version, secret)
+            st = self._set(st, "connected", [], version, secret)
+            fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
+            if st.client is None or self._fingerprints.get(cluster_id) != fp:
+                self._stop_caches(st)
+                ledger = CapacityLedger()
+                cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
+                with self._lock:
+                    # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
+                    st.client, st.ledger, st.cache = client, ledger, cache
+                st.reports = self.reports_factory(st, client) if self.reports_factory else None
+                st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
+                if self.start_caches:
+                    st.cache.start()
+                    if st.reports is not None:
+                        st.reports.start()
+                    if st.nodes is not None:
+                        st.nodes.start()
+                self._fingerprints[cluster_id] = fp
+                adopted = True
+            return st
+        finally:
+            if not adopted:
+                # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
+                # stops those caches and drops the client: it is closed here, not left to the garbage collector.
+                client.close()
+
+    @staticmethod
+    def _probe(client: KubeClient, has_ca_data: bool) -> tuple[str, list[str], str | None]:
+        """Checks 4 to 6 on one client: (status, findings, server version). Each way a call can fail is a status here, so
+        nothing the cluster answers escapes the check (#419). Who produced the error decides it (docs/02 "Client rules"):
+        a transport failure of this process is unreachable or cert-verify-failed, an answer that cannot be read is
+        bad-response, and a refusal is auth_failed or forbidden."""
         # 4. connect
         try:
             version = client.version()
         except ClusterUnreachable as exc:
-            status = "cert-verify-failed" if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "certificate" in str(exc).lower() \
-                else "unreachable"
-            hint = "; trust store: caData" if ca_data else "; trust store: the hub bundle"
-            return self._set(st, status, [str(exc)[:200] + (hint if status == "cert-verify-failed" else "")], None, secret)
+            if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "certificate" in str(exc).lower():
+                hint = "; trust store: caData" if has_ca_data else "; trust store: the hub bundle"
+                return "cert-verify-failed", [str(exc)[:200] + hint], None
+            return "unreachable", [str(exc)[:200]], None
         except KubeError as exc:
-            return self._set(st, "auth_failed" if exc.status in (401, 403) else "unreachable", [str(exc)], None, secret)
+            return "auth_failed" if exc.status in (401, 403) else "unreachable", [str(exc)], None
+        except BadResponse as exc:
+            return "bad-response", [str(exc)], None
         # 5. identity
         try:
             who = client.whoami()
         except KubeError as exc:
-            return self._set(st, "auth_failed", [f"identity check: {exc}"], version, secret)
+            return "auth_failed", [f"identity check: {exc}"], version
         except ClusterUnreachable as exc:
-            return self._set(st, "unreachable", [str(exc)[:200]], version, secret)
+            return "unreachable", [str(exc)[:200]], version
+        except BadResponse as exc:
+            return "bad-response", [f"identity check: {exc}"], version
         if who != READER_IDENTITY:
-            return self._set(st, "wrong-identity", [f"token is {who}, expected {READER_IDENTITY}"], version, secret)
+            return "wrong-identity", [f"token is {who}, expected {READER_IDENTITY}"], version
         # 6. capability
         try:
             client.list("Namespace")
         except KubeError as exc:
             grant = "list namespaces" if exc.status == 403 else str(exc)
-            return self._set(st, "forbidden", [f"missing grant: {grant}"], version, secret)
+            return "forbidden", [f"missing grant: {grant}"], version
         except ClusterUnreachable as exc:
-            return self._set(st, "unreachable", [str(exc)[:200]], version, secret)
-        st = self._set(st, "connected", [], version, secret)
-        fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
-        if st.client is None or self._fingerprints.get(cluster_id) != fp:
-            self._stop_caches(st)
-            ledger = CapacityLedger()
-            cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
-            with self._lock:
-                # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
-                st.client, st.ledger, st.cache = client, ledger, cache
-            st.reports = self.reports_factory(st, client) if self.reports_factory else None
-            st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
-            if self.start_caches:
-                st.cache.start()
-                if st.reports is not None:
-                    st.reports.start()
-                if st.nodes is not None:
-                    st.nodes.start()
-            self._fingerprints[cluster_id] = fp
-        else:
-            client.close()
-        return st
+            return "unreachable", [str(exc)[:200]], version
+        except BadResponse as exc:
+            return "bad-response", [str(exc)], version
+        return "connected", [], version
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
              secret: Mapping[str, Any]) -> ClusterState:
@@ -351,7 +413,7 @@ class ClusterRegistry:
         by_id: dict[str, list[dict[str, Any]]] = {}
         for s in secrets:
             cid = s["labels"].get("cmapi.net/cluster-id")
-            if cid:
+            if isinstance(cid, str) and cid:
                 by_id.setdefault(cid, []).append(s)
         for cid, items in by_id.items():
             seen.add(cid)
@@ -359,7 +421,14 @@ class ClusterRegistry:
                 st = self.clusters.get(cid) or ClusterState(cid, None)
                 self._set(st, "invalid-secret", [f"duplicate cluster ID in {[i['name'] for i in items]}"], None, items[0])
                 continue
-            self._check(cid, items[0])
+            try:
+                self._check(cid, items[0])
+            except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
+                # `_check` makes each answer of the cluster a status; this is what it did not foresee (a full disk for the
+                # caData file, a fault of a cache factory). The log has the trace; the finding names the error.
+                log.exception("cluster_check_failed", cluster_id=cid)
+                st = self.clusters.get(cid) or ClusterState(cid, None)
+                self._set(st, "unreachable", [f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"], None, items[0])
         with self._lock:
             for cid, st in self.clusters.items():
                 if cid not in seen and st.status != "not-imported":
@@ -373,7 +442,10 @@ class ClusterRegistry:
 
     def _loop(self) -> None:
         while not self._stop.wait(self.relist_seconds):
-            self.refresh()
+            try:
+                self.refresh()
+            except Exception:                                       # noqa: BLE001 - the relist outlives any one pass (#419)
+                log.exception("imports_relist_failed")
 
     def stop(self) -> None:
         self._stop.set()
