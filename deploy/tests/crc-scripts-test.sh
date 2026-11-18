@@ -76,6 +76,8 @@ print(json.dumps({"items":items}))'; exit 0;;
   "exec -i -n ldap-testing"*'echo "stranger $dn"'*) sed -n 's/^dn: /same /p'; exit 0;;
   "exec -i -n ldap-testing"*) cat; exit 0;;
   "delete secret cmapi-ldap-test-users"*) exit 0;;
+  # The reader's list of Kyverno's reports in every namespace (#387), before the wide checks that must answer no.
+  "auth can-i list "*"policyreports.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader") echo "${STUB_READER_REPORTS:-yes}"; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
@@ -282,6 +284,10 @@ want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(ta
 grep -qxF 'proof: discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with clusterpolicyreports policyreports, the reports of the Policies tab; openreports.io: not served' "$W/out" \
   && grep -qxF 'oc get --raw /apis/wgpolicyk8s.io/v1alpha2 --as=system:serviceaccount:cmapi-system:cmapi-reader' "$ARGV_LOG" \
   && ok "the proof records the report groups that discovery serves to the reader" || bad "the report groups' record: $(grep -i 'discovery' "$W/out" | head -1)"
+for kind in clusterpolicyreports policyreports; do
+  grep -qxF "oc auth can-i list $kind.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader" "$ARGV_LOG" \
+    && ok "the proof asks whether the reader may list $kind in every namespace" || bad "no can-i list $kind as the reader in every namespace"
+done
 want "proof passes with openreports.io served beside wgpolicyk8s.io" 0 "$(STUB_GROUPS='{"name":"wgpolicyk8s.io","versions":[{"groupVersion":"wgpolicyk8s.io/v1alpha2","version":"v1alpha2"}]},{"name":"openreports.io","versions":[{"groupVersion":"openreports.io/v1alpha1","version":"v1alpha1"}]}' run "$D/crc-proof.sh" "$P")"
 grep -q '; openreports.io: v1alpha1$' "$W/out" && ok "and records openreports.io's version" || bad "openreports.io's record: $(grep -i 'discovery' "$W/out" | head -1)"
 # The plan, the slowest call, may take as long as the front door gives it: CRC's first answered 200 after 27.7 s (#275).
@@ -344,6 +350,8 @@ pstop "wgpolicyk8s.io/v1alpha2 without clusterpolicyreports" 'STUB_REPORTS={"nam
 says "FAIL: wgpolicyk8s.io/v1alpha2 serves 'policyreports', without clusterpolicyreports"
 pstop "discovery failing: nothing was read" STUB_GROUPS_RC=1
 says 'FAIL: discovery as cmapi-reader gave no list of the served groups'
+pstop "a reader that may not list the reports in every namespace" STUB_READER_REPORTS=no
+says 'FAIL: cmapi-reader may not list clusterpolicyreports.wgpolicyk8s.io in every namespace: the Policies tab reads "no access to the reports"'
 pstop "a plan refused" STUB_PLAN=422
 pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
 pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan

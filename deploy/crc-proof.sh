@@ -192,8 +192,11 @@ wgpolicy=${served%%$'\t'*}; openreports=${served#*$'\t'}
 case ",$wgpolicy," in *,v1alpha2,*) ;; *) fail "discovery as cmapi-reader does not serve wgpolicyk8s.io/v1alpha2 (wgpolicyk8s.io: $wgpolicy; openreports.io: $openreports): the Policies tab reads \"Kyverno not installed\" (#382)";; esac
 reports=$(oc_ get --raw /apis/wgpolicyk8s.io/v1alpha2 "$as_reader" | python3 -c 'import json,sys; print(" ".join(sorted(r["name"] for r in json.load(sys.stdin)["resources"] if "/" not in r["name"])))') \
   || fail "GET /apis/wgpolicyk8s.io/v1alpha2 as cmapi-reader gave no list of its resources"
+# The RBAC half (#387): the API lists and watches each kind in every namespace, and a 403 reads "no access to the reports".
 for kind in clusterpolicyreports policyreports; do
   case " $reports " in *" $kind "*) ;; *) fail "wgpolicyk8s.io/v1alpha2 serves '$reports', without $kind";; esac
+  [ "$(oc_ auth can-i list "$kind.wgpolicyk8s.io" --all-namespaces "$as_reader" 2>/dev/null || true)" = yes ] \
+    || fail "cmapi-reader may not list $kind.wgpolicyk8s.io in every namespace: the Policies tab reads \"no access to the reports\""
 done
 say "discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with $reports, the reports of the Policies tab; openreports.io: $openreports"
 # A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git-bot, and dryRun writes nothing: no request,
