@@ -21,7 +21,7 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 
 ## Relations
 
-`change_requests` is the centre. Four tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional) and `approval_notifications`. The other four tables have no foreign key.
+`change_requests` is the centre. Five tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional), `approval_notifications` and `policy_rejections` (optional). The other four tables have no foreign key.
 
 ```text
 change_requests (request_id)
@@ -29,6 +29,7 @@ change_requests (request_id)
   |-- approvals.request_id               many approvals for one request, one for each person
   |-- jobs.request_id                    many jobs for one request; a job can have no request
   |-- approval_notifications.request_id  many notices for one request
+  |-- policy_rejections.request_id       many stored findings for one request; a refusal before a request has none
 
 audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 ```
@@ -36,11 +37,11 @@ audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 <!-- markdownlint-disable MD033 -->
 <picture>
   <source srcset="diagrams/data-model/data-model.light.png">
-  <img alt="The cmapi database has nine tables. change_requests is the centre: request_events, approvals, jobs and approval_notifications refer to it by request_id. audit_events, jwks_keys, admin_switches and expiration_notices have no foreign key." src="diagrams/data-model/data-model.light.png">
+  <img alt="The cmapi database has ten tables. change_requests is the centre: request_events, approvals, jobs and approval_notifications refer to it by request_id. policy_rejections also refers to it, and the picture does not show that. audit_events, jwks_keys, admin_switches and expiration_notices have no foreign key." src="diagrams/data-model/data-model.light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*One request has many events, many approvals, many jobs and many notices. No built code writes `expiration_notices` yet, so its box is dashed. The text block above is the twin of this figure.*
+*One request has many events, many approvals, many jobs and many notices. The picture has nine of the ten tables: `policy_rejections` (0006) is only in the text block above. No built code writes `expiration_notices` yet, so its box is dashed. The text block above is the twin of this figure.*
 
 ## The rules that the schema holds
 
@@ -48,7 +49,7 @@ These indexes and constraints carry correctness. The code relies on each of them
 
 | Rule | How the schema holds it | Source |
 |---|---|---|
-| One open request for each namespace | The partial unique index `uq_cr_open_namespace` on `(cluster_id, namespace)`, for the six open states | Migration `0001`, line 57 |
+| One open request for each namespace | The partial unique index `uq_cr_open_namespace` on `(cluster_id, namespace)`, for the eight open states (six in migration `0001`, and `applied` and `merge_failed` added by `0005`) | Migration `0001`, line 57, and `0005` |
 | One request for each idempotency key of a caller | The partial unique index `uq_cr_idempotency` on `(requester_sub, idempotency_key)` | Migration `0001`, line 60 |
 | One approval for each person on a request | The unique index `uq_approvals_person` on `(request_id, approver_sub)` | Migration `0002` |
 | An approval says which approving group it counted for | `approvals.counted_for`. Each new approval writes the column again for each approval of the request, because the ledger can move an earlier approval to another slot. It is null for an approval from before the column | Migration `0004` |
@@ -76,6 +77,7 @@ A changed server default is not compared. To add a column: change the model, wri
 - The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:43-48`).
 - No token, password or client secret is in any table. `jwks_keys` holds public keys.
 - The live state of a namespace is not stored. It comes from the watch cache of each cluster, in the memory of the process.
+- The capacity ledger (the committed CPU and memory of each cluster) has no table. The watch cache builds it in memory as it admits each quota (`cmapi/src/cmapi/core/capacity_ledger.py`, #302).
 
 ## What each column holds
 
@@ -90,7 +92,7 @@ One row is one write to one namespace. The row is the only record of a request: 
 | `request_id` | `req-YYYYMMDD-NNNN`: the day and a number for that day. The number comes from the highest id of the day, under a transaction lock for the day (`RequestRepo.next_id`) | `Pipeline.submit` (`core/pipeline.py`) |
 | `instance`, `cluster_id`, `namespace`, `env` | The instance name from `instance.yaml`, the cluster, the namespace, and the environment of that cluster | `Pipeline.submit` |
 | `plugin`, `action` | The plugin that planned the write (`namespaces` today), and the action: `create`, `update` (a PATCH, an expiry extension, or the revert of a change) or `delete` (a DELETE, or the revert of a create) | `Pipeline.submit` |
-| `status` | One of 13 states. See "The states" below | `RequestRepo.insert` and `RequestRepo.move`, from the table in `core/lifecycle.py` |
+| `status` | One of 15 states (`S` in `core/lifecycle.py`). See "The states" below | `RequestRepo.insert` and `RequestRepo.move`, from the table in `core/lifecycle.py` |
 | `reason` | A short code for the cause of a request: `expiration:extend` for an expiry extension, and `revert` for a revert request. Null for a plain write. The design has `expired` for the delete that the daily expiry check opens, and a rule of `approval-rules.yaml` reads it. The check is not built, and no code sets `expired` today | `Pipeline.submit` |
 | `justification` | The text that the requester wrote | `Pipeline.submit` |
 | `team` | The value of the label `cmapi.net/team` at plan time. The daily allowance of auto-approvals counts requests for this value (`RequestRepo.auto_approvals_today`) | `Pipeline.submit` |
@@ -115,7 +117,7 @@ The table `_T` in `cmapi/src/cmapi/core/lifecycle.py` holds each allowed move. N
 
 | Group | States |
 |---|---|
-| Open: the request holds the lock of its namespace (the six states of `uq_cr_open_namespace`) | `pending_approval`, `approved`, `pr_open`, `merged`, `awaiting_prune`, `sync_failed` |
+| Open: the request holds the lock of its namespace (the eight states of `uq_cr_open_namespace`, `OPEN_STATES` in `core/db/models.py`) | `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune`, `sync_failed` |
 | Closed for good (`TERMINAL`) | `synced`, `rejected`, `cancelled`, `timeout`, `superseded`, `reverted` |
 | Closed, and `:retry` can open it again | `failed` (the move `retry` goes to `approved`) |
 
@@ -164,9 +166,9 @@ One row is one unit of work. The worker claims a due row with `FOR UPDATE SKIP L
 
 | Column | What it holds |
 |---|---|
-| `kind` | One of `push_branch`, `open_pr`, `open_revert`, `pr_checks`, `apply`, `merge`, `git_cleanup`, `git_reconcile` (#286), `watch_sync`, `prune`, `approval_timeout`, `channel_notify` (`HANDLERS`, `cmapi/src/cmapi/jobs/__init__.py`) |
-| `request_id`, `cluster_id` | The request, and its cluster. `approval_timeout` has no request and no cluster. It runs again every hour and queues itself (`RECURRING`) |
-| `payload` | Optional JSON. `channel_notify` has `kind`: `pending`, `approved`, `rejected` or `timeout`. `watch_sync` has `since` when `:retry` queued it. `open_revert` has `by`. `approval_timeout` has `every` |
+| `kind` | One of `push_branch`, `open_pr`, `open_revert`, `pr_checks`, `apply`, `merge`, `git_cleanup`, `git_reconcile` (#286), `watch_sync`, `prune`, `approval_timeout`, `channel_notify`, `rejections_prune` (#302) (`HANDLERS`, `cmapi/src/cmapi/jobs/__init__.py`) |
+| `request_id`, `cluster_id` | The request, and its cluster. `approval_timeout`, `git_reconcile` and `rejections_prune` have no request and no cluster. Each queues itself again, every hour, every 15 minutes and every day (`RECURRING`, `APPROVAL_TIMEOUT_EVERY`, `GIT_RECONCILE_EVERY`, `REJECTIONS_PRUNE_EVERY`) |
+| `payload` | Optional JSON. `channel_notify` has `kind`: `pending`, `approved`, `rejected` or `timeout`. `watch_sync` has `since` when `:retry` queued it. `open_revert` has `by`. `approval_timeout`, `git_reconcile` and `rejections_prune` have `every` |
 | `run_after` | The earliest time that a worker can claim the job. A retry moves it |
 | `attempts` | Added 1 at each claim. At 5 attempts (`MAX_ATTEMPTS`), a failed job closes. If its request is `approved` or `pr_open`, the request moves to `failed`. If its request is `merged` or `awaiting_prune`, the request moves to `sync_failed` (`Worker._record_failure`, `cmapi/src/cmapi/worker.py`) |
 | `last_error`, `locked_until`, `locked_by`, `lease_generation` | The last error (cut to 2000 characters), the end of the lease (300 seconds from the claim), the worker that holds it, and the fencing token |
