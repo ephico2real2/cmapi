@@ -4,9 +4,15 @@ This folder holds one figure set. It shows the architecture of cmapi as the port
 
 The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 39 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
-Nothing here was measured on a running system. No cmapi workload runs on a cluster yet.
+The map is held to the contract by a test. The portal that calls these endpoints is measured in `docs/09-portal-ui-testing.md`, each result with the cluster or the stand-in it ran on.
 
-**After #204 (2026-11-14).** The figures and the sentences below that say "the portal makes no API call" are from before #204. The portal build of `cmapi-portal-ui` now signs a person in and calls `GET /api/v1/me` and `GET /api/v1/requests` (rows 16 to 19, and the page frame). This is proven against a stand-in issuer and a stand-in API only. The arrows of those rows are still dashed in figures 1 and 3: #209 draws them again. The demo build is what the figures show.
+**The figures are older than the code (#209).** The five PNG files and the text twins of figures 1 to 5 show the state of the mockup's demo build, before #204 (2026-11-14). They are not drawn again yet (#209 is open), and this README changes no PNG file. The table above and the lists below are true of `main` (2026-11-18). Where a figure says otherwise, the table decides:
+
+- **The portal** (`cmapi-portal-ui`, built from `main`) signs a person in through Keycloak and calls the API for all nine tabs: Workflow, New namespace, Quotas, Expiration, Requests, Approvals, Policies, Capacity and KPIs (`TABS` in `cmapi-portal-ui/src/portal/PortalApp.tsx`). Each endpoint marked built that a tab needs is called by the portal. The figures draw those arrows dashed, and the portal as sample data.
+- **The API** also has the plugins `capacity`, `expiration` and `policies` (`cmapi/src/cmapi/plugins/`), which figure 1 does not list.
+- **The worker** has the job kinds `push_branch`, `open_pr`, `open_revert`, `pr_checks`, `apply`, `merge`, `watch_sync`, `prune`, `git_cleanup`, `git_reconcile`, `approval_timeout`, `channel_notify` and `rejections_prune` (`HANDLERS` in `cmapi/src/cmapi/jobs/__init__.py`). Figure 1 lists fewer.
+- **Keycloak realm `cmapi`** is on CRC: imported on 2026-11-15 (`docs/15-keycloak-integration.md`, "Proof"). Figure 1 says it is not.
+- **cmapi runs on CRC** (`docs/09-portal-ui-testing.md`, "Live on CRC"): the API, the worker, the front door and the database, with CRC as the registered cluster and pull requests on `cmapi-cluster-configs`. Figures 1 to 5 say that no workload runs on a cluster and that no cluster or Git host is connected.
 
 ## The counts
 
@@ -29,9 +35,9 @@ Nothing here was measured on a running system. No cmapi workload runs on a clust
 - A grey box shows actions that make no call.
 - Red text is a finding.
 
-The portal is dashed in each figure. The React app `cmapi-portal-ui` runs on sample data and makes no API call. Thus each arrow from a portal action is dashed, even where the endpoint is built.
+When the figures were drawn, the portal was dashed in each one: the React app `cmapi-portal-ui` ran on sample data and made no API call, so each arrow from a portal action is dashed, even where the endpoint is built. This is no longer true (see the note above).
 
-Three boxes are dashed because their state is not certain or not there. Argo CD is not installed for cmapi. No cluster is registered, because cmapi runs nowhere. No Git host is connected to cmapi. The record does not say if a `cluster-configs` repository exists, so the Git host is dashed.
+Three boxes were dashed because their state was not certain or not there. Argo CD was not installed for cmapi. No cluster was registered, because cmapi ran nowhere. No Git host was connected to cmapi, and the record did not say if a `cluster-configs` repository existed. The note above gives the state of `main`.
 
 ## The figures
 
@@ -66,7 +72,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 15 | Workflow | Back to current step | None | No endpoint | 2 | Playback in the browser. |
 | 16 | Requests | Open the tab | `GET /api/v1/requests` | built | 3 |  |
 | 17 | Requests | Search box | `GET /api/v1/requests` | built | 3 | With `?q=`. |
-| 18 | Requests | Status chips (All, Open, Closed) | `GET /api/v1/requests` | built | 3 | The built `status` parameter takes one lifecycle state. It has no Open or Closed group. |
+| 18 | Requests | Status chips (All, Open, Closed) | `GET /api/v1/requests` | built | 3 | The built `state` parameter takes `open` or `closed`, and `status` takes one lifecycle state. The portal sends `state` (`cmapi-portal-ui/src/portal/RequestsTab.tsx`). |
 | 19 | Requests | Previous and Next | `GET /api/v1/requests` | built | 3 | With `?cursor=`. |
 | 20 | Requests | Open at current step (row) | `GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events` | built<br>built | 3 | Then the Workflow tab shows the request. |
 | 21 | Requests | Replay a policy rejection | None | No endpoint | 3 | On the prod instance only. It opens a sample scenario. |
@@ -80,20 +86,20 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 29 | Page frame, on every | ReDoc link | `GET /redoc` | built | 3 |  |
 | 30 | Page frame, on every | Instance buttons | None | No endpoint | 3 | Mockup only. Each instance is a separate deployment with its own URL. |
 | 31 | Quotas | Open the tab | `GET /api/v1/quotas` | built | 4 |  |
-| 32 | Quotas | Needs attention chips | `GET /api/v1/quotas` | built | 4 | The design has `state=`. The built endpoint has no `state` parameter. |
-| 33 | Quotas | Pick a suggestion | `GET /api/v1/quotas` | built | 4 | The list jumps to the row and selects it. The design names no parameter for this jump. |
+| 32 | Quotas | Needs attention chips | `GET /api/v1/quotas` | built | 4 | With `state=`: `near-limit`, `tier-outdated` or `open-request`. The built endpoint has the `state` parameter. The mockup's other chips (Quota tight, Recommendation, Oversized, Idle) need the usage analysis, which is not built (#310). |
+| 33 | Quotas | Pick a suggestion | `GET /api/v1/quotas` | built | 4 | The list jumps to the row and selects it. The design names no parameter for this jump. The portal uses `?startsWith=` and the address `#quotas?ns={cluster}/{name}` (`cmapi-portal-ui/MOCKUP-CONTRACT.md`). |
 | 34 | Quotas | Show all matches | `GET /api/v1/quotas` | built | 4 | With `?q=`. |
 | 35 | Quotas | Clear the match chip | `GET /api/v1/quotas` | built | 4 |  |
 | 36 | Quotas | Env, Cluster and Tier chips | `GET /api/v1/quotas` | built | 4 | With `env=`, `clusterId=` and `tier=`. |
-| 37 | Quotas | Sort and Per page chips | `GET /api/v1/quotas` | built | 4 | The built `sort` takes `name` or `used`. `severity` is not built. |
+| 37 | Quotas | Sort and Per page chips | `GET /api/v1/quotas` | built | 4 | The built `sort` takes `name`, `used` or `severity` (`cmapi/src/cmapi/plugins/quotas/__init__.py`; the portal's sorts are in `QuotasTab.tsx`). |
 | 38 | Quotas | A to Z letters | `GET /api/v1/quotas` | built | 4 | With `?startsWith=`. |
 | 39 | Quotas | Previous and Next | `GET /api/v1/quotas` | built | 4 | With `?cursor=`. |
 | 40 | Quotas | Back to the first page | `GET /api/v1/quotas` | built | 4 | After a 400 `invalid-cursor`. |
 | 41 | Quotas | Type in the search box | `GET /api/v1/quotas:suggest` | built | 4 | After two characters. |
 | 42 | Quotas | Export CSV | `GET /api/v1/quotas:export` | built | 4 |  |
 | 43 | Quotas | Manage (row) | `GET /api/v1/clusters/{cluster_id}/namespaces/{ns}/quota` | not built | 4 | The built `GET …/namespaces/{ns}` also returns an ETag, but the mockup names `…/quota`. |
-| 44 | Quotas | Plan change | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}/quota` | built<br>not built | 4 | A tier goes to the namespace PATCH with `?dryRun=true`. A custom size goes to `…/quota`. That Plan change is a dry run is inferred. |
-| 45 | Quotas | Submit change | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}/quota` | built<br>not built | 4 | A tier goes to the namespace PATCH. A custom size goes to `…/quota`. |
+| 44 | Quotas | Plan change | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}/quota` | built<br>not built | 4 | The design sends a tier to the namespace PATCH with `?dryRun=true` and a custom size to `…/quota`. That Plan change is a dry run is inferred. The portal sends both to the namespace PATCH (`tier: custom` with `quota` for a custom size) and calls no `…/quota` route. |
+| 45 | Quotas | Submit change | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}/quota` | built<br>not built | 4 | The design sends a tier to the namespace PATCH and a custom size to `…/quota`. The portal sends both to the namespace PATCH, with `If-Match` and an `Idempotency-Key`. It also sends the protection label of an operator (`cmapi.net/protected`, #366) in the same PATCH. |
 | 46 | Quotas | Open at current step (namespace with an open request) | `GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events` | built<br>built | 4 | Shown when a request is open on the namespace. |
 | 47 | Quotas | Close (export preview) | None | No endpoint | 4 | It hides the preview. |
 | 48 | Quotas | Use this size | None | No endpoint | 4 | It fills the form from the recommendation. Recommendations come from cmapi-capacity, which is not built. |
@@ -112,7 +118,7 @@ Three boxes are dashed because their state is not certain or not there. Argo CD 
 | 61 | Policies | Cluster chips | `GET /api/v1/policies/results` | built | 5 | With `clusterId=`. |
 | 62 | Policies | Show failures (row) | `GET /api/v1/policies/results` | built | 5 | With `policy=`. |
 | 63 | Capacity | Open the tab | `GET /api/v1/capacity` | built | 5 | The tab has no other action. Live from each cluster's watch of its quotas and nodes (#302); usage and history wait for cmapi-capacity's snapshots (#21). |
-| 64 | KPIs | Open the tab | `GET /api/v1/admin/kpi` | built | 5 | The tab has no other action. The built endpoint returns four database KPIs and the figures of one component. |
+| 64 | KPIs | Open the tab | `GET /api/v1/admin/kpi` | built | 5 | The tab has no other action. The built endpoint returns seven live KPIs from the database, the database's figures and the figures of one component (`cmapi/src/cmapi/core/kpi.py`). |
 
 ## Actions with no endpoint in the design
 

@@ -43,7 +43,7 @@ One environment name has a meaning in code: `prod`. A namespace in `prod` never 
 
 ## `instance.yaml`
 
-The file has one key, `instance`. The chart writes it from the values `instance.*`, `auth.*` and `git.*` (`deploy/helm/cmapi/templates/config.yaml`). Examples: `examples/instances/*/instance.yaml`.
+The file has one key, `instance`. The chart writes it from the values `instance.*`, `auth.*`, `git.repository` and `git.webUrl` (`deploy/helm/cmapi/templates/config.yaml`). The chart has no value for `instance.git.url`, `username`, `commitEmail`, `hostChecks` or `postStatus`: set them in the ConfigMap of the plain manifests (`deploy/manifests/environments/crc/20-config.yaml` sets `url`, `username` and `hostChecks`). Examples: `examples/instances/*/instance.yaml`.
 
 How to make the bot account, its token and its SSH key, and how to switch `instance.git.url` to SSH: [`docs/19`](19-setup-connections-to-git.md).
 
@@ -113,7 +113,7 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
 - A body that breaks a metadata rule gets `422 policy-violation` from cmapi in every mode. cmapi still renders and validates the refused body, so the problem lists the validator's findings beside its `errors` in `findings`: in `audit`, Kyverno's warning on the same value. A refusal that comes before the render (a name, a tier and its bounds) has no `findings` (`core/pipeline.py`, `plan_namespace`).
 
 - YAML 1.1 reads an unquoted `off` as the boolean `false`. cmapi reads `false` as `off` for a mode, and `true` stays an error (`_mode`, `core/policy.py`). Write `"off"` in quotes for clarity.
-- When a served environment runs Kyverno and the image has no `kyverno` binary, cmapi does not start (`PolicyEngineMissing`, `core/validate/__init__.py`). When the variable `CMAPI_KYVERNO_VERSION` is set, the binary must be that version: the `Version:` line of `kyverno version`, compared whole, so `v1.20.0-rc1` is not `v1.20.0` (#395). The image sets it (`cmapi/Containerfile`: v1.20.0).
+- When a served environment runs Kyverno and the image has no `kyverno` binary, cmapi does not start (`PolicyEngineMissing`, `core/validate/__init__.py`). When the variable `CMAPI_KYVERNO_VERSION` is set and a served environment runs Kyverno, the binary must be that version: the `Version:` line of `kyverno version`, compared whole, so `v1.20.0-rc1` is not `v1.20.0` (#395, #412; `CliValidator`, `kyverno_version`, `core/validate/__init__.py`). A binary of another version stops the start with `PolicyEngineMissing`. The image sets it (`cmapi/Containerfile`: v1.20.0).
 - `GET /api/v1/admin/integrations` reports the engine, the mode of each environment, and the Kyverno version (`routers/admin.py`). The metric `cmapi_policy_mode{environment, mode}` is 1 for each (`core/context.py`).
 - The Policies tab (#302) reads each cluster's PolicyReports and ClusterPolicyReports (`wgpolicyk8s.io/v1alpha2`) and its ValidatingPolicies through cmapi-reader, watched beside the cluster's watch cache (`core/clients/policyreports.py`). With `engine: none`, or an environment in `off`, no report is read and the cluster's state is `engine-off` or `mode-off`. Each rendered policy carries `cmapi.net/policy-digest`, the SHA-256 of its canonical JSON without that annotation (`policy_digest`, `core/policygen.py`): a copy on a cluster with another digest, a missing policy, or `validationActions` other than the mode's, is the state `drift`. The reader's ClusterRole needs `get`, `list` and `watch` on `policyreports`, `clusterpolicyreports` and `validatingpolicies` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`).
 - The policies come from the configuration, not from files that a person writes. `core/policygen.py` renders them from `metadata-keys.yaml`, `tiers.yaml` and `instance.yaml` `policy`, as `policies.kyverno.io/v1` `ValidatingPolicy` objects. A hand-written policy in `CMAPI_POLICIES_DIR` (default `/etc/cmapi/policies`) runs with them (`core/validate/__init__.py`).
@@ -706,9 +706,9 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `targets.<env>.commitment.warn` | number | `0.85` | The commitment at which the plan's capacity answer is `warn`, and a cluster or group of the Capacity tab is `warn` |
 | `targets.<env>.commitment.critical` | number | `0.95` | The commitment at which a cluster of the Capacity tab is `critical`. Above 1 it is `over` (#302) |
 | `countTaints` | list of taint keys | `[]` | The taint keys whose `NoSchedule` and `NoExecute` nodes still count toward allocatable (`core/clients/nodes.py`, #302). By default a node counts when it is Ready, not cordoned, and has no such taint, so control-plane nodes with `node-role.kubernetes.io/master:NoSchedule` do not count. A single-node cluster such as CRC has no taint and counts |
-| `kpi.thresholds` | mapping | | `core/kpi.py` |
+| `kpi.thresholds` | mapping | `memoryPercent: 80`, `cpuPercent: 80`, `throttledPercent: 1`, `dbConnectionsPercent: 80`, `dbVolumePercent: 80`, `backupMaxAgeHours: 26` | Reported by `GET /api/v1/admin/kpi` as `thresholds` (`kpi_report`, `core/kpi.py`). A non-empty mapping replaces the whole default; an empty one gives the default. Unlike the keys above, it is not checked at start (`CapacitySettings` does not read `kpi`): a value that is not a mapping of numbers starts, and `GET /api/v1/admin/kpi` then fails (`KpiView.thresholds` is `dict[str, float]`). The chart writes no `kpi` key into `capacity.yaml` |
 
-The other keys of the reference file are designed for the capacity service, which is not built. The Capacity tab reads each connected cluster's nodes through cmapi-reader, which needs `get`, `list` and `watch` on `nodes` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`); without it the cluster's nodes are `forbidden` and the tab shows the commitment against `simulatedCapacity` only. The API process watches the nodes; the worker does not.
+The chart and the plain manifests also write `mode`, `snapshotInterval` and `targets.<env>.utilisation`. No built code reads them. The other keys of the reference file are designed for the capacity service, which is not built. The Capacity tab reads each connected cluster's nodes through cmapi-reader, which needs `get`, `list` and `watch` on `nodes` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`); without it the cluster's nodes are `forbidden` and the tab shows the commitment against `simulatedCapacity` only. The API process watches the nodes; the worker does not.
 
 ---
 
@@ -749,7 +749,7 @@ The other keys of the reference file are designed for the capacity service, whic
 | `CMAPI_BIND_PORT`, `CMAPI_METRICS_PORT` | `8080`, `9090` | The ports of the API and of the metrics |
 | `CMAPI_WORKER_POLL_SECONDS` | `2.0` | How often the worker looks for a due job |
 | `CMAPI_WORKER_ID` | The host name | The name of the worker in a lease |
-| `CMAPI_KYVERNO_VERSION` | None | When set, the `kyverno` binary must be exactly this version (the whole `Version:` line of `kyverno version`), or cmapi does not start (`core/validate/__init__.py`). The image sets it |
+| `CMAPI_KYVERNO_VERSION` | None | When set and a served environment runs Kyverno, the `kyverno` binary must be exactly this version (the whole `Version:` line of `kyverno version`, #395, #412), or cmapi does not start (`core/validate/__init__.py`). `GET /api/v1/admin/integrations` reports it as `policy.kyvernoVersion` (`core/policy.py`, `view`). The image sets it from `KYVERNO_VERSION` in `cmapi/Containerfile` (#390) |
 | `CMAPI_KUBECONFORM_SCHEMAS` | None | The `-schema-location` of kubeconform (`core/context.py`) |
 | `CMAPI_KUBERNETES_VERSION` | None | The `-kubernetes-version` of kubeconform (`core/context.py`) |
 | `CMAPI_SMTP_USER`, `CMAPI_SMTP_PASSWORD` | None | The SMTP login of the email channel. cmapi logs in only when both are set (`core/channels.py`). The chart does not set them. A secret |
@@ -786,7 +786,7 @@ The other keys of the reference file are designed for the capacity service, whic
 | `delivery.hubDeliverer.enabled`, `.acknowledgeDirectWrites` | boolean | `false`, `false` | `delivery.mode: apply` makes the worker a cluster-wide writer. The chart refuses `apply` unless `acknowledgeDirectWrites` is `true`. `enabled` gives the worker the writer ClusterRole (`templates/rbac.yaml`) |
 | `argocd.namespace`, `argocd.rootApplication` | text | `openshift-gitops`, `cluster-configs-{clusterId}` | `integrations.yaml` `delivery.argocd` |
 | `argocd.controllerServiceAccount` | text | `""` | Needed in `argocd` mode: `system:serviceaccount:<namespace>:<name>` of the Argo CD controller. The chart refuses an empty value unless `argocd.acknowledgeUncontainedController` is `true` |
-| `capacity.mode`, `.snapshotInterval`, `.overcommit`, `.targets` | | `embedded`, `30m` | `capacity.yaml` |
+| `capacity.mode`, `.snapshotInterval`, `.overcommit`, `.targets`, `.countTaints` | | `embedded`, `30m`, the `rnd` and `dev` entries of `values.yaml`, `[]` | `capacity.yaml`. No built code reads `mode` and `snapshotInterval`. The chart writes `countTaints` only when it is not empty |
 | `notifier.smtp` | mapping | `{}` | `integrations.yaml` `notifier.smtp`. Empty: the email channel is off |
 | `database.cnpg.enabled`, `.name`, `.instances`, `.storage`, `.storageClass`, `.imageName`, `.resources`, `.parameters` | | CloudNativePG with 1 instance and 2Gi | The PostgreSQL cluster. See `docs/12` |
 | `database.existingSecret` | text | `""` | With CNPG off: a Secret with the key `uri`. Needed then |
@@ -817,6 +817,8 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | The links of the email channel name the instance | `docs/reviews/2026-11-14-issue-222/README.md` |
 | Git delivery: a Git layer and a thin PR adapter, apply before merge | `docs/reviews/2026-11-15-issue-286/README.md` |
 | The validator matches a pattern with RE2, in linear time | `docs/reviews/2026-11-17-issue-348/README.md` |
+| Capacity from the watch: the ledger in memory (no table), the node cache, `countTaints`, `simulatedCapacity` (#302) | `docs/reviews/2026-11-18-issue-302-capacity/` |
+| Kyverno in audit by default; cmapi's own checks refuse (#342) | `docs/reviews/2026-11-17-issue-342/` |
 
 ## The bot account on each host
 

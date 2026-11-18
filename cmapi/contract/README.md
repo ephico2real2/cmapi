@@ -4,29 +4,31 @@ This folder holds the contract of the cmapi API and the tools that guard it. The
 
 | File | What it is |
 |---|---|
-| `openapi.json` | The OpenAPI 3.1 document that the code serves, for the test instance of the service suite, whose `metadata-keys.yaml` is the reference file. A test keeps it current. An instance with its own keys serves its own `labels` and `annotations` schema (#328): generate a client for it from its own `/openapi.json` (docs/18) |
+| `openapi.json` | The OpenAPI 3.1 document that the code serves, for the test instance of the service suite, whose `metadata-keys.yaml` is the reference file (`examples/cluster-configs/policies/metadata-keys.yaml`, copied by `tests/service/conftest.py`). `test_the_committed_contract_is_the_document_this_code_serves` in `tests/service/test_api_docs.py` keeps it current. An instance with its own keys serves its own `labels` and `annotations` schema (#328): generate a client for it from its own `/openapi.json` (docs/18) |
 | `released/<version>.json` | The document of each released version. A release adds one file. No version is released yet |
 | `accepted-breaking.txt` | The breaking changes that the gate lets through, one for each line, each with its reason above it |
-| `gate.sh` | Compares two documents with oasdiff. It fails on a breaking change |
-| `gate-test.sh` | Proves the gate: a removed response field must fail, and an added one must pass |
-| `report.py` | The API contract report of a Helm values change (#337): for each values file, the `metadata-keys.yaml` that `helm template` puts in the ConfigMap on each side, the two documents of `cmapi-tools openapi render`, and oasdiff's changelog to the job summary. Report only. `.github/workflows/api-contract-report.yml` runs it; docs/18, "The contract report of a values change" |
+| `gate.sh` | `gate.sh <base> <head>` runs `oasdiff breaking --fail-on ERR --err-ignore accepted-breaking.txt`. It fails on a breaking change. `OASDIFF` names another binary |
+| `gate-test.sh` | Proves the gate on `openapi.json`: the same document passes. A removed response field, a removed endpoint and a new required request field each fail. A new endpoint with a new optional response field passes. It also runs `changelog.py` on two released documents |
+| `report.py` | The API contract report of a Helm values change (#337): for each values file, the `metadata-keys.yaml` that `helm template` puts in the ConfigMap on each side, the two documents of `cmapi-tools openapi render`, and oasdiff's changelog to the job summary. Report only: a change, breaking or not, exits 0, and it exits 1 only when it cannot say what changed. `.github/workflows/api-contract-report.yml` is the reusable workflow that runs it, and `.github/workflows/values-contract-report.yml` calls it on a pull request that changes `deploy/environments/**`, the chart's `config/metadata-keys.yaml`, `values.yaml` or `templates/config.yaml`. It is not a required check. docs/18, "The contract report of a values change" |
 | `changelog.py` | Writes `../src/cmapi/contract/changelog.json` from `released/`. `/docs/changelog` serves that file |
 | `spectral/` | Spectral, pinned by `package-lock.json`, cmapi's ruleset `.spectral.yaml`, and its functions in `functions/` |
-| `lint.sh` | Lints a document with the ruleset. It fails on an error of cmapi's rules and on a warning of Spectral's own OpenAPI rules |
+| `lint.sh` | Lints a document with the ruleset (`--fail-severity warn`). It fails on a warning or an error of Spectral's own OpenAPI rules, and on an error of cmapi's rules |
 | `lint-test.py` | Proves the ruleset: the committed document must pass, and a document that breaks one rule must fail with that rule |
 
 ## Change the API
 
 1. Change the code and its tests.
-2. In `cmapi/`, write the document again: `CMAPI_WRITE_CONTRACT=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_docs.py -q -W ignore -k committed_contract`.
-3. Lint the document: `(cd contract/spectral && npm ci --ignore-scripts)` one time, then `contract/lint.sh`. A new rule gets a case in `lint-test.py`.
-4. Commit `contract/openapi.json` with the code.
+2. In `cmapi/`, record the samples again: `CMAPI_WRITE_SAMPLES=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_samples.py -q -W ignore`. A new operation needs a call in `test_each_operation_has_a_sample_from_a_run`, or the test fails. Record them first: the document carries them as its examples (`add_recorded_examples` in `src/cmapi/core/docs.py`).
+3. Write the document again: `CMAPI_WRITE_CONTRACT=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_docs.py -q -W ignore -k committed_contract`.
+4. Lint the document: `(cd contract/spectral && npm ci --ignore-scripts)` one time, then `contract/lint.sh`. A new rule gets a case in `lint-test.py`.
+5. Write `docs/04-api-examples.md` again: `python ../scripts/api-examples-doc.py --write`.
+6. Commit `src/cmapi/contract/samples.json`, `contract/openapi.json` and `docs/04-api-examples.md` with the code.
 
-The CI job `api-contract` compares that file with the file on the base branch. A breaking change fails the job. An added endpoint or an added optional field passes.
+The CI job `api-contract` (`.github/workflows/ci.yml`) runs, in this order: `lint-test.py`, `lint.sh`, `gate-test.sh`, `changelog.py --check`, `scripts/api-examples-doc.py --check`, then the gate twice. The first gate compares `openapi.json` with the newest file in `released/`, and says so when `released/` is empty (it is). The second runs on a pull request only: it compares with `openapi.json` on the base branch. A breaking change fails the job. An added endpoint or an added optional field passes. The service job fails when `openapi.json` is not what the code serves.
 
 ## Accept a breaking change
 
-Do this only before version 1.0, or for a new major version. Add the line that oasdiff prints for the change to `accepted-breaking.txt`, with the reason and the issue number on the line above it.
+Do this only before version 1.0, or for a new major version. Add the line that oasdiff prints for the change to `accepted-breaking.txt`, with the reason and the issue number on the line above it. The comment above each group of lines names its issue: `grep '^# #' contract/accepted-breaking.txt` lists them.
 
 ## Release a version
 
