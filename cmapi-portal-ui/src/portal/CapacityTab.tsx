@@ -42,6 +42,7 @@ const boundWord = (b: CapacityCluster["boundBy"]): string => (b === null ? "—"
 function statusOf(c: CapacityCluster): [string, string] {
   switch (c.state) {
     case "loading": return ["loading", "info"];
+    case "not-imported": return ["not imported", "info"];
     case "unreachable": return [`unreachable${c.asOf ? ` since ${clock(c.asOf)}` : ""}`, "bad"];
     case "forbidden": return ["no access to the quotas", "bad"];
     case "no-size": return ["no size", "info"];
@@ -56,7 +57,7 @@ function statusOf(c: CapacityCluster): [string, string] {
 function leftOut(e: CapacityGroup["excluded"][number]): string {
   if (e.reason === "not-writable") return `${e.clusterId} placement off`;
   const word = e.reason === "stale" ? `stale since ${e.asOf ? clock(e.asOf) : "—"}` : e.reason === "forbidden" ? "no access to the quotas"
-    : e.reason === "no-size" ? "no size" : e.reason;
+    : e.reason === "no-size" ? "no size" : e.reason === "not-imported" ? "not imported" : e.reason;
   return `${e.clusterId} left out: ${word}`;
 }
 
@@ -131,7 +132,8 @@ function footOf(page: CapacityPage): string {
 function detailsOf(c: CapacityCluster): string[] {
   const out: string[] = [];
   if (c.stateDetail) out.push(`${c.clusterId}: ${c.stateDetail}.`);
-  if (c.nodesDetail && c.state !== "unreachable") out.push(`${c.clusterId} nodes: ${c.nodesDetail}.`);
+  // A cluster that is not connected has one detail, the same for its nodes and its quotas: said once.
+  if (c.nodesDetail && c.state !== "unreachable" && c.state !== "not-imported") out.push(`${c.clusterId} nodes: ${c.nodesDetail}.`);
   if (!c.writes) out.push(`${c.clusterId}: writes are off in clusters.yaml, so it takes no placement and is left out of its group.`);
   return out;
 }

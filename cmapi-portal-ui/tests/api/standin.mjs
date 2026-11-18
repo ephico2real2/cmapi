@@ -369,7 +369,7 @@ const zero = () => Object.fromEntries(VERDICTS.map((v) => [v, 0]));
 /** A cluster of the recorded answer, in another state: the API's null counts, never zeros, for what is not known. */
 export function policyCluster(base, { clusterId, env = base.env, state = "ok", stateDetail = null, counts = base.counts, asOf = base.asOf, bundle = base.bundle, dropped = 0,
   hidden = base.hidden, liveActions = base.liveActions, mode = base.mode }) {
-  const unknown = ["loading", "not-installed", "forbidden", "unreachable", "mode-off", "engine-off"].includes(state);
+  const unknown = ["loading", "not-installed", "forbidden", "not-imported", "unreachable", "mode-off", "engine-off"].includes(state);
   return { ...base, clusterId, env, mode, state, stateDetail, asOf, liveActions: unknown ? [] : liveActions, bundle: unknown ? null : bundle,
     counts: unknown ? null : counts, hidden: unknown ? null : hidden, dropped: unknown ? null : dropped };
 }
@@ -396,7 +396,8 @@ export function policyFleet(rows = policyRowsFrom(30)) {
     policyCluster(base, { clusterId: "OCP_GF9", env: "rnd", state: "not-installed", stateDetail: "wgpolicyk8s.io/v1alpha2 is not served: Kyverno is not installed on the cluster", asOf: null }),
     policyCluster(base, { clusterId: "OCP_GF8", env: "rnd", state: "forbidden", stateDetail: "cmapi-reader may not list clusterpolicyreports: the reader's ClusterRole needs get, list and watch on them", asOf: null }),
     policyCluster(base, { clusterId: "OCP_GF10", env: "rnd", state: "capped", stateDetail: "140 rows past policy.reports.maxResultsPerCluster (20000) are counted and not listed", dropped: 140, counts: zero() }),
-    policyCluster(base, { clusterId: "OCP_GF11", env: "rnd", mode: "enforce", liveActions: ["Deny"], state: "stale", stateDetail: "no good read of the reports for 30 minutes: the counts are the last ones read", counts: zero() })];
+    policyCluster(base, { clusterId: "OCP_GF11", env: "rnd", mode: "enforce", liveActions: ["Deny"], state: "stale", stateDetail: "no good read of the reports for 30 minutes: the counts are the last ones read", counts: zero() }),
+    policyCluster(base, { clusterId: "OCP_GF13", env: "rnd", state: "not-imported", stateDetail: "the cluster is not-imported: no import Secret", asOf: null })];
   const perCluster = { CRC: Object.fromEntries(POLICY_SAMPLE.policies.map((p) => [p.name, { ...zero(), pass: p.counts.pass + 3,
     fail: rows.filter((r) => r.policy === p.name && r.result === "fail").length, warn: rows.filter((r) => r.policy === p.name && r.result === "warn").length,
     error: rows.filter((r) => r.policy === p.name && r.result === "error").length }])) };
@@ -541,7 +542,10 @@ export function capacityFleet() {
       asOf: "2026-11-18T07:30:00Z", cpu: 90000, memory: 300 * GIB }),
     capacityCluster(base, { clusterId: "OCP_GF8", overcommit: rnd, cpu: 886200, memory: 1600 * GIB }),
     capacityCluster(base, { clusterId: "OCP_GF9", overcommit: rnd, state: "unreachable", stateDetail: "the cluster is unreachable: OCP_GF9: ConnectError",
-      nodesState: "unreachable", nodesDetail: "the cluster is unreachable", asOf: "2026-11-18T06:02:00Z" }),
+      nodesState: "unreachable", nodesDetail: "the cluster is unreachable: OCP_GF9: ConnectError", asOf: "2026-11-18T06:02:00Z" }),
+    // In clusters.yaml with no import Secret, never checked (#404): the API's one detail for its quotas and its nodes, and no time.
+    capacityCluster(base, { clusterId: "OCP_GF13", overcommit: rnd, state: "not-imported", stateDetail: "the cluster is not-imported: no import Secret",
+      nodesState: "not-imported", nodesDetail: "the cluster is not-imported: no import Secret", asOf: null }),
     capacityCluster(base, { clusterId: "OCP_GF10", region: "eu-west", overcommit: rnd, state: "loading", stateDetail: "the cluster's ResourceQuotas have not listed yet",
       nodesState: "loading", nodesDetail: "the nodes are being listed" }),
     capacityCluster(base, { clusterId: "OCP_GF11", region: "eu-west", overcommit: rnd, state: "forbidden",

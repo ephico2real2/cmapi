@@ -98,7 +98,8 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
     nodes = st.nodes                                  # once: the registry may clear or replace it while this view is built
     snap = nodes.snapshot() if st.status == "connected" and nodes is not None else None
     if st.status != "connected":
-        view.update(nodesState="unreachable", nodesDetail=f"the cluster is {st.status}")
+        nodes_state, nodes_detail = st.not_connected()
+        view.update(nodesState=nodes_state, nodesDetail=nodes_detail)
     elif snap is None:
         view.update(nodesState="loading", nodesDetail="the node watch has not started")
     else:
@@ -113,7 +114,7 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
     # The committed quota, behind the plan's own gates.
     totals, as_of = None, None
     if st.status != "connected":
-        state, detail, as_of = "unreachable", f"the cluster is {st.status}: {'; '.join(st.findings)}"[:300], st.checked_at
+        (state, detail), as_of = st.not_connected(), st.checked_at
     else:
         read = read_quotas(c.registry, st.cluster_id)
         state, detail, totals, as_of = read.state, read.detail, read.totals, read.last_good
