@@ -1510,6 +1510,11 @@ try {
     assert.match(await panel(page).innerText(), /1–25 of 70 · A–Z/, "the pager says the order of the rows shown");
     assert.doesNotMatch(await panel(page).innerText(), /most used first/, "no order that the rows shown do not have");
     assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(0, 25).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    // Their cursor is the A–Z answer's: paging from it with the sort asked for is refused (400 invalid-cursor), so the pager is off.
+    const pending = page.getByRole("button", { name: "Next ›" }).first();
+    assert.equal(await pending.getAttribute("aria-disabled"), "true", "Next is off while the rows shown are the last answer's");
+    await pending.click({ force: true });
+    assert.deepEqual(quotaCalls().filter((c) => c.query.cursor && c.query.sort === "used").map((c) => c.query), [], "no page is asked for with the last answer's cursor and the new sort");
     answer();
     api.state.hold = null;
     await waitQuotaRange(page, "1–25 of 70 · most used first");

@@ -159,6 +159,9 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
   const page = result.state === "ok" ? result.data : null;
   // The sort of the rows on screen: while the next sort loads they are still the last answer's (#392).
   const shownSort = pick<Sort>(page?.asked.sort ?? null, SORTS.map(([id]) => id), "name");
+  // The rows on screen are the last answer's while the next one loads: their cursors belong to that answer's query, not to the
+  // sort or filters just asked for, so the pager does not page from them (the API would refuse it, 400 invalid-cursor).
+  const busy = result.state === "ok" && result.refreshing;
   const facets = page?.facets ?? {};
   const attention: Choice[] = [
     { label: "All", n: state ? (unstated.state === "ok" ? String(unstated.data.page.total) : "…") : page ? String(page.page.total) : "…", on: !state, pick: () => apply({ state: "" }) },
@@ -198,8 +201,8 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
       range={text}
       prev={() => page.page.prevCursor && setCursor(page.page.prevCursor)}
       next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}
-      prevDis={!page.page.prevCursor}
-      nextDis={!page.page.nextCursor}
+      prevDis={busy || !page.page.prevCursor}
+      nextDis={busy || !page.page.nextCursor}
     />
   );
 
@@ -255,7 +258,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
               label="Quotas"
               cols={["Namespace", "Cluster", "Env", "Tier", "CPU requests", "Memory requests", "Pods", "Attention", ""]}
               rows={items}
-              busy={result.state === "ok" && result.refreshing}
+              busy={busy}
               selected={(r) => shown !== null && keyOf(r) === keyOf(shown)}
               cells={(r) => {
                 const s = sizesOf(r);
