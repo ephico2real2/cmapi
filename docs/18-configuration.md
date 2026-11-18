@@ -43,7 +43,7 @@ One environment name has a meaning in code: `prod`. A namespace in `prod` never 
 
 ## `instance.yaml`
 
-The file has one key, `instance`. The chart writes it from the values `instance.*`, `auth.*`, `git.repository` and `git.webUrl` (`deploy/helm/cmapi/templates/config.yaml`). The chart has no value for `instance.git.url`, `username`, `commitEmail`, `hostChecks` or `postStatus`: set them in the ConfigMap of the plain manifests (`deploy/manifests/environments/crc/20-config.yaml` does). Examples: `examples/instances/*/instance.yaml`.
+The file has one key, `instance`. The chart writes it from the values `instance.*`, `auth.*`, `git.repository` and `git.webUrl` (`deploy/helm/cmapi/templates/config.yaml`). The chart has no value for `instance.git.url`, `username`, `commitEmail`, `hostChecks` or `postStatus`: set them in the ConfigMap of the plain manifests (`deploy/manifests/environments/crc/20-config.yaml` sets `url`, `username` and `hostChecks`). Examples: `examples/instances/*/instance.yaml`.
 
 How to make the bot account, its token and its SSH key, and how to switch `instance.git.url` to SSH: [`docs/19`](19-setup-connections-to-git.md).
 
@@ -706,7 +706,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `targets.<env>.commitment.warn` | number | `0.85` | The commitment at which the plan's capacity answer is `warn`, and a cluster or group of the Capacity tab is `warn` |
 | `targets.<env>.commitment.critical` | number | `0.95` | The commitment at which a cluster of the Capacity tab is `critical`. Above 1 it is `over` (#302) |
 | `countTaints` | list of taint keys | `[]` | The taint keys whose `NoSchedule` and `NoExecute` nodes still count toward allocatable (`core/clients/nodes.py`, #302). By default a node counts when it is Ready, not cordoned, and has no such taint, so control-plane nodes with `node-role.kubernetes.io/master:NoSchedule` do not count. A single-node cluster such as CRC has no taint and counts |
-| `kpi.thresholds` | mapping | `memoryPercent: 80`, `cpuPercent: 80`, `throttledPercent: 1`, `dbConnectionsPercent: 80`, `dbVolumePercent: 80`, `backupMaxAgeHours: 26` | Reported by `GET /api/v1/admin/kpi` as `thresholds` (`kpi_report`, `core/kpi.py`). A set mapping replaces the whole default |
+| `kpi.thresholds` | mapping | `memoryPercent: 80`, `cpuPercent: 80`, `throttledPercent: 1`, `dbConnectionsPercent: 80`, `dbVolumePercent: 80`, `backupMaxAgeHours: 26` | Reported by `GET /api/v1/admin/kpi` as `thresholds` (`kpi_report`, `core/kpi.py`). A non-empty mapping replaces the whole default; an empty one gives the default. Unlike the keys above, it is not checked at start (`CapacitySettings` does not read `kpi`): a value that is not a mapping of numbers starts, and `GET /api/v1/admin/kpi` then fails (`KpiView.thresholds` is `dict[str, float]`). The chart writes no `kpi` key into `capacity.yaml` |
 
 The chart and the plain manifests also write `mode`, `snapshotInterval` and `targets.<env>.utilisation`. No built code reads them. The other keys of the reference file are designed for the capacity service, which is not built. The Capacity tab reads each connected cluster's nodes through cmapi-reader, which needs `get`, `list` and `watch` on `nodes` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`); without it the cluster's nodes are `forbidden` and the tab shows the commitment against `simulatedCapacity` only. The API process watches the nodes; the worker does not.
 
