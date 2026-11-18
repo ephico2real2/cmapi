@@ -179,6 +179,23 @@ say "the worker creates a namespace only with cmapi.net/managed=true, and may no
 for pair in "list namespaces" "list resourcequotas"; do [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = yes ] || fail "the reader may not $pair"; done
 for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = no ] || fail "the reader may $pair"; done
 say "the reader lists what it needs, and reads no Secret and writes nothing"
+# The Policies tab's premise (#302, #387): the API reads Kyverno's reports in wgpolicyk8s.io/v1alpha2 and finds the group by discovery
+# (core/clients/policyreports.py), so without it the tab reads "Kyverno not installed". Read as the reader, as the API reads: the
+# served groups, then the request of the API's own probe. openreports.io, where a later Kyverno writes its reports (#382), is recorded.
+as_reader=--as=system:serviceaccount:cmapi-system:cmapi-reader
+served=$(oc_ get --raw /apis "$as_reader" | python3 -c '
+import json,sys
+g={x["name"]:[v["version"] for v in x["versions"]] for x in json.load(sys.stdin)["groups"]}
+print(",".join(g.get("wgpolicyk8s.io",[])) or "not served", ",".join(g.get("openreports.io",[])) or "not served", sep="\t")') \
+  || fail "discovery as cmapi-reader gave no list of the served groups"
+wgpolicy=${served%%$'\t'*}; openreports=${served#*$'\t'}
+case ",$wgpolicy," in *,v1alpha2,*) ;; *) fail "discovery as cmapi-reader does not serve wgpolicyk8s.io/v1alpha2 (wgpolicyk8s.io: $wgpolicy; openreports.io: $openreports): the Policies tab reads \"Kyverno not installed\" (#382)";; esac
+reports=$(oc_ get --raw /apis/wgpolicyk8s.io/v1alpha2 "$as_reader" | python3 -c 'import json,sys; print(" ".join(sorted(r["name"] for r in json.load(sys.stdin)["resources"] if "/" not in r["name"])))') \
+  || fail "GET /apis/wgpolicyk8s.io/v1alpha2 as cmapi-reader gave no list of its resources"
+for kind in clusterpolicyreports policyreports; do
+  case " $reports " in *" $kind "*) ;; *) fail "wgpolicyk8s.io/v1alpha2 serves '$reports', without $kind";; esac
+done
+say "discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with $reports, the reports of the Policies tab; openreports.io: $openreports"
 # A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git-bot, and dryRun writes nothing: no request,
 # no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
 resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true") \
