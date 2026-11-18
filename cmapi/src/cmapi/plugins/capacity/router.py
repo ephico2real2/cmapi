@@ -95,7 +95,8 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
                             "scopedQuotas": None, "status": None, "boundBy": None, "history": None}
 
     # The nodes: the cluster's allocatable, zones and counts.
-    snap = st.nodes.snapshot() if st.status == "connected" and st.nodes is not None else None
+    nodes = st.nodes                                  # once: the registry may clear or replace it while this view is built
+    snap = nodes.snapshot() if st.status == "connected" and nodes is not None else None
     if st.status != "connected":
         view.update(nodesState="unreachable", nodesDetail=f"the cluster is {st.status}")
     elif snap is None:

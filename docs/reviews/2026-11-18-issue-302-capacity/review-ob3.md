@@ -1,0 +1,28 @@
+OB3 review of PR #400 (head 1d682e9), export review-400/head. Depth: deep = C3 (ledger vs independent oracle), C5 (chunked node memory, measured both ways), C1/C3 race (cache rebuild); medium = C6 (config driven); shallow (code read) = C2, C4, C7, C8.
+C1 CONFIRMED with exceptions: nulls with named states (router.py:113-138, capacity.py:127-143); stale keeps figures, left out of groups (router.py:154); tab "—" with no Meter/aria (CapacityTab.tsx:74-76). Exceptions: F1 (0 shown as fresh during a cache rebuild) and F3 (500, not null).
+C2 CONFIRMED (shallow): envs filtered by capacity:read before sums (router.py:192-208); hiddenClusters is a count; foreign/unknown clusterId gives the same 404 (193-197); no namespace field in CapacityPage.
+C3 ledger CONFIRMED (deep): drive_ledger.py, 500 seeds x 300 steps, ledger vs recount AND an independent oracle (scopeSelector, scopes:[], cpu+requests.cpu, malformed, unmanaged, ghosts, relists): 0 failures. Integer nano-units, ceil for committed, floor for room; "500m" memory = 0.5 B (ceil 1, floor 0). REFUTED on "never fits": F1.
+C4 CONFIRMED: check() sizes from simulatedCapacity only (capacity_backend.py:67-76); node rule at nodes.py:110-114; tab shows both (CapacityTab.tsx:64-68).
+C5 CONFIRMED: check() is called only at pipeline.py:309 (namespaces router, API process) and never reads nodes; the worker has no node watch (context.py:122). Memory, drive_nodes_mem.py with freshly decoded pages, 5,000 nodes x 40 images: chunk 500 peaks at 11.4 MiB, unchunked at 103.0 MiB; 264 B/node kept. The PR's "peak 2.1 MiB" cannot show chunking, because FakeKube returns objects the test already holds.
+C6 PARTLY REFUTED: every shipped capacity.yaml and clusters.yaml still loads (test below). docs/18 and the PR state the change; the check() changes are measured in evidence/check-before-after.log. But docs/18 allows overcommit "0 or more", and 0 crashes check() (F2). A malformed simulatedCapacity gives a 500 on the whole GET (F3).
+C7 CONFIRMED (shallow): strong sha256 ETag over the bytes, private/no-cache, 304 (router.py:213-219, etag.py); asOf cut to the minute (61-66); groupBy has 1-3 distinct keys (69-75); environment-not-served 422 (189-190).
+C8 CONFIRMED (shallow): the CRC reader has nodes get/list/watch (crc/reader/00-cmapi-reader.yaml:39-41); crc-proof.sh:180 checks list and watch on nodes; the chart has no cmapi-reader; examples/baseline:33 already grants nodes. PLAUSIBLE, not verified: that kind is imported with the CRC manifest (kind-test.sh imports no reader).
+FINDINGS (fixes.patch; tests in cmapi/tests/service/test_ob3_capacity_302.py: head 10 failed / 58 passed, fix 68 passed; suite.sh with the fix on the 9 capacity, registry and manifest modules: 237 passed)
+F1 Medium-Low, #393 class. Where: capacity_backend.py:39 and :52 read registry.cache(), then st.ledger, separately, and registry.py:258-262 swaps the ledger and the cache without the lock. Failure: a token rotation lands between the two reads; the old cache is fresh and the new ledger is empty, so the read is "ok" with 0 committed, and 16/16 cores plus 1 gives check()=fits (fresh=True). Fix: registry.quota_watch(), which reads the pair under _lock; _connect assigns the pair under _lock; read_quotas uses quota_watch and keeps the cache() seam the #393 tests patch. Same class: router.py:98 reads st.nodes twice, so a clear in between gives an AttributeError and a 500. Fix: read it once.
+F2 Low. capacity.py:74 accepts an overcommit of 0, and check() then raises DivisionByZero (capacity_backend.py:76). A non-mapping targets.<env> is silently ignored, and a list for overcommit raises AttributeError. Fix: overcommit must be above 0, and a block that is not a mapping is named; the start stops.
+F3 Low-Medium. registry.py:108 does not validate simulatedCapacity, so {cpu:64} with no memory, "abc", or 0 raises KeyError/ValueError in cluster_view (router.py:91): a 500 on the whole GET for that scope (drive_route.log). Fix: _size_problem() in load_policies stops the start.
+F4 nit: committed_by (capacity_ledger.py:56) has no callers; removed.
+NOT ASKED, no fix: plugins/policies/router.py:116-118 (merged #384) has the same double read of st.reports, untested. "unreachable since" shows st.checked_at, which _set refreshes on every check, so it shows the last check time rather than when the cluster became unreachable.
+NOT CHECKED: npm test (no portal finding), kind and CRC, the full service suite. An earlier 20-module run gave 440 passed and 1 failure, caused by my first F1 variant bypassing the patched cache(); that was corrected.
+HOUSEKEEPING: head is not a git repo (git status not applicable); I created nothing in head. Kept in review-400/ob3: drive_ledger.py/.log, drive_nodes_mem.py/.log, drive_route.py/.log, tests/, tests-before-after.log, suite-fixed*.log, out.txt. Fixes: review-400/fixes.patch (-p1, dry-run applies to head). I deleted my own copy/, pristine/ and tmp/. The copy's local git init+commit (used only to make the diff) went with it.
+
+## The coordinator's check (2026-11-18)
+
+OB3's test file placed on the head code, then the patched copy, through `suite.sh`:
+
+- **Head:** 10 failed, each on behaviour. The cache-rebuild race gives `fits, fresh=True`. An overcommit of 0, a non-mapping block and a bad `simulatedCapacity` are not refused at start. A cleared node cache fails with `NoneType ... snapshot`.
+- **Fix:** 71 passed with `test_capacity_302.py`, `test_capacity_unknown_393.py` and `test_flow.py`.
+- **Accepted:** all four findings, applied unchanged.
+- **Filed as issues, not fixed here:**
+  - the same double read in `plugins/policies/router.py`;
+  - "unreachable since" showing the last check, not when the cluster first became unreachable.

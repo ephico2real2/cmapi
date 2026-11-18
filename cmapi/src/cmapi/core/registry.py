@@ -41,6 +41,7 @@ from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, log
+from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 INSECURE_ALLOWED = {"rnd"}
@@ -90,6 +91,24 @@ class ClusterState:
                 "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at}
 
 
+def _size_problem(size: Any) -> str | None:
+    """Why a clusters.yaml `simulatedCapacity` cannot size a cluster, or None. The plan's check and GET /api/v1/capacity divide
+    by it and read both resources, so a missing resource, a value that is not a quantity, or 0 would fail each of them on every
+    call instead of once at the start (#302)."""
+    if not isinstance(size, Mapping):
+        return "must be a mapping of cpu and memory"
+    for r in ("cpu", "memory"):
+        if r not in size:
+            return f"has no {r}"
+        try:
+            value = qty(size[r])
+        except (TypeError, ValueError, ArithmeticError):
+            return f"{r} is not a Kubernetes quantity: {size[r]!r}"
+        if not value.is_finite() or value <= 0:
+            return f"{r} must be above 0, not {size[r]!r}"
+    return None
+
+
 def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, ClusterPolicy]:
     raw = yaml.safe_load(path.read_text()) or {}
     entries = raw.get("clusters") or {}
@@ -100,6 +119,10 @@ def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, Clust
         env = e.get("environment")
         if env not in allowed_environments:
             problems.append(f"cluster {cid}: environment {env!r} is not served by this instance")
+            continue
+        size = e.get("simulatedCapacity")
+        if size is not None and (why := _size_problem(size)):
+            problems.append(f"cluster {cid}: simulatedCapacity {why}")
             continue
         out[cid] = ClusterPolicy(cluster_id=cid, environment=env, gitops_path=e.get("gitopsPath", f"clusters/{cid}"),
                                  writes=bool(e.get("writes", True)), sync_signal=e.get("syncSignal", "poll"),
@@ -257,9 +280,11 @@ class ClusterRegistry:
         fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
         if st.client is None or self._fingerprints.get(cluster_id) != fp:
             self._stop_caches(st)
-            st.client = client
-            st.ledger = CapacityLedger()
-            st.cache = WatchCache(client, admit=st.ledger.admit, dropped=st.ledger.dropped)
+            ledger = CapacityLedger()
+            cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
+            with self._lock:
+                # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
+                st.client, st.ledger, st.cache = client, ledger, cache
             st.reports = self.reports_factory(st, client) if self.reports_factory else None
             st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
             if self.start_caches:
@@ -363,6 +388,13 @@ class ClusterRegistry:
             raise Problem(503, "cluster-unreachable", f"{cluster_id} is {st.status}: {'; '.join(st.findings)}",
                           extra={"retryAfter": 30})
         return st.cache
+
+    def quota_watch(self, cluster_id: str) -> tuple[WatchCache, CapacityLedger | None]:
+        """The cluster's watch cache and the ledger its ResourceQuotas feed, read together under the lock that `_connect` and
+        `_set` replace them under. Read one at a time, a read could check the freshness of the old cache and then sum the new,
+        empty ledger: 0 committed on fresh data, the #393 fault."""
+        with self._lock:
+            return self.cache(cluster_id), self.get(cluster_id).ledger
 
     def connected(self) -> list[ClusterState]:
         return [st for st in self.clusters.values() if st.status == "connected"]

@@ -45,15 +45,19 @@ class CapacitySettings:
         raw = raw or {}
         problems: list[str] = []
         self.overcommit: dict[str, dict[str, Decimal]] = {}
-        for env, block in (raw.get("overcommit") or {}).items():
+        for env, block in self._blocks(raw, "overcommit", problems):
             if not isinstance(block, Mapping):
                 problems.append(f"overcommit.{env}: must be a mapping of cpu and memory")
                 continue
-            self.overcommit[str(env)] = {r: self._number(block[r], f"overcommit.{env}.{r}", problems)
+            # Above 0: the limit is size × overcommit, and the plan's check divides by it.
+            self.overcommit[str(env)] = {r: self._number(block[r], f"overcommit.{env}.{r}", problems, above_zero=True)
                                          for r in RESOURCES if r in block}
         self.targets: dict[str, dict[str, Decimal]] = {}
-        for env, block in (raw.get("targets") or {}).items():
-            commitment = (block or {}).get("commitment") if isinstance(block, Mapping) else None
+        for env, block in self._blocks(raw, "targets", problems):
+            if not isinstance(block, Mapping):
+                problems.append(f"targets.{env}: must be a mapping, such as {{commitment: {{warn: 0.85, critical: 0.95}}}}")
+                continue
+            commitment = block.get("commitment")
             if commitment is None:
                 continue
             if not isinstance(commitment, Mapping):
@@ -70,9 +74,18 @@ class CapacitySettings:
             raise ValueError("capacity.yaml: " + "; ".join(problems))
 
     @staticmethod
-    def _number(value: Any, where: str, problems: list[str]) -> Decimal:
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-            problems.append(f"{where}: must be a number, 0 or more, not {value!r}")
+    def _blocks(raw: Mapping[str, Any], key: str, problems: list[str]) -> list[tuple[Any, Any]]:
+        """The per-environment entries of a top-level key, or none with a problem named when the key is not a mapping."""
+        value = raw.get(key) or {}
+        if not isinstance(value, Mapping):
+            problems.append(f"{key}: must be a mapping of environment to settings")
+            return []
+        return list(value.items())
+
+    @staticmethod
+    def _number(value: Any, where: str, problems: list[str], *, above_zero: bool = False) -> Decimal:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or (above_zero and value == 0):
+            problems.append(f"{where}: must be a number, {'above 0' if above_zero else '0 or more'}, not {value!r}")
             return Decimal(0)
         return Decimal(str(value))
 

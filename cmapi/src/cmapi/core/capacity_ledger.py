@@ -53,13 +53,6 @@ def amount(nano: int) -> Decimal:
     return Decimal(nano).scaleb(-NANO, context=Context(prec=max(28, len(str(abs(nano))))))
 
 
-def committed_by(hard: Mapping[str, Any], resource: str) -> Decimal:
-    """What one quota's hard values let its namespace commit of `resource` (cpu or memory) in requests: the smallest bound
-    the API server enforces, or 0 when the quota bounds neither name."""
-    bounds = [b for k in REQUEST_KEYS[resource] if k in hard and (b := nano_units(hard[k])) is not None]
-    return amount(min(bounds, default=0))
-
-
 @dataclass(frozen=True, slots=True)
 class Bound:
     """What one quota bounds of one resource: the smallest hard value of its names, and the use it reports for that name, in

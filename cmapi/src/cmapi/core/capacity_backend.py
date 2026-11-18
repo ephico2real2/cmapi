@@ -36,7 +36,7 @@ class QuotaRead:
 
 def read_quotas(registry: ClusterRegistry, cluster_id: str) -> QuotaRead:
     try:
-        cache = registry.cache(cluster_id)
+        cache, ledger = registry.quota_watch(cluster_id)
     except Problem as exc:
         return QuotaRead("unreachable", f"no watch cache for this cluster: {exc.detail}", None, None)
     stale, last = cache.kind_stale("ResourceQuota")
@@ -49,7 +49,6 @@ def read_quotas(registry: ClusterRegistry, cluster_id: str) -> QuotaRead:
     if last is None:
         return QuotaRead("loading", "the cluster's ResourceQuotas have not listed yet" + (f": {error}" if error else ""), None,
                          None)
-    ledger = registry.get(cluster_id).ledger
     if ledger is None:
         return QuotaRead("loading", "the cluster's quota ledger has not started", last, None)
     if stale:
