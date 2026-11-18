@@ -548,7 +548,7 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `quotaIncreasePct` | The largest increase of a sizable key, in percent. Set for a change of an existing namespace only | `QuotaChange.quota_increase_pct` |
 | `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`, #256) | `QuotaChange.facts` |
 | `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today (#257) | Not set by any built code |
-| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, ResourceQuota reads refused (401 or 403), or a ResourceQuota watch with no good read for 30 minutes (#393) | `core/capacity_backend.py` |
+| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, ResourceQuota reads refused (401 or 403), or a ResourceQuota watch with no good read for 30 minutes (#393). What is committed comes from the cluster's quota ledger: per namespace the smallest unscoped managed quota, scoped quotas left out (#302) | `core/capacity_backend.py`, `core/capacity_ledger.py` |
 | `namespaceAgeDays`, `pods`, `pvcs`, `protected` | The namespace for a delete | `Pipeline.plan_delete` |
 | `keyClasses`, `sensitiveKeyChanged` | The classes of the changed keys, and a change of a `sensitiveKeys` key | `MetadataKeys.change_facts` |
 | `expirationAction`, `expirationBeyondLimits` | The expiry change, and whether it is past `maxLifetimeDays` or is `:makePermanent` | `plugins/expiration/rules.py` |
@@ -696,9 +696,19 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `thanosUrl` | text | None | No built code reads it |
 | `labels` | mapping | `{}` | Labels that `match.clusterSelector` reads. `GET /api/v1/clusters` shows them |
 | `metadata`, `placement` | mapping | `{}` | No built code reads them |
-| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check, which counts the hard `requests.cpu` and `requests.memory` (or `cpu` and `memory`, the same resources; the smaller when a quota has both) of the ResourceQuotas labelled `cmapi.net/managed: "true"`. Without it, or while those quotas are not known (#393), the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change |
+| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check, which counts the hard `requests.cpu` and `requests.memory` (or `cpu` and `memory`, the same resources; the smaller when a quota has both) of the ResourceQuotas labelled `cmapi.net/managed: "true"`: in each namespace the smallest unscoped one, never their sum, and no scoped quota (`scopes` or `scopeSelector`), since a scoped quota bounds only the pods of its scope (#302, docs/16). Without it, or while those quotas are not known (#393), the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change. The Capacity tab measures against it when it is set, labelled "simulated", with the nodes' allocatable beside it; without it, against the allocatable (the owner, 2026-11-18) |
 
-`capacity.yaml` keys that built code reads (`core/capacity_backend.py`, `core/context.py`, `core/kpi.py`): `overcommit.<env>.cpu` and `.memory` (default 1.0), `targets.<env>.commitment.warn` (default `0.85`), and `kpi.thresholds`. The other keys of the reference file are designed for the capacity service, which is not built.
+`capacity.yaml` keys that built code reads (`core/capacity.py` `CapacitySettings`, `core/kpi.py`). A value of the wrong type stops the start, naming each one:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `overcommit.<env>.cpu`, `.memory` | number, 0 or more | 1.0 | What the managed quotas may commit, as a multiple of the cluster's size. The plan's check and `GET /api/v1/capacity` use the same value; the API says `overcommitDefault: true` for an environment the file does not set |
+| `targets.<env>.commitment.warn` | number | `0.85` | The commitment at which the plan's capacity answer is `warn`, and a cluster or group of the Capacity tab is `warn` |
+| `targets.<env>.commitment.critical` | number | `0.95` | The commitment at which a cluster of the Capacity tab is `critical`. Above 1 it is `over` (#302) |
+| `countTaints` | list of taint keys | `[]` | The taint keys whose `NoSchedule` and `NoExecute` nodes still count toward allocatable (`core/clients/nodes.py`, #302). By default a node counts when it is Ready, not cordoned, and has no such taint, so control-plane nodes with `node-role.kubernetes.io/master:NoSchedule` do not count. A single-node cluster such as CRC has no taint and counts |
+| `kpi.thresholds` | mapping | | `core/kpi.py` |
+
+The other keys of the reference file are designed for the capacity service, which is not built. The Capacity tab reads each connected cluster's nodes through cmapi-reader, which needs `get`, `list` and `watch` on `nodes` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`); without it the cluster's nodes are `forbidden` and the tab shows the commitment against `simulatedCapacity` only. The API process watches the nodes; the worker does not.
 
 ---
 

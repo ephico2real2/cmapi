@@ -39,12 +39,12 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | Permission | viewer | onboarding | requester | approver | operator | admin | auditor | approval-relay | Routes today |
 |---|---|---|---|---|---|---|---|---|---|
 | `clusters:read` | yes | yes | yes | yes | yes | yes | yes | | 3 |
-| `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 10 |
-| `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 0 |
-| `requests:read` | yes | yes | yes | yes | yes | yes | yes | yes | 5 |
+| `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 11 |
+| `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 1 |
+| `requests:read` | yes | yes | yes | yes | yes | yes | yes | yes | 6 |
 | `namespaces:create` | | yes | yes | | yes | yes | | | 1 |
 | `requests:cancel` | | yes | yes | | yes | yes | | | 1 |
-| `namespaces:write` | | | yes | | yes | yes | | | 3 |
+| `namespaces:write` | | | yes | | yes | yes | | | 5 |
 | `quotas:write` | | | yes | | yes | yes | | | 0 |
 | `serviceaccounts:write` | | | yes | | yes | yes | | | 0 |
 | `grants:write` | | | yes | | yes | yes | | | 0 |
@@ -89,9 +89,10 @@ Each route declares one permission. The OpenAPI document shows it as `x-cmapi-pe
 | None, with a valid token | `GET /api/v1/me` |
 | `clusters:read` | `GET /api/v1/clusters`<br>`GET /api/v1/admin/integrations`<br>`GET /api/v1/admin/plugins` |
 | `objects:read` | `GET /api/v1/clusters/{cluster_id}/namespaces`<br>`GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`GET /api/v1/directory/users`<br>`GET /api/v1/directory/users/{username}`<br>`GET /api/v1/expirations`<br>`GET /api/v1/metadata-keys`<br>`GET /api/v1/policies/results`<br>`GET /api/v1/quotas`<br>`GET /api/v1/quotas:export`<br>`GET /api/v1/quotas:suggest`<br>`GET /api/v1/tiers` |
+| `capacity:read` | `GET /api/v1/capacity` |
 | `requests:read` | `GET /api/v1/policies/rejections`<br>`GET /api/v1/requests`<br>`GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events`<br>`GET /api/v1/requests/{request_id}/approval-status`<br>`GET /api/v1/admin/auto-approval` |
 | `namespaces:create` | `POST /api/v1/clusters/{cluster_id}/namespaces` |
-| `namespaces:write` | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend` |
+| `namespaces:write` | `PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent` |
 | `requests:approve` | `POST /api/v1/requests/{request_id}:approve` |
 | `requests:reject` | `POST /api/v1/requests/{request_id}:reject` |
 | `requests:cancel` | `POST /api/v1/requests/{request_id}:cancel` |
@@ -183,6 +184,7 @@ A role can have a list of environments. The route checks the permission again wh
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
 | List expirations | Only the environments where the caller has `objects:read`, and where a namespace can expire | `cmapi/src/cmapi/plugins/expiration/router.py:109` |
 | List policy results (#302) | Only the clusters of the environments where the caller has `objects:read`; of those, only the results on namespaces that cmapi manages, of the bundle's policies that are on the cluster. The rest is counted in `hidden`, with no name | `cmapi/src/cmapi/plugins/policies/router.py`, `results` |
+| Capacity (#302) | Only the clusters of the environments where the caller has `capacity:read`; the groups are summed from those clusters only, and the others are counted in `hiddenClusters`, with no name. No namespace is named. `env` in another environment answers 403 `environment-forbidden`; `clusterId` outside the scope answers 404 `cluster-not-found`, as an unknown cluster does | `cmapi/src/cmapi/plugins/capacity/router.py`, `capacity` |
 | List refusals (#302) | Only the environments where the caller has `requests:read`, the audience of `GET /api/v1/requests`. A row names who asked by username only, never the email, the employee ID or the justification (the owner, 2026-11-17) | `cmapi/src/cmapi/plugins/policies/router.py`, `rejections` |
 
 If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:181-184`). A list does not refuse: it leaves out the rows of the other environments.

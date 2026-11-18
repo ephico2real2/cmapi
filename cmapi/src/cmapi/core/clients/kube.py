@@ -244,6 +244,23 @@ class WatchCache:
             st.resource_version = rv
             st.last_good, st.error, st.error_status = self.clock(), None, None
 
+    def _event(self, kind: str, ev: Mapping[str, Any]) -> None:
+        """One watch event into the cache: ADDED and MODIFIED through `project` and `admit`, DELETED through `dropped`; a
+        BOOKMARK only moves the resourceVersion and the last good read. ERROR raises, so the loop lists again."""
+        t, obj = ev.get("type"), ev.get("object", {})
+        if t == "ERROR":
+            raise KubeError(410, kind, json.dumps(obj)[:200])
+        with self._lock:
+            st = self.state[kind]
+            st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
+            st.last_good = self.clock()
+            if t in ("ADDED", "MODIFIED"):
+                key = self._key(obj)
+                st.items[key] = self._admitted(kind, key, self._value(kind, obj))
+            elif t == "DELETED":
+                if st.items.pop(self._key(obj), None) is not None and self.dropped:
+                    self.dropped(kind, self._key(obj))
+
     def _loop(self, kind: str) -> None:
         backoff = 1.0
         while not self._stop.is_set():
@@ -254,19 +271,7 @@ class WatchCache:
                 while not self._stop.is_set() and self.clock() - listed_at < self.RELIST_SECONDS:
                     rv = self.state[kind].resource_version or "0"
                     for ev in self.client.watch(kind, rv, timeout_seconds=60):
-                        t, obj = ev.get("type"), ev.get("object", {})
-                        if t == "ERROR":
-                            raise KubeError(410, kind, json.dumps(obj)[:200])
-                        with self._lock:
-                            st = self.state[kind]
-                            st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
-                            st.last_good = self.clock()
-                            if t in ("ADDED", "MODIFIED"):
-                                key = self._key(obj)
-                                st.items[key] = self._admitted(kind, key, self._value(kind, obj))
-                            elif t == "DELETED":
-                                if st.items.pop(self._key(obj), None) is not None and self.dropped:
-                                    self.dropped(kind, self._key(obj))
+                        self._event(kind, ev)
                         if self._stop.is_set():
                             break
             except (ClusterUnreachable, KubeError, ValueError) as exc:

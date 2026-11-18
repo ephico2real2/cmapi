@@ -556,6 +556,180 @@ class RejectionPage(Api):
     letters: dict[str, int] = Field(description="Rows per first letter of the namespace", examples=[{"C": 1}])
 
 
+# --------------------------------------------------------------------------- capacity (#302)
+
+CapacityStatus = Literal["ok", "warn", "critical", "over"]
+CapacityState = Literal["ok", "loading", "unreachable", "forbidden", "stale", "no-size"]
+NodesState = Literal["ok", "loading", "forbidden", "stale", "unreachable"]
+
+
+class CapacityResource(Api):
+    unit: Literal["millicores", "bytes"] = Field(description="The unit of every amount here: `millicores` for cpu, `bytes` for "
+                                                            "memory. Integers, exact", examples=["millicores"])
+    simulated: int | None = Field(description="clusters.yaml `simulatedCapacity`: a configured size, not a measurement. Null "
+                                              "when the cluster has none", examples=[64000])
+    allocatable: int | None = Field(description="The sum of `status.allocatable` over the nodes that count (Ready, not cordoned, "
+                                                "no NoSchedule or NoExecute taint outside capacity.yaml `countTaints`). Null when "
+                                                "the nodes are not known", examples=[7800])
+    overcommit: float = Field(description="The environment's overcommit from capacity.yaml, 1.0 when it sets none",
+                              examples=[2.0])
+    limit: int | None = Field(description="The size of `basis` × `overcommit`: what the managed quotas may commit. Null with no "
+                                          "basis", examples=[128000])
+    committed: int | None = Field(description="What cmapi's quotas commit: per managed namespace the smallest unscoped "
+                                              "ResourceQuota `requests.cpu` or `cpu` (`requests.memory` or `memory`), summed. "
+                                              "Null, never 0, when the quotas are not known", examples=[72000])
+    quota_used: int | None = Field(description="What the pods of those namespaces request within the quotas: the binding quota's "
+                                               "`status.used`, summed. Null when the quotas are not known or when any binding "
+                                               "quota has not reported its use (`quotaUsedMissing`): never a partial sum",
+                                   examples=[0])
+    quota_used_missing: int | None = Field(description="Namespaces whose binding quota reports no `status.used` for the resource "
+                                                       "yet. Null when the quotas are not known", examples=[0])
+    headroom: int | None = Field(description="`limit` − `committed`; negative when the quotas commit more than the limit",
+                                 examples=[56000])
+    commitment: float | None = Field(description="`committed` ÷ `limit`, to 4 places; above 1 when over", examples=[0.5625])
+    status: CapacityStatus | None = Field(description="Against the environment's targets: `over` above 1, `critical` or `warn` "
+                                                      "at the targets, else `ok`. Null when the commitment is not known",
+                                          examples=["ok"])
+    requested: int | None = Field(description="The requests of every pod, from the snapshots of cmapi-capacity (#21). Null: not "
+                                              "measured yet (`notMeasured`)", examples=[None])
+    used_avg: int | None = Field(description="The average use over a snapshot interval (#21). Null: not measured yet",
+                                 examples=[None])
+    used_peak: int | None = Field(description="The peak use over a snapshot interval (#21). Null: not measured yet",
+                                  examples=[None])
+
+
+class CapacityNodes(Api):
+    total: int = Field(description="Nodes of the cluster", examples=[1])
+    counted: int = Field(description="Of those, the ones whose allocatable counts", examples=[1])
+    not_ready: int = Field(description="Nodes whose Ready condition is not True", examples=[0])
+    cordoned: int = Field(description="Nodes with `spec.unschedulable`", examples=[0])
+    tainted: int = Field(description="Nodes with a NoSchedule or NoExecute taint outside capacity.yaml `countTaints`",
+                         examples=[0])
+
+
+class CapacityCluster(Api):
+    cluster_id: str = Field(description="Cluster", examples=["CRC"])
+    env: str = Field(description="Its environment in clusters.yaml", examples=["dev"])
+    region: str | None = Field(description="Its clusters.yaml label `region`", examples=["us-central"])
+    writes: bool = Field(description="clusters.yaml `writes`: a read-only cluster takes no placement and is left out of its "
+                                     "group", examples=[True])
+    state: CapacityState = Field(description="What can be said of its figures: `ok`; `loading` (the quotas, or the nodes of a "
+                                             "cluster sized by them, are being listed); `unreachable` (the import is not "
+                                             "connected); `forbidden` (cmapi-reader may not list ResourceQuotas); `stale` (no good "
+                                             "read for 30 minutes: the figures are the last ones read); `no-size` (no "
+                                             "`simulatedCapacity`, and the nodes' allocatable is not known)", examples=["ok"])
+    state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
+    as_of: datetime | None = Field(description="The last good read of the figures, to the minute; for `unreachable`, the last "
+                                               "check of the cluster", examples=["2026-11-18T09:14:00Z"])
+    basis: Literal["simulated", "allocatable"] | None = Field(
+        description="The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity` (what "
+                    "the plan's capacity check uses until cmapi-capacity, #21), else `allocatable` from the nodes. Null when "
+                    "neither is known", examples=["simulated"])
+    nodes_state: NodesState = Field(description="What can be said of the nodes: `ok`; `loading`; `forbidden` (cmapi-reader may not "
+                                                "list nodes); `stale`; `unreachable`", examples=["ok"])
+    nodes_detail: str | None = Field(description="Why, in words; null when the nodes' state is ok", examples=[None])
+    nodes: CapacityNodes | None = Field(description="The node counts. Null when the nodes are not known", examples=[None])
+    zones: list[str] | None = Field(description="The distinct `topology.kubernetes.io/zone` of the nodes that count. Empty when "
+                                                "they carry no zone label; null when the nodes are not known", examples=[[]])
+    managed_namespaces: int | None = Field(description="Namespaces with an unscoped managed quota, which the commitment sums. "
+                                                       "Null when the quotas are not known", examples=[6])
+    scoped_quotas: int | None = Field(description="Managed quotas left out because they are scoped (`scopes` or "
+                                                  "`scopeSelector`). Null when the quotas are not known", examples=[0])
+    status: CapacityStatus | None = Field(description="The worse status of cpu and memory. Null when neither is known",
+                                          examples=["ok"])
+    bound_by: Literal["cpu", "memory", "both"] | None = Field(description="The resource with the higher commitment; `both` when "
+                                                                          "they agree to 3 places", examples=["cpu"])
+    cpu: CapacityResource = Field(description="CPU, in millicores")
+    memory: CapacityResource = Field(description="Memory, in bytes")
+    history: list[dict[str, Any]] | None = Field(description="The cluster's figures over time, from the snapshots of "
+                                                             "cmapi-capacity (#21). Null: not measured yet", examples=[None])
+
+
+class CapacityPlacement(Api):
+    value: int = Field(description="The largest headroom of one included cluster, floored at 0", examples=[56000])
+    cluster_id: str = Field(description="That cluster", examples=["CRC"])
+
+
+class CapacityGroupResource(Api):
+    unit: Literal["millicores", "bytes"] = Field(description="The unit of the amounts", examples=["millicores"])
+    committed: int = Field(description="The sum over the included clusters", examples=[72000])
+    limit: int = Field(description="The sum over the included clusters", examples=[128000])
+    commitment: float | None = Field(description="The summed `committed` ÷ the summed `limit`, to 4 places: recomputed, never an "
+                                                 "average of the clusters' ratios", examples=[0.5625])
+    headroom: int = Field(description="The sum of each included cluster's headroom floored at 0: capacity does not move between "
+                                      "clusters", examples=[56000])
+    largest_placement: CapacityPlacement = Field(description="What one new namespace can get on one cluster of the group")
+
+
+class CapacityExcluded(Api):
+    cluster_id: str = Field(description="A cluster of the group left out of its figures", examples=["OCP_GF7"])
+    reason: str = Field(description="Its state (`stale`, `unreachable`, `loading`, `forbidden`, `no-size`), or `not-writable`",
+                        examples=["stale"])
+    as_of: datetime | None = Field(description="Its last good read, to the minute", examples=["2026-11-18T08:30:00Z"])
+
+
+class CapacityStatusCounts(Api):
+    ok: int = Field(description="Included clusters with status ok", examples=[1])
+    warn: int = Field(description="Included clusters with status warn", examples=[0])
+    critical: int = Field(description="Included clusters with status critical", examples=[0])
+    over: int = Field(description="Included clusters with status over", examples=[0])
+
+
+class CapacityGroup(Api):
+    key: dict[str, str | None] = Field(description="The value of each `groupBy` key; null when a cluster has no such label",
+                                       examples=[{"region": "us-central", "environment": "dev"}])
+    name: str = Field(description="The values joined with ` · `", examples=["us-central · dev"])
+    cluster_ids: list[str] = Field(description="The clusters of the group in the caller's scope, by cluster ID: those of "
+                                               "`clusters` that it is made of", examples=[["CRC"]])
+    matching: int = Field(description="The clusters of the group in the caller's scope", examples=[1])
+    included: int = Field(description="Of those, the ones in the figures: state ok and writable", examples=[1])
+    coverage: float | None = Field(description="`included` ÷ `matching`", examples=[1.0])
+    excluded: list[CapacityExcluded] = Field(description="Every cluster left out, with the reason")
+    status: CapacityStatus | None = Field(description="The worst status of the included clusters, each against its own "
+                                                      "environment's targets. Null when none is included", examples=["ok"])
+    status_counts: CapacityStatusCounts = Field(description="The included clusters per status")
+    bound_by: Literal["cpu", "memory", "both"] | None = Field(description="The resource with the higher group commitment",
+                                                              examples=["cpu"])
+    cpu: CapacityGroupResource | None = Field(description="CPU, in millicores. Null when no cluster is included",
+                                              examples=[None])
+    memory: CapacityGroupResource | None = Field(description="Memory, in bytes. Null when no cluster is included",
+                                                 examples=[None])
+
+
+class CapacityOvercommit(Api):
+    cpu: float = Field(description="CPU overcommit", examples=[2.0])
+    memory: float = Field(description="Memory overcommit", examples=[1.25])
+
+
+class CapacityThresholds(Api):
+    warn: float = Field(description="The commitment at which a cluster is `warn`", examples=[0.85])
+    critical: float = Field(description="The commitment at which a cluster is `critical`", examples=[0.95])
+
+
+class CapacityTarget(Api):
+    env: str = Field(description="An environment where the caller holds capacity:read", examples=["dev"])
+    overcommit: CapacityOvercommit = Field(description="capacity.yaml `overcommit.<env>`")
+    overcommit_default: bool = Field(description="True when capacity.yaml sets no overcommit for the environment: 1.0 applies",
+                                     examples=[False])
+    commitment: CapacityThresholds = Field(description="capacity.yaml `targets.<env>.commitment`, 0.85 and 0.95 by default")
+
+
+class CapacityPage(Api):
+    source: Literal["live"] = Field(description="Where the figures come from: `live`, each cluster's watch of its quotas and "
+                                                "nodes. No request calls a cluster", examples=["live"])
+    snapshot_state: Literal["not-built"] = Field(description="The snapshots of cmapi-capacity (#21): `not-built` until it "
+                                                             "serves them", examples=["not-built"])
+    not_measured: list[str] = Field(description="The fields that are null for every cluster because only the snapshots can give "
+                                                "them", examples=[["requested", "usedAvg", "usedPeak", "history"]])
+    group_by: list[str] = Field(description="The keys the groups are made of", examples=[["region", "environment"]])
+    hidden_clusters: int = Field(description="Clusters of environments where the caller lacks capacity:read: counted, not "
+                                             "shown", examples=[0])
+    targets: list[CapacityTarget] = Field(description="The overcommit and the targets of each environment in the caller's scope")
+    groups: list[CapacityGroup] = Field(description="One group per combination of `groupBy` values, computed from every cluster "
+                                                    "in scope")
+    clusters: list[CapacityCluster] = Field(description="Every cluster in scope, by cluster ID")
+
+
 class Suggestion(Api):
     name: str = Field(description="Namespace", examples=["payments-dev"])
     cluster_id: str = Field(description="Cluster", examples=["CRC"])

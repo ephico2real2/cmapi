@@ -218,7 +218,9 @@ to `requests.cpu` and `memory` to `requests.memory` for comparison while preserv
 keys are `pods`, `persistentvolumeclaims`, `requests.storage`, `services.loadbalancers` and `services.nodeports`.
 Scoped quotas remain visible but do not enter namespace-wide numbers. A key held only by scoped quotas is null
 (unknown), with `scoped-only`; capacity excludes that namespace for the key and reports the omission, and KPIs count
-it as unknown. Other keys remain raw and visible, excluded from these calculations, with `uninterpreted-key`.
+it as unknown. Built for capacity in #302 (`core/capacity_ledger.py`): the plan's check and `GET /api/v1/capacity` count, per
+managed namespace, the smallest unscoped quota of `requests.cpu`/`cpu` and `requests.memory`/`memory`, take `status.used` from
+that quota, and leave scoped quotas out, counting them in `scopedQuotas`. The ledger is in memory, kept by the watch: no table. Other keys remain raw and visible, excluded from these calculations, with `uninterpreted-key`.
 Overlapping LimitRange defaults remain raw and produce `duplicate-default`.
 
 Requests edit raw objects by kind and name, preserving fields they do not change; only an explicit request replaces

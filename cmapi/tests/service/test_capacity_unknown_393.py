@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from cmapi.core.clients.kube import CacheState, WatchCache
+from cmapi.core.clients.kube import CacheState
 from cmapi.core.errors import Problem
 
 NS = {"namespace": "payments-dev", "tier": "small", "labels": {"cmapi.net/team": "payments", "cmapi.net/cost-center": "cc-4410"},
@@ -27,10 +27,8 @@ def quota(name: str, hard: dict[str, str], managed: bool = True) -> dict:
 
 
 def put_quota(ctx, q: dict) -> None:
-    """A quota in the cache as the watch would hold it after an ADDED event."""
-    cache = ctx.registry.cache("CRC")
-    with cache._lock:
-        cache.state["ResourceQuota"].items[WatchCache._key(q)] = q
+    """A quota in the cache through the watch's own ADDED path, so the quota ledger that the check reads sees it (#302)."""
+    ctx.registry.cache("CRC")._event("ResourceQuota", {"type": "ADDED", "object": q})
 
 
 def facts_for(cap) -> dict:

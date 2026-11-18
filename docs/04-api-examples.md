@@ -67,12 +67,12 @@ The answer was 200 (`application/json`):
     {
       "app": null,
       "clusterId": "CRC",
-      "created": "2026-11-17",
+      "created": "2026-11-18",
       "daysLeft": 21,
       "env": "dev",
       "expiresAt": "2026-12-08",
       "graceEnds": "2026-12-15",
-      "lifetimeDays": 21,
+      "lifetimeDays": 20,
       "name": "notes-dev",
       "noticesSent": 0,
       "openRequest": null,
@@ -133,7 +133,7 @@ The answer was 200 (`application/json`):
       "annotations": {
         "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
         "cmapi.net/instance": "nonprod",
-        "cmapi.net/request-id": "req-20261117-0001",
+        "cmapi.net/request-id": "req-20261118-0001",
         "cmapi.net/requested-by": "ola@ephico2real.com",
         "cmapi.net/team-dl": "payments-team@ephico2real.com"
       },
@@ -210,11 +210,11 @@ The answer was 202 (`application/json`):
   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:41.990947Z",
+  "createdAt": "2026-11-18T04:08:51.381310Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:41.990947Z",
+      "at": "2026-11-18T04:08:51.381310Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -231,16 +231,16 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0001/events",
-    "self": "/api/v1/requests/req-20261117-0001"
+    "events": "/api/v1/requests/req-20261118-0001/events",
+    "self": "/api/v1/requests/req-20261118-0001"
   },
   "mergeSha": null,
   "namespace": "payments-dev",
-  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
+  "planHash": "5b6641ff9024b9bbc7935626d3d3bff6638460f336acd6ff3f66e4971788ac75",
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0001",
+  "requestId": "req-20261118-0001",
   "requester": {
     "automated": false,
     "requester": {
@@ -258,7 +258,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-17T21:54:41.922096Z"
+  "updatedAt": "2026-11-18T04:08:51.342564Z"
 }
 ```
 
@@ -432,14 +432,14 @@ The answer was 202 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "afc9dd57a1c698e05c664256e7b7633a7fa37e0f",
+  "baseSha": "8cf793aac5f7b4e5aa526197775d9e43c51bf1f6",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:51.166885Z",
+  "createdAt": "2026-11-18T04:09:01.446148Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:51.166885Z",
+      "at": "2026-11-18T04:09:01.446148Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -456,8 +456,8 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": null,
   "links": {
-    "events": "/api/v1/requests/req-20261117-0008/events",
-    "self": "/api/v1/requests/req-20261117-0008"
+    "events": "/api/v1/requests/req-20261118-0008/events",
+    "self": "/api/v1/requests/req-20261118-0008"
   },
   "mergeSha": null,
   "namespace": "search-dev",
@@ -465,7 +465,7 @@ The answer was 202 (`application/json`):
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0008",
+  "requestId": "req-20261118-0008",
   "requester": {
     "automated": false,
     "requester": {
@@ -483,7 +483,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-17T21:54:51.044621Z"
+  "updatedAt": "2026-11-18T04:09:01.338214Z"
 }
 ```
 
@@ -499,20 +499,20 @@ curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces
 
 The run sent `GET /api/v1/clusters/CRC/namespaces/payments-dev`.
 
-The answer was 200 (`application/json`, `etag: "daa09971fd2463c8"`):
+The answer was 200 (`application/json`, `etag: "1042bfd0f5527f92"`):
 
 ```json
 {
   "annotations": {
     "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
     "cmapi.net/instance": "nonprod",
-    "cmapi.net/request-id": "req-20261117-0001",
+    "cmapi.net/request-id": "req-20261118-0001",
     "cmapi.net/requested-by": "ola@ephico2real.com",
     "cmapi.net/team-dl": "payments-team@ephico2real.com"
   },
   "clusterId": "CRC",
   "env": "dev",
-  "etag": "daa09971fd2463c8",
+  "etag": "1042bfd0f5527f92",
   "expiresAt": null,
   "labels": {
     "cmapi.net/cluster-id": "CRC",
@@ -581,14 +581,14 @@ The answer was 202 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
+  "baseSha": "25cd5ff36f8662d4cc66e4843b66aaa12322851a",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:43.256710Z",
+  "createdAt": "2026-11-18T04:08:52.783097Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:43.256710Z",
+      "at": "2026-11-18T04:08:52.783097Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -605,16 +605,16 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": "Load test next sprint",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0002/events",
-    "self": "/api/v1/requests/req-20261117-0002"
+    "events": "/api/v1/requests/req-20261118-0002/events",
+    "self": "/api/v1/requests/req-20261118-0002"
   },
   "mergeSha": null,
   "namespace": "payments-dev",
-  "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
+  "planHash": "4007bb71963c9ab0302499cf84538bf5e399a6319e1ba70ef5d3b347d7ef2c11",
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0002",
+  "requestId": "req-20261118-0002",
   "requester": {
     "automated": false,
     "requester": {
@@ -632,7 +632,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-17T21:54:43.196748Z"
+  "updatedAt": "2026-11-18T04:08:52.740876Z"
 }
 ```
 
@@ -680,7 +680,7 @@ The answer was 200 (`application/json`):
     "clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed",
     "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "changed"
   },
-  "etag": "daa09971fd2463c8",
+  "etag": "1042bfd0f5527f92",
   "files": {
     "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-cpu\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n    default:\n      cpu: 500m\n    max:\n      cpu: '4'\n",
     "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-memory\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      memory: 256Mi\n    default:\n      memory: 512Mi\n    max:\n      memory: 8Gi\n",
@@ -688,7 +688,7 @@ The answer was 200 (`application/json`):
     "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: payments-dev-quota\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  hard:\n    requests.cpu: '16'\n    requests.memory: 32Gi\n    pods: '100'\n    persistentvolumeclaims: '30'\n    requests.storage: 500Gi\n    services.loadbalancers: '0'\n    services.nodeports: '0'\n"
   },
   "findings": [],
-  "planHash": "198b0813d1fa0813deb7e278c6fb29471ef12a502540605f5f6acd3f9b235ab4",
+  "planHash": "e2d5ab2ca98ffdea968fe87b9c5e6d253b315c37d96378de526b0f283079c1d2",
   "requester": {
     "automated": false,
     "requester": {
@@ -745,14 +745,14 @@ The answer was 202 (`application/json`):
     "slots": [],
     "timeoutHours": 8
   },
-  "baseSha": "7df244b25b2bca02452215a5bd7251d334a72303",
+  "baseSha": "bb82174a6ea1cb1cc3333123cace27809f0da30b",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:45.855130Z",
+  "createdAt": "2026-11-18T04:08:55.762412Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:45.855130Z",
+      "at": "2026-11-18T04:08:55.762412Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "none-required",
@@ -769,16 +769,16 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": "Another sprint",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0004/events",
-    "self": "/api/v1/requests/req-20261117-0004"
+    "events": "/api/v1/requests/req-20261118-0004/events",
+    "self": "/api/v1/requests/req-20261118-0004"
   },
   "mergeSha": null,
   "namespace": "sprint-dev",
-  "planHash": "08e3065fd016c3dec221a862aa9575a9710cb7a07da5d74e827cc43835355817",
+  "planHash": "5af4906c53948b2fbf54d7329b4cf378a1afe49c37fcc82ba0dbfdd4211a66e8",
   "plugin": "namespaces",
   "pr": null,
   "reason": "expiration:extend",
-  "requestId": "req-20261117-0004",
+  "requestId": "req-20261118-0004",
   "requester": {
     "automated": false,
     "requester": {
@@ -796,7 +796,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-17T21:54:45.796417Z"
+  "updatedAt": "2026-11-18T04:08:55.718573Z"
 }
 ```
 
@@ -838,12 +838,12 @@ The answer was 200 (`application/json`):
   "changes": {
     "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
   },
-  "etag": "9b67d4f35b885189",
+  "etag": "5e58762effb4de1c",
   "files": {
     "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-21'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
   },
   "findings": [],
-  "planHash": "62665f75023d5776e246b1e4808495d5a2e1dde0a6df7a85fb4cd0f5bb1ea06a",
+  "planHash": "a2191ef9bc0ab25999c1c5b425e971250f3957a08705f6a71fb33f709a57d42c",
   "requester": {
     "automated": false,
     "requester": {
@@ -910,14 +910,14 @@ The answer was 202 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "0cfdd0dc84c323ae7672cf55d6d8582a73bb764d",
+  "baseSha": "ab7e0c501cd71120060adb5484a159119bac99cc",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:56.624254Z",
+  "createdAt": "2026-11-18T04:09:07.253645Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:56.624254Z",
+      "at": "2026-11-18T04:09:07.253645Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -934,16 +934,16 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": "In production use",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0013/events",
-    "self": "/api/v1/requests/req-20261117-0013"
+    "events": "/api/v1/requests/req-20261118-0013/events",
+    "self": "/api/v1/requests/req-20261118-0013"
   },
   "mergeSha": null,
   "namespace": "sprint-dev",
-  "planHash": "ddffdabe0161096a6fbcb6389459aa7f095f482a4ab903245298b07e076937e0",
+  "planHash": "e2b01e26beec4fa73e364a2750957a348779363b069a32775142b8f578fa373f",
   "plugin": "namespaces",
   "pr": null,
   "reason": "expiration:makePermanent",
-  "requestId": "req-20261117-0013",
+  "requestId": "req-20261118-0013",
   "requester": {
     "automated": false,
     "requester": {
@@ -961,7 +961,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-17T21:54:56.570271Z"
+  "updatedAt": "2026-11-18T04:09:07.213523Z"
 }
 ```
 
@@ -1016,12 +1016,12 @@ The answer was 200 (`application/json`):
   "changes": {
     "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
   },
-  "etag": "9b67d4f35b885189",
+  "etag": "5e58762effb4de1c",
   "files": {
     "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
   },
   "findings": [],
-  "planHash": "e3a0b3287110e470e81d64e192b747d46c3be351822bb960f8a9907ad4164cd9",
+  "planHash": "a2e8046ae56f8bb769090fa3ce0dbaaab144f42723650786bcdafee18dad66c4",
   "requester": {
     "automated": false,
     "requester": {
@@ -1080,14 +1080,14 @@ The answer was 202 (`application/json`):
     "slots": [],
     "timeoutHours": 8
   },
-  "baseSha": "a968e682d8290348bc8e1fbaea06386719b0175b",
+  "baseSha": "7bb3b89d3fbb3fa9afdde268376a1944d0fb14fb",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:55.805475Z",
+  "createdAt": "2026-11-18T04:09:06.373850Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:55.805475Z",
+      "at": "2026-11-18T04:09:06.373850Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "none-required",
@@ -1104,16 +1104,16 @@ The answer was 202 (`application/json`):
   "instance": "nonprod",
   "justification": "A load test this sprint",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0012/events",
-    "self": "/api/v1/requests/req-20261117-0012"
+    "events": "/api/v1/requests/req-20261118-0012/events",
+    "self": "/api/v1/requests/req-20261118-0012"
   },
   "mergeSha": null,
   "namespace": "notes-dev",
-  "planHash": "01db12b7ef5082a48d09e12553789a095cb9f1f1637429846e826b2e3ded46b2",
+  "planHash": "820d6fad91e22319e4e4e51b334fd2cc00abcffa943149819f83314705298ab8",
   "plugin": "namespaces",
   "pr": null,
   "reason": "expiration:set",
-  "requestId": "req-20261117-0012",
+  "requestId": "req-20261118-0012",
   "requester": {
     "automated": false,
     "requester": {
@@ -1131,7 +1131,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-17T21:54:55.743940Z"
+  "updatedAt": "2026-11-18T04:09:06.332144Z"
 }
 ```
 
@@ -1174,12 +1174,12 @@ The answer was 200 (`application/json`):
   "changes": {
     "clusters/CRC/namespaces/notes-dev/namespace.yaml": "changed"
   },
-  "etag": "a86d7f3590b57c8d",
+  "etag": "00d60d4a2ff4518c",
   "files": {
     "clusters/CRC/namespaces/notes-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: notes-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-08'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
   },
   "findings": [],
-  "planHash": "98d973f5469f4022b7d3191b66d161873b27446ec8f98aa365313e68868a53b3",
+  "planHash": "361c2666e09a0b9f51961dd621d7ed4d01f1e1cf72edee26f8d79a2331b774f6",
   "requester": {
     "automated": false,
     "requester": {
@@ -1217,7 +1217,7 @@ The answer was 200 (`application/json`):
 
 ```json
 {
-  "from": "2026-11-10T21:54:56.902656Z",
+  "from": "2026-11-11T04:09:07.429601Z",
   "items": [
     {
       "action": "create",
@@ -1236,9 +1236,9 @@ The answer was 200 (`application/json`):
           "source": "cmapi"
         }
       ],
-      "firstAt": "2026-11-17T21:54:54.591507Z",
+      "firstAt": "2026-11-18T04:09:05.124643Z",
       "id": "rej-2",
-      "lastAt": "2026-11-17T21:54:54.591507Z",
+      "lastAt": "2026-11-18T04:09:05.124643Z",
       "namespace": "kube-tools",
       "outcome": "refused",
       "plugin": "namespaces",
@@ -1285,7 +1285,7 @@ The answer was 200 (`application/json`):
 {
   "clusters": [
     {
-      "asOf": "2026-11-17T21:54:56.790744Z",
+      "asOf": "2026-11-18T04:09:07.315683Z",
       "bundle": {
         "actionsDiffer": [],
         "actionsDifferTotal": 0,
@@ -1443,6 +1443,159 @@ The answer was 200 (`application/json`):
 ```
 
 ## Capacity and placement
+
+Each cluster's quota commitment against its size, live from the watch of its quotas and nodes, and the groups of clusters by clusters.yaml: the Capacity tab.
+
+### Cluster capacity, grouped
+
+`GET /api/v1/capacity`
+
+Permission: `capacity:read`.
+
+```bash
+curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/capacity -H "Authorization: Bearer $TOKEN"
+```
+
+The run sent `GET /api/v1/capacity`.
+
+The answer was 200 (`application/json`, `etag: "6b4f1dc250e1d2cba8bdb6920c21579b"`):
+
+```json
+{
+  "clusters": [
+    {
+      "asOf": "2026-11-18T04:09:00Z",
+      "basis": "simulated",
+      "boundBy": "cpu",
+      "clusterId": "CRC",
+      "cpu": {
+        "allocatable": 7800,
+        "commitment": 0.375,
+        "committed": 48000,
+        "headroom": 80000,
+        "limit": 128000,
+        "overcommit": 2.0,
+        "quotaUsed": 0,
+        "quotaUsedMissing": 0,
+        "requested": null,
+        "simulated": 64000,
+        "status": "ok",
+        "unit": "millicores",
+        "usedAvg": null,
+        "usedPeak": null
+      },
+      "env": "dev",
+      "history": null,
+      "managedNamespaces": 3,
+      "memory": {
+        "allocatable": 20493357056,
+        "commitment": 0.3,
+        "committed": 103079215104,
+        "headroom": 240518168576,
+        "limit": 343597383680,
+        "overcommit": 1.25,
+        "quotaUsed": 0,
+        "quotaUsedMissing": 0,
+        "requested": null,
+        "simulated": 274877906944,
+        "status": "ok",
+        "unit": "bytes",
+        "usedAvg": null,
+        "usedPeak": null
+      },
+      "nodes": {
+        "cordoned": 0,
+        "counted": 1,
+        "notReady": 0,
+        "tainted": 0,
+        "total": 1
+      },
+      "nodesDetail": null,
+      "nodesState": "ok",
+      "region": "us-central",
+      "scopedQuotas": 0,
+      "state": "ok",
+      "stateDetail": null,
+      "status": "ok",
+      "writes": true,
+      "zones": []
+    }
+  ],
+  "groupBy": [
+    "region"
+  ],
+  "groups": [
+    {
+      "boundBy": "cpu",
+      "clusterIds": [
+        "CRC"
+      ],
+      "coverage": 1.0,
+      "cpu": {
+        "commitment": 0.375,
+        "committed": 48000,
+        "headroom": 80000,
+        "largestPlacement": {
+          "clusterId": "CRC",
+          "value": 80000
+        },
+        "limit": 128000,
+        "unit": "millicores"
+      },
+      "excluded": [],
+      "included": 1,
+      "key": {
+        "environment": "dev",
+        "region": "us-central"
+      },
+      "matching": 1,
+      "memory": {
+        "commitment": 0.3,
+        "committed": 103079215104,
+        "headroom": 240518168576,
+        "largestPlacement": {
+          "clusterId": "CRC",
+          "value": 240518168576
+        },
+        "limit": 343597383680,
+        "unit": "bytes"
+      },
+      "name": "us-central \u00b7 dev",
+      "status": "ok",
+      "statusCounts": {
+        "critical": 0,
+        "ok": 1,
+        "over": 0,
+        "warn": 0
+      }
+    }
+  ],
+  "hiddenClusters": 0,
+  "notMeasured": [
+    "requested"
+  ],
+  "snapshotState": "not-built",
+  "source": "live",
+  "targets": [
+    {
+      "commitment": {
+        "critical": 0.95,
+        "warn": 0.85
+      },
+      "env": "dev",
+      "overcommit": {
+        "cpu": 2.0,
+        "memory": 1.25
+      },
+      "overcommitDefault": false
+    }
+  ]
+}
+```
+
+`body.groupBy` has 2 items in the run. The first is shown.
+`body.notMeasured` has 4 items in the run. The first is shown.
+`body.targets` has 2 items in the run. The first is shown.
 
 The quota of each managed namespace on every cluster of the instance: a paged list, type-ahead matches and a CSV export.
 
@@ -1702,14 +1855,14 @@ The answer was 200 (`application/json`):
         ],
         "timeoutHours": 8
       },
-      "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
+      "baseSha": "25cd5ff36f8662d4cc66e4843b66aaa12322851a",
       "beyondTier": null,
       "clusterId": "CRC",
-      "createdAt": "2026-11-17T21:54:43.256710Z",
+      "createdAt": "2026-11-18T04:08:52.783097Z",
       "env": "dev",
       "events": [
         {
-          "at": "2026-11-17T21:54:43.256710Z",
+          "at": "2026-11-18T04:08:52.783097Z",
           "by": "ola",
           "event": "plan_needs_approval",
           "note": "waiting for [('approver-platform', 1)]",
@@ -1726,16 +1879,16 @@ The answer was 200 (`application/json`):
       "instance": "nonprod",
       "justification": "Load test next sprint",
       "links": {
-        "events": "/api/v1/requests/req-20261117-0002/events",
-        "self": "/api/v1/requests/req-20261117-0002"
+        "events": "/api/v1/requests/req-20261118-0002/events",
+        "self": "/api/v1/requests/req-20261118-0002"
       },
       "mergeSha": null,
       "namespace": "payments-dev",
-      "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
+      "planHash": "4007bb71963c9ab0302499cf84538bf5e399a6319e1ba70ef5d3b347d7ef2c11",
       "plugin": "namespaces",
       "pr": null,
       "reason": null,
-      "requestId": "req-20261117-0002",
+      "requestId": "req-20261118-0002",
       "requester": {
         "automated": false,
         "requester": {
@@ -1753,7 +1906,7 @@ The answer was 200 (`application/json`):
         "submittedByClient": null
       },
       "status": "pending_approval",
-      "updatedAt": "2026-11-17T21:54:43.196748Z"
+      "updatedAt": "2026-11-18T04:08:52.740876Z"
     }
   ],
   "letters": {
@@ -1782,7 +1935,7 @@ Permission: `requests:read`.
 curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001 -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `GET /api/v1/requests/req-20261117-0001`.
+The run sent `GET /api/v1/requests/req-20261118-0001`.
 
 The answer was 200 (`application/json`):
 
@@ -1805,11 +1958,11 @@ The answer was 200 (`application/json`):
   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:41.990947Z",
+  "createdAt": "2026-11-18T04:08:51.381310Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:41.990947Z",
+      "at": "2026-11-18T04:08:51.381310Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -1826,22 +1979,22 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0001/events",
+    "events": "/api/v1/requests/req-20261118-0001/events",
     "pr": "https://git.test/pulls/1",
-    "self": "/api/v1/requests/req-20261117-0001"
+    "self": "/api/v1/requests/req-20261118-0001"
   },
-  "mergeSha": "2a30c94f",
+  "mergeSha": "25cd5ff3",
   "namespace": "payments-dev",
-  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
+  "planHash": "5b6641ff9024b9bbc7935626d3d3bff6638460f336acd6ff3f66e4971788ac75",
   "plugin": "namespaces",
   "pr": {
-    "branch": "cmapi/CRC/req-20261117-0001",
-    "head": "2a30c94f",
+    "branch": "cmapi/CRC/req-20261118-0001",
+    "head": "25cd5ff3",
     "number": 1,
     "url": "https://git.test/pulls/1"
   },
   "reason": null,
-  "requestId": "req-20261117-0001",
+  "requestId": "req-20261118-0001",
   "requester": {
     "automated": false,
     "requester": {
@@ -1859,7 +2012,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "synced",
-  "updatedAt": "2026-11-17T21:54:42.223986Z"
+  "updatedAt": "2026-11-18T04:08:51.697366Z"
 }
 ```
 
@@ -1876,15 +2029,15 @@ Permission: `requests:read`.
 curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001/approval-status -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `GET /api/v1/requests/req-20261117-0001/approval-status`.
+The run sent `GET /api/v1/requests/req-20261118-0001/approval-status`.
 
 The answer was 200 (`application/json`):
 
 ```json
 {
   "approved": true,
-  "planHash": "8d73191d98a286665f5dda69e40f802956294394dc59ed808fea3b23d74036b1",
-  "requestId": "req-20261117-0001",
+  "planHash": "5b6641ff9024b9bbc7935626d3d3bff6638460f336acd6ff3f66e4971788ac75",
+  "requestId": "req-20261118-0001",
   "status": "synced"
 }
 ```
@@ -1899,7 +2052,7 @@ Permission: `requests:read`.
 curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001/events -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `GET /api/v1/requests/req-20261117-0001/events`.
+The run sent `GET /api/v1/requests/req-20261118-0001/events`.
 
 The answer was 200 (`application/json`):
 
@@ -1907,14 +2060,14 @@ The answer was 200 (`application/json`):
 {
   "events": [
     {
-      "at": "2026-11-17T21:54:41.990947Z",
+      "at": "2026-11-18T04:08:51.381310Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
       "status": "approved"
     }
   ],
-  "requestId": "req-20261117-0001",
+  "requestId": "req-20261118-0001",
   "status": "synced"
 }
 ```
@@ -1931,7 +2084,7 @@ Permission: `requests:approve`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:approve -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"comment": "sizing reviewed"}'
 ```
 
-The run sent `POST /api/v1/requests/req-20261117-0002:approve` with this body:
+The run sent `POST /api/v1/requests/req-20261118-0002:approve` with this body:
 
 ```json
 {
@@ -1947,7 +2100,7 @@ The answer was 200 (`application/json`):
   "approval": {
     "approvals": [
       {
-        "at": "2026-11-17T21:54:43.487705Z",
+        "at": "2026-11-18T04:08:53.031747Z",
         "comment": "sizing reviewed",
         "relayedBy": null,
         "sub": "sub-amy",
@@ -1971,14 +2124,14 @@ The answer was 200 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "2a30c94f9ab39a6a3ce92a9e659eeff84cee9e88",
+  "baseSha": "25cd5ff36f8662d4cc66e4843b66aaa12322851a",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:43.256710Z",
+  "createdAt": "2026-11-18T04:08:52.783097Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:43.256710Z",
+      "at": "2026-11-18T04:08:52.783097Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -1995,16 +2148,16 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Load test next sprint",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0002/events",
-    "self": "/api/v1/requests/req-20261117-0002"
+    "events": "/api/v1/requests/req-20261118-0002/events",
+    "self": "/api/v1/requests/req-20261118-0002"
   },
   "mergeSha": null,
   "namespace": "payments-dev",
-  "planHash": "7f1c74091159033b51975bba83c4afbc9fea041e8594850e76885af14f5ac443",
+  "planHash": "4007bb71963c9ab0302499cf84538bf5e399a6319e1ba70ef5d3b347d7ef2c11",
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0002",
+  "requestId": "req-20261118-0002",
   "requester": {
     "automated": false,
     "requester": {
@@ -2022,7 +2175,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-17T21:54:43.386084Z"
+  "updatedAt": "2026-11-18T04:08:52.948755Z"
 }
 ```
 
@@ -2039,7 +2192,7 @@ Permission: `requests:cancel`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:cancel -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `POST /api/v1/requests/req-20261117-0005:cancel`.
+The run sent `POST /api/v1/requests/req-20261118-0005:cancel`.
 
 The answer was 200 (`application/json`):
 
@@ -2070,14 +2223,14 @@ The answer was 200 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
+  "baseSha": "7c386f46800222f9ca0b65f86567a262c5280ed7",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:47.072126Z",
+  "createdAt": "2026-11-18T04:08:57.100264Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:47.072126Z",
+      "at": "2026-11-18T04:08:57.100264Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -2094,16 +2247,16 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0005/events",
-    "self": "/api/v1/requests/req-20261117-0005"
+    "events": "/api/v1/requests/req-20261118-0005/events",
+    "self": "/api/v1/requests/req-20261118-0005"
   },
   "mergeSha": null,
   "namespace": "ledger-dev",
-  "planHash": "ddbcfef90a244f8cc695fdc80b8a7ac9b52f660a40b47607b7712102bd7b2b3f",
+  "planHash": "8f6ae634e1a7b909d97f09ededa7ce9aeee1ec4fda130a85c0ce68bca805fc91",
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0005",
+  "requestId": "req-20261118-0005",
   "requester": {
     "automated": false,
     "requester": {
@@ -2121,7 +2274,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "cancelled",
-  "updatedAt": "2026-11-17T21:54:47.276845Z"
+  "updatedAt": "2026-11-18T04:08:57.332154Z"
 }
 ```
 
@@ -2137,7 +2290,7 @@ Permission: `requests:reject`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:reject -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"comment": "Use the medium tier"}'
 ```
 
-The run sent `POST /api/v1/requests/req-20261117-0006:reject` with this body:
+The run sent `POST /api/v1/requests/req-20261118-0006:reject` with this body:
 
 ```json
 {
@@ -2174,14 +2327,14 @@ The answer was 200 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
+  "baseSha": "7c386f46800222f9ca0b65f86567a262c5280ed7",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:47.202022Z",
+  "createdAt": "2026-11-18T04:08:57.243167Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:47.202022Z",
+      "at": "2026-11-18T04:08:57.243167Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -2198,16 +2351,16 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0006/events",
-    "self": "/api/v1/requests/req-20261117-0006"
+    "events": "/api/v1/requests/req-20261118-0006/events",
+    "self": "/api/v1/requests/req-20261118-0006"
   },
   "mergeSha": null,
   "namespace": "billing-dev",
-  "planHash": "f01228f17eb2e70ffa702f970c19fedab4fd955605b2858fe2d1767c375ea8ab",
+  "planHash": "1d43e8b6d9fcaa30b12ad20cc083c76cc9294b6124b9ac3660b12d4c5946404b",
   "plugin": "namespaces",
   "pr": null,
   "reason": null,
-  "requestId": "req-20261117-0006",
+  "requestId": "req-20261118-0006",
   "requester": {
     "automated": false,
     "requester": {
@@ -2225,7 +2378,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "rejected",
-  "updatedAt": "2026-11-17T21:54:47.189759Z"
+  "updatedAt": "2026-11-18T04:08:57.243596Z"
 }
 ```
 
@@ -2241,7 +2394,7 @@ Permission: `requests:retry`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:retry -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `POST /api/v1/requests/req-20261117-0007:retry`.
+The run sent `POST /api/v1/requests/req-20261118-0007:retry`.
 
 The answer was 200 (`application/json`):
 
@@ -2261,14 +2414,14 @@ The answer was 200 (`application/json`):
     "slots": [],
     "timeoutHours": 8
   },
-  "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
+  "baseSha": "7c386f46800222f9ca0b65f86567a262c5280ed7",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:48.625967Z",
+  "createdAt": "2026-11-18T04:08:58.719734Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:48.625967Z",
+      "at": "2026-11-18T04:08:58.719734Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2285,22 +2438,22 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0007/events",
+    "events": "/api/v1/requests/req-20261118-0007/events",
     "pr": "https://git.test/pulls/5",
-    "self": "/api/v1/requests/req-20261117-0007"
+    "self": "/api/v1/requests/req-20261118-0007"
   },
   "mergeSha": null,
   "namespace": "search-dev",
-  "planHash": "b942eedd50f45d55e07621dc3a7704b7d32cce10c3000d1c425c4a0c961b2250",
+  "planHash": "f920c299e94068f1da4cfed9e65dd8bce7f2f024c6903cb2a773f4fff205686b",
   "plugin": "namespaces",
   "pr": {
-    "branch": "cmapi/CRC/req-20261117-0007",
-    "head": "afc9dd57",
+    "branch": "cmapi/CRC/req-20261118-0007",
+    "head": "8cf793aa",
     "number": 5,
     "url": "https://git.test/pulls/5"
   },
   "reason": null,
-  "requestId": "req-20261117-0007",
+  "requestId": "req-20261118-0007",
   "requester": {
     "automated": false,
     "requester": {
@@ -2318,7 +2471,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-17T21:54:49.837439Z"
+  "updatedAt": "2026-11-18T04:09:00.053609Z"
 }
 ```
 
@@ -2335,7 +2488,7 @@ Permission: `requests:retry`.
 curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/requests/req-20261105-0001:revert -H "Authorization: Bearer $TOKEN"
 ```
 
-The run sent `POST /api/v1/requests/req-20261117-0009:revert`.
+The run sent `POST /api/v1/requests/req-20261118-0009:revert`.
 
 The answer was 200 (`application/json`):
 
@@ -2355,14 +2508,14 @@ The answer was 200 (`application/json`):
     "slots": [],
     "timeoutHours": 8
   },
-  "baseSha": "882df0e3c5290fe6fd922500aab5781a3b86793a",
+  "baseSha": "7c386f46800222f9ca0b65f86567a262c5280ed7",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:53.367716Z",
+  "createdAt": "2026-11-18T04:09:03.782928Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:53.367716Z",
+      "at": "2026-11-18T04:09:03.782928Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2379,22 +2532,22 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": "Payments service dev namespace",
   "links": {
-    "events": "/api/v1/requests/req-20261117-0009/events",
+    "events": "/api/v1/requests/req-20261118-0009/events",
     "pr": "https://git.test/pulls/8",
-    "self": "/api/v1/requests/req-20261117-0009"
+    "self": "/api/v1/requests/req-20261118-0009"
   },
-  "mergeSha": "53f12e59",
+  "mergeSha": "aaaba716",
   "namespace": "orders-dev",
-  "planHash": "0150ad6b6ad98f79a5bc45dd669e2537ede65f7801bcb05dfc2aad43b1f2062e",
+  "planHash": "b97b478f4c313a56ebb3a39b2eac8fc54856ddad1e07c52642701338dd72d7f8",
   "plugin": "namespaces",
   "pr": {
-    "branch": "cmapi/CRC/req-20261117-0009",
-    "head": "53f12e59",
+    "branch": "cmapi/CRC/req-20261118-0009",
+    "head": "aaaba716",
     "number": 8,
     "url": "https://git.test/pulls/8"
   },
   "reason": null,
-  "requestId": "req-20261117-0009",
+  "requestId": "req-20261118-0009",
   "requester": {
     "automated": false,
     "requester": {
@@ -2412,7 +2565,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "sync_failed",
-  "updatedAt": "2026-11-17T21:54:53.692500Z"
+  "updatedAt": "2026-11-18T04:09:04.185500Z"
 }
 ```
 
@@ -2441,7 +2594,7 @@ The answer was 200 (`application/json`):
 {
   "items": [
     {
-      "checkedAt": "2026-11-17T21:54:40.840257Z",
+      "checkedAt": "2026-11-18T04:08:50.212155Z",
       "clusterId": "CRC",
       "environment": "dev",
       "findings": [],
@@ -2778,7 +2931,7 @@ The answer was 200 (`application/json`):
 {
   "paused": true,
   "reason": "incident 1234",
-  "setAt": "2026-11-17T21:54:47.483080+00:00",
+  "setAt": "2026-11-18T04:08:57.531157+00:00",
   "setBy": "ada"
 }
 ```
@@ -2807,7 +2960,7 @@ The answer was 200 (`application/json`):
 {
   "paused": false,
   "reason": "incident 1234 closed",
-  "setAt": "2026-11-17T21:54:47.433295+00:00",
+  "setAt": "2026-11-18T04:08:57.496162+00:00",
   "setBy": "ada"
 }
 ```
@@ -2829,7 +2982,7 @@ The answer was 200 (`application/json`):
 ```json
 {
   "log": [
-    "2a30c94f Merge cmapi/CRC/req-20261117-0001"
+    "25cd5ff3 Merge cmapi/CRC/req-20261118-0001"
   ]
 }
 ```
@@ -2905,7 +3058,7 @@ The answer was 200 (`application/json`):
       "cpuThrottledPeriods": null,
       "cpuThrottledSeconds": null,
       "cpuUsageSeconds": null,
-      "measuredAt": 1794952482.929687,
+      "measuredAt": 1794974932.4525461,
       "memoryBytes": null,
       "memoryLimitBytes": null
     }
@@ -2916,7 +3069,7 @@ The answer was 200 (`application/json`):
     "oldestTransactionSeconds": 0.0,
     "poolInUse": 0,
     "poolSize": 5,
-    "sizeBytes": 8977431,
+    "sizeBytes": 10378263,
     "walBytes": 83886080
   },
   "instance": "nonprod",
@@ -2928,7 +3081,7 @@ The answer was 200 (`application/json`):
       "target": "under 10 min",
       "targetStatus": "proposed",
       "unit": "seconds",
-      "value": 0.230435
+      "value": 0.312849
     }
   ],
   "thresholds": {
@@ -2975,7 +3128,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-`body.items` has 9 items in the run. The first is shown.
+`body.items` has 10 items in the run. The first is shown.
 
 ### Confirm the prune of a deleted namespace
 
@@ -3004,7 +3157,7 @@ The answer was 200 (`application/json`):
   "approval": {
     "approvals": [
       {
-        "at": "2026-11-17T21:54:51.252432Z",
+        "at": "2026-11-18T04:09:01.544676Z",
         "comment": "",
         "relayedBy": null,
         "sub": "sub-amy",
@@ -3028,14 +3181,14 @@ The answer was 200 (`application/json`):
     ],
     "timeoutHours": 8
   },
-  "baseSha": "afc9dd57a1c698e05c664256e7b7633a7fa37e0f",
+  "baseSha": "8cf793aac5f7b4e5aa526197775d9e43c51bf1f6",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-17T21:54:51.166885Z",
+  "createdAt": "2026-11-18T04:09:01.446148Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-17T21:54:51.166885Z",
+      "at": "2026-11-18T04:09:01.446148Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -3052,22 +3205,22 @@ The answer was 200 (`application/json`):
   "instance": "nonprod",
   "justification": null,
   "links": {
-    "events": "/api/v1/requests/req-20261117-0008/events",
+    "events": "/api/v1/requests/req-20261118-0008/events",
     "pr": "https://git.test/pulls/7",
-    "self": "/api/v1/requests/req-20261117-0008"
+    "self": "/api/v1/requests/req-20261118-0008"
   },
-  "mergeSha": "882df0e3",
+  "mergeSha": "7c386f46",
   "namespace": "search-dev",
   "planHash": "c490196334dad591c3196aa59224d119861392145360aee1d428c93109235dbe",
   "plugin": "namespaces",
   "pr": {
-    "branch": "cmapi/CRC/req-20261117-0008",
-    "head": "882df0e3",
+    "branch": "cmapi/CRC/req-20261118-0008",
+    "head": "7c386f46",
     "number": 7,
     "url": "https://git.test/pulls/7"
   },
   "reason": null,
-  "requestId": "req-20261117-0008",
+  "requestId": "req-20261118-0008",
   "requester": {
     "automated": false,
     "requester": {
@@ -3085,7 +3238,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "awaiting_prune",
-  "updatedAt": "2026-11-17T21:54:52.119372Z"
+  "updatedAt": "2026-11-18T04:09:02.451254Z"
 }
 ```
 
@@ -3153,7 +3306,7 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
 
 ### 409 `invalid-transition`
 
-`POST /api/v1/requests/req-20261117-0007:revert`:
+`POST /api/v1/requests/req-20261118-0007:revert`:
 
 ```json
 {
@@ -3231,7 +3384,7 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
 {
   "code": "precondition-failed",
   "detail": "The namespace changed in Git since you read it",
-  "etag": "daa09971fd2463c8",
+  "etag": "1042bfd0f5527f92",
   "status": 412,
   "title": "precondition failed",
   "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
