@@ -348,20 +348,21 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
 | Status | Code | Meaning | What the caller does |
 |---|---|---|---|
 | 401 | `unauthenticated` | No token, or the token failed a check of step 1 | Get a new token for this instance |
-| 403 | `forbidden` | No role in the token gives the permission, or one of the three cases below | Read `GET /api/v1/me`. Ask for membership of the group that gives the role |
+| 403 | `forbidden` | No role in the token gives the permission, or one of the two cases below | Read `GET /api/v1/me`. Ask for membership of the group that gives the role |
 | 403 | `environment-forbidden` | A role gives the permission, but not in this environment | Use the instance or the role for that environment |
 | 403 | `not-eligible` | The caller is in no approving group that the request still needs | Another approver must act |
 | 409 | `self-approval` | The caller is the requester, the starter of the operation or the owner of the client | Another approver must act |
 | 409 | `already-approved` | The caller approved this request before | No action |
 | 503 | `idp-unavailable` | The signing keys cannot be read and the key of this token is not cached | Try again after `retryAfter` seconds |
 
-The code `forbidden` has three more causes. Each is a refusal of the code, not of step 3, so the detail names it:
+The code `forbidden` has two more causes. Each is a refusal of the code, not of step 3, so the detail names it:
 
 | Cause | Detail | Source |
 |---|---|---|
 | A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:123`, `cmapi/src/cmapi/routers/requests.py:178` |
 | A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Only an operator (namespaces:protect) may set <keys>" | `cmapi/src/cmapi/core/metadata.py:939` |
-| An approval comes through a relay client that does not hold `approvals:relay` | "Relay client lacks approvals:relay" | `cmapi/src/cmapi/core/approvals.py:331` |
+
+The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:331`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").
 
 A sample 403, taken from a run of the service suite's app on 2026-11-13. A caller with the role `cmapi-viewer` sent `POST /api/v1/admin/auto-approval:pause`:
 

@@ -277,7 +277,7 @@ Chromium 156 and Chrome 157. Screenshots: `screenshots/slice-3-crc/`; measured r
 
 Open from that walk: the 202 callout's "Argo CD re-stamps the quota" on an `apply` instance, added to #309.
 
-The Expiration tab was walked on CRC on 2026-11-17 (OB1 run 17, main 9ba33b2; `docs/09-portal-ui-testing.md`, "Expiration live on CRC"). The Policies and Capacity tabs and the protection control are recorded in `docs/09-portal-ui-testing.md` at the stage built-mocked, against the built portal, the stand-in issuer and the stand-in API: no walk of them on CRC is recorded there.
+The Expiration tab was walked on CRC on 2026-11-17 (OB1 run 17, main 9ba33b2; `docs/09-portal-ui-testing.md`, "Expiration live on CRC"). The Policies and Capacity tabs and the protection control are recorded in `docs/09-portal-ui-testing.md` at the stage built-mocked, against the built portal, the stand-in issuer and the stand-in API: no walk of them on CRC is recorded there. `HANDOVER-AND-RESUME.md` records them on CRC: the protection requests in OB1 run 20 (row #366, #374), the Policies tab at 1440 and 390 px in run 21 (row #302 (Policies)), and the Capacity tab in run 23 ("Where it stands", row "Portal").
 
 The demo build has none of these differences. The sections below describe it.
 
