@@ -19,7 +19,22 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-18
+## Current: 2026-11-18, 07:00Z
+
+CRC runs `1537977` (OB1 run 23). All nine portal tabs are on the API.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Kyverno version pin in the image | #388 | Merged #390 | CI; CRC |
+| CRC proof: report group and grants | #387 | Merged #391 | CI; CRC |
+| Capacity check: unknown never fits | #393 | Merged #394 | CI; review OB3 |
+| Portal slice 4: Capacity API and tab | #302 | Merged #400 (`1537977`) | CI; review OB3; CRC run 23 |
+| kind as a second cluster, imported | #15 | Merged #399, #401 | CI; review OB3; runs 22 and 23 |
+| Portal CI flake | #347, #392 | Next | None |
+
+Filed 2026-11-18: #392, #395 to #398, #402 to #404.
+
+## Previous: 2026-11-18
 
 The plan is in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-18". CRC runs `6565d9d` (OB1 run 21).
 
@@ -36,7 +51,7 @@ The plan is in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-18". CRC runs `65
 
 Filed 2026-11-17 and 18: #372, #373, #375 to #377, #379 to #383, #387, #388.
 
-## Previous: 2026-11-17
+## Earlier: 2026-11-17
 
 The plan and the owner's decisions are in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-17". Proof: CI is GitHub Actions
 on the exact head; kind is the throwaway `cmapi-test` cluster; none of these runs on CRC yet (CRC runs `9ba33b2`).
