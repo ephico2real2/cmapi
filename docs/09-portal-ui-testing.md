@@ -366,6 +366,43 @@ not prove the deployed product.
 **Not proven here:** the tab against the real service and Keycloak, and the walk on CRC (the coordinator deploys). The service
 side ran against fake clusters only (`tests/service/test_capacity_302.py`), not against kind or CRC.
 
+## Two flaky reads: check 7's settle and check 11's sort (#347, #392)
+
+Measured on 2026-11-18 on this Mac (Intel, 16 cores, load average 8 to 18 from other work), Chromium 156.0.8078.4, against the
+built portal and the stand-ins. Stage: built-mocked.
+
+**Check 7 (#347, and #312 in Chrome).** Every CI failure read `<view> 390 light: no colour transition still runs when the page
+is read`, `6 !== 0`. The six are PatternFly's tab scroll buttons, not a colour: `margin`, `transform` and `opacity` on each of
+the two `.pf-v6-c-tabs__scroll-button` (measured with `document.getAnimations()` and `transitionrun` events). PatternFly
+react-core 6.7.0 (`Tabs.js`) shows the buttons through two timers: `handleScrollButtons` decides 100 ms after the mount, and
+`componentDidUpdate` sets `pf-m-scrollable` 100 ms later, which starts the 125 ms transitions (`tabs.css`). A transition exists
+only from its style change, so `getAnimations()` cannot see one that a timer has not started yet. The check's settle loop
+therefore passed with nothing running when it read the page inside that gap, and failed when the timer fired between its last
+look and the assertion. Light is the theme read first after the view is reached, so light is where it showed. The check now
+waits first for the tab bars' end state (`TABS_AT_REST`: `pf-m-scrollable` set when the first or last tab is out of view, as
+PatternFly's `isElementInView` judges it, and no scroll button rendered when both are in view), then for the animations, then
+asserts as before. The tab bar overflows only at 390 px (measured: 7 or 8 tabs, 613 to 714 px wide, in a 236 px list), so only
+390 px has the timers. The app was not changed: it leaves no transition running; the read came too early.
+
+**Check 11 (#392, and #317).** The pager's "· most used first" came from the sort just asked for, while the table still showed
+the last answer's rows (TanStack Query's `keepPreviousData`), and the API's page does not say its sort. "1–25 of 70" is the same
+for both sorts, so for the length of one API answer the page said "most used first" over A–Z rows, and the check, waiting on
+that text, read them. The fix is in the portal: each quotas page carries the query that asked for it (`asked`), the pager and
+the letter bar describe the rows shown, and the table is `aria-busy` while it shows the last answer's rows. The check holds the
+sort's answer in the stand-in (`hold`) and asserts that moment: busy, "A–Z", and the A–Z rows.
+
+| Check | How | Before (main 1537977) | After |
+|---|---|---|---|
+| Check 7, Expiration list at 390 px | the check alone, 4× CPU throttle (CDP `Emulation.setCPUThrottlingRate`), the read 0 to 200 ms after the view is reached | 3 of 30 runs failed, each `expiration-list 390 light ... 6 !== 0` | 0 of 50 |
+| The settle at 100 phases of the tab bar's timers | the New namespace tab at 390 px, read 0 to 396 ms after the tab bar appears, 4× throttle | 2 of 100 failed (`6 !== 0`); 28 passed with nothing running while the scroll buttons were still to start | 0 of 100 failed; 0 read before the tab bar was at rest |
+| Check 11 | the check alone, the stand-in answering every call 50 ms late | 30 of 30 failed with CI's diff (`accounts-api-dev`, ... for `checkout-api-rnd`, ...) | 0 of 50 |
+| Check 11 | the check alone, 4× CPU throttle, no delay | 0 of 30 (the race needs an answer slower than the read) | not run |
+| The new check 11 on main's portal | `CHECK="11 Quotas: the rows"` on a build of main's `src/` with this branch's tests | fails: the table is never `aria-busy` | passes |
+| Mutants | `node tests/api/mutants.mjs "392:"`, `"347:"` | | 4 new, 4 killed: the pager with the asked-for sort (the "A–Z" assertion), a table never busy (the busy wait), a 6 s transition on the tab scroll buttons and a 6 s colour transition on the page (both "did not end in 5 s"). The first tab-bar mutant set a PatternFly variable that PatternFly's own rule overrides, so it changed nothing and survived; it now sets the duration itself. The existing "page size loses the first namespace" mutant follows the changed line and is still killed |
+
+The stress harness (a copy of the suite with the throttle, the delay and the read's jitter added; never committed), the phase
+probe and every run's log are in `docs/reviews/2026-11-18-issue-347-392/evidence/`.
+
 ## What testing found
 
 | Found by | Problem | Fix |
@@ -377,6 +414,7 @@ side ran against fake clusters only (`tests/service/test_capacity_302.py`), not 
 | Layout run at 820 px | PatternFly's overflow mode folded a tab into a menu | Scrolling tabs |
 | Axe | A long token made a KPI card a scrollable region no keyboard could reach | Text wraps inside cards |
 | Installed Chrome | `/favicon.ico` 404 reported as a console error; a dev server hid it | An inline icon |
+| Repeated runs under CPU throttle and API delay | Check 7 read the page in the gap before PatternFly's tab scroll buttons started their transitions (#347); the Quotas pager said the new sort over the old rows (#392) | The check waits for the tab bar at rest; the pager says the shown rows' sort and the table is `aria-busy` |
 | Independent review | 17 defects the suites had passed, including forms submitting what the mockup refuses and a footnote about a tick that did not exist | See `docs/reviews/2026-11-05-portal-ui.md` |
 
 Mockup behaviour worth a decision, left unchanged in `Main.dc.html`: the Team DL field has a value and no handler, so typing

@@ -1,0 +1,15 @@
+== run 22 failed
+AssertionError [ERR_ASSERTION]: expiration-list 390 light: no colour transition still runs when the page is read
+
+6 !== 0
+
+== run 25 failed
+AssertionError [ERR_ASSERTION]: expiration-list 390 light: no colour transition still runs when the page is read
+
+6 !== 0
+
+== run 27 failed
+AssertionError [ERR_ASSERTION]: expiration-list 390 light: no colour transition still runs when the page is read
+
+6 !== 0
+

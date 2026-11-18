@@ -36,7 +36,7 @@ async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width 
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
-  Object.assign(api.state, { mode, items, delayMs: 0, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
+  Object.assign(api.state, { mode, items, delayMs: 0, hold: null, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
     expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0 });
   issuer.state.seen.length = 0;
@@ -1326,6 +1326,36 @@ try {
   const settled = (page) => page.evaluate(`Promise.race([
     Promise.all(document.getAnimations().filter(${FINITE}).map((a) => a.finished.catch(() => undefined))),
     new Promise((_, refuse) => setTimeout(() => refuse(new Error("the theme transition did not end in 5 s")), 5000))])`).then(() => undefined);
+  // PatternFly's Tabs show or hide their scroll buttons after two timers (react-core 6.7.0, Tabs.js): handleScrollButtons
+  // decides 100 ms after a mount, a resize or a scroll of the tab list, and componentDidUpdate sets pf-m-scrollable 100 ms
+  // after that, which starts the buttons' 125 ms margin, transform and opacity transitions. A transition exists only once its
+  // style change happens, so document.getAnimations() cannot see one that a timer has not started yet: a read in that gap
+  // passes with nothing running, or fails when the timer fires between two reads (#347, the six transitions of "new 390
+  // light"). So the read first waits for the tab bars' end state, with the first and the last tab judged as PatternFly
+  // judges them (helpers/util.js, isElementInView with partial false): when either is out of view, pf-m-scrollable is set;
+  // when both are in view, no scroll button is rendered (hideScrollButtons removes them at their transitionend).
+  const TABS_AT_REST = `[...document.querySelectorAll(".pf-v6-c-tabs:not(.pf-m-vertical)")].every((tabs) => {
+    const list = tabs.querySelector(":scope > [role=tablist]");
+    if (!list?.firstElementChild) return true;
+    const box = list.getBoundingClientRect(), left = Math.ceil(box.left), right = Math.floor(box.right);
+    const inView = (el) => {
+      const r = el.getBoundingClientRect(), l = Math.ceil(r.left), rr = Math.floor(r.right);
+      return (l >= left && rr <= right) || (box.width < r.width && ((l < left && rr > left) || (rr > right && l < right)));
+    };
+    const overflows = !inView(list.firstElementChild) || !inView(list.lastElementChild);
+    const scrollable = tabs.classList.contains("pf-m-scrollable"), buttons = tabs.querySelector(":scope > .pf-v6-c-tabs__scroll-button") !== null;
+    return overflows ? scrollable : !scrollable && !buttons;
+  })`;
+  /** Waits until nothing will move when the page is read: the tab bars at rest, then each finite animation ended. */
+  async function settle(page) {
+    try {
+      await page.waitForFunction(TABS_AT_REST);
+    } catch {
+      assert.fail(`the tab bar's scroll buttons never came to rest: ${await page.evaluate(() => [...document.querySelectorAll(".pf-v6-c-tabs")].map((t) => t.className).join(" | "))}`);
+    }
+    // A click before the read (Reject, Plan change) starts transitions of its own, which can start after the first wait began.
+    for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+  }
 
   await check("7 layout at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
     for (const width of [390, 820, 1440]) {
@@ -1334,7 +1364,7 @@ try {
       await page.locator("table[aria-label=Requests] tbody tr").first().waitFor();
       for (const theme of ["light", "dark"]) {
         await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-        await settled(page);
+        await settle(page);
         assert.equal(await running(page), 0, `${width} ${theme}: no colour transition still runs when the page is read`);
         const layout = await page.evaluate(() => {
           const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
@@ -1386,8 +1416,7 @@ try {
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-          // A click before the scan (Reject) starts transitions of its own, which can start after the first wait began.
-          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          await settle(page);
           assert.equal(await running(page), 0, `${tab} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
@@ -1471,9 +1500,25 @@ try {
     await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).click();
     await waitQuotaRange(page, "1–25 of 70 · A–Z");
     sentQuery({ limit: "25", startsWith: named[0].name });
-    // The sort: the highest use first.
+    // The sort: the highest use first. Until its answer arrives, the table keeps the A–Z rows (keepPreviousData): it is busy,
+    // and the pager says the order of the rows it shows, not the one asked for (#392, #317). The stand-in holds the answer,
+    // so that moment is always seen, and then the rows are read only once the pager says the new order.
+    let answer;
+    api.state.hold = { match: (c) => c.path === "/api/v1/quotas" && c.query.sort === "used", until: new Promise((resolve) => { answer = resolve; }) };
     await panel(page).getByRole("group", { name: "Sort" }).getByRole("button", { name: "% used" }).click();
+    await page.locator("table[aria-label=Quotas][aria-busy=true]").waitFor();
+    assert.match(await panel(page).innerText(), /1–25 of 70 · A–Z/, "the pager says the order of the rows shown");
+    assert.doesNotMatch(await panel(page).innerText(), /most used first/, "no order that the rows shown do not have");
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(0, 25).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    // Their cursor is the A–Z answer's: paging from it with the sort asked for is refused (400 invalid-cursor), so the pager is off.
+    const pending = page.getByRole("button", { name: "Next ›" }).first();
+    assert.equal(await pending.getAttribute("aria-disabled"), "true", "Next is off while the rows shown are the last answer's");
+    await pending.click({ force: true });
+    assert.deepEqual(quotaCalls().filter((c) => c.query.cursor && c.query.sort === "used").map((c) => c.query), [], "no page is asked for with the last answer's cursor and the new sort");
+    answer();
+    api.state.hold = null;
     await waitQuotaRange(page, "1–25 of 70 · most used first");
+    assert.equal(await page.locator("table[aria-label=Quotas]").getAttribute("aria-busy"), null, "the table is not busy once its rows are the answer's");
     sentQuery({ sort: "used", limit: "25" });
     const used = [...fleet].sort((a, b) => b.used - a.used || byName(a, b));
     assert.deepEqual((await quotaRows(page)).map((r) => r[0]), used.slice(0, 25).map((r) => r.name));
@@ -2047,7 +2092,7 @@ try {
       await detailCard(page, protectedTarget).getByText("Protected", { exact: true }).waitFor();
       for (const theme of ["light", "dark"]) {
         await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-        await settled(page);
+        await settle(page);
         const card = detailCard(page, protectedTarget);
         await card.scrollIntoViewIfNeeded();
         await card.screenshot({ path: join(out, `protection-${width}-${theme}.png`) });
@@ -2055,7 +2100,7 @@ try {
         assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe at ${width} ${theme}`);
         await card.getByRole("button", { name: "Remove protection" }).click();
         await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
-        await settled(page);
+        await settle(page);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         assert.ok(overflow <= 0, `${width} ${theme}: no sideways scroll with the dialog open (${overflow})`);
         await page.screenshot({ path: join(out, `protection-dialog-${width}-${theme}.png`) });
@@ -2072,7 +2117,7 @@ try {
       await newTab(page);
       for (const theme of ["light", "dark"]) {
         await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-        await settled(page);
+        await settle(page);
         const group = panel(page).locator(".pf-v6-c-form__group").filter({ hasText: "Deletion protection" });
         await group.getByLabel("Protect from deletion").check();
         await group.scrollIntoViewIfNeeded();
@@ -2508,7 +2553,7 @@ try {
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          await settle(page);
           assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
@@ -2752,7 +2797,7 @@ try {
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          await settle(page);
           assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
@@ -3047,7 +3092,7 @@ try {
         await reach(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          await settle(page);
           assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
@@ -3280,7 +3325,7 @@ try {
         await openCap(page);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
-          for (let round = 0; round < 5 && (round === 0 || await running(page)); round++) await settled(page);
+          await settle(page);
           assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;

@@ -582,6 +582,8 @@ export async function startApi({ issuer, portalOrigin }) {
   const created = SAMPLES.operations.namespaces_create_namespace.response.body;
   const state = {
     mode: "ok", items: recorded.items, delayMs: 0, seen: [], refuseOnce: new Set(),
+    /** A slow answer that the test ends: { match(call), until: Promise }. A matching call waits for `until`, then answers. */
+    hold: null,
     clusters: SAMPLES.operations.core_clusters.response.body.items,
     tiers: SAMPLES.operations.tiers_tiers.response.body,
     plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body,
@@ -634,6 +636,7 @@ export async function startApi({ issuer, portalOrigin }) {
       ifNoneMatch: req.headers["if-none-match"] ?? null, body };
     state.seen.push(call);
     if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
+    if (state.hold?.match(call)) await state.hold.until;
     const unauthenticated = SAMPLES.problems.unauthenticated.response.body;
     if (!user || state.mode === "always401") return problem(res, unauthenticated, cors);
     // "expire-once": the API refuses each token one time, as it refuses a token that just ended.

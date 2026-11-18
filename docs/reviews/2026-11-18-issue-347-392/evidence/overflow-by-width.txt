@@ -1,0 +1,9 @@
+requester 390 tabs=7 scrollWidth=654 clientWidth=236 scrollable=true
+requester 820 tabs=7 scrollWidth=654 clientWidth=654 scrollable=false
+requester 1440 tabs=7 scrollWidth=654 clientWidth=654 scrollable=false
+approver 390 tabs=7 scrollWidth=613 clientWidth=236 scrollable=true
+approver 820 tabs=7 scrollWidth=613 clientWidth=613 scrollable=false
+approver 1440 tabs=7 scrollWidth=613 clientWidth=613 scrollable=false
+operator 390 tabs=8 scrollWidth=714 clientWidth=236 scrollable=true
+operator 820 tabs=8 scrollWidth=714 clientWidth=714 scrollable=false
+operator 1440 tabs=8 scrollWidth=714 clientWidth=714 scrollable=false

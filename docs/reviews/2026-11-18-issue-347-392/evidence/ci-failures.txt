@@ -1,0 +1,30 @@
+== run 44103582301.log
+207Z AssertionError [ERR_ASSERTION]: expiration 390 light: no colour transition still runs when the page is read
+700Z 
+807Z 6 !== 0
+034Z 
+331Z     at file:///home/runner/work/cmapi/cmapi/cmapi-portal-ui/tests/api/portal.test.mjs:2012:18
+== run 44127907482.log
+:12.6584570Z AssertionError [ERR_ASSERTION]: new 390 light: no colour transition still runs when the page is read
+:12.6584936Z 
+:12.6585013Z 6 !== 0
+:12.6585117Z 
+:12.6585571Z     at file:///home/runner/work/cmapi/cmapi/cmapi-portal-ui/tests/api/portal.test.mjs:1368:18
+== run 44197281463.log
+177Z AssertionError [ERR_ASSERTION]: new 390 light: no colour transition still runs when the page is read
+283Z 
+634Z 6 !== 0
+508Z 
+093Z     at file:///home/runner/work/cmapi/cmapi/cmapi-portal-ui/tests/api/portal.test.mjs:1389:18
+== run 44208957989.log
+:20.1600494Z AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+:20.1601084Z + actual - expected
+:20.1601259Z 
+:20.1601408Z   [
+:20.1601605Z +   'accounts-api-dev',
+== run 44217924897.log
+:41.1570173Z AssertionError [ERR_ASSERTION]: new 390 light: no colour transition still runs when the page is read
+:41.1570597Z 
+:41.1570677Z 6 !== 0
+:41.1570768Z 
+:41.1571042Z     at file:///home/runner/work/cmapi/cmapi/cmapi-portal-ui/tests/api/portal.test.mjs:1389:18

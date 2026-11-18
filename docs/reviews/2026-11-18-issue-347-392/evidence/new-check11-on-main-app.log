@@ -1,0 +1,12 @@
+locator.waitFor: Timeout 8000ms exceeded.
+Call log:
+  - waiting for locator('table[aria-label=Quotas][aria-busy=true]') to be visible
+
+    at cmapi-portal-ui/tests/api/portal.test.mjs:1509:68
+    at async check (cmapi-portal-ui/tests/api/portal.test.mjs:94:5)
+    at async file://cmapi-portal-ui/tests/api/portal.test.mjs:1476:3 {
+  log: [
+    "  - waiting for locator('table[aria-label=Quotas][aria-busy=true]') to be visible"
+  ],
+  name: 'TimeoutError'
+}
