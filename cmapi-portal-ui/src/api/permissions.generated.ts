@@ -7,6 +7,7 @@ export const PERMISSION = {
   "GET /api/v1/admin/integrations": "clusters:read",
   "GET /api/v1/admin/kpi": "reports:read",
   "GET /api/v1/admin/plugins": "clusters:read",
+  "GET /api/v1/capacity": "capacity:read",
   "GET /api/v1/clusters": "clusters:read",
   "GET /api/v1/clusters/{cluster_id}/namespaces": "objects:read",
   "GET /api/v1/clusters/{cluster_id}/namespaces/{ns}": "objects:read",

@@ -17,6 +17,7 @@ import type { ReturnState } from "./auth";
 import { ConfigError, loadConfig } from "./config";
 import type { PortalConfig } from "./config";
 import { ApprovalsTab } from "./ApprovalsTab";
+import { CapacityTab } from "./CapacityTab";
 import { ExpirationTab } from "./ExpirationTab";
 import { KpisTab } from "./KpisTab";
 import { NewNamespaceTab } from "./NewNamespaceTab";
@@ -30,9 +31,9 @@ import type { TabId, TabProps } from "./route";
 interface TabDef {
   id: TabId;
   label: string;
-  /** The permission of the tab's first call. A tab whose calls are not built has none yet. */
-  needs: string | null;
-  panel?: ComponentType<TabProps>;
+  /** The permission of the tab's first call. */
+  needs: string;
+  panel: ComponentType<TabProps>;
 }
 
 const NO_PARAMS = new URLSearchParams();
@@ -46,7 +47,7 @@ const TABS: TabDef[] = [
   { id: "requests", label: "Requests", needs: PERMISSION["GET /api/v1/requests"], panel: RequestsTab },
   { id: "approvals", label: "Approvals", needs: PERMISSION["POST /api/v1/requests/{request_id}:approve"], panel: ApprovalsTab },
   { id: "policies", label: "Policies", needs: PERMISSION["GET /api/v1/policies/results"], panel: PoliciesTab },
-  { id: "capacity", label: "Capacity", needs: null },
+  { id: "capacity", label: "Capacity", needs: PERMISSION["GET /api/v1/capacity"], panel: CapacityTab },
   { id: "kpis", label: "KPIs", needs: PERMISSION["GET /api/v1/admin/kpi"], panel: KpisTab }
 ];
 
@@ -149,7 +150,7 @@ function Portal({ config, onSignOut }: { config: PortalConfig; onSignOut: () => 
   const me = useMe();
   const { route, go } = useRoute();
   const held = me.state === "ok" ? new Set(me.data.access.permissions) : null;
-  const tabs = held ? TABS.filter((tab) => tab.needs === null || held.has(tab.needs)) : [];
+  const tabs = held ? TABS.filter((tab) => held.has(tab.needs)) : [];
   const active = tabs.find((tab) => tab.id === route.tab) ?? tabs[0];
 
   const masthead = (
@@ -187,9 +188,7 @@ function Portal({ config, onSignOut }: { config: PortalConfig; onSignOut: () => 
             {tabs.map(({ id, label, panel: Panel }) => (
               <Tab key={id} eventKey={id} title={<TabTitleText>{label}</TabTitleText>}>
                 <div style={{ paddingBlockStart: "var(--pf-t--global--spacer--md)" }}>
-                  {Panel
-                    ? <Panel config={config} params={id === route.tab ? route.params : NO_PARAMS} setParams={(values) => go(id, values)} open={go} />
-                    : <EmptyState titleText="This tab is not on the API yet." headingLevel="h1"><EmptyStateBody>It shows data when its API calls are built.</EmptyStateBody></EmptyState>}
+                  <Panel config={config} params={id === route.tab ? route.params : NO_PARAMS} setParams={(values) => go(id, values)} open={go} />
                 </div>
               </Tab>
             ))}
