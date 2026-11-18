@@ -1,6 +1,9 @@
+#!/usr/bin/env bash
 # deploy/kind-import/common.sh: sourced by up.sh and down.sh, never run. The names, the address of kind-cmapi-test.yaml, and the checks
 # both scripts make before they touch anything. Every kubectl call names --kubeconfig; every oc call goes to CRC, which check_hub proves.
-# shellcheck shell=bash disable=SC2034  # the names are read by up.sh and down.sh, which source this file
+# shellcheck disable=SC2034  # the names are read by up.sh and down.sh, which source this file
+# Executable like every script under deploy/ (#86), but run by itself it would only define names: say so and stop.
+[[ ${BASH_SOURCE[0]} != "$0" ]] || { echo "deploy/kind-import/common.sh is sourced by up.sh and down.sh; run one of those" >&2; exit 2; }
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CONFIG=$HERE/kind-cmapi-test.yaml
 PF_CONF=$HERE/pf-cmapi-kind.conf
