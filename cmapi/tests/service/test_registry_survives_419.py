@@ -3,9 +3,10 @@ that fails becomes a finding on that cluster; it never stops the rest"). An answ
 (docs/02 "Client rules").
 
 The clusters are real KubeClients over an httpx MockTransport, the chokepoint every cluster call goes through. The harness
-and the first two tests are OB3's, from its review of PR #415. Needs no database:
+and the first two tests are OB3's, from its review of PR #415. It lives with the service tests for their dependencies
+(structlog, which the reference-code job does not install) and needs no database:
 
-    cd cmapi && PYTHONPATH=src python -m pytest tests/core/test_registry_survives_419.py -q
+    cd cmapi && PYTHONPATH=src:tests/service python -m pytest tests/service/test_registry_survives_419.py -q -W ignore
 """
 from __future__ import annotations
 
@@ -212,6 +213,76 @@ def test_the_relist_thread_survives_a_pass_that_raises():
     try:
         reg.start()                         # pass 1, in the caller
         assert third.wait(5), f"the relist stopped after {len(passes)} passes"
+    finally:
+        reg.stop()
+    assert reg.clusters["GOOD"].status == "connected"
+
+
+# ---- OB3, review of PR #422
+
+
+def test_a_check_that_fails_after_the_probe_closes_its_client():
+    """docs/02 "Discovery": "A failed check closes its client". The net in `refresh` catches a fault after the probe (a cache
+    factory that raises); the client the check made must be closed there too, not left to the garbage collector."""
+    closed: list[str] = []
+    reg = registry({"ODD": good, "GOOD": good}, [secret("ODD"), secret("GOOD")], closed)
+
+    def nodes_factory(st, client):
+        if st.cluster_id == "ODD":
+            raise RuntimeError("node cache could not be made")
+        return None
+    reg.nodes_factory = nodes_factory
+    reg.refresh()
+    assert reg.clusters["ODD"].status == "unreachable" and reg.clusters["ODD"].client is None
+    assert closed == ["ODD"]
+    assert reg.clusters["GOOD"].status == "connected"
+
+
+def test_a_json_nested_past_the_recursion_limit_is_bad_response():
+    """json.loads raises RecursionError, which is no ValueError: the answer is unreadable, so it is bad-response, not the
+    net's `unreachable`."""
+    deep = b"[" * 100_000 + b"]" * 100_000
+    reg = registry({"BAD": answering("/version", httpx.Response(200, content=deep)), "GOOD": good}, [secret("BAD"), secret("GOOD")])
+    reg.refresh()
+    assert (reg.clusters["BAD"].status, reg.clusters["BAD"].findings) == (
+        "bad-response", ["bad response on /version (200): not JSON (no content type)"])
+    assert reg.clusters["GOOD"].status == "connected"
+
+
+@pytest.mark.parametrize("token", ["eyJhbGciOiJSUzI1NiJ9.reader-token-419\n", "eyJhbGciOiJSUzI1NiJ9.reader tok",
+                                   "eyJhbGciOiJSUzI1NiJ9.réader-token"], ids=["trailing-newline", "inner-space", "non-ascii"])
+def test_a_token_no_http_header_can_carry_is_a_parse_finding(token):
+    """`kubectl create token` ends its output with a newline, and `--from-file` keeps it: h11 refuses the header and the
+    cluster read `unreachable`; a non-ASCII token raised in the client's constructor and fell to the net. Both are the
+    Secret's fault: invalid-secret, and no client is made."""
+    made: list[str] = []
+    reg = registry({"TOK": good, "GOOD": good}, [secret("TOK", token=token), secret("GOOD")])
+    factory = reg.client_factory
+    reg.client_factory = lambda cid, *a, **k: (made.append(cid), factory(cid, *a, **k))[1]
+    reg.refresh()
+    assert (reg.clusters["TOK"].status, reg.clusters["TOK"].findings) == (
+        "invalid-secret", ["token has whitespace or a character an HTTP header cannot carry"])
+    assert made == ["GOOD"] and reg.clusters["GOOD"].status == "connected"
+
+
+@pytest.mark.parametrize("field,value", [("labels", "x"), ("labels", {"cmapi.net/cluster-id": ["A", "B"]}),
+                                         ("annotations", "x")], ids=["labels-text", "cluster-id-list", "annotations-text"])
+def test_a_secret_with_a_malformed_metadata_field_never_stops_the_pass(tmp_path: Path, field, value):
+    """CMAPI_IMPORTS_DIR reads YAML that no API server validated: labels or annotations that are not a mapping raised out of
+    `refresh` (outside the per-cluster net) and stopped the start."""
+    import yaml
+    from cmapi.core.registry import DirImportSource
+    bad = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "cmapi-cluster-bad", "labels": {"cmapi.net/cluster-id": "BAD"}},
+           "stringData": {"apiUrl": "https://bad.example:6443", "token": TOKEN}}
+    bad["metadata"][field] = value
+    ok = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "cmapi-cluster-good", "labels": {"cmapi.net/cluster-id": "GOOD"}},
+          "stringData": {"apiUrl": "https://good.example:6443", "token": TOKEN}}
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump_all([bad, ok]))
+    reg = registry({"BAD": good, "GOOD": good}, [])
+    reg.source = DirImportSource(tmp_path)
+    reg.relist_seconds = 3600
+    try:
+        reg.start()
     finally:
         reg.stop()
     assert reg.clusters["GOOD"].status == "connected"

@@ -50,6 +50,7 @@ INSECURE_ALLOWED = {"rnd"}
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "bad-response", "environment-not-served")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
+HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
@@ -199,17 +200,23 @@ def _valid_ca_data(ca_data: str) -> bool:
 def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
     """A Secret as the checks read it. A value that is not base64 of UTF-8 text (a binary file put in a Secret) is named in
     `undecodable` for the parse step to refuse, so one Secret never fails the list of all of them (#419)."""
-    meta = doc.get("metadata") or {}
+    meta = _mapping(doc.get("metadata"))
     data: dict[str, str] = {}
     undecodable: list[str] = []
-    for k, v in (doc.get("data") or {}).items():
+    for k, v in _mapping(doc.get("data")).items():
         try:
             data[k] = base64.b64decode(v).decode()
         except (binascii.Error, ValueError, TypeError):              # UnicodeDecodeError is a ValueError
             undecodable.append(k)
-    data.update(doc.get("stringData") or {})
-    return {"name": meta.get("name"), "labels": meta.get("labels") or {}, "annotations": meta.get("annotations") or {},
+    data.update(_mapping(doc.get("stringData")))
+    return {"name": meta.get("name"), "labels": _mapping(meta.get("labels")), "annotations": _mapping(meta.get("annotations")),
             "data": data, "undecodable": undecodable}
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """A field of a Secret that must be a mapping, or {}: CMAPI_IMPORTS_DIR reads YAML no API server validated, and a text
+    or a list there must not raise out of `refresh`, outside the net of each cluster (#419)."""
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 # --------------------------------------------------------------------------- the registry
@@ -257,6 +264,11 @@ class ClusterRegistry:
         for k in ("apiUrl", "token"):
             if not d.get(k) and k not in undecodable:
                 findings.append(f"missing field {k}")
+        token = d.get("token")
+        if token and not HEADER_TOKEN.fullmatch(token):
+            # `kubectl create token` ends its output with a newline that `--from-file` keeps: h11 refuses the header at the
+            # first call (`unreachable`), and a non-ASCII token raises in the client's constructor. The Secret is at fault.
+            findings.append("token has whitespace or a character an HTTP header cannot carry")
         api_url = d.get("apiUrl", "")
         try:
             u = urlparse(api_url)
@@ -289,35 +301,36 @@ class ClusterRegistry:
                 return self._set(st, "invalid-secret", [f"invalid caData: {exc}"], None, secret)
             store = "caData" if ca_data else "the hub bundle"
             return self._set(st, "cert-verify-failed", [f"{exc}; trust store: {store}"], None, secret)
+        adopted = False                     # the client is closed unless the caches took it, whatever ends the check
         try:
             status, found, version = self._probe(client, bool(ca_data))
-        except BaseException:
-            client.close()
-            raise
-        if status != "connected":
-            client.close()
-            return self._set(st, status, found, version, secret)
-        st = self._set(st, "connected", [], version, secret)
-        fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
-        if st.client is None or self._fingerprints.get(cluster_id) != fp:
-            self._stop_caches(st)
-            ledger = CapacityLedger()
-            cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
-            with self._lock:
-                # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
-                st.client, st.ledger, st.cache = client, ledger, cache
-            st.reports = self.reports_factory(st, client) if self.reports_factory else None
-            st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
-            if self.start_caches:
-                st.cache.start()
-                if st.reports is not None:
-                    st.reports.start()
-                if st.nodes is not None:
-                    st.nodes.start()
-            self._fingerprints[cluster_id] = fp
-        else:
-            client.close()
-        return st
+            if status != "connected":
+                return self._set(st, status, found, version, secret)
+            st = self._set(st, "connected", [], version, secret)
+            fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
+            if st.client is None or self._fingerprints.get(cluster_id) != fp:
+                self._stop_caches(st)
+                ledger = CapacityLedger()
+                cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)
+                with self._lock:
+                    # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
+                    st.client, st.ledger, st.cache = client, ledger, cache
+                st.reports = self.reports_factory(st, client) if self.reports_factory else None
+                st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
+                if self.start_caches:
+                    st.cache.start()
+                    if st.reports is not None:
+                        st.reports.start()
+                    if st.nodes is not None:
+                        st.nodes.start()
+                self._fingerprints[cluster_id] = fp
+                adopted = True
+            return st
+        finally:
+            if not adopted:
+                # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
+                # stops those caches and drops the client: it is closed here, not left to the garbage collector.
+                client.close()
 
     @staticmethod
     def _probe(client: KubeClient, has_ca_data: bool) -> tuple[str, list[str], str | None]:
@@ -389,7 +402,7 @@ class ClusterRegistry:
         by_id: dict[str, list[dict[str, Any]]] = {}
         for s in secrets:
             cid = s["labels"].get("cmapi.net/cluster-id")
-            if cid:
+            if isinstance(cid, str) and cid:
                 by_id.setdefault(cid, []).append(s)
         for cid, items in by_id.items():
             seen.add(cid)

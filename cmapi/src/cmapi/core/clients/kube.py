@@ -96,7 +96,7 @@ class KubeClient:
         is the cluster's answer, never a crash of the caller (#419)."""
         try:
             body = r.json()
-        except ValueError as exc:                                       # JSONDecodeError, UnicodeDecodeError
+        except (ValueError, RecursionError) as exc:     # JSONDecodeError, UnicodeDecodeError; a body nested past the limit
             raise BadResponse(path, r.status_code, f"not JSON ({r.headers.get('content-type', 'no content type')[:60]})") from exc
         if not isinstance(body, dict):
             raise BadResponse(path, r.status_code, f"a JSON {_JSON_TYPES.get(type(body), 'value')}, not an object")
