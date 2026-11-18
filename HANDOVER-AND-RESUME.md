@@ -4,7 +4,46 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-18
+## Resume here: 2026-11-18, 07:00Z
+
+Start the next session as section 1 of the 2026-11-16 state says, then read this section, then the earlier 2026-11-18
+section below it, then "State on 2026-11-17". Sections 4, 6 to 10 of 2026-11-16 still hold.
+
+### Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `1537977` (PR #400) |
+| CRC | Runs `1537977` (OB1 run 23, `workbench/cmapi/ob1-run23/`). `crc-proof.sh` all passed (25 lines, now with the reader's report and node grants). Alembic 0006; 4 pods Ready, 0 restarts; keycloak-0 0 restarts (one probe timeout during the image build). `kyvernoVersion` v1.20.0 (#388 fixed live) |
+| Portal | **All 9 tabs on the API.** Capacity added (#400): CRC's group shows 56 % CPU and 45 % memory against the simulated 64 cores / 256 Gi, the node's 7.8 cores / 19.1 Gi beside it, every figure matching `oc`. Policies (#384) shows CRC "off the bundle" (cmapi's bundle is not delivered) and kind "Kyverno not installed" |
+| kind | `cmapi-test` on this Mac (podman), imported into CRC as `KIND_CMAPI_TEST`: environment `rnd`, `writes: false` (#399). Reached at 192.168.86.110:16443; pf anchor `com.apple/cmapi-kind` blocks the port from the LAN (lab-only, lost on reboot). **Token expires 2026-11-25T06:22:52Z: rerun `deploy/kind-import/up.sh` before 2026-11-23T20:46Z.** Every CRC deploy runs `down.sh` first and `up.sh` after (owner) |
+| Kyverno on CRC | v1.20.0, scoped to managed namespaces, failing open (#386) |
+| Agents | None running |
+
+### What was done since the earlier 2026-11-18 section
+
+| Issue | PR | What | Proof |
+|---|---|---|---|
+| #388 | #390 | `KYVERNO_VERSION` as a global ARG, so the image sets `CMAPI_KYVERNO_VERSION` | CI; podman build; review OB3 (no findings); CRC run 23 |
+| #387 | #391 | The CRC proof reads the served report group and checks the reader may list each report kind | CI; review OB3 (1 fix); CRC run 23 |
+| #393 | #394 | Unknown or refused committed quota is `unknown`, never `fits` and fresh; `cpu`/`requests.cpu` counted once | CI; review OB3 (1 fix) |
+| #302 (Capacity) | #400 | `GET /api/v1/capacity` and the tab: a ledger per cluster, a Node watch, simulated basis with allocatable beside it, stale kept and marked. Two designs, arbitrated, with the owner's four answers (`docs/reviews/2026-11-18-issue-302-capacity/`) | CI; review OB3 (4 findings fixed: a cache-rebuild race that read fits, three config faults); CRC run 23 |
+| #15 | #399, #401 | kind imported as a second cluster (scripts `deploy/kind-import/`); docs/02 says the hub-to-cluster network path is a site prerequisite cmapi consumes | CI; review OB3 (3 fixes); run 22 and 23 |
+
+**The owner's decisions (2026-11-18):** Capacity's check stays on `simulatedCapacity` with allocatable shown beside it;
+`nodes` read for cmapi-reader everywhere; ship Capacity live without snapshots (#21 later); stale clusters keep their
+last figures, marked; kind reached on the LAN with a pf rule; delete kind before each CRC deploy, re-create after.
+
+### What is next, in order
+
+1. **#347** (portal CI flake, three re-runs in two days) and #392.
+2. Story #302: all its tabs are live; the owner approves its closure (proof per criterion on the issue).
+3. Open defects: #395 (pin substring), #396 (TLS mode and expiry in `/clusters`), #397 (probe route), #398 (CRC's import
+   token never expires), #402 (Policies double read), #403 ("unreachable since"), #404 (empty not-imported detail), and the
+   earlier list (#353, #357, #360 to #364, #372, #373, #375 to #377, #379 to #381); deferred #382, #383; follow-up #365.
+4. Deliver cmapi's policy bundle to CRC (not asked yet).
+
+## Resume here: 2026-11-18 (earlier; superseded by the section above)
 
 Start the next session as section 1 of the 2026-11-16 state says, then read this section, then "State on 2026-11-17"
 below it for the #328 program and the owner's decisions of that day. Sections 4, 6 to 10 of 2026-11-16 still hold.
