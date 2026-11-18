@@ -375,8 +375,8 @@ class ExpirationPage(Api):
 # --------------------------------------------------------------------------- policies (#302)
 
 PolicyMode = Literal["enforce", "audit", "off"]
-ReportState = Literal["ok", "loading", "not-installed", "forbidden", "unreachable", "stale", "capped", "drift", "mode-off",
-                      "engine-off"]
+ReportState = Literal["ok", "loading", "not-installed", "forbidden", "not-imported", "unreachable", "stale", "capped", "drift",
+                      "mode-off", "engine-off"]
 
 
 class Policy(Api):
@@ -430,15 +430,18 @@ class PolicyCluster(Api):
                                     examples=[["Audit", "Warn"]])
     state: ReportState = Field(description="What can be said of the cluster's reports: `ok`; `loading` (not listed yet); "
                                            "`not-installed` (discovery does not serve wgpolicyk8s.io/v1alpha2); `forbidden` "
-                                           "(cmapi-reader may not list the reports or the policies); `unreachable` (the cluster's "
-                                           "import is not connected); `stale` (no good read for 30 minutes: the counts are the "
-                                           "last ones read); `capped` (rows past policy.reports.maxResultsPerCluster are counted "
-                                           "and not listed); `drift` (the bundle on the cluster is not the render, or its actions "
-                                           "are not the mode's); `mode-off` (the environment's mode is off); `engine-off` "
-                                           "(policy.engine is none)", examples=["ok"])
+                                           "(cmapi-reader may not list the reports or the policies); `not-imported` (clusters.yaml "
+                                           "names the cluster and no import Secret does: nothing was tried); `unreachable` (the "
+                                           "cluster's import is not connected: the detail names its status of GET /clusters); "
+                                           "`stale` (no good read for 30 minutes: the counts are the last ones read); `capped` "
+                                           "(rows past policy.reports.maxResultsPerCluster are counted and not listed); `drift` "
+                                           "(the bundle on the cluster is not the render, or its actions are not the mode's); "
+                                           "`mode-off` (the environment's mode is off); `engine-off` (policy.engine is none)",
+                               examples=["ok"])
     state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
-    as_of: datetime | None = Field(description="The last good read of the reports, or for `unreachable` the last check of the "
-                                               "cluster", examples=["2026-11-17T18:02:11Z"])
+    as_of: datetime | None = Field(description="The last good read of the reports, or for `unreachable` and `not-imported` "
+                                               "the last check of the cluster: null when none was made",
+                                   examples=["2026-11-17T18:02:11Z"])
     bundle: PolicyBundleView | None = Field(description="The bundle on the cluster against the render. Null when the policies "
                                                         "are not read", examples=[None])
     counts: PolicyCounts | None = Field(description="Results of the bundle's policies on the managed namespaces. Null, never "
@@ -559,8 +562,8 @@ class RejectionPage(Api):
 # --------------------------------------------------------------------------- capacity (#302)
 
 CapacityStatus = Literal["ok", "warn", "critical", "over"]
-CapacityState = Literal["ok", "loading", "unreachable", "forbidden", "stale", "no-size"]
-NodesState = Literal["ok", "loading", "forbidden", "stale", "unreachable"]
+CapacityState = Literal["ok", "loading", "not-imported", "unreachable", "forbidden", "stale", "no-size"]
+NodesState = Literal["ok", "loading", "forbidden", "stale", "not-imported", "unreachable"]
 
 
 class CapacityResource(Api):
@@ -614,19 +617,23 @@ class CapacityCluster(Api):
     writes: bool = Field(description="clusters.yaml `writes`: a read-only cluster takes no placement and is left out of its "
                                      "group", examples=[True])
     state: CapacityState = Field(description="What can be said of its figures: `ok`; `loading` (the quotas, or the nodes of a "
-                                             "cluster sized by them, are being listed); `unreachable` (the import is not "
-                                             "connected); `forbidden` (cmapi-reader may not list ResourceQuotas); `stale` (no good "
-                                             "read for 30 minutes: the figures are the last ones read); `no-size` (no "
-                                             "`simulatedCapacity`, and the nodes' allocatable is not known)", examples=["ok"])
+                                             "cluster sized by them, are being listed); `not-imported` (clusters.yaml names the "
+                                             "cluster and no import Secret does: nothing was tried); `unreachable` (the import is "
+                                             "not connected: the detail names its status of GET /clusters); `forbidden` "
+                                             "(cmapi-reader may not list ResourceQuotas); `stale` (no good read for 30 minutes: "
+                                             "the figures are the last ones read); `no-size` (no `simulatedCapacity`, and the "
+                                             "nodes' allocatable is not known)", examples=["ok"])
     state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
-    as_of: datetime | None = Field(description="The last good read of the figures, to the minute; for `unreachable`, the last "
-                                               "check of the cluster", examples=["2026-11-18T09:14:00Z"])
+    as_of: datetime | None = Field(description="The last good read of the figures, to the minute; for `unreachable` and "
+                                               "`not-imported`, the last check of the cluster: null when none was made",
+                                   examples=["2026-11-18T09:14:00Z"])
     basis: Literal["simulated", "allocatable"] | None = Field(
         description="The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity` (what "
                     "the plan's capacity check uses until cmapi-capacity, #21), else `allocatable` from the nodes. Null when "
                     "neither is known", examples=["simulated"])
     nodes_state: NodesState = Field(description="What can be said of the nodes: `ok`; `loading`; `forbidden` (cmapi-reader may not "
-                                                "list nodes); `stale`; `unreachable`", examples=["ok"])
+                                                "list nodes); `stale`; `not-imported` and `unreachable`, as `state`",
+                                    examples=["ok"])
     nodes_detail: str | None = Field(description="Why, in words; null when the nodes' state is ok", examples=[None])
     nodes: CapacityNodes | None = Field(description="The node counts. Null when the nodes are not known", examples=[None])
     zones: list[str] | None = Field(description="The distinct `topology.kubernetes.io/zone` of the nodes that count. Empty when "
@@ -663,7 +670,8 @@ class CapacityGroupResource(Api):
 
 class CapacityExcluded(Api):
     cluster_id: str = Field(description="A cluster of the group left out of its figures", examples=["OCP_GF7"])
-    reason: str = Field(description="Its state (`stale`, `unreachable`, `loading`, `forbidden`, `no-size`), or `not-writable`",
+    reason: str = Field(description="Its state (`stale`, `not-imported`, `unreachable`, `loading`, `forbidden`, `no-size`), or "
+                                    "`not-writable`",
                         examples=["stale"])
     as_of: datetime | None = Field(description="Its last good read, to the minute", examples=["2026-11-18T08:30:00Z"])
 

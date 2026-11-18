@@ -200,3 +200,11 @@ PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `labels/anyOf[subschema 
 PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added the pattern `^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$` to the request property `labels/anyOf[subschema #1]/additionalProperties/anyOf[subschema #1]`
 PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `annotations/anyOf[subschema #1]`
 PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constraint to the request property `labels/anyOf[subschema #1]`
+
+# #404, before the first release, as #286 did for two request states: a new state `not-imported` for a cluster that clusters.yaml
+# names and no import Secret does. Capacity and Policies called it `unreachable`, though nothing was tried; GET /clusters and
+# /admin/integrations already said `not-imported`. A client that switches on the state must handle it; the portal does
+# (cmapi-portal-ui/src/portal/CapacityTab.tsx and PoliciesTab.tsx).
+GET /api/v1/capacity added the new `not-imported` enum value to the `clusters/items/nodesState` response property for the response status `200`
+GET /api/v1/capacity added the new `not-imported` enum value to the `clusters/items/state` response property for the response status `200`
+GET /api/v1/policies/results added the new `not-imported` enum value to the `clusters/items/state` response property for the response status `200`

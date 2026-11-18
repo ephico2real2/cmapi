@@ -1073,7 +1073,7 @@ export interface components {
         CapacityCluster: {
             /**
              * Asof
-             * @description The last good read of the figures, to the minute; for `unreachable`, the last check of the cluster
+             * @description The last good read of the figures, to the minute; for `unreachable` and `not-imported`, the last check of the cluster: null when none was made
              * @example 2026-11-18T09:14:00Z
              */
             asOf: string | null;
@@ -1132,11 +1132,11 @@ export interface components {
             nodesDetail: string | null;
             /**
              * Nodesstate
-             * @description What can be said of the nodes: `ok`; `loading`; `forbidden` (cmapi-reader may not list nodes); `stale`; `unreachable`
+             * @description What can be said of the nodes: `ok`; `loading`; `forbidden` (cmapi-reader may not list nodes); `stale`; `not-imported` and `unreachable`, as `state`
              * @example ok
              * @enum {string}
              */
-            nodesState: "ok" | "loading" | "forbidden" | "stale" | "unreachable";
+            nodesState: "ok" | "loading" | "forbidden" | "stale" | "not-imported" | "unreachable";
             /**
              * Region
              * @description Its clusters.yaml label `region`
@@ -1151,11 +1151,11 @@ export interface components {
             scopedQuotas: number | null;
             /**
              * State
-             * @description What can be said of its figures: `ok`; `loading` (the quotas, or the nodes of a cluster sized by them, are being listed); `unreachable` (the import is not connected); `forbidden` (cmapi-reader may not list ResourceQuotas); `stale` (no good read for 30 minutes: the figures are the last ones read); `no-size` (no `simulatedCapacity`, and the nodes' allocatable is not known)
+             * @description What can be said of its figures: `ok`; `loading` (the quotas, or the nodes of a cluster sized by them, are being listed); `not-imported` (clusters.yaml names the cluster and no import Secret does: nothing was tried); `unreachable` (the import is not connected: the detail names its status of GET /clusters); `forbidden` (cmapi-reader may not list ResourceQuotas); `stale` (no good read for 30 minutes: the figures are the last ones read); `no-size` (no `simulatedCapacity`, and the nodes' allocatable is not known)
              * @example ok
              * @enum {string}
              */
-            state: "ok" | "loading" | "unreachable" | "forbidden" | "stale" | "no-size";
+            state: "ok" | "loading" | "not-imported" | "unreachable" | "forbidden" | "stale" | "no-size";
             /**
              * Statedetail
              * @description Why, in words; null when the state is ok
@@ -1197,7 +1197,7 @@ export interface components {
             clusterId: string;
             /**
              * Reason
-             * @description Its state (`stale`, `unreachable`, `loading`, `forbidden`, `no-size`), or `not-writable`
+             * @description Its state (`stale`, `not-imported`, `unreachable`, `loading`, `forbidden`, `no-size`), or `not-writable`
              * @example stale
              */
             reason: string;
@@ -3026,7 +3026,7 @@ export interface components {
         PolicyCluster: {
             /**
              * Asof
-             * @description The last good read of the reports, or for `unreachable` the last check of the cluster
+             * @description The last good read of the reports, or for `unreachable` and `not-imported` the last check of the cluster: null when none was made
              * @example 2026-11-17T18:02:11Z
              */
             asOf: string | null;
@@ -3081,11 +3081,11 @@ export interface components {
             mode: "enforce" | "audit" | "off";
             /**
              * State
-             * @description What can be said of the cluster's reports: `ok`; `loading` (not listed yet); `not-installed` (discovery does not serve wgpolicyk8s.io/v1alpha2); `forbidden` (cmapi-reader may not list the reports or the policies); `unreachable` (the cluster's import is not connected); `stale` (no good read for 30 minutes: the counts are the last ones read); `capped` (rows past policy.reports.maxResultsPerCluster are counted and not listed); `drift` (the bundle on the cluster is not the render, or its actions are not the mode's); `mode-off` (the environment's mode is off); `engine-off` (policy.engine is none)
+             * @description What can be said of the cluster's reports: `ok`; `loading` (not listed yet); `not-installed` (discovery does not serve wgpolicyk8s.io/v1alpha2); `forbidden` (cmapi-reader may not list the reports or the policies); `not-imported` (clusters.yaml names the cluster and no import Secret does: nothing was tried); `unreachable` (the cluster's import is not connected: the detail names its status of GET /clusters); `stale` (no good read for 30 minutes: the counts are the last ones read); `capped` (rows past policy.reports.maxResultsPerCluster are counted and not listed); `drift` (the bundle on the cluster is not the render, or its actions are not the mode's); `mode-off` (the environment's mode is off); `engine-off` (policy.engine is none)
              * @example ok
              * @enum {string}
              */
-            state: "ok" | "loading" | "not-installed" | "forbidden" | "unreachable" | "stale" | "capped" | "drift" | "mode-off" | "engine-off";
+            state: "ok" | "loading" | "not-installed" | "forbidden" | "not-imported" | "unreachable" | "stale" | "capped" | "drift" | "mode-off" | "engine-off";
             /**
              * Statedetail
              * @description Why, in words; null when the state is ok
