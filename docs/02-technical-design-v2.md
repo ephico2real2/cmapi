@@ -725,7 +725,7 @@ clusterSelector:
 
 The region and zones also go into capacity\_snapshots, so capacity can be reported per region and per zone.
 
-**Discovery.** cmapi watches cmapi-imports for Secrets labelled cmapi.net/secret-type=cluster and also relists every 5 minutes, so a new or rotated Secret is picked up in seconds even if a watch event is missed. Each Secret goes through the checks in the diagram below. A Secret that fails becomes a finding on that cluster; it never stops the rest.
+**Discovery.** cmapi watches cmapi-imports for Secrets labelled cmapi.net/secret-type=cluster and also relists every 5 minutes, so a new or rotated Secret is picked up in seconds even if a watch event is missed. Each Secret goes through the checks in the diagram below. A Secret that fails becomes a finding on that cluster; it never stops the rest. Built (#419): `ClusterRegistry.refresh` (`core/registry.py`) checks one Secret after another, and every failure of a check is a status and a finding on that cluster: an answer it cannot read, an apiUrl that does not parse, a caData that is valid base64 but no certificate (`invalid caData: <the TLS error>`), a value that is not base64 of UTF-8 text (`field <key> is not base64 of UTF-8 text`), and, as a last net, any other error (`unreachable`, `the check failed: <error>`, with the trace in the log `cluster_check_failed`). The other clusters are still checked, the start goes on, and the 5-minute relist keeps running (`ClusterRegistry._loop` logs a pass that fails as `imports_relist_failed`).
 
 - A failed LIST keeps the previous set of clusters. Nothing is retired on a read error.
 - Two Secrets claiming one clusterId are both refused (duplicate-cluster-id).
@@ -745,7 +745,7 @@ caData together with insecure: "true" is refused (insecure-with-ca), as is a caD
 
 - An apiUrl that carries userinfo is refused, because httpx would send it as Basic auth.
 - The token, and its JSON-escaped forms, are redacted from every error message before it is truncated.
-- Outcomes are classified by who produced the error. Transport problems this process raised are unreachable or cert-verify-failed. Anything the cluster answered is auth\_failed (401), forbidden (403) or bad-response.
+- Outcomes are classified by who produced the error. Transport problems this process raised are unreachable or cert-verify-failed. Anything the cluster answered is auth\_failed (401), forbidden (403) or bad-response. Built (#419): an answer to `GET /version`, the identity check or the list of namespaces that is not JSON, is JSON but not an object, or lacks the field the call reads (`metadata.name` of users/\~, `status.userInfo.username` of a SelfSubjectReview) is the status `bad-response`, with a finding that names the path, the HTTP status and what was wrong, never the body (`BadResponse`, `core/clients/kube.py`). Not built: an HTTP error other than 401 and 403 is still `unreachable` on `GET /version`, `auth_failed` on the identity check and `forbidden` on the list of namespaces.
 - A 200 response without an items field is never read as an empty list.
 - Lists always follow continue tokens.
 - Each cluster has its own task and timeouts, so a cluster that drops traffic cannot stall the others.
