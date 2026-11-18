@@ -730,6 +730,26 @@ Against 4,018 Mi of headroom (read on 2026-11-06; each step reads it again), wit
 | The database plus the realm-sync Job | 352 Mi | 3,666 Mi | Step 20. The Job requests 96 Mi, and it ends before the workloads start |
 | Steady plus the realm-sync Job | 672 Mi | 3,346 Mi | What step 19 asks for. It is more than the run uses after the import, because the Job and the workloads do not run together |
 
+## A second cluster: kind
+
+The owner asked on 2026-11-18 for a long-lived kind cluster on this Mac, imported into the CRC instance as docs/02 designs cluster import. OB1 run 22 did it by hand, since the cluster-onboard operation is not built: the baseline's part, the import Secret, and the propose-registry step as this pull request. Measured on 2026-11-18:
+
+| Part | What there is |
+|---|---|
+| The cluster | kind `cmapi-test` (`KIND_EXPERIMENTAL_PROVIDER=podman`, kind v0.33.0), one node, the node image `kind-test.sh` pins (`kindest/node:v1.35.8@sha256:07b2536e…`) |
+| Its API server | Published on the Mac's LAN address, `https://192.168.86.110:16443`. Its certificate adds `host.crc.testing` and `192.168.86.110` to kind's names, through a kubeadm `ClusterConfiguration` patch of `apiServer.certSANs` |
+| The baseline's part on it | Namespace `cmapi-system`, ServiceAccount `cmapi-reader` with no long-lived token Secret, and ClusterRole and binding `cmapi-reader`: the rules of `environments/crc/reader/`, plus `get, list, watch` on nodes (the owner's grant, 2026-11-18) |
+| The import, on the hub | Secret `cmapi-imports/cmapi-cluster-kind-cmapi-test`, labelled `cmapi.net/secret-type: cluster` and `cmapi.net/cluster-id: KIND_CMAPI_TEST`, annotated `cmapi.net/managed-by: cluster-baseline` and `cmapi.net/token-expires-at`. It holds `apiUrl`, a TokenRequest token for `cmapi-system/cmapi-reader` that lasts 7 days, `caData` (kind's CA) and `insecure: "false"`. The token goes from `kubectl create token` to `oc apply -f -` through a pipe alone |
+| The registry | `KIND_CMAPI_TEST` in `clusters.yaml`: environment `rnd`, `writes: false` |
+
+**How CRC reaches it.** Red Hat's guide names `host.crc.testing` for a service on the host, and it resolves in CRC's pods to `192.168.127.254`. Connections to it time out here, because CRC's `host-network-access` is off (the default), and turning it on takes a CRC stop and start, which this run may not do. gvproxy's outbound NAT does reach the Mac's own LAN address, so the API server is published there, verified against kind's CA. `/version` answered 200 over TLS 1.3 from the `cmapi-api` pod, and CRC's own CA was refused. The cost: the port is on the home LAN, behind TLS and authentication. A new DHCP address breaks both the port binding and the certificate. Turning on `host-network-access` would let `apiUrl` move to `https://host.crc.testing:16443` with no new certificate.
+
+**Why writes are off.** The kind cluster has no GitOps folder and no Argo CD, and this instance delivers by apply on the hub. With `writes: false`, a plan or a request on it gets 422 `cluster-not-writable` before anything is planned (`test_the_kind_cluster_is_rnd_and_never_written`). Reads work.
+
+**Rotation.** Nothing rotates the token yet. It expires 7 days after it was issued, and the cluster then reads `auth_failed`. The baseline's rule is to write a new one at 80% of its life: run the same pipe again.
+
+**Against the guards.** A running `cmapi-test` stops `crc-guard.py preflight` (step 2 of every run), and `kind-test.sh` refuses a name that is taken. Before a CRC run or a `kind-test.sh` run, the kind cluster is deleted by name, or the owner rules otherwise (#157).
+
 ## Trying it without CRC
 
 `deploy/kind-test.sh` runs the components on a `cmapi-test` kind cluster on Podman, and the tests in `.github/workflows/ci.yml`, job `manifests`, hold the rest. Never run a kind cluster during a CRC step: `preflight` stops on one.
