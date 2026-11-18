@@ -744,7 +744,7 @@ caData together with insecure: "true" is refused (insecure-with-ca), as is a caD
 **Client rules.** Every per-cluster call follows these:
 
 - An apiUrl that carries userinfo is refused, because httpx would send it as Basic auth.
-- The token, and its JSON-escaped forms, are redacted from every error message before it is truncated.
+- The token, and its JSON-escaped forms, are redacted from every error message before it is truncated. Built (#420): each `KubeClient` replaces every form of its own token with `***` in the body of an HTTP error and in the text of a transport error, before `KubeError` cuts the body to 300 characters (`core/clients/redact.py`, `KubeClient._error`, `core/clients/kube.py`). The forms are the token as sent, its JSON escapes as Python and Go write them (Go also escapes <, > and &), once and twice, and the repr of its bytes that an "illegal header value" error shows. A text that ends in the first 8 characters or more of a form, as a body the server cut, loses them too. `ClusterRegistry._set` redacts the import Secret's token from each finding again, before GET /api/v1/clusters serves it and the warning `cluster_import` logs it, and `HubImportSource` redacts the hub's own token from its list error. This holds for the reader client of each cluster and for the deliverer client of the delivery jobs. Tokens shorter than 8 characters are not redacted.
 - Outcomes are classified by who produced the error. Transport problems this process raised are unreachable or cert-verify-failed. Anything the cluster answered is auth\_failed (401), forbidden (403) or bad-response.
 - A 200 response without an items field is never read as an empty list.
 - Lists always follow continue tokens.
