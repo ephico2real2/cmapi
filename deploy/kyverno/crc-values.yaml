@@ -35,6 +35,13 @@ admissionController:
       runAsUser: null
       runAsGroup: null
 reportsController:
+  # Measured on CRC 2026-11-18 with cmapi's 31 dev policies on 6 managed namespaces: 46 Mi before, 96 Mi peak at the
+  # first background scan, 88 Mi after (#428). The chart's 128 Mi limit leaves no room for growth; 256 Mi does.
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
   securityContext:
     runAsUser: null
     runAsGroup: null
