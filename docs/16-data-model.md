@@ -35,7 +35,6 @@ audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/data-model/data-model.dark.png">
   <source srcset="diagrams/data-model/data-model.light.png">
   <img alt="The cmapi database has nine tables. change_requests is the centre: request_events, approvals, jobs and approval_notifications refer to it by request_id. audit_events, jwks_keys, admin_switches and expiration_notices have no foreign key." src="diagrams/data-model/data-model.light.png">
 </picture>
