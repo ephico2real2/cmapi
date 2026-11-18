@@ -200,7 +200,8 @@ def preflight(needs: int) -> None:
                               env={**os.environ, "KIND_EXPERIMENTAL_PROVIDER": "podman"}, timeout=30)
     names = [c for c in clusters.stdout.split() if c]
     if clusters.returncode != 0 or names:
-        raise Stop(f"a kind cluster exists or cannot be listed: {names or clusters.stderr.strip()[:200]}; none may run during a CRC step")
+        raise Stop(f"a kind cluster exists or cannot be listed: {names or clusters.stderr.strip()[:200]}; none may run during a CRC step. "
+                   "Delete cmapi-test and its import with deploy/kind-import/down.sh, and after the run bring it back with up.sh (docs/13, \"A second cluster: kind\")")
     need_headroom(needs)
     for ns in ("cmapi-imports", "cmapi-system"):
         if oc("get", "ns", ns, "--ignore-not-found", "-o", "name").strip():

@@ -1,0 +1,23 @@
+# The kind cluster cmapi-test, long-lived, imported into cmapi on CRC as KIND_CMAPI_TEST (docs/13, "A second cluster: kind").
+# deploy/kind-import/up.sh creates it from this file; nothing else reads it. The one place the LAN address is written down:
+# up.sh and down.sh stop when the Mac no longer holds it, and pf-cmapi-kind.conf must name the same address.
+#
+# CRC's pods cannot reach the Mac's loopback (CRC's host-network-access is off, and turning it on takes a CRC stop and
+# start), but gvproxy's outbound NAT reaches the Mac's LAN address. So the API server is published there, and its
+# certificate also names host.crc.testing, for the day host-network-access is on.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cmapi-test
+networking:
+  apiServerAddress: 192.168.86.110
+  apiServerPort: 16443
+nodes:
+  - role: control-plane
+    # deploy/kind-test.sh's pin
+    image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+kubeadmConfigPatches:
+  # The whole list: a merge patch replaces a list, so kind's own names stay in it. kubeadm adds the node's and the Service's own.
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      certSANs: [localhost, 127.0.0.1, 192.168.86.110, host.crc.testing]

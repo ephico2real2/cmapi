@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# deploy/kind-import/up.sh: the kind cluster cmapi-test, imported into cmapi on CRC as KIND_CMAPI_TEST (docs/13, "A second cluster: kind").
+# The baseline's work by hand (docs/02, "Cluster connections and auto-import"), in order:
+#   1. stop unless kind-cmapi-test.yaml, the pf anchor and this Mac's LAN address agree, and oc is CRC's
+#   2. create cmapi-test from kind-cmapi-test.yaml, or reuse it when it is there
+#   3. stop unless its served certificate names the address and host.crc.testing, and kind's CA verifies it
+#   4. apply the reader (reader.yaml) on kind
+#   5. pipe a 7-day TokenRequest token into Secret cmapi-imports/cmapi-cluster-kind-cmapi-test on CRC
+# Run it again to rotate: each run writes a new token. The token goes from kubectl to oc through pipes alone: never an argument, a
+# file or a line of output. The import is read only until clusters.yaml has the KIND_CMAPI_TEST entry. Exits non-zero on the first failure.
+set -euo pipefail
+# shellcheck source=SCRIPTDIR/common.sh
+source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+[ $# = 0 ] || { echo "usage: $0" >&2; exit 2; }
+
+check_config
+address_held || moved
+check_hub
+if cluster_exists; then
+  say "kind cluster $NAME exists: reused, and its token rewritten"
+  kind export kubeconfig --name "$NAME" --kubeconfig "$KC" >/dev/null 2>&1 || die "kind export kubeconfig --name $NAME failed"
+else
+  say "creating kind cluster $NAME from $CONFIG"
+  kind create cluster --config "$CONFIG" --kubeconfig "$KC" --wait 180s
+fi
+[ "$(kc config current-context)" = "kind-$NAME" ] || die "the kubeconfig $KC is not kind-$NAME's"
+check_served
+
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+kc config view --raw --minify -o 'jsonpath={.clusters[0].cluster.certificate-authority-data}' |
+  python3 -c 'import base64,sys; sys.stdout.write(base64.b64decode(sys.stdin.read()).decode())' >"$T/ca.pem"
+grep -q 'BEGIN CERTIFICATE' "$T/ca.pem" || die "no CA in $KC"
+curl -fsS -m 10 --cacert "$T/ca.pem" "https://$ADDRESS:$PORT/version" >/dev/null || die "kind's CA does not verify https://$ADDRESS:$PORT"
+say "https://$ADDRESS:$PORT verifies against kind's CA"
+
+kc apply --server-side --field-manager="$FIELD_MANAGER" -f "$HERE/reader.yaml" >/dev/null
+say "reader applied on $NAME: cmapi-system/cmapi-reader and ClusterRole cmapi-reader"
+
+kc create token cmapi-reader -n cmapi-system --duration=168h |
+  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" |
+  oc_ apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null
+say "Secret $HUB_NS/$SECRET is current on CRC; cmapi picks it up at its next relist (up to 5 min)"
