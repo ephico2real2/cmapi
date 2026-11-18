@@ -22,6 +22,7 @@ const STATE: Record<PolicyCluster["state"], (c: PolicyCluster) => [string, strin
   loading: () => ["loading", "info"],
   "not-installed": () => ["Kyverno not installed", "info"],
   forbidden: () => ["no access to the reports", "bad"],
+  "not-imported": () => ["not imported", "info"],
   unreachable: (c) => [`unreachable${c.asOf ? ` since ${clock(c.asOf)}` : ""}`, "bad"],
   stale: (c) => [`stale since ${c.asOf ? clock(c.asOf) : "—"}`, "warn"],
   capped: (c) => [`${c.dropped ?? 0} rows not listed`, "warn"],

@@ -2832,7 +2832,7 @@ try {
     await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
   };
   // The mockup's cluster row: id, env, the mode, the bundle, ready, the four counts ("—", never 0, when unknown) and the state's word.
-  const STATE_WORD = { ok: () => "ok", "not-installed": () => "Kyverno not installed", forbidden: () => "no access to the reports", unreachable: (c) => `unreachable since ${c.asOf.slice(11, 16)}`,
+  const STATE_WORD = { ok: () => "ok", "not-installed": () => "Kyverno not installed", forbidden: () => "no access to the reports", "not-imported": () => "not imported", unreachable: (c) => `unreachable since ${c.asOf.slice(11, 16)}`,
     stale: (c) => `stale since ${c.asOf.slice(11, 16)}`, capped: (c) => `${c.dropped} rows not listed`, drift: () => "off the bundle", loading: () => "loading", "mode-off": () => "mode off", "engine-off": () => "Kyverno off" };
   const n = (v) => (v === null || v === undefined ? "—" : String(v));
   const expectedCluster = (c) => {
@@ -2848,12 +2848,12 @@ try {
     const { context, page, errors } = await fresh({ policies: fleet });
     await openPol(page);
     assert.deepEqual(await tableRows(page, "Clusters"), fleet.clusters.map(expectedCluster));
-    const unknown = (await tableRows(page, "Clusters")).filter((r) => ["Kyverno not installed", "no access to the reports"].includes(r[9]) || r[9].startsWith("unreachable"));
-    assert.equal(unknown.length, 3);
+    const unknown = (await tableRows(page, "Clusters")).filter((r) => ["Kyverno not installed", "no access to the reports", "not imported"].includes(r[9]) || r[9].startsWith("unreachable"));
+    assert.equal(unknown.length, 4);
     assert.ok(unknown.every((r) => r.slice(5, 9).every((v) => v === "—")), "a cluster whose counts are unknown shows —, never 0");
-    // Each state's tone: unreachable and forbidden danger, capped, stale and drift warning, the rest info, ok success (the mockup's stateTone).
+    // Each state's tone: unreachable and forbidden danger, capped, stale and drift warning, the rest (not imported among them) info, ok success (the mockup's stateTone).
     const tones = await polCard(page, "Clusters").locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.lastElementChild.querySelector(".pf-v6-c-label").className.match(/pf-m-(success|warning|danger|info)/)?.[1] ?? "grey"));
-    assert.deepEqual(tones, ["success", "warning", "danger", "info", "danger", "warning", "warning"]);
+    assert.deepEqual(tones, ["success", "warning", "danger", "info", "danger", "warning", "warning", "info"]);
     const lede = await panel(page).locator("p").first().innerText();
     assert.equal(lede, `What the Kyverno bundle decided on each cluster of the nonprod instance, read from the policy reports, beside cmapi's own refusals at plan time and in CI. The same bundle runs in all three places. Pinned for this instance: ${fleet.policy.kyvernoVersion ? `Kyverno ${fleet.policy.kyvernoVersion}` : "no Kyverno CLI pinned (outside the image)"}; audit in dev, rnd.`);
     const failing = fleet.clusters.reduce((t, c) => t + (c.counts?.fail ?? 0), 0);
@@ -3062,7 +3062,7 @@ try {
     const FROM_LOGIC = [/^\d+$/, /^—$/, /^\d+ \/ \d+$/, /^\d+ failing · \d+ clusters? off the bundle$/, /^Failing, warning and erroring resources( · [\w-]+)?( · [A-Z0-9_]+)?$/, /^(plan \(422\)|plan, warned|CI)$/,
       /^([A-Z][a-z]{2} \d{1,2} )?\d{2}:\d{2}$/, "All clusters", "Show failures", "Showing", "ok", "Kyverno not installed", /^unreachable since \d{2}:\d{2}$/];
     // The portal's own words, each in MOCKUP-CONTRACT.md.
-    const ADDED = ["Mode", "By", "current", "off the bundle", "no access to the reports", /^\d+ rows not listed$/, /^stale since \d{2}:\d{2}$/, /^\d+ missing(, \d+ differ)?$/, /^rule [\w-]+$/,
+    const ADDED = ["Mode", "By", "current", "off the bundle", "no access to the reports", "not imported", /^\d+ rows not listed$/, /^stale since \d{2}:\d{2}$/, /^\d+ missing(, \d+ differ)?$/, /^rule [\w-]+$/,
       /^(label|annotation|quota|limit) [\w./-]+: [\w-]+$/, /^(label|annotation) keys that no stanza declares: [\w-]+$/, /^\d+–\d+ of \d+ · (by namespace|newest first)$/, "0 results",
       /^What the Kyverno bundle decided on each cluster of the nonprod instance, read from the policy reports, beside cmapi's own refusals at plan time and in CI\. The same bundle runs in all three places\. Pinned for this instance: (Kyverno v[\d.]+|no Kyverno CLI pinned \(outside the image\)); audit in dev, rnd\.$/,
       "Kyverno not installed, an unreachable cluster, reports that cmapi-reader may not read, and rows past the cap show as states, never as zero. A cluster whose policies differ from what cmapi renders, by digest or by their actions, is off the bundle.",
@@ -3126,7 +3126,7 @@ try {
   const pctOf = (x) => `${Math.round(x * 100)}%`;
   const hhmm = (iso) => iso.slice(11, 16);
   const boundOf = (b) => (b === null ? "—" : b === "both" ? "cpu and memory" : b);
-  const CAP_WORD = { ok: (c) => (c.status === "ok" ? "ok" : `${c.status} · ${c.boundBy}`), loading: () => "loading", unreachable: (c) => `unreachable since ${hhmm(c.asOf)}`,
+  const CAP_WORD = { ok: (c) => (c.status === "ok" ? "ok" : `${c.status} · ${c.boundBy}`), loading: () => "loading", "not-imported": () => "not imported", unreachable: (c) => `unreachable since ${hhmm(c.asOf)}`,
     forbidden: () => "no access to the quotas", "no-size": () => "no size", stale: (c) => `stale since ${hhmm(c.asOf)}` };
   const CAP_TONE = { ok: "success", warn: "warning", critical: "danger", over: "danger" };
   const sizeOf = (r, f, basis) => {
@@ -3137,7 +3137,7 @@ try {
   const expectedCap = (c) => [c.clusterId, c.env, c.zones?.length ? c.zones.join(" · ") : "—", meterOf("cpu", c.cpu, c.basis), meterOf("memory", c.memory, c.basis),
     c.cpu.headroom === null && c.memory.headroom === null ? "—" : `${roomOf("cpu", c.cpu.headroom)} · ${roomOf("memory", c.memory.headroom)}`,
     boundOf(c.boundBy), c.asOf ? hhmm(c.asOf) : "—", CAP_WORD[c.state](c)];
-  const LEFT_OUT = { stale: (e) => `stale since ${hhmm(e.asOf)}`, forbidden: () => "no access to the quotas", "no-size": () => "no size" };
+  const LEFT_OUT = { stale: (e) => `stale since ${hhmm(e.asOf)}`, forbidden: () => "no access to the quotas", "no-size": () => "no size", "not-imported": () => "not imported" };
   const expectedGroup = (g) => {
     const coverage = Number.isInteger(g.coverage * 10) ? g.coverage.toFixed(1) : g.coverage.toFixed(2);
     const left = g.excluded.map((e) => (e.reason === "not-writable" ? `${e.clusterId} placement off` : `${e.clusterId} left out: ${(LEFT_OUT[e.reason] ?? (() => e.reason))(e)}`));
@@ -3179,7 +3179,7 @@ try {
     assert.deepEqual(await tableRows(page, "Clusters"), fleet.clusters.map(expectedCap));
     assert.deepEqual(await meters(page), fleet.clusters.map(expectedMeters), "a null draws no meter (no aria-valuenow); over 100 % is a full danger bar with its own figure");
     const tones = await page.locator("table[aria-label=Clusters] tbody tr").evaluateAll((trs) => trs.map((tr) => tr.lastElementChild.querySelector(".pf-v6-c-label").className.match(/pf-m-(success|warning|danger|info)/)?.[1] ?? "grey"));
-    assert.deepEqual(tones, fleet.clusters.map((c) => (c.state === "ok" ? CAP_TONE[c.status] : { loading: "info", "no-size": "info", stale: "danger", unreachable: "danger", forbidden: "danger" }[c.state])));
+    assert.deepEqual(tones, fleet.clusters.map((c) => (c.state === "ok" ? CAP_TONE[c.status] : { loading: "info", "no-size": "info", "not-imported": "info", stale: "danger", unreachable: "danger", forbidden: "danger" }[c.state])));
     // CRC as the arbitration says: 56 % of 128 cores and 45 % of 320 Gi against its simulated size, the nodes' 7.8 cores and 19.1 Gi beside them.
     assert.deepEqual((await tableRows(page, "Clusters"))[0].slice(2, 6), ["—", "56% simulated 64 cores · nodes 7.8 cores", "45% simulated 256 Gi · nodes 19.1 Gi", "56 cores · 176 Gi"]);
     assert.deepEqual(await groupCards(page), fleet.groups.map(expectedGroup));
@@ -3191,6 +3191,8 @@ try {
     await panel(page).getByText("OCP_GF14: writes are off in clusters.yaml, so it takes no placement and is left out of its group.", { exact: true }).waitFor();
     await panel(page).getByText("2 clusters of environments where your roles do not read capacity are not shown.", { exact: true }).waitFor();
     await panel(page).getByText(`OCP_GF14 nodes: ${fleet.clusters.find((c) => c.clusterId === "OCP_GF14").nodesDetail}.`, { exact: true }).waitFor();
+    // A cluster that is not connected has one detail for its quotas and its nodes (#404): said once, not twice.
+    for (const id of ["OCP_GF9", "OCP_GF13"]) assert.equal(await panel(page).getByText(new RegExp(`^${id} nodes:`)).count(), 0, id);
     const text = await panel(page).innerText();
     assert.doesNotMatch(text, /\b0%|\d G\b|\bGB\b/, "no 0 % for what is not known, and memory in Gi only");
     assert.deepEqual(capCalls().map((c) => c.query), [{}], "one call, with the API's default groupBy");
@@ -3297,7 +3299,7 @@ try {
     const ADDED = ["As of", "live from the watch · no snapshots yet",
       "Cluster capacity from each cluster's watch of its quotas and nodes, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
       /^(simulated|nodes) \d+(\.\d)? (cores?|Gi)( · (simulated|nodes) \d+(\.\d)? (cores?|Gi))?$/, /^over by \d+(\.\d)? (cores?|Gi) · over by \d+(\.\d)? (cores?|Gi)$/, /^(over by )?\d+(\.\d)? cores? · (over by )?\d+(\.\d)? Gi$/,
-      /^over · (cpu|memory|both)$/, /^(stale|unreachable) since \d{2}:\d{2}$/, "loading", "no access to the quotas", "no size", "quota headroom —", /^cpu on [A-Z0-9_]+ · memory on [A-Z0-9_]+$/,
+      /^over · (cpu|memory|both)$/, /^(stale|unreachable) since \d{2}:\d{2}$/, "loading", "not imported", "no access to the quotas", "no size", "quota headroom —", /^cpu on [A-Z0-9_]+ · memory on [A-Z0-9_]+$/,
       "OCP_GF14: writes are off in clusters.yaml, so it takes no placement and is left out of its group.",
       /^\d+ clusters? of environments where your roles do not read capacity (is|are) not shown\.$/,
       /^Committed is the hard requests of the ResourceQuotas that cmapi manages on the nonprod instance, per namespace its smallest unscoped one, against the size × overcommit\. Pods of other namespaces are not subtracted\. Not measured until the capacity snapshots: requested, usedAvg, usedPeak, history\.$/,
