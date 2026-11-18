@@ -58,11 +58,17 @@ for p in items:
     if scc!="restricted-v2": bad.append(name+" scc "+str(scc))
     if not any(c.get("type")=="Ready" and c.get("status")=="True" for c in p["status"].get("conditions",[])): bad.append(name+" not Ready")
     if restarts and not since: bad.append(name+" restarted")
-    for c in statuses if since else []:
-        if not c.get("restartCount",0): continue
-        running=(c.get("state") or {}).get("running") or {}; last=(c.get("lastState") or {}).get("terminated") or {}
-        said="container %s: %s restarts, last terminated %s, %s, exit %s; running since %s" % (c.get("name"),c["restartCount"],last.get("finishedAt","unrecorded"),last.get("reason","no reason recorded"),last.get("exitCode","unrecorded"),running.get("startedAt","not running"))
-        began=at(running.get("startedAt"))
+    # Init containers too: a migrate that failed and ran again is a restart, and the kubelet counts it there, not in containerStatuses.
+    # A finished init container is dated by the start of its last attempt, terminated.startedAt; a regular one is dated only while it runs.
+    # A count of 0 does not clear a container that came up since the run began in a pod from before it: that count can go back to 0.
+    born=at(p["status"].get("startTime"))
+    for kind,c in [("container",c) for c in statuses]+[("init container",c) for c in p["status"].get("initContainerStatuses",[])] if since else []:
+        state=c.get("state") or {}; running=state.get("running") or {}; done=state.get("terminated") or {}
+        last=(c.get("lastState") or {}).get("terminated") or {}
+        began=at(running.get("startedAt") or (done.get("startedAt") if kind=="init container" and done.get("exitCode")==0 else None))
+        if not c.get("restartCount",0) and not (began is not None and born is not None and born<start<=began): continue
+        now=("running since "+running["startedAt"]) if running.get("startedAt") else ("last run started "+done["startedAt"]) if began is not None else "not running"
+        said="%s %s: %s restarts, last terminated %s, %s, exit %s; %s" % (kind,c.get("name"),c.get("restartCount",0),last.get("finishedAt","unrecorded"),last.get("reason","no reason recorded"),last.get("exitCode","unrecorded"),now)
         if began is None or began>=start: bad.append(name+" restarted during the run, which began "+since+" ("+said+")")
         else: print("   ",name,"restarted before the run, which began",since,"("+said+"): reported, not failed")
     if comp in ("api","worker") and not all(want in c.get("imageID","") for c in p["status"]["containerStatuses"]): bad.append(name+" runs another image")
@@ -75,7 +81,9 @@ say "pods under restricted-v2 and Ready, $restarts_said, api and worker on $dige
 # started_after <policy> <component...>: each pod of those components started once the policy existed; prints the policy's creation time.
 # Called in an assignment, so that its failure stops the script under set -e.
 started_after() {
-  local np; np=$(oc_ get networkpolicy "$1" -n cmapi -o 'jsonpath={.metadata.creationTimestamp}'); shift
+  # Explicit: bash clears set -e inside $(...), where this runs, so a failed read would otherwise leave "" and pass every pod.
+  local np; np=$(oc_ get networkpolicy "$1" -n cmapi -o 'jsonpath={.metadata.creationTimestamp}') || fail "NetworkPolicy $1 cannot be read"
+  [ -n "$np" ] || fail "NetworkPolicy $1 has no creation time"; shift
   printf '%s' "$pods" | python3 -c '
 import json,sys
 late=[p["metadata"]["name"] for p in json.load(sys.stdin)["items"] if p["metadata"].get("labels",{}).get("app.kubernetes.io/component") in sys.argv[2:] and p["status"].get("startTime","")<sys.argv[1]]
