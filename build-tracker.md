@@ -19,7 +19,24 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-17
+## Current: 2026-11-18
+
+The plan is in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-18". CRC runs `6565d9d` (OB1 run 21).
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Contract report in the values repository's CI | #337 | Merged #370 | CI; review OB3; throwaway PR #371 |
+| Protect a namespace from deletion | #366, #374 | Merged #378 (`abad314`) | CI; review OB3; CRC run 20 |
+| Kyverno v1.20.0 on CRC, scoped and failing open | #302 | Merged #386 | CRC (probe policy) |
+| Portal slice 4: Policies API and tab | #302 | Merged #384 (`6565d9d`) | CI; kind (Kyverno audit); review OB3; CRC run 21 (results, a stored refusal, the tab) |
+| A migration test's stale revision | #385 | Fixed in #384 | CI |
+| The image's Kyverno version pin is empty | #388 | Building | None |
+| docs/13 claims a proof line that crc-proof.sh lacks | #387 | Building | None |
+| Portal slice 4: Capacity | #302 | Next | None |
+
+Filed 2026-11-17 and 18: #372, #373, #375 to #377, #379 to #383, #387, #388.
+
+## Previous: 2026-11-17
 
 The plan and the owner's decisions are in `HANDOVER-AND-RESUME.md`, "Resume here: 2026-11-17". Proof: CI is GitHub Actions
 on the exact head; kind is the throwaway `cmapi-test` cluster; none of these runs on CRC yet (CRC runs `9ba33b2`).
@@ -43,7 +60,7 @@ on the exact head; kind is the throwaway `cmapi-test` cluster; none of these run
 
 Open bugs filed on 2026-11-17: #347, #353, #357, #360, #361, #362, #363, #364. Follow-ups: #365, #366.
 
-## Previous: 2026-11-16, 19:33Z
+## Earlier: 2026-11-16, 19:33Z
 
 The next steps and the owner's decisions are in [`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md), "Resume here". **Proof** is where the result was measured. CI is GitHub Actions on the exact head. CRC means a live run (OB1 runs 9, 11, 13 and 15, logs in `workbench/cmapi/ob1-run*`).
 
