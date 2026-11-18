@@ -306,10 +306,18 @@ class WatchCache:
             return self.state[kind].items.get(f"{namespace or ''}/{name}")
 
     def stale(self) -> tuple[bool, float | None]:
-        """(no good read in the last relist window, time of the last good read)."""
+        """(no good read in the last relist window, time of the last good read), over the kinds that have listed: a kind
+        that never listed does not count, so a caller that needs one kind uses `kind_stale` (#393)."""
         with self._lock:
             goods = [st.last_good for st in self.state.values()]
         last = min((g for g in goods if g is not None), default=None)
+        return (last is None or self.clock() - last > self.RELIST_SECONDS, last)
+
+    def kind_stale(self, kind: str) -> tuple[bool, float | None]:
+        """(the kind has not listed, or had no good read in the last relist window; the time of its last good read).
+        A list, a watch event or a bookmark is a good read."""
+        with self._lock:
+            last = self.state[kind].last_good
         return (last is None or self.clock() - last > self.RELIST_SECONDS, last)
 
     def namespace(self, name: str) -> dict[str, Any] | None:
