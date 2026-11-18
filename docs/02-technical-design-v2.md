@@ -637,6 +637,8 @@ subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
 
 The ServiceAccount can read and nothing else, because every change goes through Git and ArgoCD. The one exception is the sa-tokens plugin, which issues tokens directly. Its grant (create on serviceaccounts/token) is never cluster-wide, since that would let cmapi mint a token for any ServiceAccount, including system ones. cmapi renders a RoleBinding named cmapi-token-issuer into each managed namespace's folder, so the grant exists only where cmapi manages the namespace.
 
+**Prerequisite: a network path from the hub to each cluster.** The site's network team opens HTTPS from the hub's cmapi pods (API and worker) to each cluster's API server, usually port 6443, before the cluster is imported. cmapi uses that path. It creates and manages no firewall rule, proxy or route, just as it reads but never writes the import Secret. Without the path, the cluster shows `unreachable` in `GET /api/v1/clusters` and the import goes no further. On the lab Mac, the path from CRC to the kind cluster stands in for it (docs/13, "A second cluster: kind").
+
 **How the connection reaches the hub.** The contract is the Secret below; how it arrives is the baseline's choice:
 
 - RHACM's ManagedServiceAccount add-on, if RHACM runs the fleet. It creates the ServiceAccount on each managed cluster and keeps a rotating token in a hub Secret named after it ([Open Cluster Management docs](https://main--open-cluster-management.netlify.app/docs/getting-started/integration/managed-serviceaccount)). A small hub-side mapping copies it into the contract shape.
