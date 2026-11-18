@@ -33,7 +33,14 @@ say() { echo "kind-import: $*"; }
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 kc() { kubectl --kubeconfig="$KC" "$@"; }
-hm() { helm --kubeconfig "$KC" --kube-context "kind-$NAME" "$@"; }
+# helm's HELM_KUBE* variables win over --kubeconfig and --kube-context (helm 4.3.1: HELM_KUBEAPISERVER is dialled despite both, and
+# HELM_KUBECAFILE or HELM_KUBEINSECURE_SKIP_TLS_VERIFY replaces kind's CA), so an inherited one could take the install to CRC.
+# A subshell clears them for helm alone.
+hm() (
+  unset HELM_KUBEAPISERVER HELM_KUBETOKEN HELM_KUBECAFILE HELM_KUBEINSECURE_SKIP_TLS_VERIFY HELM_KUBETLS_SERVER_NAME \
+    HELM_KUBEASUSER HELM_KUBEASGROUPS HELM_KUBECONTEXT
+  exec helm --kubeconfig "$KC" --kube-context "kind-$NAME" "$@"
+)
 
 # kind-cmapi-test.yaml names one address three times (the binding, the certificate, the firewall): one value, or nothing runs.
 check_config() {

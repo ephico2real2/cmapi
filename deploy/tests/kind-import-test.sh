@@ -58,6 +58,8 @@ S
 stub helm <<'S'
 #!/usr/bin/env bash
 printf 'helm %s\n' "$*" >>"$ARGV_LOG"
+# helm's HELM_KUBE* variables override --kubeconfig and --kube-context: record any that reached it.
+env | grep -E '^HELM_KUBE' | sed 's/^/helm-env /' >>"$ARGV_LOG"
 [ -n "${STUB_HELM_FAIL:-}" ] && { echo "Error: UPGRADE FAILED: context deadline exceeded" >&2; exit 1; }
 case "$*" in "--kubeconfig "*" --kube-context kind-cmapi-test upgrade --install kyverno kyverno "*) exit 0;; esac
 echo "stub helm: unhandled $*" >&2; exit 3
@@ -175,6 +177,10 @@ cp -R "$CCFG" "$W/dirty"; echo '# local edit' >>"$W/dirty/policies/env/rnd/cmapi
 want "a changed policies/env/rnd stops" 1 "$(run "$D/up.sh" "$W/dirty")"; says "a working copy" "apply a commit, not a working copy"; wrote_nothing "a working copy"
 want "kyverno.sh alone, after a bundle change" 0 "$(STUB_KIND_CLUSTERS=cmapi-test run "$D/kyverno.sh" "$CCFG")"
 if grep -q '^oc ' "$ARGV_LOG"; then bad "kyverno.sh called oc: $(grep '^oc ' "$ARGV_LOG" | head -2 | tr '\n' ' ')"; else ok "and nothing of it goes to CRC (no oc call)"; fi
+# helm reads HELM_KUBEAPISERVER, HELM_KUBETOKEN, HELM_KUBECAFILE and the rest over its flags (measured on helm 4.3.1: the server
+# named by HELM_KUBEAPISERVER is dialled despite --kubeconfig and --kube-context), so an inherited one must never reach it.
+want "kyverno.sh with CRC's HELM_KUBE* in the environment" 0 "$(HELM_KUBEAPISERVER=https://api.crc.testing:6443 HELM_KUBETOKEN=crc-token HELM_KUBECAFILE=/dev/null HELM_KUBEINSECURE_SKIP_TLS_VERIFY=true HELM_KUBETLS_SERVER_NAME=api.crc.testing HELM_KUBEASUSER=kubeadmin HELM_KUBEASGROUPS=system:masters HELM_KUBECONTEXT=crc-admin STUB_KIND_CLUSTERS=cmapi-test run "$D/kyverno.sh" "$CCFG")"
+if grep -q '^helm-env ' "$ARGV_LOG"; then bad "helm inherited $(grep '^helm-env ' "$ARGV_LOG" | cut -d' ' -f2 | cut -d= -f1 | tr '\n' ' ')"; else ok "and helm inherits none of them"; fi
 want "kyverno.sh with no checkout is refused" 2 "$(run "$D/kyverno.sh")"; wrote_nothing "kyverno.sh, no checkout"
 want "kyverno.sh on CRC's kubeconfig stops" 1 "$(STUB_KIND_API=https://api.crc.testing:6443 run "$D/kyverno.sh" "$CCFG")"; wrote_nothing "kyverno.sh on CRC's"
 # The bundle is the environment of KIND_CMAPI_TEST in the registry: rnd on both sides, or the tab reads it off its bundle.

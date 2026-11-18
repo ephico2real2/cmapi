@@ -855,7 +855,7 @@ The owner's decision, 2026-11-18 (#430): Kyverno goes on the kind cluster, so `r
 
 `deploy/kind-import/kyverno.sh <checkout>` does it, and `up.sh` runs it after the reader, before the import Secret. Run it alone after a pull request that changes `policies/env/rnd/` merges. In order:
 
-1. It stops before it writes anything unless the checkout's `policies/env/rnd/` is clean at a commit and holds the three files, and unless the kubeconfig's context is `kind-cmapi-test` and its server `https://192.168.86.110:16443`. It never reaches CRC: each kubectl call names kind's kubeconfig, each helm call names it and the context, and it runs no `oc`.
+1. It stops before it writes anything unless the checkout's `policies/env/rnd/` is clean at a commit and holds the three files, and unless the kubeconfig's context is `kind-cmapi-test` and its server `https://192.168.86.110:16443`. It never reaches CRC: each kubectl call names kind's kubeconfig, each helm call names it and the context and clears helm's `HELM_KUBE*` variables (`HELM_KUBEAPISERVER`, `HELM_KUBECAFILE` and the rest win over both flags), and it runs no `oc`.
 2. `helm upgrade --install` of chart 3.10.0 (Kyverno v1.20.0, the CLI pin) with `deploy/kyverno/kind-values.yaml`, `--wait --timeout 8m`. A failed install stops it before any policy.
 3. A server dry run of the three files, with field manager `cmapi-policies`. The apply runs only when the dry run exits 0, and a refused dry run stops the script (`|| die`: in a script under `set -e`, a bare `&&` list that fails does not stop it).
 4. It waits until each policy of the files is ready, then prints the count and the commit.
@@ -901,10 +901,12 @@ Then `GET /api/v1/policies/results` on CRC's cmapi must answer, for `KIND_CMAPI_
 
 ```bash
 kubectl --kubeconfig="$KC" delete -f cmapi-metadata-rnd.yaml -f cmapi-quota-rnd.yaml -f cmapi-limits-rnd.yaml
-helm uninstall kyverno -n kyverno --kubeconfig "$KC" --kube-context kind-cmapi-test
+env -u HELM_KUBEAPISERVER -u HELM_KUBETOKEN -u HELM_KUBECAFILE -u HELM_KUBEINSECURE_SKIP_TLS_VERIFY -u HELM_KUBETLS_SERVER_NAME \
+    -u HELM_KUBEASUSER -u HELM_KUBEASGROUPS -u HELM_KUBECONTEXT \
+    helm uninstall kyverno -n kyverno --kubeconfig "$KC" --kube-context kind-cmapi-test
 ```
 
-The first command deletes the 31 policies by the names in the files, and nothing else. The second removes Kyverno; the chart's pre-delete hook removes its webhooks first. `down.sh` needs neither: it deletes the whole cluster.
+The first command deletes the 31 policies by the names in the files, and nothing else. The second removes Kyverno; the chart's pre-delete hook removes its webhooks first. It clears every `HELM_KUBE*` variable, as `deploy/kind-import/common.sh` does: Helm lets `HELM_KUBEAPISERVER` and its peers override `--kubeconfig` and `--kube-context`, so an inherited one could aim the uninstall at another cluster (OB3, PR #433). `down.sh` needs neither: it deletes the whole cluster.
 
 ## Trying it without CRC
 
