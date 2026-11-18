@@ -1669,7 +1669,6 @@ The total is multiplied by the cluster's placement.weight and capped at 100. Tie
 Not built yet (Wave 8). The design, with each decision, its reason and its sources, is docs/reviews/2026-11-14-issue-26-adoption/README.md; this section is its short form. The owner decided on #26: opt-in with `cmapi.net/adopt: "true"`, which stays on the namespace and is ignored once it is managed; cmapi reads only the live namespace state from the cluster and stays read-only there; the Namespace, ResourceQuota and LimitRange go to `cmapi-cluster-configs` as raw YAML, as they are, under tier `custom`; values that break a rule, and a missing required key, are adopted and reported, never changed or forced.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/adoption/adoption.dark.png">
   <source srcset="diagrams/adoption/adoption.light.png">
   <img alt="cmapi adopts a namespace that carries the opt-in label. It reads the live Namespace, ResourceQuota and LimitRange from the cluster, drops server-set fields and skipped keys, adds its system keys under tier custom, and lists each difference from the rules as a finding. After approval the bot opens a pull request with the raw YAML; Argo CD applies it, and cmapi checks that only its own keys and the field managers changed. The opt-in label stays, inert." src="diagrams/adoption/adoption.light.png">
 </picture>
@@ -2231,7 +2230,6 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/architecture.dark.png">
   <source srcset="diagrams/git-delivery/architecture.light.png">
   <img alt="Two layers in the worker: a Git layer with one bare partial mirror and one worktree per request in an emptyDir, and a thin PR adapter. The API reads through the host's API. The bot's token is in both pods; its SSH key and known hosts only in the worker. GitLab and Bitbucket are proposed. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/architecture.light.png">
 </picture>
@@ -2257,7 +2255,6 @@ Built in PR #288 (#286 PR-A); not merged, not deployed
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
   <source srcset="diagrams/git-delivery/states.light.png">
   <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
 </picture>
@@ -2281,7 +2278,6 @@ Built in PR #288 (#286 PR-A); not merged, not deployed
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/apply-sequence.dark.png">
   <source srcset="diagrams/git-delivery/apply-sequence.light.png">
   <img alt="One request in apply mode: fetch, worktree, commit, push of the branch with a lease, the PR, the checks, the merge check, apply_started, the apply and its read, the merge check again, the merge pinned to the applied head, the cleanup; merge_failed when refused after the apply. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/apply-sequence.light.png">
 </picture>
@@ -2347,7 +2343,6 @@ Each candidate was updated on npm in 2026 (checked 2026-11-04). uniforms-pattern
 Each instance has one host, on nginx: the portal at `/`, and the API's paths sent to the API pods, so the browser sees one origin and the API needs no CORS (#226, #206). The image is `cmapi-portal-ui/Containerfile`: nginx 1.30.6 (stable), the portal's build and the mockup. The configuration is code in `cmapi-portal-ui/nginx/`, filled at start with four values from the chart; a start check refuses a missing or malformed one.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/front-door/front-door.dark.png">
   <source srcset="diagrams/front-door/front-door.light.png">
   <img alt="The browser and the CLI reach one host, the Route cmapi, which goes to the front door, nginx in the cmapi-portal image. The front door serves the portal's files and sends the API's paths to the API pods, which it finds through the headless Service cmapi-api-pods. A failed GET goes to another pod; a POST is never sent twice. Keycloak is on its own host." src="diagrams/front-door/front-door.light.png">
 </picture>

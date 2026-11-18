@@ -69,7 +69,6 @@ This page summarises what the code tree holds today.
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/portal-architecture/1-system-overview.dark.png">
   <source srcset="diagrams/portal-architecture/1-system-overview.light.png">
   <img alt="cmapi today is built code that runs on no cluster. The API, the worker and the PostgreSQL database are built. Keycloak and LDAP exist as shared services. The portal runs on sample data and makes no call. Argo CD, a registered cluster and a connected Git host are not there yet." src="diagrams/portal-architecture/1-system-overview.light.png">
 </picture>

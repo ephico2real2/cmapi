@@ -109,7 +109,6 @@ The steps below are in the order of the code. The first step that refuses ends t
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/authorization-decision/authorization-decision.dark.png">
   <source srcset="diagrams/authorization-decision/authorization-decision.light.png">
   <img alt="cmapi decides a request in five ordered steps: the token, the claims, the permission, the environment limit and, for an approval only, who can approve. Each step that refuses ends the request with one problem code." src="diagrams/authorization-decision/authorization-decision.light.png">
 </picture>

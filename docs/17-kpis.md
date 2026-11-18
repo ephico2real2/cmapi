@@ -86,7 +86,6 @@ What cmapi does not measure, on purpose:
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/kpis/kpis.dark.png">
   <source srcset="diagrams/kpis/kpis.light.png">
   <img alt="Seven KPIs are live: the API computes them from the database. Four are built: the code feeds their metrics, and a dashboard query is not proven. Ten are designed. The API serves the live KPIs and the system figures; Prometheus, the dashboards and the alerts are not proven on a cluster." src="diagrams/kpis/kpis.light.png">
 </picture>

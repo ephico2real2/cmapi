@@ -208,7 +208,6 @@ Every write runs the same pipeline, whatever the plugin. **Approval happens in c
 
 <!-- markdownlint-disable MD033 -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/git-delivery/states.dark.png">
   <source srcset="diagrams/git-delivery/states.light.png">
   <img alt="From approved, a request opens its PR. Before any apply it can end failed, superseded or cancelled with no lock. In argocd mode and for every delete it merges first. In apply mode it records apply_started, becomes applied after a confirming read, then merged and synced; a merge that does not happen is merge_failed, which keeps the lock, the PR and the branch until :retry merges it. Built in PR #288, not merged, not deployed." src="diagrams/git-delivery/states.light.png">
 </picture>
