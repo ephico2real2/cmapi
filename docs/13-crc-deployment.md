@@ -749,7 +749,9 @@ The owner asked on 2026-11-18 for a long-lived kind cluster on this Mac, importe
 
 **How CRC reaches it.** Red Hat's guide names `host.crc.testing` for a service on the host, and it resolves in CRC's pods to `192.168.127.254`. Connections to it time out here, because CRC's `host-network-access` is off (the default), and turning it on takes a CRC stop and start. gvproxy's outbound NAT does reach the Mac's own LAN address, so the API server is published there, verified against kind's CA. `/version` answered 200 over TLS 1.3 from the `cmapi-api` pod, and CRC's own CA was refused. The owner kept the LAN address and added the firewall (2026-11-18). Turning on `host-network-access` would let `apiUrl` move to `https://host.crc.testing:16443` with no new certificate.
 
-**The firewall.** The owner's decision, 2026-11-18: keep the LAN address, and drop other devices' traffic to it. CRC's gvproxy and this Mac reach the address over the loopback, which the rule does not touch.
+**The firewall.** The owner's decision, 2026-11-18: keep the LAN address, and drop other devices' traffic to it. CRC's gvproxy and this Mac reach the address over the loopback, which the rule does not touch (`route -n get 192.168.86.110` answers `interface: lo0`).
+
+This rule belongs to this lab Mac alone: it is not part of cmapi and ships in no chart, manifest or image. cmapi consumes a network path from the hub to each cluster's API server, which the platform team provides, and it never opens, closes or manages a firewall. A real fleet keeps that path private to the hub (a private network, a VPN or an egress rule on the hub), and the import Secret's `apiUrl` names it.
 
 ```bash
 sudo pfctl -a com.apple/cmapi-kind -f deploy/kind-import/pf-cmapi-kind.conf   # load the anchor

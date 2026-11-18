@@ -47,11 +47,13 @@ moved() {
 
 # The certificate the API server serves names the address and host.crc.testing; CRC verifies it against the first.
 check_served() {
-  local sans
-  sans=$(openssl s_client -connect "$ADDRESS:$PORT" -servername host.crc.testing </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName 2>/dev/null) ||
+  local served text
+  served=$(openssl s_client -connect "$ADDRESS:$PORT" -servername host.crc.testing </dev/null 2>/dev/null) ||
     die "no certificate from $ADDRESS:$PORT: is cmapi-test running?"
+  # -text, not -ext subjectAltName: macOS's own /usr/bin/openssl (LibreSSL 3.3.6) has no -ext, and the stop would blame the cluster.
+  text=$(printf '%s\n' "$served" | openssl x509 -noout -text 2>/dev/null) || die "what $ADDRESS:$PORT served is not a certificate"
   # Whole names only: 192.168.86.11 must not pass on a certificate for 192.168.86.110.
-  local names; names=",$(echo "$sans" | tail -n +2 | tr -d ' \n'),"
+  local names; names=",$(printf '%s\n' "$text" | awk '/X509v3 Subject Alternative Name/ {getline; print; exit}' | tr -d ' \n'),"
   case "$names" in *",IPAddress:$ADDRESS,"*) ;; *) die "the certificate $ADDRESS:$PORT serves does not name $ADDRESS (it names ${names//,/ }). Recreate the cluster: $HERE/down.sh --stale, then $HERE/up.sh";; esac
   case "$names" in *",DNS:host.crc.testing,"*) ;; *) die "the certificate $ADDRESS:$PORT serves does not name host.crc.testing: this is not the cluster up.sh makes";; esac
 }

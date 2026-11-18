@@ -8,7 +8,7 @@ HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mkte
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc ($(tail -3 "$W/out" | tr '\n' ' '))"; fi; }
 mkdir -p "$W/bin" "$W/repo/deploy"; cp -R "$SRC/kind-import" "$W/repo/deploy/"; D=$W/repo/deploy/kind-import
-REAL_OPENSSL=$(command -v openssl)
+REAL_OPENSSL=$(command -v openssl); REAL_PYTHON3=$(command -v python3)
 # A JWT shaped as kubectl create token prints it; every part of it is the secret.
 IAT=1794964470; EXP=$((IAT + 604800))
 b64url() { python3 -c 'import base64,sys; print(base64.urlsafe_b64encode(sys.stdin.read().encode()).decode().rstrip("="))'; }
@@ -18,7 +18,7 @@ cert ca "DNS:kubernetes"
 cert served "DNS:cmapi-test-control-plane,DNS:host.crc.testing,DNS:localhost,IP:10.96.0.1,IP:192.168.86.110,IP:127.0.0.1"
 cert other-ip "DNS:host.crc.testing,IP:192.168.86.111,IP:127.0.0.1"
 cert no-crc "DNS:localhost,IP:192.168.86.110,IP:127.0.0.1"
-export ARGV_LOG=$W/argv.log TOKEN STUB_CA=$W/ca.pem STUB_SERVED=$W/served.pem REAL_OPENSSL KIND_IMPORT_KUBECONFIG=$W/kc
+export ARGV_LOG=$W/argv.log TOKEN STUB_CA=$W/ca.pem STUB_SERVED=$W/served.pem REAL_OPENSSL REAL_PYTHON3 KIND_IMPORT_KUBECONFIG=$W/kc
 stub() { cat >"$W/bin/$1"; chmod +x "$W/bin/$1"; }
 stub kind <<'S'
 #!/usr/bin/env bash
@@ -60,7 +60,15 @@ S
 stub openssl <<'S'
 #!/usr/bin/env bash
 if [ "${1:-}" = s_client ]; then printf 'openssl %s\n' "$*" >>"$ARGV_LOG"; [ -n "${STUB_NO_SERVER:-}" ] && exit 1; cat "$STUB_SERVED"; exit 0; fi
+# STUB_LIBRESSL: macOS's own /usr/bin/openssl, LibreSSL 3.3.6, whose x509 has no -ext (measured: "unknown option -ext", rc 1).
+if [ -n "${STUB_LIBRESSL:-}" ]; then for a in "$@"; do [ "$a" = -ext ] && { echo "unknown option -ext" >&2; exit 1; }; done; fi
 exec "$REAL_OPENSSL" "$@"
+S
+# python3 too: a token on import-secret.py's argument list is as visible in ps as one on oc's.
+stub python3 <<'S'
+#!/usr/bin/env bash
+printf 'python3 %s\n' "$*" >>"$ARGV_LOG"
+exec "$REAL_PYTHON3" "$@"
 S
 stub curl <<'S'
 #!/usr/bin/env bash
@@ -98,6 +106,8 @@ want "a CA that does not verify the API stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-tes
 want "a failed TokenRequest stops" 1 "$(STUB_TOKEN_FAIL=1 run "$D/up.sh")"
 [ -s "$ARGV_LOG.applied" ] && bad "and a Secret was applied without a token" || ok "and no Secret is applied"
 want "an argument is refused" 2 "$(run "$D/up.sh" --force)"
+want "macOS's LibreSSL openssl (no -ext) still reads the served names" 0 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test run "$D/up.sh")"
+want "and still stops on a certificate for another address" 1 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/other-ip.pem run "$D/up.sh")"; says "LibreSSL, another address" "does not name 192.168.86.110"
 # Whole names: on 192.168.86.11 a certificate for 192.168.86.110 must not pass.
 cp -R "$D" "$W/k11"; sed -i.bak 's/192\.168\.86\.110/192.168.86.11/g' "$W/k11/kind-cmapi-test.yaml" "$W/k11/pf-cmapi-kind.conf"
 want "a certificate for a longer address does not pass" 1 "$(STUB_ADDR=192.168.86.11 STUB_KIND_CLUSTERS=cmapi-test run "$W/k11/up.sh")"; wrote_nothing "a longer address"
@@ -129,5 +139,10 @@ if broad "$D"/*.sh; then bad "a broad delete in a script"; else ok "no broad del
 printf 'kind delete clusters --all\n' >"$W/mut.sh"; if broad "$W/mut.sh" >/dev/null; then ok "and that rule can fail (kind delete clusters --all)"; else bad "the broad-delete rule caught nothing"; fi
 printf 'kind delete cluster\n' >"$W/mut.sh"; if broad "$W/mut.sh" >/dev/null; then ok "and a kind delete without --name is caught"; else bad "a kind delete without --name passed"; fi
 printf 'oc_ delete secret -n cmapi-imports -l cmapi.net/secret-type=cluster\n' >"$W/mut.sh"; if broad "$W/mut.sh" >/dev/null; then ok "and a label-selector delete is caught"; else bad "a selector delete passed"; fi
+
+# The pf rule is this lab Mac's, never cmapi's: cmapi consumes a hub-to-cluster path and manages no firewall (docs/13).
+doc=$SRC/../docs/13-crc-deployment.md
+grep -qF "it is not part of cmapi" "$doc" && grep -qF "never opens, closes or manages a firewall" "$doc" && ok "docs/13: the pf rule is lab only, not cmapi's" || bad "docs/13 does not say the pf rule is lab only and not part of cmapi"
+grep -qF "Lab only: this Mac's firewall, not part of cmapi" "$D/pf-cmapi-kind.conf" && ok "pf-cmapi-kind.conf says it is lab only" || bad "pf-cmapi-kind.conf does not say it is lab only and not part of cmapi"
 
 echo "kind import cases failed: $fails"; [ "$fails" = 0 ]
