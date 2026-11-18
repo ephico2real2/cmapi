@@ -776,7 +776,7 @@ oc adm top pods -n kyverno
 - Kyverno rescans every resource when a ValidatingPolicy is added (its background report controller, `addVP`). The 10 policies that leave `evaluation` unset, so the background scan is on by Kyverno's default report on the managed namespaces' LimitRanges in `policyreports` and on the Namespaces in `clusterpolicyreports`. The other 21 are admission-only. The Kyverno CLI on the bundle and an export of CRC's 6 managed namespaces (2026-11-18, #428) predicted 84 pass and no fail, warn or error from the scan. That is a prediction, not a measurement on CRC.
 - Stop and roll back if a Kyverno pod's RESTARTS rises after the apply, or if `kyverno-reports-controller` goes above 96 Mi, three quarters of its 128 Mi limit. It used 48 Mi before the bundle (2026-11-18).
 
-**The Policies tab** then shows CRC with mode `audit`, Bundle running `current`, Policies ready `31 / 31`, the scan's pass count, and the state `ok`. The header reads `0 failing · 0 clusters off the bundle`. `KIND_CMAPI_TEST` is in `rnd` and has no Kyverno, so its row reads "Kyverno not installed" while it is connected.
+**The Policies tab** then shows CRC with mode `audit`, Bundle running `current`, Policies ready `31 / 31`, the scan's pass count, and the state `ok`. The header reads `0 failing · 0 clusters off the bundle`. `KIND_CMAPI_TEST` is in `rnd` and runs `rnd`'s bundle ("Kyverno and the `rnd` bundle on kind", below, #430).
 
 **Rollback**, from the same checkout:
 
@@ -822,10 +822,11 @@ The owner asked on 2026-11-18 for a long-lived kind cluster on this Mac, importe
 | The import, on the hub | Secret `cmapi-imports/cmapi-cluster-kind-cmapi-test`, from `deploy/kind-import/import-secret.py`: labelled `cmapi.net/secret-type: cluster` and `cmapi.net/cluster-id: KIND_CMAPI_TEST`, annotated `cmapi.net/managed-by: cluster-baseline` and `cmapi.net/token-expires-at`. It holds `apiUrl`, a TokenRequest token for `cmapi-system/cmapi-reader` that lasts 7 days, `caData` (kind's CA) and `insecure: "false"`. The token goes from `kubectl create token` to `oc apply -f -` through a pipe alone |
 | The registry | `KIND_CMAPI_TEST` in `clusters.yaml`: environment `rnd`, `writes: false` |
 | The firewall | pf anchor `com.apple/cmapi-kind`, from `deploy/kind-import/pf-cmapi-kind.conf`: the LAN's traffic to the API port is dropped at `en8` |
+| Kyverno and the bundle | Kyverno v1.20.0 (chart 3.10.0, `deploy/kyverno/kind-values.yaml`) and the 31 policies of `rnd`, from `deploy/kind-import/kyverno.sh` (#430, below) |
 
-**Up and down.** `deploy/kind-import/up.sh` creates the cluster, or reuses it, applies the reader, and writes the import Secret with a new token. `deploy/kind-import/down.sh` deletes, each by name, the import Secret and then the cluster, so cmapi retires `KIND_CMAPI_TEST` instead of reading it as unreachable. Both stop before they write anything when `oc` is not CRC's, when `kind-cmapi-test.yaml`, its `certSANs` and the pf anchor do not name one address, when the Mac no longer holds that address (a moved DHCP lease), or when the certificate the API server serves does not name it and `host.crc.testing`. up.sh also stops unless kind's CA verifies `/version`. `deploy/tests/kind-import-test.sh` holds each of these on stubs, and that the token is on no argument list.
+**Up and down.** `deploy/kind-import/up.sh <cmapi-cluster-configs checkout>` creates the cluster, or reuses it, applies the reader, installs Kyverno and the `rnd` bundle from the checkout (`kyverno.sh`, below), and writes the import Secret with a new token. `deploy/kind-import/down.sh` deletes, each by name, the import Secret and then the cluster, so cmapi retires `KIND_CMAPI_TEST` instead of reading it as unreachable. Both stop before they write anything when `oc` is not CRC's, when `kind-cmapi-test.yaml`, its `certSANs` and the pf anchor do not name one address, when the Mac no longer holds that address (a moved DHCP lease), or when the certificate the API server serves does not name it and `host.crc.testing`. up.sh also stops unless kind's CA verifies `/version`, and before it writes anything unless the checkout's `policies/env/rnd/` is clean at a commit. `deploy/tests/kind-import-test.sh` holds each of these on stubs, and that the token is on no argument list.
 
-**Delete before every deploy.** The owner's rule, 2026-11-18: each CRC deploy runs `deploy/kind-import/down.sh` first, since `crc-guard.py preflight` (step 2) stops on any kind cluster and its message says so, and `kind-test.sh` refuses the taken name. After the run, `up.sh` brings the cluster and its import back. cmapi then shows `KIND_CMAPI_TEST` connected at its next relist, within 5 minutes.
+**Delete before every deploy.** The owner's rule, 2026-11-18: each CRC deploy runs `deploy/kind-import/down.sh` first, since `crc-guard.py preflight` (step 2) stops on any kind cluster and its message says so, and `kind-test.sh` refuses the taken name. After the run, `up.sh <checkout>` brings the cluster, its Kyverno and bundle, and its import back. cmapi then shows `KIND_CMAPI_TEST` connected at its next relist, within 5 minutes.
 
 **How CRC reaches it.** Red Hat's guide names `host.crc.testing` for a service on the host, and it resolves in CRC's pods to `192.168.127.254`. Connections to it time out here, because CRC's `host-network-access` is off (the default), and turning it on takes a CRC stop and start. gvproxy's outbound NAT does reach the Mac's own LAN address, so the API server is published there, verified against kind's CA. `/version` answered 200 over TLS 1.3 from the `cmapi-api` pod, and CRC's own CA was refused. The owner kept the LAN address and added the firewall (2026-11-18). Turning on `host-network-access` would let `apiUrl` move to `https://host.crc.testing:16443` with no new certificate.
 
@@ -847,6 +848,63 @@ Then `/version` from the `cmapi-api` pod must still answer 200. To undo: `sudo p
 **Why writes are off.** The kind cluster has no GitOps folder and no Argo CD, and this instance delivers by apply on the hub. With `writes: false`, a plan or a request on it gets 422 `cluster-not-writable` before anything is planned (`test_the_kind_cluster_is_rnd_and_never_written`). Reads work.
 
 **Rotation.** The token lasts 7 days, after which the cluster reads `auth_failed`. The baseline's rule is to write a new one at 80% of its life: `up.sh` again, which prints that time. Nothing runs it on a schedule yet.
+
+### Kyverno and the `rnd` bundle on kind
+
+The owner's decision, 2026-11-18 (#430): Kyverno goes on the kind cluster, so `rnd`'s bundle, the 31 policies of `cmapi-cluster-configs` `policies/env/rnd/`, runs on a cluster, and the Policies tab shows `KIND_CMAPI_TEST` on it. Before, its row read "Kyverno not installed" (`state: not-installed`, `bundle: null`), and the bundle ran on no cluster.
+
+`deploy/kind-import/kyverno.sh <checkout>` does it, and `up.sh` runs it after the reader, before the import Secret. Run it alone after a pull request that changes `policies/env/rnd/` merges. In order:
+
+1. It stops before it writes anything unless the checkout's `policies/env/rnd/` is clean at a commit and holds the three files, and unless the kubeconfig's context is `kind-cmapi-test` and its server `https://192.168.86.110:16443`. It never reaches CRC: each kubectl call names kind's kubeconfig, each helm call names it and the context, and it runs no `oc`.
+2. `helm upgrade --install` of chart 3.10.0 (Kyverno v1.20.0, the CLI pin) with `deploy/kyverno/kind-values.yaml`, `--wait --timeout 8m`. A failed install stops it before any policy.
+3. A server dry run of the three files, with field manager `cmapi-policies`. The apply runs only when the dry run exits 0, and a refused dry run stops the script (`|| die`: in a script under `set -e`, a bare `&&` list that fails does not stop it).
+4. It waits until each policy of the files is ready, then prints the count and the commit.
+
+The bundle is read from the checkout, not fetched on each run: the operator chooses the commit, the script prints it and refuses a changed working copy. The chart comes from Kyverno's repository.
+
+`kind-values.yaml` makes CRC's choices ("Kyverno", above): the webhooks scoped to `cmapi.net/managed=true`, `forceFailurePolicyIgnore`, the background and cleanup controllers off, and the reports controller at 128 Mi requested and a 256 Mi limit (CRC's measurement under its bundle, #432). It drops OpenShift's `runAsUser` and `runAsGroup` nulls: kind is plain Kubernetes, so the chart's own security context (65534, non-root) stays.
+
+```bash
+CCFG="$(mktemp -d)/cmapi-cluster-configs"
+gh repo clone ephico2real2/cmapi-cluster-configs "$CCFG" -- --quiet
+git -C "$CCFG" checkout --detach "$MERGED"         # the merge commit of the bundle's pull request
+deploy/kind-import/up.sh "$CCFG"                   # or, with the cluster up and imported: deploy/kind-import/kyverno.sh "$CCFG"
+```
+
+**Verify**, from the repository's root, then the same folder:
+
+```bash
+KC=$PWD/.cmapi-test.kubeconfig; cd "$CCFG/policies/env/rnd"
+kubectl --kubeconfig="$KC" get pods -n kyverno     # the admission and reports controllers Running
+kubectl --kubeconfig="$KC" get validatingpolicies.policies.kyverno.io -o go-template='{{range .items}}{{.metadata.name}} {{.spec.validationActions}} {{.status.conditionStatus.ready}}{{"\n"}}{{end}}' \
+  | grep -E '^cmapi-(metadata|quota|limits)-rnd-' \
+  | awk '{ n++ } !/ \[Audit Warn\] true$/ { print "NOT AUDIT OR NOT READY: " $0 } END { print n + 0 " policies" }'
+diff <(awk '/^  name: /{ n = $2 } /cmapi\.net\/policy-digest:/{ print n, $2 }' cmapi-metadata-rnd.yaml cmapi-quota-rnd.yaml cmapi-limits-rnd.yaml | sort) \
+     <(kubectl --kubeconfig="$KC" get validatingpolicies.policies.kyverno.io -o go-template='{{range .items}}{{.metadata.name}} {{with .metadata.annotations}}{{index . "cmapi.net/policy-digest"}}{{end}}{{"\n"}}{{end}}' | grep -E '^cmapi-(metadata|quota|limits)-rnd-' | sort) \
+  && echo "digests: the files'"
+kubectl --kubeconfig="$KC" get policyreports -A; kubectl --kubeconfig="$KC" get clusterpolicyreports
+```
+
+Then `GET /api/v1/policies/results` on CRC's cmapi must answer, for `KIND_CMAPI_TEST`, `state: ok`, `liveActions: [Audit, Warn]`, `bundle` with `expected`, `live`, `current` and `ready` all 31 and nothing missing or differing, and `counts` with numbers, not null. As with CRC, an apply prunes nothing: after a bundle change, list the `cmapi-*-rnd-*` policies the files no longer hold with the `comm` of "cmapi's policy bundle on CRC", and delete each by name.
+
+**Measured, 2026-11-18** (#430; kind `cmapi-test`, Kubernetes v1.35.8, bundle at `cmapi-cluster-configs` f545841):
+
+- `kyverno.sh` took 3 min 55 s, rc 0: Kyverno installed, the dry run and the apply passed, and 31 policies were ready.
+- Both pods Running with no restart. The admission controller failed one startup probe while its certificate was made (`tls: internal error`), then passed.
+- 31 ValidatingPolicies `[Audit Warn]` and ready, each with its file's digest, and no `vpol-*` ValidatingAdmissionPolicy. Each policy's webhook fails open (`Ignore`) and selects `cmapi.net/managed=true`.
+- No policy report: kind has no namespace labelled `cmapi.net/managed=true`, and every policy narrows to managed objects, so 0 reports is the expected answer.
+- Memory (`crictl stats` on the node, at the end): the admission controller 102 MB, the reports controller 54 MB. The kind node's container went from 514 MB to 1.08 GB (`podman stats`).
+- CRC's cmapi (`GET /api/v1/policies/results` as `cmapi.operator`): `KIND_CMAPI_TEST` went from `not-installed`, `bundle: null`, to `ok`, `liveActions: [Audit, Warn]`, `bundle` 31 expected, live, current and ready, and `counts` all 0. Each `rnd` policy's counts went from null to 0. CRC's own row did not change.
+- The load (#157): the Mac's load average went from 7.46 before to 11.41 at its peak during the install. `keycloak-0` did not restart, and the read-only watch of every realm recorded no breach.
+
+**Rollback**, from the same folder:
+
+```bash
+kubectl --kubeconfig="$KC" delete -f cmapi-metadata-rnd.yaml -f cmapi-quota-rnd.yaml -f cmapi-limits-rnd.yaml
+helm uninstall kyverno -n kyverno --kubeconfig "$KC" --kube-context kind-cmapi-test
+```
+
+The first command deletes the 31 policies by the names in the files, and nothing else. The second removes Kyverno; the chart's pre-delete hook removes its webhooks first. `down.sh` needs neither: it deletes the whole cluster.
 
 ## Trying it without CRC
 
