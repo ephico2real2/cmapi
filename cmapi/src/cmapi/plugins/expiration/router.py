@@ -108,9 +108,12 @@ def expiration_rows(c: AppContext, who: Identity, day: date) -> tuple[list[dict[
         env = st.policy.environment if st.policy else None
         if env is None or not c.cfg.roles.allowed(who, "objects:read", env) or not c.cfg.expiration.allows(env):
             continue
+        cache = st.cache                    # once: the registry clears it when the cluster drops, after `connected()` (#402)
+        if cache is None:
+            continue
         envs.add(env)
         rules = c.cfg.expiration.rules(env)
-        for ns in st.cache.all("Namespace"):
+        for ns in cache.all("Namespace"):
             m = ns["metadata"]
             labels, ann = m.get("labels") or {}, m.get("annotations") or {}
             if labels.get("cmapi.net/managed") != "true":

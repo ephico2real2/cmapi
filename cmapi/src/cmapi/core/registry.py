@@ -397,10 +397,11 @@ class ClusterRegistry:
 
     def cache(self, cluster_id: str) -> WatchCache:
         st = self.get(cluster_id)
-        if st.cache is None:
+        cache = st.cache                    # once: `_set` or the relist may clear it between a check and a return (#402)
+        if cache is None:
             raise Problem(503, "cluster-unreachable", f"{cluster_id} is {st.status}: {'; '.join(st.findings)}",
                           extra={"retryAfter": 30})
-        return st.cache
+        return cache
 
     def quota_watch(self, cluster_id: str) -> tuple[WatchCache, CapacityLedger | None]:
         """The cluster's watch cache and the ledger its ResourceQuotas feed, read together under the lock that `_connect` and
@@ -419,5 +420,6 @@ class ClusterRegistry:
 def wait_for_caches(registry: ClusterRegistry, timeout: float = 20.0) -> None:
     deadline = time.time() + timeout
     for st in registry.connected():
-        if st.cache is not None:
-            st.cache.wait_ready(max(0.1, deadline - time.time()))
+        cache = st.cache                    # once: the relist thread may clear it meanwhile (#402)
+        if cache is not None:
+            cache.wait_ready(max(0.1, deadline - time.time()))

@@ -20,7 +20,7 @@ from cmapi.core.policy import PolicySettings
 from cmapi.core.policygen import PolicyGenError, index_of, policy_name, render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from cmapi.core.tiers import TierCatalog
-from cmapi.core.validate import CliValidator, PolicyEngineMissing
+from cmapi.core.validate import CliValidator, PolicyEngineMissing, kyverno_version
 from cmapi.tools.policies import main as policies_tool
 from conftest import ALL_ENVS, EX, INSTANCES
 
@@ -41,7 +41,7 @@ def kyverno() -> str:
             pytest.fail("CMAPI_REQUIRE_KYVERNO=1 and no kyverno on PATH")
         pytest.skip("no kyverno on PATH")
     out = subprocess.run([found, "version"], capture_output=True, text=True, timeout=30).stdout
-    assert "v1.20.0" in out, f"the image pins Kyverno v1.20.0, PATH has {out.splitlines()[:1]}"
+    assert kyverno_version(out) == "v1.20.0", f"the image pins Kyverno v1.20.0, PATH has {out.splitlines()[:1]}"
     return found
 
 

@@ -119,9 +119,10 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             if on_main != files:
                 return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan")
             st = ctx.registry.get(row.cluster_id)
-            if st.client is None:
+            reader = st.client                  # once: `_set` or the relist may clear it between a check and a use (#402)
+            if reader is None:
                 raise ClusterUnreachable(f"{row.cluster_id} is {st.status}")
-            app = ArgoCdSignal(st.client, ctx.delivery.argocd_namespace,
+            app = ArgoCdSignal(reader, ctx.delivery.argocd_namespace,
                                application_name(ctx.delivery.argocd_root_application, row.cluster_id, row.namespace)).status(row.cluster_id)
             observed = app.revisions or (frozenset({app.revision}) if app.revision else frozenset())
             repo.event(row, "argocd", "argocd", f"{app.sync} {app.health} at {','.join(sorted(r[:8] for r in observed)) or '?'}")

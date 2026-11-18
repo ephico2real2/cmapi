@@ -48,7 +48,9 @@ def quota_rows(c: AppContext, who: Identity) -> list[dict[str, Any]]:
         env = st.policy.environment if st.policy else None
         if env is None or not c.cfg.roles.allowed(who, "objects:read", env):
             continue
-        cache = st.cache
+        cache = st.cache                    # once: the registry clears it when the cluster drops, after `connected()` (#402)
+        if cache is None:
+            continue
         quotas = {q["metadata"]["namespace"]: q for q in cache.all("ResourceQuota")
                   if (q["metadata"].get("labels") or {}).get("cmapi.net/managed") == "true"}
         for ns in cache.all("Namespace"):
