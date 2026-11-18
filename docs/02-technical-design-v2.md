@@ -1567,7 +1567,7 @@ Placement makes no Thanos call while a request is being planned. Thanos is read 
 **Capacity model,** per cluster, per zone and per resource (cpu, memory, pods). Allocatable counts only schedulable workers without NoSchedule taints, from the API node list joined to kube\_node\_status\_allocatable.
 
 - **Committed** is the sum of requests.\* hard quotas, plus the live requests of namespaces that have no quota. A quota's `cpu` and `memory` are the same resources as `requests.cpu` and `requests.memory` ([Resource quotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)), so they count too; a quota with both counts once, at the smaller value, the bound that quota admission enforces (#393).
-- **Committed is known, or the answer is unknown.** When the cluster has no watch cache, its ResourceQuotas have not listed, or their watch has had no good read for a relist window (30 minutes), the capacity check answers unknown and not fresh, never a ratio over 0, so the capacity guard stops auto-approval (#393).
+- **Committed is known, or the answer is unknown.** When the cluster has no watch cache, its ResourceQuotas have not listed, the API server refuses the reader's ResourceQuota reads (401 or 403), or their watch has had no good read for a relist window (30 minutes), the capacity check answers unknown and not fresh, never a ratio over 0, so the capacity guard stops auto-approval (#393).
 - **Reserved** is the sum of active reservations, below.
 - **Quota headroom** is allocatable × overcommit − committed − reserved, where overcommit comes from the cluster's placement block or the environment default.
 - **Usage headroom** is allocatable − the 14-day p95 of real usage.

@@ -548,7 +548,7 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `quotaIncreasePct` | The largest increase of a sizable key, in percent. Set for a change of an existing namespace only | `QuotaChange.quota_increase_pct` |
 | `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`, #256) | `QuotaChange.facts` |
 | `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today (#257) | Not set by any built code |
-| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, or a ResourceQuota watch with no good read for 30 minutes (#393) | `core/capacity_backend.py` |
+| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, ResourceQuota reads refused (401 or 403), or a ResourceQuota watch with no good read for 30 minutes (#393) | `core/capacity_backend.py` |
 | `namespaceAgeDays`, `pods`, `pvcs`, `protected` | The namespace for a delete | `Pipeline.plan_delete` |
 | `keyClasses`, `sensitiveKeyChanged` | The classes of the changed keys, and a change of a `sensitiveKeys` key | `MetadataKeys.change_facts` |
 | `expirationAction`, `expirationBeyondLimits` | The expiry change, and whether it is past `maxLifetimeDays` or is `:makePermanent` | `plugins/expiration/rules.py` |

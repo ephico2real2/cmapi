@@ -45,8 +45,14 @@ class SimulatedCapacity:
         except Problem as exc:
             return f"no watch cache for this cluster: {exc.detail}"
         stale, last = cache.kind_stale("ResourceQuota")
+        status, error = cache.kind_error("ResourceQuota")
+        if status in (401, 403):
+            # The API server refuses the reader (a revoked grant, a rotated token): no relist can succeed, so the items
+            # held from before are not current, however recent their last good read. Transient errors stay bounded by
+            # the relist window instead, so a dropped watch does not flap the answer.
+            return f"the API server refuses the reader's ResourceQuota reads ({status}): {error}"
         if last is None:
-            return "the cluster's ResourceQuotas have not listed yet"
+            return "the cluster's ResourceQuotas have not listed yet" + (f": {error}" if error else "")
         if stale:
             return f"the ResourceQuota watch is stale: no good read for over {cache.RELIST_SECONDS}s"
         cpu = mem = Decimal(0)

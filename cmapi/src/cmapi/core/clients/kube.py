@@ -320,6 +320,13 @@ class WatchCache:
             last = self.state[kind].last_good
         return (last is None or self.clock() - last > self.RELIST_SECONDS, last)
 
+    def kind_error(self, kind: str) -> tuple[int | None, str | None]:
+        """(HTTP status, message) of the kind's last failed list or watch, or (None, None). A successful list clears it,
+        so a status here means the kind has not listed since it failed: the cached items are what it held before."""
+        with self._lock:
+            st = self.state[kind]
+            return st.error_status, st.error
+
     def namespace(self, name: str) -> dict[str, Any] | None:
         """A namespace by name, falling back to a direct read when the cache has not listed yet."""
         if self.state["Namespace"].last_good is None:

@@ -149,3 +149,34 @@ def test_unmanaged_quota_is_still_not_counted(world):
     put_quota(ctx, quota("theirs", {"cpu": "120", "requests.cpu": "120"}, managed=False))
     cap = ctx.pipeline.capacity.check("CRC", "dev", 0, 0)
     assert cap.status == "fits" and cap.detail["cpu"] == 0.0, cap
+
+
+# ---- the reader refused after the quotas listed (OB3, PR #394)
+def test_quota_reads_refused_after_listing_are_unknown_and_not_auto_approved(world):
+    """A 403 on the ResourceQuota relist (the reader's grant revoked) leaves the items listed before and a recent last good
+    read: the registry stays connected (it probes namespaces only), so without this the answer is `fits` on fresh data for
+    up to 30 minutes on quotas the reader can no longer see."""
+    client, ctx, git, kube, validator, keys = world
+    put_quota(ctx, quota("a", {"requests.cpu": "10"}))
+    cache = ctx.registry.cache("CRC")
+    with cache._lock:
+        cache.state["ResourceQuota"].last_good = time.time() - 5
+        cache.state["ResourceQuota"].error_status = 403
+        cache.state["ResourceQuota"].error = "403 on /api/v1/resourcequotas: forbidden"
+    cap = ctx.pipeline.capacity.check("CRC", "dev", 16, 0)
+    assert_unknown(cap, "refuses the reader")
+    req = ctx.pipeline.cfg.approvals.decide(facts_for(cap))
+    assert req.auto is None and req.auto_fallback == "capacity", req
+    assert_dry_run_unknown(client, keys)
+
+
+def test_a_transient_quota_watch_error_keeps_the_last_list(world):
+    """The boundary of the refusal rule: a dropped watch (no HTTP status) inside the relist window keeps the answer."""
+    client, ctx, git, kube, validator, keys = world
+    put_quota(ctx, quota("a", {"requests.cpu": "10"}))
+    cache = ctx.registry.cache("CRC")
+    with cache._lock:
+        cache.state["ResourceQuota"].error_status = None
+        cache.state["ResourceQuota"].error = "CRC: watch ResourceQuota: connection reset"
+    cap = ctx.pipeline.capacity.check("CRC", "dev", 16, 0)
+    assert cap.status == "fits" and cap.fresh is True and cap.detail["cpu"] == round(26 / 128, 3), cap
