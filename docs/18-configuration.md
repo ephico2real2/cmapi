@@ -548,7 +548,7 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `quotaIncreasePct` | The largest increase of a sizable key, in percent. Set for a change of an existing namespace only | `QuotaChange.quota_increase_pct` |
 | `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`, #256) | `QuotaChange.facts` |
 | `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today (#257) | Not set by any built code |
-| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh | `core/capacity_backend.py` |
+| `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, ResourceQuota reads refused (401 or 403), or a ResourceQuota watch with no good read for 30 minutes (#393) | `core/capacity_backend.py` |
 | `namespaceAgeDays`, `pods`, `pvcs`, `protected` | The namespace for a delete | `Pipeline.plan_delete` |
 | `keyClasses`, `sensitiveKeyChanged` | The classes of the changed keys, and a change of a `sensitiveKeys` key | `MetadataKeys.change_facts` |
 | `expirationAction`, `expirationBeyondLimits` | The expiry change, and whether it is past `maxLifetimeDays` or is `:makePermanent` | `plugins/expiration/rules.py` |
@@ -696,7 +696,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `thanosUrl` | text | None | No built code reads it |
 | `labels` | mapping | `{}` | Labels that `match.clusterSelector` reads. `GET /api/v1/clusters` shows them |
 | `metadata`, `placement` | mapping | `{}` | No built code reads them |
-| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check. Without it the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change |
+| `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check, which counts the hard `requests.cpu` and `requests.memory` (or `cpu` and `memory`, the same resources; the smaller when a quota has both) of the ResourceQuotas labelled `cmapi.net/managed: "true"`. Without it, or while those quotas are not known (#393), the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change |
 
 `capacity.yaml` keys that built code reads (`core/capacity_backend.py`, `core/context.py`, `core/kpi.py`): `overcommit.<env>.cpu` and `.memory` (default 1.0), `targets.<env>.commitment.warn` (default `0.85`), and `kpi.thresholds`. The other keys of the reference file are designed for the capacity service, which is not built.
 
