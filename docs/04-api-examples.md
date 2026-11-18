@@ -35,14 +35,15 @@ The CI job `api-contract` fails when the part below is not what `scripts/api-exa
 
 `docs/02` specifies more endpoints than the code has. These have no example here, because `cmapi/contract/openapi.json` has no operation for them. The list is the paths of `docs/01` and `docs/02` that the OpenAPI document lacks, compared on 2026-11-18:
 
-- Namespaces: `GET .../namespaces/{ns}/expiration`, `.../quota` writes, `.../usage`, `.../analysis`, namespace and service-account metadata, service accounts with their grants and tokens, and adoption (`/adoption/candidates`, `/adoption/skipped`, `:adopt`, `/adoption:scan`). The built namespace calls are the list, create, read, change, delete and `:extend`, `:set` and `:makePermanent`.
-- Clusters: `GET /clusters/{id}`, `/clusters/{id}:probe`, `/admin/clusters:propose`, the analysis routes and `/analysis/summary`. Cluster import has no endpoint: it is done with Secrets (`docs/18-configuration.md`).
+- Namespaces: `GET .../namespaces/{ns}/expiration`, `.../quota` writes, `.../limitrange`, `.../usage`, `.../analysis`, `.../drift`, namespace and service-account metadata, service accounts with their grants, SCC grants and tokens, `:promote`, and adoption (`/adoption/candidates`, `/adoption/skipped`, `:adopt`, `/adoption:scan`). The built namespace calls are the list, create, read, change, delete and `:extend`, `:set` and `:makePermanent`.
+- Clusters: `GET /clusters/{id}`, `GET` and `/health` on the cluster path, `/clusters/{id}:probe`, `/admin/clusters:propose`, `/sync`, the analysis routes with `/analysis/sweeps:run`, and `/analysis/summary`. Cluster import has no endpoint: it is done with Secrets (`docs/18-configuration.md`).
+- Live RBAC and identity reads: `.../namespaces/{ns}/roles` and `/rolebindings`, `/clusterroles`, `/clusterrolebindings`, `/sccs`, `/users`, `/users/{name}` with its bindings, and `/groups`, `/groups/{name}` with its bindings.
 - Tiers: `GET /tiers/{tier}` and `/tiers/{tier}/namespaces`. Only `GET /tiers` is built.
-- Capacity: `/capacity:place`, `/capacity/forecast`, `/capacity/history`, `/clusters/{id}/capacity`, its history and `snapshots:run`. Only `GET /capacity` is built.
+- Capacity: `/capacity:check`, `/capacity:place`, `/capacity/forecast`, `/capacity/history`, `/clusters/{id}/capacity`, its history and `snapshots:run`. Only `GET /capacity` is built.
 - Policies: `GET /policies`. Only `GET /policies/results` and `GET /policies/rejections` are built.
 - Reports (`/reports/*`), operations (`/operations`, `/operations/{id}`, `:cancel`), `/changesets`, the webhooks (`/webhooks/git`, `/webhooks/argocd`) and `POST /admin/reload`.
 
-The routes `/healthz`, `/readyz`, `/problems`, `/openapi.json`, `/openapi.yaml`, `/docs`, `/redoc` and `/docs/changelog` are built and have no example, because they are not in the OpenAPI document (`include_in_schema=False` in `cmapi/main.py` and `routers/health.py`). `docs/08-code-status.md`, section 4, lists the same gaps and may lag the code.
+The routes `/healthz`, `/readyz`, `/problems`, `/problems/{code}`, `/openapi.json`, `/openapi.yaml`, `/docs`, `/docs/oauth2-redirect`, `/docs/redoc-start.js`, `/redoc` and `/docs/changelog`, and the files under `/static/swagger` and `/static/redoc`, are built and have no example, because they are not in the OpenAPI document (`include_in_schema=False` in `cmapi/main.py` and `routers/health.py`; the static files are mounts). `docs/08-code-status.md`, section 4, lists the same gaps and may lag the code.
 
 <!-- examples:begin -->
 ## Namespaces and metadata

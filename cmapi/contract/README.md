@@ -18,16 +18,17 @@ This folder holds the contract of the cmapi API and the tools that guard it. The
 ## Change the API
 
 1. Change the code and its tests.
-2. In `cmapi/`, write the document again: `CMAPI_WRITE_CONTRACT=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_docs.py -q -W ignore -k committed_contract`.
-3. Lint the document: `(cd contract/spectral && npm ci --ignore-scripts)` one time, then `contract/lint.sh`. A new rule gets a case in `lint-test.py`.
-4. Record the samples again with `CMAPI_WRITE_SAMPLES=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_samples.py -q -W ignore`, then run `python ../scripts/api-examples-doc.py --write` for `docs/04-api-examples.md`. A new operation needs a call in `test_each_operation_has_a_sample_from_a_run`, or the test fails.
-5. Commit `contract/openapi.json`, `src/cmapi/contract/samples.json` and `docs/04-api-examples.md` with the code.
+2. In `cmapi/`, record the samples again: `CMAPI_WRITE_SAMPLES=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_samples.py -q -W ignore`. A new operation needs a call in `test_each_operation_has_a_sample_from_a_run`, or the test fails. Record them first: the document carries them as its examples (`add_recorded_examples` in `src/cmapi/core/docs.py`).
+3. Write the document again: `CMAPI_WRITE_CONTRACT=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_docs.py -q -W ignore -k committed_contract`.
+4. Lint the document: `(cd contract/spectral && npm ci --ignore-scripts)` one time, then `contract/lint.sh`. A new rule gets a case in `lint-test.py`.
+5. Write `docs/04-api-examples.md` again: `python ../scripts/api-examples-doc.py --write`.
+6. Commit `src/cmapi/contract/samples.json`, `contract/openapi.json` and `docs/04-api-examples.md` with the code.
 
 The CI job `api-contract` (`.github/workflows/ci.yml`) runs, in this order: `lint-test.py`, `lint.sh`, `gate-test.sh`, `changelog.py --check`, `scripts/api-examples-doc.py --check`, then the gate twice. The first gate compares `openapi.json` with the newest file in `released/`, and says so when `released/` is empty (it is). The second runs on a pull request only: it compares with `openapi.json` on the base branch. A breaking change fails the job. An added endpoint or an added optional field passes. The service job fails when `openapi.json` is not what the code serves.
 
 ## Accept a breaking change
 
-Do this only before version 1.0, or for a new major version. Add the line that oasdiff prints for the change to `accepted-breaking.txt`, with the reason and the issue number on the line above it. The file holds the changes of #164, #179, #286 and #328.
+Do this only before version 1.0, or for a new major version. Add the line that oasdiff prints for the change to `accepted-breaking.txt`, with the reason and the issue number on the line above it. The comment above each group of lines names its issue: `grep '^# #' contract/accepted-breaking.txt` lists them.
 
 ## Release a version
 
