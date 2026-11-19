@@ -405,6 +405,7 @@ class ClusterRegistry:
         with self._lock:
             previous_status = st.status
             changed = (previous_status, st.findings) != (status, findings)
+            first_connected = status == "connected" and st.checked_at is None and previous_status == "not-imported"
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)
                 st.cache, st.ledger, st.client = None, None, None
@@ -416,7 +417,7 @@ class ClusterRegistry:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
             previous = self._set_trust(st, trust)
         self._log_mode(st.cluster_id, previous, trust)
-        if changed:
+        if changed and not first_connected:
             emit = log.info if status == "connected" else log.warning
             emit("cluster_import", cluster_id=st.cluster_id, status=status, previous=previous_status, findings=findings)
         return st
