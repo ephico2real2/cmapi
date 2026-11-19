@@ -170,3 +170,34 @@ def test_probe_sanitizes_unexpected_failure_before_logging_and_truncation(monkey
             assert item["data"]["token"][:8] not in diagnostic
     finally:
         reg.stop()
+
+
+def test_probe_redacts_remote_fields_before_publishing_diagnostics(capture_registry_logs):
+    from test_cluster_token_client_420 import ODD, go_escape
+
+    item = secret("ONE", token=ODD, note="fixture-private-import-note")
+    echo = go_escape(ODD) + " " + item["data"]["note"]
+    handlers = {"ONE": good}
+    reg = registry(handlers, [item])
+
+    def answer(request):
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"gitVersion": echo})
+        if request.url.path.endswith("/users/~"):
+            return httpx.Response(200, json={"metadata": {"name": echo}})
+        return good(request)
+
+    try:
+        reg.refresh()
+        handlers["ONE"] = answer
+        with capture_registry_logs() as events:
+            row = reg.probe("ONE")
+        assert row["status"] == "wrong-identity"
+        assert row["serverVersion"] == "*** ***"
+        assert row["secretName"] == item["name"]
+        finding = row["findings"][0]
+        assert finding.startswith("token is *** ***, expected ")
+        assert row["findingDetails"][0]["finding"] == finding
+        assert import_events(events)[0]["findings"] == [finding]
+    finally:
+        reg.stop()

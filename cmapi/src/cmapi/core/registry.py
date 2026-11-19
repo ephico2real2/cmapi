@@ -140,6 +140,15 @@ class ClusterState:
                 "statusSince": self.status_since, "trust": self.trust.view() if self.trust else None}
 
 
+def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
+    # The TLS mode and server name are public trust metadata. Other import values can appear in remote echoes or errors.
+    forms: set[str] = set()
+    for key, value in secret.get("data", {}).items():
+        if isinstance(value, str) and value and key not in {"insecure", "tlsServerName"}:
+            forms.update(secret_forms(value) or (value,))
+    return tuple(sorted(forms, key=len, reverse=True))
+
+
 def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
     value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
     # Directory imports can contain an unquoted YAML timestamp. Kubernetes annotations are strings.
@@ -444,8 +453,10 @@ class ClusterRegistry:
         """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen."""
         # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
         # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
-        forms = secret_forms((secret.get("data") or {}).get("token"))
+        forms = _diagnostic_forms(secret)
         findings = [redact(f, forms) for f in findings]
+        if version:
+            version = redact(version, forms)
         with self._lock:
             previous_status = st.status
             changed = (previous_status, st.findings) != (status, findings)
@@ -546,10 +557,7 @@ class ClusterRegistry:
         # Exception messages may include the import data. Never attach the live traceback to a log record.
         error_type = type(exc).__name__
         log.error("cluster_check_failed", cluster_id=st.cluster_id, error_type=error_type)
-        detail = str(exc)
-        for value in secret["data"].values():
-            if isinstance(value, str) and value:
-                detail = redact(detail, secret_forms(value) or (value,))
+        detail = redact(str(exc), _diagnostic_forms(secret))
         finding = f"the check failed: {error_type}: {detail[:200]}"
         return self._set(st, "unreachable", [finding], None, secret, probed=probed)
 
