@@ -260,14 +260,13 @@ Writes only to `cmapi` and `cmapi-imports`.
   $G gate "$STOP"
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/reader/00-cmapi-reader.yaml"
   deploy/crc-reader-import.sh
-  oc delete secret cmapi-reader-token -n cmapi-system --ignore-not-found
   oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/deliverer/00-cmapi-deliverer.yaml"
 ); stopped $? 7
 ```
 
 **Renewal.** With `oc` logged into CRC, run `deploy/crc-reader-import.sh` again before the UTC deadline printed by the last successful run. Record that deadline at each renewal, including between deploys. It falls at 80% of the token's granted lifetime (5 days, 14 hours and 24 minutes for the full seven days). The script refreshes only CRC's import. Kind's separate import still uses `deploy/kind-import/down.sh` before a CRC deploy and `deploy/kind-import/up.sh <checkout>` afterwards.
 
-**Stops when** CRC cannot supply the API CA or issue a token within the seven-day limit, the import apply or legacy Secret cleanup fails, or the API refuses the admission policy. Step 7 deletes the named legacy Secret only after the replacement import succeeds. An existing cmapi client picks up the replacement on its next relist, within five minutes.
+**Stops when** CRC cannot supply the API CA or issue a token within the seven-day limit, the import apply fails, or the API refuses the admission policy. Existing API and worker clients can hold the old credential until their next successful relist. Step 23 retires the legacy Secret after both targets report a connected CRC reader and a positive remaining lifetime for the bounded import.
 
 `deliverer/` is the chart's reviewed design for apply delivery on the hub (`deploy/helm/cmapi/templates/rbac.yaml`), held to it by `test_crc_deliverer_is_the_charts`. ClusterRole `cmapi-deliverer` gives the worker's own ServiceAccount `create`, `patch` and `delete` on the kinds cmapi renders, and `bind` on `cmapi-token-issuer` alone: a server-side apply that creates an object needs `create` as well as `patch` ([Kubernetes, Server-Side Apply, "Access control and permissions"](https://kubernetes.io/docs/reference/using-api/server-side-apply/#rbac-and-permissions)). RBAC cannot scope `create` to names that do not exist yet, so ValidatingAdmissionPolicy `cmapi-deliverer-managed-only` is what keeps the worker out of every other project: it may touch only a namespace labelled `cmapi.net/managed=true` (read from the old object on an update, so it cannot label one first), never create a reserved name (`default`, `openshift*`, `kube-*`, `cmapi`, `cmapi-system`, `cmapi-imports`, `ocp-*`, `kubernetes-*`), add or change no `kubernetes.io`, `k8s.io` or `openshift.io` key, and write only the one RoleBinding the renderer writes. The file creates the policy and its binding before the ClusterRole and its binding, so the worker never holds the write without the containment. The api's ServiceAccount gets nothing. Step 23 proves the containment with server dry runs as the worker.
 
@@ -500,6 +499,7 @@ The two policies go first by themselves: `-R` applies files in name order, `20-a
   $G gate "$STOP"
   since=$(head -1 "$RUN/preflight.txt" | cut -d' ' -f1)
   CMAPI_PROOF_SINCE=$since deploy/crc-proof.sh "$R" | tee "$RUN/proof.txt"
+  oc delete secret cmapi-reader-token -n cmapi-system --ignore-not-found
 ); stopped $? 23
 ```
 

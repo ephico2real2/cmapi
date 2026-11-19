@@ -343,6 +343,10 @@ def problems(doc, only=None):
     steps = steps_of(doc)
     need(sorted(steps) == list(range(1, 26)), f"the steps are 1 to 25 in order: {sorted(steps)}")
     run = "\n".join(steps.values())
+    delete_legacy = "oc delete secret cmapi-reader-token -n cmapi-system --ignore-not-found"
+    proof = steps.get(23, "")
+    need(run.count(delete_legacy) == 1 and 0 <= proof.find("deploy/crc-proof.sh") < proof.find(delete_legacy),
+         "legacy credential retired before proof of reader adoption")
     # Ruling 13: every apply under one field manager. Lines are joined at a trailing backslash first.
     lines = re.sub(r"\\\n\s*", " ", run).splitlines()
     applies = [piece for line in lines for piece in re.split(r"&&|;", line) if re.search(r"\boc apply\b", piece)]
