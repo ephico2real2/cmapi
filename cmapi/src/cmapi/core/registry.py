@@ -482,10 +482,13 @@ class ClusterRegistry:
         with self._lock:
             for cid, st in self.clusters.items():
                 if cid not in seen and st.status != "not-imported":
+                    previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
                     self._log_mode(cid, self._set_trust(st, None), None)
+                    log.warning("cluster_import", cluster_id=cid, status=st.status,
+                                previous=previous_status, findings=st.findings)
 
     def start(self) -> None:
         self.refresh()
