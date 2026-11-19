@@ -751,7 +751,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `clusterId` | text | None | The ID, in the list form |
-| `environment` | text | None. Needed | An environment that the instance serves. Another value stops the start |
+| `environment` | text | None. Needed | An environment that the instance serves. Another value stops the start (`load_policies`), before imports are checked. The import Secret does not supply an environment |
 | `gitopsPath` | text | `clusters/<clusterId>` | Shown in `GET /api/v1/clusters`. No built code uses it for the folder: the folder is always `clusters/<clusterId>/namespaces/<namespace>/` (`folder`, `core/render/manifests.py`) |
 | `writes` | boolean | `true` | `false` makes the cluster read only |
 | `syncSignal` | text | `poll` | No built code reads it. `notify` is not built |
