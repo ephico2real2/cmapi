@@ -6,7 +6,7 @@ Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [T
 TLS_SERVER_NAME is the import's tlsServerName (#434): the name cmapi checks the certificate against instead of API_URL's host.
 A cmapi before #434 ignores the field, so the Secret works with either."""
 import argparse
-import base64, datetime, json, re, sys
+import base64, datetime, json, re, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("cluster_id")
@@ -27,6 +27,9 @@ if claims.get("sub") != "system:serviceaccount:cmapi-system:cmapi-reader":
     sys.exit(f"token subject is {claims.get('sub')!r}, not cmapi-system:cmapi-reader")
 if not 0 < claims["exp"] - claims["iat"] <= 7 * 24 * 3600:
     sys.exit("reader token lifetime must be positive and at most seven days")
+renew_at = claims["iat"] + 0.8 * (claims["exp"] - claims["iat"])
+if time.time() >= renew_at:
+    sys.exit("reader token has already reached its renewal deadline")
 expires = datetime.datetime.fromtimestamp(claims["exp"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 ca = open(ca_file).read()
 b64 = lambda s: base64.b64encode(s.encode()).decode()
@@ -38,5 +41,5 @@ print(json.dumps({
         "annotations": {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": expires}},
     "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false"),
              **({"tlsServerName": b64(server_name)} if server_name else {})}}))
-rotate = datetime.datetime.fromtimestamp(claims["iat"] + 0.8 * (claims["exp"] - claims["iat"]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+rotate = datetime.datetime.fromtimestamp(renew_at, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 print(f"import Secret for {cluster_id}: the token expires {expires}; rerun the import writer by {rotate}, 80% of its life", file=sys.stderr)

@@ -31,7 +31,8 @@ case "$s" in
   "get configmap kube-root-ca.crt"*) cat "$STUB_CA"; exit 0;;
   "create token cmapi-reader -n cmapi-system --duration=168h")
     [ -z "${STUB_NO_TOKEN:-}" ] || exit 1
-    payload=$(printf '%s' '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":1,"exp":604801}' | base64 | tr -d '=\n' | tr '+/' '-_')
+    issued=$(date +%s)
+    payload=$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$issued" "$((issued + 604800))" | base64 | tr -d '=\n' | tr '+/' '-_')
     printf 'stub.%s.%s\n' "$payload" "$TOKEN"; exit 0;;
   "apply --server-side --field-manager=crc-reader-import.sh --force-conflicts -f -") cat >"$ARGV_LOG.applied"; exit 0;;
   "get pod postgres-0 -n keycloak -o json") cat <<'J'

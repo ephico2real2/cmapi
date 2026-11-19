@@ -171,3 +171,15 @@ def test_kind_proof_bootstraps_its_reader_from_the_current_manifest(tmp_path, mo
     with pytest.raises(BootstrapComplete):
         run_proof(None, None, None, monkeypatch)
     assert len(calls) == 2
+
+@pytest.mark.parametrize("age", [3000, 3601], ids=["past-renewal", "expired"])
+def test_stale_grant_leaves_the_previous_import_in_place(tmp_path, age):
+    now = int(time.time())
+    previous, _, _ = import_crc(tmp_path, now - 10)
+    (tmp_path / "calls").write_text("")
+    with pytest.raises(subprocess.CalledProcessError) as failure:
+        import_crc(tmp_path, now - age, lifetime=3600)
+    assert "renewal deadline" in failure.value.stderr
+    assert json.loads((tmp_path / "applied").read_text()) == previous
+    calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
+    assert [args[0] for args in calls] == ["get", "create"]

@@ -18,7 +18,7 @@ git -C "$W/ccfg" init -q && git -C "$W/ccfg" add -A && git -C "$W/ccfg" -c user.
 CCFG=$W/ccfg; CCFG_COMMIT=$(git -C "$CCFG" rev-parse HEAD)
 REAL_OPENSSL=$(command -v openssl); REAL_PYTHON3=$(command -v python3)
 # A JWT shaped as kubectl create token prints it; every part of it is the secret.
-IAT=1794964470; EXP=$((IAT + 604800))
+IAT=$(date +%s); EXP=$((IAT + 604800))
 b64url() { python3 -c 'import base64,sys; print(base64.urlsafe_b64encode(sys.stdin.read().encode()).decode().rstrip("="))'; }
 TOKEN="$(printf '{"alg":"RS256"}' | b64url).$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$IAT" "$EXP" | b64url).stub-signature-never-to-be-seen"
 cert() { "$REAL_OPENSSL" req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/$1.pem" -subj "/CN=kube-apiserver" -days 2 -addext "subjectAltName=$2" 2>/dev/null; }
