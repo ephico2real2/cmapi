@@ -765,6 +765,11 @@ class ClusterTrust(Api):
                                                 "certificate, when it is not the host of apiUrl", examples=[None])
 
 
+class ClusterFinding(Api):
+    finding: str = Field(description="Redacted import finding", examples=["missing field token"])
+    fix: str = Field(description="Suggested corrective action", examples=["Supply the reader's token in the import Secret."])
+
+
 class ClusterView(Api):
     cluster_id: str = Field(description="Cluster ID", examples=["CRC"])
     environment: str = Field(description="Environment from clusters.yaml", examples=["dev"])
@@ -772,6 +777,10 @@ class ClusterView(Api):
     writes: bool = Field(description="Whether writes are allowed", examples=[True])
     status: str = Field(description="connected, unreachable, auth_failed, not-imported, ...", examples=["connected"])
     findings: list[str] = Field(description="Import check findings", examples=[[]])
+    finding_details: list[ClusterFinding] = Field(default_factory=list, description="Findings in order with a suggested fix for each")
+    secret_name: str | None = Field(default=None, description="Name of the import Secret, null without a unique source")
+    token_expires_at: datetime | None = Field(default=None, description="Expiry from cmapi.net/token-expires-at, when known")
+    last_probe_at: datetime | None = Field(default=None, description="Last completed remote probe result, including a failed probe")
     server_version: str | None = Field(description="Kubernetes version seen", examples=["v1.35.6"])
     labels: dict[str, str] = Field(description="Metadata labels", examples=[{"region": "us-central"}])
     checked_at: datetime | None = Field(description="Last import check", examples=["2026-11-05T10:00:00Z"])

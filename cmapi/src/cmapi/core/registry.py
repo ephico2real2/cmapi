@@ -87,9 +87,11 @@ class ClusterState:
     ledger: CapacityLedger | None = None          # fed by `cache`'s hooks: set and cleared with it
     reports: ReportCache | None = None
     nodes: NodeCache | None = None
-    token_expires_at: str | None = None
+    token_expires_at: datetime | None = None
     trust: Trust | None = None                    # the mode of the last check that got past the parse; None before or after
     status_since: datetime | None = None
+    secret_name: str | None = None
+    last_probe_at: datetime | None = None
 
     @property
     def environment(self) -> str | None:
@@ -105,12 +107,48 @@ class ClusterState:
             detail += f": {'; '.join(self.findings)}"
         return state, detail[:300]
 
+    def _fix(self, finding: str) -> str:
+        if self.status == "invalid-secret":
+            if finding.startswith("duplicate cluster ID"):
+                return "Keep exactly one import Secret labelled with this cluster ID."
+            if "token" in finding:
+                return "Supply the reader's token without whitespace in the import Secret."
+            if "caData" in finding or "insecure" in finding:
+                return "Configure one permitted TLS mode with a valid trust source."
+            if "apiUrl" in finding:
+                return "Set apiUrl to the cluster's HTTPS URL without embedded credentials."
+            if "tlsServerName" in finding:
+                return "Set tlsServerName to a DNS name or IP address on the server certificate."
+            return "Correct the named field in the import Secret and let cmapi recheck it."
+        return {
+            "not-imported": "Create an import Secret labelled with this cluster ID.",
+            "cert-verify-failed": "Check the server certificate, its name and the configured CA.",
+            "auth_failed": "Check that the import token is valid and renew it if expired.",
+            "wrong-identity": "Issue the token for cmapi-system:cmapi-reader.",
+            "forbidden": "Grant the reader permission to list namespaces.",
+            "unreachable": "Check the cluster API URL, network path and registry logs.",
+            "bad-response": "Check that the API URL reaches the Kubernetes API and returns JSON.",
+        }[self.status]
+
     def view(self) -> dict[str, Any]:
         p = self.policy
         return {"clusterId": self.cluster_id, "environment": p.environment if p else "", "gitopsPath": p.gitops_path if p else "",
                 "writes": bool(p and p.writes), "status": self.status, "findings": list(self.findings),
+                "findingDetails": [{"finding": f, "fix": self._fix(f)} for f in self.findings],
+                "secretName": self.secret_name, "tokenExpiresAt": self.token_expires_at, "lastProbeAt": self.last_probe_at,
                 "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at,
                 "statusSince": self.status_since, "trust": self.trust.view() if self.trust else None}
+
+
+def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
+    value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+    # Directory imports can contain an unquoted YAML timestamp. Kubernetes annotations are strings.
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, datetime) and value.tzinfo is not None else None
 
 
 def _size_problem(size: Any) -> str | None:
@@ -330,7 +368,7 @@ class ClusterRegistry:
         try:
             status, found, version = self._probe(client, trust)
             if status != "connected":
-                return self._set(st, status, found, version, secret, trust)
+                return self._set(st, status, found, version, secret, trust, probed=True)
             # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
             # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
@@ -351,7 +389,7 @@ class ClusterRegistry:
                 self._fingerprints[cluster_id] = fp
                 adopted = True
             # Cache setup can still fail after the probe. Publish only the completed check.
-            return self._set(st, "connected", [], version, secret, trust)
+            return self._set(st, "connected", [], version, secret, trust, probed=True)
         finally:
             if not adopted:
                 # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
@@ -399,7 +437,7 @@ class ClusterRegistry:
         return "connected", [], version
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
-             secret: Mapping[str, Any], trust: Trust | None = None) -> ClusterState:
+             secret: Mapping[str, Any], trust: Trust | None = None, *, probed: bool = False) -> ClusterState:
         """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen."""
         # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
         # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
@@ -416,7 +454,10 @@ class ClusterRegistry:
             st.checked_at = datetime.now(timezone.utc)
             if status != previous_status:
                 st.status_since = st.checked_at
-            st.token_expires_at = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+            if probed:
+                st.last_probe_at = st.checked_at
+            st.secret_name = secret.get("name") if isinstance(secret.get("name"), str) else None
+            st.token_expires_at = _token_expiry(secret)
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
@@ -473,7 +514,10 @@ class ClusterRegistry:
             seen.add(cid)
             st = self.clusters.get(cid) or ClusterState(cid, None)
             if len(items) > 1:
-                self._set(st, "invalid-secret", [f"duplicate cluster ID in {[i['name'] for i in items]}"], None, items[0])
+                finding = f"duplicate cluster ID in {[i['name'] for i in items]}"
+                for item in items:
+                    finding = redact(finding, secret_forms(item["data"].get("token")))
+                self._set(st, "invalid-secret", [finding], None, {})
                 continue
             try:
                 self._check(st, items[0])
@@ -487,6 +531,7 @@ class ClusterRegistry:
                 if cid not in seen and st.status != "not-imported":
                     previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
+                    st.secret_name = st.token_expires_at = None
                     st.status_since = datetime.now(timezone.utc)
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
