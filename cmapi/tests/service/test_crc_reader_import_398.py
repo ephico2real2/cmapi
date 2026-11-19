@@ -13,7 +13,19 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-CA = "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
+# Public certificate from a synthetic test CA.
+CA = """-----BEGIN CERTIFICATE-----
+MIIBjTCCATOgAwIBAgIUL0sbduezC+DyIOOOpW8qbtyK/WUwCgYIKoZIzj0EAwIw
+HDEaMBgGA1UEAwwRSXNzdWUgMzk4IHRlc3QgQ0EwHhcNMjYxMTE5MjM0MjQzWhcN
+MzYxMTE2MjM0MjQzWjAcMRowGAYDVQQDDBFJc3N1ZSAzOTggdGVzdCBDQTBZMBMG
+ByqGSM49AgEGCCqGSM49AwEHA0IABEH/hoLKDMvW51q87TeoaY3zMR6Bj+Hu9JM/
+DW5S9GktNtu95foo5zyB6rxsZhqDfITHCBrH1E94xbZSr/z+YuqjUzBRMB0GA1Ud
+DgQWBBTkiNsQUVPs0VHMH/25TIMWARtMozAfBgNVHSMEGDAWgBTkiNsQUVPs0VHM
+H/25TIMWARtMozAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIDKI
+EvCTujdUDPf0V+AWg/aLYVty8/45mhdSJbwF0MFNAiEAmbASRW7wAjOYm9urKl98
+hXPEcpNnW9sacEtIjX4sLN0=
+-----END CERTIFICATE-----
+"""
 REQUEST = ["create", "token", "cmapi-reader", "-n", "cmapi-system", "--duration=168h"]
 OLD_SECRET = ["get", "secret", "cmapi-reader-token", "-n", "cmapi-system", "-o", "json"]
 STUB = r"""#!/usr/bin/env python3
@@ -52,14 +64,14 @@ def fixture_token(issued_at, lifetime):
     return f"stub.{payload}.stub"
 
 
-def import_crc(work, issued_at, lifetime=24 * 3600):
+def import_crc(work, issued_at, lifetime=24 * 3600, ca=CA):
     for name in ("oc", "kubectl"):
         client = work / name
         client.write_text(STUB)
         client.chmod(0o755)
     token = fixture_token(issued_at, lifetime)
     env = dict(os.environ, PATH=f"{work}:{os.environ['PATH']}", CMAPI_OC="oc", KUBECONFIG=os.devnull,
-               ISSUED_TOKEN=token, ISSUER_CA=CA)
+               ISSUED_TOKEN=token, ISSUER_CA=ca)
     result = subprocess.run([ROOT / "deploy/crc-reader-import.sh"], cwd=work, env=env,
                             check=True, capture_output=True, text=True, timeout=10)
     assert token not in result.stdout + result.stderr + (work / "calls").read_text()
@@ -183,3 +195,13 @@ def test_stale_grant_leaves_the_previous_import_in_place(tmp_path, age):
     assert json.loads((tmp_path / "applied").read_text()) == previous
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
     assert [args[0] for args in calls] == ["get", "create"]
+
+def test_malformed_ca_cannot_replace_a_working_import(tmp_path):
+    now = int(time.time())
+    previous, _, _ = import_crc(tmp_path, now - 10)
+    (tmp_path / "calls").write_text("")
+    with pytest.raises(subprocess.CalledProcessError) as failure:
+        import_crc(tmp_path, now, ca="-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n")
+    assert "CA" in failure.value.stderr
+    assert json.loads((tmp_path / "applied").read_text()) == previous
+    assert all(json.loads(line)[0] != "apply" for line in (tmp_path / "calls").read_text().splitlines())

@@ -18,7 +18,7 @@ from cmapi.core.identity.claims import Person
 from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from cmapi.worker import Worker
 from conftest import DB_URL
-from test_crc_reader_import_398 import fixture_token
+from test_crc_reader_import_398 import CA, fixture_token
 from test_flow import AMY, NS, OLA, auth, run_jobs
 from test_review_d_delivery import run_until, status, run_until_merged
 from test_review_e_recovery import lease_expired
@@ -417,7 +417,7 @@ case "$(basename "$0")" in
       get\ istag*) [ -e "$STATE/image" ] || exit 1 ;;
       get\ secret\ keycloak-tls*) printf '%s' "-----BEGIN CERTIFICATE-----" | base64 ;;
       get\ cm*) echo "-----BEGIN CERTIFICATE-----" ;;
-      "get configmap kube-root-ca.crt"*) printf '%s\n' '-----BEGIN CERTIFICATE-----' ;;
+      "get configmap kube-root-ca.crt"*) printf '%s' "$TEST_READER_CA" ;;
       "create token cmapi-reader -n cmapi-system --duration=168h") printf '%s\n' "$TEST_READER" ;;
       "apply "*" -f -") cat > "$STATE/import.json" ;;
       apply*) f="${@: -1}"; cp "$f" "$STATE/applied.$(basename "$f")" ;;
@@ -461,7 +461,7 @@ def test_the_baseline_an_owner_needs_is_a_command(tmp_path, args):
     assert ("Secret", "cmapi-reader-token") not in names
     env, state = _stubs(tmp_path)
     token = fixture_token(int(time.time()), 3600)
-    env.update(TEST_READER=token, CMAPI_OC="oc", KUBECONFIG=os.devnull)
+    env.update(TEST_READER=token, TEST_READER_CA=CA, CMAPI_OC="oc", KUBECONFIG=os.devnull)
     r = subprocess.run(["bash", "deploy/baseline-crc.sh", *args], cwd=repo, env=env, capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
     secret = yaml.safe_load((state / "import.json").read_text())
@@ -472,7 +472,7 @@ def test_the_baseline_an_owner_needs_is_a_command(tmp_path, args):
     assert secret["metadata"]["labels"]["cmapi.net/secret-type"] == "cluster"
     assert secret["metadata"]["annotations"]["cmapi.net/managed-by"] == "cluster-baseline"
     data = {k: base64.b64decode(v).decode() for k, v in secret["data"].items()}
-    assert data == {"apiUrl": "https://kubernetes.default.svc", "token": token, "caData": "-----BEGIN CERTIFICATE-----\n", "insecure": "false"}
+    assert data == {"apiUrl": "https://kubernetes.default.svc", "token": token, "caData": CA, "insecure": "false"}
     calls = (tmp_path / "log").read_text()
     assert "oc apply --server-side -f examples/baseline/cmapi-reader-rbac.yaml" in calls
     assert "get secret cmapi-reader-token" not in calls

@@ -6,7 +6,7 @@ Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [T
 TLS_SERVER_NAME is the import's tlsServerName (#434): the name cmapi checks the certificate against instead of API_URL's host.
 A cmapi before #434 ignores the field, so the Secret works with either."""
 import argparse
-import base64, datetime, json, re, sys, time
+import base64, datetime, json, re, ssl, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("cluster_id")
@@ -31,7 +31,12 @@ renew_at = claims["iat"] + 0.8 * (claims["exp"] - claims["iat"])
 if time.time() >= renew_at:
     sys.exit("reader token has already reached its renewal deadline")
 expires = datetime.datetime.fromtimestamp(claims["exp"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-ca = open(ca_file).read()
+with open(ca_file) as source:
+    ca = source.read()
+try:
+    ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=ca)
+except (ssl.SSLError, ValueError):
+    sys.exit("cannot load the API CA bundle")
 b64 = lambda s: base64.b64encode(s.encode()).decode()
 print(json.dumps({
     "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
