@@ -12,8 +12,8 @@ from cmapi.core.docs import CORE, DocumentedRouter
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
 from cmapi.core.metadata import MetadataKeys
-from cmapi.core.models import ClusterList, Me, MetadataKeysView
-from cmapi.routers import caller, ctx, require
+from cmapi.core.models import ClusterList, ClusterView, Me, MetadataKeysView
+from cmapi.routers import ClusterId, caller, ctx, require
 
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
@@ -63,3 +63,13 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
     if etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
     return Response(body, media_type="application/json", headers=headers)
+
+
+@router.read("/clusters/{id}:probe", method="POST", summary="Probe one cluster's held credential", permission="operations:run",
+             problems=["cluster-not-found", "environment-forbidden"], response_model=ClusterView)
+def probe(id: ClusterId, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
+    """Run the relist checks on this cluster's last discovered import and return its current diagnostics.
+    No Secret or cluster resource is changed. A known cluster without an import returns its not-imported view."""
+    # An import without a configured environment can only be probed by an unrestricted grant.
+    c.cfg.roles.require(who, "operations:run", c.registry.get(id).environment or "")
+    return c.registry.probe(id)

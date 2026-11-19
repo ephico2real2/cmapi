@@ -29,7 +29,7 @@ import re
 import ssl
 import threading
 import time
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -298,6 +298,8 @@ class ClusterRegistry:
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()
         self._stop = threading.Event()
+        # Last successful discovery, private to the relist/probe lock (includes refused imports).
+        self._imports: dict[str, list[dict[str, Any]]] = {}
         self._fingerprints: dict[str, str] = {}
 
     # ---- the six checks
@@ -390,10 +392,11 @@ class ClusterRegistry:
                 adopted = True
             # Cache setup can still fail after the probe. Publish only the completed check.
             return self._set(st, "connected", [], version, secret, trust, probed=True)
+        except Exception as exc:                           # the remote check ran, even if cache setup then failed
+            return self._check_failed(st, secret, exc, probed=True)
         finally:
             if not adopted:
-                # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
-                # stops those caches and drops the client: it is closed here, not left to the garbage collector.
+                # A cache setup failure drops the partially installed caches. Close their client here too.
                 client.close()
 
     @staticmethod
@@ -505,31 +508,17 @@ class ClusterRegistry:
         except Exception as exc:                                    # noqa: BLE001 - a failed list keeps the previous set
             log.warning("imports_list_failed", error=str(exc)[:200])
             return
-        seen: set[str] = set()
         by_id: dict[str, list[dict[str, Any]]] = {}
         for s in secrets:
             cid = s["labels"].get("cmapi.net/cluster-id")
             if isinstance(cid, str) and cid:
-                by_id.setdefault(cid, []).append(s)
+                by_id.setdefault(cid, []).append(deepcopy(s))
+        self._imports = by_id
         for cid, items in by_id.items():
-            seen.add(cid)
-            st = self.clusters.get(cid) or ClusterState(cid, None)
-            if len(items) > 1:
-                finding = f"duplicate cluster ID in {[i['name'] for i in items]}"
-                for item in items:
-                    finding = redact(finding, secret_forms(item["data"].get("token")))
-                self._set(st, "invalid-secret", [finding], None, {})
-                continue
-            try:
-                self._check(st, items[0])
-            except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
-                # `_check` makes each answer of the cluster a status; this is what it did not foresee (a full disk for the
-                # caData file, a fault of a cache factory). The log has the trace; the finding names the error.
-                log.exception("cluster_check_failed", cluster_id=cid)
-                self._set(st, "unreachable", [f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"], None, items[0])
+            self._check_import(self.clusters.get(cid) or ClusterState(cid, None), items)
         with self._lock:
             for cid, st in self.clusters.items():
-                if cid not in seen and st.status != "not-imported":
+                if cid not in by_id and st.status != "not-imported":
                     previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     st.secret_name = st.token_expires_at = None
@@ -540,6 +529,31 @@ class ClusterRegistry:
                     self._log_mode(cid, self._set_trust(st, None), None)
                     log.warning("cluster_import", cluster_id=cid, status=st.status,
                                 previous=previous_status, findings=st.findings)
+
+    def _check_import(self, st: ClusterState, items: list[dict[str, Any]]) -> None:
+        if len(items) > 1:
+            finding = f"duplicate cluster ID in {[i['name'] for i in items]}"
+            for item in items:
+                finding = redact(finding, secret_forms(item["data"].get("token")))
+            self._set(st, "invalid-secret", [finding], None, {})
+            return
+        try:
+            self._check(st, items[0])
+        except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
+            self._check_failed(st, items[0], exc)
+
+    def _check_failed(self, st: ClusterState, secret: Mapping[str, Any], exc: Exception, *, probed: bool = False) -> ClusterState:
+        log.exception("cluster_check_failed", cluster_id=st.cluster_id)
+        finding = f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"
+        return self._set(st, "unreachable", [finding], None, secret, probed=probed)
+
+    def probe(self, cluster_id: str) -> dict[str, Any]:
+        """Recheck this cluster's held import and publish its normal diagnostics before releasing the relist lock."""
+        with self._refresh_lock:
+            st = self.get(cluster_id)
+            if items := self._imports.get(cluster_id):
+                self._check_import(st, items)
+            return st.view()
 
     def start(self) -> None:
         self.refresh()
