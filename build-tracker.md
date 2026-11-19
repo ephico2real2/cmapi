@@ -19,7 +19,32 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-18, 18:00Z
+## Current: 2026-11-19, 03:30Z
+
+`main` is `b8ee59e`. CRC runs `b8ee59e` (OB1 run 25), proven live. kind (`KIND_CMAPI_TEST`, rnd) is imported with
+Kyverno and the rnd bundle. **kind's token expires 2026-11-26T03:06:53Z: rerun `deploy/kind-import/up.sh <cluster-configs
+checkout>` before 2026-11-24T17:30Z.**
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| CRC proof: restarts before the run reported, not failed; init containers; unreadable NetworkPolicy fails | #425 | Merged #426 | CI; review OB3 (2 fixes); CRC runs 24, 25 |
+| cmapi's Kyverno bundle on CRC (31 dev policies, audit) | #428 | Done: cluster-configs #17 (bundle re-rendered, #249 closed), #431 (docs/13 platform step) | Investigation; review OB3; applied and verified on CRC: 31/31 ready, pass 84, fail 0 |
+| Kyverno reports controller 128/256 Mi on CRC | #428 | Merged #432; helm revision 2 | CRC: 96 Mi peak under the bundle |
+| Kyverno and the rnd bundle on kind (`up.sh` installs them) | #430 | Merged #433 | Review OB3 (HELM_KUBE* override fixed); kind: 31/31 ready |
+| Cluster TLS trust: one mode per cluster (insecure per environment by configuration, caData, trusted = system store + injected/operator bundles), `tlsServerName`, `/clusters` trust source | #434 | Merged #435 | Analysis from primary sources, owner decisions D1-D7; review Codex (reviewer 1) + OB3 (reviewer 2): 6 fixes, 2 rejected on measurements; CRC run 25: injected bundle 147 CAs, both clusters `trust.source: caData`, kind `serverName: host.crc.testing` |
+| Swagger required fields per instance | #350 | Live | Run 24 check 5 |
+| **Epic 7: agent access to cmapi over MCP** (the owner's proposal) | #436 | Filed: spike #437 (INV-01, the MCP spec and authorization), stories #438-#442 (INV-02 to INV-06), milestone W7, all Backlog | None yet |
+| Issue states by the `/agile` rules | — | Done: all 131 open issues have exactly one work tag (Backlog 98, In-Progress 27, Blocked 5, In-QA 1) and one `status:` label; both integrity counts 0 | `workbench/cmapi/records-2026-11-19/work-tags.tsv` |
+| diagram-kit: `/app-architect` contracts first; light-theme diagrams only | — | **Merged by the owner** (diagram-kit #64, #72) | diagram-kit CI |
+
+**Run 25 note:** the image build stalled CRC for about 36 s at 02:25Z. The shared router restarted once, and Kyverno
+restarted. Keycloak did not restart, and no cmapi pod did. The guard stopped the run. The owner chose "resume, no
+rebuild", and the run finished. Evidence is on #157.
+
+**Filed 2026-11-18/19 and open:** #396, #397, #398, #403, #407, #410, #417, #418, #421, #424, #429. The #413 leftovers are
+docs/08 section 4, a not-imported sample, and the figures #418 and #209.
+
+## Previous: 2026-11-18, 18:00Z
 
 `main` is `721cb64`. CRC runs `721cb64` (OB1 run 24), but its proofs stopped at step 23 on a restart from before the run
 (#425, fix in PR #426). kind is down until run 24 resumes.
@@ -44,7 +69,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 Filed today and open: #396, #397, #398, #403, #407, #410, #417, #418, #421, #424, #425. The fstrim of the cleanup restarted
 cmapi-db-1, cmapi-portal and Kyverno's controllers (not Keycloak): recorded on #157.
 
-## Previous: 2026-11-18, 07:00Z
+## Earlier: 2026-11-18, 07:00Z
 
 CRC runs `1537977` (OB1 run 23). All nine portal tabs are on the API.
 

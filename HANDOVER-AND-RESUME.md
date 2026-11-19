@@ -4,7 +4,34 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-18, 18:00Z
+## Resume here: 2026-11-19, 03:30Z
+
+Read this, then the 2026-11-18 sections below it. Sections 4 and 6 to 10 of 2026-11-16 still hold.
+
+| Item | State |
+|---|---|
+| `main` | `b8ee59e` (PR #435) |
+| CRC | Runs `b8ee59e` (OB1 run 25, `workbench/cmapi/ob1-run25/`): 25 proof lines passed; keycloak-0 0 restarts; cmapi's Kyverno bundle applied (31 dev, audit, pass 84) |
+| kind | `KIND_CMAPI_TEST` (rnd): Kyverno and 31 rnd policies; import with `tlsServerName: host.crc.testing`. **Token renew by 2026-11-24T17:30Z** (`up.sh <cmapi-cluster-configs checkout>`); every CRC deploy runs `down.sh` first and `up.sh` after |
+| Cluster TLS trust | Live (#434): `insecure` allowed per environment by `instance.clusterTLS.environments.<env>.insecureSkipTLSVerify` (default false, prod may set it); `caData`; else the system store + `CMAPI_TRUSTED_CA_FILE` (the OpenShift-injected `cmapi-trusted-ca`, 147 CAs, plus an operator ConfigMap) |
+| diagram-kit | #64 (contracts first) and #72 (light only) merged by the owner |
+
+**Next, in order:**
+1. Records: issue work tags set by the `/agile` rules (2026-11-19).
+2. #424 (SEC: Git client response bodies unredacted) and #421 (a list answer without `items` retires every cluster).
+3. A Codex review of #288/#299 (Git delivery code, Opus-only so far).
+4. A story: #21 snapshots, for the Capacity tab's usage side.
+
+**Waiting for the owner:**
+- the live Claude Docs of docs/01 and docs/02;
+- Kyverno audit → enforce, per environment (now possible).
+
+**Lessons recorded:**
+- A merge waiter pins the reviewed head and needs every check passed.
+- fstrim and image builds are #157 load; resume without rebuild when the images are already pushed.
+- Codex runs with its working directory inside the review folder (its sandbox writes only there).
+
+## Resume here: 2026-11-18, 18:00Z (superseded by the section above)
 
 Read this, then the 07:00Z section below it. Sections 4, 6 to 10 of 2026-11-16 still hold.
 
