@@ -10,6 +10,7 @@ import logging
 import sys
 import time
 import uuid
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -63,6 +64,8 @@ AUTO_PAUSED = Gauge("cmapi_auto_approval_paused", "1 when the kill switch is on"
 POLICY_MODE = Gauge("cmapi_policy_mode", "1 for the policy mode of each served environment (instance.yaml policy, #213)",
                     ["environment", "mode"])
 CLUSTER_STATUS = Gauge("cmapi_cluster_status", "1 for the cluster's current import status", ["cluster_id", "status"])
+CLUSTER_TOKEN_EXPIRY = Gauge("cmapi_cluster_token_expiry_seconds", "Seconds remaining until the annotated import token expiry",
+                             ["cluster_id"])
 CLUSTER_TLS_INSECURE = Gauge("cmapi_cluster_tls_insecure", "1 while the cluster is read with TLS verification off: its import "
                              "Secret says insecure and instance.clusterTLS allows its environment (#434)", ["cluster_id"])
 CLUSTER_CALLS = Counter("cmapi_cluster_api_calls_total", "Cluster API calls", ["cluster_id", "result"])
@@ -73,6 +76,14 @@ CONFIG_INFO = Gauge("cmapi_config_info", "Hash of the loaded configuration", ["h
 
 
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+
+
+def set_token_expiry(cluster_id: str, expiry: datetime | None) -> None:
+    if expiry is None:
+        CLUSTER_TOKEN_EXPIRY.remove(cluster_id)
+    else:
+        deadline = expiry.timestamp()
+        CLUSTER_TOKEN_EXPIRY.labels(cluster_id).set_function(lambda: deadline - time.time())
 
 
 def configure_logging(level: str = "INFO") -> None:

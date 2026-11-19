@@ -46,7 +46,7 @@ from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
 from cmapi.core.errors import Problem
-from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log
+from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log, set_token_expiry
 from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
@@ -458,6 +458,7 @@ class ClusterRegistry:
                 st.last_probe_at = st.checked_at
             st.secret_name = secret.get("name") if isinstance(secret.get("name"), str) else None
             st.token_expires_at = _token_expiry(secret)
+            set_token_expiry(st.cluster_id, st.token_expires_at)
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
@@ -532,6 +533,7 @@ class ClusterRegistry:
                     previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     st.secret_name = st.token_expires_at = None
+                    set_token_expiry(cid, None)
                     st.status_since = datetime.now(timezone.utc)
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
