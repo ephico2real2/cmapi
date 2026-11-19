@@ -117,3 +117,23 @@ def test_last_probe_is_recorded_when_local_cache_setup_fails():
         assert row["lastProbeAt"] == row["checkedAt"] and row["lastProbeAt"] is not None
     finally:
         reg.stop()
+
+
+def test_malformed_expiry_clears_view_and_series_without_normalizing_input():
+    cid = "MALFORMED"
+    item = secret(cid)
+    reg = registry({cid: good}, [item])
+    try:
+        for invalid in ("2026-11-19T01:02:03+00:60", "2026-11-19X01:02:03Z", "20261119T010203Z"):
+            item["annotations"][ANNOTATION] = "2026-11-19T01:02:03.456+01:30"
+            reg.refresh()
+            assert reg.get(cid).view()["tokenExpiresAt"] == datetime(2026, 11, 18, 23, 32, 3, 456000, timezone.utc)
+            assert REGISTRY.get_sample_value(METRIC, {"cluster_id": cid}) is not None
+            item["annotations"][ANNOTATION] = invalid
+            reg.refresh()
+            row = reg.probe(cid)
+            assert row["status"] == "connected"
+            assert row["tokenExpiresAt"] is None
+            assert REGISTRY.get_sample_value(METRIC, {"cluster_id": cid}) is None
+    finally:
+        reg.stop()

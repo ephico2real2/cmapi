@@ -54,6 +54,9 @@ STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-
             "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
 HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
+# Kubernetes date-time annotations carry a full timestamp with an explicit offset.
+TOKEN_EXPIRY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
+                          r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
@@ -153,8 +156,10 @@ def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
     value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
     # Directory imports can contain an unquoted YAML timestamp. Kubernetes annotations are strings.
     if isinstance(value, str):
+        if not TOKEN_EXPIRY.fullmatch(value):
+            return None
         try:
-            value = datetime.fromisoformat(value)
+            value = datetime.fromisoformat(value.upper())
         except ValueError:
             return None
     return value if isinstance(value, datetime) and value.tzinfo is not None else None
