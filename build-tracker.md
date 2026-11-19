@@ -19,7 +19,25 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-19, 03:30Z
+## Current: 2026-11-19, 17:30Z
+
+`main` is `fcb49bb`. CRC still runs `b8ee59e` (run 25); the merges below are not deployed. kind's token: renew before
+2026-11-24T17:30Z. Work ships through /houston-mayday (Codex builds and reviews, Opus rules), labelled `review:fable`.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Git clients: host response bodies redacted | #424 | Merged #453 | CI; review |
+| A list answer without `items` no longer retires every cluster | #421 | Merged #455 | CI; review |
+| Codex review of Git delivery: workspace symlinks, delivery states, credentials, Gitea adoption | #444 to #452 | Merged #457, #458, #459, #460 | CI; Codex review, OB3 corrections; guard test for test placement (#458) |
+| Cluster status `environment-not-served` removed (never set) | #417 | Merged #463 | Mayday sol; coordinator 166 passed (PostgreSQL); CI |
+| Import finding logged on appear and clear, not on every relist | #456 | Merged #462 | Mayday sol; coordinator full suite; CI after the logger fix `d351e5e` |
+| `statusSince`: "since" is when the status began | #403 | Merged #464 | Mayday astra; coordinator full suite 1692 passed (6 local-venv failures, see handover); CI after `b3980fd` |
+| Cluster diagnostics (Secret, token expiry, last probe), token-expiry metric, `POST /clusters/{id}:probe` | #396, #397 | In review: PR #465 | Mayday astra; round 2: 6 fixes accepted, 1 refused; coordinator full suite running |
+| Podman VM shrunk to 4 CPU / 5 GiB | — | Done | `podman machine inspect` |
+
+**Open, next:** #398, #407, #429, #244 (mayday), then one CRC deploy. Also open: #410, #418, #413 leftovers.
+
+## Previous: 2026-11-19, 03:30Z
 
 `main` is `b8ee59e`. CRC runs `b8ee59e` (OB1 run 25), proven live. kind (`KIND_CMAPI_TEST`, rnd) is imported with
 Kyverno and the rnd bundle. **kind's token expires 2026-11-26T03:06:53Z: rerun `deploy/kind-import/up.sh <cluster-configs
@@ -44,7 +62,7 @@ rebuild", and the run finished. Evidence is on #157.
 **Filed 2026-11-18/19 and open:** #396, #397, #398, #403, #407, #410, #417, #418, #421, #424, #429. The #413 leftovers are
 docs/08 section 4, a not-imported sample, and the figures #418 and #209.
 
-## Previous: 2026-11-18, 18:00Z
+## Earlier: 2026-11-18, 18:00Z
 
 `main` is `721cb64`. CRC runs `721cb64` (OB1 run 24), but its proofs stopped at step 23 on a restart from before the run
 (#425, fix in PR #426). kind is down until run 24 resumes.
