@@ -10,8 +10,10 @@ import logging
 import sys
 import time
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterator
 
 import structlog
 from fastapi import FastAPI, Request
@@ -86,8 +88,27 @@ def set_token_expiry(cluster_id: str, expiry: datetime | None) -> None:
         CLUSTER_TOKEN_EXPIRY.labels(cluster_id).set_function(lambda: deadline - time.time())
 
 
+_CLUSTER_HTTP = ContextVar("cmapi_cluster_http", default=False)
+
+
+@contextmanager
+def cluster_http_call() -> Iterator[None]:
+    """Mark the transport call whose URL comes from an import Secret."""
+    token = _CLUSTER_HTTP.set(True)
+    try:
+        yield
+    finally:
+        _CLUSTER_HTTP.reset(token)
+
+
+def _public_log_record(record: logging.LogRecord) -> bool:
+    return not (_CLUSTER_HTTP.get() and record.name.partition(".")[0] in {"httpx", "httpcore"})
+
+
 def configure_logging(level: str = "INFO") -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level.upper())
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(_public_log_record)
     structlog.configure(
         processors=[structlog.contextvars.merge_contextvars, structlog.processors.add_log_level,
                     structlog.processors.TimeStamper(fmt="iso", utc=True),

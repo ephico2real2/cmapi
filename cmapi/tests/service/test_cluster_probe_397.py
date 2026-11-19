@@ -210,3 +210,34 @@ def test_probe_redacts_remote_fields_before_publishing_diagnostics(capture_regis
         assert import_events(events)[0]["findings"] == [finding]
     finally:
         reg.stop()
+
+
+def test_http_client_log_does_not_publish_the_probe_target(monkeypatch):
+    import io
+    import logging
+
+    from cmapi.core import observability
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    # Replace the HTTP client's module logger and the application's output handler.
+    client_log = logging.Logger("httpx", level=logging.INFO)
+    client_log.parent = logging.getLogger()
+    monkeypatch.setattr("httpx._client.logger", client_log)
+    monkeypatch.setattr(logging.getLogger(), "handlers", [handler])
+    observability.configure_logging()
+
+    item = secret("ONE")
+    reg = registry({"ONE": good}, [item])
+    try:
+        reg.refresh()
+        stream.seek(0)
+        stream.truncate()
+        assert reg.probe("ONE")["status"] == "connected"
+        # Recovered caches open watches with the same held import.
+        assert list(reg.get("ONE").client.watch("Namespace", "1"))[0]["items"] == []
+        client_log.info("unrelated HTTP diagnostic")
+        assert "unrelated HTTP diagnostic" in stream.getvalue()
+        assert item["data"]["apiUrl"] not in stream.getvalue()
+    finally:
+        reg.stop()
