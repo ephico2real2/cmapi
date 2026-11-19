@@ -674,17 +674,21 @@
         "body": {
           "items": [
             {
-              "checkedAt": "2026-11-19T00:21:25.918686Z",
+              "checkedAt": "2026-11-19T16:40:50.413465Z",
               "clusterId": "CRC",
               "environment": "dev",
+              "findingDetails": [],
               "findings": [],
               "gitopsPath": "clusters/CRC",
               "labels": {
                 "region": "us-central"
               },
+              "lastProbeAt": "2026-11-19T16:40:50.413465Z",
+              "secretName": "cmapi-cluster-crc",
               "serverVersion": "v1.35.6-fake",
               "status": "connected",
-              "statusSince": "2026-11-19T00:21:25.918686Z",
+              "statusSince": "2026-11-19T16:40:50.413465Z",
+              "tokenExpiresAt": null,
               "trust": {
                 "downgrade": false,
                 "serverName": null,
@@ -963,6 +967,43 @@
         "headers": {
           "etag": "\"9415b425a9b08bf3e7076447b5af8156\""
         },
+        "status": 200
+      }
+    },
+    "core_probe": {
+      "request": {
+        "headers": {
+          "Authorization": "Bearer $TOKEN"
+        },
+        "method": "POST",
+        "path": "/api/v1/clusters/CRC:probe"
+      },
+      "response": {
+        "body": {
+          "checkedAt": "2026-11-19T16:40:50.739043Z",
+          "clusterId": "CRC",
+          "environment": "dev",
+          "findingDetails": [],
+          "findings": [],
+          "gitopsPath": "clusters/CRC",
+          "labels": {
+            "region": "us-central"
+          },
+          "lastProbeAt": "2026-11-19T16:40:50.739043Z",
+          "secretName": "cmapi-cluster-crc",
+          "serverVersion": "v1.35.6-fake",
+          "status": "connected",
+          "statusSince": "2026-11-19T16:40:50.413465Z",
+          "tokenExpiresAt": null,
+          "trust": {
+            "downgrade": false,
+            "serverName": null,
+            "source": "trusted"
+          },
+          "writes": true
+        },
+        "contentType": "application/json",
+        "headers": {},
         "status": 200
       }
     },

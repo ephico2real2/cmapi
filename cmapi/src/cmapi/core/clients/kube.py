@@ -16,6 +16,7 @@ import json
 import ssl
 import threading
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
@@ -24,7 +25,7 @@ import httpx
 from cmapi.core.clients.redact import redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, trusted_context
 from cmapi.core.errors import Problem
-from cmapi.core.observability import CLUSTER_CALLS, log
+from cmapi.core.observability import CLUSTER_CALLS, cluster_http_call, log
 
 APPLY_FIELD_MANAGER = "cmapi-deliverer"
 
@@ -140,7 +141,8 @@ class KubeClient:
 
     def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
         try:
-            r = self._client.request(method, path, **kw)
+            with cluster_http_call():
+                r = self._client.request(method, path, **kw)
         except httpx.HTTPError as exc:
             CLUSTER_CALLS.labels(self.cluster_id, "error").inc()
             raise ClusterUnreachable(self.redact(f"{self.cluster_id}: {type(exc).__name__}: {exc}")) from exc
@@ -241,7 +243,9 @@ class KubeClient:
         params = {"watch": "1", "resourceVersion": resource_version, "timeoutSeconds": timeout_seconds,
                   "allowWatchBookmarks": "true"}
         try:
-            with self._client.stream("GET", path, params=params, timeout=timeout_seconds + 10) as r:
+            with ExitStack() as stack:
+                with cluster_http_call():
+                    r = stack.enter_context(self._client.stream("GET", path, params=params, timeout=timeout_seconds + 10))
                 if r.status_code >= 400:
                     raise KubeError(r.status_code, path, "watch refused")
                 for line in r.iter_lines():

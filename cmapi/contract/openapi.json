@@ -1852,6 +1852,33 @@
         "title": "ChangeRequest",
         "type": "object"
       },
+      "ClusterFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "finding": {
+            "description": "Redacted import finding",
+            "examples": [
+              "missing field token"
+            ],
+            "title": "Finding",
+            "type": "string"
+          },
+          "fix": {
+            "description": "Suggested corrective action",
+            "examples": [
+              "Supply the reader's token in the import Secret."
+            ],
+            "title": "Fix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding",
+          "fix"
+        ],
+        "title": "ClusterFinding",
+        "type": "object"
+      },
       "ClusterList": {
         "additionalProperties": false,
         "properties": {
@@ -1954,6 +1981,14 @@
             "title": "Environment",
             "type": "string"
           },
+          "findingDetails": {
+            "description": "Findings in order with a suggested fix for each",
+            "items": {
+              "$ref": "#/components/schemas/ClusterFinding"
+            },
+            "title": "Findingdetails",
+            "type": "array"
+          },
           "findings": {
             "description": "Import check findings",
             "examples": [
@@ -1985,6 +2020,31 @@
             ],
             "title": "Labels",
             "type": "object"
+          },
+          "lastProbeAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last completed remote probe result, including a failed probe",
+            "title": "Lastprobeat"
+          },
+          "secretName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the import Secret, null without a unique source",
+            "title": "Secretname"
           },
           "serverVersion": {
             "anyOf": [
@@ -2024,6 +2084,19 @@
               "2026-11-05T09:55:00Z"
             ],
             "title": "Statussince"
+          },
+          "tokenExpiresAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry from cmapi.net/token-expires-at, when known",
+            "title": "Tokenexpiresat"
           },
           "trust": {
             "anyOf": [
@@ -8201,17 +8274,21 @@
                 "example": {
                   "items": [
                     {
-                      "checkedAt": "2026-11-19T00:21:25.918686Z",
+                      "checkedAt": "2026-11-19T16:40:50.413465Z",
                       "clusterId": "CRC",
                       "environment": "dev",
+                      "findingDetails": [],
                       "findings": [],
                       "gitopsPath": "clusters/CRC",
                       "labels": {
                         "region": "us-central"
                       },
+                      "lastProbeAt": "2026-11-19T16:40:50.413465Z",
+                      "secretName": "cmapi-cluster-crc",
                       "serverVersion": "v1.35.6-fake",
                       "status": "connected",
-                      "statusSince": "2026-11-19T00:21:25.918686Z",
+                      "statusSince": "2026-11-19T16:40:50.413465Z",
+                      "tokenExpiresAt": null,
                       "trust": {
                         "downgrade": false,
                         "serverName": null,
@@ -12450,6 +12527,166 @@
             "label": "curl",
             "lang": "Shell",
             "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev/expiration:set -H \"Authorization: Bearer $TOKEN\" -H 'Idempotency-Key: 0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10' -H 'If-Match: \"3f9a1c0b7e2d4a68\"' -H 'Content-Type: application/json' -d '{\"justification\": \"A load test this sprint\", \"until\": \"2026-12-09\"}'"
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
+    "/api/v1/clusters/{id}:probe": {
+      "post": {
+        "description": "Run the relist checks on this cluster's last discovered import and return its current diagnostics.\nNo Secret or cluster resource is changed. A known cluster without an import returns its not-imported view.\n\n**Requires** `operations:run`.",
+        "operationId": "core_probe",
+        "parameters": [
+          {
+            "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "checkedAt": "2026-11-19T16:40:50.739043Z",
+                  "clusterId": "CRC",
+                  "environment": "dev",
+                  "findingDetails": [],
+                  "findings": [],
+                  "gitopsPath": "clusters/CRC",
+                  "labels": {
+                    "region": "us-central"
+                  },
+                  "lastProbeAt": "2026-11-19T16:40:50.739043Z",
+                  "secretName": "cmapi-cluster-crc",
+                  "serverVersion": "v1.35.6-fake",
+                  "status": "connected",
+                  "statusSince": "2026-11-19T16:40:50.413465Z",
+                  "tokenExpiresAt": null,
+                  "trust": {
+                    "downgrade": false,
+                    "serverName": null,
+                    "source": "trusted"
+                  },
+                  "writes": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission namespaces:create",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-not-found": {
+                    "value": {
+                      "code": "cluster-not-found",
+                      "detail": "Unknown cluster OCP_X",
+                      "status": 404,
+                      "title": "cluster not found",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "cluster-not-found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "validation-failed"
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Probe one cluster's held credential",
+        "tags": [
+          "core"
+        ],
+        "x-cmapi-permission": "operations:run",
+        "x-cmapi-plugin": "core",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC:probe -H \"Authorization: Bearer $TOKEN\""
           }
         ],
         "x-plugin-version": "0.2.0"

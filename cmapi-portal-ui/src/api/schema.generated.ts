@@ -376,6 +376,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clusters/{id}:probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probe one cluster's held credential
+         * @description Run the relist checks on this cluster's last discovered import and return its current diagnostics.
+         *     No Secret or cluster resource is changed. A known cluster without an import returns its not-imported view.
+         *
+         *     **Requires** `operations:run`.
+         */
+        post: operations["core_probe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/directory/users": {
         parameters: {
             query?: never;
@@ -1737,6 +1760,21 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** ClusterFinding */
+        ClusterFinding: {
+            /**
+             * Finding
+             * @description Redacted import finding
+             * @example missing field token
+             */
+            finding: string;
+            /**
+             * Fix
+             * @description Suggested corrective action
+             * @example Supply the reader's token in the import Secret.
+             */
+            fix: string;
+        };
         /** ClusterList */
         ClusterList: {
             /**
@@ -1791,6 +1829,11 @@ export interface components {
              */
             environment: string;
             /**
+             * Findingdetails
+             * @description Findings in order with a suggested fix for each
+             */
+            findingDetails?: components["schemas"]["ClusterFinding"][];
+            /**
              * Findings
              * @description Import check findings
              * @example []
@@ -1813,6 +1856,16 @@ export interface components {
                 [key: string]: string;
             };
             /**
+             * Lastprobeat
+             * @description Last completed remote probe result, including a failed probe
+             */
+            lastProbeAt?: string | null;
+            /**
+             * Secretname
+             * @description Name of the import Secret, null without a unique source
+             */
+            secretName?: string | null;
+            /**
              * Serverversion
              * @description Kubernetes version seen
              * @example v1.35.6
@@ -1830,6 +1883,11 @@ export interface components {
              * @example 2026-11-05T09:55:00Z
              */
             statusSince?: string | null;
+            /**
+             * Tokenexpiresat
+             * @description Expiry from cmapi.net/token-expires-at, when known
+             */
+            tokenExpiresAt?: string | null;
             /**
              * @description The TLS mode of the last check; null when the import Secret was refused before one was chosen, or there is none
              * @example {
@@ -5053,17 +5111,21 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-19T00:21:25.918686Z",
+                     *           "checkedAt": "2026-11-19T16:40:50.413465Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
+                     *           "findingDetails": [],
                      *           "findings": [],
                      *           "gitopsPath": "clusters/CRC",
                      *           "labels": {
                      *             "region": "us-central"
                      *           },
+                     *           "lastProbeAt": "2026-11-19T16:40:50.413465Z",
+                     *           "secretName": "cmapi-cluster-crc",
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
-                     *           "statusSince": "2026-11-19T00:21:25.918686Z",
+                     *           "statusSince": "2026-11-19T16:40:50.413465Z",
+                     *           "tokenExpiresAt": null,
                      *           "trust": {
                      *             "downgrade": false,
                      *             "serverName": null,
@@ -6896,6 +6958,90 @@ export interface operations {
             };
             /** @description cluster-unreachable, validator-unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    core_probe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "checkedAt": "2026-11-19T16:40:50.739043Z",
+                     *       "clusterId": "CRC",
+                     *       "environment": "dev",
+                     *       "findingDetails": [],
+                     *       "findings": [],
+                     *       "gitopsPath": "clusters/CRC",
+                     *       "labels": {
+                     *         "region": "us-central"
+                     *       },
+                     *       "lastProbeAt": "2026-11-19T16:40:50.739043Z",
+                     *       "secretName": "cmapi-cluster-crc",
+                     *       "serverVersion": "v1.35.6-fake",
+                     *       "status": "connected",
+                     *       "statusSince": "2026-11-19T16:40:50.413465Z",
+                     *       "tokenExpiresAt": null,
+                     *       "trust": {
+                     *         "downgrade": false,
+                     *         "serverName": null,
+                     *         "source": "trusted"
+                     *       },
+                     *       "writes": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ClusterView"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description cluster-not-found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description validation-failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

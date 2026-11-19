@@ -1,5 +1,4 @@
-"""GET /api/v1/me: who is calling and what their roles allow (docs/02, GET /me); the clusters of this instance; and the
-rules of a new namespace's labels and annotations (GET /api/v1/metadata-keys, #336)."""
+"""Caller identity, namespace metadata rules, and cluster import diagnostics, including on-demand credential probes."""
 from __future__ import annotations
 
 import functools
@@ -9,11 +8,12 @@ from fastapi import Depends, Request, Response
 
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CORE, DocumentedRouter
+from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
 from cmapi.core.metadata import MetadataKeys
-from cmapi.core.models import ClusterList, Me, MetadataKeysView
-from cmapi.routers import caller, ctx, require
+from cmapi.core.models import ClusterList, ClusterView, Me, MetadataKeysView
+from cmapi.routers import ClusterId, caller, ctx, require
 
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
@@ -63,3 +63,14 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
     if etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
     return Response(body, media_type="application/json", headers=headers)
+
+
+@router.read("/clusters/{id}:probe", method="POST", summary="Probe one cluster's held credential", permission="operations:run",
+             problems=["cluster-not-found"], response_model=ClusterView)
+def probe(id: ClusterId, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
+    """Run the relist checks on this cluster's last discovered import and return its current diagnostics.
+    No Secret or cluster resource is changed. A known cluster without an import returns its not-imported view."""
+    # An import without a configured environment can only be probed by an unrestricted grant.
+    if not c.cfg.roles.allowed(who, "operations:run", c.registry.get(id).environment or ""):
+        raise Problem(404, "cluster-not-found", f"Unknown cluster {id}")
+    return c.registry.probe(id)

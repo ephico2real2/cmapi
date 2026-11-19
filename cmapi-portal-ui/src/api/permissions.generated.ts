@@ -33,6 +33,7 @@ export const PERMISSION = {
   "POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend": "namespaces:write",
   "POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent": "namespaces:write",
   "POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set": "namespaces:write",
+  "POST /api/v1/clusters/{id}:probe": "operations:run",
   "POST /api/v1/requests/{request_id}:approve": "requests:approve",
   "POST /api/v1/requests/{request_id}:cancel": "requests:cancel",
   "POST /api/v1/requests/{request_id}:reject": "requests:reject",

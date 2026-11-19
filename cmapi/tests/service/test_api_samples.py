@@ -159,6 +159,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("core_version", "GET", "/api/v1/version", None)
     rec.call("core_me", "GET", "/api/v1/me", ola)
     rec.call("core_clusters", "GET", "/api/v1/clusters", ola)
+    rec.call("core_probe", "POST", "/api/v1/clusters/CRC:probe", opal)
     rec.call("tiers_tiers", "GET", "/api/v1/tiers?environment=dev", ola)
     rec.call("core_metadata_keys", "GET", "/api/v1/metadata-keys", ola)
     rec.call("directory_search", "GET", "/api/v1/directory/users?q=ola", ola)

@@ -2605,17 +2605,21 @@ The answer was 200 (`application/json`):
 {
   "items": [
     {
-      "checkedAt": "2026-11-19T00:21:25.918686Z",
+      "checkedAt": "2026-11-19T16:40:50.413465Z",
       "clusterId": "CRC",
       "environment": "dev",
+      "findingDetails": [],
       "findings": [],
       "gitopsPath": "clusters/CRC",
       "labels": {
         "region": "us-central"
       },
+      "lastProbeAt": "2026-11-19T16:40:50.413465Z",
+      "secretName": "cmapi-cluster-crc",
       "serverVersion": "v1.35.6-fake",
       "status": "connected",
-      "statusSince": "2026-11-19T00:21:25.918686Z",
+      "statusSince": "2026-11-19T16:40:50.413465Z",
+      "tokenExpiresAt": null,
       "trust": {
         "downgrade": false,
         "serverName": null,
@@ -2624,6 +2628,46 @@ The answer was 200 (`application/json`):
       "writes": true
     }
   ]
+}
+```
+
+### Probe one cluster's held credential
+
+`POST /api/v1/clusters/{id}:probe`
+
+Permission: `operations:run`.
+
+```bash
+curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC:probe -H "Authorization: Bearer $TOKEN"
+```
+
+The run sent `POST /api/v1/clusters/CRC:probe`.
+
+The answer was 200 (`application/json`):
+
+```json
+{
+  "checkedAt": "2026-11-19T16:40:50.739043Z",
+  "clusterId": "CRC",
+  "environment": "dev",
+  "findingDetails": [],
+  "findings": [],
+  "gitopsPath": "clusters/CRC",
+  "labels": {
+    "region": "us-central"
+  },
+  "lastProbeAt": "2026-11-19T16:40:50.739043Z",
+  "secretName": "cmapi-cluster-crc",
+  "serverVersion": "v1.35.6-fake",
+  "status": "connected",
+  "statusSince": "2026-11-19T16:40:50.413465Z",
+  "tokenExpiresAt": null,
+  "trust": {
+    "downgrade": false,
+    "serverName": null,
+    "source": "trusted"
+  },
+  "writes": true
 }
 ```
 

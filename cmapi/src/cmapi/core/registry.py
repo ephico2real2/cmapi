@@ -29,7 +29,7 @@ import re
 import ssl
 import threading
 import time
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,7 +46,7 @@ from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
 from cmapi.core.errors import Problem
-from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log
+from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log, set_token_expiry
 from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
@@ -54,6 +54,9 @@ STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-
             "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
 HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
+# Kubernetes date-time annotations carry a full timestamp with an explicit offset.
+TOKEN_EXPIRY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
+                          r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
 
 
@@ -87,9 +90,11 @@ class ClusterState:
     ledger: CapacityLedger | None = None          # fed by `cache`'s hooks: set and cleared with it
     reports: ReportCache | None = None
     nodes: NodeCache | None = None
-    token_expires_at: str | None = None
+    token_expires_at: datetime | None = None
     trust: Trust | None = None                    # the mode of the last check that got past the parse; None before or after
     status_since: datetime | None = None
+    secret_name: str | None = None
+    last_probe_at: datetime | None = None
 
     @property
     def environment(self) -> str | None:
@@ -105,12 +110,58 @@ class ClusterState:
             detail += f": {'; '.join(self.findings)}"
         return state, detail[:300]
 
+    def _fix(self, finding: str) -> str:
+        if self.status == "invalid-secret":
+            if finding.startswith("duplicate cluster ID"):
+                return "Keep exactly one import Secret labelled with this cluster ID."
+            if "token" in finding:
+                return "Supply the reader's token without whitespace in the import Secret."
+            if "caData" in finding or "insecure" in finding:
+                return "Configure one permitted TLS mode with a valid trust source."
+            if "apiUrl" in finding:
+                return "Set apiUrl to the cluster's HTTPS URL without embedded credentials."
+            if "tlsServerName" in finding:
+                return "Set tlsServerName to a DNS name or IP address on the server certificate."
+            return "Correct the named field in the import Secret and let cmapi recheck it."
+        return {
+            "not-imported": "Create an import Secret labelled with this cluster ID.",
+            "cert-verify-failed": "Check the server certificate, its name and the configured CA.",
+            "auth_failed": "Check that the import token is valid and renew it if expired.",
+            "wrong-identity": "Issue the token for cmapi-system:cmapi-reader.",
+            "forbidden": "Grant the reader permission to list namespaces.",
+            "unreachable": "Check the cluster API URL, network path and registry logs.",
+            "bad-response": "Check that the API URL reaches the Kubernetes API and returns JSON.",
+        }[self.status]
+
     def view(self) -> dict[str, Any]:
         p = self.policy
         return {"clusterId": self.cluster_id, "environment": p.environment if p else "", "gitopsPath": p.gitops_path if p else "",
                 "writes": bool(p and p.writes), "status": self.status, "findings": list(self.findings),
+                "findingDetails": [{"finding": f, "fix": self._fix(f)} for f in self.findings],
+                "secretName": self.secret_name, "tokenExpiresAt": self.token_expires_at, "lastProbeAt": self.last_probe_at,
                 "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at,
                 "statusSince": self.status_since, "trust": self.trust.view() if self.trust else None}
+
+
+def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
+    # TLS mode and server name are public. Use #420's minimum length so short imports cannot garble fixed wording.
+    forms: set[str] = set()
+    for key, value in secret.get("data", {}).items():
+        if isinstance(value, str) and value and key not in {"insecure", "tlsServerName"}:
+            forms.update(secret_forms(value))
+    return tuple(sorted(forms, key=len, reverse=True))
+
+
+def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
+    value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+    if isinstance(value, str):
+        if not TOKEN_EXPIRY.fullmatch(value):
+            return None
+        try:
+            value = datetime.fromisoformat(value.upper())
+        except ValueError:
+            return None
+    return value if isinstance(value, datetime) and value.tzinfo is not None else None
 
 
 def _size_problem(size: Any) -> str | None:
@@ -166,6 +217,13 @@ class ImportSource:
         raise NotImplementedError
 
 
+class _ImportLoader(yaml.SafeLoader):
+    """Preserve date-like scalars as text in Secret documents, as the Kubernetes annotation and data fields do."""
+
+
+_ImportLoader.add_constructor("tag:yaml.org,2002:timestamp", _ImportLoader.construct_scalar)
+
+
 class DirImportSource(ImportSource):
     def __init__(self, directory: Path):
         self.dir = directory
@@ -173,7 +231,7 @@ class DirImportSource(ImportSource):
     def list(self) -> list[dict[str, Any]]:
         out = []
         for p in sorted(self.dir.glob("*.yaml")):
-            for doc in yaml.safe_load_all(p.read_text()):
+            for doc in yaml.load_all(p.read_text(), Loader=_ImportLoader):
                 if doc and doc.get("kind") == "Secret":
                     out.append(_secret(doc))
         return out
@@ -260,6 +318,8 @@ class ClusterRegistry:
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()
         self._stop = threading.Event()
+        # Last successful discovery, private to the relist/probe lock (includes refused imports).
+        self._imports: dict[str, list[dict[str, Any]]] = {}
         self._fingerprints: dict[str, str] = {}
 
     # ---- the six checks
@@ -330,7 +390,7 @@ class ClusterRegistry:
         try:
             status, found, version = self._probe(client, trust)
             if status != "connected":
-                return self._set(st, status, found, version, secret, trust)
+                return self._set(st, status, found, version, secret, trust, probed=True)
             # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
             # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
@@ -351,11 +411,12 @@ class ClusterRegistry:
                 self._fingerprints[cluster_id] = fp
                 adopted = True
             # Cache setup can still fail after the probe. Publish only the completed check.
-            return self._set(st, "connected", [], version, secret, trust)
+            return self._set(st, "connected", [], version, secret, trust, probed=True)
+        except Exception as exc:                           # the remote check ran, even if cache setup then failed
+            return self._check_failed(st, secret, exc, probed=True)
         finally:
             if not adopted:
-                # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
-                # stops those caches and drops the client: it is closed here, not left to the garbage collector.
+                # A cache setup failure drops the partially installed caches. Close their client here too.
                 client.close()
 
     @staticmethod
@@ -399,12 +460,14 @@ class ClusterRegistry:
         return "connected", [], version
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
-             secret: Mapping[str, Any], trust: Trust | None = None) -> ClusterState:
+             secret: Mapping[str, Any], trust: Trust | None = None, *, probed: bool = False) -> ClusterState:
         """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen."""
         # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
         # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
-        forms = secret_forms((secret.get("data") or {}).get("token"))
+        forms = _diagnostic_forms(secret)
         findings = [redact(f, forms) for f in findings]
+        if version:
+            version = redact(version, forms)
         with self._lock:
             previous_status = st.status
             changed = (previous_status, st.findings) != (status, findings)
@@ -416,7 +479,11 @@ class ClusterRegistry:
             st.checked_at = datetime.now(timezone.utc)
             if status != previous_status:
                 st.status_since = st.checked_at
-            st.token_expires_at = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+            if probed:
+                st.last_probe_at = st.checked_at
+            st.secret_name = secret.get("name") if isinstance(secret.get("name"), str) else None
+            st.token_expires_at = _token_expiry(secret)
+            set_token_expiry(st.cluster_id, st.token_expires_at)
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
@@ -463,36 +530,55 @@ class ClusterRegistry:
         except Exception as exc:                                    # noqa: BLE001 - a failed list keeps the previous set
             log.warning("imports_list_failed", error=str(exc)[:200])
             return
-        seen: set[str] = set()
         by_id: dict[str, list[dict[str, Any]]] = {}
         for s in secrets:
             cid = s["labels"].get("cmapi.net/cluster-id")
             if isinstance(cid, str) and cid:
-                by_id.setdefault(cid, []).append(s)
+                by_id.setdefault(cid, []).append(deepcopy(s))
+        self._imports = by_id
         for cid, items in by_id.items():
-            seen.add(cid)
-            st = self.clusters.get(cid) or ClusterState(cid, None)
-            if len(items) > 1:
-                self._set(st, "invalid-secret", [f"duplicate cluster ID in {[i['name'] for i in items]}"], None, items[0])
-                continue
-            try:
-                self._check(st, items[0])
-            except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
-                # `_check` makes each answer of the cluster a status; this is what it did not foresee (a full disk for the
-                # caData file, a fault of a cache factory). The log has the trace; the finding names the error.
-                log.exception("cluster_check_failed", cluster_id=cid)
-                self._set(st, "unreachable", [f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"], None, items[0])
+            self._check_import(self.clusters.get(cid) or ClusterState(cid, None), items)
         with self._lock:
             for cid, st in self.clusters.items():
-                if cid not in seen and st.status != "not-imported":
+                if cid not in by_id and st.status != "not-imported":
                     previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
+                    st.secret_name = st.token_expires_at = None
+                    set_token_expiry(cid, None)
                     st.status_since = datetime.now(timezone.utc)
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
                     self._log_mode(cid, self._set_trust(st, None), None)
                     log.warning("cluster_import", cluster_id=cid, status=st.status,
                                 previous=previous_status, findings=st.findings)
+
+    def _check_import(self, st: ClusterState, items: list[dict[str, Any]]) -> None:
+        if len(items) > 1:
+            finding = f"duplicate cluster ID in {[i['name'] for i in items]}"
+            for item in items:
+                finding = redact(finding, secret_forms(item["data"].get("token")))
+            self._set(st, "invalid-secret", [finding], None, {})
+            return
+        try:
+            self._check(st, items[0])
+        except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
+            self._check_failed(st, items[0], exc)
+
+    def _check_failed(self, st: ClusterState, secret: Mapping[str, Any], exc: Exception, *, probed: bool = False) -> ClusterState:
+        # Exception messages may include the import data. Never attach the live traceback to a log record.
+        error_type = type(exc).__name__
+        log.error("cluster_check_failed", cluster_id=st.cluster_id, error_type=error_type)
+        detail = redact(str(exc), _diagnostic_forms(secret))
+        finding = f"the check failed: {error_type}: {detail[:200]}"
+        return self._set(st, "unreachable", [finding], None, secret, probed=probed)
+
+    def probe(self, cluster_id: str) -> dict[str, Any]:
+        """Recheck this cluster's held import and publish its normal diagnostics before releasing the relist lock."""
+        with self._refresh_lock:
+            st = self.get(cluster_id)
+            if items := self._imports.get(cluster_id):
+                self._check_import(st, items)
+            return st.view()
 
     def start(self) -> None:
         self.refresh()
