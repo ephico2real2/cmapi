@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 import ssl
+import time
 import uuid
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from cmapi.core.auth import Authenticator, Jwks
 from cmapi.core.context import build_context
 from cmapi.main import create_app
 from cmapi.settings import Settings
+from test_crc_reader_import_398 import import_crc
 from test_flow import run_jobs
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -128,10 +130,11 @@ def test_a_request_on_crcs_own_configuration_is_auto_approved_merged_and_applied
     assert kube.objects[("Namespace", "", ns)]["metadata"]["labels"]["cmapi.net/managed"] == "true", "what the admission policy requires"
 
 
-def test_the_cluster_the_config_names_is_the_one_the_reader_import_names(crc):
+def test_the_cluster_the_config_names_is_the_one_the_reader_import_names(crc, tmp_path):
     client, _, bot, *_ = crc
-    assert re.search(r'"cmapi.net/cluster-id":"CRC"', (ROOT / "deploy/crc-reader-import.sh").read_text())
-    assert client.get("/api/v1/clusters", headers=bot).json()["items"][0]["clusterId"] == "CRC"
+    secret, _, _ = import_crc(tmp_path, int(time.time()))
+    cluster_id = secret["metadata"]["labels"]["cmapi.net/cluster-id"]
+    assert client.get("/api/v1/clusters", headers=bot).json()["items"][0]["clusterId"] == cluster_id == "CRC"
 
 
 def test_the_kind_cluster_is_rnd_and_never_written(crc):

@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 CA = "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
 REQUEST = ["create", "token", "cmapi-reader", "-n", "cmapi-system", "--duration=168h"]
@@ -73,7 +75,17 @@ def test_records_granted_expiry_and_prints_renewal_deadline(tmp_path):
     secret, _, message = import_crc(tmp_path, issued_at, lifetime)
     annotations = secret["metadata"].get("annotations", {})
     assert annotations.get("cmapi.net/managed-by") == "cluster-baseline", annotations
+
     def utc(seconds):
         return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     assert annotations["cmapi.net/token-expires-at"] == utc(issued_at + lifetime)
     assert utc(issued_at + lifetime * 0.8) in message
+
+
+def test_server_grant_over_seven_days_leaves_existing_import_intact(tmp_path):
+    issued_at = int(time.time())
+    previous, _, _ = import_crc(tmp_path, issued_at)
+    with pytest.raises(subprocess.CalledProcessError):
+        import_crc(tmp_path, issued_at, lifetime=7 * 24 * 3600 + 1)
+    assert json.loads((tmp_path / "applied").read_text()) == previous

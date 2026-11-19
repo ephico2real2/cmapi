@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """deploy/kind-import/import-secret.py: reads a TokenRequest token on stdin and prints the import Secret of docs/02's contract as JSON on
-stdout, for `oc apply -f -` (docs/02, "How the connection reaches the hub"). up.sh is its one caller.
+stdout, for `oc apply -f -` (docs/02, "How the connection reaches the hub"). Both the CRC and kind import writers use this format.
 The token goes from kubectl to oc through pipes only: never an argument, a file or a log line. Prints nothing else.
 Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [TLS_SERVER_NAME] | oc apply --server-side -f -
 TLS_SERVER_NAME is the import's tlsServerName (#434): the name cmapi checks the certificate against instead of API_URL's host.
@@ -18,6 +18,8 @@ payload = token.split(".")[1]
 claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
 if claims.get("sub") != "system:serviceaccount:cmapi-system:cmapi-reader":
     sys.exit(f"token subject is {claims.get('sub')!r}, not cmapi-system:cmapi-reader")
+if not 0 < claims["exp"] - claims["iat"] <= 7 * 24 * 3600:
+    sys.exit("reader token lifetime must be positive and at most seven days")
 expires = datetime.datetime.fromtimestamp(claims["exp"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 ca = open(ca_file).read()
 b64 = lambda s: base64.b64encode(s.encode()).decode()
@@ -30,4 +32,4 @@ print(json.dumps({
     "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false"),
              **({"tlsServerName": b64(server_name)} if server_name else {})}}))
 rotate = datetime.datetime.fromtimestamp(claims["iat"] + 0.8 * (claims["exp"] - claims["iat"]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-print(f"import Secret for {cluster_id}: the token expires {expires}; rewrite it (up.sh again) by {rotate}, 80% of its life", file=sys.stderr)
+print(f"import Secret for {cluster_id}: the token expires {expires}; rerun the import writer by {rotate}, 80% of its life", file=sys.stderr)
