@@ -74,6 +74,26 @@ class BadResponse(ValueError):
         self.path, self.status = path, status
 
 
+def list_items(body: Mapping[str, Any], path: str, status: int) -> list[dict[str, Any]]:
+    """The items of a list answer, or BadResponse (#421; docs/02 "Client rules": a 200 response without an items field is
+    never read as an empty list). Every Kubernetes list type has `items` (API conventions, "Lists and Simple kinds"; the API
+    server tests for it in an empty list since kubernetes#126286), so an answer without it is not a list: a Status, or a
+    proxy's own JSON. Read as an empty list, it would retire every imported cluster or drop every cached object.
+
+    `items: null` is an empty list: Go writes a nil slice as null, and the API's own guidance is that null and [] mean the
+    same in a list field (kubernetes#43422)."""
+    if "items" not in body:
+        raise BadResponse(path, status, "no items field: not a list")
+    items = body["items"]
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        raise BadResponse(path, status, f"items is a JSON {_JSON_TYPES.get(type(items), 'object')}, not an array")
+    if not all(isinstance(item, dict) for item in items):
+        raise BadResponse(path, status, "an item that is not an object")
+    return items
+
+
 class KubeClient:
     def __init__(self, cluster_id: str, api_url: str, token: str, trust: Trust | str | None = None, *,
                  insecure: bool = False, timeout: float = 10.0):
@@ -192,7 +212,8 @@ class KubeClient:
     def list(self, kind: str, namespace: str | None = None, label_selector: str | None = None,
              resource_version: str | None = None, *, limit: int | None = None, continue_: str | None = None) -> dict[str, Any]:
         """One list call. `limit` and `continue_` page a large collection (API concepts, "Retrieving large results sets in
-        chunks"); without them the API server answers in one response."""
+        chunks"); without them the API server answers in one response. The answer always has `items`, a list of objects:
+        anything else is BadResponse (`list_items`, #421)."""
         path = resource_path(kind, namespace)
         params: dict[str, Any] = {}
         if label_selector:
@@ -203,9 +224,13 @@ class KubeClient:
             params["limit"] = limit
         if continue_:
             params["continue"] = continue_
-        out = self.get(path, params)
-        if out is None:
+        r = self._request("GET", path, params=params)
+        if r.status_code == 404:
             raise KubeError(404, path, "list not found")
+        if r.status_code >= 400:
+            raise self._error(r.status_code, path, r.text)
+        out = self._object(r, path)
+        out["items"] = list_items(out, path, r.status_code)
         return out
 
     def get_object(self, kind: str, namespace: str | None, name: str) -> dict[str, Any] | None:
@@ -284,8 +309,12 @@ class WatchCache:
         self._threads: list[threading.Thread] = []
 
     @staticmethod
-    def _key(obj: Mapping[str, Any]) -> str:
-        m = obj["metadata"]
+    def _key(obj: Mapping[str, Any], kind: str = "object") -> str:
+        """`<namespace>/<name>` of a listed or watched object, or BadResponse: an object without metadata.name is no object
+        of the kind, and its KeyError or TypeError would end the kind's thread (#421)."""
+        m = obj.get("metadata")
+        if not isinstance(m, Mapping) or not isinstance(m.get("name"), str):
+            raise BadResponse(kind, 200, "an object without metadata.name")
         return f"{m.get('namespace', '')}/{m['name']}"
 
     def _value(self, kind: str, obj: dict[str, Any]) -> Any:
@@ -296,19 +325,47 @@ class WatchCache:
 
     def _fetch(self, kind: str) -> tuple[list[tuple[str, Any]], str]:
         """(key, projected value) of every object of the kind, and the list's resourceVersion, in one call or in chunks.
-        Each page is projected before the next is asked for, so its raw objects are released page by page."""
+        Each page is projected before the next is asked for, so its raw objects are released page by page.
+
+        `items` is read without a default: the client's list call has refused an answer without it (#421), and one read
+        here as empty would drop every cached object. A list without a resourceVersion to watch from is BadResponse, a
+        ValueError that `_loop` retries, never a KeyError that would end the kind's thread."""
         if not self.chunk:
             out = self.client.list(kind)
-            return [(self._key(o), self._value(kind, o)) for o in out.get("items", [])], out["metadata"]["resourceVersion"]
+            return [(self._key(o, kind), self._value(kind, o)) for o in out["items"]], self._resource_version(kind, out)
         values: list[tuple[str, Any]] = []
         token: str | None = None
         while True:
             out = self.client.list(kind, limit=self.chunk, continue_=token)
-            values.extend((self._key(o), self._value(kind, o)) for o in out.get("items", []))
-            token = (out.get("metadata") or {}).get("continue") or None
+            values.extend((self._key(o, kind), self._value(kind, o)) for o in out["items"])
+            token = self._continue(kind, out)
             if token is None:
-                return values, out["metadata"]["resourceVersion"]
+                return values, self._resource_version(kind, out)
             del out                         # the page's raw objects go before the next page arrives
+
+    @staticmethod
+    def _continue(kind: str, out: Mapping[str, Any]) -> str | None:
+        """The page's continue token, None on the last page, or BadResponse: a metadata or a token of another JSON type is
+        no list page, and reading it raised AttributeError, which ended the kind's thread (#421)."""
+        meta = out.get("metadata")
+        if meta is None:
+            return None                     # the last page; `_resource_version` then refuses it for want of one
+        if not isinstance(meta, Mapping):
+            raise BadResponse(kind, 200, f"metadata is a JSON {_JSON_TYPES.get(type(meta), 'value')}, not an object")
+        token = meta.get("continue")
+        if token is None or token == "":
+            return None
+        if not isinstance(token, str):
+            raise BadResponse(kind, 200, f"metadata.continue is a JSON {_JSON_TYPES.get(type(token), 'value')}, not a string")
+        return token
+
+    @staticmethod
+    def _resource_version(kind: str, out: Mapping[str, Any]) -> str:
+        meta = out.get("metadata")
+        rv = meta.get("resourceVersion") if isinstance(meta, Mapping) else None
+        if not isinstance(rv, str) or not rv:
+            raise BadResponse(kind, 200, "no metadata.resourceVersion")
+        return rv
 
     def _list(self, kind: str) -> None:
         values, rv = self._fetch(kind)
@@ -325,6 +382,8 @@ class WatchCache:
     def _event(self, kind: str, ev: Mapping[str, Any]) -> None:
         """One watch event into the cache: ADDED and MODIFIED through `project` and `admit`, DELETED through `dropped`; a
         BOOKMARK only moves the resourceVersion and the last good read. ERROR raises, so the loop lists again."""
+        if not isinstance(ev, Mapping) or not isinstance(ev.get("object", {}), Mapping):
+            raise BadResponse(kind, 200, "a watch event that is not an object with an object")
         t, obj = ev.get("type"), ev.get("object", {})
         if t == "ERROR":
             # The client redacts before the cut (#420); a test's fake client, which holds no token, has no `redact`.
@@ -332,14 +391,18 @@ class WatchCache:
             raise KubeError(410, kind, (getattr(self.client, "redact", None) or str)(text)[:200])
         with self._lock:
             st = self.state[kind]
-            st.resource_version = obj.get("metadata", {}).get("resourceVersion", st.resource_version)
+            meta = obj.get("metadata", {})
+            if not isinstance(meta, Mapping):
+                raise BadResponse(kind, 200, "a watch event's object without metadata")
+            st.resource_version = meta.get("resourceVersion", st.resource_version)
             st.last_good = self.clock()
             if t in ("ADDED", "MODIFIED"):
-                key = self._key(obj)
+                key = self._key(obj, kind)
                 st.items[key] = self._admitted(kind, key, self._value(kind, obj))
             elif t == "DELETED":
-                if st.items.pop(self._key(obj), None) is not None and self.dropped:
-                    self.dropped(kind, self._key(obj))
+                key = self._key(obj, kind)
+                if st.items.pop(key, None) is not None and self.dropped:
+                    self.dropped(kind, key)
 
     def _loop(self, kind: str) -> None:
         backoff = 1.0
@@ -354,12 +417,20 @@ class WatchCache:
                         self._event(kind, ev)
                         if self._stop.is_set():
                             break
-            except (ClusterUnreachable, KubeError, ValueError) as exc:
+            except Exception as exc:                    # noqa: BLE001 - the kind's thread never ends (#421)
+                if isinstance(exc, (ClusterUnreachable, KubeError, ValueError)):
+                    text = str(exc)[:200]
+                    log.warning("watch_cache", cluster_id=self.client.cluster_id, kind=kind, error=text, retry_in=backoff)
+                else:
+                    # The last net, as ClusterRegistry.refresh has one (#419): what the checks did not foresee, such as a
+                    # projection of a malformed object. The cache keeps its last good list and goes stale as after any
+                    # failed list; the log has the trace. The client redacts before the cut (#420).
+                    text = (getattr(self.client, "redact", None) or str)(f"{type(exc).__name__}: {exc}")[:200]
+                    log.exception("watch_cache_failed", cluster_id=self.client.cluster_id, kind=kind, error=text,
+                                  retry_in=backoff)
                 with self._lock:
-                    self.state[kind].error = str(exc)[:200]
+                    self.state[kind].error = text
                     self.state[kind].error_status = exc.status if isinstance(exc, KubeError) else None
-                log.warning("watch_cache", cluster_id=self.client.cluster_id, kind=kind, error=str(exc)[:200],
-                            retry_in=backoff)
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 60.0)
 

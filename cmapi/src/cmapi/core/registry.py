@@ -39,7 +39,7 @@ import httpx
 import yaml
 
 from cmapi.core.capacity_ledger import CapacityLedger
-from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError, WatchCache
+from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError, WatchCache, list_items
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
@@ -191,14 +191,17 @@ class HubImportSource(ImportSource):
                                    headers={"Authorization": f"Bearer {token}"})
 
     def list(self) -> list[dict[str, Any]]:
+        """Every import Secret, or an error: `refresh` then keeps the previous set (docs/02 "Discovery"). An answer that is not
+        a list of Secrets (not JSON, not an object, no items) is BadResponse, never an empty list that would retire every
+        cluster (#421)."""
+        path = f"/api/v1/namespaces/{self.namespace}/secrets"
         try:
-            r = self.client.get(f"/api/v1/namespaces/{self.namespace}/secrets",
-                                params={"labelSelector": "cmapi.net/secret-type=cluster"})
+            r = self.client.get(path, params={"labelSelector": "cmapi.net/secret-type=cluster"})
             r.raise_for_status()
         except httpx.HTTPError as exc:
             # The hub's own token never reaches the log `imports_list_failed`, whatever the error text holds (#420).
             raise RuntimeError(redact(f"{type(exc).__name__}: {exc}", self._forms)) from exc
-        return [_secret(s) for s in r.json().get("items", [])]
+        return [_secret(s) for s in list_items(KubeClient._object(r, path), path, r.status_code)]
 
 
 def _valid_ca_data(ca_data: str) -> bool:
