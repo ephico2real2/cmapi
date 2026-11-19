@@ -100,7 +100,7 @@ instance:
 **What allowedEnvironments controls.**
 
 - **Clusters.** Every clusters.yaml entry must name an environment in the list. Startup, /admin/reload and CI on the config repository refuse a file that breaks this, and the previous configuration stays in force.
-- **Imports.** The baseline process writes a cluster's import Secret to the hub of the instance that serves its environment. A Secret whose registered environment is not served is refused with the finding environment-not-served.
+- **Imports.** The baseline process writes a cluster's import Secret to the hub of the instance that serves its environment. The Secret supplies connection fields, not an environment. An unserved environment in clusters.yaml stops startup; an imported cluster without a clusters.yaml entry can connect and is read-only.
 - **Requests.** A namespace's environment must be served, and must match its cluster's. Placement only ranks this instance's clusters.
 - **Policy files.** approval-rules.yaml, authz-roles.yaml, placement.yaml, capacity.yaml (overcommit and targets) and the usage thresholds are per instance. A key for an environment the instance does not serve fails validation, so prod's files hold only prod rules.
 - **Portal.** The environment picker lists only served environments, and links to the other instances for the rest.
