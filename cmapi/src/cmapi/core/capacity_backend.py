@@ -17,7 +17,8 @@ from decimal import Decimal
 from typing import Any, Mapping
 
 from cmapi.core.capacity import CapacitySettings, limit_of
-from cmapi.core.capacity_ledger import LedgerTotals
+from cmapi.core.capacity_ledger import CapacityLedger, LedgerTotals
+from cmapi.core.clients.kube import WatchCache
 from cmapi.core.errors import Problem
 from cmapi.core.ports import CapacityResult
 from cmapi.core.registry import ClusterRegistry, ClusterState
@@ -36,10 +37,10 @@ class QuotaRead:
 
 def read_quotas(registry: ClusterRegistry, cluster_id: str) -> QuotaRead:
     try:
-        st = registry.snapshot(cluster_id)
+        cache, ledger = registry.quota_watch(cluster_id)
     except Problem as exc:
         return QuotaRead("unreachable", f"no watch cache for this cluster: {exc.detail}", None, None)
-    return read_snapshot_quotas(st)
+    return _read_cached_quotas(cache, ledger)
 
 
 def read_snapshot_quotas(st: ClusterState) -> QuotaRead:
@@ -47,6 +48,10 @@ def read_snapshot_quotas(st: ClusterState) -> QuotaRead:
     if cache is None:
         detail = f"{st.cluster_id} is {st.status}: {'; '.join(st.findings)}"
         return QuotaRead("unreachable", f"no watch cache for this cluster: {detail}", None, None)
+    return _read_cached_quotas(cache, ledger)
+
+
+def _read_cached_quotas(cache: WatchCache, ledger: CapacityLedger | None) -> QuotaRead:
     stale, last = cache.kind_stale("ResourceQuota")
     status, error = cache.kind_error("ResourceQuota")
     if status in (401, 403):
