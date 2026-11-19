@@ -256,6 +256,7 @@ class ClusterRegistry:
         self.nodes_factory = nodes_factory
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
         self._stop = threading.Event()
         self._fingerprints: dict[str, str] = {}
 
@@ -403,6 +404,9 @@ class ClusterRegistry:
         forms = secret_forms((secret.get("data") or {}).get("token"))
         findings = [redact(f, forms) for f in findings]
         with self._lock:
+            previous_status = st.status
+            changed = (previous_status, st.findings) != (status, findings)
+            first_connected = status == "connected" and st.checked_at is None and previous_status == "not-imported"
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)
                 st.cache, st.ledger, st.client = None, None, None
@@ -414,8 +418,9 @@ class ClusterRegistry:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
             previous = self._set_trust(st, trust)
         self._log_mode(st.cluster_id, previous, trust)
-        if status != "connected":
-            log.warning("cluster_import", cluster_id=st.cluster_id, status=status, findings=findings)
+        if changed and not first_connected:
+            emit = log.info if status == "connected" else log.warning
+            emit("cluster_import", cluster_id=st.cluster_id, status=status, previous=previous_status, findings=findings)
         return st
 
     @staticmethod
@@ -440,6 +445,13 @@ class ClusterRegistry:
 
     def refresh(self) -> None:
         """One discovery pass: every import Secret through the six checks."""
+        # Serialize list, checks, logs and retirement. Locking only _set lets two first checks compare separate states,
+        # a delayed event follow its recovery, or an older probe restore a cluster after another pass retired it.
+        # Keep _lock available to readers while a probe waits on the network.
+        with self._refresh_lock:
+            self._refresh()
+
+    def _refresh(self) -> None:
         if self.source is None:
             return
         try:
@@ -470,10 +482,13 @@ class ClusterRegistry:
         with self._lock:
             for cid, st in self.clusters.items():
                 if cid not in seen and st.status != "not-imported":
+                    previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
                     self._log_mode(cid, self._set_trust(st, None), None)
+                    log.warning("cluster_import", cluster_id=cid, status=st.status,
+                                previous=previous_status, findings=st.findings)
 
     def start(self) -> None:
         self.refresh()
