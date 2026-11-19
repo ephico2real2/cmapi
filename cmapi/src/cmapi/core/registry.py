@@ -256,6 +256,7 @@ class ClusterRegistry:
         self.nodes_factory = nodes_factory
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
         self._stop = threading.Event()
         self._fingerprints: dict[str, str] = {}
 
@@ -444,6 +445,13 @@ class ClusterRegistry:
 
     def refresh(self) -> None:
         """One discovery pass: every import Secret through the six checks."""
+        # Serialize list, checks, logs and retirement. Locking only _set lets two first checks compare separate states,
+        # a delayed event follow its recovery, or an older probe restore a cluster after another pass retired it.
+        # Keep _lock available to readers while a probe waits on the network.
+        with self._refresh_lock:
+            self._refresh()
+
+    def _refresh(self) -> None:
         if self.source is None:
             return
         try:
