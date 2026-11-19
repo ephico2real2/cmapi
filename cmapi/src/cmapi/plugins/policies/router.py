@@ -111,7 +111,7 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
     if mode == "off":
         return unknown("mode-off", f"the mode of {env} is off: no policy is rendered for it and no report is read")
     if st.status != "connected":
-        return unknown(*st.not_connected(), st.checked_at)
+        return unknown(*st.not_connected(), st.status_since)
     # Each cache once: the registry clears or replaces them (`_stop_caches`, `_set`) while this view is built, and a second
     # read would be None, a 500, or another cache than the one checked (#402).
     reports, cache = st.reports, st.cache
@@ -203,7 +203,7 @@ def results(cluster_id: ClusterFilter = None, env: EnvFilter = None, namespace: 
     if not wanted or any(v not in LISTED for v in wanted):
         raise Problem.unprocessable("validation-failed", f"result is a comma-separated list of {list(LISTED)}, not {result!r}")
     clusters, rows, per_policy, scoped_envs = [], [], {}, set()
-    for st in sorted(c.registry.clusters.values(), key=lambda s: s.cluster_id):
+    for st in sorted(c.registry.snapshots(), key=lambda s: s.cluster_id):
         cenv = st.environment
         if cenv is None or not c.cfg.roles.allowed(who, "objects:read", cenv):
             continue

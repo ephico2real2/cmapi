@@ -423,7 +423,7 @@
                 "type": "null"
               }
             ],
-            "description": "The last good read of the figures, to the minute; for `unreachable` and `not-imported`, the last check of the cluster: null when none was made",
+            "description": "The last good read of the figures, to the minute. For `unreachable` and `not-imported`, the minute the registry observed the current import status, or null if never imported.",
             "examples": [
               "2026-11-18T09:14:00Z"
             ],
@@ -718,7 +718,7 @@
                 "type": "null"
               }
             ],
-            "description": "Its last good read, to the minute",
+            "description": "The excluded cluster's Capacity asOf value, to the minute",
             "examples": [
               "2026-11-18T08:30:00Z"
             ],
@@ -2008,6 +2008,22 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "statusSince": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this registry first observed the current import status. Null for a cluster that has never been imported.",
+            "examples": [
+              "2026-11-05T09:55:00Z"
+            ],
+            "title": "Statussince"
           },
           "trust": {
             "anyOf": [
@@ -4738,7 +4754,7 @@
                 "type": "null"
               }
             ],
-            "description": "The last good read of the reports, or for `unreachable` and `not-imported` the last check of the cluster: null when none was made",
+            "description": "The last good read of the reports. For `unreachable` and `not-imported`, when the registry observed the current import status, or null if never imported.",
             "examples": [
               "2026-11-17T18:02:11Z"
             ],
@@ -8195,6 +8211,7 @@
                       },
                       "serverVersion": "v1.35.6-fake",
                       "status": "connected",
+                      "statusSince": "2026-11-19T00:21:25.918686Z",
                       "trust": {
                         "downgrade": false,
                         "serverName": null,
