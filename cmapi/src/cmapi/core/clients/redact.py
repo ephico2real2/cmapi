@@ -13,11 +13,15 @@ The forms (`secret_forms`):
   JSON string inside a JSON string;
 - the repr of its bytes, which an HTTP library's "illegal header value b'...'" error shows.
 
+A credential a client sends (`sent_forms`) has one more spelling: form-encoded (quote_plus), as httpx writes a form body or a
+query string, and as a proxy that echoes a request URL-encodes it. Each of its forms above is removed too.
+
 A text that ends in the start of a form (8 characters or more) loses that start too: a body cut by the server or a proxy.
 """
 from __future__ import annotations
 
 import json
+from urllib.parse import quote_plus
 
 MASK = "***"                    # as the Git layer's redaction writes it (core/git/oplog.py)
 MIN_SECRET = 8                  # a shorter value is no credential, and replacing it would garble every message
@@ -41,6 +45,15 @@ def secret_forms(secret: str | None) -> tuple[str, ...]:
     raw = secret.encode("utf-8", "backslashreplace")
     forms.add(repr(raw)[2:-1])
     return tuple(sorted((f for f in forms if len(f) >= MIN_SECRET), key=len, reverse=True))
+
+
+def sent_forms(secret: str | None) -> tuple[str, ...]:
+    """`secret_forms` of a credential and of its form-encoded spelling, longest first: the one set of forms every client that
+    sends a credential removes (the Git hosts, the realm sync, the Git layer's log; #424). A value shorter than MIN_SECRET has
+    none in any spelling, as in `secret_forms`."""
+    if not secret or len(secret) < MIN_SECRET:
+        return ()
+    return tuple(sorted({*secret_forms(secret), *secret_forms(quote_plus(secret))}, key=len, reverse=True))
 
 
 def redact(text: str, forms: tuple[str, ...]) -> str:

@@ -794,8 +794,8 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_DIRECTORY_CLIENT_SECRET` | `""` | The secret of the `cmapi-directory` client. A secret |
 | `CMAPI_GIT_PROVIDER` | `gitea` | `gitea` or `github` |
 | `CMAPI_GIT_URL` | `""` | The API URL of the Git host |
-| `CMAPI_GIT_TOKEN` | `""` | The bot account's API token, from Secret `cmapi-git-bot`, for the host's API. A secret. No git process gets it from the environment |
-| `CMAPI_GIT_USER`, `CMAPI_GIT_PASSWORD` | `""` | Basic authentication instead of a token. A secret |
+| `CMAPI_GIT_TOKEN` | `""` | The bot account's API token, from Secret `cmapi-git-bot`, for the host's API. A secret. No git process gets it from the environment. It appears in no error, request event, log line or API answer: a host that echoes it gets `***` in its place, before the text is cut (`HostGitProvider.host_text`, #424) |
+| `CMAPI_GIT_USER`, `CMAPI_GIT_PASSWORD` | `""` | Basic authentication instead of a token. A secret, redacted as the token is, and so is the header's base64 of user:password (#424) |
 | `CMAPI_GIT_DEFAULT_BRANCH` | `main` | The branch that the bot's PRs merge into. Nothing is ever pushed to it |
 | `CMAPI_GIT_CREDENTIALS_DIR` | `/etc/cmapi/git-bot` | Secret `cmapi-git-bot` as files: `token`. Git over HTTPS reads it through a credential helper (#286) |
 | `CMAPI_GIT_SSH_DIR` | `/etc/cmapi/git-bot-ssh` | Secret `cmapi-git-bot-ssh` (`kubernetes.io/ssh-auth`): `ssh-privatekey`, an ed25519 key with no passphrase, and optionally `ssh-publickey`. Worker only |

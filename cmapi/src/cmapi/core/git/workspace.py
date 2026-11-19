@@ -348,6 +348,7 @@ class GitWorkspace:
 
     def _check_files(self, req: BranchRequest) -> str:
         folder = req.folder.strip("/")
+        check_path(folder)
         for path in req.files:
             check_path(path)
             if not path.startswith(folder + "/"):
@@ -387,7 +388,8 @@ class GitWorkspace:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 self._m("worktree", "add", "--quiet", "--no-checkout", "-b", branch, str(path), base)
                 # Only the request's folder is checked out: a repository of thousands of namespaces costs one folder.
-                self._run("sparse-checkout", "set", "--cone", folder, cwd=path)
+                # "--": a folder that starts with "-" is a path, never an option (#452).
+                self._run("sparse-checkout", "set", "--cone", "--", folder, cwd=path)
                 self._run("checkout", "--quiet", branch, cwd=path)
             except GitFailed as exc:
                 self._failed(op, exc)
@@ -395,7 +397,7 @@ class GitWorkspace:
         with Op("commit", base_sha=base, plan_hash=req.plan_hash) as op:
             try:
                 for rel, text in req.files.items():
-                    target = path / rel
+                    target = _inside(path, rel)
                     if text is None:
                         target.unlink(missing_ok=True)
                     else:
@@ -635,3 +637,18 @@ def _release(lockfile, root: str | None) -> None:
     finally:
         if root:
             shutil.rmtree(root, ignore_errors=True)
+
+
+def _inside(worktree: Path, rel: str) -> Path:
+    """worktree/rel, to write or remove. The checkout materialises the repository's symlinks, and write_text or unlink would
+    follow one out of the worktree: a symlink at any component of rel is refused, and so is a target that resolves outside
+    the worktree (#446)."""
+    target = worktree
+    for part in Path(rel).parts:
+        target = target / part
+        if target.is_symlink():
+            raise GitFailed(f"the plan path {rel} goes through the repository's symlink {target.relative_to(worktree)}: "
+                            "nothing is written through a symlink")
+    if not target.resolve().is_relative_to(worktree.resolve()):
+        raise GitFailed(f"the plan path {rel} resolves outside the request's worktree")
+    return target

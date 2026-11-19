@@ -117,7 +117,9 @@ userPassword: {TEST_PW[uid]}
     check(sh(C, "inspect", "cmapi-w1-rt-kc", "--format", "{{.State.StartedAt}} {{.RestartCount}}").stdout == started, "the server did not restart")
     key = pk("cmapi")
     r = imp(); check(r.returncode == 0 and "already exists. Import skipped" in r.stdout + r.stderr, "a second import changes nothing: 'already exists'"); check(pk("cmapi") == key and others() == before, "and no key changed")
-    # realm_sync.py: by path, so this test needs httpx and not the whole service
+    # realm_sync.py: by path, so this test needs httpx and not the whole service. It imports core/clients/redact.py (#424),
+    # standard library only, through package __init__ files that import nothing: the package source on the path is enough.
+    sys.path.insert(0, os.path.join(ROOT, "cmapi/src"))
     spec = importlib.util.spec_from_file_location("realm_sync", os.path.join(ROOT, "cmapi/src/cmapi/tools/realm_sync.py")); rs = importlib.util.module_from_spec(spec); spec.loader.exec_module(rs)
     job = yaml.safe_load(open(os.path.join(os.path.dirname(sys.argv[1]), "20-realm-sync.yaml")))
     env = {e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
