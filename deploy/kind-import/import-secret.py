@@ -2,13 +2,20 @@
 """deploy/kind-import/import-secret.py: reads a TokenRequest token on stdin and prints the import Secret of docs/02's contract as JSON on
 stdout, for `oc apply -f -` (docs/02, "How the connection reaches the hub"). Both the CRC and kind import writers use this format.
 The token goes from kubectl to oc through pipes only: never an argument, a file or a log line. Prints nothing else.
-Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [TLS_SERVER_NAME] | oc apply --server-side -f -
+Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [TLS_SERVER_NAME] [--namespace NAMESPACE] | oc apply --server-side -f -
 TLS_SERVER_NAME is the import's tlsServerName (#434): the name cmapi checks the certificate against instead of API_URL's host.
 A cmapi before #434 ignores the field, so the Secret works with either."""
+import argparse
 import base64, datetime, json, re, sys
 
-cluster_id, api_url, ca_file = sys.argv[1:4]
-server_name = sys.argv[4] if len(sys.argv) > 4 else None
+parser = argparse.ArgumentParser()
+parser.add_argument("cluster_id")
+parser.add_argument("api_url")
+parser.add_argument("ca_file")
+parser.add_argument("server_name", nargs="?")
+parser.add_argument("--namespace", default="cmapi-imports")
+args = parser.parse_args()
+cluster_id, api_url, ca_file, server_name = args.cluster_id, args.api_url, args.ca_file, args.server_name
 if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,62}", cluster_id):
     sys.exit(f"cluster id {cluster_id!r} is not ^[A-Z][A-Z0-9_]{{1,62}}$ (docs/02 ClusterId)")
 token = sys.stdin.read().strip()
@@ -26,7 +33,7 @@ b64 = lambda s: base64.b64encode(s.encode()).decode()
 print(json.dumps({
     "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     "metadata": {
-        "name": "cmapi-cluster-" + cluster_id.lower().replace("_", "-"), "namespace": "cmapi-imports",
+        "name": "cmapi-cluster-" + cluster_id.lower().replace("_", "-"), "namespace": args.namespace,
         "labels": {"cmapi.net/secret-type": "cluster", "cmapi.net/cluster-id": cluster_id, "app.kubernetes.io/part-of": "cmapi"},
         "annotations": {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": expires}},
     "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false"),

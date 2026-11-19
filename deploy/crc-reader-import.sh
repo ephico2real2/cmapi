@@ -2,6 +2,8 @@
 # Renew CRC's import using the reader ServiceAccount and the CA for the in-cluster API.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
+cluster_id=${1:-CRC}
+namespace=${2:-cmapi-imports}
 OC=${CMAPI_OC:-oc}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
@@ -21,7 +23,7 @@ request_token() {
     return 1
   }
 }
-import_document=$(request_token | python3 "$HERE/kind-import/import-secret.py" CRC https://kubernetes.default.svc "$ca")
+import_document=$(request_token | python3 "$HERE/kind-import/import-secret.py" "$cluster_id" https://kubernetes.default.svc "$ca" --namespace "$namespace")
 
 # Take ownership of the import fields previously applied by cmapi-wave1.
 if ! builtin printf '%s\n' "$import_document" |
@@ -29,4 +31,4 @@ if ! builtin printf '%s\n' "$import_document" |
   echo "ERROR: CRC import apply failed" >&2
   exit 1
 fi
-echo "import Secret cmapi-imports/cmapi-cluster-crc is current"
+echo "import Secret for $cluster_id in $namespace is current"
