@@ -19,7 +19,16 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-19, 18:00Z (stopped by the owner)
+## Current: 2026-11-19, 19:40Z
+
+`main` is `7122ec6`. CRC runs `7122ec6` (OB1 run 26). kind re-imported; token renew by 2026-11-25T09:51:14Z. No open PRs.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Cluster diagnostics, token-expiry metric, `POST /clusters/{id}:probe` | #396, #397 | Merged #465; live | CI (all checks); CRC run 26 live checks 2 to 4 |
+| `statusSince`, transition logging, dead status removed, Git delivery review, redaction, list without items | #403, #456, #417, #444 to #452, #424, #421 | Live on CRC | CRC run 26: version 7122ec6, proof all passed; the Git delivery paths and #455 not exercised live |
+
+## Previous: 2026-11-19, 18:00Z (stopped by the owner)
 
 `main` is `3db1fa8`. CRC still runs `b8ee59e`. Nothing is running.
 
@@ -30,7 +39,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 The rest of the 17:30Z section below holds.
 
-## Previous: 2026-11-19, 17:30Z
+## Earlier: 2026-11-19, 17:30Z
 
 `main` is `fcb49bb`. CRC still runs `b8ee59e` (run 25); the merges below are not deployed. kind's token: renew before
 2026-11-24T17:30Z. Work ships through /houston-mayday (Codex builds and reviews, Opus rules), labelled `review:fable`.

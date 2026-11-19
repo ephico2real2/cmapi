@@ -4,7 +4,30 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-19, 18:00Z (stopped by the owner)
+## Resume here: 2026-11-19, 19:40Z (after OB1 run 26)
+
+Supersedes the 18:00Z section below. Since then: PRs #465 (#396, #397) and #467 merged with every GitHub check passed; OB1
+run 26 deployed `main` `7122ec6` on CRC.
+
+| Item | State |
+|---|---|
+| `main` | `7122ec6` (PR #467) |
+| CRC | Runs `7122ec6` (OB1 run 26, `workbench/cmapi/ob1-run26/`): every step rc 0, 25 proof lines passed, watch 0 breaches; api/worker `cmapi@sha256:058da740...`, portal `cmapi-portal@sha256:1b6c8c92...`; keycloak-0 0 restarts; alembic 0006 |
+| kind | `KIND_CMAPI_TEST` re-imported by up.sh. **Token expires 2026-11-26T19:27:14Z; rerun `deploy/kind-import/up.sh <cmapi-cluster-configs checkout>` by 2026-11-25T09:51:14Z** |
+| Open PRs | None. Nothing running |
+
+**Proven live on CRC (run 26):** `GET /api/v1/clusters` shows `statusSince`, `secretName`, `tokenExpiresAt`, `lastProbeAt`
+and `trust` for both clusters (CRC's `tokenExpiresAt` null: #398); `POST /api/v1/clusters/{id}:probe` 200 for operator,
+403 for viewer and requester, 404 for an unknown cluster; `cmapi_cluster_token_expiry_seconds` has a KIND_CMAPI_TEST
+series and none for CRC; Policies and Capacity render for both clusters (31/31 policies on each; screenshots in
+`ob1-run26/screens/`). **Not tested live:** the Git delivery changes (#453, #457 to #460), #455, and a finding appearing
+and clearing (#462).
+
+**Next, in order:** mayday job i398 (#398, briefed: see the 18:00Z section for the launch command), then #407, #429 and
+#244; then records. Waiting for the owner: the live Claude Docs of docs/01 and docs/02; Kyverno audit → enforce; Fable
+reviews of #462 to #465.
+
+## Resume here: 2026-11-19, 18:00Z (stopped by the owner; superseded by the section above)
 
 The owner stopped work at 17:56Z ("Stop current job and do an handover and resume docs"). Read this, then the 17:30Z
 section below it, which still holds for how work ships (/houston-mayday) and today's lessons.
