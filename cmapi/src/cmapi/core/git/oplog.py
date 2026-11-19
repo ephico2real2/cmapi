@@ -15,7 +15,7 @@ import threading
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from cmapi.core.clients.redact import redact as redact_forms, sent_forms
 from cmapi.core.observability import GIT_DURATION, GIT_OPS, log
@@ -38,8 +38,17 @@ def register_secret(value: str | None) -> None:
 
 
 def redact(value: Any) -> Any:
-    """A string without any registered secret in any form; call it on the whole text, before any cut. Anything else as it is."""
-    return redact_forms(value, _FORMS) if isinstance(value, str) else value
+    """A string without any registered secret in any form; call it on the whole text, before any cut. A mapping, list or tuple
+    with every string in it redacted, at any depth (#445): an event field can hold a structure. Anything else as it is."""
+    if isinstance(value, str):
+        return redact_forms(value, _FORMS)
+    if isinstance(value, Mapping):
+        return {redact(k): redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(redact(v) for v in value)
+    return value
 
 
 @contextmanager
@@ -82,7 +91,7 @@ class Op:
                  "duration_ms": round(duration * 1000, 1)}
         if exc is not None:
             event["error"] = f"{type(exc).__name__}: {exc}"
-        event = {k: redact(v) if not isinstance(v, list) else [redact(x) for x in v] for k, v in event.items()}
+        event = redact(event)
         if "stderr" in event and isinstance(event["stderr"], str):
             event["stderr"] = event["stderr"][-2000:]
         (log.info if outcome in ("ok", "skipped") else log.warning)("git_op", **event)

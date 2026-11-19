@@ -164,8 +164,9 @@ class HostGitProvider:
             except httpx.HTTPError as exc:
                 PLATFORM_REQUESTS.labels(self.name, operation, "error").inc()
                 op.outcome = "retry"
-                # An HTTP library's error can show the header it refused ("illegal header value b'...'").
-                raise GitUnavailable(self.redact(f"{operation}: {type(exc).__name__}: {exc}")) from exc
+                # An HTTP library's error can show the header it refused ("illegal header value b'...'"). Not chained: the
+                # worker logs traceback.format_exc(), which prints the cause's own, unredacted text (#444).
+                raise GitUnavailable(self.redact(f"{operation}: {type(exc).__name__}: {exc}")) from None
             PLATFORM_REQUESTS.labels(self.name, operation, f"{r.status_code // 100}xx").inc()
             op.set(http_status=r.status_code, host_request_id=r.headers.get("x-github-request-id") or r.headers.get("x-request-id"))
             if r.status_code >= 500 or r.status_code == 429:

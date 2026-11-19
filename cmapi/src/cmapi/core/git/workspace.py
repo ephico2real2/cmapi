@@ -10,6 +10,9 @@ docs/reviews/2026-11-15-issue-286):
     <workdir>/<cluster>/<requestId>      one git worktree per request, on branch cmapi/<cluster>/<requestId>
     <workdir>/.lock                      flock: one process owns the workdir
 
+The workdir is private to the process's UID: 0700, its .home 0700 and its .lock 0600, whatever the umask (#447). An emptyDir is
+made 0777 and owned by root, so an arbitrary UID cannot chmod it: then the workdir is <workdir>/.private-<uid> inside it.
+
 A request's branch: fetch origin main; worktree add -b <branch> <dir> <origin/main's sha> (never a local main, never git pull);
 the folder's files; one commit whose dates are the approval's, so the same plan on the same main gives the same sha on any
 replica (reproducible); a push of that branch alone with a lease. Nothing here pushes to the default branch: the PR merges on
@@ -22,7 +25,9 @@ operation of the process, and the sweeper takes it without waiting.
 from __future__ import annotations
 
 import fcntl
+import os
 import re
+import stat
 import shutil
 import subprocess
 import tempfile
@@ -75,6 +80,27 @@ def request_branch(cluster_id: str, request_id: str) -> str:
     return f"{BRANCH_PREFIX}{cluster_id}/{request_id}"
 
 
+def _private_root(workdir: Path) -> Path:
+    """The configured workdir made 0700, or, when this UID cannot chmod it (an emptyDir: 0777 and root's), its child
+    .private-<uid>: made by this UID, 0700, and refused when it is a symlink or another UID's (#447)."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        workdir.chmod(0o700)
+        return workdir
+    except PermissionError:
+        pass
+    private = workdir / f".private-{os.getuid()}"
+    try:
+        private.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    st = os.lstat(private)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+        raise GitConfigError(f"{private} is not a directory of this process's UID: it cannot hold the Git workdir")
+    private.chmod(0o700)
+    return private
+
+
 def _under(path: Path) -> int:
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file() and not p.is_symlink())
 
@@ -104,9 +130,9 @@ class GitWorkspace:
         if self._ca and not Path(self._ca).is_file():
             raise GitConfigError(f"the Git CA bundle {self._ca} is not a file")
         owned = workdir is None
-        self.root = Path(tempfile.mkdtemp(prefix="cmapi-git-")) if owned else Path(workdir)
-        self.root.mkdir(parents=True, exist_ok=True)
-        self._lockfile = open(self.root / ".lock", "w")
+        self.root = Path(tempfile.mkdtemp(prefix="cmapi-git-")) if owned else _private_root(Path(workdir))
+        self._lockfile = os.fdopen(os.open(self.root / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600), "w")
+        os.fchmod(self._lockfile.fileno(), 0o600)          # a lock file an earlier run made under another umask
         try:
             fcntl.flock(self._lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
@@ -114,7 +140,8 @@ class GitWorkspace:
             raise GitConfigError(f"{self.root} is the Git workdir of another process: each process has its own") from exc
         self.mirror = self.root / REPO
         self._home = self.root / ".home"
-        self._home.mkdir(exist_ok=True)
+        self._home.mkdir(mode=0o700, exist_ok=True)
+        self._home.chmod(0o700)
         self._lock = threading.RLock()
         self._env = git_environment(self.remote, self._creds, self._home, self._ca, self.author)
         self._tracking = f"refs/remotes/origin/{default_branch}"
