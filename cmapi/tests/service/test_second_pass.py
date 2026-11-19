@@ -577,6 +577,11 @@ def test_gitea_deletes_a_stale_branch_before_reopening():
             return httpx.Response(200, json=[])
         if req.method == "GET" and "/branches/" in p:
             return httpx.Response(200, json={"commit": {"id": "b" * 40}}) if exists["branch"] else httpx.Response(404, json={})
+        if req.method == "GET" and "/git/commits/" in p:
+            # This request's own earlier attempt, of another plan: replaced. A head that is not this request's is refused
+            # and never deleted (the arbitration of #286, row 3; tests/test_gitea_review.py).
+            return httpx.Response(200, json={"commit": {"message": "t\n\nCmapi-Request-Id: br\nCmapi-Plan-Hash: older\n"},
+                                             "parents": [{"sha": "a" * 40}]})
         if req.method == "DELETE":
             exists["branch"] = False
             return httpx.Response(204)
