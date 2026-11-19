@@ -88,6 +88,7 @@ class ClusterState:
     nodes: NodeCache | None = None
     token_expires_at: str | None = None
     trust: Trust | None = None                    # the mode of the last check that got past the parse; None before or after
+    status_since: datetime | None = None
 
     @property
     def environment(self) -> str | None:
@@ -108,7 +109,7 @@ class ClusterState:
         return {"clusterId": self.cluster_id, "environment": p.environment if p else "", "gitopsPath": p.gitops_path if p else "",
                 "writes": bool(p and p.writes), "status": self.status, "findings": list(self.findings),
                 "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at,
-                "trust": self.trust.view() if self.trust else None}
+                "statusSince": self.status_since, "trust": self.trust.view() if self.trust else None}
 
 
 def _size_problem(size: Any) -> str | None:
@@ -412,6 +413,8 @@ class ClusterRegistry:
                 st.cache, st.ledger, st.client = None, None, None
             st.status, st.findings, st.server_version = status, findings, version
             st.checked_at = datetime.now(timezone.utc)
+            if status != previous_status:
+                st.status_since = st.checked_at
             st.token_expires_at = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
@@ -484,6 +487,7 @@ class ClusterRegistry:
                 if cid not in seen and st.status != "not-imported":
                     previous_status = st.status
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
+                    st.status_since = datetime.now(timezone.utc)
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
                     self._log_mode(cid, self._set_trust(st, None), None)

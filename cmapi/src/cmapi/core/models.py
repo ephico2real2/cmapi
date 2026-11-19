@@ -773,6 +773,8 @@ class ClusterView(Api):
     server_version: str | None = Field(description="Kubernetes version seen", examples=["v1.35.6"])
     labels: dict[str, str] = Field(description="Metadata labels", examples=[{"region": "us-central"}])
     checked_at: datetime | None = Field(description="Last import check", examples=["2026-11-05T10:00:00Z"])
+    status_since: datetime | None = Field(default=None, description="When this registry first observed the current import status. "
+                                          "Null for a cluster that has never been imported.", examples=["2026-11-05T09:55:00Z"])
     trust: ClusterTrust | None = Field(default=None, description="The TLS mode of the last check; null when the import Secret was "
                                                                "refused before one was chosen, or there is none",
                                        examples=[{"source": "caData", "downgrade": False, "serverName": None}])
