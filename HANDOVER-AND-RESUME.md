@@ -1,10 +1,65 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-18. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-19. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-19, 03:30Z
+## Resume here: 2026-11-19, 17:30Z
+
+Read this, then the 03:30Z section below it. Sections 4 and 6 to 10 of 2026-11-16 still hold.
+
+| Item | State |
+|---|---|
+| `main` | `fcb49bb` (PR #464) |
+| CRC | Still runs `b8ee59e` (OB1 run 25). **Not deployed:** #443, #453, #455, #457 to #460, #462 to #464 |
+| kind | `KIND_CMAPI_TEST` (rnd), imported. **Token renew by 2026-11-24T17:30Z** (`deploy/kind-import/up.sh <cmapi-cluster-configs checkout>`) |
+| Podman VM | 4 CPU / 5 GiB (was 8 / 8; the owner chose "Shrink Podman VM" for the Mac's load) |
+| In flight | PR #465 (#396 + #397, mayday job i396, astra high): both rounds done, round 2's F1, F2 and F4 to F7 accepted, F3 refused (`tlsServerName` is public by the owner's D3 of #434). The coordinator's full service suite is running; then ready, merge on green CI |
+
+**How work ships now: /houston-mayday** (the owner, 2026-11-19: "use houston may day skills from diagram kit ... codex
+astra high and sol (for not complex task)", "Tag all work done with houston mayday with further fable review", "We are
+going to merge it and we will just review them later"):
+- Claude writes the mission heads (`workbench/cmapi/mayday/heads/<job>-r1.md`, `-r2.md`) and planted answers outside
+  the job folder (`workbench/cmapi/mayday-plants/`), builds each brief with `make_brief.py` and checks it with `brief_check.py --plants`.
+- `run-pair.sh` with `DRAFT_REPO=ephico2real2/cmapi`, `CODEX_MODEL=gpt-6.2-astra` (complex) or `gpt-6.1-sol` (simple), and `LABELS=review:fable`.
+  Round 1 builds and round 2 reviews adversarially; the result is a draft PR.
+- Opus (the coordinator) rules from `status.txt` and round 2's `verdicts.md`, checks each round against its plants, runs the
+  database and socket tests the sandbox cannot, rewrites the PR body (who wrote what, the ruling), marks it ready and merges on
+  green CI at the pinned head. The `review:fable` label marks the PR and issue for a later Fable review. It does not block the merge.
+
+**Merged today by /houston-mayday:**
+
+| Issue | PR | What | Ruling |
+|---|---|---|---|
+| #417 | #463 | The cluster status `environment-not-served` (never set) removed; a test checks that every listed status has a producer. The 422 problem code is unchanged | Round 2's F1 refused and reverted: its test started a nested pytest that exits on the shared test-database lock |
+| #456 | #462 | A cluster import finding is logged once when it appears and once when it clears; recovery at info; first import silent; serialized transitions | F1 to F3 accepted. CI then failed: the tests used `capture_logs()`, blind once structlog caches the logger (`cache_logger_on_first_use`, `core/observability.py:86`). `d351e5e` (Codex sol) replaces the registry's `log` instead |
+| #403 | #464 | `statusSince` on `GET /api/v1/clusters` (additive); Capacity and Policies date a disconnected cluster from it | F1, F2 accepted. CI then failed #393's test: F2 moved `read_quotas` off `quota_watch`, the `cache()` seam. `b3980fd` (Codex sol) restores main's lookup |
+
+**Also merged since run 25:** #443 (records), #453 (#424, Git clients' response bodies redacted), #455 (#421, a list without
+`items` no longer retires every cluster), #457 to #460 (the Codex review of Git delivery, #444 to #452).
+
+**Next, in order:**
+1. Merge #465 (#396, #397).
+2. Mayday jobs, one at a time, each `review:fable`: #398 (CRC's import token, astra), #407 (portal paged tabs, astra),
+   #429 and #244 (cluster-configs CI and render-on-change, astra).
+3. One CRC deploy of everything merged since `b8ee59e`: `down.sh` first, `up.sh` after (renews kind's token).
+4. Records after the deploy.
+5. Fable reviews of every `review:fable` PR, when the owner resumes Fable.
+
+**Waiting for the owner:**
+- the live Claude Docs of docs/01 and docs/02;
+- Kyverno audit → enforce, per environment.
+
+**Lessons recorded today:**
+- Run the **full** service suite (about 20 minutes, `suite.sh` with no file list) before pushing a mayday branch. Both CI
+  failures today were in tests outside the targeted set.
+- Test log events by replacing the module's `log`, never with `structlog.testing.capture_logs()`.
+- A test must not start a nested pytest: it takes the shared test-database lock (exit 75).
+- On this Mac, 6 `test_contract_report_337` tests fail because `workbench/cmapi/ob1-run/venv` has an old `cmapi-tools`
+  without `openapi render`. CI passes them. Refresh that venv before relying on a local full run.
+- Codex's sandbox cannot create `.git/index.lock` in a worktree. The coordinator commits its change unchanged and says so.
+
+## Resume here: 2026-11-19, 03:30Z (superseded by the section above)
 
 Read this, then the 2026-11-18 sections below it. Sections 4 and 6 to 10 of 2026-11-16 still hold.
 
