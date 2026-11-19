@@ -23,12 +23,16 @@ if args[:2] == ["create", "token"]:
     print(os.environ["ISSUED_TOKEN"])
     if os.environ.get("CLIENT_DIAGNOSTICS"):
         print(os.environ["ISSUED_TOKEN"], file=sys.stderr)
+    if os.environ.get("ISSUER_EXIT"):
+        sys.exit(1)
 elif args == ["get", "configmap", "kube-root-ca.crt", "-n", "cmapi-system", "-o", r"jsonpath={.data.ca\.crt}"]:
     print(os.environ["ISSUER_CA"], end="")
 elif args == ["get", "secret", "cmapi-reader-token", "-n", "cmapi-system", "-o", "json"]:
     print(json.dumps({"data": {"token": "bGVnYWN5", "ca.crt": "Y2E="}}))
 elif args[0] == "apply" and args[-2:] == ["-f", "-"]:
     document = json.load(sys.stdin)
+    if any(document["data"]["token"] in arg for arg in [*args, *os.environ.values()]):
+        sys.exit("encoded credential in client argv or environment")
     if os.environ.get("CLIENT_DIAGNOSTICS"):
         print(document["data"]["token"], file=sys.stderr)
         if os.environ["CLIENT_DIAGNOSTICS"] == "reject":
@@ -106,6 +110,8 @@ def test_sensitive_client_diagnostics_are_private(tmp_path, monkeypatch, outcome
     stage.mkdir()
     monkeypatch.setenv("TMPDIR", str(stage))
     monkeypatch.setenv("CLIENT_DIAGNOSTICS", outcome)
+    monkeypatch.setenv("SHELLOPTS", "allexport:xtrace")
+    monkeypatch.setenv("import_document", "inherited")
     now = int(time.time())
     if outcome == "reject":
         with pytest.raises(subprocess.CalledProcessError) as exc:
@@ -118,3 +124,14 @@ def test_sensitive_client_diagnostics_are_private(tmp_path, monkeypatch, outcome
     assert token not in output
     assert base64.b64encode(token.encode()).decode() not in output
     assert list(stage.iterdir()) == []
+
+def test_issuer_must_exit_successfully_before_any_apply(tmp_path, monkeypatch):
+    now = int(time.time())
+    previous, _, _ = import_crc(tmp_path, now - 10)
+    (tmp_path / "calls").write_text("")
+    monkeypatch.setenv("ISSUER_EXIT", "1")
+    with pytest.raises(subprocess.CalledProcessError):
+        import_crc(tmp_path, now)
+    assert json.loads((tmp_path / "applied").read_text()) == previous
+    calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
+    assert [args[0] for args in calls] == ["get", "create"]
