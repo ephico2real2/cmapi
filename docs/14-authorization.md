@@ -53,7 +53,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `requests:retry` | | | | | yes | yes | | | 2 |
 | `adoption:write` | | | | | yes | yes | | | 0 |
 | `reports:read` | | | | | yes | yes | | | 2 |
-| `operations:run` | | | | | yes | yes | | | 1 |
+| `operations:run` | | | | | yes | yes | | | 2 |
 | `namespaces:protect` | | | | | yes | yes | | | 0 |
 | `config:write` | | | | | | yes | | | 0 |
 | `clusters:onboard` | | | | | | yes | | | 0 |
@@ -97,7 +97,7 @@ Each route declares one permission. The OpenAPI document shows it as `x-cmapi-pe
 | `requests:reject` | `POST /api/v1/requests/{request_id}:reject` |
 | `requests:cancel` | `POST /api/v1/requests/{request_id}:cancel` |
 | `requests:retry` | `POST /api/v1/requests/{request_id}:retry`<br>`POST /api/v1/requests/{request_id}:revert` |
-| `operations:run` | `POST /api/v1/admin/prune:confirm` |
+| `operations:run` | `POST /api/v1/admin/prune:confirm`<br>`POST /api/v1/clusters/{id}:probe` |
 | `reports:read` | `GET /api/v1/admin/git-log`<br>`GET /api/v1/admin/kpi` |
 | `approvals:pause` | `POST /api/v1/admin/auto-approval:pause`<br>`POST /api/v1/admin/auto-approval:resume` |
 
