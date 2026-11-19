@@ -3,8 +3,11 @@ import base64
 import datetime
 import json
 import os
+import runpy
 import subprocess
 import time
+from contextlib import nullcontext
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -135,3 +138,36 @@ def test_issuer_must_exit_successfully_before_any_apply(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "applied").read_text()) == previous
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
     assert [args[0] for args in calls] == ["get", "create"]
+
+def test_kind_proof_bootstraps_its_reader_from_the_current_manifest(tmp_path, monkeypatch):
+    proof = ROOT / "docs/reviews/2026-11-17-issue-302-policies/evidence/kind/test_kind_proof_302.py"
+    run_proof = runpy.run_path(str(proof))["test_kind_proof"]
+    token = fixture_token(int(time.time()), 3600)
+    manifest = ROOT / "deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml"
+    calls = []
+
+    def kubectl(*args):
+        calls.append(args)
+        if args == ("apply", "--server-side", "-f", str(manifest)):
+            return ""
+        if list(args) == REQUEST:
+            return token + "\n"
+        pytest.fail(f"unexpected kind bootstrap call {args}")
+
+    class BootstrapComplete(Exception):
+        pass
+
+    def check_import():
+        assert registry.source.list()[0]["data"]["token"] == token
+        raise BootstrapComplete
+
+    registry = SimpleNamespace(refresh=check_import, _fingerprints={}, clusters={"CRC": SimpleNamespace()})
+    (tmp_path / "kubeconfig").write_text(json.dumps({"clusters": [{"cluster": {
+        "server": "https://test.invalid", "certificate-authority-data": "Y2E="}}]}))
+    world = (None, SimpleNamespace(registry=registry), None, None, None, None)
+    for name, value in {"WT": ROOT, "HERE": tmp_path, "kubectl": kubectl,
+                        "build_world": lambda *args: nullcontext(world)}.items():
+        monkeypatch.setitem(run_proof.__globals__, name, value)
+    with pytest.raises(BootstrapComplete):
+        run_proof(None, None, None, monkeypatch)
+    assert len(calls) == 2
