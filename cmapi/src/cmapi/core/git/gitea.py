@@ -66,11 +66,11 @@ class GiteaProvider(HostGitProvider):
                 return PushResult(existing.head_sha, base, "adopted")
             r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204,))
             if r.status_code != 204:
-                raise GitUnavailable(f"delete stale branch {branch}: {r.status_code} {r.text[:200]}")
+                raise GitUnavailable(f"delete stale branch {branch}: {r.status_code} {self.host_text(r, 200)}")
         r = self._call("create_branch", "POST", f"{self._repo()}/branches",
                        json={"new_branch_name": branch, "old_ref_name": base}, ok=(201,))
         if r.status_code != 201:
-            raise GitUnavailable(f"create branch {branch}: {r.status_code} {r.text[:200]}")
+            raise GitUnavailable(f"create branch {branch}: {r.status_code} {self.host_text(r, 200)}")
         current, _ = self.read_folder(req.folder, branch)
         ops = []
         for path, text in req.files.items():
@@ -88,7 +88,7 @@ class GiteaProvider(HostGitProvider):
                                  "author": {"name": self.BOT_NAME, "email": self.BOT_EMAIL},
                                  "committer": {"name": self.BOT_NAME, "email": self.BOT_EMAIL}}, ok=(200, 201))
             if r.status_code not in (200, 201):
-                raise GitUnavailable(f"commit on {branch}: {r.status_code} {r.text[:300]}")
+                raise GitUnavailable(f"commit on {branch}: {r.status_code} {self.host_text(r)}")
         head = self.branch_head(branch)
         return PushResult(head or base, base, "created")
 
@@ -101,7 +101,7 @@ class GiteaProvider(HostGitProvider):
             r = self._call("open_pr", "POST", f"{self._repo()}/pulls",
                            json={"head": branch, "base": self.default_branch, "title": title, "body": body}, ok=(201,))
             if r.status_code != 201:
-                raise GitUnavailable(f"open PR from {branch}: {r.status_code} {r.text[:300]}")
+                raise GitUnavailable(f"open PR from {branch}: {r.status_code} {self.host_text(r)}")
             existing = self._pr_ref(r.json())
         return existing
 
@@ -139,13 +139,13 @@ class GiteaProvider(HostGitProvider):
         if r.status_code == 404:      # not this repository's: a multi-source Application's other source, or a force-pushed commit
             return False
         if r.status_code != 200:
-            raise GitUnavailable(f"compare {revision[:8]}...{sha[:8]}: {r.status_code} {r.text[:200]}")
+            raise GitUnavailable(f"compare {revision[:8]}...{sha[:8]}: {r.status_code} {self.host_text(r, 200)}")
         return r.json().get("total_commits", 1) == 0
 
     def changed_paths(self, head: str) -> set[str]:
         r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
         if r.status_code != 200:
-            raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {r.text[:200]}")
+            raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {self.host_text(r, 200)}")
         return {f["filename"] for c in r.json().get("commits") or [] for f in c.get("files") or []}
 
     def _blob_sha(self, path: str, ref: str) -> str:
@@ -183,14 +183,14 @@ class GiteaProvider(HostGitProvider):
             body["target_url"] = target_url
         r = self._call("set_check", "POST", f"{self._repo()}/statuses/{sha}", json=body, ok=(201,))
         if r.status_code != 201:
-            raise GitUnavailable(f"status {context} on {sha[:8]}: {r.status_code} {r.text[:200]}")
+            raise GitUnavailable(f"status {context} on {sha[:8]}: {r.status_code} {self.host_text(r, 200)}")
 
     def merge(self, pr: PrRef, expected_head: str) -> str:
         r = self._call("merge", "POST", f"{self._repo()}/pulls/{pr.number}/merge",
                        json={"Do": "merge", "head_commit_id": expected_head, "delete_branch_after_merge": False,
                              "MergeTitleField": f"Merge {pr.branch}"}, ok=(200,))
         if r.status_code != 200:
-            raise GitUnavailable(f"merge PR {pr.number}: {r.status_code} {r.text[:300]}")
+            raise GitUnavailable(f"merge PR {pr.number}: {r.status_code} {self.host_text(r)}")
         p = self._call("pr_status", "GET", f"{self._repo()}/pulls/{pr.number}").json()
         return p.get("merge_commit_sha") or self.branch_head(self.default_branch) or ""
 

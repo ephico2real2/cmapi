@@ -6,7 +6,8 @@ base_sha, head_sha), its outcome and duration, and on a failure the Git exit cod
 status and message. A conflict adds the conflicted paths. Each event also counts in cmapi_git_operations_total{op,result}.
 
 No secret reaches a log line: every value the event carries passes through redact(), which removes each secret registered
-with register_secret() (the Git token, the platform token) wherever it appears.
+with register_secret() (the Git token, the platform token) wherever it appears, in each form core/clients/redact.py names:
+raw, JSON-escaped once or twice, as a bytes repr, and a trailing start of one (#424).
 """
 from __future__ import annotations
 
@@ -16,10 +17,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
 
+from cmapi.core.clients.redact import redact as redact_forms, secret_forms
 from cmapi.core.observability import GIT_DURATION, GIT_OPS, log
 
 _CONTEXT: ContextVar[dict[str, Any]] = ContextVar("cmapi_git_context", default={})
-_SECRETS: set[str] = set()
+_FORMS: tuple[str, ...] = ()                    # every form of every registered secret, longest first
 _SECRETS_LOCK = threading.Lock()
 # Present on every event, from git_context: the job (set by the worker) and the request (set by the job).
 CONTEXT_KEYS = ("request_id", "cluster", "namespace", "branch", "attempt", "job_id", "job_kind", "worker", "lease_generation",
@@ -28,17 +30,16 @@ CONTEXT_KEYS = ("request_id", "cluster", "namespace", "branch", "attempt", "job_
 
 def register_secret(value: str | None) -> None:
     """A value that must never be logged. Short values are refused: redacting a three-letter word would garble every line."""
-    if value and len(value) >= 8:
+    global _FORMS
+    forms = secret_forms(value)
+    if forms:
         with _SECRETS_LOCK:
-            _SECRETS.add(value)
+            _FORMS = tuple(sorted(set(_FORMS) | set(forms), key=len, reverse=True))
 
 
 def redact(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    for secret in _SECRETS:
-        value = value.replace(secret, "***")
-    return value
+    """A string without any registered secret in any form; call it on the whole text, before any cut. Anything else as it is."""
+    return redact_forms(value, _FORMS) if isinstance(value, str) else value
 
 
 @contextmanager

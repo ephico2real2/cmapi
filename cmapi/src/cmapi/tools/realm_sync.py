@@ -17,6 +17,10 @@ What it converges, each step idempotent:
 No client of the realm takes the resource owner password grant (RFC 9700, section 2.4; #181): before step 2 the
 sync turns it off on each client of an existing realm, and retires the local account bot-user independently of test-user creation.
 It also sets the attribute that makes Keycloak write the header `typ: at+jwt` on each client that gets a token for cmapi (#184).
+
+The Job's log holds Keycloak's answer when a call fails. Each credential the sync sends (the client secret, its access token,
+the LDAP bind password, the test users' passwords) is removed from that text in every form core/clients/redact.py names, before
+it is cut (#424): Keycloak, or a proxy in front of it, may echo the request.
 """
 from __future__ import annotations
 
@@ -25,10 +29,27 @@ import os
 import sys
 import time
 from typing import Any
+from urllib.parse import quote_plus
 
 import httpx
 
+from cmapi.core.clients.redact import redact_cut, secret_forms
+
 RFC9068_HEADER = "access.token.header.type.rfc9068"      # Keycloak's client attribute, OIDCConfigAttributes (26.6.4)
+_SENT: tuple[str, ...] = ()                               # every form of every credential this run sends, longest first
+
+
+def sends(value: str | None) -> None:
+    """A credential this sync puts in a request: never in the text it prints from an answer. A secret in a form body (the
+    client secret) is sent form-encoded (httpx's urlencode, quote_plus), so that spelling is one more form an echo can show."""
+    global _SENT
+    forms = {*secret_forms(value), *secret_forms(quote_plus(value or ""))}
+    _SENT = tuple(sorted({*_SENT, *forms}, key=len, reverse=True))
+
+
+def answer(r: httpx.Response, limit: int) -> str:
+    """Keycloak's answer as log text: every credential sent removed, then cut (#424)."""
+    return redact_cut(r.text, _SENT, limit)
 
 TEST_USERS = [  # username, first, middle, last, employeeId, groups
     ("ola", "Ola", "A", "Adeyemi", "1001", ["app-cmapi-rbac-requester"]),
@@ -43,6 +64,7 @@ class Realm:
         self.http = httpx.Client(timeout=30, verify=verify)
         self.client_id, self.secret = client_id, secret
         self._token: tuple[str, float] | None = None
+        sends(secret)
 
     def _bearer(self) -> str:
         if self._token and time.time() < self._token[1]:
@@ -50,16 +72,17 @@ class Realm:
         r = self.http.post(f"{self.base}/realms/{self.realm}/protocol/openid-connect/token",
                            data={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.secret})
         if r.status_code != 200:
-            sys.exit(f"cannot sign in as {self.client_id} in realm {self.realm}: {r.status_code} {r.text[:200]}")
+            sys.exit(f"cannot sign in as {self.client_id} in realm {self.realm}: {r.status_code} {answer(r, 200)}")
         body = r.json()
         self._token = (body["access_token"], time.time() + body.get("expires_in", 60) - 20)
+        sends(self._token[0])
         return self._token[0]
 
     def call(self, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204), **kw: Any) -> httpx.Response:
         r = self.http.request(method, f"{self.base}/admin/realms/{self.realm}{path}",
                               headers={"Authorization": f"Bearer {self._bearer()}"}, **kw)
         if r.status_code not in ok:
-            sys.exit(f"{method} {path}: {r.status_code} {r.text[:300]}")
+            sys.exit(f"{method} {path}: {r.status_code} {answer(r, 300)}")
         return r
 
     def get(self, path: str, **kw: Any) -> Any:
@@ -210,6 +233,7 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
         if cfg.get("requireSync"):
             sys.exit("LDAP federation is required here and its bind credential is absent")
         return
+    sends(bind_pw)
     realm_info = rm.get("")
     comps = rm.get("/components", params={"type": "org.keycloak.storage.UserStorageProvider"}) or []
     existing = next((c for c in comps if c["name"] == "ldap"), None)
@@ -266,11 +290,11 @@ def ldap(rm: Realm, cfg: dict[str, Any]) -> None:
         "preserve.group.inheritance": ["false"], "ignore.missing.groups": ["false"], "drop.non.existing.groups.during.sync": ["false"]})
     print(f"LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, {groups_filter}); users: {cfg.get('usersFilter', 'everyone in usersDn')}")
     r = rm.call("POST", f"/user-storage/{existing['id']}/sync", params={"action": "triggerFullSync"}, ok=(200, 400, 500))
-    print(f"LDAP full sync: {r.status_code} {r.text[:120]}")
+    print(f"LDAP full sync: {r.status_code} {answer(r, 120)}")
     # A deployment that needs federation says so (#96). The status alone is not enough: a directory Keycloak cannot reach answers
     # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none, and exactly expectUsers when that is set.
     if cfg.get("requireSync") and not _sync_read_someone(r, cfg.get("expectUsers")):
-        sys.exit(f"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {r.text[:120]}")
+        sys.exit(f"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {answer(r, 120)}")
 
 
 def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
@@ -288,6 +312,7 @@ def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
             print(f"user {username}: present")
         uid = found[0]["id"]
         if password:
+            sends(password)
             rm.call("PUT", f"/users/{uid}/reset-password", json={"type": "password", "value": password, "temporary": False})
         for g in memberships:
             if g in group_ids:
