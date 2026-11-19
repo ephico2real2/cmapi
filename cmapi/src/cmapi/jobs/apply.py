@@ -14,6 +14,10 @@ what succeeded.
 
 Also from sync_failed with no merge sha (a :retry of an apply that had not finished). Deletes merge first (the arbitration,
 row 4) and never come here.
+
+A person may merge the PR between the checks and this job, and delete its branch: the branch is then gone or behind main, and
+the merge check sees main already holding the plan. Each of those refusals reads the PR first, and a merged PR is adopted
+through the merge job's post-merge check, never failed (the arbitration, row 16; #448).
 """
 from __future__ import annotations
 
@@ -31,7 +35,7 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.render.manifests import folder
 from cmapi.core.sync import ApplyDelivery, confirmed_by_read
-from cmapi.jobs.delivery import APPLY_STARTED, apply_started, end_pr, mark_apply_started, mode_of, planned, request_context
+from cmapi.jobs.delivery import APPLY_STARTED, apply_started, end_pr, mark_apply_started, mode_of, planned, pr_of, request_context
 
 
 def apply(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -69,11 +73,15 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
     removed = {p: row.plan["prev"][p] for p, t in row.plan["files"].items() if t is None and p in (row.plan.get("prev") or {})}
     current = ctx.git.branch_head(row.pr["branch"])
     if current != head:
+        if _adopt_merged(ctx, repo, jobs, row, job):
+            return
         return _stop(ctx, repo, jobs, row, job, f"the PR head moved from {head[:8]} to {(current or 'nothing')[:8]}", started)
     if ctx.git.tree_files(head, where) != files:
         return _stop(ctx, repo, jobs, row, job, f"the branch's folder at {head[:8]} is not the approved plan", started)
     check = ctx.git.merge_check(head, where, row.plan.get("prev") or {}, row.plan["files"])
     if not check.ok:
+        if _adopt_merged(ctx, repo, jobs, row, job):
+            return
         MERGE_CONFLICTS.labels("apply").inc()
         why = check.reason(ctx.git.default_branch)
         repo.event(row, "merge_check", "worker", why[:300], {"caller": "apply", "main": check.main_sha, "head": head,
@@ -124,6 +132,18 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
     row.pr = {**row.pr, "applied_head": head}
     jobs.done(job)
     jobs.enqueue("merge", request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": head})
+
+
+def _adopt_merged(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> bool:
+    """A person merged the PR: adopted through the merge job's post-merge check (merged, then watch_sync applies from main), and
+    True. False while the PR is open or closed unmerged, and the caller's refusal stands."""
+    state = ctx.git.pr_status(pr_of(row))
+    if state.state != "merged":
+        return False
+    from cmapi.jobs.merge import _merged
+
+    _merged(ctx, repo, jobs, row, job, state.merge_sha or "", adopted=True)
+    return True
 
 
 def _wait(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str, started: bool) -> None:

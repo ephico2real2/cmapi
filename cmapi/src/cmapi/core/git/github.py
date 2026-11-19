@@ -223,6 +223,10 @@ class GitHubProvider(HostGitProvider):
         raise PlatformRefused(f"merge PR {pr.number}: {r.status_code} {message}", r.status_code, message)
 
     def comment(self, pr: PrRef, text: str) -> None:
+        """At most once per text: a retry after a lost answer finds the comment the host kept, and posts nothing (#451). A read
+        before the write, not a host idempotency key: two writers at the same moment could still both post."""
+        if any(c.get("body") == text for c in self._pages("pr_comments", f"{self._repo()}/issues/{pr.number}/comments", None)):
+            return
         r = self._call("pr_comment", "POST", f"{self._repo()}/issues/{pr.number}/comments", json={"body": text}, ok=(201,))
         if r.status_code != 201:
             raise PlatformRefused(f"comment on PR {pr.number}: {r.status_code}", r.status_code, self.host_text(r))

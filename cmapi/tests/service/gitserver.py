@@ -376,6 +376,8 @@ class StubGitHub:
             self._git("update-ref", "-d", f"refs/heads/{branch}")
             return httpx.Response(204)
         m = _re.fullmatch(r"/issues/(\d+)/comments", path)
+        if m and request.method == "GET":          # one page: the adapter reads before it comments (#451)
+            return httpx.Response(200, json=[{"body": text} for n, text in self.comments if n == int(m[1])])
         if m and request.method == "POST":
             self.comments.append((int(m[1]), body["body"]))
             return httpx.Response(201, json={"id": len(self.comments)})

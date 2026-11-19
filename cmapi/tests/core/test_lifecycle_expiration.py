@@ -45,7 +45,10 @@ def test_retry_and_sync_failed():
     t = transition(S.MERGED, E.SYNC_TIMEOUT)
     assert t.after == S.SYNC_FAILED and holds_lock(S.SYNC_FAILED) and t.releases_reservation
     # APPLIED: a :retry of an apply that had not finished, before any merge (#286)
-    assert set(allowed_events(S.SYNC_FAILED)) == {E.RETRY, E.SYNCED, E.REVERT, E.APPLIED}
+    assert set(allowed_events(S.SYNC_FAILED)) == {E.RETRY, E.SYNCED, E.REVERT, E.APPLIED, E.MERGED}
+    # MERGED: that :retry finds a person merged the PR, and adopts it with the lock still held (#448)
+    adopted = transition(S.SYNC_FAILED, E.MERGED)
+    assert adopted.after == S.MERGED and holds_lock(S.MERGED) and not adopted.releases_lock
 
 
 def test_a_prune_that_cannot_be_confirmed_ends_in_sync_failed():

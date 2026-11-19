@@ -57,12 +57,11 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
         return
     if status.state == "merged":
-        # A person merged it before any apply: adopted. In apply mode watch_sync then applies from main (Fable 1.1).
-        row.merge_sha = status.merge_sha
-        repo.move(row, E.MERGED, "cmapi-bot", f"merged {(status.merge_sha or '')[:8]} on the host")
-        jobs.done(job)
-        jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
-        jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
+        # A person merged it before any apply: adopted through the merge job's post-merge check (#449). In apply mode
+        # watch_sync then applies from main (Fable 1.1).
+        from cmapi.jobs.merge import _merged
+
+        _merged(ctx, repo, jobs, row, job, status.merge_sha or "", adopted=True)
         return
     # A context nobody has reported yet is pending: the workflow may not have started.
     ci = {c: status.checks.get(c, "pending") for c in CI_CONTEXTS} if ctx.git.external_ci else {}

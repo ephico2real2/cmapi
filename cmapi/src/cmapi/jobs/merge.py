@@ -132,22 +132,25 @@ def _reopen(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, pinned: str)
 
 
 def _merged(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, sha: str, adopted: bool) -> None:
-    """Fable 2.4: the folder at the merge sha must be the plan's. Then merged; after an apply also synced, since the read
-    already confirmed it; otherwise watch_sync."""
+    """Fable 2.4, a gate on every path that records a merge (this job, a hand merge pr_checks or apply finds): the folder at
+    the merge sha must be the plan's. Then merged; after an apply also synced, since the read already confirmed it; otherwise
+    watch_sync. A merge whose folder is not the plan's, or with no sha to read, is merged and then sync_failed, with the lock
+    held for an operator: nothing is applied from it and a delete never waits for a prune of it (#449)."""
     after_apply = row.status in AFTER_APPLY
     on_main = ctx.git.tree_files(sha, folder(row.cluster_id, row.namespace)) if sha else None
+    fulfilled = on_main == planned(row)
     row.merge_sha = sha or None
     how = "adopted: merged on the host" if adopted else "merged"
-    repo.event(row, "merge_verified", "worker", f"{how} {sha[:8]}; the folder at it {'is' if on_main == planned(row) else 'is not'} the plan's",
+    repo.event(row, "merge_verified", "worker", f"{how} {sha[:8]}; the folder at it {'is' if fulfilled else 'is not'} the plan's",
                {"merge_sha": sha, "adopted": adopted})
     repo.move(row, E.MERGED, "cmapi-bot", f"{how} {sha[:8]}")
-    if after_apply:
-        if on_main == planned(row):
-            repo.move(row, E.SYNCED, "cmapi-deliverer", "applied and confirmed by a read before the merge")
-            approval = "auto" if (row.requirement or {}).get("auto") else "human"
-            LEAD_TIME.labels(row.plugin, row.action, approval).observe((datetime.now(timezone.utc) - row.created_at).total_seconds())
-        else:
-            repo.move(row, E.SYNC_TIMEOUT, "worker", f"the folder at the merge {sha[:8]} is not the applied plan")
+    if not fulfilled:
+        why = f"the folder at the merge {sha[:8]} is not the approved plan" if sha else "the host gave no merge sha to check"
+        repo.move(row, E.SYNC_TIMEOUT, "worker", why)
+    elif after_apply:
+        repo.move(row, E.SYNCED, "cmapi-deliverer", "applied and confirmed by a read before the merge")
+        approval = "auto" if (row.requirement or {}).get("auto") else "human"
+        LEAD_TIME.labels(row.plugin, row.action, approval).observe((datetime.now(timezone.utc) - row.created_at).total_seconds())
     else:
         jobs.enqueue("watch_sync", request_id=row.request_id, cluster_id=row.cluster_id)
     ctx.git.cleanup(row.cluster_id, row.request_id)

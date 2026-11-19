@@ -494,7 +494,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
   "            employee_id=claims.get(\"employee_id\"),"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|123-123": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|939-939": [

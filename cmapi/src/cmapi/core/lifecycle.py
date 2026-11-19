@@ -78,6 +78,7 @@ _T: dict[tuple[State | None, Event], State] = {
     (S.MERGE_FAILED, E.MERGED): S.MERGED,
     (S.MERGE_FAILED, E.RETRY): S.MERGE_FAILED,    # the merge job again, pinned to the applied head; never a rollback
     (S.SYNC_FAILED, E.APPLIED): S.APPLIED,        # a :retry of an apply that had not finished (merge_sha null)
+    (S.SYNC_FAILED, E.MERGED): S.MERGED,          # that :retry finds a person merged the PR: adopted (#448)
     (S.MERGED, E.SYNCED): S.SYNCED,
     (S.MERGED, E.PRUNE_PENDING): S.AWAITING_PRUNE,
     (S.MERGED, E.SYNC_TIMEOUT): S.SYNC_FAILED,
