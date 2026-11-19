@@ -63,6 +63,8 @@ AUTO_PAUSED = Gauge("cmapi_auto_approval_paused", "1 when the kill switch is on"
 POLICY_MODE = Gauge("cmapi_policy_mode", "1 for the policy mode of each served environment (instance.yaml policy, #213)",
                     ["environment", "mode"])
 CLUSTER_STATUS = Gauge("cmapi_cluster_status", "1 for the cluster's current import status", ["cluster_id", "status"])
+CLUSTER_TLS_INSECURE = Gauge("cmapi_cluster_tls_insecure", "1 while the cluster is read with TLS verification off: its import "
+                             "Secret says insecure and instance.clusterTLS allows its environment (#434)", ["cluster_id"])
 CLUSTER_CALLS = Counter("cmapi_cluster_api_calls_total", "Cluster API calls", ["cluster_id", "result"])
 OPEN_REQUEST_AGE = Gauge("cmapi_open_change_requests_oldest_age_seconds", "Age of the oldest open request", ["status", "environment"])
 CONFIG_INFO = Gauge("cmapi_config_info", "Hash of the loaded configuration", ["hash"])

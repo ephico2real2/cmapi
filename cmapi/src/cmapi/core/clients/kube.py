@@ -1,6 +1,7 @@
 """The Kubernetes API client and the watch cache (docs/01, "Reads are live").
 
-KubeClient speaks to one cluster's API over HTTPS with that cluster's imported token and CA.
+KubeClient speaks to one cluster's API over HTTPS with that cluster's imported token, verified in the cluster's trust mode
+(core/clients/trust.py, #434).
 Every call is counted in cmapi_cluster_api_calls_total. It is used for reads through cmapi-reader
 and, by the worker's delivery job only, for server-side apply with the deliverer identity.
 
@@ -12,6 +13,7 @@ reached keeps its rows, marked stale with the time of the last good read.
 from __future__ import annotations
 
 import json
+import ssl
 import threading
 import time
 from dataclasses import dataclass, field
@@ -20,6 +22,7 @@ from typing import Any, Callable, Iterator, Mapping
 import httpx
 
 from cmapi.core.clients.redact import redact, secret_forms
+from cmapi.core.clients.trust import Trust, file_context, trusted_context
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_CALLS, log
 
@@ -72,13 +75,36 @@ class BadResponse(ValueError):
 
 
 class KubeClient:
-    def __init__(self, cluster_id: str, api_url: str, token: str, ca_file: str | None = None, *,
+    def __init__(self, cluster_id: str, api_url: str, token: str, trust: Trust | str | None = None, *,
                  insecure: bool = False, timeout: float = 10.0):
+        """`trust` is the cluster's mode from its import Secret (core/clients/trust.py), the path of a PEM file that alone is
+        trusted (a ServiceAccount's ca.crt), or None: the trusted mode, the system store and CMAPI_TRUSTED_CA_FILE. Never httpx's
+        `verify=True`, which is certifi or whatever SSL_CERT_FILE names (#434). The context is built here, so a caData that is no
+        certificate raises ssl.SSLError from the constructor (#419)."""
         self.cluster_id, self.api_url = cluster_id, api_url.rstrip("/")
         self._forms = secret_forms(token)            # what `redact` removes from every error this client builds (#420)
-        verify: bool | str = False if insecure else (ca_file or True)
-        self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout,
+        server_name = trust.server_name if isinstance(trust, Trust) else None
+        verify: ssl.SSLContext | bool
+        if insecure or (isinstance(trust, Trust) and trust.source == "insecure"):
+            verify = False
+        elif isinstance(trust, Trust):
+            verify = trust.verify()
+        elif trust:
+            verify = file_context(trust)
+        else:
+            verify = trusted_context()
+        hooks = {"request": [self._name_server(server_name)]} if server_name else {}
+        self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout, event_hooks=hooks,
                                     headers={"Authorization": f"Bearer {token}"})
+
+    @staticmethod
+    def _name_server(name: str) -> Callable[[httpx.Request], None]:
+        """kubeconfig's tls-server-name: the name sent in SNI and checked against the certificate, for a cluster reached by an
+        address its certificate does not name. It is RFC 9525's reference identity, from the import and never from the server;
+        httpcore takes the request extension `sni_hostname` as the TLS server_hostname, on every request and stream."""
+        def hook(request: httpx.Request) -> None:
+            request.extensions["sni_hostname"] = name
+        return hook
 
     def close(self) -> None:
         self._client.close()

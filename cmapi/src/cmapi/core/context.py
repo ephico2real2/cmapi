@@ -116,7 +116,10 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
         elif settings.kube_token_file.exists():
             import_source = HubImportSource(settings.kube_api_url, settings.kube_token_file, settings.kube_ca_file,
                                             settings.imports_namespace)
-    registry = ClusterRegistry(policies, import_source, trusted_bundle=str(settings.ca_bundle) if settings.ca_bundle else None,
+    # Cluster trust (#434): the system store and CMAPI_TRUSTED_CA_FILE, or caData, or insecure where clusterTLS allows it.
+    # CMAPI_CA_BUNDLE is Keycloak's trust (and Git's default) and no longer a cluster's.
+    registry = ClusterRegistry(policies, import_source, trusted_ca_file=settings.trusted_ca_file,
+                               insecure_environments=cfg.cluster_tls.insecure_environments,
                                start_caches=start_registry, reports_factory=reports_for,
                                # Only the API reads allocatable (GET /api/v1/capacity): the worker opens no Node watch.
                                nodes_factory=nodes_for if settings.component == "api" else None)

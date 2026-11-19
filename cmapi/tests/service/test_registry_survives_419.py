@@ -149,12 +149,18 @@ def test_ca_data_that_is_base64_but_no_certificate_is_invalid_ca_data():
     assert reg.clusters["GOOD"].status == "connected"
 
 
-def test_a_hub_bundle_that_cannot_be_read_names_the_trust_store(tmp_path: Path):
+def test_a_trusted_bundle_that_cannot_be_read_names_the_trust_store(tmp_path: Path):
+    """Was the hub bundle (CMAPI_CA_BUNDLE), which #434 took out of cluster trust (the owner's D4). The same fault is now a
+    bundle of CMAPI_TRUSTED_CA_FILE that is there and does not load; one that is not there is skipped, because OpenShift fills
+    the injected bundle after the pod starts (test_cluster_trust_434.py)."""
+    bad = tmp_path / "operator-ca.crt"
+    bad.write_text("-----BEGIN CERTIFICATE-----\naGVsbG8gd29ybGQ=\n-----END CERTIFICATE-----\n")
     reg = registry({"HUB": good}, [secret("HUB")])
-    reg.trusted_bundle = str(tmp_path / "missing.crt")
+    reg.trusted_ca_file = str(bad)
     reg.refresh()
     assert reg.clusters["HUB"].status == "cert-verify-failed"
-    assert reg.clusters["HUB"].findings[0].endswith("; trust store: the hub bundle")
+    assert str(bad) in reg.clusters["HUB"].findings[0]
+    assert reg.clusters["HUB"].findings[0].endswith("; trust store: trusted (the system store and CMAPI_TRUSTED_CA_FILE)")
 
 
 def test_a_secret_value_that_is_not_utf8_is_a_finding_on_that_cluster_only(tmp_path: Path):
