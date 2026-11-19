@@ -439,8 +439,8 @@ class PolicyCluster(Api):
                                            "`mode-off` (the environment's mode is off); `engine-off` (policy.engine is none)",
                                examples=["ok"])
     state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
-    as_of: datetime | None = Field(description="The last good read of the reports, or for `unreachable` and `not-imported` "
-                                               "the last check of the cluster: null when none was made",
+    as_of: datetime | None = Field(description="The last good read of the reports. For `unreachable` and `not-imported`, "
+                                               "when the registry observed the current import status, or null if never imported.",
                                    examples=["2026-11-17T18:02:11Z"])
     bundle: PolicyBundleView | None = Field(description="The bundle on the cluster against the render. Null when the policies "
                                                         "are not read", examples=[None])
@@ -624,8 +624,9 @@ class CapacityCluster(Api):
                                              "the figures are the last ones read); `no-size` (no `simulatedCapacity`, and the "
                                              "nodes' allocatable is not known)", examples=["ok"])
     state_detail: str | None = Field(description="Why, in words; null when the state is ok", examples=[None])
-    as_of: datetime | None = Field(description="The last good read of the figures, to the minute; for `unreachable` and "
-                                               "`not-imported`, the last check of the cluster: null when none was made",
+    as_of: datetime | None = Field(description="The last good read of the figures, to the minute. For `unreachable` and "
+                                               "`not-imported`, the minute the registry observed the current import status, "
+                                               "or null if never imported.",
                                    examples=["2026-11-18T09:14:00Z"])
     basis: Literal["simulated", "allocatable"] | None = Field(
         description="The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity` (what "
@@ -673,7 +674,8 @@ class CapacityExcluded(Api):
     reason: str = Field(description="Its state (`stale`, `not-imported`, `unreachable`, `loading`, `forbidden`, `no-size`), or "
                                     "`not-writable`",
                         examples=["stale"])
-    as_of: datetime | None = Field(description="Its last good read, to the minute", examples=["2026-11-18T08:30:00Z"])
+    as_of: datetime | None = Field(description="The excluded cluster's Capacity asOf value, to the minute",
+                                   examples=["2026-11-18T08:30:00Z"])
 
 
 class CapacityStatusCounts(Api):

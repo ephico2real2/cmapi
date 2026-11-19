@@ -111,7 +111,7 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
     if mode == "off":
         return unknown("mode-off", f"the mode of {env} is off: no policy is rendered for it and no report is read")
     if st.status != "connected":
-        return unknown(*st.not_connected(), st.checked_at)
+        return unknown(*st.not_connected(), st.status_since)
     # Each cache once: the registry clears or replaces them (`_stop_caches`, `_set`) while this view is built, and a second
     # read would be None, a 500, or another cache than the one checked (#402).
     reports, cache = st.reports, st.cache

@@ -114,7 +114,7 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
     # The committed quota, behind the plan's own gates.
     totals, as_of = None, None
     if st.status != "connected":
-        (state, detail), as_of = st.not_connected(), st.checked_at
+        (state, detail), as_of = st.not_connected(), st.status_since
     else:
         read = read_quotas(c.registry, st.cluster_id)
         state, detail, totals, as_of = read.state, read.detail, read.totals, read.last_good
