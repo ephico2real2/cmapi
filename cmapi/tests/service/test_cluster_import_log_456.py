@@ -4,10 +4,44 @@ Real KubeClients over MockTransport and a fake import source; no cluster or data
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import httpx
-from structlog.testing import capture_logs
+import pytest
 
 from test_registry_survives_419 import good, registry, secret
+
+
+class RegistryLogRecorder:
+    def __init__(self):
+        self.events = []
+
+    def info(self, event, **kw):
+        self.events.append({"event": event, "log_level": "info", **kw})
+
+    def warning(self, event, **kw):
+        self.events.append({"event": event, "log_level": "warning", **kw})
+
+    def error(self, event, **kw):
+        self.events.append({"event": event, "log_level": "error", **kw})
+
+    def debug(self, event, **kw):
+        self.events.append({"event": event, "log_level": "debug", **kw})
+
+    exception = error
+
+
+@pytest.fixture
+def capture_registry_logs(monkeypatch):
+    """Record the registry directly, even after app setup has cached structlog's logger."""
+    @contextmanager
+    def capture():
+        recorder = RegistryLogRecorder()
+        with monkeypatch.context() as patch:
+            patch.setattr("cmapi.core.registry.log", recorder)
+            yield recorder.events
+
+    return capture
 
 
 def refusing(request: httpx.Request) -> httpx.Response:
@@ -18,10 +52,10 @@ def import_events(events):
     return [event for event in events if event["event"] == "cluster_import"]
 
 
-def test_three_unreachable_relists_log_once():
+def test_three_unreachable_relists_log_once(capture_registry_logs):
     reg = registry({"TEST": refusing}, [secret("TEST")])
     try:
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             for _ in range(3):
                 reg.refresh()
         found = import_events(events)
@@ -35,14 +69,14 @@ def test_three_unreachable_relists_log_once():
         reg.stop()
 
 
-def test_recovery_logs_once_at_info_with_previous_status():
+def test_recovery_logs_once_at_info_with_previous_status(capture_registry_logs):
     handlers = {"TEST": refusing}
     reg = registry(handlers, [secret("TEST")])
     try:
         for _ in range(3):
             reg.refresh()
         handlers["TEST"] = good
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             reg.refresh()
             reg.refresh()
         assert import_events(events) == [{
@@ -54,14 +88,14 @@ def test_recovery_logs_once_at_info_with_previous_status():
         reg.stop()
 
 
-def test_changed_findings_while_unreachable_log_once_more():
+def test_changed_findings_while_unreachable_log_once_more(capture_registry_logs):
     def timed_out(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("Connection timed out", request=request)
 
     handlers = {"TEST": refusing}
     reg = registry(handlers, [secret("TEST")])
     try:
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             reg.refresh()
             reg.refresh()
             handlers["TEST"] = timed_out

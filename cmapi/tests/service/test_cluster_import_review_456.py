@@ -3,9 +3,8 @@ import json
 
 import httpx
 import pytest
-from structlog.testing import capture_logs
 
-from test_cluster_import_log_456 import import_events, refusing
+from test_cluster_import_log_456 import capture_registry_logs, import_events, refusing
 from test_cluster_token_client_420 import BODIES, ODD, leaked
 from test_registry_survives_419 import good, html_proxy, registry, secret
 
@@ -15,10 +14,10 @@ from test_registry_survives_419 import good, html_proxy, registry, secret
     ("invalid-secret", good, {"apiUrl": "https://[::1:6443"}),
     ("bad-response", html_proxy, {}),
 ])
-def test_unchanged_problem_relists_emit_once(status, handler, data):
+def test_unchanged_problem_relists_emit_once(status, handler, data, capture_registry_logs):
     reg = registry({"TEST": handler}, [secret("TEST", **data)])
     try:
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             for _ in range(4):
                 reg.refresh()
         found = import_events(events)
@@ -31,14 +30,14 @@ def test_unchanged_problem_relists_emit_once(status, handler, data):
 
 @pytest.mark.parametrize("shape", list(BODIES))
 @pytest.mark.parametrize("status", [401, 500])
-def test_echo_is_redacted_in_problem_and_recovery_events(shape, status):
+def test_echo_is_redacted_in_problem_and_recovery_events(shape, status, capture_registry_logs):
     def echo(request):
         return httpx.Response(status, text=BODIES[shape](request.headers["authorization"], ODD))
 
     handlers = {"TEST": echo}
     reg = registry(handlers, [secret("TEST", token=ODD)])
     try:
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             reg.refresh()
             reg.refresh()
             handlers["TEST"] = good
@@ -56,7 +55,7 @@ def test_echo_is_redacted_in_problem_and_recovery_events(shape, status):
         reg.stop()
 
 
-def test_registry_generated_finding_is_redacted_before_comparison():
+def test_registry_generated_finding_is_redacted_before_comparison(capture_registry_logs):
     def identity(request):
         if request.url.path.endswith("/users/~"):
             return httpx.Response(200, json={"metadata": {"name": ODD}})
@@ -65,7 +64,7 @@ def test_registry_generated_finding_is_redacted_before_comparison():
     handlers = {"TEST": identity}
     reg = registry(handlers, [secret("TEST", token=ODD)])
     try:
-        with capture_logs() as events:
+        with capture_registry_logs() as events:
             reg.refresh()
             reg.refresh()
             handlers["TEST"] = good
