@@ -212,6 +212,36 @@ def test_probe_redacts_remote_fields_before_publishing_diagnostics(capture_regis
         reg.stop()
 
 
+@pytest.mark.parametrize("overlap", ["t", "caData", "invalid"])
+def test_probe_preserves_fixed_wording_and_redacts_private_imports(overlap, capture_registry_logs):
+    from test_cluster_token_client_420 import ODD, go_escape
+
+    item = secret("ONE", token="t", caData="not base64 at all!", overlap=overlap,
+                  note="fixture-private-import-note")
+    reg = registry({"ONE": good}, [item])
+    try:
+        with capture_registry_logs() as events:
+            reg.refresh()
+        row = reg.get("ONE").view()
+        assert row["status"] == "invalid-secret"
+        assert row["findings"] == ["invalid caData"]
+        assert row["findingDetails"][0]["fix"] == "Configure one permitted TLS mode with a valid trust source."
+        assert import_events(events)[0]["findings"] == row["findings"]
+
+        # The minimum length must preserve fixed words without exempting real private values from diagnostics.
+        item["data"]["token"] = ODD
+        echo = " ".join((go_escape(ODD), item["data"]["caData"], item["data"]["note"]))
+        with capture_registry_logs() as events:
+            reg._set(reg.get("ONE"), "bad-response", ["invalid caData: " + echo], echo, item)
+        row = reg.get("ONE").view()
+        assert row["findings"] == ["invalid caData: *** *** ***"]
+        assert row["findingDetails"][0]["finding"] == row["findings"][0]
+        assert row["serverVersion"] == "*** *** ***"
+        assert import_events(events)[0]["findings"] == row["findings"]
+    finally:
+        reg.stop()
+
+
 def test_http_client_log_does_not_publish_the_probe_target(monkeypatch):
     import io
     import logging

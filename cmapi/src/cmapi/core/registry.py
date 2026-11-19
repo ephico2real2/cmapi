@@ -144,11 +144,11 @@ class ClusterState:
 
 
 def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
-    # The TLS mode and server name are public trust metadata. Other import values can appear in remote echoes or errors.
+    # TLS mode and server name are public. Use #420's minimum length so short imports cannot garble fixed wording.
     forms: set[str] = set()
     for key, value in secret.get("data", {}).items():
         if isinstance(value, str) and value and key not in {"insecure", "tlsServerName"}:
-            forms.update(secret_forms(value) or (value,))
+            forms.update(secret_forms(value))
     return tuple(sorted(forms, key=len, reverse=True))
 
 
