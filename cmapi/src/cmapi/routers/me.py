@@ -34,7 +34,7 @@ def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
 def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every cluster from clusters.yaml and every imported one, with its import status and the findings
     of the six checks. A cluster with a policy entry but no import Secret shows not-imported."""
-    return {"items": [st.view() for st in c.registry.clusters.values()]}
+    return {"items": [st.view() for st in c.registry.snapshots()]}
 
 
 @functools.lru_cache(maxsize=4)

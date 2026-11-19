@@ -29,6 +29,7 @@ import re
 import ssl
 import threading
 import time
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -526,6 +527,15 @@ class ClusterRegistry:
         if st is None:
             raise Problem(404, "cluster-not-found", f"Unknown cluster {cluster_id}")
         return st
+
+    def snapshot(self, cluster_id: str) -> ClusterState:
+        with self._lock:
+            return copy(self.get(cluster_id))
+
+    def snapshots(self) -> list[ClusterState]:
+        """Copy the import fields and watch references together. The watches retain their own locks."""
+        with self._lock:
+            return [copy(st) for st in self.clusters.values()]
 
     def writable(self, cluster_id: str) -> ClusterState:
         st = self.get(cluster_id)

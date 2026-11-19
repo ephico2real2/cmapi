@@ -2,7 +2,7 @@
 
 Every figure comes from what the API process already watches, never from a call at request time (docs/01, "Reads are live"):
 - the committed quota from each cluster's quota ledger (core/capacity_ledger.py), behind the gates of the plan's own check
-  (`read_quotas`, core/capacity_backend.py);
+  (`read_snapshot_quotas`, core/capacity_backend.py);
 - the nodes' allocatable, zones and counts from each cluster's node watch (core/clients/nodes.py);
 - the size and the targets from clusters.yaml and capacity.yaml.
 The arithmetic is core/capacity.py's, the one a plan is judged by.
@@ -26,7 +26,7 @@ from fastapi import Depends, Query, Request, Response
 
 from cmapi import __version__
 from cmapi.core.capacity import NOT_MEASURED, RESOURCES, bound_by, group_figures, resource_figures, worst
-from cmapi.core.capacity_backend import read_quotas
+from cmapi.core.capacity_backend import read_snapshot_quotas
 from cmapi.core.context import AppContext
 from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
@@ -116,7 +116,7 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
     if st.status != "connected":
         (state, detail), as_of = st.not_connected(), st.status_since
     else:
-        read = read_quotas(c.registry, st.cluster_id)
+        read = read_snapshot_quotas(st)
         state, detail, totals, as_of = read.state, read.detail, read.totals, read.last_good
         if state in ("ok", "stale") and basis is None:
             if view["nodesState"] == "loading":
@@ -199,7 +199,7 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
             raise Problem(404, "cluster-not-found", f"Unknown cluster {cluster_id}")
     in_scope: dict[str, ClusterState] = {}
     hidden = 0
-    for st in sorted(c.registry.clusters.values(), key=lambda s: s.cluster_id):
+    for st in sorted(c.registry.snapshots(), key=lambda s: s.cluster_id):
         cenv = st.environment
         if cenv is None:
             continue                                     # no clusters.yaml entry: no environment to scope it by

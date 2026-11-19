@@ -203,7 +203,7 @@ def results(cluster_id: ClusterFilter = None, env: EnvFilter = None, namespace: 
     if not wanted or any(v not in LISTED for v in wanted):
         raise Problem.unprocessable("validation-failed", f"result is a comma-separated list of {list(LISTED)}, not {result!r}")
     clusters, rows, per_policy, scoped_envs = [], [], {}, set()
-    for st in sorted(c.registry.clusters.values(), key=lambda s: s.cluster_id):
+    for st in sorted(c.registry.snapshots(), key=lambda s: s.cluster_id):
         cenv = st.environment
         if cenv is None or not c.cfg.roles.allowed(who, "objects:read", cenv):
             continue
