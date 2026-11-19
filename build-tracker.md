@@ -19,7 +19,18 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-19, 17:30Z
+## Current: 2026-11-19, 18:00Z (stopped by the owner)
+
+`main` is `3db1fa8`. CRC still runs `b8ee59e`. Nothing is running.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Cluster diagnostics, token-expiry metric, `POST /clusters/{id}:probe` | #396, #397 | **PR #465 ready, not merged** (head `2e5b2f5`); CI was pending when stopped | Mayday astra; round 2: 6 fixes accepted, F3 refused; 2 faults from the coordinator's full suite fixed (`68132a7`, `2e5b2f5`); full suite 1711 passed, 6 local-venv failures |
+| CRC's own import token: TokenRequest and annotations | #398 | Briefed (i398), not started | None |
+
+The rest of the 17:30Z section below holds.
+
+## Previous: 2026-11-19, 17:30Z
 
 `main` is `fcb49bb`. CRC still runs `b8ee59e` (run 25); the merges below are not deployed. kind's token: renew before
 2026-11-24T17:30Z. Work ships through /houston-mayday (Codex builds and reviews, Opus rules), labelled `review:fable`.
@@ -37,7 +48,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 
 **Open, next:** #398, #407, #429, #244 (mayday), then one CRC deploy. Also open: #410, #418, #413 leftovers.
 
-## Previous: 2026-11-19, 03:30Z
+## Earlier: 2026-11-19, 03:30Z
 
 `main` is `b8ee59e`. CRC runs `b8ee59e` (OB1 run 25), proven live. kind (`KIND_CMAPI_TEST`, rnd) is imported with
 Kyverno and the rnd bundle. **kind's token expires 2026-11-26T03:06:53Z: rerun `deploy/kind-import/up.sh <cluster-configs

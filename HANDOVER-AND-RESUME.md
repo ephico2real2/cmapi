@@ -4,7 +4,49 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-19, 17:30Z
+## Resume here: 2026-11-19, 18:00Z (stopped by the owner)
+
+The owner stopped work at 17:56Z ("Stop current job and do an handover and resume docs"). Read this, then the 17:30Z
+section below it, which still holds for how work ships (/houston-mayday) and today's lessons.
+
+| Item | State |
+|---|---|
+| `main` | `3db1fa8` (PR #466, records) |
+| CRC | Still runs `b8ee59e` (OB1 run 25). **Not deployed:** #443, #453, #455, #457 to #460, #462 to #464, #466 |
+| kind | `KIND_CMAPI_TEST` (rnd), imported. **Token renew by 2026-11-24T17:30Z** (`deploy/kind-import/up.sh <cmapi-cluster-configs checkout>`) |
+| Running | Nothing. The merge waiter of #465 was stopped; no Codex job, no test suite, no deploy is running |
+
+**Stopped mid-way: PR #465 (#396, #397), head `2e5b2f5`, ready for review, labelled `review:fable`, NOT merged.**
+- Ruled: round 2's F1, F2 and F4 to F7 accepted; F3 refused (`tlsServerName` is public by the owner's D3 of #434).
+- The coordinator's full service suite found two faults; Codex sol fixed both, and the coordinator accepted them:
+  `68132a7` (F2 masked raw import values below #420's 8-character minimum, so a 1-character test token turned
+  `invalid caData` into `invalid caDa***a`) and `2e5b2f5` (the probe operation added to `MOCKUP-CONTRACT.md` and the
+  portal-architecture README).
+- Full service suite at `2e5b2f5` on this Mac: **1711 passed, 6 failed**. The 6 are `test_contract_report_337`, which fail
+  only here (the `workbench/cmapi/ob1-run/venv` has an old `cmapi-tools` without `openapi render`); CI passes them.
+- CI on `2e5b2f5` was running when work stopped (api-contract and portal-mockup passed; the rest pending).
+- **To resume:** check `gh pr checks 465`. If every check passed and the head is still `2e5b2f5`, merge it
+  (`gh pr merge 465 --merge`), then close #397 by hand if GitHub closed only #396 (it closes only the first `Closes` line).
+  If `portal-ui` failed, re-run it once (known flake #347/#410); any other failure goes back to a mayday fix job.
+
+**Briefed, not started: mayday job i398 (#398, CRC's own import token never expires).**
+- Briefs pass `brief_check`: `workbench/cmapi/mayday/i398-r1/brief.md` and `i398-r2/brief.md`; plants in `workbench/cmapi/mayday-plants/i398-r*.md`. #398 has `review:fable`.
+- Round 1 moves `deploy/crc-reader-import.sh` to a TokenRequest token with both annotations, removes the legacy
+  `cmapi-reader-token` Secret if nothing reads it, and records the renewal path. No cluster access in the job; the CRC
+  deploy applies it later.
+- **To start** (after #465 merges, from an updated `main`): rebuild both briefs with `make_brief.py`, then
+  `DRAFT_REPO=ephico2real2/cmapi CODEX_MODEL=gpt-6.2-astra LABELS=review:fable run-pair.sh workbench/cmapi/mayday i398 high high <cmapi-design> cmapi fix/398-crc-import-token main`.
+
+**Next after that, in order:** mayday #407 (portal paged tabs), #429 and #244 (cluster-configs CI); then one CRC deploy
+of everything merged since `b8ee59e` (`down.sh` first, `up.sh` after, which renews kind's token); then records.
+
+**Housekeeping for a quiet moment:** `git worktree list` shows 76 worktrees under `workbench/cmapi/`, most for merged
+branches. Prune by the Border rules (merged, no open PR, checked just before removal, logged with the SHA).
+
+**Waiting for the owner:** the live Claude Docs of docs/01 and docs/02; Kyverno audit → enforce, per environment; Fable
+reviews of every `review:fable` PR (#462, #463, #464, #465) when Fable resumes.
+
+## Resume here: 2026-11-19, 17:30Z (superseded by the section above)
 
 Read this, then the 03:30Z section below it. Sections 4 and 6 to 10 of 2026-11-16 still hold.
 
