@@ -403,6 +403,8 @@ class ClusterRegistry:
         forms = secret_forms((secret.get("data") or {}).get("token"))
         findings = [redact(f, forms) for f in findings]
         with self._lock:
+            previous_status = st.status
+            changed = (previous_status, st.findings) != (status, findings)
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)
                 st.cache, st.ledger, st.client = None, None, None
@@ -414,8 +416,9 @@ class ClusterRegistry:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
             previous = self._set_trust(st, trust)
         self._log_mode(st.cluster_id, previous, trust)
-        if status != "connected":
-            log.warning("cluster_import", cluster_id=st.cluster_id, status=status, findings=findings)
+        if changed:
+            emit = log.info if status == "connected" else log.warning
+            emit("cluster_import", cluster_id=st.cluster_id, status=status, previous=previous_status, findings=findings)
         return st
 
     @staticmethod
