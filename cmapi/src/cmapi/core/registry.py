@@ -262,8 +262,8 @@ class ClusterRegistry:
         self._fingerprints: dict[str, str] = {}
 
     # ---- the six checks
-    def _check(self, cluster_id: str, secret: Mapping[str, Any]) -> ClusterState:
-        st = self.clusters.get(cluster_id) or ClusterState(cluster_id, None)
+    def _check(self, st: ClusterState, secret: Mapping[str, Any]) -> ClusterState:
+        cluster_id = st.cluster_id
         d = secret["data"]
         undecodable = secret.get("undecodable") or []
         findings: list[str] = [f"field {k} is not base64 of UTF-8 text" for k in undecodable]
@@ -330,7 +330,6 @@ class ClusterRegistry:
             status, found, version = self._probe(client, trust)
             if status != "connected":
                 return self._set(st, status, found, version, secret, trust)
-            st = self._set(st, "connected", [], version, secret, trust)
             # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
             # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
@@ -350,7 +349,8 @@ class ClusterRegistry:
                         st.nodes.start()
                 self._fingerprints[cluster_id] = fp
                 adopted = True
-            return st
+            # Cache setup can still fail after the probe. Publish only the completed check.
+            return self._set(st, "connected", [], version, secret, trust)
         finally:
             if not adopted:
                 # A fault after the caches took it (a factory that raises) reaches the net in `refresh`, whose `_set`
@@ -470,17 +470,16 @@ class ClusterRegistry:
                 by_id.setdefault(cid, []).append(s)
         for cid, items in by_id.items():
             seen.add(cid)
+            st = self.clusters.get(cid) or ClusterState(cid, None)
             if len(items) > 1:
-                st = self.clusters.get(cid) or ClusterState(cid, None)
                 self._set(st, "invalid-secret", [f"duplicate cluster ID in {[i['name'] for i in items]}"], None, items[0])
                 continue
             try:
-                self._check(cid, items[0])
+                self._check(st, items[0])
             except Exception as exc:                                # noqa: BLE001 - one cluster never stops the rest (#419)
                 # `_check` makes each answer of the cluster a status; this is what it did not foresee (a full disk for the
                 # caData file, a fault of a cache factory). The log has the trace; the finding names the error.
                 log.exception("cluster_check_failed", cluster_id=cid)
-                st = self.clusters.get(cid) or ClusterState(cid, None)
                 self._set(st, "unreachable", [f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"], None, items[0])
         with self._lock:
             for cid, st in self.clusters.items():

@@ -29,7 +29,7 @@ class Reader:
 def check(ca_data):
     policy = ClusterPolicy(cluster_id="CRC", environment="dev", gitops_path="clusters/CRC", writes=False)
     registry = ClusterRegistry({"CRC": policy}, None, client_factory=Reader, start_caches=False)
-    return registry._check("CRC", {"data": {"apiUrl": "https://kubernetes.default.svc", "token": "t", "caData": ca_data}, "annotations": {}})
+    return registry._check(registry.get("CRC"), {"data": {"apiUrl": "https://kubernetes.default.svc", "token": "t", "caData": ca_data}, "annotations": {}})
 
 
 def pem(size):

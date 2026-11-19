@@ -7,6 +7,7 @@ from cmapi.core import registry
 from cmapi.core.clients.kube import ClusterUnreachable
 from conftest import build_world
 from test_not_imported_404 import views
+from test_registry_survives_419 import good, registry as make_registry, secret
 
 START = datetime(2026, 11, 19, 9, 0, tzinfo=timezone.utc)
 RELIST = timedelta(minutes=5)
@@ -76,3 +77,35 @@ def test_retirement_dates_the_missing_import_and_preserves_last_check(test_confi
         assert datetime.fromisoformat(listed["statusSince"]) == retired
         assert datetime.fromisoformat(cap["asOf"]) == retired.replace(second=0)
         assert datetime.fromisoformat(pol["asOf"]) == retired
+
+
+@pytest.mark.parametrize("configured", [True, False])
+def test_repeated_cache_setup_failures_keep_the_first_failure(clock, configured):
+    closed = []
+    reg = make_registry({"TEST": good}, [secret("TEST")], closed)
+    if not configured:
+        reg.clusters.clear()
+        reg.policies.clear()
+
+    def broken_nodes(st, client):
+        raise RuntimeError("node cache unavailable")
+
+    reg.nodes_factory = broken_nodes
+    try:
+        reg.refresh()
+        first = reg.get("TEST").status_since
+        assert first == START
+        clock.at += RELIST
+        reg.refresh()
+        st = reg.get("TEST")
+        assert st.status == "unreachable" and st.checked_at == clock.at
+        assert st.status_since == first
+        assert st.cache is st.client is None and closed == ["TEST", "TEST"]
+
+        reg.nodes_factory = None
+        clock.at += RELIST
+        reg.refresh()
+        assert st.status == "connected" and st.status_since == clock.at
+        assert st.cache is not None and st.client is not None
+    finally:
+        reg.stop()
