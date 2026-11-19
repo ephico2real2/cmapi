@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2015  # ok and bad here never fail, so A && ok || bad is if-then-else
-# deploy/tests/kind-import-test.sh [<deploy dir>]: deploy/kind-import/{up,down}.sh on stubs of kind, kubectl, oc, ifconfig, curl and
-# openssl's s_client, for each thing they claim they stop on, and for what they must never do: the token on an argument list or in the
-# output, a delete that does not name one object, a write after a moved address. No cluster.
+# deploy/tests/kind-import-test.sh [<deploy dir>]: deploy/kind-import/{up,down,kyverno}.sh on stubs of kind, kubectl, helm, oc, ifconfig,
+# curl and openssl's s_client, for each thing they claim they stop on, and for what they must never do: the token on an argument list or
+# in the output, a delete that does not name one object, a write after a moved address, a Kyverno or bundle call that is not kind's
+# (#430), a bundle applied after a failed install or a refused dry run. No cluster.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc ($(tail -3 "$W/out" | tr '\n' ' '))"; fi; }
 mkdir -p "$W/bin" "$W/repo/deploy"; cp -R "$SRC/kind-import" "$W/repo/deploy/"; D=$W/repo/deploy/kind-import
+[ -d "$SRC/kyverno" ] && cp -R "$SRC/kyverno" "$W/repo/deploy/"
+# A checkout of cmapi-cluster-configs with the rnd bundle committed: three files and the index, which is not a Kubernetes object.
+B=$W/ccfg/policies/env/rnd; mkdir -p "$B"
+for f in metadata quota limits; do printf 'apiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\nmetadata: {name: cmapi-%s-rnd-x}\n' "$f" >"$B/cmapi-$f-rnd.yaml"; done
+echo '{}' >"$B/index.json"
+git -C "$W/ccfg" init -q && git -C "$W/ccfg" add -A && git -C "$W/ccfg" -c user.name=t -c user.email=t@example.invalid commit -qm bundle
+CCFG=$W/ccfg; CCFG_COMMIT=$(git -C "$CCFG" rev-parse HEAD)
 REAL_OPENSSL=$(command -v openssl); REAL_PYTHON3=$(command -v python3)
 # A JWT shaped as kubectl create token prints it; every part of it is the secret.
 IAT=1794964470; EXP=$((IAT + 604800))
@@ -37,9 +45,24 @@ case "$s" in
   "config current-context") echo "${STUB_CONTEXT:-kind-cmapi-test}"; exit 0;;
   "config view --raw --minify -o jsonpath={.clusters[0].cluster.certificate-authority-data}") base64 <"$STUB_CA" | tr -d '\n'; exit 0;;
   "apply --server-side --field-manager=cmapi-baseline -f "*/reader.yaml) exit 0;;
+  "config view --minify -o jsonpath={.clusters[0].cluster.server}") echo "${STUB_KIND_API:-https://192.168.86.110:16443}"; exit 0;;
+  "wait --for=condition=Established --timeout=60s crd/validatingpolicies.policies.kyverno.io") exit 0;;
+  "apply --server-side --field-manager=cmapi-policies --dry-run=server -f "*) [ -n "${STUB_DRYRUN_FAIL:-}" ] && { echo "admission webhook denied the request" >&2; exit 1; }; exit 0;;
+  "apply --server-side --field-manager=cmapi-policies -f "*) exit 0;;
+  "wait --for=jsonpath={.status.conditionStatus.ready}=true --timeout=120s -f "*) [ -n "${STUB_NOT_READY:-}" ] && { echo "timed out waiting for the condition" >&2; exit 1; }; exit 0;;
+  "get -f "*" -o name") for i in $(seq 31); do echo "validatingpolicy.policies.kyverno.io/p$i"; done; exit 0;;
   "create token cmapi-reader -n cmapi-system --duration=168h") [ -n "${STUB_TOKEN_FAIL:-}" ] && { echo "error: serviceaccounts not found" >&2; exit 1; }; printf '%s\n' "$TOKEN"; exit 0;;
 esac
 echo "stub kubectl: unhandled $s" >&2; exit 3
+S
+stub helm <<'S'
+#!/usr/bin/env bash
+printf 'helm %s\n' "$*" >>"$ARGV_LOG"
+# helm's HELM_KUBE* variables override --kubeconfig and --kube-context: record any that reached it.
+env | grep -E '^HELM_KUBE' | sed 's/^/helm-env /' >>"$ARGV_LOG"
+[ -n "${STUB_HELM_FAIL:-}" ] && { echo "Error: UPGRADE FAILED: context deadline exceeded" >&2; exit 1; }
+case "$*" in "--kubeconfig "*" --kube-context kind-cmapi-test upgrade --install kyverno kyverno "*) exit 0;; esac
+echo "stub helm: unhandled $*" >&2; exit 3
 S
 stub oc <<'S'
 #!/usr/bin/env bash
@@ -78,11 +101,13 @@ S
 export PATH="$W/bin:$PATH"
 run() { : >"$ARGV_LOG"; rm -f "$ARGV_LOG.applied"; "$@" >"$W/out" 2>&1; echo $?; }
 no_secret() { if grep -qF -e "$TOKEN" -e "stub-signature-never-to-be-seen" "$ARGV_LOG" "$W/out"; then bad "$1: the token is on an argument list or in the output"; else ok "$1: the token is on no argument list and not in the output"; fi; }
-wrote_nothing() { if grep -qE '^(oc apply|oc delete|kind create|kind delete|kubectl .*(apply|create token))' "$ARGV_LOG"; then bad "$1: it wrote first: $(grep -E '^(oc apply|oc delete|kind create|kind delete|kubectl )' "$ARGV_LOG" | head -2 | tr '\n' ' ')"; else ok "$1: and wrote nothing"; fi; }
+wrote_nothing() { if grep -qE '^(oc apply|oc delete|kind create|kind delete|kubectl .*(apply|create token)|helm )' "$ARGV_LOG"; then bad "$1: it wrote first: $(grep -E '^(oc apply|oc delete|kind create|kind delete|kubectl .*(apply|create token)|helm )' "$ARGV_LOG" | head -2 | tr '\n' ' ')"; else ok "$1: and wrote nothing"; fi; }
+no_bundle() { if grep -qE -- '--field-manager=cmapi-policies( -f |$)' "$ARGV_LOG"; then bad "$1: the bundle was applied"; else ok "$1: and no policy applied"; fi; }
+no_import() { [ -s "$ARGV_LOG.applied" ] && bad "$1: the import Secret was written" || ok "$1: and no import Secret written"; }
 says() { grep -qF -- "$2" "$W/out" && ok "$1: says \"$2\"" || bad "$1: the message does not say \"$2\": $(tr '\n' ' ' <"$W/out")"; }
 
 echo "up.sh"
-want "a new cluster" 0 "$(run "$D/up.sh")"; no_secret "a new cluster"
+want "a new cluster" 0 "$(run "$D/up.sh" "$CCFG")"; no_secret "a new cluster"
 grep -qxF "kind create cluster --config $D/kind-cmapi-test.yaml --kubeconfig $W/kc --wait 180s" "$ARGV_LOG" && ok "created from kind-cmapi-test.yaml" || bad "the create: $(grep '^kind create' "$ARGV_LOG")"
 python3 - "$ARGV_LOG.applied" "$TOKEN" "$STUB_CA" "$EXP" <<'PY' && ok "the import Secret is docs/02's contract" || bad "the import Secret"
 import base64, datetime, json, sys
@@ -94,27 +119,74 @@ assert m["annotations"] == {"cmapi.net/managed-by": "cluster-baseline", "cmapi.n
 assert v == {"apiUrl": "https://192.168.86.110:16443", "token": sys.argv[2], "caData": open(sys.argv[3]).read(), "insecure": "false"}, v
 PY
 grep -qE '^curl .*--cacert .* https://192\.168\.86\.110:16443/version$' "$ARGV_LOG" && ok "kind's CA verifies the API before the import" || bad "no verified /version"
-want "an existing cluster is reused and its token rewritten" 0 "$(STUB_KIND_CLUSTERS=$'other\ncmapi-test' run "$D/up.sh")"; no_secret "a rerun"
+want "an existing cluster is reused and its token rewritten" 0 "$(STUB_KIND_CLUSTERS=$'other\ncmapi-test' run "$D/up.sh" "$CCFG")"; no_secret "a rerun"
 if grep -q '^kind create' "$ARGV_LOG"; then bad "it created again"; else ok "and not created again"; fi
 [ -s "$ARGV_LOG.applied" ] && ok "and the Secret written again (the rotation)" || bad "no Secret on a rerun"
-want "a moved DHCP lease stops" 1 "$(STUB_ADDR=192.168.86.57 run "$D/up.sh")"; says "a moved lease" "no longer holds 192.168.86.110"; wrote_nothing "a moved lease"
-want "a served certificate for another address stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/other-ip.pem run "$D/up.sh")"; says "another address" "does not name 192.168.86.110"; wrote_nothing "another address"
-want "a served certificate without host.crc.testing stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/no-crc.pem run "$D/up.sh")"; wrote_nothing "no host.crc.testing"
-want "no API server answering stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_NO_SERVER=1 run "$D/up.sh")"; wrote_nothing "no API server"
-want "an oc that is not CRC's stops" 1 "$(STUB_SERVER=https://api.other.example:6443 run "$D/up.sh")"; wrote_nothing "not CRC"
-want "a CA that does not verify the API stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_CURL_RC=60 run "$D/up.sh")"; wrote_nothing "an unverified API"
-want "a failed TokenRequest stops" 1 "$(STUB_TOKEN_FAIL=1 run "$D/up.sh")"
+want "a moved DHCP lease stops" 1 "$(STUB_ADDR=192.168.86.57 run "$D/up.sh" "$CCFG")"; says "a moved lease" "no longer holds 192.168.86.110"; wrote_nothing "a moved lease"
+want "a served certificate for another address stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/other-ip.pem run "$D/up.sh" "$CCFG")"; says "another address" "does not name 192.168.86.110"; wrote_nothing "another address"
+want "a served certificate without host.crc.testing stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/no-crc.pem run "$D/up.sh" "$CCFG")"; wrote_nothing "no host.crc.testing"
+want "no API server answering stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_NO_SERVER=1 run "$D/up.sh" "$CCFG")"; wrote_nothing "no API server"
+want "an oc that is not CRC's stops" 1 "$(STUB_SERVER=https://api.other.example:6443 run "$D/up.sh" "$CCFG")"; wrote_nothing "not CRC"
+want "a CA that does not verify the API stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_CURL_RC=60 run "$D/up.sh" "$CCFG")"; wrote_nothing "an unverified API"
+want "a failed TokenRequest stops" 1 "$(STUB_TOKEN_FAIL=1 run "$D/up.sh" "$CCFG")"
 [ -s "$ARGV_LOG.applied" ] && bad "and a Secret was applied without a token" || ok "and no Secret is applied"
 want "an argument is refused" 2 "$(run "$D/up.sh" --force)"
-want "macOS's LibreSSL openssl (no -ext) still reads the served names" 0 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test run "$D/up.sh")"
-want "and still stops on a certificate for another address" 1 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/other-ip.pem run "$D/up.sh")"; says "LibreSSL, another address" "does not name 192.168.86.110"
+want "macOS's LibreSSL openssl (no -ext) still reads the served names" 0 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test run "$D/up.sh" "$CCFG")"
+want "and still stops on a certificate for another address" 1 "$(STUB_LIBRESSL=1 STUB_KIND_CLUSTERS=cmapi-test STUB_SERVED=$W/other-ip.pem run "$D/up.sh" "$CCFG")"; says "LibreSSL, another address" "does not name 192.168.86.110"
 # Whole names: on 192.168.86.11 a certificate for 192.168.86.110 must not pass.
 cp -R "$D" "$W/k11"; sed -i.bak 's/192\.168\.86\.110/192.168.86.11/g' "$W/k11/kind-cmapi-test.yaml" "$W/k11/pf-cmapi-kind.conf"
-want "a certificate for a longer address does not pass" 1 "$(STUB_ADDR=192.168.86.11 STUB_KIND_CLUSTERS=cmapi-test run "$W/k11/up.sh")"; wrote_nothing "a longer address"
+want "a certificate for a longer address does not pass" 1 "$(STUB_ADDR=192.168.86.11 STUB_KIND_CLUSTERS=cmapi-test run "$W/k11/up.sh" "$CCFG")"; wrote_nothing "a longer address"
 cp -R "$D" "$W/kpf"; sed -i.bak 's/192\.168\.86\.110/192.168.86.111/' "$W/kpf/pf-cmapi-kind.conf"
-want "a pf anchor for another address stops" 1 "$(run "$W/kpf/up.sh")"; says "the pf anchor" "does not drop"; wrote_nothing "the pf anchor"
+want "a pf anchor for another address stops" 1 "$(run "$W/kpf/up.sh" "$CCFG")"; says "the pf anchor" "does not drop"; wrote_nothing "the pf anchor"
 cp -R "$D" "$W/ksan"; sed -i.bak 's/certSANs: \[localhost, 127.0.0.1, 192.168.86.110, host.crc.testing\]/certSANs: [localhost, 127.0.0.1, host.crc.testing]/' "$W/ksan/kind-cmapi-test.yaml"
-want "certSANs without the address stop" 1 "$(run "$W/ksan/up.sh")"; wrote_nothing "certSANs"
+want "certSANs without the address stop" 1 "$(run "$W/ksan/up.sh" "$CCFG")"; wrote_nothing "certSANs"
+
+echo "Kyverno and the rnd bundle on kind (#430)"
+want "up.sh with the bundle" 0 "$(run "$D/up.sh" "$CCFG")"; no_secret "with the bundle"
+k=$(grep -c '^kubectl ' "$ARGV_LOG"); notkind=$(grep '^kubectl ' "$ARGV_LOG" | grep -vF "kubectl --kubeconfig=$W/kc ")
+[ "$k" -gt 0 ] && [ -z "$notkind" ] && ok "each of its $k kubectl calls names kind's kubeconfig" || bad "a kubectl call without kind's kubeconfig: $notkind"
+want_helm="helm --kubeconfig $W/kc --kube-context kind-cmapi-test upgrade --install kyverno kyverno --repo https://kyverno.github.io/kyverno/ --version 3.10.0 -n kyverno --create-namespace -f $D/../kyverno/kind-values.yaml --wait --timeout 8m"
+[ "$(grep '^helm ' "$ARGV_LOG")" = "$want_helm" ] && ok "one helm call: chart 3.10.0 with kind-values.yaml, kind's kubeconfig and context" || bad "the helm calls: $(grep '^helm ' "$ARGV_LOG")"
+[ -f "$D/../kyverno/kind-values.yaml" ] && ok "and deploy/kyverno/kind-values.yaml is there" || bad "no deploy/kyverno/kind-values.yaml"
+files="-f $B/cmapi-metadata-rnd.yaml -f $B/cmapi-quota-rnd.yaml -f $B/cmapi-limits-rnd.yaml"
+grep -qxF "kubectl --kubeconfig=$W/kc apply --server-side --field-manager=cmapi-policies --dry-run=server $files" "$ARGV_LOG" && ok "the server dry run names the three files" || bad "the dry run: $(grep -- '--dry-run=server' "$ARGV_LOG")"
+grep -qxF "kubectl --kubeconfig=$W/kc apply --server-side --field-manager=cmapi-policies $files" "$ARGV_LOG" && ok "the apply names the three files, not index.json or the folder" || bad "the apply: $(grep -- '--field-manager=cmapi-policies -f' "$ARGV_LOG")"
+# The order: the reader, Kyverno, the dry run, the apply, the readiness, then the import's token.
+order=$(awk -v kc="kubectl --kubeconfig=$W/kc " '
+  index($0, kc "apply --server-side --field-manager=cmapi-baseline") == 1 { print "reader" }
+  /^helm / { print "helm" }
+  index($0, kc "apply --server-side --field-manager=cmapi-policies --dry-run=server") == 1 { print "dryrun"; next }
+  index($0, kc "apply --server-side --field-manager=cmapi-policies -f") == 1 { print "apply" }
+  index($0, kc "wait --for=jsonpath=") == 1 { print "ready" }
+  index($0, kc "create token") == 1 { print "token" }' "$ARGV_LOG" | tr '\n' ' ')
+[ "$order" = "reader helm dryrun apply ready token " ] && ok "in order: reader, helm, dry run, apply, ready, token" || bad "the order: $order"
+says "the commit" "at commit $CCFG_COMMIT"; says "the count" "31 policies of rnd applied and ready"
+want "a failed Kyverno install stops" 1 "$(STUB_HELM_FAIL=1 run "$D/up.sh" "$CCFG")"; says "a failed install" "the Kyverno install failed"; no_bundle "a failed install"; no_import "a failed install"
+if grep -q -- '--dry-run=server' "$ARGV_LOG"; then bad "a failed install: the dry run ran"; else ok "a failed install: and no dry run"; fi
+want "a refused server dry run stops" 1 "$(STUB_DRYRUN_FAIL=1 run "$D/up.sh" "$CCFG")"; says "a refused dry run" "nothing was applied"; no_bundle "a refused dry run"; no_import "a refused dry run"
+want "a policy not ready stops" 1 "$(STUB_NOT_READY=1 run "$D/up.sh" "$CCFG")"; says "not ready" "is not ready"; no_import "not ready"
+want "a kubeconfig that talks to CRC stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_KIND_API=https://api.crc.testing:6443 run "$D/up.sh" "$CCFG")"; says "CRC's server" "not kind's https://192.168.86.110:16443"; wrote_nothing "CRC's server"
+want "a kubeconfig of another context stops" 1 "$(STUB_KIND_CLUSTERS=cmapi-test STUB_CONTEXT=crc-admin run "$D/up.sh" "$CCFG")"; wrote_nothing "another context"
+want "no checkout is refused" 2 "$(run "$D/up.sh")"; wrote_nothing "no checkout"
+want "two arguments are refused" 2 "$(run "$D/up.sh" "$CCFG" "$CCFG")"; wrote_nothing "two arguments"
+mkdir -p "$W/empty"; git -C "$W/empty" init -q; git -C "$W/empty" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m none
+want "a checkout without the rnd files stops" 1 "$(run "$D/up.sh" "$W/empty")"; says "no rnd files" "no cmapi-metadata-rnd.yaml"; wrote_nothing "no rnd files"
+mkdir -p "$W/plain/policies/env/rnd"; cp "$B"/*.yaml "$W/plain/policies/env/rnd/"
+want "files that are no commit stop" 1 "$(run "$D/up.sh" "$W/plain")"; says "no commit" "is not a git checkout"; wrote_nothing "no commit"
+cp -R "$CCFG" "$W/dirty"; echo '# local edit' >>"$W/dirty/policies/env/rnd/cmapi-quota-rnd.yaml"
+want "a changed policies/env/rnd stops" 1 "$(run "$D/up.sh" "$W/dirty")"; says "a working copy" "apply a commit, not a working copy"; wrote_nothing "a working copy"
+want "kyverno.sh alone, after a bundle change" 0 "$(STUB_KIND_CLUSTERS=cmapi-test run "$D/kyverno.sh" "$CCFG")"
+if grep -q '^oc ' "$ARGV_LOG"; then bad "kyverno.sh called oc: $(grep '^oc ' "$ARGV_LOG" | head -2 | tr '\n' ' ')"; else ok "and nothing of it goes to CRC (no oc call)"; fi
+# helm reads HELM_KUBEAPISERVER, HELM_KUBETOKEN, HELM_KUBECAFILE and the rest over its flags (measured on helm 4.3.1: the server
+# named by HELM_KUBEAPISERVER is dialled despite --kubeconfig and --kube-context), so an inherited one must never reach it.
+want "kyverno.sh with CRC's HELM_KUBE* in the environment" 0 "$(HELM_KUBEAPISERVER=https://api.crc.testing:6443 HELM_KUBETOKEN=crc-token HELM_KUBECAFILE=/dev/null HELM_KUBEINSECURE_SKIP_TLS_VERIFY=true HELM_KUBETLS_SERVER_NAME=api.crc.testing HELM_KUBEASUSER=kubeadmin HELM_KUBEASGROUPS=system:masters HELM_KUBECONTEXT=crc-admin STUB_KIND_CLUSTERS=cmapi-test run "$D/kyverno.sh" "$CCFG")"
+if grep -q '^helm-env ' "$ARGV_LOG"; then bad "helm inherited $(grep '^helm-env ' "$ARGV_LOG" | cut -d' ' -f2 | cut -d= -f1 | tr '\n' ' ')"; else ok "and helm inherits none of them"; fi
+want "kyverno.sh with no checkout is refused" 2 "$(run "$D/kyverno.sh")"; wrote_nothing "kyverno.sh, no checkout"
+want "kyverno.sh on CRC's kubeconfig stops" 1 "$(STUB_KIND_API=https://api.crc.testing:6443 run "$D/kyverno.sh" "$CCFG")"; wrote_nothing "kyverno.sh on CRC's"
+# The bundle is the environment of KIND_CMAPI_TEST in the registry: rnd on both sides, or the tab reads it off its bundle.
+reg=$(awk '/^  KIND_CMAPI_TEST:/ { f = 1; next } f && /^  [^ ]/ { exit } f && $1 == "environment:" { print $2; exit }' "$SRC/environments/crc.yaml")
+env=$(awk -F= '$1 == "ENVIRONMENT" { print $2 }' "$D/common.sh")
+[ -n "$reg" ] && [ "$reg" = "$env" ] && ok "kind's bundle is its registry environment ($env)" || bad "deploy/environments/crc.yaml has KIND_CMAPI_TEST in '$reg', common.sh applies '$env'"
 
 echo "down.sh"
 want "deletes the Secret, then the cluster" 0 "$(STUB_KIND_CLUSTERS=$'other\ncmapi-test' run "$D/down.sh")"

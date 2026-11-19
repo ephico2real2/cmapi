@@ -1,0 +1,31 @@
+# Kyverno v1.20.0 (chart 3.10.0) on the kind cluster cmapi-test (KIND_CMAPI_TEST, environment rnd), for cmapi's rnd bundle in
+# audit mode (#430). deploy/kind-import/kyverno.sh installs it. The choices of crc-values.yaml, for the same reasons (docs/13
+# "Kyverno"), less OpenShift's: kind is plain Kubernetes, so the chart's own securityContext (runAsUser 65534) stays.
+
+config:
+  webhooks:
+    # Only namespaces labelled cmapi.net/managed=true, and the resources inside them, as on CRC.
+    namespaceSelector:
+      matchExpressions:
+        - key: cmapi.net/managed
+          operator: In
+          values: ["true"]
+
+features:
+  # Fail open: if Kyverno is down, no request on the cluster is refused. cmapi's own checks still refuse (#342).
+  forceFailurePolicyIgnore:
+    enabled: true
+
+# The bundle has no generate or mutate-existing rules, and uses no cleanup policies. Off: kind shares the Mac with CRC (#157).
+backgroundController:
+  enabled: false
+cleanupController:
+  enabled: false
+
+# CRC's measurement under cmapi's 31 dev policies: 96 Mi at the first background scan, against the chart's 128 Mi limit (#428, #432).
+reportsController:
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi

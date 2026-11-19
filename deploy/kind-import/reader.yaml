@@ -30,10 +30,10 @@ rules:
   - apiGroups: [""]                      # the owner's grant of 2026-11-18: the import check's zones, capacity
     resources: [nodes]
     verbs: [get, list, watch]
-  - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, for the Policies tab (#302); Kyverno is not on this cluster
+  - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, for the Policies tab (#302); kyverno.sh installs Kyverno here (#430)
     resources: [policyreports, clusterpolicyreports]
     verbs: [get, list, watch]
-  - apiGroups: [policies.kyverno.io]
+  - apiGroups: [policies.kyverno.io]     # the bundle on the cluster: each policy's digest, actions and readiness (#302)
     resources: [validatingpolicies]
     verbs: [get, list, watch]
 ---

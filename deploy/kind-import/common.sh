@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# deploy/kind-import/common.sh: sourced by up.sh and down.sh, never run. The names, the address of kind-cmapi-test.yaml, and the checks
-# both scripts make before they touch anything. Every kubectl call names --kubeconfig; every oc call goes to CRC, which check_hub proves.
-# shellcheck disable=SC2034  # the names are read by up.sh and down.sh, which source this file
+# deploy/kind-import/common.sh: sourced by up.sh, down.sh and kyverno.sh, never run. The names, the address of kind-cmapi-test.yaml, and the
+# checks the scripts make before they touch anything. Every kubectl call names --kubeconfig, every helm call --kubeconfig and
+# --kube-context, both kind's (check_kind_target proves it); every oc call goes to CRC, which check_hub proves.
+# shellcheck disable=SC2034  # the names are read by up.sh, down.sh and kyverno.sh, which source this file
 # Executable like every script under deploy/ (#86), but run by itself it would only define names: say so and stop.
-[[ ${BASH_SOURCE[0]} != "$0" ]] || { echo "deploy/kind-import/common.sh is sourced by up.sh and down.sh; run one of those" >&2; exit 2; }
+[[ ${BASH_SOURCE[0]} != "$0" ]] || { echo "deploy/kind-import/common.sh is sourced by up.sh, down.sh and kyverno.sh; run one of those" >&2; exit 2; }
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CONFIG=$HERE/kind-cmapi-test.yaml
 PF_CONF=$HERE/pf-cmapi-kind.conf
@@ -13,6 +14,13 @@ SECRET=cmapi-cluster-kind-cmapi-test
 HUB_NS=cmapi-imports
 HUB_SERVER=https://api.crc.testing:6443
 FIELD_MANAGER=cmapi-baseline
+# The bundle on kind (#430): KIND_CMAPI_TEST's environment in deploy/environments/crc.yaml, and docs/13's CRC choices for Kyverno.
+ENVIRONMENT=rnd
+BUNDLE_FILES=(cmapi-metadata-rnd.yaml cmapi-quota-rnd.yaml cmapi-limits-rnd.yaml)
+POLICY_FIELD_MANAGER=cmapi-policies
+KYVERNO_REPO=https://kyverno.github.io/kyverno/
+KYVERNO_CHART_VERSION=3.10.0
+KYVERNO_VALUES=$HERE/../kyverno/kind-values.yaml
 export KIND_EXPERIMENTAL_PROVIDER=podman
 # kind-test.sh's default file: the two never run together, since each refuses or deletes the other's cluster by name first.
 KC=${KIND_IMPORT_KUBECONFIG:-$HERE/../../.cmapi-test.kubeconfig}
@@ -25,6 +33,14 @@ say() { echo "kind-import: $*"; }
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 kc() { kubectl --kubeconfig="$KC" "$@"; }
+# helm's HELM_KUBE* variables win over --kubeconfig and --kube-context (helm 4.3.1: HELM_KUBEAPISERVER is dialled despite both, and
+# HELM_KUBECAFILE or HELM_KUBEINSECURE_SKIP_TLS_VERIFY replaces kind's CA), so an inherited one could take the install to CRC.
+# A subshell clears them for helm alone.
+hm() (
+  unset HELM_KUBEAPISERVER HELM_KUBETOKEN HELM_KUBECAFILE HELM_KUBEINSECURE_SKIP_TLS_VERIFY HELM_KUBETLS_SERVER_NAME \
+    HELM_KUBEASUSER HELM_KUBEASGROUPS HELM_KUBECONTEXT
+  exec helm --kubeconfig "$KC" --kube-context "kind-$NAME" "$@"
+)
 
 # kind-cmapi-test.yaml names one address three times (the binding, the certificate, the firewall): one value, or nothing runs.
 check_config() {
@@ -62,6 +78,25 @@ check_served() {
 check_hub() {
   local server; server=$(oc_ whoami --show-server) || die "oc is not logged in"
   [ "$server" = "$HUB_SERVER" ] || die "oc talks to $server, not CRC ($HUB_SERVER)"
+}
+
+# Kyverno and the bundle go to kind alone: the kubeconfig's context and server must be cmapi-test's, never CRC's.
+check_kind_target() {
+  [ "$(kc config current-context)" = "kind-$NAME" ] || die "the kubeconfig $KC is not kind-$NAME's"
+  local server; server=$(kc config view --minify -o 'jsonpath={.clusters[0].cluster.server}') || die "no server in $KC"
+  [ "$server" = "https://$ADDRESS:$PORT" ] || die "the kubeconfig $KC talks to $server, not kind's https://$ADDRESS:$PORT"
+}
+
+# The bundle is a commit of cmapi-cluster-configs, read from a checkout: its policies/env/rnd clean, and the three files there.
+# Sets BUNDLE_DIR and BUNDLE_COMMIT.
+check_bundle() {
+  local repo=$1 f changes
+  [ -d "$repo" ] || die "no directory $repo: pass a checkout of cmapi-cluster-configs"
+  BUNDLE_COMMIT=$(git -C "$repo" rev-parse --verify HEAD 2>/dev/null) || die "$repo is not a git checkout of cmapi-cluster-configs"
+  BUNDLE_DIR=$(cd "$repo" && pwd)/policies/env/$ENVIRONMENT
+  for f in "${BUNDLE_FILES[@]}"; do [ -f "$BUNDLE_DIR/$f" ] || die "no $f in $BUNDLE_DIR"; done
+  changes=$(git -C "$repo" status --porcelain -- "policies/env/$ENVIRONMENT") || die "git status failed in $repo"
+  [ -z "$changes" ] || die "policies/env/$ENVIRONMENT in $repo differs from commit $BUNDLE_COMMIT: apply a commit, not a working copy"
 }
 
 # A name taken is a cluster; not "| grep -q" in an if: under pipefail an early match can read as none (kind-test.sh).
