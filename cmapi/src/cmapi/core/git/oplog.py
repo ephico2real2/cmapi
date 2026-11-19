@@ -7,7 +7,7 @@ status and message. A conflict adds the conflicted paths. Each event also counts
 
 No secret reaches a log line: every value the event carries passes through redact(), which removes each secret registered
 with register_secret() (the Git token, the platform token) wherever it appears, in each form core/clients/redact.py names:
-raw, JSON-escaped once or twice, as a bytes repr, and a trailing start of one (#424).
+raw, form-encoded, JSON-escaped once or twice, as a bytes repr, and a trailing start of one (#424).
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
 
-from cmapi.core.clients.redact import redact as redact_forms, secret_forms
+from cmapi.core.clients.redact import redact as redact_forms, sent_forms
 from cmapi.core.observability import GIT_DURATION, GIT_OPS, log
 
 _CONTEXT: ContextVar[dict[str, Any]] = ContextVar("cmapi_git_context", default={})
@@ -31,7 +31,7 @@ CONTEXT_KEYS = ("request_id", "cluster", "namespace", "branch", "attempt", "job_
 def register_secret(value: str | None) -> None:
     """A value that must never be logged. Short values are refused: redacting a three-letter word would garble every line."""
     global _FORMS
-    forms = secret_forms(value)
+    forms = sent_forms(value)
     if forms:
         with _SECRETS_LOCK:
             _FORMS = tuple(sorted(set(_FORMS) | set(forms), key=len, reverse=True))

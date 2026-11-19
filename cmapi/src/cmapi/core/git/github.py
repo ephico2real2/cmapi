@@ -82,9 +82,12 @@ class GitHubProvider(HostGitProvider):
 
     def log(self, n: int = 20) -> list[str]:
         if self.workspace is not None:
-            return self.workspace.log(n)
+            # The Git layer's token is in oplog's registry, not in this provider's forms (#424).
+            from cmapi.core.git.oplog import redact as redact_registered
+
+            return [redact_registered(line) for line in self.workspace.log(n)]
         r = self._call("log", "GET", f"{self._repo()}/commits", params={"sha": self.default_branch, "per_page": n})
-        return [f"{c['sha'][:8]} {c['commit']['message'].splitlines()[0]}" for c in r.json()]
+        return self.commit_lines(r.json())
 
     def contains(self, revision: str, sha: str) -> bool:
         return self._git().contains(revision, sha)

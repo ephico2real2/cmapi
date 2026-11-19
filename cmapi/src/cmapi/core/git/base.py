@@ -21,7 +21,7 @@ from typing import Any, Iterable, Literal, Mapping
 
 import httpx
 
-from cmapi.core.clients.redact import redact, redact_cut, secret_forms
+from cmapi.core.clients.redact import redact, redact_cut, sent_forms
 from cmapi.core.ports import PrRef, PrStatus
 
 CheckState = Literal["pending", "success", "failure"]
@@ -135,7 +135,7 @@ class HostGitProvider:
         credentials = credential_values(token, basic_auth)
         for value in credentials:
             register_secret(value)
-        self._forms = tuple(sorted({form for value in credentials for form in secret_forms(value)}, key=len, reverse=True))
+        self._forms = tuple(sorted({form for value in credentials for form in sent_forms(value)}, key=len, reverse=True))
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"token {token}", "Accept": "application/json"}
@@ -147,6 +147,11 @@ class HostGitProvider:
     def host_text(self, r: httpx.Response, limit: int = 300) -> str:
         """The host's answer as error text: redacted, then cut to `limit` characters (#424)."""
         return redact_cut(r.text, self._forms, limit)
+
+    def commit_lines(self, commits: Iterable[Mapping[str, Any]]) -> list[str]:
+        """`<short sha> <subject>` of each commit of the host's list. The subject is text the host returns, and GET
+        /api/v1/admin/git-log serves it to every reports:read caller, so it is redacted; the sha is left as it is (#424)."""
+        return [f"{c['sha'][:8]} {self.redact(c['commit']['message'].splitlines()[0])}" for c in commits]
 
     def _call(self, operation: str, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204),
               log_fields: Mapping[str, Any] | None = None, **kw: Any) -> httpx.Response:

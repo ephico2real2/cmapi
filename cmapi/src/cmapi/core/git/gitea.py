@@ -200,7 +200,7 @@ class GiteaProvider(HostGitProvider):
 
     def log(self, n: int = 20) -> list[str]:
         r = self._call("log", "GET", f"{self._repo()}/commits", params={"sha": self.default_branch, "limit": n})
-        return [f"{c['sha'][:8]} {c['commit']['message'].splitlines()[0]}" for c in r.json()]
+        return self.commit_lines(r.json())
 
     def protect_default_branch(self, contexts: list[str]) -> None:
         """One-time setup: nobody pushes to main; merges need every context green (the cmapi check)."""

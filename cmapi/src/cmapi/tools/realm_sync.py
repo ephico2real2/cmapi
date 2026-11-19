@@ -29,11 +29,10 @@ import os
 import sys
 import time
 from typing import Any
-from urllib.parse import quote_plus
 
 import httpx
 
-from cmapi.core.clients.redact import redact_cut, secret_forms
+from cmapi.core.clients.redact import redact, redact_cut, sent_forms
 
 RFC9068_HEADER = "access.token.header.type.rfc9068"      # Keycloak's client attribute, OIDCConfigAttributes (26.6.4)
 _SENT: tuple[str, ...] = ()                               # every form of every credential this run sends, longest first
@@ -41,10 +40,9 @@ _SENT: tuple[str, ...] = ()                               # every form of every 
 
 def sends(value: str | None) -> None:
     """A credential this sync puts in a request: never in the text it prints from an answer. A secret in a form body (the
-    client secret) is sent form-encoded (httpx's urlencode, quote_plus), so that spelling is one more form an echo can show."""
+    client secret) is sent form-encoded (httpx's urlencode, quote_plus): `sent_forms` holds that spelling's forms too."""
     global _SENT
-    forms = {*secret_forms(value), *secret_forms(quote_plus(value or ""))}
-    _SENT = tuple(sorted({*_SENT, *forms}, key=len, reverse=True))
+    _SENT = tuple(sorted({*_SENT, *sent_forms(value)}, key=len, reverse=True))
 
 
 def answer(r: httpx.Response, limit: int) -> str:
@@ -66,11 +64,21 @@ class Realm:
         self._token: tuple[str, float] | None = None
         sends(secret)
 
+    def _request(self, method: str, url: str, what: str, **kw: Any) -> httpx.Response:
+        """One request, or the Job's end with a redacted message. An HTTP library's error can show the header it refused
+        ("Illegal header value b'Bearer ...'": the access token is Keycloak's text, measured with h11). Left uncaught, its
+        traceback reached the Job log unredacted; `from None` keeps the raw error out of the printed chain (#424)."""
+        try:
+            return self.http.request(method, url, **kw)
+        except httpx.HTTPError as exc:
+            raise SystemExit(redact(f"{what}: {type(exc).__name__}: {exc}", _SENT)) from None
+
     def _bearer(self) -> str:
         if self._token and time.time() < self._token[1]:
             return self._token[0]
-        r = self.http.post(f"{self.base}/realms/{self.realm}/protocol/openid-connect/token",
-                           data={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.secret})
+        r = self._request("POST", f"{self.base}/realms/{self.realm}/protocol/openid-connect/token",
+                          f"sign in as {self.client_id} in realm {self.realm}",
+                          data={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.secret})
         if r.status_code != 200:
             sys.exit(f"cannot sign in as {self.client_id} in realm {self.realm}: {r.status_code} {answer(r, 200)}")
         body = r.json()
@@ -79,8 +87,8 @@ class Realm:
         return self._token[0]
 
     def call(self, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204), **kw: Any) -> httpx.Response:
-        r = self.http.request(method, f"{self.base}/admin/realms/{self.realm}{path}",
-                              headers={"Authorization": f"Bearer {self._bearer()}"}, **kw)
+        r = self._request(method, f"{self.base}/admin/realms/{self.realm}{path}", f"{method} {path}",
+                          headers={"Authorization": f"Bearer {self._bearer()}"}, **kw)
         if r.status_code not in ok:
             sys.exit(f"{method} {path}: {r.status_code} {answer(r, 300)}")
         return r
