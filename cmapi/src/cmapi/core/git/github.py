@@ -82,9 +82,12 @@ class GitHubProvider(HostGitProvider):
 
     def log(self, n: int = 20) -> list[str]:
         if self.workspace is not None:
-            return self.workspace.log(n)
+            # The Git layer's token is in oplog's registry, not in this provider's forms (#424).
+            from cmapi.core.git.oplog import redact as redact_registered
+
+            return [redact_registered(line) for line in self.workspace.log(n)]
         r = self._call("log", "GET", f"{self._repo()}/commits", params={"sha": self.default_branch, "per_page": n})
-        return [f"{c['sha'][:8]} {c['commit']['message'].splitlines()[0]}" for c in r.json()]
+        return self.commit_lines(r.json())
 
     def contains(self, revision: str, sha: str) -> bool:
         return self._git().contains(revision, sha)
@@ -136,7 +139,8 @@ class GitHubProvider(HostGitProvider):
         owner = self.repository.split("/")[0]
         r = self._call("pr_find", "GET", f"{self._repo()}/pulls", params={"state": "open", "head": f"{owner}:{branch}"}, ok=(200,))
         if r.status_code != 200:
-            raise PlatformRefused(f"find the PR of {branch}: {r.status_code} {r.text[:200]}", r.status_code, r.text[:300])
+            text = self.host_text(r)
+            raise PlatformRefused(f"find the PR of {branch}: {r.status_code} {text[:200]}", r.status_code, text)
         prs = r.json()
         if len(prs) > 1:
             raise PlatformRefused(f"{len(prs)} open PRs from {branch}: one is expected")
@@ -150,7 +154,8 @@ class GitHubProvider(HostGitProvider):
             if r.status_code != 201:
                 existing = self.find_pr(branch) if r.status_code == 422 else None      # "A pull request already exists"
                 if existing is None:
-                    raise PlatformRefused(f"open PR from {branch}: {r.status_code} {r.text[:300]}", r.status_code, r.text[:300])
+                    text = self.host_text(r)
+                    raise PlatformRefused(f"open PR from {branch}: {r.status_code} {text}", r.status_code, text)
             else:
                 existing = self._pr_ref(r.json())
         if existing.head_sha != head:
@@ -164,7 +169,7 @@ class GitHubProvider(HostGitProvider):
         for page in range(1, self.MAX_PAGES + 1):
             r = self._call(operation, "GET", path, params={**params, "per_page": 100, "page": page}, ok=(200,))
             if r.status_code != 200:
-                raise GitUnavailable(f"{operation}: GET {path} page {page}: {r.status_code} {r.text[:200]}")
+                raise GitUnavailable(f"{operation}: GET {path} page {page}: {r.status_code} {self.host_text(r, 200)}")
             body = r.json()
             entries.extend((body.get(key) or []) if key else body)
             if "next" not in r.links:
@@ -178,7 +183,8 @@ class GitHubProvider(HostGitProvider):
     def pr_status(self, pr: PrRef) -> PrStatus:
         r = self._call("pr_state", "GET", f"{self._repo()}/pulls/{pr.number}", ok=(200,))
         if r.status_code != 200:
-            raise PlatformRefused(f"PR {pr.number}: {r.status_code} {r.text[:200]}", r.status_code, r.text[:300])
+            text = self.host_text(r)
+            raise PlatformRefused(f"PR {pr.number}: {r.status_code} {text[:200]}", r.status_code, text)
         p = r.json()
         head = (p.get("head") or {}).get("sha")
         if p["state"] != "open":      # nothing reads a finished PR's checks, and a refused read must not hold back recording its end
@@ -198,7 +204,7 @@ class GitHubProvider(HostGitProvider):
             body["target_url"] = target_url
         r = self._call("status_write", "POST", f"{self._repo()}/statuses/{sha}", json=body, ok=(201,))
         if r.status_code != 201:
-            raise GitUnavailable(f"status {context} on {sha[:8]}: {r.status_code} {r.text[:200]}")
+            raise GitUnavailable(f"status {context} on {sha[:8]}: {r.status_code} {self.host_text(r, 200)}")
 
     def merge(self, pr: PrRef, expected_head: str) -> str:
         """PUT .../merge with sha: GitHub merges only if the head is that sha. 409 is HeadMoved, 405 NotMergeable. The branch is
@@ -208,20 +214,21 @@ class GitHubProvider(HostGitProvider):
                        json={"sha": expected_head, "merge_method": "merge", "commit_title": f"Merge {pr.branch}"})
         if r.status_code == 200:
             return r.json()["sha"]
-        message = r.text[:300]
+        message = self.host_text(r)
         if r.status_code == 409:
             raise HeadMoved(f"merge PR {pr.number}: the head is not {expected_head[:8]}: {message}", 409, message)
         if r.status_code == 405:
-            raise NotMergeable(f"merge PR {pr.number}: {message}", transient="pending" in message.lower() or "expected" in message.lower())
+            said = r.text[:300].lower()            # the decision reads the host's own words; only the message is redacted
+            raise NotMergeable(f"merge PR {pr.number}: {message}", transient="pending" in said or "expected" in said)
         raise PlatformRefused(f"merge PR {pr.number}: {r.status_code} {message}", r.status_code, message)
 
     def comment(self, pr: PrRef, text: str) -> None:
         r = self._call("pr_comment", "POST", f"{self._repo()}/issues/{pr.number}/comments", json={"body": text}, ok=(201,))
         if r.status_code != 201:
-            raise PlatformRefused(f"comment on PR {pr.number}: {r.status_code}", r.status_code, r.text[:300])
+            raise PlatformRefused(f"comment on PR {pr.number}: {r.status_code}", r.status_code, self.host_text(r))
 
     def close(self, pr: PrRef, comment: str) -> None:
         self.comment(pr, comment)
         r = self._call("pr_close", "PATCH", f"{self._repo()}/pulls/{pr.number}", json={"state": "closed"}, ok=(200,))
         if r.status_code != 200:
-            raise PlatformRefused(f"close PR {pr.number}: {r.status_code}", r.status_code, r.text[:300])
+            raise PlatformRefused(f"close PR {pr.number}: {r.status_code}", r.status_code, self.host_text(r))

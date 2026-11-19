@@ -301,7 +301,7 @@ A tool that must act for people has its own path: see the next section.
 
 ### Real people
 
-The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP federation"; `realm_sync.py:228-229`). So only the 13 test users can sign in today. To allow real people, the filter must change to the scope of the organisation's directory. That is a deployment decision for each environment. It is not made yet.
+The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP federation"; `realm_sync.py:260-261`). So only the 13 test users can sign in today. To allow real people, the filter must change to the scope of the organisation's directory. That is a deployment decision for each environment. It is not made yet.
 
 ### Tools that act for people
 

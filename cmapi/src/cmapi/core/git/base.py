@@ -6,9 +6,14 @@ provider with a Git layer (GitHub) writes branches and reads trees through it; o
 A Git host failure is GitUnavailable; the worker turns it into a retry with backoff. HeadMoved and NotMergeable say why a
 merge did not happen; PlatformRefused is a refusal that a retry cannot fix. Each call logs its op, outcome, HTTP status and,
 on a refusal, the host's message (core/git/oplog.py), and counts in cmapi_git_platform_requests_total{platform,op,code}.
+
+The host's message is text the host chose: a host or a proxy in front of it may echo the request, the Authorization header
+included. So every text taken from an answer passes through host_text, which removes each form of the bot's credential and
+only then cuts (docs/02 "Client rules", #424); every error, request event, log line and API answer built from it is clean.
 """
 from __future__ import annotations
 
+import base64
 import ssl
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +21,7 @@ from typing import Any, Iterable, Literal, Mapping
 
 import httpx
 
+from cmapi.core.clients.redact import redact, redact_cut, sent_forms
 from cmapi.core.ports import PrRef, PrStatus
 
 CheckState = Literal["pending", "success", "failure"]
@@ -94,6 +100,16 @@ class MergeCheck:
         return "clean"
 
 
+def credential_values(token: str | None, basic_auth: tuple[str, str] | None) -> tuple[str, ...]:
+    """Each value of the bot's credential that a host could echo: the token, and with Basic auth the password and the header's
+    value as httpx sends it, base64 of user:password in UTF-8 (RFC 7617)."""
+    values = [token or ""]
+    if basic_auth:
+        user, password = basic_auth
+        values += [password, base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")]
+    return tuple(v for v in values if v)
+
+
 class HostGitProvider:
     """The contract. Subclasses fill in the host's endpoints."""
 
@@ -116,11 +132,26 @@ class HostGitProvider:
                                     auth=basic_auth)
         from cmapi.core.git.oplog import register_secret
 
-        register_secret(token)
-        register_secret(basic_auth[1] if basic_auth else None)
+        credentials = credential_values(token, basic_auth)
+        for value in credentials:
+            register_secret(value)
+        self._forms = tuple(sorted({form for value in credentials for form in sent_forms(value)}, key=len, reverse=True))
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"token {token}", "Accept": "application/json"}
+
+    def redact(self, text: str) -> str:
+        """`text` without the bot's credential in any form (core/clients/redact.py): the whole text, before any cut."""
+        return redact(text, self._forms)
+
+    def host_text(self, r: httpx.Response, limit: int = 300) -> str:
+        """The host's answer as error text: redacted, then cut to `limit` characters (#424)."""
+        return redact_cut(r.text, self._forms, limit)
+
+    def commit_lines(self, commits: Iterable[Mapping[str, Any]]) -> list[str]:
+        """`<short sha> <subject>` of each commit of the host's list. The subject is text the host returns, and GET
+        /api/v1/admin/git-log serves it to every reports:read caller, so it is redacted; the sha is left as it is (#424)."""
+        return [f"{c['sha'][:8]} {self.redact(c['commit']['message'].splitlines()[0])}" for c in commits]
 
     def _call(self, operation: str, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204),
               log_fields: Mapping[str, Any] | None = None, **kw: Any) -> httpx.Response:
@@ -133,16 +164,17 @@ class HostGitProvider:
             except httpx.HTTPError as exc:
                 PLATFORM_REQUESTS.labels(self.name, operation, "error").inc()
                 op.outcome = "retry"
-                raise GitUnavailable(f"{operation}: {type(exc).__name__}: {exc}") from exc
+                # An HTTP library's error can show the header it refused ("illegal header value b'...'").
+                raise GitUnavailable(self.redact(f"{operation}: {type(exc).__name__}: {exc}")) from exc
             PLATFORM_REQUESTS.labels(self.name, operation, f"{r.status_code // 100}xx").inc()
             op.set(http_status=r.status_code, host_request_id=r.headers.get("x-github-request-id") or r.headers.get("x-request-id"))
             if r.status_code >= 500 or r.status_code == 429:
-                op.set(message=r.text[:300])
+                op.set(message=self.host_text(r))
                 op.outcome = "retry"
-                raise GitUnavailable(f"{operation}: the Git host answered {r.status_code}: {r.text[:200]}")
+                raise GitUnavailable(f"{operation}: the Git host answered {r.status_code}: {self.host_text(r, 200)}")
             if r.status_code not in ok:
                 op.outcome = "refused"
-                op.set(message=r.text[:300])
+                op.set(message=self.host_text(r))
             return r
 
     # ---- the Git side: a Git layer, or the host's REST API

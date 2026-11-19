@@ -618,7 +618,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|98-98": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|228-229": [
+ "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|260-261": [
   "    if cfg.get(\"usersFilter\"):",
   "        body[\"config\"][\"customUserSearchFilter\"] = [cfg[\"usersFilter\"]]"
  ],
@@ -819,7 +819,7 @@
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|202-273": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|233-305": [
   "def ldap(rm: Realm, cfg: dict[str, Any]) -> None:",
   "    bind_dn, bind_pw = os.environ.get(\"bindDN\") or os.environ.get(\"CMAPI_LDAP_BIND_DN\"), \\",
   "        os.environ.get(\"password\") or os.environ.get(\"CMAPI_LDAP_BIND_PASSWORD\")",
@@ -831,6 +831,7 @@
   "        if cfg.get(\"requireSync\"):",
   "            sys.exit(\"LDAP federation is required here and its bind credential is absent\")",
   "        return",
+  "    sends(bind_pw)",
   "    realm_info = rm.get(\"\")",
   "    comps = rm.get(\"/components\", params={\"type\": \"org.keycloak.storage.UserStorageProvider\"}) or []",
   "    existing = next((c for c in comps if c[\"name\"] == \"ldap\"), None)",
@@ -887,11 +888,11 @@
   "        \"preserve.group.inheritance\": [\"false\"], \"ignore.missing.groups\": [\"false\"], \"drop.non.existing.groups.during.sync\": [\"false\"]})",
   "    print(f\"LDAP mappers: username, email, first name, last name, employee-id, groups (/cmapi, {groups_filter}); users: {cfg.get('usersFilter', 'everyone in usersDn')}\")",
   "    r = rm.call(\"POST\", f\"/user-storage/{existing['id']}/sync\", params={\"action\": \"triggerFullSync\"}, ok=(200, 400, 500))",
-  "    print(f\"LDAP full sync: {r.status_code} {r.text[:120]}\")",
+  "    print(f\"LDAP full sync: {r.status_code} {answer(r, 120)}\")",
   "    # A deployment that needs federation says so (#96). The status alone is not enough: a directory Keycloak cannot reach answers",
   "    # 200 with zero counts (measured on 26.6.4), so the Job fails unless the sync read at least one user and failed on none, and exactly expectUsers when that is set.",
   "    if cfg.get(\"requireSync\") and not _sync_read_someone(r, cfg.get(\"expectUsers\")):",
-  "        sys.exit(f\"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {r.text[:120]}\")"
+  "        sys.exit(f\"LDAP full sync did not read the users it should (expected {cfg.get('expectUsers', 'at least one')}): {r.status_code} {answer(r, 120)}\")"
  ],
  "docs/15-keycloak-integration.md|deploy/manifests/environments/crc/realm/10-realm-import.yaml|1-3": [
   "# Realm cmapi for the existing Keycloak (docs/11), from the chart's templates/keycloak-realm.yaml. The RHBK operator creates it once:",
