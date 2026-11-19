@@ -11,7 +11,8 @@ Each file is validated by its own module; this module adds the checks no single 
 - instance.yaml's identity.groupPath can name a group;
 - plugins.yaml, when the instance has one, names only plugins of this build, and its overrides for this instance name
   only served environments (core/plugins.py);
-- instance.yaml's git.url is a URL the Git layer may use, git.hostChecks is a boolean, git.username one line (#286).
+- instance.yaml's git.url is a URL the Git layer may use, git.hostChecks is a boolean, git.username one line (#286);
+- instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -26,6 +27,7 @@ import yaml
 
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
+from cmapi.core.clustertls import ClusterTLSSettings
 from cmapi.core.giturl import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
@@ -53,6 +55,7 @@ class InstanceConfig:
     plugins: PluginSwitch
     hashes: dict[str, str]
     policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
+    cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
 
 
 def _read(path: Path) -> tuple[dict, str]:
@@ -114,9 +117,12 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     problems.extend(_git_problems(me.get("git") or {}))
     policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
     problems.extend(policy_problems)
+    cluster_tls, tls_problems = ClusterTLSSettings.parse(me.get("clusterTLS"), allowed)
+    problems.extend(tls_problems)
     if problems:
         raise ConfigError(problems)
-    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy)
+    return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
+                          cluster_tls)
 
 
 def _git_problems(git: dict) -> list[str]:

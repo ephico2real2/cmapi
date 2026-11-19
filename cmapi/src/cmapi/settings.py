@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     config_dir: Path = Field(default=Path("/etc/cmapi/config"), description="instance.yaml and the policy files")
     metadata_keys: Path | None = Field(default=None, description="metadata-keys.yaml; default <config_dir>/metadata-keys.yaml")
     policies_dir: Path = Field(default=Path("/etc/cmapi/policies"), description="Hand-written Kyverno policies, run with the bundle that cmapi renders from its configuration (#212)")
-    ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for Keycloak, Git and cluster calls")
+    ca_bundle: Path | None = Field(default=None, description="PEM bundle trusted for Keycloak, and for Git unless git_ca_bundle is set. "
+                                   "Not a cluster's trust since #434: see trusted_ca_file")
+    trusted_ca_file: str = Field(default="", description="Colon-separated PEM bundles that a cluster with no caData is verified "
+                                 "against, after the image's system store: the bundle OpenShift injects and an operator's ConfigMap. "
+                                 "A path that is not there is skipped and read again at the next check (#434)")
 
     database_url: str = Field(default="", description="postgresql://user:pass@host:5432/db (any psycopg URL)")
     database_pool_size: int = 5

@@ -751,6 +751,18 @@ class Suggestions(Api):
 # --------------------------------------------------------------------------- clusters, tiers, health
 
 
+class ClusterTrust(Api):
+    """How cmapi verified the cluster's API server in its last check (docs/02, "TLS: one mode per cluster", #434)."""
+    source: Literal["caData", "trusted", "insecure"] = Field(
+        description="caData: the import Secret's CA alone. trusted: the image's system store and the bundles of "
+                    "CMAPI_TRUSTED_CA_FILE (the injected bundle and an operator's). insecure: no verification, allowed by "
+                    "instance.clusterTLS for the cluster's environment", examples=["trusted"])
+    downgrade: bool = Field(description="True when verification is off (source insecure): a deliberate downgrade",
+                            examples=[False])
+    server_name: str | None = Field(description="The import Secret's tlsServerName: the name sent in SNI and checked against the "
+                                                "certificate, when it is not the host of apiUrl", examples=[None])
+
+
 class ClusterView(Api):
     cluster_id: str = Field(description="Cluster ID", examples=["CRC"])
     environment: str = Field(description="Environment from clusters.yaml", examples=["dev"])
@@ -761,6 +773,9 @@ class ClusterView(Api):
     server_version: str | None = Field(description="Kubernetes version seen", examples=["v1.35.6"])
     labels: dict[str, str] = Field(description="Metadata labels", examples=[{"region": "us-central"}])
     checked_at: datetime | None = Field(description="Last import check", examples=["2026-11-05T10:00:00Z"])
+    trust: ClusterTrust | None = Field(default=None, description="The TLS mode of the last check; null when the import Secret was "
+                                                               "refused before one was chosen, or there is none",
+                                       examples=[{"source": "caData", "downgrade": False, "serverName": None}])
 
 
 class ClusterList(Api):

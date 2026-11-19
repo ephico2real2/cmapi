@@ -126,7 +126,7 @@ def test_the_hub_token_never_reaches_the_import_list_error(tmp_path):
     """The hub's own ServiceAccount token, in HubImportSource: its error is what `imports_list_failed` logs."""
     token = "SeCrEt-hub-token\nwith-newline-0123456789"
     (tmp_path / "token").write_text(token)
-    source = HubImportSource("http://127.0.0.1:9", tmp_path / "token", tmp_path / "no-ca.crt", "cmapi-imports")
+    source = HubImportSource("https://127.0.0.1:9", tmp_path / "token", tmp_path / "no-ca.crt", "cmapi-imports")
 
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.LocalProtocolError(f"Illegal header value {request.headers['authorization'].encode()!r}")

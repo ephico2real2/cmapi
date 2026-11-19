@@ -117,6 +117,11 @@ spec:
               value: /etc/cmapi/ca/ca-bundle.crt
             - name: SSL_CERT_FILE
               value: /etc/cmapi/ca/ca-bundle.crt
+            # The trust of a cluster whose import Secret has no caData, after the image's system store (#434): the bundle
+            # OpenShift injects into cmapi-trusted-ca, then cmapi-cluster-ca, a ConfigMap an operator makes. A file that is
+            # not there is skipped and read again at the next check.
+            - name: CMAPI_TRUSTED_CA_FILE
+              value: /etc/cmapi/trusted-ca/injected/ca-bundle.crt:/etc/cmapi/trusted-ca/operator/ca-bundle.crt
           envFrom:
             # Per environment: CMAPI_GIT_PROVIDER, CMAPI_GIT_URL, CMAPI_GIT_DEFAULT_BRANCH, CMAPI_LOG_LEVEL, and where the
             # pods reach Keycloak when not through the issuer: CMAPI_OIDC_JWKS_URL, CMAPI_KEYCLOAK_ADMIN_URL (CRC needs both)
@@ -147,9 +152,17 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/cmapi/config, readOnly: true}
             - {name: trust, mountPath: /etc/cmapi/ca, readOnly: true}
+            - {name: trusted-ca-injected, mountPath: /etc/cmapi/trusted-ca/injected, readOnly: true}
+            - {name: trusted-ca-operator, mountPath: /etc/cmapi/trusted-ca/operator, readOnly: true}
       volumes:
         - name: config
           configMap: {name: cmapi-config}
+        # Both optional: OpenShift fills cmapi-trusted-ca after the pods start (environments/crc/35-trusted-ca.yaml), kind
+        # has none, and cmapi-cluster-ca exists only where an operator made it (docs/18, "Cluster trust").
+        - name: trusted-ca-injected
+          configMap: {name: cmapi-trusted-ca, optional: true}
+        - name: trusted-ca-operator
+          configMap: {name: cmapi-cluster-ca, optional: true, items: [{key: ca-bundle.crt, path: ca-bundle.crt}]}
         - name: trust
           projected:
             sources:

@@ -51,6 +51,11 @@ instance:
   # change of this file, reviewed by the platform group. The Policies tab (#302): reports: {maxResultsPerCluster: 20000}, the
   # rows kept per cluster, and rejections: {retentionDays: 90}, how long a stored refusal is kept (docs/18).
   policy: {}
+  # Which environments may read a cluster with TLS verification off (#434; docs/02, "TLS: one mode per cluster"). An import
+  # Secret with insecure: "true" is refused unless its cluster's environment is here: {environments: {rnd:
+  # {insecureSkipTLSVerify: true}}}. Empty: no environment may, prod included unless named. Such a cluster shows
+  # trust.downgrade true in GET /api/v1/clusters and cmapi_cluster_tls_insecure 1.
+  clusterTLS: {}
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)
 auth:
@@ -239,11 +244,26 @@ clusterDomain: cluster.local
 
 # -------------------------------------------------------------------------- trust
 trustedCA:
-  # PEM certificates the pods trust in addition to the system store: the Keycloak CA, the Git host's.
+  # PEM certificates for Keycloak, Git (unless CMAPI_GIT_CA_BUNDLE) and the database: ConfigMap <release>-trust, which
+  # CMAPI_CA_BUNDLE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE and PGSSLROOTCERT name. Not a cluster's trust (#434).
   certificates: ""
-  # OpenShift: the network operator fills an empty ConfigMap labelled for injection with the cluster bundle.
+  # The trust of a cluster whose import Secret has no caData (#434): the image's system store, then these two bundles,
+  # joined into CMAPI_TRUSTED_CA_FILE for the api and the worker. Either, both or neither.
+  #
+  # OpenShift: an empty ConfigMap <release>-trusted-ca labelled config.openshift.io/inject-trusted-cabundle, which the
+  # Cluster Network Operator fills with the RHCOS trust bundle merged with proxy/cluster.spec.trustedCA. Shipped empty and
+  # mounted optional: OpenShift fills it after the pods start, and cmapi reads it at the next check. Under Argo CD it carries
+  # ServerSideApply=true, and the Application needs ignoreDifferences on its /data (docs/18), or a sync empties it. With
+  # certificates empty, the pods also trust it for Keycloak, Git and the database, as before #434.
   injected:
     enabled: false
+  # A ConfigMap that you create, for a CA the cluster has not been told about: never templated from these values, so no
+  # certificate is in Git or `helm get values`. Mounted, not optional: a name you gave that is not there stops the pods.
+  #   oc create configmap cmapi-cluster-ca --from-file=ca-bundle.crt=/path/to/ca.pem -n <namespace>
+  existingConfigMap:
+    enabled: false
+    name: ""
+    key: ca-bundle.crt
 
 # -------------------------------------------------------------------------- monitoring
 monitoring:

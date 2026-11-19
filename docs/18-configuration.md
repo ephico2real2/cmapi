@@ -78,6 +78,7 @@ How to make the bot account, its token and its SSH key, and how to switch `insta
 | `instance.docs.enabled` | boolean | `true` | `false` turns off `/docs`, `/redoc` and the OpenAPI documents (`main.py`) |
 | `instance.docs.public` | boolean | `true` | `false` makes each of those pages need a valid token (`main.py`, `_add_docs`) |
 | `instance.policy` | mapping | See "The policy engine" | The policy engine and a mode for each environment |
+| `instance.clusterTLS` | mapping | `{}` | Which environments may read a cluster with TLS verification off. See "Cluster trust" |
 
 ### The policy engine
 
@@ -122,6 +123,68 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
 - To write the rendered files into the cluster-configs repository, run `cmapi-tools policies render --config-dir <dir> --metadata-keys <file> --out <dir>`. `cmapi-tools policies check --config-dir <dir> --metadata-keys <file> --dir <dir>` fails when a file differs from the render (`cmapi/src/cmapi/tools/policies.py`). The rendered files of an instance are the folders `env/<env>/` of its own environments. The decision record is `docs/reviews/2026-11-14-issue-212/` and `docs/reviews/2026-11-14-issue-213/`.
 
 ---
+
+### Cluster trust
+
+How cmapi verifies each cluster's API server: one mode per cluster, from its import Secret (docs/02, "TLS: one mode per cluster";
+#434). The analysis, its sources and the owner's decisions are in `docs/reviews/2026-11-18-issue-434/`.
+
+| Mode | When | Trusted |
+|---|---|---|
+| `insecure` | The Secret says `insecure: "true"`, and `instance.clusterTLS` allows the cluster's environment | Nothing is verified. A deliberate downgrade |
+| `caData` | The Secret has `caData` | That CA alone, never widened to the system store (client-go's rule) |
+| `trusted` | Neither | The image's system store, then each bundle of `CMAPI_TRUSTED_CA_FILE`, in turn |
+
+```yaml
+clusterTLS:
+  environments:
+    rnd: {insecureSkipTLSVerify: true}
+```
+
+| Key | Type | Default | Allowed values |
+|---|---|---|---|
+| `clusterTLS.environments.<env>.insecureSkipTLSVerify` | boolean | `false` for each environment | `true` lets a cluster of `<env>` be read with `insecure: "true"`. Any served environment may, prod included (the owner, 2026-11-18). An environment that the instance does not serve, an unknown key or a value that is not a boolean stops the start (`core/clustertls.py`) |
+
+An import Secret with `insecure: "true"` in an environment that does not allow it is `invalid-secret`, with the finding
+`insecure is not allowed for environment <env>: instance.clusterTLS.environments.<env>.insecureSkipTLSVerify is false`, and no
+client is built, so the token is never sent. A cluster read insecure shows `trust: {source: insecure, downgrade: true}` in
+`GET /api/v1/clusters` and `cmapi_cluster_tls_insecure{cluster_id} 1`, and a change of mode logs `cluster_tls_mode` once (a
+warning when insecure takes effect). The name is Kubernetes' for the same meaning: APIService `spec.insecureSkipTLSVerify`,
+kubeconfig `insecure-skip-tls-verify`.
+
+**The system store** is the image's own: OpenSSL's build-time cafile and capath (`ssl.get_default_verify_paths()`,
+`openssl_cafile` and `openssl_capath`), loaded by path. It is not what `SSL_CERT_FILE` names: the pods set that variable to
+`cmapi-trust`, Keycloak's CA alone, and it would replace the system store (measured, `analysis.md`).
+
+**The bundles** (`CMAPI_TRUSTED_CA_FILE`, colon-separated): on OpenShift, the bundle injected into an empty ConfigMap labelled
+`config.openshift.io/inject-trusted-cabundle: "true"`, which the Cluster Network Operator fills with the RHCOS trust bundle merged
+with `proxy/cluster.spec.trustedCA`; and a ConfigMap that an operator makes for a CA the cluster does not know, never templated
+from values. A path that is not there, or an empty file, is skipped and read again at the next check, since OpenShift fills the
+injected ConfigMap after the pods start. A file that is there and does not load makes the cluster `cert-verify-failed`, with a
+finding that names the file. A changed bundle is read at the next check, with no restart, and gives the cluster a new client.
+
+| Where | The injected bundle | The operator's bundle |
+|---|---|---|
+| Chart | `trustedCA.injected.enabled: true`: ConfigMap `<release>-trusted-ca`, shipped empty | `trustedCA.existingConfigMap: {enabled: true, name: <yours>, key: ca-bundle.crt}` |
+| Plain manifests | `environments/crc/35-trusted-ca.yaml`: ConfigMap `cmapi-trusted-ca`, shipped empty | ConfigMap `cmapi-cluster-ca`, key `ca-bundle.crt`, when you make it |
+| Mounted at | `/etc/cmapi/trusted-ca/injected/ca-bundle.crt`, optional | `/etc/cmapi/trusted-ca/operator/<key>`; optional in the plain manifests, required in the chart (a name you gave that is missing stops the pods) |
+
+```bash
+oc create configmap cmapi-cluster-ca --from-file=ca-bundle.crt=/path/to/ca.pem -n cmapi
+```
+
+**Under Argo CD**, the injected ConfigMap carries `argocd.argoproj.io/sync-options: ServerSideApply=true`, so that the operator
+keeps ownership of the data it writes. That is not enough alone: Argo CD sees data that the manifest lacks and, with self-heal,
+would empty the bundle. The Application needs:
+
+```yaml
+spec:
+  ignoreDifferences:
+    - group: ""
+      kind: ConfigMap
+      name: cmapi-trusted-ca          # <release>-trusted-ca from the chart
+      jsonPointers: [/data]
+```
 
 ## `tiers.yaml`
 
@@ -721,7 +784,8 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_CONFIG_DIR` | `/etc/cmapi/config` | The folder of the files above |
 | `CMAPI_METADATA_KEYS` | `<config dir>/metadata-keys.yaml` | Another path for `metadata-keys.yaml` |
 | `CMAPI_POLICIES_DIR` | `/etc/cmapi/policies` | Hand-written Kyverno policies that run with the rendered ones |
-| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak and the clusters, and for Git unless `CMAPI_GIT_CA_BUNDLE` is set. A cluster whose import Secret has no caData is checked against it: a bundle that is not there or does not load makes that cluster `cert-verify-failed`, with a finding that ends `; trust store: the hub bundle`, and the other clusters are still checked (`ClusterRegistry._check`, #419) |
+| `CMAPI_CA_BUNDLE` | None | A PEM bundle that cmapi trusts for Keycloak, and for Git unless `CMAPI_GIT_CA_BUNDLE` is set. Not a cluster's trust since #434 (the owner's decision D4): see `CMAPI_TRUSTED_CA_FILE` |
+| `CMAPI_TRUSTED_CA_FILE` | `""` | Colon-separated PEM bundles that a cluster with no caData is verified against, after the image's system store (see "Cluster trust"). A path that is not there is skipped and read again at the next check; a file that does not load, or a path that cannot be read for another reason (a directory the process cannot enter), makes that cluster `cert-verify-failed`, with a finding that names the file and ends `; trust store: trusted (the system store and CMAPI_TRUSTED_CA_FILE)`, and the other clusters are still checked (`core/clients/trust.py`, #434) |
 | `CMAPI_DATABASE_URL` | `""` | `postgresql://user:password@host:5432/db`. A secret |
 | `CMAPI_DATABASE_POOL_SIZE` | `5` | The pool of connections of one process |
 | `CMAPI_OIDC_JWKS_URL` | `<issuer>/protocol/openid-connect/certs` | Where to read the signing keys |
@@ -770,6 +834,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `cmapi_portal.repository`, `.tag`, `.digest` | text | | The same for the portal |
 | `instance.*` | | | The keys of `instance.yaml` above. `instance.reservedPatterns` is `instance.namespaces.reservedPatterns` in the file |
 | `instance.policy` | mapping | `{}` | `engine`, `mode` and `environments` (see "The policy engine") |
+| `instance.clusterTLS` | mapping | `{}` | `environments.<env>.insecureSkipTLSVerify` (see "Cluster trust") |
 | `auth.issuer`, `auth.audience`, `auth.acceptLegacyTokenType` | | | `instance.auth.*` |
 | `auth.jwksUrl`, `auth.adminUrl` | text | `""` | `CMAPI_OIDC_JWKS_URL` and `CMAPI_KEYCLOAK_ADMIN_URL`, for an internal Service address |
 | `auth.directorySecret` | text | `cmapi-keycloak` | The Secret with the key `directoryClientSecret` |
@@ -793,7 +858,9 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `api.*`, `worker.*`, `portal.*`, `migrate.*` | | | `replicas`, `resources` and `logLevel` of each workload, and the `migrate` init container |
 | `exposure` | `Route` or `Ingress` | `Route` | `Route` for OpenShift, `Ingress` for plain Kubernetes. `Ingress` needs `ingress.<site>.host` |
 | `route.*`, `ingress.*` | | Empty hosts | The hosts and the TLS of each site: `api`, `portal`, `mockup` |
-| `trustedCA.certificates`, `trustedCA.injected.enabled` | | `""`, `false` | A PEM bundle that the pods trust, or the bundle that OpenShift injects |
+| `trustedCA.certificates` | text | `""` | A PEM bundle for Keycloak, Git and the database: ConfigMap `<release>-trust`, named by `CMAPI_CA_BUNDLE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `PGSSLROOTCERT`. Not a cluster's trust (#434) |
+| `trustedCA.injected.enabled` | boolean | `false` | An empty ConfigMap `<release>-trusted-ca` that OpenShift fills, mounted optional and named first in `CMAPI_TRUSTED_CA_FILE` (see "Cluster trust"). With `certificates` empty, the pods also trust it for Keycloak, Git and the database, as `injected.enabled` did before #434, when it labelled `<release>-trust` itself |
+| `trustedCA.existingConfigMap.enabled`, `.name`, `.key` | | `false`, `""`, `ca-bundle.crt` | A ConfigMap that you make, mounted and named second in `CMAPI_TRUSTED_CA_FILE`. Never templated from values. `enabled` with no `name` fails the render |
 | `monitoring.serviceMonitor`, `.prometheusRule`, `.perses` | | `enabled: false` | The scrape, the alerts and the dashboards |
 | `networkPolicy.enabled`, `.monitoringNamespace` | | `true`, `openshift-user-workload-monitoring` | The network policies |
 | `securityContext`, `containerSecurityContext`, `podDisruptionBudget` | | Restricted | Non-root, no capabilities, the runtime default seccomp profile |

@@ -149,3 +149,14 @@ def test_the_kind_cluster_is_rnd_and_never_written(crc):
         assert "writes are off for KIND_CMAPI_TEST" in r.json()["detail"], r.text
     assert git.prs == {} and set(git.branches) == {"main"} and not kube.applied
     assert client.get("/api/v1/requests", headers=bot).json()["page"]["total"] == 0
+
+
+def test_crc_allows_no_insecure_cluster_and_shows_each_cluster_trust(crc):
+    """#434: CRC's instance.yaml names no clusterTLS, so no environment may read a cluster unverified; build_context hands the
+    registry that setting and CMAPI_TRUSTED_CA_FILE, and GET /api/v1/clusters names the trust of the check."""
+    client, ctx, bot, *_ = crc
+    assert ctx.cfg.cluster_tls.insecure_environments == frozenset()
+    assert ctx.registry.insecure_environments == frozenset()
+    assert ctx.registry.trusted_ca_file == ctx.settings.trusted_ca_file
+    item = next(c for c in client.get("/api/v1/clusters", headers=bot).json()["items"] if c["clusterId"] == "CRC")
+    assert item["trust"] == {"source": "trusted", "downgrade": False, "serverName": None}

@@ -2,10 +2,13 @@
 """deploy/kind-import/import-secret.py: reads a TokenRequest token on stdin and prints the import Secret of docs/02's contract as JSON on
 stdout, for `oc apply -f -` (docs/02, "How the connection reaches the hub"). up.sh is its one caller.
 The token goes from kubectl to oc through pipes only: never an argument, a file or a log line. Prints nothing else.
-Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE | oc apply --server-side -f -"""
+Usage: kubectl create token ... | import-secret.py CLUSTER_ID API_URL CA_FILE [TLS_SERVER_NAME] | oc apply --server-side -f -
+TLS_SERVER_NAME is the import's tlsServerName (#434): the name cmapi checks the certificate against instead of API_URL's host.
+A cmapi before #434 ignores the field, so the Secret works with either."""
 import base64, datetime, json, re, sys
 
 cluster_id, api_url, ca_file = sys.argv[1:4]
+server_name = sys.argv[4] if len(sys.argv) > 4 else None
 if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,62}", cluster_id):
     sys.exit(f"cluster id {cluster_id!r} is not ^[A-Z][A-Z0-9_]{{1,62}}$ (docs/02 ClusterId)")
 token = sys.stdin.read().strip()
@@ -24,6 +27,7 @@ print(json.dumps({
         "name": "cmapi-cluster-" + cluster_id.lower().replace("_", "-"), "namespace": "cmapi-imports",
         "labels": {"cmapi.net/secret-type": "cluster", "cmapi.net/cluster-id": cluster_id, "app.kubernetes.io/part-of": "cmapi"},
         "annotations": {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": expires}},
-    "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false")}}))
+    "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false"),
+             **({"tlsServerName": b64(server_name)} if server_name else {})}}))
 rotate = datetime.datetime.fromtimestamp(claims["iat"] + 0.8 * (claims["exp"] - claims["iat"]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 print(f"import Secret for {cluster_id}: the token expires {expires}; rewrite it (up.sh again) by {rotate}, 80% of its life", file=sys.stderr)

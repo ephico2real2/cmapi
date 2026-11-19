@@ -81,6 +81,23 @@ runAsUser: {{ .Values.securityContext.runAsUser }}
 - name: SSL_CERT_FILE
   value: /etc/cmapi/ca/ca-bundle.crt
 {{- end }}
+{{- with include "cmapi.trustedCAFile" . }}
+# The trust of a cluster with no caData, after the image's system store (#434). Colon-separated, like SSL_CERT_FILE.
+- name: CMAPI_TRUSTED_CA_FILE
+  value: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* The bundles of CMAPI_TRUSTED_CA_FILE, colon-joined: the injected one, then the operator's. Empty when neither is on. */}}
+{{- define "cmapi.trustedCAFile" -}}
+{{- $files := list -}}
+{{- if .Values.trustedCA.injected.enabled -}}
+{{- $files = append $files "/etc/cmapi/trusted-ca/injected/ca-bundle.crt" -}}
+{{- end -}}
+{{- if .Values.trustedCA.existingConfigMap.enabled -}}
+{{- $files = append $files (printf "/etc/cmapi/trusted-ca/operator/%s" .Values.trustedCA.existingConfigMap.key) -}}
+{{- end -}}
+{{- join ":" $files -}}
 {{- end -}}
 
 {{- define "cmapi.commonVolumeMounts" -}}
@@ -90,6 +107,16 @@ runAsUser: {{ .Values.securityContext.runAsUser }}
 {{- if or .Values.trustedCA.certificates .Values.trustedCA.injected.enabled }}
 - name: trust
   mountPath: /etc/cmapi/ca
+  readOnly: true
+{{- end }}
+{{- if .Values.trustedCA.injected.enabled }}
+- name: trusted-ca-injected
+  mountPath: /etc/cmapi/trusted-ca/injected
+  readOnly: true
+{{- end }}
+{{- if .Values.trustedCA.existingConfigMap.enabled }}
+- name: trusted-ca-operator
+  mountPath: /etc/cmapi/trusted-ca/operator
   readOnly: true
 {{- end }}
 {{- end -}}
@@ -103,7 +130,22 @@ runAsUser: {{ .Values.securityContext.runAsUser }}
   projected:
     sources:
       - configMap:
-          name: {{ include "cmapi.name" . }}-trust
+          # trustedCA.certificates; else the injected bundle, which Keycloak, Git and the database trusted before #434.
+          name: {{ include "cmapi.name" . }}-{{ ternary "trust" "trusted-ca" (not (empty .Values.trustedCA.certificates)) }}
           items: [{key: ca-bundle.crt, path: ca-bundle.crt}]
+{{- end }}
+{{- if .Values.trustedCA.injected.enabled }}
+- name: trusted-ca-injected
+  configMap:
+    name: {{ include "cmapi.name" . }}-trusted-ca
+    # Optional: OpenShift fills it after the pods start; a bundle that is not there yet is skipped and read at the next check.
+    optional: true
+{{- end }}
+{{- if .Values.trustedCA.existingConfigMap.enabled }}
+- name: trusted-ca-operator
+  configMap:
+    # Not optional: a ConfigMap you named that is not there stops the pods rather than start without the CA you asked for.
+    name: {{ .Values.trustedCA.existingConfigMap.name }}
+    items: [{key: {{ .Values.trustedCA.existingConfigMap.key }}, path: {{ .Values.trustedCA.existingConfigMap.key }}}]
 {{- end }}
 {{- end -}}

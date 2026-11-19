@@ -4,9 +4,11 @@ and the six checks before a cluster is read (docs/01, "Cluster connections and m
     1. Discover: list the Secrets labelled cmapi.net/secret-type=cluster (a hub API watch with a
        5-minute relist; a failed list keeps the previous set). CMAPI_IMPORTS_DIR reads YAML
        files instead, for tests and local runs.
-    2. Parse: apiUrl, token, caData, insecure; refused for a missing field, a duplicate cluster
-       ID, insecure with caData, invalid caData, or userinfo in apiUrl.
-    3. TLS mode: caData, the trusted bundle, or insecure where the environment allows it.
+    2. Parse: apiUrl, token, caData, insecure, tlsServerName; refused for a missing field, a duplicate cluster ID, insecure
+       with caData, invalid caData, an insecure that is not "true" or "false", a tlsServerName that is no host name, or
+       userinfo in apiUrl.
+    3. TLS mode (core/clients/trust.py, #434): insecure where instance.clusterTLS allows the cluster's environment, else
+       caData alone, else trusted: the image's system store and the bundles of CMAPI_TRUSTED_CA_FILE.
     4. Connect: GET /version.
     5. Identity: users/~ must be cmapi-system:cmapi-reader.
     6. Capability: list namespaces.
@@ -22,16 +24,15 @@ from __future__ import annotations
 
 import base64
 import binascii
-import os
+import hashlib
 import re
 import ssl
-import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urlparse
 
 import httpx
@@ -42,12 +43,12 @@ from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient,
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
+from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
 from cmapi.core.errors import Problem
-from cmapi.core.observability import CLUSTER_STATUS, log
+from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log
 from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
-INSECURE_ALLOWED = {"rnd"}
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "bad-response", "environment-not-served")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
@@ -86,6 +87,7 @@ class ClusterState:
     reports: ReportCache | None = None
     nodes: NodeCache | None = None
     token_expires_at: str | None = None
+    trust: Trust | None = None                    # the mode of the last check that got past the parse; None before or after
 
     @property
     def environment(self) -> str | None:
@@ -105,7 +107,8 @@ class ClusterState:
         p = self.policy
         return {"clusterId": self.cluster_id, "environment": p.environment if p else "", "gitopsPath": p.gitops_path if p else "",
                 "writes": bool(p and p.writes), "status": self.status, "findings": list(self.findings),
-                "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at}
+                "serverVersion": self.server_version, "labels": dict(p.labels) if p else {}, "checkedAt": self.checked_at,
+                "trust": self.trust.view() if self.trust else None}
 
 
 def _size_problem(size: Any) -> str | None:
@@ -178,10 +181,13 @@ class HubImportSource(ImportSource):
     """Lists Secrets in the hub's cmapi-imports namespace with the pod's own ServiceAccount."""
 
     def __init__(self, api_url: str, token_file: Path, ca_file: Path, namespace: str):
+        require_https(api_url, "CMAPI_KUBE_API_URL")       # before the token is read: never sent in clear text
         self.namespace = namespace
         token = token_file.read_text().strip()
         self._forms = secret_forms(token)
-        self.client = httpx.Client(base_url=api_url, verify=str(ca_file) if ca_file.exists() else True, timeout=10,
+        # The hub's own ServiceAccount CA, else the trusted mode: never httpx's verify=True (certifi or SSL_CERT_FILE, #434).
+        verify = file_context(str(ca_file)) if ca_file.exists() else trusted_context()
+        self.client = httpx.Client(base_url=api_url, verify=verify, timeout=10,
                                    headers={"Authorization": f"Bearer {token}"})
 
     def list(self) -> list[dict[str, Any]]:
@@ -231,12 +237,15 @@ def _mapping(value: Any) -> dict[str, Any]:
 
 class ClusterRegistry:
     def __init__(self, policies: Mapping[str, ClusterPolicy], source: ImportSource | None, *,
-                 trusted_bundle: str | None = None, relist_seconds: int = 300,
+                 trusted_ca_file: str | None = None, insecure_environments: Iterable[str] = (), relist_seconds: int = 300,
                  client_factory: Callable[..., KubeClient] = KubeClient, start_caches: bool = True,
                  reports_factory: Callable[[ClusterState, KubeClient], ReportCache | None] | None = None,
                  nodes_factory: Callable[[ClusterState, KubeClient], NodeCache | None] | None = None):
         self.policies = dict(policies)
-        self.source, self.trusted_bundle, self.relist_seconds = source, trusted_bundle, relist_seconds
+        self.source, self.relist_seconds = source, relist_seconds
+        # CMAPI_TRUSTED_CA_FILE's value for the trusted mode (None reads the variable at each check), and the environments
+        # whose instance.clusterTLS.environments.<env>.insecureSkipTLSVerify is true: none by default (#434).
+        self.trusted_ca_file, self.insecure_environments = trusted_ca_file, frozenset(insecure_environments)
         self.client_factory, self.start_caches = client_factory, start_caches
         # None, or None from the factory: no report cache for that cluster (engine none, or its environment's mode off).
         self.reports_factory = reports_factory
@@ -245,23 +254,9 @@ class ClusterRegistry:
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
         self._stop = threading.Event()
-        self._ca_files: dict[str, str] = {}
         self._fingerprints: dict[str, str] = {}
 
     # ---- the six checks
-    def _ca_file(self, cluster_id: str, ca_data: str) -> str:
-        path = self._ca_files.get(cluster_id)
-        try:
-            current = Path(path).read_text() if path else None
-        except OSError:                     # removed under us (a cleaner of the temporary folder): write it again
-            current = None
-        if current != ca_data:
-            fd, path = tempfile.mkstemp(prefix=f"cmapi-ca-{cluster_id}-", suffix=".crt")
-            with os.fdopen(fd, "w") as f:
-                f.write(ca_data)
-            self._ca_files[cluster_id] = path
-        return path
-
     def _check(self, cluster_id: str, secret: Mapping[str, Any]) -> ClusterState:
         st = self.clusters.get(cluster_id) or ClusterState(cluster_id, None)
         d = secret["data"]
@@ -287,34 +282,52 @@ class ClusterRegistry:
                 findings.append("userinfo in apiUrl")
             if u.scheme != "https":
                 findings.append("apiUrl is not https")
-        insecure = str(d.get("insecure", "false")).lower() == "true"
+        # str(): a YAML boolean of CMAPI_IMPORTS_DIR reads as its text, as before; a Secret from the API is always text.
+        insecure_text = str(d.get("insecure", "false")).lower()
+        if insecure_text not in ("true", "false"):
+            findings.append('insecure is "true" or "false"')
+        insecure = insecure_text == "true"
         ca_data = d.get("caData")
         if insecure and ca_data:
-            findings.append("insecure with caData")
+            findings.append("insecure with caData")              # client-go refuses the same: a CA and no verification
         if ca_data and not _valid_ca_data(ca_data):
             findings.append("invalid caData")
-        # 3. TLS mode
+        server_name = d.get("tlsServerName") or None
+        if server_name is not None and not (isinstance(server_name, str) and valid_server_name(server_name)):
+            findings.append("tlsServerName is not a DNS name or an IP address")
+        # 3. TLS mode. The environment's permission is checked before any client exists, so a token never leaves this process
+        # over unverified TLS where the instance does not allow it.
         env = st.policy.environment if st.policy else None
-        if insecure and env not in INSECURE_ALLOWED:
-            findings.append(f"insecure not allowed for environment {env}")
+        if insecure and env not in self.insecure_environments:
+            where = env if env is not None else "<none>"
+            findings.append(f"insecure is not allowed for environment {where}: "
+                            f"instance.clusterTLS.environments.{where}.insecureSkipTLSVerify is false")
         if findings:
             return self._set(st, "invalid-secret", findings, None, secret)
-        ca_file = self._ca_file(cluster_id, ca_data) if ca_data else self.trusted_bundle
+        # The root dot of a fully qualified name names the same host; OpenSSL matches the name as written, so it is dropped.
+        server_name = server_name.removesuffix(".") if server_name else None
+        trust = (Trust("insecure", server_name=server_name) if insecure
+                 else Trust("caData", ca_data=ca_data, server_name=server_name) if ca_data
+                 else Trust("trusted", server_name=server_name, bundles=self.trusted_ca_file))
         try:
-            # httpx loads the trust store here: a caData of valid base64 that is no certificate fails now, not at a call.
-            client = self.client_factory(cluster_id, api_url, d["token"], ca_file, insecure=insecure)
+            # The whole token, as a SHA-256: a rotated token that ends in the same characters still gives the caches the new
+            # client. The digest stays in memory, compared and never shown.
+            fp = f"{api_url}|{hashlib.sha256(d['token'].encode()).hexdigest()}|{trust.fingerprint()}"
+            # The client builds the SSL context: a caData of valid base64 that is no certificate fails now, not at a call (#419),
+            # and so does a bundle of CMAPI_TRUSTED_CA_FILE that does not load (TrustBundleError, which names it).
+            client = self.client_factory(cluster_id, api_url, d["token"], trust, insecure=insecure)
         except OSError as exc:                                      # ssl.SSLError is an OSError, as a missing file is
             if ca_data and isinstance(exc, ssl.SSLError):
                 return self._set(st, "invalid-secret", [f"invalid caData: {exc}"], None, secret)
-            store = "caData" if ca_data else "the hub bundle"
-            return self._set(st, "cert-verify-failed", [f"{exc}; trust store: {store}"], None, secret)
+            return self._set(st, "cert-verify-failed", [f"{exc}; trust store: {trust.store_name()}"], None, secret, trust)
         adopted = False                     # the client is closed unless the caches took it, whatever ends the check
         try:
-            status, found, version = self._probe(client, bool(ca_data))
+            status, found, version = self._probe(client, trust)
             if status != "connected":
-                return self._set(st, status, found, version, secret)
-            st = self._set(st, "connected", [], version, secret)
-            fp = f"{api_url}|{d['token'][-12:]}|{bool(ca_data)}"
+                return self._set(st, status, found, version, secret, trust)
+            st = self._set(st, "connected", [], version, secret, trust)
+            # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
+            # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
                 self._stop_caches(st)
                 ledger = CapacityLedger()
@@ -340,7 +353,7 @@ class ClusterRegistry:
                 client.close()
 
     @staticmethod
-    def _probe(client: KubeClient, has_ca_data: bool) -> tuple[str, list[str], str | None]:
+    def _probe(client: KubeClient, trust: Trust) -> tuple[str, list[str], str | None]:
         """Checks 4 to 6 on one client: (status, findings, server version). Each way a call can fail is a status here, so
         nothing the cluster answers escapes the check (#419). Who produced the error decides it (docs/02 "Client rules"):
         a transport failure of this process is unreachable or cert-verify-failed, an answer that cannot be read is
@@ -350,8 +363,7 @@ class ClusterRegistry:
             version = client.version()
         except ClusterUnreachable as exc:
             if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "certificate" in str(exc).lower():
-                hint = "; trust store: caData" if has_ca_data else "; trust store: the hub bundle"
-                return "cert-verify-failed", [str(exc)[:200] + hint], None
+                return "cert-verify-failed", [f"{str(exc)[:200]}; trust store: {trust.store_name()}"], None
             return "unreachable", [str(exc)[:200]], None
         except KubeError as exc:
             return "auth_failed" if exc.status in (401, 403) else "unreachable", [str(exc)], None
@@ -381,7 +393,8 @@ class ClusterRegistry:
         return "connected", [], version
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
-             secret: Mapping[str, Any]) -> ClusterState:
+             secret: Mapping[str, Any], trust: Trust | None = None) -> ClusterState:
+        """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen."""
         # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
         # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
         forms = secret_forms((secret.get("data") or {}).get("token"))
@@ -396,9 +409,31 @@ class ClusterRegistry:
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)
+            previous = self._set_trust(st, trust)
+        self._log_mode(st.cluster_id, previous, trust)
         if status != "connected":
             log.warning("cluster_import", cluster_id=st.cluster_id, status=status, findings=findings)
         return st
+
+    @staticmethod
+    def _set_trust(st: ClusterState, trust: Trust | None) -> Trust | None:
+        """The cluster's mode and the metric cmapi_cluster_tls_insecure; returns the mode it replaces. Under the lock."""
+        previous, st.trust = st.trust, trust
+        CLUSTER_TLS_INSECURE.labels(st.cluster_id).set(1 if trust and trust.source == "insecure" else 0)
+        return previous
+
+    @staticmethod
+    def _log_mode(cluster_id: str, previous: Trust | None, trust: Trust | None) -> None:
+        """One line when the mode changes, not one at each relist: a warning when insecure takes effect, so that the downgrade
+        is in the log when it starts and when it ends. A check that ends before a mode is chosen changes nothing here, except
+        that an insecure mode that no Secret holds any more is logged as cleared."""
+        old = previous.source if previous else None
+        new = trust.source if trust else None
+        if old == new or (new is None and old != "insecure"):
+            return
+        emit = log.warning if new == "insecure" else log.info
+        emit("cluster_tls_mode", cluster_id=cluster_id, mode=new, previous=old,
+             server_name=trust.server_name if trust else None)
 
     def refresh(self) -> None:
         """One discovery pass: every import Secret through the six checks."""
@@ -435,6 +470,7 @@ class ClusterRegistry:
                     st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
                     self._stop_caches(st)
                     st.cache, st.ledger, st.client = None, None, None
+                    self._log_mode(cid, self._set_trust(st, None), None)
 
     def start(self) -> None:
         self.refresh()
