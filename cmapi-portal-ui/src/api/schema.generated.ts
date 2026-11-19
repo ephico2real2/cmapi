@@ -1073,7 +1073,7 @@ export interface components {
         CapacityCluster: {
             /**
              * Asof
-             * @description The last good read of the figures, to the minute; for `unreachable` and `not-imported`, the last check of the cluster: null when none was made
+             * @description The last good read of the figures, to the minute. For `unreachable` and `not-imported`, the minute the registry observed the current import status, or null if never imported.
              * @example 2026-11-18T09:14:00Z
              */
             asOf: string | null;
@@ -1185,7 +1185,7 @@ export interface components {
         CapacityExcluded: {
             /**
              * Asof
-             * @description Its last good read, to the minute
+             * @description The excluded cluster's Capacity asOf value, to the minute
              * @example 2026-11-18T08:30:00Z
              */
             asOf: string | null;
@@ -1824,6 +1824,12 @@ export interface components {
              * @example connected
              */
             status: string;
+            /**
+             * Statussince
+             * @description When this registry first observed the current import status. Null for a cluster that has never been imported.
+             * @example 2026-11-05T09:55:00Z
+             */
+            statusSince?: string | null;
             /**
              * @description The TLS mode of the last check; null when the import Secret was refused before one was chosen, or there is none
              * @example {
@@ -3059,7 +3065,7 @@ export interface components {
         PolicyCluster: {
             /**
              * Asof
-             * @description The last good read of the reports, or for `unreachable` and `not-imported` the last check of the cluster: null when none was made
+             * @description The last good read of the reports. For `unreachable` and `not-imported`, when the registry observed the current import status, or null if never imported.
              * @example 2026-11-17T18:02:11Z
              */
             asOf: string | null;
@@ -5057,6 +5063,7 @@ export interface operations {
                      *           },
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
+                     *           "statusSince": "2026-11-19T00:21:25.918686Z",
                      *           "trust": {
                      *             "downgrade": false,
                      *             "serverName": null,

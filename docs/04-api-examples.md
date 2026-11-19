@@ -2615,6 +2615,7 @@ The answer was 200 (`application/json`):
       },
       "serverVersion": "v1.35.6-fake",
       "status": "connected",
+      "statusSince": "2026-11-19T00:21:25.918686Z",
       "trust": {
         "downgrade": false,
         "serverName": null,
