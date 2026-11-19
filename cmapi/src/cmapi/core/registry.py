@@ -50,7 +50,7 @@ from cmapi.core.tiers import qty
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
-            "wrong-identity", "forbidden", "bad-response", "environment-not-served")
+            "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
 HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
 PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
