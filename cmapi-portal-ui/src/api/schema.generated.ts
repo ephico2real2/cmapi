@@ -7022,7 +7022,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /** @description forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;

@@ -12611,15 +12611,6 @@
             "content": {
               "application/problem+json": {
                 "examples": {
-                  "environment-forbidden": {
-                    "value": {
-                      "code": "environment-forbidden",
-                      "detail": "Your roles grant namespaces:create only in ['rnd'], not dev",
-                      "status": 403,
-                      "title": "environment forbidden",
-                      "type": "https://cmapi.ephico2real.com/problems/environment-forbidden"
-                    }
-                  },
                   "forbidden": {
                     "value": {
                       "code": "forbidden",
@@ -12635,7 +12626,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "forbidden"
           },
           "404": {
             "content": {

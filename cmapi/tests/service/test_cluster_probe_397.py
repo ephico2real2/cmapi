@@ -29,9 +29,18 @@ def test_probe_permissions_and_unknown_id(test_config, keys, monkeypatch):
         assert ok.status_code == 200 and ok.json()["status"] == "connected"
         assert ctx.registry.get("CRC").checked_at > checked
         ctx.cfg.roles = RolePolicy({"roles": {"limited": {"permissions": ["operations:run"], "environments": ["rnd"]}}})
-        assert probe("CRC", "limited").json()["code"] == "environment-forbidden"
-        ctx.registry.get("CRC").policy = None
-        assert probe("CRC", "limited").json()["code"] == "environment-forbidden"
+        st = ctx.registry.get("CRC")
+        checked = st.checked_at
+        with monkeypatch.context() as patch:
+            patch.delitem(ctx.registry.clusters, "CRC")
+            absent = probe("CRC", "limited")
+        assert absent.status_code == 404 and absent.json()["code"] == "cluster-not-found"
+        for policy in (st.policy, None):
+            st.policy = policy
+            hidden = probe("CRC", "limited")
+            assert hidden.status_code == absent.status_code
+            assert hidden.content == absent.content
+            assert st.checked_at == checked
         assert probe("CRC", "cmapi-operator").status_code == 200
 
 
