@@ -18,7 +18,7 @@ import yaml
 
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
-from cmapi.core.clients.kube import ClusterUnreachable, KubeError
+from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig
 from cmapi.core.db.models import ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
@@ -161,9 +161,10 @@ class Pipeline:
         """Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0."""
         client = self.registry.cache(cluster_id).client
         try:
-            return (len(client.list("Pod", namespace=ns).get("items", [])),
-                    len(client.list("PersistentVolumeClaim", namespace=ns).get("items", [])))
-        except (ClusterUnreachable, KubeError) as exc:
+            # `items` without a default: KubeClient.list refuses an answer without it (#421), so none counts as 0 workloads.
+            return (len(client.list("Pod", namespace=ns)["items"]),
+                    len(client.list("PersistentVolumeClaim", namespace=ns)["items"]))
+        except (ClusterUnreachable, KubeError, BadResponse) as exc:
             raise Problem(503, "cluster-unreachable", f"Cannot count the workloads in {ns}: {str(exc)[:200]}",
                           extra={"retryAfter": 30}) from exc
 
