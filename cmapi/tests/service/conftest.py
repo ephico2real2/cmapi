@@ -463,12 +463,6 @@ def build_world(config_dir: Path, keys: Keys, monkeypatch):
         ctx.registry.stop()
 
 
-@pytest.fixture(name="build_world")
-def build_world_fixture():
-    """Expose the builder without importing an ambiguously named conftest module."""
-    return build_world
-
-
 @pytest.fixture
 def world(test_config: Path, fresh_db: Database, keys: Keys, monkeypatch):
     """The app with fakes wired in: returns (client, ctx, git, kube, validator, keys)."""
