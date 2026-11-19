@@ -137,3 +137,32 @@ def test_malformed_expiry_clears_view_and_series_without_normalizing_input():
             assert REGISTRY.get_sample_value(METRIC, {"cluster_id": cid}) is None
     finally:
         reg.stop()
+
+
+def test_directory_annotation_cannot_abort_discovery_or_keep_a_stale_expiry(tmp_path):
+    cid = "DIRECTORY"
+    reg = registry({cid: good}, [])
+    reg.source = DirImportSource(tmp_path)
+    path = tmp_path / "cluster.yaml"
+    document = """kind: Secret
+metadata:
+  name: local-import
+  labels: {cmapi.net/cluster-id: DIRECTORY}
+  annotations: {cmapi.net/token-expires-at: EXPIRY}
+stringData: {apiUrl: https://cluster.example, token: fixture-token}
+"""
+    try:
+        path.write_text(document.replace("EXPIRY", "2026-11-19T00:00:00Z"))
+        reg.refresh()
+        assert reg.get(cid).view()["tokenExpiresAt"] == datetime(2026, 11, 19, tzinfo=timezone.utc)
+        assert REGISTRY.get_sample_value(METRIC, {"cluster_id": cid}) is not None
+        for malformed in ("2026-02-31T00:00:00Z", "2026-11-19T00:00:00+01:60"):
+            prior = reg.get(cid).checked_at
+            path.write_text(document.replace("EXPIRY", malformed))
+            reg.refresh()
+            row = reg.get(cid).view()
+            assert row["checkedAt"] > prior
+            assert row["status"] == "connected" and row["tokenExpiresAt"] is None
+            assert REGISTRY.get_sample_value(METRIC, {"cluster_id": cid}) is None
+    finally:
+        reg.stop()

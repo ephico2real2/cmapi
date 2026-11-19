@@ -154,7 +154,6 @@ def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
     value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
-    # Directory imports can contain an unquoted YAML timestamp. Kubernetes annotations are strings.
     if isinstance(value, str):
         if not TOKEN_EXPIRY.fullmatch(value):
             return None
@@ -218,6 +217,13 @@ class ImportSource:
         raise NotImplementedError
 
 
+class _ImportLoader(yaml.SafeLoader):
+    """Preserve date-like scalars as text in Secret documents, as the Kubernetes annotation and data fields do."""
+
+
+_ImportLoader.add_constructor("tag:yaml.org,2002:timestamp", _ImportLoader.construct_scalar)
+
+
 class DirImportSource(ImportSource):
     def __init__(self, directory: Path):
         self.dir = directory
@@ -225,7 +231,7 @@ class DirImportSource(ImportSource):
     def list(self) -> list[dict[str, Any]]:
         out = []
         for p in sorted(self.dir.glob("*.yaml")):
-            for doc in yaml.safe_load_all(p.read_text()):
+            for doc in yaml.load_all(p.read_text(), Loader=_ImportLoader):
                 if doc and doc.get("kind") == "Secret":
                     out.append(_secret(doc))
         return out
