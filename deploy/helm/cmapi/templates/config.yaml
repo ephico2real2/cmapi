@@ -38,6 +38,7 @@ data:
       problems: {{ toJson ($inst.problems | default dict) }}
       cors: {{ toJson ($inst.cors | default dict) }}
       policy: {{ toJson ($inst.policy | default dict) }}
+      clusterTLS: {{ toJson ($inst.clusterTLS | default dict) }}
   clusters.yaml: |
     clusters: {{ toJson .Values.clusters }}
   integrations.yaml: |

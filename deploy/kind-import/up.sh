@@ -37,6 +37,6 @@ kc apply --server-side --field-manager="$FIELD_MANAGER" -f "$HERE/reader.yaml" >
 say "reader applied on $NAME: cmapi-system/cmapi-reader and ClusterRole cmapi-reader"
 
 kc create token cmapi-reader -n cmapi-system --duration=168h |
-  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" |
+  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" host.crc.testing |
   oc_ apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null
 say "Secret $HUB_NS/$SECRET is current on CRC; cmapi picks it up at its next relist (up to 5 min)"

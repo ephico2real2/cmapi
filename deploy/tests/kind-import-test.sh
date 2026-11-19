@@ -91,7 +91,8 @@ exp = datetime.datetime.fromtimestamp(int(sys.argv[4]), datetime.timezone.utc).s
 assert (m["name"], m["namespace"]) == ("cmapi-cluster-kind-cmapi-test", "cmapi-imports"), m
 assert m["labels"]["cmapi.net/secret-type"] == "cluster" and m["labels"]["cmapi.net/cluster-id"] == "KIND_CMAPI_TEST", m
 assert m["annotations"] == {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": exp}, m
-assert v == {"apiUrl": "https://192.168.86.110:16443", "token": sys.argv[2], "caData": open(sys.argv[3]).read(), "insecure": "false"}, v
+assert v == {"apiUrl": "https://192.168.86.110:16443", "token": sys.argv[2], "caData": open(sys.argv[3]).read(), "insecure": "false",
+             "tlsServerName": "host.crc.testing"}, v
 PY
 grep -qE '^curl .*--cacert .* https://192\.168\.86\.110:16443/version$' "$ARGV_LOG" && ok "kind's CA verifies the API before the import" || bad "no verified /version"
 want "an existing cluster is reused and its token rewritten" 0 "$(STUB_KIND_CLUSTERS=$'other\ncmapi-test' run "$D/up.sh")"; no_secret "a rerun"
