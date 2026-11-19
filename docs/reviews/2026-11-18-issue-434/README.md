@@ -25,9 +25,9 @@ an operator's ConfigMap).
 | G1 | `INSECURE_ALLOWED` removed; `ClusterTLSSettings` (`core/clustertls.py`) parses `instance.clusterTLS`, `load_instance` refuses an unknown key, an environment not served or a value that is not a boolean, and `build_context` hands the allowed environments to the registry |
 | G2, D4, D7 | The trusted mode: `trusted_context` (`core/clients/trust.py`) loads the image's system store by path, then each bundle of `CMAPI_TRUSTED_CA_FILE` in turn. A missing or empty bundle is skipped and the context is keyed by the size and time of every path, so a bundle that appears is read at the next check; one that does not load raises `TrustBundleError`, which names it |
 | G3 | `KubeClient` never passes `verify=True` or a path string: an `SSLContext` from the cluster's `Trust`, a file, or the trusted mode |
-| G4, D3 | `tlsServerName`: a request hook sets httpcore's `sni_hostname`, the TLS `server_hostname`, on every request and stream |
+| G4, D3 | `tlsServerName`: a request hook sets httpcore's `sni_hostname`, the TLS `server_hostname`, on every request and stream; a verifying mode's SSL context carries the name too, because httpcore's HTTP-proxy tunnel ignores the extension (review of #435) |
 | G5 | caData is loaded in memory (`cadata=`); no temporary files |
-| G6 | The fingerprint is `apiUrl|token[-12:]|Trust.fingerprint()`: the mode, a SHA-256 of caData, the server name, and the bundles' signature |
+| G6 | The fingerprint is `apiUrl|sha256(token)|Trust.fingerprint()`: the mode, a SHA-256 of caData, the server name, and the bundles' signature. The token was `token[-12:]` until the review of #435 |
 | G7, D1 | `ClusterState.trust` and `ClusterTrust` in the contract (additive: oasdiff `response-optional-property-added`); the metric and the log event |
 | G8 | Findings name `caData` or `trusted (the system store and CMAPI_TRUSTED_CA_FILE)` |
 | G9 | The deliverer client with no `ca.crt` gets the trusted mode through `KubeClient`, not certifi. It does not take the import's mode: its credentials are a separate Secret |

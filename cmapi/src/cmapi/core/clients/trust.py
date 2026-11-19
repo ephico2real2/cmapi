@@ -23,6 +23,7 @@ import re
 import ssl
 import threading
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 TRUSTED_CA_ENV = "CMAPI_TRUSTED_CA_FILE"
 # RFC 1123 host names: labels of letters, digits and hyphens, neither first nor last a hyphen; at most 253 characters.
@@ -34,24 +35,66 @@ class TrustBundleError(OSError):
     the registry's net for a client that cannot be made catches it; the message names the file and the variable."""
 
 
+def require_https(api_url: str, source: str) -> None:
+    """Refuses an API URL that would carry a bearer token in clear text, before any client holds the token. The managed
+    imports refuse the same in the registry's parse; this is for the hub reader and the deliverer, whose URL comes from
+    `source` (a setting or a mounted file), named in the error. The URL itself is not echoed: it may hold userinfo."""
+    try:
+        parsed = urlsplit(api_url)
+        valid = parsed.scheme == "https" and bool(parsed.hostname) and not (parsed.username or parsed.password)
+    except ValueError:                      # a malformed IPv6 host, such as https://[::1:6443
+        valid = False
+    if not valid:
+        raise ValueError(f"{source} must be an https URL with a host and no userinfo")
+
+
 def valid_server_name(name: str) -> bool:
-    """Whether `name` can be kubeconfig's tls-server-name: a DNS name or an IP address literal (RFC 9525's DNS-ID and IP-ID)."""
+    """Whether `name` can be kubeconfig's tls-server-name: a DNS name or an IP address literal (RFC 9525's DNS-ID and IP-ID).
+    A DNS name may end in one root dot, which the registry drops before use (OpenSSL does not match api.example.test. to a
+    certificate for api.example.test)."""
     try:
         ipaddress.ip_address(name)
         return True
     except ValueError:
         pass
-    return 0 < len(name) <= 253 and all(_LABEL.fullmatch(label) for label in name.rstrip(".").split("."))
+    return 0 < len(name) <= 253 and all(_LABEL.fullmatch(label) for label in name.removesuffix(".").split("."))
 
 
-def _client_context() -> ssl.SSLContext:
-    """A client context with no anchors: PROTOCOL_TLS_CLIENT verifies the chain and the host name by default."""
-    return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+class _NamedContext(ssl.SSLContext):
+    """A client context that sends and checks one server name, whatever host the transport hands it.
+
+    kubeconfig's tls-server-name has to hold on every path to the cluster. httpcore takes the request extension
+    `sni_hostname` on a direct or SOCKS connection, but its HTTP-proxy tunnel starts TLS with the URL's host (httpcore 1.0.9,
+    _sync/http_proxy.py, TunnelHTTPConnection.handle_request), so with HTTPS_PROXY set the name would be dropped and a
+    cluster reached by an address its certificate does not name would fail. httpcore's sync backend calls `wrap_socket`,
+    and `wrap_bio` for TLS inside a TLS proxy, so the name set here is the TLS server_hostname on each of those paths."""
+
+    server_name: str | None = None
+
+    def wrap_socket(self, sock, server_side=False, do_handshake_on_connect=True, suppress_ragged_eofs=True,
+                    server_hostname=None, session=None):
+        return super().wrap_socket(sock, server_side, do_handshake_on_connect, suppress_ragged_eofs,
+                                   self.server_name or server_hostname, session)
+
+    def wrap_bio(self, incoming, outgoing, server_side=False, server_hostname=None, session=None):
+        return super().wrap_bio(incoming, outgoing, server_side, self.server_name or server_hostname, session)
 
 
-def ca_data_context(ca_data: str) -> ssl.SSLContext:
+def _client_context(server_name: str | None = None) -> ssl.SSLContext:
+    """A client context with no anchors: PROTOCOL_TLS_CLIENT verifies the chain and the host name, TLS 1.2 at least.
+
+    VERIFY_X509_PARTIAL_CHAIN makes every certificate loaded an anchor, as client-go's CertPool does: a caData or a bundle
+    that holds an intermediate CA and not its root verifies, as it does for kubectl and Argo CD. Python 3.13's
+    create_default_context sets the same flag; 3.12, the image's, does not."""
+    ctx = _NamedContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.server_name = server_name
+    ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+    return ctx
+
+
+def ca_data_context(ca_data: str, server_name: str | None = None) -> ssl.SSLContext:
     """The caData of an import Secret as the only anchors, in memory. ssl.SSLError when it holds no certificate."""
-    ctx = _client_context()
+    ctx = _client_context(server_name)
     ctx.load_verify_locations(cadata=ca_data)
     return ctx
 
@@ -71,15 +114,21 @@ def _system_locations() -> tuple[str | None, str | None]:
 
 
 def _signature(path: str) -> tuple[str, int, int] | None:
+    """A bundle's (path, size, mtime), or None for one that is not there or is empty. Any other failure to stat it (a
+    directory the process cannot enter, a symlink loop) is no absence: it raises TrustBundleError naming the file, so the
+    trusted clusters stop with that finding instead of being verified against a smaller store."""
     try:
         st = os.stat(path)                  # follows the ..data symlink of a ConfigMap volume, so a refill changes it
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise TrustBundleError(f"the trusted CA bundle {path} ({TRUSTED_CA_ENV}) cannot be read: {exc}") from exc
     return (path, st.st_size, st.st_mtime_ns) if st.st_size else None
 
 
-# One entry for each list of paths: the signature it was built from and the context.
-_cache: dict[tuple[str, ...], tuple[tuple, ssl.SSLContext]] = {}
+# One entry for each list of paths and server name: the signature it was built from and the context. A bundle that is not
+# there is cached too: the signature changes when it appears, so it is read at the next check either way.
+_cache: dict[tuple[tuple[str, ...], str | None], tuple[tuple, ssl.SSLContext]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -94,16 +143,16 @@ def trusted_signature(raw: str | None = None) -> tuple:
     return (_system_locations(), tuple(s for s in (_signature(p) for p in bundle_paths(raw)) if s))
 
 
-def trusted_context(raw: str | None = None) -> ssl.SSLContext:
+def trusted_context(raw: str | None = None, server_name: str | None = None) -> ssl.SSLContext:
     """The system store, then each bundle of `raw` (default: CMAPI_TRUSTED_CA_FILE) that is there, in turn."""
-    paths = tuple(bundle_paths(raw))
+    entry = (tuple(bundle_paths(raw)), server_name)
     key = trusted_signature(raw)
     with _cache_lock:
-        cached = _cache.get(paths)
+        cached = _cache.get(entry)
     if cached is not None and cached[0] == key:
         return cached[1]
     (cafile, capath), bundles = key
-    ctx = _client_context()
+    ctx = _client_context(server_name)
     if cafile or capath:
         ctx.load_verify_locations(cafile=cafile, capath=capath)
     for path, _, _ in bundles:
@@ -112,7 +161,7 @@ def trusted_context(raw: str | None = None) -> ssl.SSLContext:
         except (OSError, ValueError) as exc:
             raise TrustBundleError(f"the trusted CA bundle {path} ({TRUSTED_CA_ENV}) does not load: {exc}") from exc
     with _cache_lock:
-        _cache[paths] = (key, ctx)
+        _cache[entry] = (key, ctx)
     return ctx
 
 
@@ -132,8 +181,8 @@ class Trust:
         if self.source == "insecure":
             return False
         if self.source == "caData":
-            return ca_data_context(self.ca_data or "")
-        return trusted_context(self.bundles)
+            return ca_data_context(self.ca_data or "", self.server_name)
+        return trusted_context(self.bundles, self.server_name)
 
     def fingerprint(self) -> str:
         """Changes when anything the client verifies with changes (G6): the mode, the caData, the server name, the bundles."""

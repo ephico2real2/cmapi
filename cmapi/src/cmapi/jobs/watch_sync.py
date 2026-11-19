@@ -26,6 +26,7 @@ def _deliverer(ctx: AppContext, cluster_id: str):
     from pathlib import Path
 
     from cmapi.core.clients.kube import KubeClient
+    from cmapi.core.clients.trust import require_https
 
     if ctx.deliverer_factory is not None:
         return ctx.deliverer_factory(cluster_id)
@@ -33,10 +34,12 @@ def _deliverer(ctx: AppContext, cluster_id: str):
     secret_dir = Path(f"/etc/cmapi/deliverer/{cluster_id}")
     if (secret_dir / "token").exists():
         api_url = (secret_dir / "apiUrl").read_text().strip()
+        require_https(api_url, str(secret_dir / "apiUrl"))
         ca = secret_dir / "ca.crt"
         return KubeClient(cluster_id, api_url, (secret_dir / "token").read_text().strip(),
                           str(ca) if ca.exists() else None)
     if s.kube_token_file.exists():
+        require_https(s.kube_api_url, "CMAPI_KUBE_API_URL")
         return KubeClient(cluster_id, s.kube_api_url, s.kube_token_file.read_text().strip(),
                           str(s.kube_ca_file) if s.kube_ca_file.exists() else None)
     raise RuntimeError(f"no deliverer credential for {cluster_id}")

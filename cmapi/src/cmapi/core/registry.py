@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import re
 import ssl
 import threading
@@ -42,7 +43,7 @@ from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient,
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import redact, secret_forms
-from cmapi.core.clients.trust import Trust, file_context, trusted_context, valid_server_name
+from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log
 from cmapi.core.tiers import qty
@@ -180,6 +181,7 @@ class HubImportSource(ImportSource):
     """Lists Secrets in the hub's cmapi-imports namespace with the pod's own ServiceAccount."""
 
     def __init__(self, api_url: str, token_file: Path, ca_file: Path, namespace: str):
+        require_https(api_url, "CMAPI_KUBE_API_URL")       # before the token is read: never sent in clear text
         self.namespace = namespace
         token = token_file.read_text().strip()
         self._forms = secret_forms(token)
@@ -302,11 +304,15 @@ class ClusterRegistry:
                             f"instance.clusterTLS.environments.{where}.insecureSkipTLSVerify is false")
         if findings:
             return self._set(st, "invalid-secret", findings, None, secret)
+        # The root dot of a fully qualified name names the same host; OpenSSL matches the name as written, so it is dropped.
+        server_name = server_name.removesuffix(".") if server_name else None
         trust = (Trust("insecure", server_name=server_name) if insecure
                  else Trust("caData", ca_data=ca_data, server_name=server_name) if ca_data
                  else Trust("trusted", server_name=server_name, bundles=self.trusted_ca_file))
         try:
-            fp = f"{api_url}|{d['token'][-12:]}|{trust.fingerprint()}"
+            # The whole token, as a SHA-256: a rotated token that ends in the same characters still gives the caches the new
+            # client. The digest stays in memory, compared and never shown.
+            fp = f"{api_url}|{hashlib.sha256(d['token'].encode()).hexdigest()}|{trust.fingerprint()}"
             # The client builds the SSL context: a caData of valid base64 that is no certificate fails now, not at a call (#419),
             # and so does a bundle of CMAPI_TRUSTED_CA_FILE that does not load (TrustBundleError, which names it).
             client = self.client_factory(cluster_id, api_url, d["token"], trust, insecure=insecure)

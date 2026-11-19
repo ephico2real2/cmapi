@@ -101,7 +101,9 @@ class KubeClient:
     def _name_server(name: str) -> Callable[[httpx.Request], None]:
         """kubeconfig's tls-server-name: the name sent in SNI and checked against the certificate, for a cluster reached by an
         address its certificate does not name. It is RFC 9525's reference identity, from the import and never from the server;
-        httpcore takes the request extension `sni_hostname` as the TLS server_hostname, on every request and stream."""
+        httpcore takes the request extension `sni_hostname` as the TLS server_hostname, on every request and stream of a direct
+        connection. Its HTTP-proxy tunnel ignores the extension, so a verifying mode also carries the name in its SSLContext
+        (trust._NamedContext); the hook remains for the insecure mode's SNI."""
         def hook(request: httpx.Request) -> None:
             request.extensions["sni_hostname"] = name
         return hook
