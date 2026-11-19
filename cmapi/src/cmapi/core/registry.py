@@ -543,8 +543,14 @@ class ClusterRegistry:
             self._check_failed(st, items[0], exc)
 
     def _check_failed(self, st: ClusterState, secret: Mapping[str, Any], exc: Exception, *, probed: bool = False) -> ClusterState:
-        log.exception("cluster_check_failed", cluster_id=st.cluster_id)
-        finding = f"the check failed: {type(exc).__name__}: {str(exc)[:200]}"
+        # Exception messages may include the import data. Never attach the live traceback to a log record.
+        error_type = type(exc).__name__
+        log.error("cluster_check_failed", cluster_id=st.cluster_id, error_type=error_type)
+        detail = str(exc)
+        for value in secret["data"].values():
+            if isinstance(value, str) and value:
+                detail = redact(detail, secret_forms(value) or (value,))
+        finding = f"the check failed: {error_type}: {detail[:200]}"
         return self._set(st, "unreachable", [finding], None, secret, probed=probed)
 
     def probe(self, cluster_id: str) -> dict[str, Any]:

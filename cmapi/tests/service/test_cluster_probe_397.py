@@ -137,3 +137,36 @@ def test_probe_uses_last_successful_discovery_and_recovers_without_a_hub_read(mo
         assert "exactly one" in row["findingDetails"][0]["fix"]
     finally:
         reg.stop()
+
+
+def test_probe_sanitizes_unexpected_failure_before_logging_and_truncation(monkeypatch):
+    import json
+    import structlog
+
+    item = secret("ONE")
+    reg = registry({"ONE": good}, [item])
+    events = []
+
+    # Render exc_info just as configure_logging does, including implicit tracebacks from log.exception.
+    def record(logger, method, event):
+        events.append(event)
+        raise structlog.DropEvent
+
+    log = structlog.wrap_logger(structlog.ReturnLogger(), wrapper_class=structlog.stdlib.BoundLogger,
+                                processors=[structlog.processors.format_exc_info, record])
+    monkeypatch.setattr("cmapi.core.registry.log", log)
+    try:
+        reg.refresh()
+
+        def failed_client(*args, **kwargs):
+            raise RuntimeError(item["data"]["apiUrl"] + " " + "x" * 165 + item["data"]["token"])
+
+        monkeypatch.setattr(reg, "client_factory", failed_client)
+        row = reg.probe("ONE")
+        assert row["status"] == "unreachable"
+        assert any(e["event"] == "cluster_check_failed" for e in events)
+        for diagnostic in (json.dumps(events), json.dumps(row, default=str)):
+            assert item["data"]["apiUrl"] not in diagnostic
+            assert item["data"]["token"][:8] not in diagnostic
+    finally:
+        reg.stop()
