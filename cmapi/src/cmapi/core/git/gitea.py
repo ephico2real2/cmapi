@@ -1,6 +1,7 @@
 """GitProvider for Gitea (API v1). Endpoints as documented for Gitea 1.25:
 
     GET  /repos/{o}/{r}/branches/{b}                    head sha
+    GET  /repos/{o}/{r}/git/commits/{sha}               a commit: its message (the trailers) and its parents
     GET  /repos/{o}/{r}/contents/{path}?ref=            folder listing, file content (base64)
     POST /repos/{o}/{r}/branches                        {new_branch_name, old_ref_name}
     POST /repos/{o}/{r}/contents                        one commit with several files {files: [...]}
@@ -18,6 +19,7 @@ import base64
 from typing import Any, Mapping
 
 from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
+from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchMoved, BranchRefused, request_branch
 from cmapi.core.ports import PrRef, PrStatus
 
 
@@ -52,21 +54,27 @@ class GiteaProvider(HostGitProvider):
         return files, head
 
     def push_request_branch(self, req: BranchRequest) -> PushResult:
-        """Through Gitea's REST API, not the Git layer: the chart's stand-in. A branch with no open PR is one the bot left or
-        anyone may have pushed to, so it is deleted and written again from the default branch's head."""
-        from cmapi.core.git.workspace import request_branch
-
+        """Through Gitea's REST API, not the Git layer: the chart's stand-in, whose Gitea the cluster serves over plain http, which
+        the Git layer refuses. A branch that exists is handled as the Git layer handles it (the arbitration of #286, row 3;
+        #450): adopted when its head is this request's commit of this plan with the plan's files; deleted and written again
+        when it is this request's own stale attempt; refused, and left as it is, when it is anyone else's. An open PR proves
+        nothing about the head. REST has no lease, so the delete of a stale attempt reads the head first (delete_branch)."""
         branch = request_branch(req.cluster_id, req.request_id)
         base = self.branch_head(self.default_branch)
         if base is None:
             raise GitUnavailable(f"branch {self.default_branch} does not exist")
-        if self.branch_head(branch) is not None:
-            existing = self.find_pr(branch)
-            if existing is not None:
-                return PushResult(existing.head_sha, base, "adopted")
-            r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204,))
-            if r.status_code != 204:
-                raise GitUnavailable(f"delete stale branch {branch}: {r.status_code} {self.host_text(r, 200)}")
+        existing = self.branch_head(branch)
+        if existing is not None:
+            trailers, parents = self._commit(existing)
+            planned = {p: t for p, t in req.files.items() if t is not None}
+            if trailers.get(TRAILER_REQUEST) != [req.request_id]:
+                raise BranchRefused(f"branch {branch} exists at {existing[:8]} and its head is not cmapi's commit for "
+                                    f"{req.request_id}: it is not adopted or overwritten")
+            if trailers.get(TRAILER_PLAN_HASH) == [req.plan_hash] and len(parents) == 1 and \
+                    self.read_folder(req.folder, existing)[0] == planned:
+                return PushResult(existing, parents[0], "adopted")
+            if not self.delete_branch(branch, existing):
+                raise BranchMoved(f"branch {branch} moved from {existing[:8]} before its stale attempt was replaced")
         r = self._call("create_branch", "POST", f"{self._repo()}/branches",
                        json={"new_branch_name": branch, "old_ref_name": base}, ok=(201,))
         if r.status_code != 201:
@@ -90,7 +98,22 @@ class GiteaProvider(HostGitProvider):
             if r.status_code not in (200, 201):
                 raise GitUnavailable(f"commit on {branch}: {r.status_code} {self.host_text(r)}")
         head = self.branch_head(branch)
-        return PushResult(head or base, base, "created")
+        return PushResult(head or base, base, "created" if existing is None else "replaced")
+
+    def _commit(self, sha: str) -> tuple[dict[str, list[str]], list[str]]:
+        """A commit's cmapi trailers ({key: [values]}, from its message's last paragraph) and its parents' shas."""
+        r = self._call("commit_read", "GET", f"{self._repo()}/git/commits/{sha}", ok=(200,))
+        if r.status_code != 200:
+            raise GitUnavailable(f"read commit {sha[:8]}: {r.status_code} {self.host_text(r, 200)}")
+        body = r.json()
+        paragraphs = [p for p in ((body.get("commit") or {}).get("message") or "").strip().split("\n\n") if p.strip()]
+        trailers: dict[str, list[str]] = {}
+        for line in (paragraphs[-1].splitlines() if paragraphs else []):
+            key, sep, value = line.partition(":")
+            if sep and key.strip() in (TRAILER_REQUEST, TRAILER_PLAN_HASH):
+                trailers.setdefault(key.strip(), []).append(value.strip())
+        return trailers, [p["sha"] for p in body.get("parents") or []]
+
 
     def recreate_branch(self, req: BranchRequest, base: str, expected: str) -> str:
         raise GitUnavailable("the Gitea stand-in is not on the Git layer: a closed PR's branch is not re-created")
