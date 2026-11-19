@@ -21,16 +21,28 @@ with open("calls", "a") as log:
     print(json.dumps(args), file=log)
 if args[:2] == ["create", "token"]:
     print(os.environ["ISSUED_TOKEN"])
+    if os.environ.get("CLIENT_DIAGNOSTICS"):
+        print(os.environ["ISSUED_TOKEN"], file=sys.stderr)
 elif args == ["get", "configmap", "kube-root-ca.crt", "-n", "cmapi-system", "-o", r"jsonpath={.data.ca\.crt}"]:
     print(os.environ["ISSUER_CA"], end="")
 elif args == ["get", "secret", "cmapi-reader-token", "-n", "cmapi-system", "-o", "json"]:
     print(json.dumps({"data": {"token": "bGVnYWN5", "ca.crt": "Y2E="}}))
 elif args[0] == "apply" and args[-2:] == ["-f", "-"]:
     document = json.load(sys.stdin)
+    if os.environ.get("CLIENT_DIAGNOSTICS"):
+        print(document["data"]["token"], file=sys.stderr)
+        if os.environ["CLIENT_DIAGNOSTICS"] == "reject":
+            sys.exit(1)
     Path("applied").write_text(json.dumps(document))
 else:
     sys.exit("unexpected client call: " + repr(args))
 """
+
+
+def fixture_token(issued_at, lifetime):
+    claims = {"sub": "system:serviceaccount:cmapi-system:cmapi-reader", "iat": issued_at, "exp": issued_at + lifetime}
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+    return f"stub.{payload}.stub"
 
 
 def import_crc(work, issued_at, lifetime=24 * 3600):
@@ -38,9 +50,7 @@ def import_crc(work, issued_at, lifetime=24 * 3600):
         client = work / name
         client.write_text(STUB)
         client.chmod(0o755)
-    claims = {"sub": "system:serviceaccount:cmapi-system:cmapi-reader", "iat": issued_at, "exp": issued_at + lifetime}
-    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
-    token = f"stub.{payload}.stub"
+    token = fixture_token(issued_at, lifetime)
     env = dict(os.environ, PATH=f"{work}:{os.environ['PATH']}", CMAPI_OC="oc", KUBECONFIG=os.devnull,
                ISSUED_TOKEN=token, ISSUER_CA=CA)
     result = subprocess.run([ROOT / "deploy/crc-reader-import.sh"], cwd=work, env=env,
@@ -89,3 +99,22 @@ def test_server_grant_over_seven_days_leaves_existing_import_intact(tmp_path):
     with pytest.raises(subprocess.CalledProcessError):
         import_crc(tmp_path, issued_at, lifetime=7 * 24 * 3600 + 1)
     assert json.loads((tmp_path / "applied").read_text()) == previous
+
+@pytest.mark.parametrize("outcome", ["accept", "reject"])
+def test_sensitive_client_diagnostics_are_private(tmp_path, monkeypatch, outcome):
+    stage = tmp_path / "tmp"
+    stage.mkdir()
+    monkeypatch.setenv("TMPDIR", str(stage))
+    monkeypatch.setenv("CLIENT_DIAGNOSTICS", outcome)
+    now = int(time.time())
+    if outcome == "reject":
+        with pytest.raises(subprocess.CalledProcessError) as exc:
+            import_crc(tmp_path, now)
+        output = exc.value.stdout + exc.value.stderr
+        assert "apply" in output.lower()
+    else:
+        _, _, output = import_crc(tmp_path, now)
+    token = fixture_token(now, 24 * 3600)
+    assert token not in output
+    assert base64.b64encode(token.encode()).decode() not in output
+    assert list(stage.iterdir()) == []
