@@ -2,6 +2,9 @@
 
 No database or socket is needed: real KubeClients use the #419 MockTransport harness.
 """
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import httpx
@@ -13,6 +16,16 @@ from cmapi.core.errors import Problem
 from cmapi.core.pipeline import Pipeline
 from cmapi.core.registry import STATUSES, load_policies
 from test_registry_survives_419 import answering, good, html_proxy, registry, secret
+
+
+def test_status_tests_collect_alongside_core_tests():
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q",
+         "tests/service/test_environment_not_served_417.py", "tests/core/test_tiers.py",
+         "tests/service/test_not_imported_404.py"],
+        cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_every_advertised_status_has_a_producer_and_only_those_metrics(monkeypatch):

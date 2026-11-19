@@ -14,7 +14,6 @@ import shutil
 import pytest
 
 from cmapi.core.registry import ClusterState
-from conftest import build_world
 from test_flow import OLA, auth
 
 DETAIL = "the cluster is not-imported: no import Secret"
@@ -46,7 +45,7 @@ def assert_not_imported(listed, cap, group, pol, cluster_id) -> None:
 
 
 @pytest.fixture
-def two_clusters(test_config, fresh_db, keys, monkeypatch, tmp_path):
+def two_clusters(test_config, fresh_db, keys, monkeypatch, tmp_path, build_world):
     """CRC imported and connected, and OCP_GF7 in clusters.yaml with no import Secret, on a fresh start."""
     d = tmp_path / "config"
     shutil.copytree(test_config, d)
