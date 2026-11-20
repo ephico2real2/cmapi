@@ -144,3 +144,15 @@ def test_git_hash_excludes_a_handwritten_document_appended_to_a_marked_file():
     mixed = policybundle.git_hash({"quota.yaml": text + "---\n" + yaml.safe_dump(manual)})
     assert mixed.digest == baseline.digest
     assert mixed.tampered  # The extra document in an owned file still fails digest verification.
+
+
+@pytest.mark.parametrize("prefix", ["policies/env/dev/", "env/dev/"])
+def test_git_hash_uses_one_path_root_for_the_entire_tree(prefix):
+    quota = (DEV / "cmapi-quota-dev.yaml").read_text()
+    other = (DEV.parent / "prod/deny-expiry-in-prod.yaml").read_text()
+    expected = policybundle.git_hash({"quota.yaml": quota})
+    tree = {prefix + "quota.yaml": quota, "backup.yaml": other}
+    if prefix.startswith("policies/"):
+        tree["env/prod/copy.yaml"] = other
+    assert policybundle.git_hash(tree) == expected
+    assert policybundle.git_hash({prefix + "index.json": "{}", "backup.yaml": other}).digest is None

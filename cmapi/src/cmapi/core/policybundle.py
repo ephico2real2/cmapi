@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 DESCRIPTION = "policies.kyverno.io/description"
 GENERATED = "cmapi.net/generated"
-_GIT_POLICY = re.compile(r"(?:(?:policies/)?env/([^/]+)/)?[^/]+\.yaml")
 
 
 def bundle_hash(pairs: Iterable[tuple[str, str | None]]) -> str | None:
@@ -42,15 +41,18 @@ class GitHash:
 
 
 def git_hash(files: Mapping[str, str]) -> GitHash:
-    """Hash one env folder. Git paths may be relative to the repo, policies/, or the folder itself."""
+    """Hash one env folder. Paths share a root: the repo, policies/, or the env folder itself."""
+    prefix = next((p for p in ("policies/env/", "env/") if any(path.startswith(p) for path in files)), "")
+    directory = prefix + r"([^/]+)/" if prefix else ""
+    policy_path = re.compile(directory + r"[^/]+\.yaml")
     pairs = []
     tampered = False
     environments = set()
     for path, text in files.items():
-        match = _GIT_POLICY.fullmatch(path)
+        match = policy_path.fullmatch(path)
         if not match or not text.startswith(MARK):
             continue
-        if match[1]:
+        if prefix:
             environments.add(match[1])
             if len(environments) > 1:
                 raise ValueError("git_hash requires the files of one environment")
