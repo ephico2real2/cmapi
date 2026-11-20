@@ -12,3 +12,5 @@
 .cp-daysneg { color: var(--pf-t--global--text--color--status--danger--default); font-weight: var(--pf-t--global--font--weight--body--bold); }
 /* A policy name, as the mockup sets it: the monospace token of PatternFly. */
 .cp-mono { font-family: var(--pf-t--global--font--family--mono); }
+/* The New namespace preview stays in view beside a long form, as the mockup's (issue 479, P6); below md (48rem, PatternFly's grid) the one column keeps it in flow. */
+@media (min-width: 48rem) { .cp-sticky { position: sticky; inset-block-start: var(--pf-t--global--spacer--md); } }

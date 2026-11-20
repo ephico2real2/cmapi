@@ -25,6 +25,10 @@ export interface MetaField {
   derivedFrom: Source | null;
   /** The namespace name starts with this value and a "-" (x-cmapi-namespace-prefix). */
   namespacePrefix: boolean;
+  /** The namespace name ends with a "-" and this value (x-cmapi-namespace-suffix, #479). */
+  namespaceSuffix: boolean;
+  /** The key whose value cmapi copies here when the request leaves this key out (x-cmapi-default-from, #479), or null. */
+  defaultFrom: string | null;
   enum: string[] | null;
   format: "email-in-domains" | "url" | null;
   /** The config's words and the rule in words, as the API document says them. */
@@ -39,6 +43,36 @@ export interface MetaField {
   minLength: number | null;
 }
 
+/**
+ * The keys that a request may add beyond the declared ones (#365, #479 P10): propertyNames, additionalProperties and
+ * x-cmapi-other-keys of one map. JSON Schema cannot count only the undeclared keys, so the counts come from
+ * x-cmapi-other-keys.
+ */
+export interface OtherKeys {
+  /** The key syntax that every key has (propertyNames: pattern, maxLength, and the long prefix it refuses). */
+  syntax: { pattern: string; maxLength: number; notPattern: string | null };
+  /** The declared keys of this map (the enum branch of propertyNames): each has its own field, or is an operator's. */
+  declared: string[];
+  /** The branch of undeclared keys: their prefixes as a pattern, the keys cmapi refuses there, and the reserved prefixes. */
+  other: { pattern: string; refused: string[]; reservedPattern: string | null } | null;
+  /** A value's syntax (additionalProperties): a label value's pattern and length; for an annotation, its length only. */
+  value: { pattern: string | null; maxLength: number | null };
+  /** x-cmapi-other-keys: the prefixes in words ("" is none), at most `max` keys, and an annotation's byte limits. */
+  prefixes: string[];
+  max: number;
+  maxValueBytes: number | null;
+  maxBytesTotal: number | null;
+}
+
+/** One environment's expiry rules (x-cmapi-expiration, #479 A11). `enabled: false`, or no entry: no date in it. */
+export interface ExpiryRules {
+  enabled: boolean;
+  allowedAtCreate: boolean;
+  maxLifetimeDays: number;
+  notifyDaysBefore: number[];
+  graceDays: number;
+}
+
 /** What the form reads from one answer of GET /api/v1/metadata-keys. */
 export interface MetaForm {
   /** Inputs, then read-only fields, then optional inputs, for each kind; operator-only keys are not offered. */
@@ -47,6 +81,12 @@ export interface MetaForm {
   labelValue: { pattern: string; maxLength: number } | null;
   /** The labels that only an operator may set (x-cmapi-operator-only), such as cmapi.net/protected (#366). */
   operatorOnlyLabels: string[];
+  /** The keys of each kind that are declared and only an operator sets (refused in the extra-key tables). */
+  operatorOnly: Record<Kind, string[]>;
+  /** The extra keys of each map, or null where the answer offers none. */
+  otherKeys: Record<Kind, OtherKeys | null>;
+  /** The expiry rules of each environment that the instance serves. */
+  expiration: Record<string, ExpiryRules>;
 }
 
 /** The answer is not the shape that this portal reads: the form shows an error, never a form with fields missing. */
@@ -68,22 +108,12 @@ type Json = Record<string, unknown>;
  */
 export const KEYWORDS = {
   /** The members of the answer itself. */
-  answer: {
-    read: ["labels", "annotations"],
-    ignored: {
-      "x-cmapi-expiration": "the expiry rules of each environment (#479, D15): the form has no expiry field yet; Phase 4's ExpiryField reads them (plan 4.5)"
-    }
-  },
-  map: {
-    read: ["type", "properties", "required", "additionalProperties"],
-    ignored: {
-      propertyNames: "the names of other keys: the form offers declared keys only (#365)",
-      "x-cmapi-other-keys": "the prefixes and limits of other keys: the form offers declared keys only (#365)"
-    }
-  },
+  answer: { read: ["labels", "annotations", "x-cmapi-expiration"], ignored: {} },
+  map: { read: ["type", "properties", "required", "additionalProperties", "propertyNames", "x-cmapi-other-keys"], ignored: {} },
   property: {
     read: ["type", "pattern", "allOf", "maxLength", "minLength", "enum", "title", "description", "examples", "readOnly", "x-cmapi-rule",
-      "x-cmapi-derived-from", "x-cmapi-format", "x-cmapi-namespace-prefix", "x-cmapi-operator-only"],
+      "x-cmapi-derived-from", "x-cmapi-format", "x-cmapi-namespace-prefix", "x-cmapi-namespace-suffix", "x-cmapi-default-from",
+      "x-cmapi-operator-only"],
     ignored: {
       "x-cmapi-edit": "how the key may change on an existing namespace (#481): a create sets every key; the Namespaces tab reads it (#484)"
     }
@@ -91,7 +121,14 @@ export const KEYWORDS = {
   /** An entry of a property's allOf: the label-value syntax beside a key's own pattern. */
   allOf: { read: ["type", "pattern"], ignored: {} },
   /** labels.additionalProperties: a label value's syntax. annotations.additionalProperties bounds other keys only. */
-  additionalProperties: { read: ["type", "pattern", "maxLength"], ignored: {} }
+  additionalProperties: { read: ["type", "pattern", "maxLength"], ignored: {} },
+  /** propertyNames of a map, its anyOf branches, and the `not` of the branch of undeclared keys (OtherKeys). */
+  propertyNames: { read: ["maxLength", "pattern", "not", "anyOf"], ignored: {} },
+  keyBranch: { read: ["enum", "pattern", "not", "anyOf"], ignored: {} },
+  /** x-cmapi-other-keys of a map. */
+  otherKeys: { read: ["prefixes", "max", "maxValueBytes", "maxBytesTotal"], ignored: {} },
+  /** One environment of x-cmapi-expiration.environments. */
+  expiration: { read: ["enabled", "allowedAtCreate", "maxLifetimeDays", "notifyDaysBefore", "graceDays"], ignored: {} }
 } as const;
 
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -114,6 +151,8 @@ function fieldOf(kind: Kind, key: string, prop: unknown, required: boolean, labe
   return {
     id: "", kind, key, required, title: textOf(prop.title), derivedFrom: derived as Source | null,
     namespacePrefix: prop["x-cmapi-namespace-prefix"] === true,
+    namespaceSuffix: prop["x-cmapi-namespace-suffix"] === true,
+    defaultFrom: textOf(prop["x-cmapi-default-from"]),
     enum: prop.enum === undefined ? null : [...(prop.enum as string[])],
     format: FORMATS.includes(format as (typeof FORMATS)[number]) ? (format as MetaField["format"]) : null,
     description: textOf(prop.description) ?? "",
@@ -121,6 +160,75 @@ function fieldOf(kind: Kind, key: string, prop: unknown, required: boolean, labe
     example: typeof examples[0] === "string" ? examples[0] : null,
     patterns, maxLength: countOf(prop.maxLength), minLength: countOf(prop.minLength)
   };
+}
+
+const textList = (value: unknown): string[] | null =>
+  Array.isArray(value) && value.every((v) => typeof v === "string") ? [...value] : null;
+
+/**
+ * One map's extra keys, from the shape that MetadataKeys._key_names builds on a create: the key syntax beside an anyOf of
+ * the declared keys (enum) and the branch of undeclared keys (pattern, with a `not` of the keys and prefixes it refuses).
+ * A map with no propertyNames offers no extra key. Any other shape is refused: the form never checks less than cmapi.
+ */
+function otherKeysOf(name: string, map: Json): OtherKeys | null {
+  const names = map.propertyNames, limits = map["x-cmapi-other-keys"], values = map.additionalProperties;
+  if (names === undefined && limits === undefined) return null;
+  const bad = (why: string) => new RulesUnreadable(`${name}.propertyNames ${why}`);
+  if (!isObject(names) || !isObject(limits) || !Array.isArray(names.anyOf)) throw bad("is not a syntax and an anyOf of key branches");
+  const pattern = textOf(names.pattern), maxLength = countOf(names.maxLength);
+  if (pattern === null || maxLength === null) throw bad("has no key syntax");
+  const notPattern = names.not === undefined ? null : isObject(names.not) ? textOf(names.not.pattern) : null;
+  if (names.not !== undefined && notPattern === null) throw bad("has a `not` that is not a pattern");
+  let declared: string[] = [];
+  let other: OtherKeys["other"] = null;
+  for (const branch of names.anyOf) {
+    if (!isObject(branch)) throw bad("has a branch that is not an object");
+    if (branch.enum !== undefined) {
+      declared = textList(branch.enum) ?? (() => { throw bad("lists a key that is not text"); })();
+      continue;
+    }
+    const allowed = textOf(branch.pattern);
+    if (allowed === null) throw bad("has a branch with neither enum nor pattern");
+    const refused: string[] = [];
+    let reservedPattern: string | null = null;
+    const nots = branch.not === undefined ? [] : isObject(branch.not) && Array.isArray(branch.not.anyOf) ? branch.not.anyOf : null;
+    if (nots === null) throw bad("has a `not` that is not an anyOf");
+    for (const n of nots) {
+      if (isObject(n) && textList(n.enum)) refused.push(...textList(n.enum)!);
+      else if (isObject(n) && typeof n.pattern === "string") reservedPattern = n.pattern;
+      else throw bad("refuses keys in a form this portal does not read");
+    }
+    other = { pattern: allowed, refused, reservedPattern };
+  }
+  const prefixes = textList(limits.prefixes), max = countOf(limits.max);
+  if (prefixes === null || max === null) throw new RulesUnreadable(`${name}.x-cmapi-other-keys has no prefixes or max`);
+  // No allowOther prefix, or max 0: cmapi refuses every undeclared key here, so the form offers no table for it.
+  if (other === null || max === 0) return null;
+  const value = isObject(values) ? { pattern: textOf(values.pattern), maxLength: countOf(values.maxLength) } : { pattern: null, maxLength: null };
+  return { syntax: { pattern, maxLength, notPattern }, declared, other, value, prefixes, max,
+    maxValueBytes: countOf(limits.maxValueBytes), maxBytesTotal: countOf(limits.maxBytesTotal) };
+}
+
+/** x-cmapi-expiration.environments: an environment that is off is {enabled: false} alone (ExpirationRules.contract_view). */
+function expirationOf(view: Json): Record<string, ExpiryRules> {
+  const block = view["x-cmapi-expiration"];
+  if (block === undefined) return {};
+  if (!isObject(block) || !isObject(block.environments)) throw new RulesUnreadable("x-cmapi-expiration has no environments");
+  const out: Record<string, ExpiryRules> = {};
+  for (const [env, raw] of Object.entries(block.environments)) {
+    if (!isObject(raw) || typeof raw.enabled !== "boolean") throw new RulesUnreadable(`x-cmapi-expiration of ${env} has no enabled flag`);
+    if (!raw.enabled) {
+      out[env] = { enabled: false, allowedAtCreate: false, maxLifetimeDays: 0, notifyDaysBefore: [], graceDays: 0 };
+      continue;
+    }
+    const days = countOf(raw.maxLifetimeDays), grace = countOf(raw.graceDays);
+    const notify = Array.isArray(raw.notifyDaysBefore) && raw.notifyDaysBefore.every((d) => countOf(d) !== null) ? raw.notifyDaysBefore as number[] : null;
+    if (typeof raw.allowedAtCreate !== "boolean" || days === null || grace === null || notify === null) {
+      throw new RulesUnreadable(`x-cmapi-expiration of ${env} is not its limits`);
+    }
+    out[env] = { enabled: true, allowedAtCreate: raw.allowedAtCreate, maxLifetimeDays: days, notifyDaysBefore: [...notify], graceDays: grace };
+  }
+  return out;
 }
 
 /** The fields of one answer. Throws RulesUnreadable when the answer is not the shape of MetadataKeys.json_schema. */
@@ -131,6 +239,8 @@ export function fieldsOf(view: unknown): MetaForm {
     ? { pattern: extra.pattern, maxLength: countOf(extra.maxLength)! } : null;
   const fields: MetaField[] = [];
   const operatorOnlyLabels: string[] = [];
+  const operatorOnly: Record<Kind, string[]> = { label: [], annotation: [] };
+  const otherKeys: Record<Kind, OtherKeys | null> = { label: null, annotation: null };
   for (const [kind, name] of [["label", "labels"], ["annotation", "annotations"]] as const) {
     const map = view[name];
     if (!isObject(map) || map.type !== "object" || !isObject(map.properties)) throw new RulesUnreadable(`${name} has no properties`);
@@ -144,7 +254,9 @@ export function fieldsOf(view: unknown): MetaForm {
     const read = Object.entries(props).map(([key, prop]) =>
       fieldOf(kind, key, prop, required.includes(key), kind === "label" ? labelValue?.pattern ?? null : null));
     const offered = read.filter((f): f is MetaField => f !== "operator-only");
-    if (kind === "label") operatorOnlyLabels.push(...Object.keys(props).filter((_, i) => read[i] === "operator-only"));
+    operatorOnly[kind] = Object.keys(props).filter((_, i) => read[i] === "operator-only");
+    if (kind === "label") operatorOnlyLabels.push(...operatorOnly[kind]);
+    otherKeys[kind] = otherKeysOf(name, map);
     // Required in the order of `required` (an array keeps its order through JSON; an object's integer-like keys do not),
     // then what cmapi sets, then the optional keys.
     const ordered = [
@@ -154,7 +266,7 @@ export function fieldsOf(view: unknown): MetaForm {
     ];
     ordered.forEach((f, i) => fields.push({ ...f, id: `ns-${kind}-${i}` }));
   }
-  return { fields, labelValue, operatorOnlyLabels };
+  return { fields, labelValue, operatorOnlyLabels, operatorOnly, otherKeys, expiration: expirationOf(view) };
 }
 
 /** The key of a field's value in the form's state: a key can be a label and an annotation, each with its own value. */
@@ -166,17 +278,186 @@ export function derivedValue(f: MetaField, target: Record<Source, string>): stri
 }
 
 /**
- * What the form sends: each field that the requester fills, with a value. Never an empty optional key (cmapi refuses
- * "" for a declared pattern), never a key that cmapi sets (it fills the value itself, and refuses another one), never an
- * operator-only key (not offered).
+ * What the form sends: each field that the requester fills, with a value, and the extra keys. Never an empty optional key
+ * (cmapi refuses "" for a declared pattern), never a key that cmapi sets (it fills the value itself, and refuses another
+ * one), never an unedited default (`values` holds what was typed, so cmapi fills it), never an operator-only key. An
+ * edited default is sent as typed, even emptied.
  */
-export function bodyOf(form: MetaForm, values: Record<string, string>): { labels: Record<string, string>; annotations: Record<string, string> } {
+export function bodyOf(form: MetaForm, values: Record<string, string>,
+  extras: Record<Kind, ExtraRow[]> = { label: [], annotation: [] }): { labels: Record<string, string>; annotations: Record<string, string> } {
   const out = { labels: {} as Record<string, string>, annotations: {} as Record<string, string> };
   for (const f of form.fields) {
     const value = values[valueKey(f)] ?? "";
-    if (f.derivedFrom === null && value !== "") (f.kind === "label" ? out.labels : out.annotations)[f.key] = value;
+    // An emptied default is sent as "": left out, cmapi would copy its source into it (core/metadata.py, step 2).
+    const emptied = f.defaultFrom !== null && valueKey(f) in values;
+    if (f.derivedFrom === null && (value !== "" || emptied)) (f.kind === "label" ? out.labels : out.annotations)[f.key] = value;
+  }
+  // Extra keys go in the same maps (#479 P11). A row with no key is a row not filled in yet; checkExtras holds it back.
+  for (const [kind, map] of [["label", out.labels], ["annotation", out.annotations]] as const) {
+    for (const r of extras[kind]) if (r.key !== "") map[r.key] = r.value;
   }
   return out;
+}
+
+/**
+ * The values that the form shows and checks: what the person typed, and for each key with a default (default.from, #479
+ * P4) that they never edited, a copy of its source key's value. A key is edited once the person changes it: its value is
+ * then in `typed`, even when they empty it, so a later change of the source leaves it alone (plan R5). An unedited
+ * default is never sent (bodyOf reads `typed`): cmapi fills it in, and its dry run says so (source default:<key>).
+ */
+export function shownValues(form: MetaForm, typed: Record<string, string>, target: Record<Source, string>): Record<string, string> {
+  const out = { ...typed };
+  for (const f of form.fields) {
+    if (f.defaultFrom === null || valueKey(f) in typed) continue;
+    // A source that cmapi fills in (value.from) is filled first, then copied: steps 1 and 2 of core/metadata.py.
+    const source = defaultSource(form, f);
+    out[valueKey(f)] = source?.derivedFrom ? target[source.derivedFrom] : typed[`${f.kind}:${f.defaultFrom}`] ?? "";
+  }
+  return out;
+}
+
+/** The field whose value is copied into a default field, for its "from <title>" mark; null when it has none. */
+export function defaultSource(form: MetaForm, f: MetaField): MetaField | null {
+  return f.defaultFrom === null ? null : form.fields.find((s) => s.kind === f.kind && s.key === f.defaultFrom) ?? null;
+}
+
+/** The keys that start and end the namespace name (namespacePrefix, namespaceSuffix, #479 P2); null where none does. */
+export function nameEnds(form: MetaForm): { start: MetaField | null; end: MetaField | null } {
+  return { start: form.fields.find((f) => f.namespacePrefix) ?? null, end: form.fields.find((f) => f.namespaceSuffix) ?? null };
+}
+
+/**
+ * The value of one end of the name: what cmapi fills in for a key that it sets, else what the form shows. An optional
+ * end left empty is no end (null): cmapi checks an end only when the request has its value (_check_prefix).
+ */
+export function endValue(f: MetaField | null, shown: Record<string, string>, target: Record<Source, string>): string | null {
+  if (f === null) return null;
+  const value = f.derivedFrom !== null ? target[f.derivedFrom] : shown[valueKey(f)] ?? "";
+  return value === "" && !f.required ? null : value;
+}
+
+/** `<start>-<desired>-<end>`: the ends that the instance has, around the part that the person types. */
+export const joinName = (start: string | null, desired: string, end: string | null): string =>
+  [start, desired, end].filter((part): part is string => part !== null).join("-");
+
+/** The shortest and the longest namespace name: a DNS-1123 label of 2 to 63 characters (core/naming.py). */
+export const NAME_MIN = 2;
+export const NAME_MAX = 63;
+const DNS_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+
+/**
+ * The name's problem, or null: what cmapi refuses too (core/naming.py and _check_desired_name), and nothing more. With an
+ * end whose value is missing, only the desired part is checked: that end's own field says what is missing.
+ */
+export function checkName(start: string | null, desired: string, end: string | null): string | null {
+  const ends = start !== null || end !== null;
+  if (desired === "") return ends ? "Type the middle of the name." : "Required: a namespace name";
+  if (start === "" || end === "") return null;
+  const name = joinName(start, desired, end);
+  if (length(name) < NAME_MIN) return `The name has at least ${NAME_MIN} characters.`;
+  if (length(name) > NAME_MAX) return `The full name is longer than ${NAME_MAX} characters.`;
+  if (!DNS_LABEL.test(name)) return ends ? "The middle of the name: lowercase letters, digits and '-'. The name starts and ends with a letter or digit."
+    : "A DNS-1123 name: lowercase letters, digits and '-', starting and ending with a letter or digit.";
+  return null;
+}
+
+/** One row of an extra-key table: its id stays with the row when another row is removed. */
+export interface ExtraRow { id: number; key: string; value: string }
+
+/** UTF-8 bytes, as cmapi counts an annotation's size (len(value.encode())). */
+export const bytesOf = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * A placeholder key under the first named prefix, its globs' "*" written as "example": "e.g. example.company.net/key".
+ * Never a value: it is grey hint text.
+ */
+export function keyPlaceholder(rules: OtherKeys): string {
+  const named = rules.prefixes.find((p) => p !== "");
+  return `e.g. ${named ? named.replaceAll("*", "example") : ""}key`;
+}
+
+/** "*.company.net/ (or none)": the prefixes of x-cmapi-other-keys in words. */
+export function prefixWords(prefixes: string[]): string {
+  const named = prefixes.filter((p) => p !== "");
+  if (!named.length) return "none";
+  return `${named.join(" or ")}${prefixes.includes("") ? " (or none)" : ""}`;
+}
+
+/**
+ * The first problem of one extra key, in the order of the schema that cmapi publishes for it (propertyNames, which is sound:
+ * each key that validate() accepts passes it), then a duplicate in the same table. null when the form sees none.
+ */
+export async function checkExtraKey(form: MetaForm, kind: Kind, key: string, rows: ExtraRow[], test: PatternTest): Promise<string | null> {
+  const rules = form.otherKeys[kind];
+  if (!rules) return "This instance takes no additional keys here.";
+  if (key === "") return "Enter a key.";
+  const { syntax } = rules;
+  if (length(key) > syntax.maxLength || (await test(syntax.pattern, key)) === false || (syntax.notPattern !== null && (await test(syntax.notPattern, key)) === true)) {
+    return "Not a valid key: an optional DNS prefix and '/', then up to 63 letters, digits, '-', '_' or '.'.";
+  }
+  if (form.operatorOnly[kind].includes(key)) return "Only an operator sets this key.";
+  if (rules.declared.includes(key)) return "This key has its own field above.";
+  const other = rules.other;
+  if (other === null || (await test(other.pattern, key)) === false) return `The prefix must be ${prefixWords(rules.prefixes)}.`;
+  if (other.refused.includes(key)) return "cmapi sets this key, or it has its own field in the other table.";
+  if (other.reservedPattern !== null && (await test(other.reservedPattern, key)) === true) return "This prefix is reserved.";
+  if (rows.filter((r) => r.key === key).length > 1) return "This key is already in the table.";
+  return null;
+}
+
+/** The problem of one extra value: a label value's syntax (additionalProperties), an annotation's bytes (x-cmapi-other-keys). */
+export async function checkExtraValue(form: MetaForm, kind: Kind, value: string, test: PatternTest): Promise<string | null> {
+  const rules = form.otherKeys[kind];
+  if (!rules) return null;
+  const { pattern, maxLength } = rules.value;
+  if (kind === "label" && ((maxLength !== null && length(value) > maxLength) || (pattern !== null && (await test(pattern, value)) === false))) {
+    return `A label value: up to ${maxLength ?? 63} letters, digits, '-', '_' or '.', starting and ending with a letter or digit.`;
+  }
+  if (kind === "annotation" && rules.maxValueBytes !== null && bytesOf(value) > rules.maxValueBytes) return `Up to ${rules.maxValueBytes} bytes.`;
+  return null;
+}
+
+/** The problems of a whole table, by row id, and those of the table itself: its count and, for annotations, its bytes. */
+export interface ExtraCheck { rows: Record<number, { key: string | null; value: string | null }>; table: string[] }
+
+export async function checkExtras(form: MetaForm, kind: Kind, rows: ExtraRow[], test: PatternTest): Promise<ExtraCheck> {
+  const out: ExtraCheck = { rows: {}, table: [] };
+  for (const r of rows) out.rows[r.id] = { key: await checkExtraKey(form, kind, r.key, rows, test), value: await checkExtraValue(form, kind, r.value, test) };
+  const rules = form.otherKeys[kind];
+  if (rules && rows.length > rules.max) out.table.push(`At most ${rules.max} additional ${kind}s.`);
+  const total = rows.reduce((n, r) => n + bytesOf(r.value), 0);
+  if (kind === "annotation" && rules?.maxBytesTotal != null && total > rules.maxBytesTotal) out.table.push(`The additional annotations hold more than ${rules.maxBytesTotal} bytes in all.`);
+  return out;
+}
+
+/** The expiry rules of an environment, or null where it takes no date at create (off, unlisted, or not at create). */
+export function expiryRulesOf(form: MetaForm, environment: string): ExpiryRules | null {
+  const rules = form.expiration[environment];
+  return rules?.enabled && rules.allowedAtCreate ? rules : null;
+}
+
+/** What the form knows of an expiry date: none (permanent), a date not after today or not a date, or a date in N days. */
+export type ExpiryInfo = { state: "none" } | { state: "bad"; error: string } | { state: "date"; date: string; days: number; beyond: boolean };
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * An expiry date against its environment's rules, counted from `today` (a calendar date, as cmapi's). Past
+ * maxLifetimeDays it is allowed with one more approval (design P12, D15): a warning, never a refusal. The limit never sets
+ * a date: an empty value is a permanent namespace.
+ */
+export function expiryInfo(value: string, today: string, rules: ExpiryRules): ExpiryInfo {
+  if (value === "") return { state: "none" };
+  const at = Date.parse(`${value}T00:00:00Z`);
+  if (!ISO_DAY.test(value) || Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== value) return { state: "bad", error: "Enter a date as YYYY-MM-DD." };
+  const days = Math.round((at - Date.parse(`${today}T00:00:00Z`)) / 864e5);
+  if (days < 1) return { state: "bad", error: "Pick a date after today." };
+  return { state: "date", date: value, days, beyond: days > rules.maxLifetimeDays };
+}
+
+/** "14, 7 and 1": a list of numbers in words. */
+export function listWords(items: number[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 /**
@@ -202,9 +483,10 @@ const length = (value: string): number => [...value].length;
  * its words; null when the form sees none. A pattern that was not checked here counts as passed: cmapi's dry run decides.
  */
 export async function checkField(f: MetaField, value: string, ctx: { namespace: string; labelValue: MetaForm["labelValue"] },
-  test: PatternTest): Promise<string | null> {
+  test: PatternTest, sent = false): Promise<string | null> {
   if (f.derivedFrom !== null) return null;
-  if (value === "") return f.required ? `Required: ${f.rule}` : null;
+  // An empty value is not sent, except an emptied default (bodyOf): that one is checked by its rule, as cmapi checks it.
+  if (value === "" && (f.required || !sent)) return f.required ? `Required: ${f.rule}` : null;
   if (f.kind === "label" && ctx.labelValue) {
     const { pattern, maxLength } = ctx.labelValue;
     if (length(value) > maxLength || (await test(pattern, value)) === false) return "Not a valid label value";
@@ -220,9 +502,13 @@ export async function checkField(f: MetaField, value: string, ctx: { namespace: 
 }
 
 /** The problem of each field, by its id (null for none), for one state of the form. */
-export async function checkAll(form: MetaForm, values: Record<string, string>, namespace: string, test: PatternTest): Promise<Record<string, string | null>> {
+export async function checkAll(form: MetaForm, values: Record<string, string>, namespace: string, test: PatternTest,
+  typed: Record<string, string> = {}): Promise<Record<string, string | null>> {
   const out: Record<string, string | null> = {};
-  for (const f of form.fields) out[f.id] = await checkField(f, values[valueKey(f)] ?? "", { namespace, labelValue: form.labelValue }, test);
+  for (const f of form.fields) {
+    const sent = f.defaultFrom !== null && valueKey(f) in typed;
+    out[f.id] = await checkField(f, values[valueKey(f)] ?? "", { namespace, labelValue: form.labelValue }, test, sent);
+  }
   return out;
 }
 

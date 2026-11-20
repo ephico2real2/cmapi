@@ -16,6 +16,9 @@ export const SAMPLES = JSON.parse(readFileSync(join(repo, "cmapi", "src", "cmapi
 // cmapi/tests/core/test_metadata_form_336.py holds equal to what the service serves for that file.
 export const REFERENCE_KEYS = SAMPLES.operations.core_metadata_keys.response.body;
 export const COMPANY_KEYS = JSON.parse(readFileSync(new URL("metadata-keys.company.json", import.meta.url), "utf8"));
+// The configuration of #479 (design section 3.1): the name's two ends, the team's default and the titles. The same test holds
+// it equal to the service's answer for examples/cluster-configs/policies/metadata-keys.company-479.yaml.
+export const KEYS_479 = JSON.parse(readFileSync(new URL("metadata-keys.company-479.json", import.meta.url), "utf8"));
 
 const b64url = (data) => Buffer.from(data).toString("base64url");
 const token = (kind) => `${kind}-${randomBytes(24).toString("base64url")}`;
@@ -572,11 +575,76 @@ export function capacityFleet() {
 const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
 /** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
 const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
-const NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
-const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|ocp-.*)$/;
+// core/naming.py: a DNS-1123 label of 2 to 63 characters, not a built-in reserved name nor one of the reference instance's
+// reservedPatterns (ocp-*, kubernetes-*, tools/reference_instance/instance.yaml).
+const NAME = /^[a-z0-9][-a-z0-9]{0,61}[a-z0-9]$/;
+const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|cmapi-imports|ocp-.*|kubernetes-.*)$/;
 // The body's fingerprint, with the keys of each object in order, as the API compares two bodies of one key.
 const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
 const fingerprint = (value) => JSON.stringify(sorted(value));
+
+/**
+ * The create's metadata as cmapi/src/cmapi/core/metadata.py builds it (#479): steps 1 and 2 fill each key that cmapi sets
+ * (x-cmapi-derived-from) and each default (x-cmapi-default-from) that the request leaves out (filled), then the name's two
+ * ends are checked on their keys (_check_prefix, _check_suffix, _check_desired_name), and the dry run gives each value its
+ * source (value_sources, A7). The stand-in runs no configured pattern: an operator's pattern can backtrack, and cmapi
+ * matches with RE2.
+ */
+export function createMetadata(keys, body, sources) {
+  const kinds = [["label", "labels"], ["annotation", "annotations"]];
+  const filled = {}, origin = {};
+  for (const [kind, map] of kinds) {
+    const sent = body[map] ?? {}, props = keys[map].properties;
+    filled[kind] = { ...sent };
+    origin[kind] = Object.fromEntries(Object.keys(sent).map((k) => [k, "request"]));
+    for (const [key, prop] of Object.entries(props)) {
+      const from = prop["x-cmapi-derived-from"];
+      if (from && !(key in filled[kind]) && sources[from]) { filled[kind][key] = sources[from]; origin[kind][key] = from; }
+    }
+    for (const [key, prop] of Object.entries(props)) {
+      const from = prop["x-cmapi-default-from"];
+      if (from && !(key in filled[kind]) && filled[kind][from]) { filled[kind][key] = filled[kind][from]; origin[kind][key] = `default:${from}`; }
+    }
+  }
+  const errors = [];
+  const marked = (mark) => kinds.flatMap(([kind, map]) => Object.keys(keys[map].properties).filter((k) => keys[map].properties[k][mark]).map((k) => [kind, k]))[0];
+  const [startKind, startKey] = marked("x-cmapi-namespace-prefix") ?? [];
+  const [endKind, endKey] = marked("x-cmapi-namespace-suffix") ?? [];
+  const ns = sources.namespace, start = startKey && filled[startKind][startKey], end = endKey && filled[endKind][endKey];
+  if (start && !ns.startsWith(`${start}-`)) errors.push({ code: "invalid_value", key: startKey, kind: startKind, detail: `${ns} does not start with ${start}-` });
+  if (end && !ns.endsWith(`-${end}`)) errors.push({ code: "invalid_value", key: endKey, kind: endKind, detail: `${ns} does not end with -${end}` });
+  if (start && end && !errors.length && ns.length <= start.length + end.length + 2) {
+    errors.push({ code: "invalid_value", key: endKey, kind: endKind, detail: `${ns} has no desired name between ${start}- and -${end}` });
+  }
+  const view = (kind) => Object.fromEntries(Object.entries(filled[kind]).filter(([, v]) => v !== null).map(([k, v]) => [k, { value: v, source: origin[kind][k] }]));
+  return { filled, errors, metadata: { namespace: ns, labels: view("label"), annotations: view("annotation") } };
+}
+
+/** The plan's namespace.yaml of a create, in the form of the recorded one: the system keys, then the request's maps. */
+export function namespaceYaml(clusterId, namespace, env, tier, user, filled, expiresAt) {
+  // Plain where YAML reads the text as text; quoted where it would read a boolean, a number or a date.
+  const plain = (v) => /^[\w.@/-]+$/.test(v) && !/^(true|false|\d+|\d{4}-\d{2}-\d{2})$/.test(v);
+  const line = (k, v) => `    ${k}: ${plain(v) ? v : `'${String(v).replaceAll("'", "''")}'`}`;
+  const labels = { "cmapi.net/cluster-id": clusterId, "cmapi.net/env": env, "cmapi.net/managed": "true", "cmapi.net/requested-by-user": user.username,
+    "cmapi.net/tier": tier, ...(expiresAt ? { "cmapi.net/expiry": "managed" } : {}), ...filled.label };
+  const annotations = { "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true", "cmapi.net/instance": "nonprod", "cmapi.net/request-id": "(planned)",
+    "cmapi.net/requested-by": user.email ?? user.username, ...(expiresAt ? { "cmapi.net/expires-at": expiresAt } : {}), ...filled.annotation };
+  return ["apiVersion: v1", "kind: Namespace", "metadata:", `  name: ${namespace}`, "  labels:",
+    ...Object.entries(labels).map(([k, v]) => line(k, v)), "  annotations:", ...Object.entries(annotations).map(([k, v]) => line(k, v)), ""].join("\n");
+}
+
+/**
+ * The expiry check of a create (plugins/expiration/rules.py, plan_create): where x-cmapi-expiration says the environment is
+ * off, or takes no date at create, a date is refused; so is one not after today (UTC, as cmapi's date.today on CRC).
+ */
+export function expiryRefusal(keys, env, expiresAt) {
+  if (expiresAt === undefined || expiresAt === null) return null;
+  const rules = keys["x-cmapi-expiration"]?.environments?.[env];
+  if (!rules?.enabled) return [422, "expiration-not-allowed", `Namespaces in ${env} cannot carry expiration metadata`];
+  if (!rules.allowedAtCreate) return [422, "expiration-not-allowed", `${env} does not take an expiry at create`];
+  if (expiresAt <= new Date().toISOString().slice(0, 10)) return [422, "expiration-in-past", "The expiry must be after today"];
+  return null;
+}
 const bodyOf = (req) => new Promise((resolve) => {
   let text = "";
   req.on("data", (chunk) => { text += chunk; });
@@ -786,19 +854,22 @@ export async function startApi({ issuer, portalOrigin }) {
       // cmapi/src/cmapi/core/metadata.py, validate(): each required key of the instance's rules, in the shape of the recorded
       // refusal. The stand-in runs no configured pattern: an operator's pattern can backtrack, and cmapi matches with RE2.
       // A key that cmapi fills in (x-cmapi-derived-from, or x-cmapi-default-from with its source sent) is never missing (#479).
-      const fills = (map, key) => {
-        const prop = state.metadataKeys[map].properties[key];
-        return prop["x-cmapi-derived-from"] !== undefined || Boolean(body[map]?.[prop["x-cmapi-default-from"]]);
-      };
+      const env = state.clusters.find((c) => c.clusterId === clusterId).environment;
+      const made = createMetadata(state.metadataKeys, body, { namespace: body.namespace, environment: env, cluster: clusterId, instance: "nonprod" });
       const missing = ["labels", "annotations"].flatMap((map) => (state.metadataKeys[map].required ?? [])
-        .filter((key) => !body[map]?.[key] && !fills(map, key))
+        .filter((key) => !made.filled[map.slice(0, -1)][key])
         .map((key) => ({ code: "missing_required_key", key, kind: map.slice(0, -1), detail: state.metadataKeys[map].properties[key]["x-cmapi-rule"] })));
-      if (missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: missing }, cors);
+      if (made.errors.length || missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: [...made.errors, ...missing] }, cors);
+      const late = expiryRefusal(state.metadataKeys, env, body.expiresAt);
+      if (late) return problem(res, refuse(...late), cors);
       const protection = protectionRefusal(body.labels);
       if (protection) return problem(res, protection, cors);
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
-        return ok({ ...state.plan, changes, capacity: { ...state.plan.capacity, clusterId } });
+        const files = Object.fromEntries(Object.entries(state.plan.files).map(([path, text]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), text]));
+        const nsFile = Object.keys(files).find((p) => p.endsWith("/namespace.yaml"));
+        if (nsFile) files[nsFile] = namespaceYaml(clusterId, body.namespace, env, body.tier ?? "small", user, made.filled, body.expiresAt);
+        return ok({ ...state.plan, changes, files, metadata: made.metadata, capacity: { ...state.plan.capacity, clusterId } });
       }
       const key = call.key;
       if (!key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);

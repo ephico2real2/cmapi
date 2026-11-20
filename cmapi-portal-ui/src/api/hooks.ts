@@ -216,6 +216,9 @@ export function usePlan(clusterId: string, body: CreateBody | null): Outcome<Pla
   const api = useApi();
   const query = useQuery({
     queryKey: ["plan", clusterId, body],
+    // Every dry run must ask the server again, even when returning to a previously checked draft.
+    staleTime: 0,
+    gcTime: 0,
     enabled: body !== null,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces", {

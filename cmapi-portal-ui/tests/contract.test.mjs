@@ -33,7 +33,8 @@ console.log("ok - contract");
 const { KEYWORDS } = await import("../src/portal/metadataForm.ts");
 const samples = JSON.parse(readFileSync(join(app, "..", "cmapi", "src", "cmapi", "contract", "samples.json"), "utf8"));
 const answers = { reference: samples.operations.core_metadata_keys.response.body,
-  company: JSON.parse(readFileSync(join(app, "tests", "api", "metadata-keys.company.json"), "utf8")) };
+  company: JSON.parse(readFileSync(join(app, "tests", "api", "metadata-keys.company.json"), "utf8")),
+  "company-479": JSON.parse(readFileSync(join(app, "tests", "api", "metadata-keys.company-479.json"), "utf8")) };
 const known = (level) => new Set([...KEYWORDS[level].read, ...Object.keys(KEYWORDS[level].ignored)]);
 const unknown = [];
 const visit = (level, where, schema) => {
@@ -43,10 +44,18 @@ for (const [name, answer] of Object.entries(answers)) {
   assert.deepEqual(Object.keys(answer).sort(), ["annotations", "labels", "x-cmapi-expiration"],
     `${name}: the answer's two maps and expiresAt's rules (#479)`);
   visit("answer", name, answer);
-  for (const field of KEYWORDS.answer.read) {
+  for (const [env, rules] of Object.entries(answer["x-cmapi-expiration"].environments)) visit("expiration", `${name} x-cmapi-expiration.${env}`, rules);
+  for (const field of ["labels", "annotations"]) {
     const map = answer[field];
     visit("map", `${name} ${field}`, map);
     visit("additionalProperties", `${name} ${field}.additionalProperties`, map.additionalProperties);
+    visit("otherKeys", `${name} ${field}.x-cmapi-other-keys`, map["x-cmapi-other-keys"]);
+    // propertyNames, each branch of its anyOf, and the `not` of a branch with the keys and prefixes that it refuses (#479 P10).
+    visit("propertyNames", `${name} ${field}.propertyNames`, map.propertyNames);
+    for (const [i, branch] of map.propertyNames.anyOf.entries()) {
+      visit("keyBranch", `${name} ${field}.propertyNames.anyOf[${i}]`, branch);
+      for (const [j, refused] of (branch.not?.anyOf ?? []).entries()) visit("keyBranch", `${name} ${field}.propertyNames.anyOf[${i}].not.anyOf[${j}]`, refused);
+    }
     for (const [key, prop] of Object.entries(map.properties)) {
       visit("property", `${name} ${field}.${key}`, prop);
       (prop.allOf ?? []).forEach((entry, i) => visit("allOf", `${name} ${field}.${key}.allOf[${i}]`, entry));

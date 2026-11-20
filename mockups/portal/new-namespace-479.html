@@ -1,0 +1,486 @@
+<title>cmapi New Namespace Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600&family=Red+Hat+Text:wght@400;500;600&family=Red+Hat+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the portal's masthead and tab bar, then a two-column work area: the form (left) and a sticky live preview (right); one column on phones. */
+:root {
+  --bg: #f0f0f0; --surface: #ffffff; --surface-2: #f5f7fa; --fg: #151515; --muted: #4d5258; --line: #d2d2d2;
+  --accent: #0066cc; --accent-fg: #ffffff; --accent-soft: #e7f1fa; --mast: #1b1d21; --mast-fg: #ffffff;
+  --ok: #3e8635; --ok-soft: #f3faf2; --warn: #795600; --warn-soft: #fdf7e7; --bad: #c9190b; --bad-soft: #faeae8;
+  --lock: #eceef0; --code-bg: #f8f9fb;
+  --display: "Red Hat Display", "Segoe UI", system-ui, sans-serif;
+  --text: "Red Hat Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--text) }
+.mast { background: var(--mast); color: var(--mast-fg); padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap }
+.brand b { font-family: var(--display); font-size: 18px; font-weight: 600 }
+.brand span { display: block; font-size: 12px; opacity: .75 }
+.who { text-align: right; font-size: 12px; opacity: .9 }
+.who b { display: block; font-size: 13px }
+.wrap { padding-block: 0 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto }
+.mockbar { margin-top: 12px; background: var(--warn-soft); color: var(--fg); border: 1px solid var(--line); border-left: 4px solid var(--warn); padding: 8px 12px; font-size: 13px }
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin-top: 12px; background: var(--surface); padding: 0 8px }
+.tabs a { padding: 10px 12px; color: var(--muted); text-decoration: none; white-space: nowrap; border-bottom: 3px solid transparent }
+.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600 }
+h1 { font-family: var(--display); font-weight: 600; font-size: 26px; margin: 20px 0 4px; text-wrap: balance }
+.lead { color: var(--muted); margin: 0 0 16px; max-width: 70ch }
+.grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 20px; min-width: 0 }
+.card h2 { font-family: var(--display); font-size: 17px; font-weight: 600; margin: 0 0 4px }
+.card .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px }
+fieldset { border: 0; padding: 0; margin: 0 0 18px; display: grid; gap: 14px }
+legend { font-family: var(--display); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; padding: 0 }
+.field { display: grid; gap: 4px }
+label { font-weight: 600; font-size: 13px }
+label .req { color: var(--bad); margin-left: 2px }
+.hint { font-size: 12px; color: var(--muted) }
+.err { font-size: 12px; color: var(--bad); min-height: 0 }
+input[type=text], input[type=email], select, textarea { width: 100%; font: 14px var(--text); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-bottom-color: var(--muted); border-radius: 3px; padding: 7px 9px }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+input[aria-invalid=true], select[aria-invalid=true] { border-color: var(--bad); box-shadow: inset 0 -2px 0 var(--bad) }
+input[readonly] { background: var(--lock); color: var(--muted) }
+.group { display: flex; min-width: 0 }
+.group .pfx { background: var(--lock); border: 1px solid var(--line); border-right: 0; border-radius: 3px 0 0 3px; padding: 7px 10px; font-family: var(--mono); color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px }
+.group .pfx svg { width: 12px; height: 12px; fill: currentColor }
+.group input { border-radius: 0; font-family: var(--mono); min-width: 0 }
+.group .sfx { background: var(--lock); border: 1px solid var(--line); border-left: 0; border-radius: 0 3px 3px 0; padding: 7px 10px; font-family: var(--mono); color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px }
+.group .sfx svg { width: 12px; height: 12px; fill: currentColor }
+.full { font-size: 12px; color: var(--muted) }
+.full code { font-family: var(--mono); color: var(--fg); background: var(--code-bg); padding: 1px 5px; border-radius: 3px; word-break: break-all }
+.chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-weight: 600; letter-spacing: .02em; vertical-align: 1px }
+.chip.auto { background: var(--lock); color: var(--muted) }
+.row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px }
+@media (max-width: 520px) { .row2 { grid-template-columns: minmax(0, 1fr) } }
+.preview { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px) }
+pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 12px; overflow-x: auto; font: 12.5px/1.55 var(--mono); color: var(--fg) }
+.k { color: var(--accent) } .v { color: var(--fg) } .c { color: var(--muted) }
+.summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 12px 0; font-size: 13px }
+.summary dt { color: var(--muted) } .summary dd { margin: 0; font-variant-numeric: tabular-nums }
+.status { margin-top: 12px; padding: 10px 12px; border-radius: 3px; font-size: 13px; border: 1px solid var(--line) }
+.status.idle { background: var(--surface-2) }
+.status.ok { background: var(--ok-soft); border-left: 4px solid var(--ok) }
+.status.bad { background: var(--bad-soft); border-left: 4px solid var(--bad) }
+.status.done { background: var(--accent-soft); border-left: 4px solid var(--accent) }
+.status ul { margin: 6px 0 0; padding-left: 18px }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; justify-content: flex-end }
+button { font: 600 14px var(--text); border-radius: 3px; padding: 8px 16px; cursor: pointer; border: 1px solid var(--accent) }
+button.primary { background: var(--accent); color: var(--accent-fg) }
+button.secondary { background: transparent; color: var(--accent) }
+button:disabled { opacity: .45; cursor: not-allowed }
+.src { font-size: 11px; color: var(--muted) }
+.exprow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.exprow input[type=date] { width: auto; min-width: 11rem; font: 14px var(--text); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-bottom-color: var(--muted); border-radius: 3px; padding: 6px 9px }
+button.small { padding: 6px 12px; font-size: 13px }
+.days { font-size: 13px; font-variant-numeric: tabular-nums }
+.days.warn { color: var(--warn) }
+.prodnote { font-size: 13px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px }
+.xsec { border: 1px solid var(--line); border-radius: 4px; margin: 0 0 18px }
+.xtoggle { width: 100%; display: flex; align-items: center; gap: 10px; background: var(--surface-2); color: var(--fg); border: 0; border-radius: 4px; padding: 10px 12px; font: 600 14px var(--text); text-align: left; cursor: pointer }
+.xtoggle .caret { display: inline-block; width: 10px; color: var(--accent) }
+.xtoggle .cnt { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted) }
+.xbody { padding: 12px; display: grid; gap: 18px }
+.kvhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap }
+.kvhead b { font-size: 13px } .kvhead span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums }
+.kvwrap { overflow-x: auto }
+table.kv { width: 100%; border-collapse: collapse; min-width: 420px }
+table.kv th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line) }
+table.kv td { padding: 6px; vertical-align: top; border-bottom: 1px solid var(--line) }
+table.kv td.k { width: 42% } table.kv td.x { width: 36px }
+table.kv input { font-family: var(--mono); font-size: 13px }
+.rowerr { font-size: 12px; color: var(--bad); margin-top: 3px }
+button.rm { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 5px 9px; font-size: 13px }
+button.add { background: transparent; border: 0; color: var(--accent); padding: 4px 0; justify-self: start }
+.kvempty { font-size: 12px; color: var(--muted); padding: 6px 0 }
+@media (prefers-reduced-motion: no-preference) { .status { transition: background-color .15s } }
+</style>
+
+<header class="mast">
+  <div class="brand"><b>cmapi</b><span>Cluster Management Portal · nonprod (rnd, dev)</span></div>
+  <div class="who"><b>cmapi.requester</b>cmapi-requester (Keycloak roles)</div>
+</header>
+
+<div class="wrap">
+  <div class="mockbar"><b>Mockup</b> of the New namespace tab (<code>#new</code>) for review. <b>company.net</b> stands for your company's domain; values are examples. Nothing is sent anywhere.</div>
+
+  <nav class="tabs" aria-label="Portal tabs">
+    <a href="#workflow">Workflow</a><a class="on" href="#new" aria-current="page">New namespace</a><a href="#quotas">Quotas</a><a href="#expiration">Expiration</a><a href="#requests">Requests</a><a href="#approvals">Approvals</a><a href="#policies">Policies</a><a href="#capacity">Capacity</a><a href="#kpis">KPIs</a>
+  </nav>
+
+  <h1>New namespace</h1>
+  <p class="lead">Fill in the fields, then check the request. The preview shows exactly what will be created; Submit opens once the check passes.</p>
+
+  <div class="grid">
+    <form class="card" id="form" novalidate>
+      <fieldset>
+        <legend>Where</legend>
+        <div class="row2">
+          <div class="field">
+            <label for="cluster">Cluster<span class="req">*</span></label>
+            <select id="cluster">
+              <option value="CRC" data-env="dev">CRC (dev)</option>
+              <option value="KIND_CMAPI_TEST" data-env="rnd">KIND_CMAPI_TEST (rnd)</option>
+              <option value="OCP_PROD_1" data-env="prod">OCP_PROD_1 (prod)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="tier">Tier</label>
+            <select id="tier">
+              <option value="small" data-cpu="4" data-mem="16Gi">small</option>
+              <option value="medium" data-cpu="8" data-mem="32Gi">medium</option>
+              <option value="large" data-cpu="16" data-mem="64Gi">large</option>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Name</legend>
+        <div class="field">
+          <label for="mnemonic">Mnemonic<span class="req">*</span></label>
+          <input type="text" id="mnemonic" value="abc" autocomplete="off" aria-describedby="mnemonic-hint mnemonic-err">
+          <span class="hint" id="mnemonic-hint">Your team's mnemonic, 3 or 4 lowercase letters. Every namespace name starts with it.</span>
+          <span class="err" id="mnemonic-err"></span>
+        </div>
+        <div class="field">
+          <label for="rest">Namespace<span class="req">*</span></label>
+          <div class="group">
+            <span class="pfx" id="pfx" title="Set by Mnemonic; cannot be changed here"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg><span id="pfx-text">abc-</span></span>
+            <input type="text" id="rest" value="payments" autocomplete="off" aria-describedby="rest-full rest-err">
+            <span class="sfx" id="sfx" title="Set by the cluster's environment; cannot be changed here"><span id="sfx-text">-dev</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg></span>
+          </div>
+          <span class="hint">The start comes from Mnemonic and the end from the cluster's environment. Type only the middle.</span>
+          <span class="full" id="rest-full">Will be created as <code id="fullname">abc-payments-dev</code></span>
+          <span class="err" id="rest-err"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Labels</legend>
+        <div class="row2">
+          <div class="field">
+            <label for="name-auto">Name <span class="chip auto">automatic</span></label>
+            <input type="text" id="name-auto" readonly value="abc-payments-dev">
+            <span class="hint">A copy of the namespace name.</span>
+          </div>
+          <div class="field">
+            <label for="env-auto">App environment <span class="chip auto">automatic</span></label>
+            <input type="text" id="env-auto" readonly value="dev">
+            <span class="hint">The cluster's environment.</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="team">Team<span class="req">*</span> <span class="chip" id="team-chip">from Mnemonic</span></label>
+          <input type="text" id="team" value="abc" autocomplete="off" aria-describedby="team-hint team-err">
+          <span class="hint" id="team-hint">Who owns it, for cost and notices. Filled from Mnemonic; you can change it.</span>
+          <span class="err" id="team-err"></span>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="lob">Line of business<span class="req">*</span></label>
+            <input type="text" id="lob" value="amgsst" autocomplete="off" aria-describedby="lob-err">
+            <span class="hint">Free text, a valid label value.</span>
+            <span class="err" id="lob-err"></span>
+          </div>
+          <div class="field">
+            <label for="cl">Critical level<span class="req">*</span></label>
+            <select id="cl"><option>0</option><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+            <span class="hint">0 to 6.</span>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="cost">Cost center</label>
+            <input type="text" id="cost" value="cc-4410" autocomplete="off" aria-describedby="cost-err">
+            <span class="hint">Optional, like cc-1234.</span>
+            <span class="err" id="cost-err"></span>
+          </div>
+          <div class="field">
+            <label for="rightsizing">Rightsizing</label>
+            <select id="rightsizing"><option value="">(none)</option><option>auto</option><option>manual</option></select>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Annotations</legend>
+        <div class="field">
+          <label for="dl">Team DL<span class="req">*</span></label>
+          <input type="email" id="dl" value="payments-team@company.net" autocomplete="off" aria-describedby="dl-err">
+          <span class="hint">An address in company.net.</span>
+          <span class="err" id="dl-err"></span>
+        </div>
+        <div class="field">
+          <label for="contact">Group contact</label>
+          <input type="email" id="contact" value="" placeholder="abc-team@company.net" autocomplete="off" aria-describedby="contact-err">
+          <span class="err" id="contact-err"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Expiration (optional)</legend>
+        <div class="field" id="exp-field">
+          <label for="expires">Expires</label>
+          <div class="exprow">
+            <input type="date" id="expires" aria-describedby="exp-days exp-err">
+            <button type="button" class="secondary small" id="noexp">No expiry</button>
+          </div>
+          <span class="days" id="exp-days">No expiry: the namespace is permanent.</span>
+          <span class="hint">Notices to the team DL 14, 7 and 1 days before. It keeps running 7 days after the date, then a delete request is opened.</span>
+          <span class="err" id="exp-err"></span>
+        </div>
+        <div class="prodnote" id="exp-prod" hidden>Expiration is turned off for this environment (<code>expiration.yaml</code>: <code>enabled: false</code>). The namespace is permanent.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Why</legend>
+        <div class="field">
+          <label for="why">Justification<span class="req">*</span></label>
+          <textarea id="why" rows="2">Payments service dev namespace</textarea>
+          <span class="err" id="why-err"></span>
+        </div>
+      </fieldset>
+
+      <div class="xsec">
+        <button type="button" class="xtoggle" id="xtoggle" aria-expanded="false" aria-controls="xbody"><span class="caret" id="caret">▸</span>Additional labels and annotations (optional)<span class="cnt" id="xcount">none</span></button>
+        <div class="xbody" id="xbody" hidden>
+          <div>
+            <div class="kvhead"><b>Additional labels</b><span id="lcount">0 of 50</span></div>
+            <div class="kvwrap"><table class="kv"><thead><tr><th>Key</th><th>Value</th><th><span class="sr" hidden>Remove</span></th></tr></thead><tbody id="lrows"></tbody></table></div>
+            <button type="button" class="add" id="addl">+ Add label</button>
+            <div class="hint">Allowed: no prefix, or *.company.net/. Not kubernetes.io/, openshift.io/ or a key that has its own field above.</div>
+          </div>
+          <div>
+            <div class="kvhead"><b>Additional annotations</b><span id="acount">0 of 50 · 0 of 65536 bytes</span></div>
+            <div class="kvwrap"><table class="kv"><thead><tr><th>Key</th><th>Value</th><th><span class="sr" hidden>Remove</span></th></tr></thead><tbody id="arows"></tbody></table></div>
+            <button type="button" class="add" id="adda">+ Add annotation</button>
+            <div class="hint">Each value up to 4096 bytes, 65536 in all.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="secondary" id="check">Check (dry run)</button>
+        <button type="submit" class="primary" id="submit" disabled>Submit request</button>
+      </div>
+    </form>
+
+    <aside class="card preview" aria-live="polite">
+      <h2>Preview</h2>
+      <p class="sub">What will be created. It updates as you type.</p>
+      <dl class="summary">
+        <dt>Namespace</dt><dd><code id="s-name">abc-payments-dev</code></dd>
+        <dt>Cluster</dt><dd id="s-cluster">CRC (dev)</dd>
+        <dt>Expires</dt><dd id="s-expires">—</dd>
+        <dt>Quota</dt><dd id="s-quota">small: cpu 4, memory 16Gi</dd>
+        <dt>Approval</dt><dd id="s-approval">1 from approver-platform</dd>
+      </dl>
+      <pre id="yaml"></pre>
+      <div class="status idle" id="status">Not checked yet. Press <b>Check (dry run)</b> to ask cmapi whether this request passes.</div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const DOMAIN = "company.net";
+  const RULES = {
+    mnemonic: { re: /^[a-z]{3,4}$/, msg: "3 or 4 lowercase letters, like abc." },
+    rest:     { re: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, msg: "The middle of the name: lowercase letters, digits and '-', starting and ending with a letter or digit." },
+    team:     { re: /^[a-z0-9-]{2,40}$/, msg: "2 to 40 lowercase letters, digits or '-'." },
+    lob:      { re: /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/, msg: "A valid label value: up to 63 letters, digits, '-', '_' or '.'." },
+    cost:     { re: /^cc-[0-9]{4}$/, msg: "Like cc-1234.", optional: true },
+    dl:       { re: new RegExp("^[^@\\s]+@" + DOMAIN.replace(".", "\\.") + "$"), msg: "An address in " + DOMAIN + "." },
+    contact:  { re: new RegExp("^[^@\\s]+@" + DOMAIN.replace(".", "\\.") + "$"), msg: "An address in " + DOMAIN + ".", optional: true },
+    why:      { re: /\S/, msg: "Say why this namespace is needed." }
+  };
+  let teamEdited = false, checked = false;
+  // Expiration settings per environment (expiration.yaml through x-cmapi-expiration): enabled flag, 180-day limit.
+  const EXP_ENVS = { rnd: { enabled: true, maxLifetimeDays: 180 }, dev: { enabled: true, maxLifetimeDays: 180 }, prod: { enabled: false } };
+  const EXP = { maxLifetimeDays: 180 };
+  const DAY = 86400000;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const tomorrow = new Date(today.getTime() + DAY);
+  $("expires").min = iso(tomorrow);
+  $("expires").value = iso(new Date(today.getTime() + 25 * DAY));
+  function expiryInfo() {
+    const env = $("cluster").selectedOptions[0].dataset.env;
+    if (!(EXP_ENVS[env] && EXP_ENVS[env].enabled)) return { prod: true };
+    const v = $("expires").value;
+    if (!v) return { none: true };
+    const d = new Date(v + "T00:00:00"); const days = Math.round((d - today) / DAY);
+    if (days < 1) return { err: "Pick a date after today." };
+    return { date: v, days, beyond: days > EXP.maxLifetimeDays };
+  }
+  $("noexp").addEventListener("click", () => { $("expires").value = ""; invalidate(); render(); });
+  const DECLARED = ["name", DOMAIN + "/app-environment", DOMAIN + "/mnemonic", DOMAIN + "/lob", DOMAIN + "/cl", "cmapi.net/team", "cmapi.net/cost-center", "cmapi.net/app", "cmapi.net/rightsizing", "cmapi.net/team-dl", DOMAIN + "/mnemonic-group-contact", DOMAIN + "/mnemonic-confluence"];
+  const RESERVED = [/^([^/]*\.)?kubernetes\.io\//, /^k8s\.io\//, /^([^/]*\.)?openshift\.io\//, /^argocd\.argoproj\.io\//, /^[^/]*\.kyverno\.io\//];
+  const KEY_RE = /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
+  const LVAL_RE = /^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/;
+  // Starts empty on purpose: nothing is pre-filled, so no wrong value can be sent by accident.
+  const extra = { l: [], a: [] };
+  const bytes = (t) => new TextEncoder().encode(t).length;
+  function keyError(kind, k, rows) {
+    if (!k) return "Enter a key.";
+    if (!KEY_RE.test(k)) return "Not a valid key: an optional DNS prefix and '/', then up to 63 letters, digits, '-', '_' or '.'.";
+    if (DECLARED.includes(k)) return "This key has its own field above.";
+    if (k.startsWith("cmapi.net/")) return "cmapi.net/ keys are set by cmapi or have their own field.";
+    if (RESERVED.some((r) => r.test(k))) return "This prefix is reserved.";
+    const pfx = k.includes("/") ? k.slice(0, k.indexOf("/")) : "";
+    if (pfx && !(pfx === DOMAIN || pfx.endsWith("." + DOMAIN))) return "The prefix must be *." + DOMAIN + "/ (or none).";
+    if (rows.filter((r) => r.k === k).length > 1) return "This key is already in the table.";
+    return "";
+  }
+  function valError(kind, v) {
+    if (kind === "l" && !LVAL_RE.test(v)) return "A label value: up to 63 letters, digits, '-', '_' or '.'.";
+    if (kind === "a" && bytes(v) > 4096) return "Up to 4096 bytes.";
+    return "";
+  }
+  function extraErrors() {
+    const errs = [];
+    for (const kind of ["l", "a"]) extra[kind].forEach((r) => { const e = keyError(kind, r.k, extra[kind]) || valError(kind, r.v); if (e) errs.push({ kind, k: r.k, e }); });
+    if (extra.l.length > 50) errs.push({ kind: "l", k: "", e: "At most 50 additional labels." });
+    if (extra.a.length > 50) errs.push({ kind: "a", k: "", e: "At most 50 additional annotations." });
+    if (extra.a.reduce((n, r) => n + bytes(r.k) + bytes(r.v), 0) > 65536) errs.push({ kind: "a", k: "", e: "Annotations exceed 65536 bytes." });
+    return errs;
+  }
+  function drawRows(kind) {
+    const body = $(kind === "l" ? "lrows" : "arows"), rows = extra[kind];
+    body.innerHTML = "";
+    if (!rows.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="3" class="kvempty">None. Add one only if you need it.</td>'; body.appendChild(tr); }
+    rows.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td class="k"><input type="text" aria-label="Key" id="' + kind + 'k' + i + '" placeholder="' + (kind === "l" ? "e.g. team.company.net/squad" : "e.g. runbook.company.net/url") + '"><div class="rowerr"></div></td><td><input type="text" aria-label="Value" id="' + kind + 'v' + i + '" placeholder="' + (kind === "l" ? "e.g. checkout" : "e.g. https://wiki.company.net/abc/runbook") + '"><div class="rowerr"></div></td><td class="x"><button type="button" class="rm" aria-label="Remove row">✕</button></td>';
+      const [ki, vi] = tr.querySelectorAll("input"); ki.value = r.k; vi.value = r.v;
+      ki.addEventListener("input", () => { r.k = ki.value.trim(); invalidate(); render(); });
+      vi.addEventListener("input", () => { r.v = vi.value; invalidate(); render(); });
+      tr.querySelector(".rm").addEventListener("click", () => { rows.splice(i, 1); drawRows(kind); invalidate(); render(); });
+      body.appendChild(tr);
+    });
+  }
+  function markRows() {
+    for (const kind of ["l", "a"]) extra[kind].forEach((r, i) => {
+      const ke = keyError(kind, r.k, extra[kind]), ve = valError(kind, r.v);
+      const ki = $(kind + "k" + i), vi = $(kind + "v" + i); if (!ki) return;
+      ki.setAttribute("aria-invalid", ke ? "true" : "false"); vi.setAttribute("aria-invalid", ve ? "true" : "false");
+      ki.nextElementSibling.textContent = ke; vi.nextElementSibling.textContent = ve;
+    });
+    $("lcount").textContent = extra.l.length + " of 50";
+    $("acount").textContent = extra.a.length + " of 50 · " + extra.a.reduce((n, r) => n + bytes(r.k) + bytes(r.v), 0) + " of 65536 bytes";
+    const nl = extra.l.length, na = extra.a.length;
+    $("xcount").textContent = (nl || na) ? nl + " label" + (nl === 1 ? "" : "s") + ", " + na + " annotation" + (na === 1 ? "" : "s") : "none";
+  }
+  $("xtoggle").addEventListener("click", () => { const open = $("xbody").hidden; $("xbody").hidden = !open; $("xtoggle").setAttribute("aria-expanded", String(open)); $("caret").textContent = open ? "▾" : "▸"; });
+  $("addl").addEventListener("click", () => { extra.l.push({ k: "", v: "" }); drawRows("l"); invalidate(); render(); $("lk" + (extra.l.length - 1)).focus(); });
+  $("adda").addEventListener("click", () => { extra.a.push({ k: "", v: "" }); drawRows("a"); invalidate(); render(); $("ak" + (extra.a.length - 1)).focus(); });
+
+  const val = (id) => $(id).value.trim();
+  const envOf = () => $("cluster").selectedOptions[0].dataset.env;
+  const fullName = () => (val("mnemonic") || "…") + "-" + (val("rest") || "…") + "-" + envOf();
+
+  function validate() {
+    const errors = [];
+    for (const [id, r] of Object.entries(RULES)) {
+      const v = val(id), bad = !(r.optional && v === "") && !r.re.test(v);
+      $(id).setAttribute("aria-invalid", bad ? "true" : "false");
+      const e = $(id + "-err"); if (e) e.textContent = bad ? r.msg : "";
+      if (bad) errors.push({ id, msg: r.msg });
+    }
+    if (fullName().length > 63) { $("rest").setAttribute("aria-invalid", "true"); $("rest-err").textContent = "The full name is longer than 63 characters."; errors.push({ id: "rest", msg: "name too long" }); }
+    return errors;
+  }
+
+  function line(k, v, note) { return '    <span class="k">' + k + '</span>: <span class="v">"' + v + '"</span>' + (note ? '   <span class="c"># ' + note + '</span>' : "") + "\n"; }
+
+  function render() {
+    const m = val("mnemonic"), env = $("cluster").selectedOptions[0].dataset.env;
+    if (!teamEdited) $("team").value = m;
+    $("team-chip").hidden = teamEdited;
+    $("pfx-text").textContent = (m || "…") + "-";
+    $("sfx-text").textContent = "-" + env;
+    const name = fullName();
+    $("fullname").textContent = name; $("name-auto").value = name; $("env-auto").value = env;
+    const t = $("tier").selectedOptions[0];
+    $("s-name").textContent = name; $("s-cluster").textContent = $("cluster").selectedOptions[0].textContent;
+    $("s-quota").textContent = t.value + ": cpu " + t.dataset.cpu + ", memory " + t.dataset.mem;
+    $("s-approval").textContent = env === "rnd" ? "auto-approved (baseline-rnd-namespace)" : "1 from approver-platform";
+    let y = '<span class="k">apiVersion</span>: v1\n<span class="k">kind</span>: Namespace\n<span class="k">metadata</span>:\n  <span class="k">name</span>: ' + name + "\n  <span class=\"k\">labels</span>:\n";
+    y += line("name", name, "automatic");
+    y += line(DOMAIN + "/app-environment", env, "automatic");
+    y += line(DOMAIN + "/mnemonic", m);
+    y += line(DOMAIN + "/lob", val("lob"));
+    y += line(DOMAIN + "/cl", $("cl").value);
+    y += line("cmapi.net/team", val("team"), teamEdited ? "" : "from mnemonic");
+    if (val("cost")) y += line("cmapi.net/cost-center", val("cost"));
+    const exy = expiryInfo();
+    if (exy.date) y += line("cmapi.net/expiry", "managed", "from Expires");
+    if ($("rightsizing").value) y += line("cmapi.net/rightsizing", $("rightsizing").value);
+    for (const r of extra.l) if (r.k) y += line(r.k, r.v, "additional");
+    const ex = expiryInfo();
+    $("exp-field").hidden = !!ex.prod; $("exp-prod").hidden = !ex.prod;
+    const dd = $("exp-days"); dd.className = "days" + (ex.beyond ? " warn" : "");
+    dd.textContent = ex.none ? "No expiry: the namespace is permanent." : ex.err ? "" : ex.prod ? "" : "Expires on " + ex.date + ", in " + ex.days + " day" + (ex.days === 1 ? "" : "s") + (ex.beyond ? ". More than 180 days: needs one more approver-platform approval." : ".");
+    $("exp-err").textContent = ex.err || ""; $("expires").setAttribute("aria-invalid", ex.err ? "true" : "false");
+    $("s-expires").textContent = ex.prod ? "never (expiration off here)" : ex.none ? "never (permanent)" : ex.err ? "—" : ex.date + " (in " + ex.days + " days)";
+    y += '    <span class="c"># cmapi.net/managed, cluster-id, request-id, tier … added by cmapi</span>\n  <span class="k">annotations</span>:\n';
+    y += line(DOMAIN + "/app-environment", env, "automatic");
+    y += line("cmapi.net/team-dl", val("dl"));
+    if (val("contact")) y += line(DOMAIN + "/mnemonic-group-contact", val("contact"));
+    if (exy.date) y += line("cmapi.net/expires-at", exy.date, "from Expires");
+    for (const r of extra.a) if (r.k) y += line(r.k, r.v.length > 48 ? r.v.slice(0, 48) + "…" : r.v, "additional");
+    $("yaml").innerHTML = y;
+    validate();
+    markRows();
+  }
+
+  function invalidate() {
+    if (checked) { checked = false; $("submit").disabled = true; setStatus("idle", "Changed since the last check. Press <b>Check (dry run)</b> again."); }
+  }
+  function setStatus(kind, html) { const s = $("status"); s.className = "status " + kind; s.innerHTML = html; }
+
+  $("check").addEventListener("click", () => {
+    const errors = validate(), xerrs = extraErrors(), exe = expiryInfo();
+    if (exe.err) xerrs.push({ kind: "exp", k: "", e: exe.err });
+    if (errors.length || xerrs.length) {
+      const items = errors.map(e => "<li>" + $(e.id).labels[0].childNodes[0].textContent.trim() + ": " + e.msg + "</li>").concat(xerrs.map(e => e.kind === "exp" ? "<li>Expires: " + e.e + "</li>" : "<li>Additional " + (e.kind === "l" ? "label" : "annotation") + (e.k ? " <code>" + e.k + "</code>" : "") + ": " + e.e + "</li>"));
+      setStatus("bad", "<b>The check failed (422).</b> Fix these:<ul>" + items.join("") + "</ul>");
+      if (xerrs.length && $("xbody").hidden) $("xtoggle").click();
+      $("submit").disabled = true; checked = false; if (errors.length) $(errors[0].id).focus(); return;
+    }
+    const src = (k, s) => '<li><code>' + k + '</code> <span class="src">' + s + '</span></li>';
+    setStatus("ok", "<b>The check passed (dry run, 200).</b> cmapi will set:<ul>" +
+      src("name", "from the namespace") + src(DOMAIN + "/app-environment", "from the environment") +
+      src("cmapi.net/team = " + val("team"), teamEdited ? "from the request" : "default from " + DOMAIN + "/mnemonic") +
+      "</ul>" + (exe.beyond ? "Expiry past 180 days: the approval needs one more approver-platform. " : "") + "Capacity fits. Plan hash 9c41…");
+    checked = true; $("submit").disabled = false; $("submit").focus();
+  });
+
+  $("form").addEventListener("submit", (ev) => {
+    ev.preventDefault(); if (!checked) return;
+    setStatus("done", "<b>Request req-20261120-0007 submitted (mock).</b> Status: pending approval, 1 from approver-platform.");
+    $("submit").disabled = true; checked = false;
+  });
+
+  $("team").addEventListener("input", () => { teamEdited = true; });
+  for (const el of document.querySelectorAll("#form input, #form select, #form textarea")) {
+    el.addEventListener("input", () => { invalidate(); render(); });
+    el.addEventListener("change", () => { invalidate(); render(); });
+  }
+  drawRows("l"); drawRows("a");
+  render();
+})();
+</script>

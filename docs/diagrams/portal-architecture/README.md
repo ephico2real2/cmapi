@@ -20,9 +20,9 @@ The map is held to the contract by a test. The portal that calls these endpoints
 |---|---|
 | Tabs in the mockup | 9, and the page frame |
 | Actions in the mockup | 64 |
-| Actions that make no call | 17 |
-| Endpoints that the actions need | 25 |
-| Endpoints built, in `openapi.json` | 19 |
+| Actions that make no call | 16 |
+| Endpoints that the actions need | 26 |
+| Endpoints built, in `openapi.json` | 20 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
 | Endpoints not built | 4 |
 
@@ -58,9 +58,9 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 | 1 | New namespace | Open the tab | `GET /api/v1/tiers`<br>`POST /api/v1/capacity:place` | built<br>not built | 2 | The tier list and the placement preview. |
 | 2 | New namespace | Environment buttons | `POST /api/v1/capacity:place` | not built | 2 | The preview changes with the environment. |
 | 3 | New namespace | Tier buttons | `POST /api/v1/capacity:place` | not built | 2 | The preview changes with the tier. |
-| 4 | New namespace | Dry run | `POST /api/v1/clusters/{cluster_id}/namespaces` | built | 2 | With `?dryRun=true`. |
+| 4 | New namespace | Check (dry run) | `POST /api/v1/clusters/{cluster_id}/namespaces` | built | 2 | With `?dryRun=true`. Called "Dry run" before #479; Submit stays off until it passes, and again after any change. |
 | 5 | New namespace | Submit request | `POST /api/v1/capacity:place`<br>`POST /api/v1/clusters/{cluster_id}/namespaces` | not built<br>built | 2 | The create sends the `placementId` from the placement call. |
-| 6 | New namespace | Form fields: Team, Region, Namespace name, Team DL, Expires, Justification | None | No endpoint | 2 | Team, Region, Namespace name, Team DL, Expires, Justification. Dry run and Submit send the values. |
+| 6 | New namespace | Form fields: the keys of `GET /api/v1/metadata-keys`, Region, Namespace (its locked ends), Expires (calendar, No expiry), Justification, Additional labels and annotations | `GET /api/v1/metadata-keys` | built | 2 | The fields, the name's two ends, the team's default, the expiry rules (`x-cmapi-expiration`) and the extra-key rules come from the answer (#336, #479; the form of `mockups/portal/new-namespace-479.html`). Check and Submit send the values. |
 | 7 | New namespace | Links to the other portals | None | No endpoint | 2 | Each link opens the portal of a different instance. |
 | 8 | Workflow | Open the tab | `GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events` | built<br>built | 2 | For one request. The design names no call for the Capacity, Pull request and Argo CD panels. |
 | 9 | Workflow | Scenario buttons | None | No endpoint | 2 | They choose sample data. Mockup only. |
@@ -131,11 +131,10 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 
 ## Built endpoints that no mockup action calls
 
-The mockup has no action for these 21 operations of `openapi.json`:
+The mockup has no action for these 20 operations of `openapi.json`:
 
 - `GET /api/v1/me`, `GET /api/v1/version`, `GET /api/v1/clusters`
 - `POST /api/v1/clusters/{id}:probe`: recheck a held cluster import (#397); the mockup has no probe action
-- `GET /api/v1/metadata-keys`: the portal's New namespace form reads its labels and annotations from it (#336); the mockup hard-codes the CRC keys
 - `GET /api/v1/clusters/{cluster_id}/namespaces`, and `GET` and `DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`
 - `GET /api/v1/requests/{request_id}/approval-status`
 - `POST /api/v1/requests/{request_id}:cancel`, `:retry` and `:revert`
@@ -191,8 +190,11 @@ New namespace tab
   Dry run, Submit request
     - - proposed - -> POST /api/v1/clusters/{cluster_id}/namespaces [built]
     behind: plugins/namespaces (built)
-  Form fields (6), Links to the other portals
-    no call: the values go with Submit; a link opens a portal
+  Check (dry run): the button of #479, the same call
+  Form fields (6)
+    - - proposed - -> GET /api/v1/metadata-keys [built]: the keys, the name's ends, the defaults, the expiry and extra-key rules
+  Links to the other portals
+    no call: a link opens a portal
 Workflow tab
   Open the tab
     - - proposed - -> GET /api/v1/requests/{request_id} [built]

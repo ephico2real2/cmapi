@@ -288,6 +288,33 @@ the reference and company files, with `policy.engine: none`), the installed Chro
 the reference file and is shared). Whether a browser other than Chromium 156 revalidates the answer is not measured; the
 form does not depend on it.
 
+## The New namespace form of #479 (Phase 4)
+
+Measured on 2026-11-20 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The
+stand-in now builds the dry run's `metadata` (each value with its source, A7) and its `namespace.yaml` from the body and
+the served rules, fills the keys that cmapi sets and the defaults, refuses a name whose ends do not match their keys in the
+words of `core/metadata.py`, and refuses `expiresAt` where `x-cmapi-expiration` turns expiration off
+(`expiration-not-allowed`) or on a day not after today (`expiration-in-past`). The new answer
+`tests/api/metadata-keys.company-479.json` is the service's answer for the configuration of design section 3.1
+(`examples/cluster-configs/policies/metadata-keys.company-479.yaml`), held equal by
+`cmapi/tests/core/test_metadata_form_336.py`. Stage: built-mocked. It does not prove the deployed product.
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| The pure parts of the form | `node tests/api/direct.test.mjs` (479-P1, P2, P4, P6, P10 twice, P11, P12) | the name's ends and checks (63 characters is the limit, `abc--x-dev` is taken); a default copied and never sent until edited; every refusal word of an extra key and value; UTF-8 bytes; the expiry rules per environment from `enabled`, never from the name; no company domain or sample value in `src/portal` |
+| Each keyword of the answer is read | `node tests/contract.test.mjs` | `x-cmapi-expiration`, `propertyNames` and its branches, `x-cmapi-other-keys`, `x-cmapi-namespace-suffix` and `x-cmapi-default-from` are read, on the three answers |
+| Each behaviour at 390, 820 and 1440 px in each theme | checks 479-P2, 479-P3-P5, 479-P6-P7, 479-P9-P11, 479-P12 (two), each on a fresh form six times | pass; no console error |
+| The page says what the mockup says, both ways | check 6, New namespace part, against `mockups/portal/new-namespace-479.html` | 82 strings of the mockup on the page; each one it does not show is listed with its reason; nothing invented outside the listed additions (MOCKUP-CONTRACT.md) |
+| Layout and axe | check 7 with two new views (`new-479-problems`, `new-479-checked`) | 6 views, 3 widths, 2 themes, no sideways scroll; 24 axe scans, no serious or critical finding |
+| Mutants | `node tests/api/mutants.mjs "#479"`, then `"#336"` and the New namespace mutants of #300 and #366 by name | 29 new mutants (each of P2 to P12, the parity strings, the contract keyword, P1): 29 killed. The 27 of #336 and the 13 of #300 and #366, their texts moved to the new code: 40 killed. "#336 the prefix is not checked" now runs the direct test: the locked start leaves no form that sends another start, so the browser check cannot see it |
+| A defect found on the way | check 479-P12 Expires, and the mutant "#479 maxLifetimeDays refuses a date" | main's form set the date input's `max` to today + 180 and marked a later date "✕ Expiry", so it refused a date that cmapi takes with one more approval (design P12, D15). The check now picks day 200, sees the warning, and the dry run is sent; the mutant puts the refusal back and the check fails |
+
+Screenshots of the whole form: `cmapi-portal-ui/screenshots/479-p4-built-mocked/`.
+
+**Not proven here:** the form against the real service and Keycloak, and on CRC, which runs the reference file until
+Phase 5 configures section 3.1 there. "In N days" counts from the browser's UTC day, not the server's (plan R7):
+`GET /api/v1/metadata-keys` carries no `today`.
+
 ## Protection from deletion (#366)
 
 Measured on 2026-11-17 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API. The stand-in
