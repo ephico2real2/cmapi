@@ -259,6 +259,25 @@ class NamespacePatch(Api):
     justification: str | None = Field(default=None, description="Why", examples=["More capacity for the batch"])
 
 
+class MetadataValue(Api):
+    value: str = Field(description="The value that the namespace will carry", examples=["abc"])
+    source: str = Field(description="Where it came from: request (the body sent it); namespace, environment, cluster or "
+                                    "instance (cmapi filled it in from the request's target, value.from of "
+                                    "metadata-keys.yaml); or default:<key> (copied from that key, default.from)",
+                        examples=["request"])
+
+
+class PlanMetadata(Api):
+    namespace: str = Field(description="The namespace name", examples=["abc-payments-dev"])
+    labels: dict[str, MetadataValue] = Field(description="Each label that the request sets or that cmapi fills in, with "
+                                                         "its source. cmapi's own system labels are not listed",
+                                             examples=[{"cmapi.net/team": {"value": "payments", "source": "request"}}])
+    annotations: dict[str, MetadataValue] = Field(description="Each annotation that the request sets or that cmapi fills "
+                                                              "in, with its source",
+                                                  examples=[{"cmapi.net/team-dl": {"value": "payments-team@ephico2real.com",
+                                                                                   "source": "request"}}])
+
+
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
@@ -269,6 +288,8 @@ class PlanView(Api):
     files: dict[str, str] = Field(description="Rendered content of each changed file", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\n..."}])
     findings: list[dict[str, Any]] = Field(default_factory=list, description="Validator warnings", examples=[[]])
     beyond_tier: BeyondTier | None = Field(default=None, description="The values beyond the tier and the approvals they add; null when the request has none")
+    metadata: PlanMetadata | None = Field(default=None, description="On a create: the final labels and annotations, each "
+                                                                     "with its source (#479). Null on other writes")
 
 
 class NamespaceView(ClusterScoped):
