@@ -904,6 +904,11 @@ class MetadataKeys:
         """The class of a key. With no kind, a key is governed or team when it is so as a label or an annotation."""
         if key in self.system:
             return "system"
+        prefix = self._prefix(key)
+        if prefix and self._prefix_in(prefix, self.reserved_prefixes):
+            # Before operatorOnly, in the order of the #481 design, section 3: a reserved prefix is the platform's, also
+            # for a key that operatorOnly names too. A declared key never has one (the loader refuses it).
+            return "reserved"
         if key in self.operator_only:
             return "operatorOnly"
         kinds = KINDS if kind is None else (kind,)
@@ -913,9 +918,6 @@ class MetadataKeys:
             return "reserved"
         if any(key in self.rules[k] for k in kinds):
             return "governed"
-        prefix = self._prefix(key)
-        if prefix and self._prefix_in(prefix, self.reserved_prefixes):
-            return "reserved"
         if any(self._prefix_in(prefix, self.allow_other[k].prefixes) for k in kinds):
             return "team"
         return "disallowed"
@@ -1059,7 +1061,7 @@ class MetadataKeys:
             1, 2  on a create: fill each filled-in key, then each default, that the request leaves out (filled)
             3     the namespace name starts with the value of the namespacePrefix key and "-" (_check_prefix); on a
                   change of an existing namespace, the keys that the name is made of keep what Git holds instead
-                  (_check_name_keys_kept)
+                  (_check_sent_keys, _fixed_key_error)
             4     on a create: the namespace name ends with "-" and the value of the namespaceSuffix key (_check_suffix),
                   with a desired name between the two ends (_check_desired_name)
             5     each key sent: its syntax, its class and its rule (_check_sent_keys); each required key (_check_required)
@@ -1078,17 +1080,14 @@ class MetadataKeys:
             sent = self.filled(labels, annotations, sources)
         current = {"label": current_labels or {}, "annotation": current_annotations or {}}
         merged = {kind: self.merge_patch(current[kind], sent[kind]) for kind in KINDS}
-        if existing and not create:
-            # A change cannot rename, so it is not refused for a name made before the rule (#481, design section 3).
-            errs = self._check_name_keys_kept(sent, current, sources)
-        else:
-            errs = self._check_prefix(sent, current, sources)
+        # A change cannot rename: step 5 keeps the keys that the name is made of as Git holds them (#481, design section 3).
+        errs = [] if existing and not create else self._check_prefix(sent, current, sources)
         if create:
             # A name is chosen once, at create.
             errs += self._check_suffix(sent, sources)
             if not errs:
                 errs += self._check_desired_name(sent, sources)
-        errs += self._check_sent_keys(sent, current, operator, sources)
+        errs += self._check_sent_keys(sent, current, operator, sources, existing and not create)
         if require_governed:
             errs += self._check_required(sent, current, merged, existing, errs)
         errs += self._check_other_keys(merged)
@@ -1124,29 +1123,22 @@ class MetadataKeys:
         value = sent[kind].get(key)
         return value is not None and value == current[kind].get(key)
 
-    def _check_name_keys_kept(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
-                              sources: Mapping[str, str]) -> list[dict[str, Any]]:
-        """Steps 3 and 4 of a change: the namespacePrefix and namespaceSuffix keys are fixed, since a change cannot rename.
-        Sending back Git's value is accepted; another value, or a removal, is refused on that key. Step 5 refuses the
-        rest, one error per key: a filled-in key against its source (derived_key), a value that breaks the key's own
-        rule, and the removal of a required key (missing_required_key, as before #481)."""
-        errs: list[dict[str, Any]] = []
-        for found in (self.prefix_key(), self.suffix_key()):
-            if found is None:
-                continue
-            kind, key = found
-            rule = self.rules[kind][key]
-            if key not in sent[kind] or rule.derived or self._is_echo(kind, key, sent, current):
-                continue
-            value, held = sent[kind][key], current[kind].get(key)
-            if value is None and rule.required:
-                continue
-            if value is not None and self._breaks_own_rule(key, value, kind, sources):
-                continue
-            keeps = f"a change keeps {held!r}" if held else "a change cannot add it; adoption does (story #26)"
-            errs.append({"code": "invalid_value", "key": key, "kind": kind,
-                         "detail": f"{EDIT_REASONS['name'].rstrip('.').lower()}: {keeps}"})
-        return errs
+    def _fixed_key_error(self, kind: str, key: str, rule: KeyRule, sent: Mapping[str, Mapping[str, str | None]],
+                         current: Mapping[str, Mapping[str, str]]) -> list[dict[str, Any]]:
+        """A change sends a key that it cannot change: one filled in by cmapi (value.from), or one that the name is made of
+        (namespacePrefix, namespaceSuffix). The value that Git holds is accepted (FB1 of #488); any other value, or a
+        removal, is refused on that key. The removal of a required name key is left to _check_required, which reports it
+        as missing_required_key, as before #481."""
+        if self._is_echo(kind, key, sent, current):
+            return []
+        held = current[kind].get(key)
+        keeps = f"a change keeps {held!r}" if held is not None else "a change cannot add it; adoption does (story #26)"
+        if rule.derived:
+            return [{"code": "derived_key", "key": key, "kind": kind, "detail": f"cmapi sets {key}: {keeps}"}]
+        if sent[kind][key] is None and rule.required:
+            return []
+        return [{"code": "invalid_value", "key": key, "kind": kind,
+                 "detail": f"{EDIT_REASONS['name'].rstrip('.').lower()}: {keeps}"}]
 
     def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
                       sources: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -1194,15 +1186,18 @@ class MetadataKeys:
                  "detail": f"{namespace} has no desired name between {start}- and -{end}"}]
 
     def _check_sent_keys(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
-                         operator: bool, sources: Mapping[str, str]) -> list[dict[str, Any]]:
+                         operator: bool, sources: Mapping[str, str], existing: bool) -> list[dict[str, Any]]:
         """Step 5: each key that the request sends, by its syntax, its class and the rule of its stanza."""
         errs: list[dict[str, Any]] = []
         for kind in KINDS:
             other = "annotation" if kind == "label" else "label"
             for key, value in sent[kind].items():
                 rule = self.rules[kind].get(key)
-                if rule is not None and rule.derived and self._is_echo(kind, key, sent, current):
-                    continue                    # a filled-in key sent back as Git holds it changes nothing (#481)
+                if existing and rule is not None and (rule.derived or rule.namespace_prefix or rule.namespace_suffix):
+                    # Fixed on an existing namespace (#481, design section 3, rows 5 and 6): only Git's own value may
+                    # be sent back, also when it predates today's rule or target.
+                    errs.extend(self._fixed_key_error(kind, key, rule, sent, current))
+                    continue
                 # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
                 # holds from before #330 ("/foo") can be removed, though no request may set it now.
                 e = None if value is None and key in current[kind] else self._syntax(key, value, kind)
@@ -1217,7 +1212,9 @@ class MetadataKeys:
                     errs.append({"code": "invalid_key", "key": key, "detail": f"{key} is {article} {other}"})
                 elif cls in ("system", "reserved"):
                     errs.append({"code": "reserved_key", "key": key})
-                elif cls == "disallowed":
+                elif cls == "disallowed" and not (value is None and key in current[kind]):
+                    # Removing a key that Git holds and today's rules do not allow is accepted: it brings the namespace
+                    # within them, and the rendered policies refuse every change that keeps it (#492, M2).
                     errs.append({"code": "invalid_key", "key": key, "detail": "prefix not allowed"})
                 elif cls == "operatorOnly" and not operator:
                     errs.append({"code": "operator_only_key", "key": key})
@@ -1325,13 +1322,14 @@ class MetadataKeys:
                       sent: Mapping[str, Mapping[str, str | None]]) -> dict[str, dict[str, dict[str, Any]]]:
         """A change's metadataDiff (#481, design section 4.1): {labels, annotations}, each key whose value moves between
         Git (before) and the rendered namespace (after), with its source. Only the keys that a request may name or that
-        cmapi fills in (NAMED_CLASSES). before null is an added key, after null a removed one."""
+        cmapi fills in (NAMED_CLASSES), and a key that the request sent (the removal of a disallowed one). before null is
+        an added key, after null a removed one."""
         out: dict[str, dict[str, dict[str, Any]]] = {}
         for kind, field_name in (("label", "labels"), ("annotation", "annotations")):
             out[field_name] = {}
             for key in sorted(set(before[kind]) | set(after[kind])):
                 old, new = before[kind].get(key), after[kind].get(key)
-                if old == new or self.classify(key, kind) not in NAMED_CLASSES:
+                if old == new or (self.classify(key, kind) not in NAMED_CLASSES and key not in sent[kind]):
                     continue
                 out[field_name][key] = {"before": old, "after": new, "source": self._change_source(kind, key, sent)}
         return out
@@ -1345,29 +1343,32 @@ class MetadataKeys:
         return "request"
 
     def missing_required(self, labels: Mapping[str, str], annotations: Mapping[str, str]) -> list[tuple[str, str]]:
-        """(kind, key) of each required key that the namespace lacks, other than a filled-in one. On a change that passed
-        validate(), each is held (#234): the namespace lacked it before and the request leaves it out, so the plan reports
-        it as a finding that the change can add."""
+        """(kind, key) of each required key that the namespace lacks, a filled-in one too: a change keeps that one as Git
+        holds it (#481). On a change that passed validate(), each is held (#234): the namespace lacked it before and the
+        request leaves it out, so the plan reports it as a finding (Pipeline._held_key_findings)."""
         maps = {"label": labels, "annotation": annotations}
         return [(kind, key) for kind in KINDS for key, rule in self.rules[kind].items()
-                if rule.required and not rule.derived and not maps[kind].get(key)]
+                if rule.required and not maps[kind].get(key)]
 
     def change_facts(self, before: Mapping[str, str], after: Mapping[str, str],
                      before_annotations: Mapping[str, str] | None = None,
-                     after_annotations: Mapping[str, str] | None = None) -> dict[str, Any]:
+                     after_annotations: Mapping[str, str] | None = None, *, existing: bool = False) -> dict[str, Any]:
         """Facts for the approval engine: which classes changed, and whether a sensitive key did.
 
         before/after are the labels, and the annotations come apart: a key can be both (do-not-delete, any operator-only or
         team key), and one map merged over the other would hide a change in it, such as a protection label removed while an
-        annotation of the same key stays (#378)."""
+        annotation of the same key stays (#378). existing: the namespace is in Git already, so this is a change of it."""
         changed: set[str] = set()
         sensitive: set[str] = set()
-        for b, a in ((before, after), (before_annotations or {}, after_annotations or {})):
+        for kind, b, a in (("label", before, after), ("annotation", before_annotations or {}, after_annotations or {})):
             moved = {k for k in set(b) | set(a) if b.get(k) != a.get(k)}
             changed |= moved
-            # a sensitive key counts when an existing value changes or goes; setting it the first time
-            # (every create sets cmapi.net/team) is not a change of ownership
-            sensitive |= {k for k in moved & self.sensitive if k in b}
+            for key in moved & self.sensitive:
+                # A value that Git held changes or goes. On an existing namespace, adding a required or extra key counts
+                # too (#481, design section 3); the first value of a create (every create sets cmapi.net/team) and the
+                # first protection of an operator-only key (#366) do not.
+                if key in b or (existing and self.classify(key, kind) in ("governed", "team")):
+                    sensitive.add(key)
         return {"keyClasses": sorted({self.classify(k) for k in changed}),
                 "sensitiveKeyChanged": bool(sensitive)}
 
@@ -1399,6 +1400,8 @@ class MetadataKeys:
         rules, other = self.rules[kind], self.allow_other[kind]
         properties = {key: self._rule_schema(rule, patch) for key, rule in rules.items()}
         for key in self.operator_only:
+            if self.classify(key, kind) != "operatorOnly":
+                continue
             properties[key] = self._nullable(self._operator_schema(kind), patch)
         for key, prop in properties.items():
             # How the key may change on an existing namespace (#481), so a form locks a fixed key with its reason.

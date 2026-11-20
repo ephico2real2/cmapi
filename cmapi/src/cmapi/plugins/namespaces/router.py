@@ -150,12 +150,15 @@ def _mnemonic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 def _namespace_page(c: AppContext, rows: list[dict[str, Any]], q: str | None, mnemonic: str | None,
                     limit: int | None) -> dict[str, Any]:
-    """NamespaceList (#481, design section 4.4). With none of q, mnemonic and limit: every row by name, as before. With
-    any: the first `limit` matches, best first (Lister.ranked, the Quotas list's matching). The mnemonic counts are over
-    every filter but the mnemonic, so each chip keeps its number when one is chosen."""
-    searching = bool(q or mnemonic) or limit is not None
-    matched = c.lister.ranked(rows, ListQuery(q=q or "", filters={"mnemonic": mnemonic or ""}))
-    counts = _mnemonic_counts(c.lister.ranked(rows, ListQuery(q=q or "")))
+    """NamespaceList (#481, design section 4.4). With none of q, mnemonic and limit sent: every row by name, as before.
+    With any sent, even empty: the first `limit` matches, best first (Lister.ranked, the Quotas list's matching). The
+    mnemonic counts are over every filter but the mnemonic, so each chip keeps its number when one is chosen."""
+    searching = q is not None or mnemonic is not None or limit is not None
+    matched = c.lister.ranked(rows, ListQuery(q=q or ""))
+    counts = _mnemonic_counts(matched)
+    if mnemonic is not None:
+        # Compared as a value: a namespace without a mnemonic never matches one (not even the text "None").
+        matched = [row for row in matched if row["mnemonic"] == mnemonic]
     shown = matched[:limit or SEARCH_LIMIT] if searching else matched
     items = [{k: v for k, v in row.items() if k != "app"} for row in shown]
     return {"items": items, "total": len(matched), "facets": {"mnemonics": counts}}
@@ -206,7 +209,7 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     obj = live or {"metadata": {"name": ns, "labels": {}, "annotations": {}}}
     git_doc = namespace_doc(files)
     git = metadata_of(git_doc)
-    view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git)
+    view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None)
     view["git"] = {"labels": git["label"], "annotations": git["annotation"]} if git_doc else None
     view["etag"] = folder_etag(files)
     # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).

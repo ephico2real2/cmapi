@@ -186,7 +186,7 @@ def test_the_metadata_diff_names_a_filled_in_key_that_cmapi_moved_by_its_source(
 
 def test_the_held_keys_are_the_required_keys_that_the_namespace_lacks():
     lacking = {k: v for k, v in GIT.items() if k not in ("company.net/lob", "name")}
-    assert KEYS.missing_required(lacking, {}) == [("label", "company.net/lob"), ("annotation", "cmapi.net/team-dl")]
+    assert KEYS.missing_required(lacking, {}) == [("label", "name"), ("label", "company.net/lob"), ("annotation", "cmapi.net/team-dl")]
 
 
 # ---------------------------------------------------------------- section 4.2: the sync state

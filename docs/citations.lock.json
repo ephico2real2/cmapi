@@ -497,7 +497,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1308-1308": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1305-1305": [
   "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|127-129": [
@@ -514,10 +514,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|199-199": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|397-397": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|404-404": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|450-450": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|459-459": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [
@@ -542,10 +542,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|178-178": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|181-181": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|199-199": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|202-202": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [

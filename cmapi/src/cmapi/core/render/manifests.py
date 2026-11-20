@@ -146,6 +146,11 @@ class ManifestRenderer:
         # a caller can never override what the renderer owns
         derived_labels, derived_ann = self.keys.derived({"namespace": spec.namespace, "environment": spec.env,
                                                          "cluster": spec.cluster_id, "instance": spec.instance})
+        if old_ns is not None:
+            # A change keeps each automatic key as Git holds it, and keeps it absent where Git lacks it: its target
+            # (environment, instance) may have moved since the create (#481, design section 3, row 5).
+            derived_labels = {key: old_lab[key] for key in derived_labels if key in old_lab}
+            derived_ann = {key: old_ann[key] for key in derived_ann if key in old_ann}
         labels = {**spec.labels, **derived_labels, **common_labels, "cmapi.net/env": spec.env, "cmapi.net/tier": spec.tier,
                   "cmapi.net/requested-by-user": old_lab.get("cmapi.net/requested-by-user", spec.requested_by_user)}
         ann = {**spec.annotations, **derived_ann, "argocd.argoproj.io/sync-options": SYNC_OPTIONS}

@@ -198,7 +198,7 @@ class Pipeline:
             label_value_of(requester.person.username)
         operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
-        prev_ns = next((yaml.safe_load(t) for p, t in prev_files.items() if p.endswith("namespace.yaml")), None)
+        prev_ns = namespace_doc(prev_files)
         if action == "create" and prev_ns:
             raise Problem.conflict("namespace-exists", f"{ns} is already in Git")
         if action != "create" and not prev_ns:
@@ -309,6 +309,8 @@ class Pipeline:
         metadata_diff = None
         if action != "create":
             metadata_diff = self.cfg.metadata.metadata_diff(metadata_of(prev_ns), metadata_of(namespace_doc(files)), sent)
+        if action == "update" and reason is None:
+            # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
             findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
         old_hard = {}
         if old_tier:
@@ -324,7 +326,7 @@ class Pipeline:
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
-                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns)}
+                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns, existing=prev_ns is not None)}
         if old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
@@ -357,11 +359,16 @@ class Pipeline:
     def _held_key_findings(self, cluster_id: str, ns: str, labels: Mapping[str, str],
                            annotations: Mapping[str, str]) -> list[Finding]:
         """Each required key that the namespace lacks and the change leaves out: held, not refused (#234), and reported as
-        a warning that this change can add it (#481, design section 3, the adoption finding)."""
+        a warning (#481, design section 3, the adoption finding): that this change can add it, or, for a key that a change
+        cannot set (fixed or automatic in x-cmapi-edit), that adoption must."""
         path = folder(cluster_id, ns) + "namespace.yaml"
-        return [Finding("cmapi", "missing_required_key", path,
-                        f"the {kind} {key} is required and the namespace lacks it: this change can add it", "warning")
-                for kind, key in self.cfg.metadata.missing_required(labels, annotations)]
+        findings = []
+        for kind, key in self.cfg.metadata.missing_required(labels, annotations):
+            mode = self.cfg.metadata.edit_rule(kind, key)["mode"]
+            remedy = "adoption must supply it" if mode in ("fixed", "automatic") else "this change can add it"
+            findings.append(Finding("cmapi", "missing_required_key", path,
+                                    f"the {kind} {key} is required and the namespace lacks it: {remedy}", "warning"))
+        return findings
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
         """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only an operator may set
@@ -406,7 +413,9 @@ class Pipeline:
                 raise Problem(428, "precondition-required", "If-Match is required on a delete; GET the namespace for its etag")
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
-        ns_doc = yaml.safe_load(next(t for p, t in prev.items() if p.endswith("namespace.yaml")))
+        ns_doc = namespace_doc(prev)
+        if ns_doc is None:
+            raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:
