@@ -124,19 +124,22 @@ interface PageControls {
   range?: ReactNode;
   prev?: () => void;
   next?: () => void;
+  busy?: boolean;
   prevDis?: unknown;
   nextDis?: unknown;
 }
 
 // Next and previous only: these lists page by cursor, and PatternFly's Pagination expects to jump to any page.
-export function Pager({ range, prev, next, prevDis, nextDis }: PageControls) {
+export function Pager({ range, prev, next, prevDis, nextDis, busy = false }: PageControls) {
+  // While the table shows the previous answer, both cursors belong to that answer.
+  const disabled = (flag: unknown) => busy || String(flag) === "true";
   return (
     <Flex justifyContent={{ default: "justifyContentSpaceBetween" }} alignItems={{ default: "alignItemsCenter" }}>
       <FlexItem><Small>{range}</Small></FlexItem>
       <FlexItem>
         <Flex gap={{ default: "gapSm" }}>
-          <Button variant="secondary" size="sm" isAriaDisabled={String(prevDis) === "true"} onClick={prev}>‹ Previous</Button>
-          <Button variant="secondary" size="sm" isAriaDisabled={String(nextDis) === "true"} onClick={next}>Next ›</Button>
+          <Button variant="secondary" size="sm" isAriaDisabled={disabled(prevDis)} onClick={prev}>‹ Previous</Button>
+          <Button variant="secondary" size="sm" isAriaDisabled={disabled(nextDis)} onClick={next}>Next ›</Button>
         </Flex>
       </FlexItem>
     </Flex>

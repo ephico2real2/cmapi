@@ -110,6 +110,7 @@ export function ExpirationTab({ config, params, setParams, open }: TabProps) {
   }
 
   const page = result.state === "ok" ? result.data : null;
+  const busy = result.state === "ok" && result.refreshing;
   const facets = page?.facets ?? {};
   const states: Choice[] = [
     ...STATES.map(([id, label]) => ({ label, n: String(facets[id] ?? 0), on: state === id, pick: () => apply({ state: id }) })),
@@ -151,6 +152,7 @@ export function ExpirationTab({ config, params, setParams, open }: TabProps) {
         {page && (
           <>
             <Pager
+              busy={busy}
               range={page.page.total ? `${page.page.from}–${page.page.to} of ${page.page.total} · most urgent first` : "0 namespaces"}
               prev={() => page.page.prevCursor && setCursor(page.page.prevCursor)}
               next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}
@@ -158,6 +160,7 @@ export function ExpirationTab({ config, params, setParams, open }: TabProps) {
               nextDis={!page.page.nextCursor}
             />
             <DataTable
+              busy={busy}
               label="Expiration"
               cols={["Namespace", "Cluster", "Env", "Team", "Expires", "Days left", "Lifetime", "State", ""]}
               rows={items}

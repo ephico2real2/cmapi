@@ -198,11 +198,12 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
     : "";
   const pager = (text: string) => page && (
     <Pager
+      busy={busy}
       range={text}
       prev={() => page.page.prevCursor && setCursor(page.page.prevCursor)}
       next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}
-      prevDis={busy || !page.page.prevCursor}
-      nextDis={busy || !page.page.nextCursor}
+      prevDis={!page.page.prevCursor}
+      nextDis={!page.page.nextCursor}
     />
   );
 

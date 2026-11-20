@@ -113,15 +113,21 @@ const MUTANTS = [
   ["the state chip is not sent", "src/portal/QuotasTab.tsx", "if (state) query.state = state;", "", "portal", "11 Quotas: the rows"],
   ["the quota sort is not sent", "src/portal/QuotasTab.tsx", "if (sort !== \"name\") query.sort = sort;", "", "portal", "11 Quotas: the rows"],
   ["the quotas' Next is connected to nothing", "src/portal/QuotasTab.tsx", "next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}", "next={() => {}}", "portal", "11 Quotas: the rows"],
-  ["the quotas' Next is never off", "src/portal/QuotasTab.tsx", "nextDis={busy || !page.page.nextCursor}", "nextDis={false}", "portal", "11 Quotas: the rows"],
+  ["the quotas' Next is never off", "src/portal/QuotasTab.tsx", "nextDis={!page.page.nextCursor}", "nextDis={false}", "portal", "11 Quotas: the rows"],
   ["the letter jump goes nowhere", "src/portal/QuotasTab.tsx", "onClick={() => n && apply({ sort: \"name\" }, l)}", "onClick={() => {}}", "portal", "11 Quotas: the rows"],
   ["a letter with no namespace is on", "src/portal/QuotasTab.tsx", "isAriaDisabled={!n}", "isAriaDisabled={false}", "portal", "11 Quotas: the rows"],
   ["used and hard swapped", "src/portal/QuotasTab.tsx", "cpu: [cores(r.cpu[0]), cores(r.cpu[1])] as const,", "cpu: [cores(r.cpu[1]), cores(r.cpu[0])] as const,", "portal", "11 Quotas: the rows"],
   ["the CPU meter at 0", "src/portal/QuotasTab.tsx", "ariaLabel=\"CPU requests of quota\" value={c?.pct ?? 0}", "ariaLabel=\"CPU requests of quota\" value={0}", "portal", "11 Quotas: the rows"],
   // #392: while the next sort loads, the table shows the last answer's rows (keepPreviousData).
   ["392: the pager says the sort asked for, not the sort of the rows shown", "src/portal/QuotasTab.tsx", "SORTS.find(([id]) => id === shownSort)![2]", "SORTS.find(([id]) => id === sort)![2]", "portal", "11 Quotas: the rows"],
-  ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "busy={busy}", "busy={false}", "portal", "11 Quotas: the rows"],
-  ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "nextDis={busy || !page.page.nextCursor}", "nextDis={!page.page.nextCursor}", "portal", "11 Quotas: the rows"],
+  ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "rows={items}\n              busy={busy}", "rows={items}\n              busy={false}", "portal", "11 Quotas: the rows"],
+  ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "busy={busy}\n      range={text}", "busy={false}\n      range={text}", "portal", "11 Quotas: the rows"],
+  ["392: Previous accepts an old cursor during a quota sort", "src/components/ui.tsx", "isAriaDisabled={disabled(prevDis)}", "isAriaDisabled={String(prevDis) === \"true\"}", "portal", "11 Quotas: the rows"],
+  ["407: the pager accepts cursors from the previous answer", "src/components/ui.tsx", "busy || String(flag)", "String(flag)", "portal", "407"],
+  ["407: Requests accepts old cursors", "src/portal/RequestsTab.tsx", "busy={result.refreshing}\n              range=", "busy={false}\n              range=", "portal", "407 Requests keeps"],
+  ["407: Expiration accepts old cursors", "src/portal/ExpirationTab.tsx", "busy={busy}\n              range=", "busy={false}\n              range=", "portal", "407 Expiration keeps"],
+  ["407: Policies results accept old cursors", "src/portal/PoliciesTab.tsx", "busy={busy}\n              range=", "busy={false}\n              range=", "portal", "407 Policies results"],
+  ["407: Policies refusals accept old cursors", "src/portal/PoliciesTab.tsx", "busy={result.refreshing}\n            range=", "busy={false}\n            range=", "portal", "407 Policies refusals"],
   // #347: the read waits for the tab bar and the theme, and still fails on a transition that has not ended.
   ["347: a tab bar transition outlives the read", "src/app.css", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }\n.pf-v6-c-tabs__scroll-button { transition-duration: 6s !important; }", "portal", "7 the Workflow"],
   ["347: a theme colour transition outlives the read", "src/app.css", ".cp-wrap { overflow-wrap: anywhere; }", ".cp-wrap { overflow-wrap: anywhere; }\n.pf-v6-c-page { transition: background-color 6s !important; }", "portal", "7 layout"],
@@ -252,9 +258,27 @@ const only = process.argv[2];
 // Each text must be in its file exactly one time. Check all of them before the first build, not in the middle of a run.
 const stale = MUTANTS.filter(([, file, from]) => readFileSync(join(app, file), "utf8").split(from).length !== 2).map(([what, file]) => `${what} (${file})`);
 if (stale.length) throw new Error(`the text of these mutants is not in the source exactly one time: ${stale.join("; ")}`);
+const selected = MUTANTS.filter(([what]) => !only || what.includes(only));
+if (!selected.length) throw new Error(`No mutant matches ${only}`);
+function runSuite(suite, checks) {
+  return spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], {
+    cwd: app, env: { ...process.env, CHECK: checks ?? "" }, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL"
+  });
+}
+// Run each selected check on a clean build before crediting failures to any edit.
+execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
+const baselines = new Set();
+for (const [, , , , suite, checks] of selected) {
+  const key = JSON.stringify([suite, checks]);
+  if (baselines.has(key)) continue;
+  const run = runSuite(suite, checks);
+  if (run.status !== 0 || (checks && !run.stdout.includes(`ok - ${checks}`))) {
+    throw new Error(`Baseline failed for ${suite} ${checks ?? ""}: ${run.error ?? (run.stderr || run.stdout)}`);
+  }
+  baselines.add(key);
+}
 const results = [];
-for (const [what, file, from, to, suite, checks] of MUTANTS) {
-  if (only && !what.includes(only)) continue;
+for (const [what, file, from, to, suite, checks] of selected) {
   const path = join(app, file), source = readFileSync(path, "utf8");
   if (source.split(from).length !== 2) throw new Error(`${what}: the text is not in ${file} exactly one time`);
   writeFileSync(path, source.replace(from, to));
@@ -262,12 +286,14 @@ for (const [what, file, from, to, suite, checks] of MUTANTS) {
   try {
     execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
     // A mutant can make the page wait without end. The suite has its own limit for each check; this one is the backstop.
-    const env = checks ? { ...process.env, CHECK: checks } : { ...process.env, CHECK: "" };
-    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, env, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL" });
-    if (run.error?.code === "ETIMEDOUT") outcome = "killed: timeout";
+    const run = runSuite(suite, checks);
+    if (run.error || run.signal) outcome = `unverified: ${run.error ?? run.signal}`;
+    else if (suite === "portal" && run.status !== 0 && !run.stderr.split("\n").some(line => line.startsWith(`not ok - ${checks ?? ""}`))) {
+      outcome = `unverified: no selected portal check failed\n${run.stderr}`;
+    }
     else outcome = run.status === 0 ? "SURVIVED" : `killed: ${(run.stderr.match(/AssertionError[^\n]*\n?[^\n]*|TimeoutError[^\n]*|Timeout \d+ms[^\n]*|did not end in \d+ s/) ?? ["the suite failed"])[0].replace(/\s+/g, " ").slice(0, 150)}`;
-  } catch {
-    outcome = "killed: the build failed";
+  } catch (error) {
+    outcome = `unverified: ${error.message}`;
   } finally {
     writeFileSync(path, source);
   }
@@ -275,7 +301,7 @@ for (const [what, file, from, to, suite, checks] of MUTANTS) {
   console.log(`${outcome.startsWith("killed") ? "ok  " : "FAIL"} ${what} - ${outcome}`);
 }
 execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
-const dirty = execFileSync("git", ["status", "--porcelain", "--", "src"], { cwd: app, encoding: "utf8" }).split("\n").filter((l) => / M /.test(` ${l}`) && MUTANTS.some((m) => l.endsWith(m[1].replace("src/", ""))));
-const survived = results.filter(([, outcome]) => !outcome.startsWith("killed"));
-console.log(`${results.length} mutants, ${results.length - survived.length} killed, ${survived.length} survived. The source is restored and the portal is built again.`);
-if (survived.length) process.exit(1);
+const killed = results.filter(([, outcome]) => outcome.startsWith("killed")).length;
+const survived = results.filter(([, outcome]) => outcome === "SURVIVED").length;
+console.log(`${results.length} mutants, ${killed} killed, ${survived} survived, ${results.length - killed - survived} unverified. The source is restored and the portal is built again.`);
+if (killed !== results.length) process.exit(1);

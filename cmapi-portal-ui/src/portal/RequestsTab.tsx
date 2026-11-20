@@ -83,6 +83,7 @@ export function RequestsTab({ config, params, setParams, open }: TabProps) {
         {result.state === "ok" && page && (
           <>
             <Pager
+              busy={result.refreshing}
               range={rangeOf(page)}
               prev={() => page.prevCursor && setCursor(page.prevCursor)}
               next={() => page.nextCursor && setCursor(page.nextCursor)}
@@ -90,6 +91,7 @@ export function RequestsTab({ config, params, setParams, open }: TabProps) {
               nextDis={!page.nextCursor}
             />
             <DataTable
+              busy={result.refreshing}
               label="Requests"
               cols={["Request", "Cluster", "Namespace", "Action", "Status", "Where it is", "Approval", "PR", "Updated", ""]}
               rows={result.data.items}

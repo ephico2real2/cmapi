@@ -77,14 +77,15 @@ function useApi(): Api {
   return api;
 }
 
-function resultOf<T>(query: { data: T | undefined; error: unknown; isPlaceholderData: boolean; isFetching: boolean }): Result<T> {
+function resultOf<T>(query: { data: T | undefined; error: unknown; isPlaceholderData: boolean }): Result<T> {
   const { error } = query;
   if (error instanceof ApiProblem) {
     return error.status === 403 ? { state: "forbidden", detail: error.detail } : { state: "error", cause: error.detail, code: error.code };
   }
   if (error) return { state: "error", cause: "The network did not answer.", code: "network" };
   if (query.data === undefined) return { state: "loading" };
-  return { state: "ok", data: query.data, refreshing: query.isPlaceholderData && query.isFetching };
+  // A paused fetch also retains the old page and its cursors until the new answer arrives.
+  return { state: "ok", data: query.data, refreshing: query.isPlaceholderData };
 }
 
 function outcomeOf<T>(run: { isPending: boolean; isIdle: boolean; error: unknown; data: T | undefined }): Outcome<T> {

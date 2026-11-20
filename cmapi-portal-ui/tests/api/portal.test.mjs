@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, heldPageRows, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
   startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -71,6 +71,50 @@ async function waitRange(page, want) {
 const calls = (path) => api.state.seen.filter((c) => c.path === path);
 const tabNames = (page) => page.getByRole("tab").allInnerTexts();
 
+// Start on a middle page so that both cursors would work with the old answer.
+async function checkHeldPage(page, { label, path, change, match, after, lastPage = false }) {
+  // PatternFly renders these tables with role="grid", so a role="table" query matches none of them: find it by its label.
+  const table = panel(page).locator(`table[aria-label="${label}"]`);
+  // The nearest ancestor with both controls owns this table's pager, including on the two-list Policies tab.
+  const list = table.locator("xpath=ancestor::*[.//button[normalize-space(.)='Next ›'] and .//button[normalize-space(.)='‹ Previous']][1]");
+  const next = list.getByRole("button", { name: "Next ›", exact: true });
+  const prev = list.getByRole("button", { name: "‹ Previous", exact: true });
+  await next.click();
+  await list.getByText(/^26–50 of 61/).waitFor();
+  assert.ok(await prev.isEnabled() && await next.isEnabled(), "both old cursors are available");
+  const rows = table.locator("tbody tr");
+  const previousRows = await rows.allTextContents();
+  const before = calls(path).length;
+  const held = Promise.withResolvers();
+  const received = Promise.withResolvers();
+  api.state.hold = {
+    match(call) {
+      if (call.path !== path || !match(call.query)) return false;
+      received.resolve();
+      return true;
+    },
+    until: held.promise
+  };
+  try {
+    await change(next);
+    await received.promise;
+    await table.and(page.locator("[aria-busy=true]")).waitFor();
+    assert.deepEqual(await rows.allTextContents(), previousRows, "the table retains the previous page");
+    for (const button of [prev, next]) {
+      assert.equal(await button.getAttribute("aria-disabled"), "true", await button.innerText());
+      await button.click({ force: true });
+    }
+  } finally {
+    api.state.hold = null;
+    held.resolve();
+  }
+  await list.getByText(after).waitFor();
+  assert.equal(await table.getAttribute("aria-busy"), null);
+  assert.equal(await prev.isEnabled(), lastPage);
+  assert.equal(await next.isEnabled(), !lastPage);
+  assert.equal(calls(path).length, before + 1, "only the held request reached the API");
+}
+
 // What one request of the API reads as in the table. Written from the mockup's forms, not from the page's code.
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function expectedRow(r) {
@@ -92,6 +136,9 @@ async function check(name, run) {
   const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`"${name}" did not end in ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); });
   try {
     await Promise.race([run(), late]);
+  } catch (error) {
+    console.error(`not ok - ${name}`);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -274,6 +321,41 @@ try {
     assert.deepEqual(await rows(again), wanted.map(expectedRow));
     assert.deepEqual(errors, []);
     await context.close();
+  });
+
+  await check("407 Requests keeps both cursors off while a search loads", async () => {
+    const { context, page } = await fresh({ items: heldPageRows().items });
+    await open(page);
+    await checkHeldPage(page, {
+      label: "Requests", path: "/api/v1/requests",
+      change: () => page.getByRole("textbox", { name: "Find a request" }).fill("LEDGER"),
+      match: (q) => q.q === "LEDGER" && !q.cursor, after: /^1–25 of 30/
+    });
+    await context.close();
+  });
+
+  await check("407 paused Requests keeps the previous page's cursors off until reconnect", async () => {
+    const { context, page } = await fresh();
+    try {
+      await open(page);
+      const next = panel(page).getByRole("button", { name: "Next ›" });
+      const prev = panel(page).getByRole("button", { name: "‹ Previous" });
+      await next.click();
+      await waitRange(page, "26–50 of 61");
+      await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+      await page.getByRole("textbox", { name: "Find a request" }).fill("LEDGER");
+      await page.waitForURL((url) => url.hash === "#requests?q=LEDGER");
+      const table = page.locator("table[aria-label=Requests]");
+      await table.and(page.locator("[aria-busy=true]")).waitFor();
+      assert.ok(await prev.isDisabled() && await next.isDisabled(), "paused rows still have the old cursors");
+      assert.equal(calls("/api/v1/requests").filter((c) => c.query.q === "LEDGER").length, 0);
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+      await waitRange(page, "1–25 of 30");
+      assert.equal(await table.getAttribute("aria-busy"), null);
+      assert.ok(await prev.isDisabled() && await next.isEnabled());
+    } finally {
+      await context.close();
+    }
   });
 
   await check("3 loading, then empty with the mockup's words", async () => {
@@ -1500,6 +1582,9 @@ try {
     await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).click();
     await waitQuotaRange(page, "1–25 of 70 · A–Z");
     sentQuery({ limit: "25", startsWith: named[0].name });
+    await next.click();
+    await waitQuotaRange(page, "26–50 of 70 · A–Z");
+    assert.ok(await prev.isEnabled() && await next.isEnabled(), "the retained page has both cursors");
     // The sort: the highest use first. Until its answer arrives, the table keeps the A–Z rows (keepPreviousData): it is busy,
     // and the pager says the order of the rows it shows, not the one asked for (#392, #317). The stand-in holds the answer,
     // so that moment is always seen, and then the rows are read only once the pager says the new order.
@@ -1507,17 +1592,23 @@ try {
     api.state.hold = { match: (c) => c.path === "/api/v1/quotas" && c.query.sort === "used", until: new Promise((resolve) => { answer = resolve; }) };
     await panel(page).getByRole("group", { name: "Sort" }).getByRole("button", { name: "% used" }).click();
     await page.locator("table[aria-label=Quotas][aria-busy=true]").waitFor();
-    assert.match(await panel(page).innerText(), /1–25 of 70 · A–Z/, "the pager says the order of the rows shown");
+    assert.match(await panel(page).innerText(), /26–50 of 70 · A–Z/, "the pager says the order of the rows shown");
     assert.doesNotMatch(await panel(page).innerText(), /most used first/, "no order that the rows shown do not have");
-    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(0, 25).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(25, 50).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    const letterBar = panel(page).getByRole("group", { name: "Jump to the first namespace starting with a letter" });
+    assert.equal(await letterBar.locator("button.pf-m-primary").textContent(), named[25].name[0]);
     // Their cursor is the A–Z answer's: paging from it with the sort asked for is refused (400 invalid-cursor), so the pager is off.
     const pending = page.getByRole("button", { name: "Next ›" }).first();
+    assert.equal(await prev.getAttribute("aria-disabled"), "true", "Previous stays off while the sort loads");
+    await prev.click({ force: true });
     assert.equal(await pending.getAttribute("aria-disabled"), "true", "Next is off while the rows shown are the last answer's");
     await pending.click({ force: true });
     assert.deepEqual(quotaCalls().filter((c) => c.query.cursor && c.query.sort === "used").map((c) => c.query), [], "no page is asked for with the last answer's cursor and the new sort");
     answer();
     api.state.hold = null;
     await waitQuotaRange(page, "1–25 of 70 · most used first");
+    assert.equal(await letterBar.locator("button.pf-m-primary").count(), 0);
+    assert.ok(await next.isEnabled() && await prev.isDisabled());
     assert.equal(await page.locator("table[aria-label=Quotas]").getAttribute("aria-busy"), null, "the table is not busy once its rows are the answer's");
     sentQuery({ sort: "used", limit: "25" });
     const used = [...fleet].sort((a, b) => b.used - a.used || byName(a, b));
@@ -2207,6 +2298,17 @@ try {
     assert.deepEqual((await expRows(page)).map((r) => r[0]), ledger.map((r) => r.name));
     assert.equal(new URL(page.url()).hash, "#expiration?state=all&q=ledger", "the view is in the address");
     assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("407 Expiration keeps both cursors off while an environment loads", async () => {
+    const { context, page } = await expFresh({ expirations: expirationsFrom(61, EXP_TODAY) });
+    await open(page, "#expiration?state=all");
+    await checkHeldPage(page, {
+      label: "Expiration", path: "/api/v1/expirations",
+      change: () => panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "rnd", exact: true }).click(),
+      match: (q) => q.env === "rnd" && !q.cursor, after: /^1–25 of 30/
+    });
     await context.close();
   });
 
@@ -2912,6 +3014,27 @@ try {
     assert.doesNotMatch(text, /@|employee|justification/i, "no email, employee ID or justification");
     assert.ok(refusedCalls().every((c) => c.query.since === "7d"), "the mockup's window");
     assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("407 Policies results keep both cursors off while a cluster loads", async () => {
+    const { context, page } = await fresh({ policies: policyFleet(policyRowsFrom(61)) });
+    await openPol(page);
+    await checkHeldPage(page, {
+      label: "Failing resources", path: "/api/v1/policies/results",
+      change: () => panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click(),
+      match: (q) => q.clusterId === "CRC" && !q.cursor, after: /^1–25 of 61/
+    });
+    await context.close();
+  });
+
+  await check("407 Policies refusals keep both cursors off while another page loads", async () => {
+    const { context, page } = await fresh({ rejections: heldPageRows().rejections });
+    await openPol(page);
+    await checkHeldPage(page, {
+      label: "Refused by cmapi", path: "/api/v1/policies/rejections",
+      change: (next) => next.click(), match: (q) => !!q.cursor, after: /^51–61 of 61/, lastPage: true
+    });
     await context.close();
   });
 
