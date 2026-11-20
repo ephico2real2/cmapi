@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator, Mapping
 
-from cmapi.core.clients.redact import redact as redact_forms, sent_forms
+from cmapi.core.clients.redact import order_forms, redact as redact_forms, sent_forms
 from cmapi.core.observability import GIT_DURATION, GIT_OPS, log
 
 _CONTEXT: ContextVar[dict[str, Any]] = ContextVar("cmapi_git_context", default={})
@@ -34,7 +34,7 @@ def register_secret(value: str | None) -> None:
     forms = sent_forms(value)
     if forms:
         with _SECRETS_LOCK:
-            _FORMS = tuple(sorted(set(_FORMS) | set(forms), key=len, reverse=True))
+            _FORMS = order_forms(set(_FORMS) | set(forms))
 
 
 def redact(value: Any) -> Any:

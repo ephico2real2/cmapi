@@ -21,11 +21,17 @@ A text that ends in the start of a form (8 characters or more) loses that start 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from urllib.parse import quote_plus
 
 MASK = "***"                    # as the Git layer's redaction writes it (core/git/oplog.py)
 MIN_SECRET = 8                  # a shorter value is no credential, and replacing it would garble every message
 MIN_PREFIX = 8                  # the shortest trailing start of a form that is removed
+
+
+def order_forms(forms: Iterable[str]) -> tuple[str, ...]:
+    """Longest first, then by the string itself so equal-length forms have a deterministic order."""
+    return tuple(sorted(forms, key=lambda form: (-len(form), form)))
 
 
 def _escapes(text: str) -> set[str]:
@@ -44,7 +50,7 @@ def secret_forms(secret: str | None) -> tuple[str, ...]:
     forms = {secret, *once, *(twice for form in once for twice in _escapes(form))}
     raw = secret.encode("utf-8", "backslashreplace")
     forms.add(repr(raw)[2:-1])
-    return tuple(sorted((f for f in forms if len(f) >= MIN_SECRET), key=len, reverse=True))
+    return order_forms(f for f in forms if len(f) >= MIN_SECRET)
 
 
 def sent_forms(secret: str | None) -> tuple[str, ...]:
@@ -53,7 +59,7 @@ def sent_forms(secret: str | None) -> tuple[str, ...]:
     none in any spelling, as in `secret_forms`."""
     if not secret or len(secret) < MIN_SECRET:
         return ()
-    return tuple(sorted({*secret_forms(secret), *secret_forms(quote_plus(secret))}, key=len, reverse=True))
+    return order_forms({*secret_forms(secret), *secret_forms(quote_plus(secret))})
 
 
 def redact(text: str, forms: tuple[str, ...]) -> str:

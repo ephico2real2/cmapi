@@ -13,7 +13,7 @@ import pytest
 
 import cmapi.core.git.oplog as oplog
 import cmapi.tools.realm_sync as realm_sync
-from cmapi.core.clients.redact import MASK, secret_forms
+from cmapi.core.clients.redact import MASK, order_forms, secret_forms
 from cmapi.core.git.base import GitUnavailable
 from cmapi.core.git.gitea import GiteaProvider
 from cmapi.core.git.github import GitHubProvider
@@ -65,7 +65,7 @@ def test_the_git_log_registry_takes_the_same_forms():
 def test_one_definition_for_the_git_hosts_the_git_log_and_the_realm_sync():
     git = offline(GitHubProvider, lambda r: httpx.Response(200))
     realm_sync.sends(SPECIAL)
-    both = tuple(sorted({*secret_forms(SPECIAL), *secret_forms(quote_plus(SPECIAL))}, key=len, reverse=True))
+    both = order_forms({*secret_forms(SPECIAL), *secret_forms(quote_plus(SPECIAL))})
     assert git._forms == oplog._FORMS == realm_sync._SENT == both
 
 

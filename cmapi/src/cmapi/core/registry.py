@@ -43,7 +43,7 @@ from cmapi.core.capacity_ledger import CapacityLedger
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError, WatchCache, list_items
 from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
-from cmapi.core.clients.redact import redact, secret_forms
+from cmapi.core.clients.redact import order_forms, redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log, set_token_expiry
@@ -149,7 +149,7 @@ def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
     for key, value in secret.get("data", {}).items():
         if isinstance(value, str) and value and key not in {"insecure", "tlsServerName"}:
             forms.update(secret_forms(value))
-    return tuple(sorted(forms, key=len, reverse=True))
+    return order_forms(forms)
 
 
 def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:

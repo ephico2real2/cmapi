@@ -32,7 +32,7 @@ from typing import Any
 
 import httpx
 
-from cmapi.core.clients.redact import redact, redact_cut, sent_forms
+from cmapi.core.clients.redact import order_forms, redact, redact_cut, sent_forms
 
 RFC9068_HEADER = "access.token.header.type.rfc9068"      # Keycloak's client attribute, OIDCConfigAttributes (26.6.4)
 _SENT: tuple[str, ...] = ()                               # every form of every credential this run sends, longest first
@@ -42,7 +42,7 @@ def sends(value: str | None) -> None:
     """A credential this sync puts in a request: never in the text it prints from an answer. A secret in a form body (the
     client secret) is sent form-encoded (httpx's urlencode, quote_plus): `sent_forms` holds that spelling's forms too."""
     global _SENT
-    _SENT = tuple(sorted({*_SENT, *sent_forms(value)}, key=len, reverse=True))
+    _SENT = order_forms({*_SENT, *sent_forms(value)})
 
 
 def answer(r: httpx.Response, limit: int) -> str:
