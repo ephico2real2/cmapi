@@ -163,7 +163,7 @@ BOT = "cmapi-git-bot"
 TRAILER = "Cmapi-Request-Id: req-1"
 
 
-def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org"):
+def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org", merge_head=False):
     """Run the template's check step on a merge checkout with GitHub's PR metadata."""
     def git(*args):
         return subprocess.check_output(
@@ -180,7 +180,19 @@ def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer
     for author, body in commits:
         git("-c", f"user.name={committer or author}", "-c", f"user.email={committer_email}", "commit", "-q",
             "--allow-empty", "--author", f"{author} <user@example.org>", "-m", "change", "-m", body)
+    if merge_head:
+        # Merge the same two tips on each branch. Only the PR's merge is absent from main.
+        git("switch", "-q", "main")
+        git("commit", "-q", "--allow-empty", "-m", "main advanced")
+        base_tip = git("rev-parse", "HEAD")
+        git("merge", "--no-ff", "-qm", "integrate topic on main", branch)
+        git("switch", "-q", branch)
+        git("-c", f"user.name={BOT}", "merge", "--no-ff", "-qm", f"integrate main on topic\n\n{TRAILER}", base_tip)
     head = git("rev-parse", "HEAD")
+    base = git("rev-parse", "main")
+    count = int(git("rev-list", "--count", f"{base}..{head}"))
+    if merge_head:
+        assert count == 1
     git("switch", "-q", "main")
     git("merge", "--no-ff", "-qm", "synthetic merge", head)
     steps = yaml.safe_load((TEMPLATE / "workflows/ci.yml").read_text())["jobs"]["kyverno"]["steps"]
@@ -189,8 +201,8 @@ def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer
     git("clone", "-q", *([f"--depth={depth}"] if depth else []), root.as_uri(), str(checkout))
     event = root.parent / "event.json"
     event.write_text(json.dumps({"pull_request": {
-        "user": {"login": "owner"}, "commits": len(commits),
-        "base": {"repo": {"id": 1}}, "head": {"sha": head, "ref": branch, "repo": {"id": 2 if fork else 1}},
+        "user": {"login": "owner"}, "commits": count,
+        "base": {"sha": base, "repo": {"id": 1}}, "head": {"sha": head, "ref": branch, "repo": {"id": 2 if fork else 1}},
     }}))
     path = os.pathsep.join((str(Path(sys.executable).parent), str(Path(kyverno).parent), os.environ["PATH"]))
     return subprocess.run(["bash", "-e", "-c", steps[-1]["run"]], cwd=checkout, capture_output=True, text=True, timeout=300,
@@ -222,6 +234,13 @@ def test_pr_audit_violation(kyverno, crc, tmp_path, commits, fork, warn):
 def test_recommitted_change_uses_hand_pr_checks(kyverno, crc, tmp_path, committer, email):
     root = repository(tmp_path / "origin", crc)
     r = run_pr_step(root, kyverno, [(BOT, TRAILER)], committer=committer, committer_email=email)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "audit violations fail the check" in r.stdout
+
+
+def test_one_commit_pr_with_a_merge_head_uses_hand_pr_checks(kyverno, crc, tmp_path):
+    root = repository(tmp_path / "origin", crc)
+    r = run_pr_step(root, kyverno, [(BOT, TRAILER)], merge_head=True)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "audit violations fail the check" in r.stdout
 
