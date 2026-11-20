@@ -16,7 +16,7 @@ from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import ListQuery
 from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView,
                                PlanView)
-from cmapi.core.pipeline import folder_etag, metadata_of, namespace_doc
+from cmapi.core.pipeline import folder_etag, metadata_of, namespace_doc, require_if_match
 from cmapi.core.rejections import record_warned, refusals
 from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
@@ -266,6 +266,7 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, raw)
     if replay:
+        require_if_match(etag, "change")              # a replay needs If-Match too, as the first request did (#495)
         return replay
     with refusals(c, who, cluster_id, ns, "update", dry_run=dry_run):
         plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag)
@@ -285,6 +286,7 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None =
     key = _idem(key, False)
     replay = _replay(c, who, key, raw)
     if replay:
+        require_if_match(etag, "delete")              # a replay needs If-Match too (#495)
         return replay
     with refusals(c, who, cluster_id, ns, "delete", dry_run=False):
         plan = c.pipeline.plan_delete(who, cluster_id, ns, if_match=etag)
@@ -305,6 +307,7 @@ def _expiry_write(c: AppContext, who: Identity, cluster_id: str, raw: dict[str, 
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, body)
     if replay:
+        require_if_match(etag, "change")              # a replay needs If-Match too (#495)
         return replay
     with refusals(c, who, cluster_id, raw["namespace"], reason, dry_run=dry_run):
         plan = c.pipeline.plan_namespace(who, cluster_id, raw, action="update", if_match=etag, reason=reason)
