@@ -134,3 +134,13 @@ def test_dev_live_hash_ignores_foreign_and_handwritten_policies(test_config, key
         [cluster] = get(client, keys, RESULTS)["clusters"]
         assert cluster["hashes"] == {"rendered": DEV_HASH, "live": DEV_HASH}
         assert cluster["hashState"] == "current"
+
+
+def test_git_hash_excludes_a_handwritten_document_appended_to_a_marked_file():
+    text = (DEV / "cmapi-quota-dev.yaml").read_text()
+    manual = {"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
+              "metadata": {"name": "manual"}, "spec": {"validationActions": ["Audit"]}}
+    baseline = policybundle.git_hash({"quota.yaml": text})
+    mixed = policybundle.git_hash({"quota.yaml": text + "---\n" + yaml.safe_dump(manual)})
+    assert mixed.digest == baseline.digest
+    assert mixed.tampered  # The extra document in an owned file still fails digest verification.

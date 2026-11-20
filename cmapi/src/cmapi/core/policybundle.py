@@ -59,9 +59,10 @@ def git_hash(files: Mapping[str, str]) -> GitHash:
                 continue
             meta = doc["metadata"]
             digest = policy_digest(doc)
-            if digest != (meta.get("annotations") or {}).get(DIGEST):
+            annotations = meta.get("annotations") or {}
+            if digest != annotations.get(DIGEST):
                 tampered = True
-            if doc.get("kind") == "ValidatingPolicy":
+            if doc.get("kind") == "ValidatingPolicy" and annotations.get(GENERATED) == "true":
                 pairs.append((meta["name"], digest))
     return GitHash(bundle_hash(pairs), tampered)
 
