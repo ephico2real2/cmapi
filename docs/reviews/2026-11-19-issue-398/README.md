@@ -1,5 +1,7 @@
 # CRC reader token renewal (#398)
 
+> **Superseded by the reopened #398.** The worker now renews bounded baseline imports automatically. The record below describes PR #469. Its bounded TokenRequest bootstrap, expiry annotation, CA verification, legacy retirement checks and manual scripts remain in use for setup and recovery.
+
 The operator who runs [CRC deployment step 7](../../13-crc-deployment.md#step-7-the-reader-and-the-workers-one-write-with-its-containment) owns renewal. Run `deploy/crc-reader-import.sh` against CRC before the deadline printed by the previous successful run, including between deploys. A full seven-day grant gives the operator 5 days, 14 hours and 24 minutes. Record the new deadline each time. No controller schedules this work.
 
 The writer requests 168 hours for `cmapi-system/cmapi-reader` and reads the in-cluster API CA from `cmapi-system/kube-root-ca.crt`. CRC and kind share the Secret renderer, which checks the subject, rejects lifetimes outside the seven-day contract, records the granted expiry in UTC and computes the renewal deadline from the issued-at and expiry claims. The token travels through pipes. The import keeps its name, cluster ID, API endpoint and CA verification. The script takes field ownership from `cmapi-wave1` on the named import so that the first rotation can replace its token. The registry observes the changed credential at its next relist. [Writer](../../../deploy/crc-reader-import.sh) · [Renderer](../../../deploy/kind-import/import-secret.py) · [Import contract](../../02-technical-design-v2.md)

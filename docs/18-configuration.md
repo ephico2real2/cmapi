@@ -148,6 +148,9 @@ the percentage uses the JWT's actual lifetime, with a 5-minute minimum window. A
 due for renewal is refused. The kind example schedules renewal 12 minutes before expiry for a
 full one-hour grant.
 
+When the chart manages the reader grant in an existing `cmapi-system` namespace, set
+`reader.installRenewalRole: true`. The CRC and kind baseline manifests include this grant.
+
 For the first import or manual recovery, pass the same settings to the script through
 `CMAPI_TOKEN_DURATION` and, if needed, `CMAPI_TOKEN_RENEW_BEFORE` or `CMAPI_TOKEN_RENEW_BEFORE_PERCENTAGE`.
 For example, run `CMAPI_TOKEN_DURATION=1h deploy/kind-import/up.sh <checkout>`.
