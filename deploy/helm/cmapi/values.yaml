@@ -136,6 +136,9 @@ clusters:
     writes: true
     labels: {region: us-central}
     simulatedCapacity: {cpu: 64, memory: 256Gi}
+# Enable when Helm manages the reader grant in an existing cmapi-system namespace on this cluster.
+reader:
+  installRenewalRole: false
 imports:
   namespace: cmapi-imports
   createNamespace: true

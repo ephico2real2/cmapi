@@ -74,3 +74,19 @@ kind: ClusterRoleBinding
 metadata: {name: cmapi-reader-monitoring}     # Thanos Querier for the capacity plugin
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
 subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cmapi-reader-renew, namespace: cmapi-system}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [cmapi-reader]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-renew, namespace: cmapi-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-renew}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
