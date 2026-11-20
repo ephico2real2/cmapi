@@ -25,7 +25,7 @@ from conftest import EX
 ROOT = EX.parent
 TEMPLATE = EX / "cluster-configs/.github"
 CHECK = TEMPLATE / "scripts/kyverno_check.py"
-NS = "cmapi-ci-test"
+NS = "abc-ci-test-dev"
 # The two contexts the worker waits for on a host with its own CI, read from pr_checks.py's source: importing cmapi.jobs needs
 # SQLAlchemy, which the reference-code job's environment (examples/local/requirements.txt) does not install.
 PR_CHECKS = (ROOT / "cmapi/src/cmapi/jobs/pr_checks.py").read_text()
@@ -62,7 +62,8 @@ def repository(tmp: Path, cfg, policy: PolicySettings | None = None, **over) -> 
         f.write_text(text)
     spec = dict(namespace=NS, cluster_id="CRC", instance=cfg.name, env="dev", tier="small", request_id="req-1",
                 requested_by_user="cmapi-automation", requested_by_email=None,
-                labels={"cmapi.net/team": "platform"}, annotations={"cmapi.net/team-dl": "platform@ephico2real.com"})
+                labels={"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1",
+                        "cmapi.net/team": "platform"}, annotations={"cmapi.net/team-dl": "platform@ephico2real.com"})
     spec.update(over)
     for rel, text in ManifestRenderer(cfg.tiers, cfg.metadata).render(NamespaceSpec(**spec)).items():
         if text is not None:
