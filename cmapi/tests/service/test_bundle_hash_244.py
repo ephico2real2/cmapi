@@ -9,7 +9,7 @@ from cmapi.core.clients.policyreports import LivePolicy
 from cmapi.core.policygen import DIGEST, policy_digest
 from cmapi.plugins.policies import router as policies
 from conftest import build_world
-from test_policies_302 import KYVERNO, RESULTS, _config, get, live_bundle, sync
+from test_policies_302 import KYVERNO, RESULTS, _config, get, live_bundle, ns_report, pick, put_ns, result, sync
 
 DEV = Path(__file__).resolve().parents[3] / "examples/cluster-configs/policies/env/dev"
 DEV_HASH = "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f"
@@ -76,7 +76,8 @@ def test_git_can_explain_behind_only_when_its_hash_is_known():
     assert policies.hash_state("ok", "render", None) == "drift"
     assert policies.hash_state("ok", None, None) == "off"
     assert policies.hash_state("drift", "same", "same") == "current"
-    assert policies.hash_state("capped", "same", "same") == "unknown"
+    assert policies.hash_state("capped", "same", "same") == "current"
+    assert policies.hash_state("stale", "same", "same") == "unknown"
 
 
 def test_cluster_hashes_follow_the_polled_policies(test_config, keys, monkeypatch):
@@ -156,3 +157,36 @@ def test_git_hash_uses_one_path_root_for_the_entire_tree(prefix):
         tree["env/prod/copy.yaml"] = other
     assert policybundle.git_hash(tree) == expected
     assert policybundle.git_hash({prefix + "index.json": "{}", "backup.yaml": other}).digest is None
+
+
+# ---------------------------------------------------------------- Fable review of #477
+
+@pytest.mark.parametrize("extra", [
+    "\n  bad: [unclosed\n",                                                    # the file no longer parses
+    "---\n- a\n- b\n",                                                         # a document that is a list
+    "---\nhello\n",                                                            # a document that is a scalar
+    "---\nkind: ValidatingPolicy\nspec: {}\n",                                 # no metadata
+    "---\nkind: ValidatingPolicy\nmetadata:\n",                                # metadata is null
+    "---\nkind: ValidatingPolicy\nmetadata:\n  annotations:\n    cmapi.net/generated: 'true'\n",   # no name
+    "---\nkind: ValidatingPolicy\nmetadata:\n  name: x\n  annotations: [a]\n",  # annotations is a list
+])
+def test_git_hash_reports_a_malformed_marked_file_as_tampered_and_never_raises(extra):
+    text = (DEV / "cmapi-quota-dev.yaml").read_text()
+    result = policybundle.git_hash({"quota.yaml": text + extra})
+    assert result.tampered
+
+
+def test_a_capped_cluster_still_compares_its_hashes(test_config, keys, monkeypatch):
+    with build_world(test_config, keys, monkeypatch) as (client, ctx, _, kube, _, _):
+        kube.served_groups = set(KYVERNO)
+        live_bundle(kube, ctx)
+        ctx.registry.clusters["CRC"].reports.max_rows = 1
+        for i in range(3):
+            put_ns(kube, f"bulk{i}-dev")
+            ns_report(kube, f"bulk{i}-dev", [result(pick(ctx, "prefix"), "fail", f"bulk {i}")])
+        sync(ctx)
+        [cluster] = get(client, keys, RESULTS)["clusters"]
+        # The cap drops report rows. The policy list is complete, so the two hashes decide.
+        assert cluster["state"] == "capped"
+        assert cluster["hashes"] == {"rendered": DEV_HASH, "live": DEV_HASH}
+        assert cluster["hashState"] == "current"

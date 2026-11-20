@@ -40,6 +40,14 @@ class GitHash:
     tampered: bool
 
 
+def _rendered_shape(doc: Any) -> bool:
+    """Every document cmapi renders is a mapping whose metadata has a name and a mapping of annotations."""
+    if not isinstance(doc, Mapping) or not isinstance(doc.get("metadata"), Mapping):
+        return False
+    meta = doc["metadata"]
+    return isinstance(meta.get("name"), str) and isinstance(meta.get("annotations"), Mapping)
+
+
 def git_hash(files: Mapping[str, str]) -> GitHash:
     """Hash one env folder. Paths share a root: the repo, policies/, or the env folder itself."""
     prefix = next((p for p in ("policies/env/", "env/") if any(path.startswith(p) for path in files)), "")
@@ -56,12 +64,21 @@ def git_hash(files: Mapping[str, str]) -> GitHash:
             environments.add(match[1])
             if len(environments) > 1:
                 raise ValueError("git_hash requires the files of one environment")
-        for doc in yaml.safe_load_all(text):
+        try:
+            docs = list(yaml.safe_load_all(text))
+        except yaml.YAMLError:
+            # A marked file that no longer parses was edited by hand. Its policies cannot be read.
+            tampered = True
+            continue
+        for doc in docs:
             if doc is None:
+                continue
+            if not _rendered_shape(doc):
+                tampered = True
                 continue
             meta = doc["metadata"]
             digest = policy_digest(doc)
-            annotations = meta.get("annotations") or {}
+            annotations = meta["annotations"]
             if digest != annotations.get(DIGEST):
                 tampered = True
             if doc.get("kind") == "ValidatingPolicy" and annotations.get(GENERATED) == "true":
