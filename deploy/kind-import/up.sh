@@ -15,6 +15,8 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 { [ $# = 1 ] && [[ $1 != -* ]]; } || { echo "usage: $0 <cmapi-cluster-configs checkout>" >&2; exit 2; }
 
+# shellcheck source=SCRIPTDIR/write-import.sh
+source "$HERE/write-import.sh"
 duration=$(python3 "$HERE/import-secret.py" --request-duration)
 check_config
 address_held || moved
@@ -44,10 +46,11 @@ say "reader applied on $NAME: cmapi-system/cmapi-reader and ClusterRole cmapi-re
 # Finish the issuer and renderer before apply. Keep credentials out of xtrace, argv and exported variables.
 set +ax
 unset import_document
+version=$(import_version "$SECRET" "$HUB_NS")
 import_document=$(kc create token cmapi-reader -n cmapi-system --duration="$duration" 2>/dev/null |
-  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" host.crc.testing) ||
+  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" host.crc.testing --resource-version "$version") ||
   die "reader TokenRequest or import validation failed"
 builtin printf '%s\n' "$import_document" |
-  oc_ apply --server-side --field-manager="$FIELD_MANAGER" --force-conflicts -f - >/dev/null 2>&1 ||
+  write_import "$FIELD_MANAGER" "$version" >/dev/null 2>&1 ||
   die "kind import apply failed"
 say "Secret $HUB_NS/$SECRET is current on CRC; cmapi picks it up at its next relist (up to 5 min)"

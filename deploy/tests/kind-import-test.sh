@@ -71,6 +71,7 @@ stub oc <<'S'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$ARGV_LOG"
 case "$*" in
+  "get secret cmapi-cluster-kind-cmapi-test -n cmapi-imports --ignore-not-found -o jsonpath={.metadata.resourceVersion}") echo 7; exit 0;;
   "whoami --show-server") echo "${STUB_SERVER:-https://api.crc.testing:6443}"; exit 0;;
   "apply --server-side --field-manager=cmapi-baseline --force-conflicts -f -") cat >"$ARGV_LOG.applied"; exit 0;;
   "get secret cmapi-cluster-kind-cmapi-test -n cmapi-imports --ignore-not-found -o name") printf '%s' "${STUB_SECRET-secret/cmapi-cluster-kind-cmapi-test}"; exit 0;;
@@ -116,6 +117,7 @@ python3 - "$ARGV_LOG.applied" "$TOKEN" "$STUB_CA" "$EXP" <<'PY' && ok "the impor
 import base64, datetime, json, sys
 d = json.load(open(sys.argv[1])); m = d["metadata"]; v = {k: base64.b64decode(x).decode() for k, x in d["data"].items()}
 exp = datetime.datetime.fromtimestamp(int(sys.argv[4]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+assert m["resourceVersion"] == "7"
 assert (m["name"], m["namespace"]) == ("cmapi-cluster-kind-cmapi-test", "cmapi-imports"), m
 assert m["labels"]["cmapi.net/secret-type"] == "cluster" and m["labels"]["cmapi.net/cluster-id"] == "KIND_CMAPI_TEST", m
 assert m["annotations"] == {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": exp}, m

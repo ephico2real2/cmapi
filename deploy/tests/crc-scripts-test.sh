@@ -12,7 +12,7 @@ mkdir -p "$W/repo/cmapi/src/cmapi/core"
 cp "$SRC/../cmapi/src/cmapi/core/cluster_tokens.py" "$W/repo/cmapi/src/cmapi/core/"
 
 mkdir -p "$W/repo/deploy/kind-import"
-cp "$SRC/kind-import/import-secret.py" "$W/repo/deploy/kind-import/"
+cp "$SRC/kind-import/import-secret.py" "$SRC/kind-import/write-import.sh" "$W/repo/deploy/kind-import/"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/ca.pem" -subj "/CN=stub CA" -days 2 2>/dev/null
 # The ingress bundle as measured on CRC: the site's certificate, then its CA.
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$W/ingress-ca.key" -out "$W/ingress-ca.pem" -subj "/CN=ingress-operator@1" -days 2 2>/dev/null
@@ -31,6 +31,7 @@ case "$s" in
   "get route default-route"*) printf 'registry.stub'; exit 0;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
+  "get secret cmapi-cluster-crc -n cmapi-imports --ignore-not-found -o jsonpath={.metadata.resourceVersion}") echo 1; exit 0;;
   "get configmap kube-root-ca.crt"*) cat "$STUB_CA"; exit 0;;
   "create token cmapi-reader -n cmapi-system --duration=168h"|"create token cmapi-reader -n cmapi-system --duration=1h")
     life=604800; [ "${*: -1}" = "--duration=1h" ] && life=3600

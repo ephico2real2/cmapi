@@ -32,6 +32,7 @@ parser.add_argument("api_url")
 parser.add_argument("ca_file")
 parser.add_argument("server_name", nargs="?")
 parser.add_argument("--namespace", default="cmapi-imports")
+parser.add_argument("--resource-version")
 args = parser.parse_args()
 cluster_id, api_url, ca_file, server_name = args.cluster_id, args.api_url, args.ca_file, args.server_name
 if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,62}", cluster_id):
@@ -55,6 +56,7 @@ print(json.dumps({
     "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     "metadata": {
         "name": "cmapi-cluster-" + cluster_id.lower().replace("_", "-"), "namespace": args.namespace,
+        **({"resourceVersion": args.resource_version} if args.resource_version else {}),
         "labels": {"cmapi.net/secret-type": "cluster", "cmapi.net/cluster-id": cluster_id, "app.kubernetes.io/part-of": "cmapi"},
         "annotations": {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": expires}},
     "data": {"apiUrl": b64(api_url), "token": b64(token), "caData": b64(ca), "insecure": b64("false"),

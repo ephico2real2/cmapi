@@ -8,6 +8,8 @@ OC=${CMAPI_OC:-oc}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 
+# shellcheck source=SCRIPTDIR/kind-import/write-import.sh
+source "$HERE/kind-import/write-import.sh"
 duration=$(python3 "$HERE/kind-import/import-secret.py" --request-duration)
 ca=$(mktemp)
 trap 'rm -f "$ca"' EXIT
@@ -24,11 +26,13 @@ request_token() {
     return 1
   }
 }
-import_document=$(request_token | python3 "$HERE/kind-import/import-secret.py" "$cluster_id" https://kubernetes.default.svc "$ca" --namespace "$namespace")
+name=$(printf 'cmapi-cluster-%s' "$cluster_id" | tr 'A-Z_' 'a-z-')
+version=$(import_version "$name" "$namespace")
+import_document=$(request_token | python3 "$HERE/kind-import/import-secret.py" "$cluster_id" https://kubernetes.default.svc "$ca" --namespace "$namespace" --resource-version "$version")
 
 # Take ownership of the import fields previously applied by cmapi-wave1.
 if ! builtin printf '%s\n' "$import_document" |
-  oc_ apply --server-side --field-manager=crc-reader-import.sh --force-conflicts -f - >/dev/null 2>&1; then
+  write_import crc-reader-import.sh "$version" >/dev/null 2>&1; then
   echo "ERROR: CRC import apply failed" >&2
   exit 1
 fi
