@@ -1580,6 +1580,9 @@ try {
     await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).click();
     await waitQuotaRange(page, "1–25 of 70 · A–Z");
     sentQuery({ limit: "25", startsWith: named[0].name });
+    await next.click();
+    await waitQuotaRange(page, "26–50 of 70 · A–Z");
+    assert.ok(await prev.isEnabled() && await next.isEnabled(), "the retained page has both cursors");
     // The sort: the highest use first. Until its answer arrives, the table keeps the A–Z rows (keepPreviousData): it is busy,
     // and the pager says the order of the rows it shows, not the one asked for (#392, #317). The stand-in holds the answer,
     // so that moment is always seen, and then the rows are read only once the pager says the new order.
@@ -1587,9 +1590,11 @@ try {
     api.state.hold = { match: (c) => c.path === "/api/v1/quotas" && c.query.sort === "used", until: new Promise((resolve) => { answer = resolve; }) };
     await panel(page).getByRole("group", { name: "Sort" }).getByRole("button", { name: "% used" }).click();
     await page.locator("table[aria-label=Quotas][aria-busy=true]").waitFor();
-    assert.match(await panel(page).innerText(), /1–25 of 70 · A–Z/, "the pager says the order of the rows shown");
+    assert.match(await panel(page).innerText(), /26–50 of 70 · A–Z/, "the pager says the order of the rows shown");
     assert.doesNotMatch(await panel(page).innerText(), /most used first/, "no order that the rows shown do not have");
-    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(0, 25).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), named.slice(25, 50).map((r) => r.name), "the A–Z rows stay while the sort loads");
+    const letterBar = panel(page).getByRole("group", { name: "Jump to the first namespace starting with a letter" });
+    assert.equal(await letterBar.locator("button.pf-m-primary").textContent(), named[25].name[0]);
     // Their cursor is the A–Z answer's: paging from it with the sort asked for is refused (400 invalid-cursor), so the pager is off.
     const pending = page.getByRole("button", { name: "Next ›" }).first();
     assert.equal(await prev.getAttribute("aria-disabled"), "true", "Previous stays off while the sort loads");
@@ -1600,6 +1605,8 @@ try {
     answer();
     api.state.hold = null;
     await waitQuotaRange(page, "1–25 of 70 · most used first");
+    assert.equal(await letterBar.locator("button.pf-m-primary").count(), 0);
+    assert.ok(await next.isEnabled() && await prev.isDisabled());
     assert.equal(await page.locator("table[aria-label=Quotas]").getAttribute("aria-busy"), null, "the table is not busy once its rows are the answer's");
     sentQuery({ sort: "used", limit: "25" });
     const used = [...fleet].sort((a, b) => b.used - a.used || byName(a, b));

@@ -122,6 +122,7 @@ const MUTANTS = [
   ["392: the pager says the sort asked for, not the sort of the rows shown", "src/portal/QuotasTab.tsx", "SORTS.find(([id]) => id === shownSort)![2]", "SORTS.find(([id]) => id === sort)![2]", "portal", "11 Quotas: the rows"],
   ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "rows={items}\n              busy={busy}", "rows={items}\n              busy={false}", "portal", "11 Quotas: the rows"],
   ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "busy={busy}\n      range={text}", "busy={false}\n      range={text}", "portal", "11 Quotas: the rows"],
+  ["392: Previous accepts an old cursor during a quota sort", "src/components/ui.tsx", "isAriaDisabled={disabled(prevDis)}", "isAriaDisabled={String(prevDis) === \"true\"}", "portal", "11 Quotas: the rows"],
   ["407: the pager accepts cursors from the previous answer", "src/components/ui.tsx", "busy || String(flag)", "String(flag)", "portal", "407"],
   ["407: Requests accepts old cursors", "src/portal/RequestsTab.tsx", "busy={result.refreshing}\n              range=", "busy={false}\n              range=", "portal", "407 Requests keeps"],
   ["407: Expiration accepts old cursors", "src/portal/ExpirationTab.tsx", "busy={busy}\n              range=", "busy={false}\n              range=", "portal", "407 Expiration keeps"],
