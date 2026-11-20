@@ -275,6 +275,7 @@ printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tre
 # crc-reader-import.sh
 want "reader import" 0 "$(run "$D/crc-reader-import.sh")"; no_secret "$W/out" "reader import"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d["metadata"]; sys.exit(0 if m["namespace"]=="cmapi-imports" and m["labels"]["cmapi.net/cluster-id"]=="CRC" and m["labels"]["cmapi.net/secret-type"]=="cluster" and set(d["data"])=={"apiUrl","token","caData","insecure"} else 1)' "$ARGV_LOG.applied" && ok "the import Secret is what the registry reads" || bad "the import Secret"
+python3 "$HERE/token-renewal-test.py" "$STUB_CA" && ok "worker and script renewal deadlines agree" || bad "worker and script renewal deadlines differ"
 want "CRC short-duration fallback" 0 "$(CMAPI_TOKEN_DURATION=1h run "$D/crc-reader-import.sh")"
 grep -q -- '--duration=1h' "$ARGV_LOG" && ok "CRC requested one hour" || bad "wrong CRC duration"
 want "reader import: a refused TokenRequest stops" 1 "$(STUB_NO_TOKEN=1 run "$D/crc-reader-import.sh")"

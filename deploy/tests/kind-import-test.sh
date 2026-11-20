@@ -132,6 +132,7 @@ want "an existing cluster is reused and its token rewritten" 0 "$(STUB_KIND_CLUS
 if grep -q '^kind create' "$ARGV_LOG"; then bad "it created again"; else ok "and not created again"; fi
 [ -s "$ARGV_LOG.applied" ] && ok "and the Secret written again (the rotation)" || bad "no Secret on a rerun"
 SHORT_TOKEN="$(printf '{"alg":"RS256"}' | b64url).$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$IAT" "$((IAT + 3600))" | b64url).stub"
+python3 "$HERE/token-renewal-test.py" "$STUB_CA" && ok "worker and script renewal deadlines agree" || bad "worker and script renewal deadlines differ"
 want "kind short-duration fallback" 0 "$(CMAPI_TOKEN_DURATION=1h TOKEN=$SHORT_TOKEN run "$D/up.sh" "$CCFG")"
 grep -q -- '--duration=1h' "$ARGV_LOG" && ok "kind requested one hour" || bad "wrong kind duration"
 want "a moved DHCP lease stops" 1 "$(STUB_ADDR=192.168.86.57 run "$D/up.sh" "$CCFG")"; says "a moved lease" "no longer holds 192.168.86.110"; wrote_nothing "a moved lease"

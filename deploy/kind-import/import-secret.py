@@ -10,7 +10,17 @@ import base64, datetime, json, os, re, ssl, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "cmapi/src"))
-from cmapi.core.cluster_tokens import ReaderGrant, TokenPolicy
+from cmapi.core.cluster_tokens import MIN_WINDOW, ReaderGrant, TokenPolicy
+
+
+# Copied from ReaderGrant.renewal_time in cmapi/src/cmapi/core/cluster_tokens.py (source of truth); the case table tests both.
+def renewal_time(grant: ReaderGrant, policy: TokenPolicy) -> float:
+    lifetime = grant.expires - grant.issued
+    deadline = grant.expires - policy.window(lifetime)  # Start with the wanted window before expiry.
+    deadline = max(deadline, grant.issued + lifetime / 2)  # Never renew before halfway through the grant.
+    deadline = min(deadline, grant.expires - MIN_WINDOW)  # Leave at least ten minutes for relists and the scan delay.
+    return deadline
+
 
 values = {"duration": os.environ.get("CMAPI_TOKEN_DURATION", "7d")}
 try:
@@ -43,7 +53,7 @@ try:
     grant.check_new(policy, time.time())
 except ValueError as exc:
     sys.exit(str(exc))
-renew_at = grant.renewal_time(policy)
+renew_at = renewal_time(grant, policy)
 expires = datetime.datetime.fromtimestamp(grant.expires, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 with open(ca_file) as source:
     ca = source.read()

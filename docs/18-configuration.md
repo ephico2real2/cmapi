@@ -140,16 +140,23 @@ clusters:
 ```
 
 Durations use an unsigned whole number and one suffix, `d`, `h`, `m` or `s`. For example, `7d` and
-`168h` request the same duration. Request at least 10 minutes and observe the target API server's
-configured maximum. Kubernetes may grant a shorter lifetime. Choose one of `renewBefore`
-(a duration before expiry) and `renewBeforePercentage` (an integer from 1 to 99). At startup the
-effective window must be at least 5 minutes and shorter than the requested duration. At runtime
-the percentage uses the JWT's actual lifetime, with a 5-minute minimum window. A fixed window
-normally retains its configured duration. If the server shortens the grant enough that this window
-leaves less than five minutes from issuance to renewal, cmapi uses 20% of the issued lifetime
-as the window, with the same five-minute minimum. Bootstrap applies the same rule. A grant already
-due for renewal is refused. The kind example schedules renewal 12 minutes before expiry for a
-full one-hour grant.
+`168h` request the same duration. Request at least 20 minutes (`duration` ≥ `20m`, twice the
+minimum renewal window) and observe the target API server's configured maximum. Kubernetes may
+grant a shorter lifetime. Choose one of `renewBefore` and `renewBeforePercentage`; setting both
+is refused at startup. `renewBefore` must be at least `10m` and strictly less than half of
+`duration`. `renewBeforePercentage` must be an integer from 1 to 50, inclusive. These limits
+also apply after inheriting instance settings.
+
+The wanted window is `renewBefore` if set, otherwise the configured percentage (default 20) of
+the JWT's **actual** lifetime (`exp - iat`). If the server grants less than `duration`, an
+absolute `renewBefore` is replaced by 20% of that actual lifetime. Renewal is due at `exp - window`,
+clamped to no earlier than `iat + lifetime / 2` and no later than `exp - 600`. The ten-minute
+minimum exceeds the registry relist (300 seconds) plus the scan delay so every API pod reads the
+new token before expiry. Bootstrap and manual recovery compute the same deadline. A new grant
+already due for renewal is refused. A cluster clock up to 60 seconds ahead is allowed when checking
+a new token. A full seven-day grant at 20% renews at 5.6 days, the one-hour example at 48 minutes,
+and a twenty-minute grant at 10 minutes. A capped grant of either 86,700 or 86,699 seconds with
+`renewBefore: 24h` renews at 80% of the grant, without a threshold jump.
 
 When the chart manages the reader grant in an existing `cmapi-system` namespace, set
 `reader.installRenewalRole: true`. The CRC and kind baseline manifests include this grant.

@@ -20,3 +20,18 @@ On the base revision, `git grep -n cmapi-reader-token` finds two deployment read
 - Kubernetes, “Manually create a long-lived API token for a ServiceAccount”, shows the persistent mechanism with `type: kubernetes.io/service-account-token`. The preceding section recommends TokenRequest. [Kubernetes service account guide](https://github.com/kubernetes/website/blob/main/content/en/docs/tasks/configure-pod-container/configure-service-account.md#manually-create-a-long-lived-api-token-for-a-serviceaccount)
 - The TokenRequest API defines `expirationSeconds` as the “requested duration of validity of the request.” The CLI documents the consequence for `--duration` explicitly. “The server may return a token with a longer or shorter lifetime.” [Kubernetes API type](https://github.com/kubernetes/api/blob/master/authentication/v1/types.go) · [kubectl create token](https://github.com/kubernetes/website/blob/main/content/en/docs/reference/kubectl/generated/kubectl_create/kubectl_create_token.md)
 - OpenShift Container Platform 4.18, “Creating bound service account tokens outside the pod”, uses `oc create token build-robot`. The deployment operator can issue the CRC credential directly. [OpenShift documentation](https://github.com/openshift/openshift-docs/blob/enterprise-4.18/modules/bound-sa-tokens-configuring-externally.adoc)
+
+## Fable review (2026-11-20)
+
+F1 accepted unchanged: checking a new token allows the issuing cluster's clock to be up to
+60 seconds ahead. The one renewal rule fixes the registry relist gap, the capped-grant cliff
+and the 99% case. The minimum window is ten minutes, longer than the 300-second relist plus
+the scan delay. An absolute window falls back to 20% whenever the grant is shorter than the
+requested duration. The deadline is clamped between halfway through the lifetime and ten minutes
+before expiry; startup refuses percentages outside 1–50. The worker and scripts are checked
+against one named case table.
+
+Two residual risks remain. The worker's hub Role may patch any Secret in `cmapi-imports`:
+RBAC cannot select by label, and that namespace holds only import Secrets. A stolen reader
+token can keep minting successors, bounded by the API server's maximum token lifetime. This
+issuance is visible in the audit log; deleting the ServiceAccount revokes the tokens.

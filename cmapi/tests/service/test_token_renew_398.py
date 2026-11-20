@@ -1,6 +1,7 @@
 """Exercise the recurring job against stub Kubernetes APIs. No database, cluster or listening socket."""
 import base64
 import json
+from math import ceil
 import shutil
 import subprocess
 from copy import copy, deepcopy
@@ -20,6 +21,7 @@ from cmapi.core.registry import ClusterPolicy, ClusterRegistry, HubImportSource,
 
 ROOT = Path(__file__).resolve().parents[3]
 START = 1_800_000_000
+RENEWAL_CASES = json.loads((ROOT / "deploy/tests/token-renewal-cases.json").read_text())
 
 
 def stamp(seconds):
@@ -49,8 +51,9 @@ def test_duration_refusals(value):
 
 
 @pytest.mark.parametrize("values", [
+    *[pytest.param(case["values"], id=case["name"]) for case in RENEWAL_CASES if "error" in case],
     {"duration": "599s"}, {"duration": "1h", "renewBefore": "4m"},
-    {"duration": "1h", "renewBefore": "1h"}, {"duration": "1h", "renewBeforePercentage": 8},
+    {"duration": "1h", "renewBefore": "1h"}, {"duration": "1h", "renewBefore": "30m"},
     {"renewBefore": "1h", "renewBeforePercentage": 20}, {"renewBeforePercentage": True},
     {"renewBeforePercentage": 0}, {"renewBeforePercentage": 100}, {"renewBeforePercentage": 50.5},
     {"unexpected": 1}, None,
@@ -187,14 +190,15 @@ def endpoints(tmp_path, monkeypatch):
         client.close()
 
 
-@pytest.mark.parametrize("values,lifetime,window", [
-    ({}, 604800, 120960), ({"duration": "1h"}, 3600, 720), ({"duration": "7d"}, 3600, 720),
-    ({"duration": "1h", "renewBefore": "10m"}, 3600, 600),
-])
-def test_renews_exactly_when_due(endpoints, values, lifetime, window):
+@pytest.mark.parametrize("case", [pytest.param(case, id=case["name"]) for case in RENEWAL_CASES if "deadline" in case])
+def test_renews_exactly_when_due(endpoints, case):
+    from cmapi.core.cluster_tokens import ReaderGrant
+    values, lifetime = case["values"], case["lifetime"]
     api = endpoints(values, lifetime)
+    deadline = ReaderGrant(START, START + lifetime).renewal_time(api.policy)
+    assert deadline - START == pytest.approx(case["deadline"])
     original = deepcopy(api.doc)
-    api.now = START + lifetime - window - 1
+    api.now = ceil(deadline) - 1
     assert not api.scan() and not api.requests
     api.now += 1
     api.hub_token.write_text("fixture-hub-rotated")
@@ -458,7 +462,7 @@ def test_documented_baseline_installs_renewal_and_keeps_recovery_commands():
 
 
 @pytest.mark.parametrize("before", ["24h", "3599s"])
-def test_shorter_grant_with_unusable_absolute_window(endpoints, before):
+def test_shorter_grant_uses_20_percent_instead_of_absolute_window(endpoints, before):
     api = endpoints({"duration": "7d", "renewBefore": before}, lifetime=3600)
     api.now += 60
     assert not api.scan() and not api.requests
@@ -547,15 +551,15 @@ def test_renewal_post_negotiates_cluster_tls(endpoints, tmp_path, monkeypatch, m
     assert len(posts) == len(api.patches) == int(success)
 
 
-def test_short_default_grant_uses_the_documented_five_minute_floor(endpoints):
-    api = endpoints(lifetime=600)
-    api.now += 299
+def test_short_default_grant_uses_the_documented_ten_minute_floor(endpoints):
+    api = endpoints(lifetime=1200)
+    api.now += 599
     assert not api.scan() and not api.requests
     api.now += 1
     assert not api.scan() and len(api.patches) == 1
     for guide in ("docs/02-technical-design-v2.md", "docs/13-crc-deployment.md"):
         text = (ROOT / guide).read_text()
-        assert "at least five minutes before expiry" in text
+        assert "at least ten minutes before expiry" in text
 
 
 def test_public_renewal_events_and_metrics_exclude_credentials(endpoints, monkeypatch):
@@ -606,3 +610,23 @@ def test_relist_keeps_legacy_reader_connected_during_renewal_scan(endpoints, mon
         api.logs.info.assert_called_once_with("cluster_token_renew_skipped", cluster_id="TEST", reason="missing expiry annotation")
     finally:
         api.registry.stop()
+
+
+@pytest.mark.parametrize("ahead,renewed", [(2, True), (60, True), (61, False)])
+def test_cluster_clock_ahead_of_the_worker_still_renews(endpoints, ahead, renewed):
+    """A cluster whose clock runs ahead stamps `iat` after the worker's own time (F-fable-1)."""
+    api = endpoints()
+    api.now += 3000
+    issue = api.spoke
+    def issue_on_cluster_clock(req):
+        api.now += ahead
+        try:
+            return issue(req)
+        finally:
+            api.now -= ahead
+    api.spoke = issue_on_cluster_clock
+    assert api.scan() is not renewed
+    assert len(api.patches) == (1 if renewed else 0)
+    if renewed:
+        assert api.doc["data"]["token"] == encoded(api.grants[0])
+    api.no_credentials_logged()

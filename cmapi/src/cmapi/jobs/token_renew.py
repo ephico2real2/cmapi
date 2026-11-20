@@ -16,8 +16,9 @@ from cmapi.core.db.repo import JobRepo
 from cmapi.core.observability import CLUSTER_TOKEN_RENEWALS, log
 from cmapi.core.registry import ClusterRegistry, HubImportSource, parse_token_expiry, token_expiry
 
-# Five scans in the minimum five-minute window; outages retry after 5, 10, 20, 40, then 60s.
+# Scan every minute; failed scans retry using the capped delays below.
 TOKEN_RENEW_EVERY = 60
+RETRY_DELAYS = (5, 10, 20, 40, 60)
 
 
 class RenewalError(ValueError):
@@ -96,7 +97,7 @@ def renew_imports(registry: ClusterRegistry, defaults: TokenPolicy) -> bool:
 def token_renew(ctx: AppContext, session: Session, job: JobRow) -> None:
     jobs = JobRepo(session)
     if renew_imports(ctx.registry, ctx.cfg.cluster_tokens):
-        delay = min(TOKEN_RENEW_EVERY, 5 * 2 ** min(max(0, job.attempts - 1), 4))
+        delay = RETRY_DELAYS[min(max(0, job.attempts - 1), len(RETRY_DELAYS) - 1)]
         jobs.retry(job, "import token renewal failed; see cluster_token_renew_failed", delay)
     else:
         jobs.done(job)
