@@ -13,6 +13,13 @@ When you reach a point where you would ask, research it instead:
 Every bug gets a GitHub issue, handled by the `fix-defect` skill in `.claude/skills/`: logged with a research mandate, linked to its parent issue, fixed by a background agent, reviewed as usual, then validated and tested by the coordinator as arbiter. Refine the issue until it says what is wrong, where, and how to prove it. Then fix it, with a test
 that fails before the fix and passes after, and close the issue from the pull request.
 
+**Research first; never assume.** The owner, 2026-11-20: "You are a large language model and not a guru. You need to
+google and use that to improve yourself. Don't just assume", and "you need to fetch and not just google". Before
+designing, coding or ruling, and whenever you are not certain, search for the standard, the vendor's current documentation
+and what others do. Then read the primary source itself (the RFC, the KEP, the vendor's page, the source code) and quote
+the sentence the decision rests on, with its URL and date. A search summary or a model's memory is not a source. Retract,
+in so many words, what a fetched source refutes. Every brief says so.
+
 **File it and fix it in the same session.** The owner, 2026-11-20: "any issues faced must be filed but implemented
 immediately in that session. This is a mandate for any of our agentic workflow and even in houston-mayday." A defect
 found by anyone, at any stage, is filed and fixed before the session moves on: in the current pull request when it is

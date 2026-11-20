@@ -15,7 +15,7 @@ File the issue as soon as the defect is seen, before fixing anything:
 
 - **What is wrong**, **where** (`file:line`), and **how to prove it** (a command or test that fails today).
 - **Measured or inferred:** say which, and which cluster or environment it came from. Say so if it has not been reproduced yet.
-- **Research mandate:** `Research: search the primary sources, compare the options, choose the industry best practice, fix the cause rather than the symptom, and record the choice and its sources.`
+- **Research mandate:** `Research: search the primary sources, compare the options, choose the industry best practice, fix the cause rather than the symptom, and record the choice and its sources.` Search first, then read each primary source itself and quote it with its URL and date; a search summary or the model's memory is not a source (the owner, 2026-11-20).
 - **Parent:** `Part of #N`, naming the wave issue or story it belongs to.
 
 Then comment on the parent with the new issue's number, so the parent shows everything found under it. Add the issue to `build-tracker.md`'s open bugs when the tracker is next updated.
