@@ -37,7 +37,7 @@ The owner runs three instances, one for each network zone. An instance serves th
 
 Source: `examples/instances/nonprod/instance.yaml`, `examples/instances/staging/instance.yaml`, `examples/instances/prod/instance.yaml`. Each instance has its own set of files. The other files of an instance name only its own environments: `tiers.yaml` has an entry for each environment, `approval-rules.yaml` has rules for each environment, and `expiration.yaml` names the environments that can expire. A file that names an environment that the instance does not serve stops the start (`core/config.py`, `core/tiers.py`, `core/approvals.py`).
 
-One environment name has a meaning in code: `prod`. A namespace in `prod` never expires. `expiration.yaml` cannot have an entry for `prod` (`plugins/expiration/rules.py`), and the rendered policies add `deny-expiry-in-prod` for `prod` only (`core/policygen.py`, `_env_files`).
+One environment name has a meaning in code: `prod`. A namespace in `prod` never expires. `expiration.yaml` can have an entry for `prod` only with `enabled: false` (`plugins/expiration/rules.py`, #479), and the rendered policies add `deny-expiry-in-prod` for `prod` only (`core/policygen.py`, `_env_files`).
 
 ---
 
@@ -276,11 +276,13 @@ A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extra
 
 | Field | Type | Meaning |
 |---|---|---|
-| `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A request can send the same value. Any other value, or a removal, is refused (`derived_key`). A key with `value` takes no `pattern`, `enum`, `format` or `namespacePrefix` |
+| `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A create may leave the key out (cmapi fills it in) or send the same value. Any other value, or a removal, is refused (`derived_key`). A key with `value` takes no `pattern`, `enum`, `format`, `namespacePrefix` or `default` |
 | `pattern` | regular expression | The whole value must match. Written in the subset that Python, Kyverno and the API document read alike: see "Patterns" below |
 | `enum` | list of text | The value is one of these. A label value must be a valid label value |
 | `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#`, whitespace or character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (as `℀`, CVE-2019-9636), and a `[` only as `[userinfo@][IPv6 address]` with an optional `:port` after it, then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
-| `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes |
+| `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes. One key at most |
+| `namespaceSuffix` | boolean | The namespace name ends with a `-` and the value (#479). On the key `value: {from: environment}`, a `dev` cluster takes `abc-payments-dev` and refuses `abc-payments-rnd` (`invalid_value` on this key: "abc-payments-rnd does not end with -dev"). One key at most |
+| `default: {from: <key>}` | a key | When a create leaves this key out, cmapi copies the value of `<key>` into it; a sent value is kept (#479). `<key>` is a key of the same kind that a request sends: not a `value` key and with no `default` of its own, so there is no chain. `cmapi.net/team` with `default: {from: company.net/mnemonic}` is `abc` when the request sends only the mnemonic `abc` |
 | `title` | text | A short label for the key on a form, such as the portal's New namespace form: the reference file gives `cmapi.net/team` the title `Team` and `cmapi.net/team-dl` the title `Team DL`. With none, the form shows the key itself. The API document carries it as the property's JSON Schema `title` (#336) |
 | `description`, `example` | text | Text for people and for the API document. A required key that cmapi does not derive needs an `example`, and every `example` must pass its key's own rule (the owner's answer to #328, question 3). A form shows the description under the field and the example as the field's placeholder, never as its value |
 
@@ -292,7 +294,10 @@ The loader refuses each of these, and the start stops:
 - A `pattern` that does not compile, that is empty, or that is outside the subset below (#332).
 - More than one of `pattern`, `enum` and `format`.
 - A required key with no `example`, unless it has `value`. An `example` that its key's rule refuses, or that is not text.
-- A `title` or `description` that is not text, an empty `title`, and a `namespacePrefix` that is not `true` or `false`.
+- A `title` or `description` that is not text, an empty `title`, and a `namespacePrefix` or `namespaceSuffix` that is not `true` or `false`.
+- A second key with `namespacePrefix`, or a second with `namespaceSuffix`.
+- A `default` that is not `{from: <key>}`, or whose key is not declared, is of the other kind, has `value`, or has a `default` itself.
+- An `allowOther.example` key that `allowOther` does not admit (outside its prefixes, a declared, system or reserved key), a value that is not a valid value of the kind, more keys than `max`, or annotation values over `maxValueBytes` or `maxBytesTotal`.
 - A format on a label, and `email-in-domains` with no `emailDomains`.
 - An `adoptionLabels` key that a stanza declares, or that is a system or operator-only key.
 - An `adoptionLabels` entry whose `recognise` is not a list of label values.
@@ -330,6 +335,9 @@ cmapi matches with RE2 (Google's `google-re2` binding), so the time of a check i
 | `max` | integer | `50` | The most other keys of this kind |
 | `maxValueBytes` | integer | `4096` | Annotations only. The most bytes of one value |
 | `maxBytesTotal` | integer | `65536` | Annotations only. The most bytes of all other annotation values |
+| `example` | mapping of key to text | `{}` | Optional extra keys that the API document's create example shows, so it says that extra keys go in the same `labels` and `annotations` maps (#479). Each must be one that `allowOther` admits. An example only: nothing requires it |
+
+The checks run in this order on a create (`MetadataKeys.validate`, #479): fill each `value` key that the request leaves out; fill each `default` key that it leaves out; the namespace name's prefix; its suffix; each sent key's syntax, class and rule, and each required key; the count and bytes of the other keys. A value that breaks its own rule gets that one error, not a prefix or suffix error too. Every refusal is an entry of `errors` in the 422 `policy-violation` problem.
 
 ### The classes of a key
 
@@ -382,7 +390,7 @@ The rules of the value:
 - **The block is the whole file**, not a patch of the chart's file. Write each of the ten stanzas of the table above, `{}` or `[]` when one is empty. The schema refuses a block that leaves one out, so a partial block cannot silently drop the reserved keys or the required ones.
 - **Empty (`metadata: {}`, the default):** the chart's `config/metadata-keys.yaml`, or the full text in `configFiles."metadata-keys.yaml"`. That text stays the fallback, and the schema does not read inside it.
 - **Both set:** the render fails: `metadata and configFiles."metadata-keys.yaml" both set metadata-keys.yaml: set one of them`.
-- **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format` or `namespacePrefix: true`; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a required key with no `example` and no `value` (#332); a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles and is in the subset of "Patterns" above (its grammar nests parentheses, which the schema's own `pattern` keyword cannot describe), that an `example` passes its key's rule, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
+- **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format`, `namespacePrefix: true` or `default`; a `namespaceSuffix` that is not a boolean; a `default` that is not `{from: <key>}`; an `allowOther.example` key that is not a valid key or, for labels, a value that is not a label value; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a required key with no `example` and no `value` (#332); a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles and is in the subset of "Patterns" above (its grammar nests parentheses, which the schema's own `pattern` keyword cannot describe), that an `example` passes its key's rule, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
 - `configFiles` takes only the five names of the chart's files. Another name, such as `metadata-key.yaml`, is refused; before #335 the chart ignored it and rendered its own file.
 
 An example, a site that requires its own owner label beside the reference keys (`deploy/environments/<site>.yaml`):
@@ -435,12 +443,14 @@ What the schema says, for each map:
 
 | From the file | In the schema |
 |---|---|
-| A required key that cmapi does not derive | A property in `required` (create only), with `minLength: 1`; the map itself is in `NamespaceCreate.required`. On a patch it has no `null` branch, since a patch cannot remove it |
+| A required key | A property in `required` (create only); the map itself is in `NamespaceCreate.required`. A key that cmapi does not fill in also has `minLength: 1`. On a patch it has no `null` branch, since a patch cannot remove it |
 | An optional key | A property; on a patch, `anyOf` with `null`, which removes it |
 | `pattern`, `format` | `pattern`: the one regex that cmapi and the rendered Kyverno policy match too (`value_regex`, "Patterns" above), and `x-cmapi-format` for a format. A label also gets the label-value syntax and `maxLength: 63` |
 | `enum` | `enum` |
-| `value: {from: ...}` | A property with `readOnly: true` and `x-cmapi-derived-from`, never required, with no `null` branch on a patch. Swagger UI hides a read-only property in a request body |
-| `namespacePrefix` | `x-cmapi-namespace-prefix: true`, and the rule in words |
+| `value: {from: ...}` | A required property with `x-cmapi-derived-from` and the words "filled in by cmapi from the ...; you may leave it out", with no `null` branch on a patch. It is not `readOnly`, which Swagger UI hides in a request body (#479, A1): the owner wants these keys shown. cmapi still fills in one that a create leaves out, so the schema is stricter than cmapi there, on purpose |
+| `default: {from: ...}` | `x-cmapi-default-from` and "Default: the value of ..." in the description |
+| `namespacePrefix` | `x-cmapi-namespace-prefix: true`, and the rule in words. `NamespaceCreate.namespace` gets `x-cmapi-prefix-from` |
+| `namespaceSuffix` | `x-cmapi-namespace-suffix: true`, and the rule in words. `NamespaceCreate.namespace` gets `x-cmapi-suffix-from` and the shape of the name, `<prefix key>-<desired name>-<suffix key>`, in its description |
 | `title` | `title` |
 | `description`, `example` | `description` (with the rule in words) and `examples`. Each declared key also has `x-cmapi-rule`: the rule in the words that a refusal's `detail` uses (`missing_required_key`), so a client says what the API says |
 | `operatorOnly` | A property with `x-cmapi-operator-only: true` |
@@ -450,9 +460,9 @@ The same two maps are served on their own by `GET /api/v1/metadata-keys` (#336),
 
 What JSON Schema cannot say is in the description of the map, which ReDoc shows (ReDoc 3.1.0 does not show `propertyNames`): who may set an operator-only key, that a derived value must equal the request's target, that a `namespacePrefix` value starts the namespace name, the count of other keys (`max`), the sizes in bytes (`maxValueBytes`, `maxBytesTotal`; the schema's `maxLength` counts characters, a bound that holds because a character is at least one byte), and on a patch the 253 characters of a key's prefix (a create refuses a longer one with a second pattern under `not`). On a patch, `propertyNames` checks the class of a key and not its syntax: a key that Git holds from before #330, such as `/foo`, can still be removed with `null`, and JSON Schema cannot tie a key's name to its value.
 
-The schema documents cmapi's own check; it never replaces it. cmapi refuses each body with or without Kyverno (`policy.engine: none` included), and a client that checks the schema first only learns of a refusal sooner. Each map that cmapi accepts passes the schema: `cmapi/tests/core/test_metadata_schema_328.py` runs one corpus of about 12,000 maps for each file through both, on the shipped files and on four synthetic ones, and `cmapi/tests/service/test_metadata_schema_328_api.py` runs it on each instance's served document.
+The schema documents cmapi's own check; it never replaces it. cmapi refuses each body with or without Kyverno (`policy.engine: none` included), and a client that checks the schema first only learns of a refusal sooner. Each map that cmapi accepts passes the schema, except a create that leaves out a key that cmapi fills in (`value` or `default`), which the schema lists as required (#479): `cmapi/tests/core/test_metadata_schema_328.py` runs one corpus of about 12,000 maps for each file through both, on the shipped files and on four synthetic ones, and `cmapi/tests/service/test_metadata_schema_328_api.py` runs it on each instance's served document.
 
-The examples in the document are this instance's too (#334): the `labels` and `annotations` examples are the `example` of each required key, the namespace example starts with the example of a `namespacePrefix` key and `-` (`abc-dev` with the company file), and the patch example is the first optional key that has an example. Swagger UI's "Try it out" body and the curl sample of each write are one body, built from them: the recorded request (`contract/samples.json`, recorded on the reference file), whose labels and annotations are replaced with them when the instance refuses its own (#349).
+The examples in the document are this instance's too (#334, #479): the `labels` and `annotations` examples are the `example` of each declared key that has one, the value of each `value` key for the example's target, and the `allowOther.example` keys. The namespace example is `<prefix example>-<desired name>-<environment>`: the example of a `namespacePrefix` key and `-` start it (`abc-payments-dev` with the company file), and with a `namespaceSuffix` key it ends with the environment. The example's cluster is `CRC` (the `cluster_id` example), and its environment is CRC's in `clusters.yaml` when the instance lists CRC, or else the first of `allowedEnvironments`; `cmapi-tools openapi render` reads the `clusters.yaml` of `--config-dir` the same way. The patch example is the first optional key that has an example. Swagger UI's "Try it out" body and the curl sample of each write are one body, built from them: the recorded request (`contract/samples.json`, recorded on the reference file) with this instance's namespace, labels and annotations on a create, and on a patch its labels and annotations replaced when the instance refuses its own (#349). The create example has no `expiresAt`: the suite and "Try it out" send it, and a fixed date stops being one that cmapi takes once it passes. `expiresAt` documents its rules instead (`expiration.yaml` below).
 
 **Generated clients.** The committed contract, `cmapi/contract/openapi.json`, is the document of the reference file (`examples/cluster-configs/policies/metadata-keys.yaml`), and the contract gate sees only that file. A client for an instance with its own keys is generated from that instance's own document, for example `curl -fsS https://<instance-route>/openapi.json -o openapi.json` and then the generator (the portal uses openapi-typescript 7.13.0, through `cmapi-portal-ui/scripts/api-types.mjs`). An instance with `docs.enabled: false` serves no document.
 
@@ -670,10 +680,11 @@ The guard that stopped a policy is stored in `change_requests.requirement` as `a
 
 ## `expiration.yaml`
 
-The file is needed. The code is `cmapi/src/cmapi/plugins/expiration/rules.py`. An environment with no entry refuses each expiry field with 422 `expiration-not-allowed`. `prod` cannot have an entry. The daily expiry check that sends the notices and opens the delete (`ExpirationRules.expire_check`) is in the code, and no job runs it: it is not built. So today cmapi reads only `allowedAtCreate`, `maxExtensionDays`, `maxLifetimeDays`, and whether an environment has an entry.
+The file is needed. The code is `cmapi/src/cmapi/plugins/expiration/rules.py`. An environment with no entry, or with `enabled: false`, refuses each expiry field with 422 `expiration-not-allowed`. `prod` can have an entry only with `enabled: false` (the owner's #222 decision: production never expires); `prod` with `enabled: true` stops the start, and the renderer refuses an expiry in `prod` too. The daily expiry check that sends the notices and opens the delete (`ExpirationRules.expire_check`) is in the code, and no job runs it: it is not built. So today cmapi reads only `enabled`, `allowedAtCreate`, `maxExtensionDays`, `maxLifetimeDays`, and whether an environment has an entry.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `defaults.enabled` | boolean | `true` | The environment takes expiry dates. `false` is the same as no entry: each expiry field is refused (`expiration-not-allowed`), and a namespace there carries neither `cmapi.net/expires-at` nor `cmapi.net/expiry`. Set it per environment to turn expiry off in one (#479) |
 | `defaults.allowedAtCreate` | boolean | `true` | A new namespace can have an expiry date |
 | `defaults.maxExtensionDays` | integer | `30` | One extension adds at most this many days |
 | `defaults.maxLifetimeDays` | integer | `180` | A date past this many days from creation sets the fact `expirationBeyondLimits`. `:makePermanent` sets it too. The reference `approval-rules.yaml` adds one approver of `approver-platform` for the fact |
@@ -682,6 +693,8 @@ The file is needed. The code is `cmapi/src/cmapi/plugins/expiration/rules.py`. A
 | `defaults.deleteAfterGrace` | boolean | `true` | The daily expiry check opens a delete after the grace. The check is not built |
 | `defaults.minNoticesBeforeDelete` | integer | `2` | The notices that must go before the delete. Read only by the daily expiry check, which is not built |
 | `environments.<env>` | mapping | `{}` | The same keys as `defaults`, for one environment. An empty mapping means "the defaults" |
+
+When `expiresAt` is set, the namespace carries the annotation `cmapi.net/expires-at` (the ISO date) and the label `cmapi.net/expiry: managed` (`core/render/manifests.py`, `ManifestRenderer.render`). The API document says each served environment's rules on `NamespaceCreate.expiresAt` (#479, A11): `x-cmapi-expiration: {"environments": {"<env>": {"enabled": true, "allowedAtCreate": ..., "maxLifetimeDays": ..., "notifyDaysBefore": [...], "graceDays": ...}}}`, and `{"enabled": false}` alone for an environment that takes no expiry, so the portal shows the field off there. Its description says the same in words.
 
 ---
 
