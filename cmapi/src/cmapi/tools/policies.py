@@ -16,9 +16,7 @@ import sys
 from pathlib import Path
 
 from cmapi.core.config import load_instance
-from cmapi.core.policygen import environment_of, render_bundle
-
-MARK = "# Rendered by cmapi"
+from cmapi.core.policygen import MARK, environment_of, render_bundle
 
 
 def _render(config_dir: str, metadata_keys: str) -> tuple[dict[str, str], set[str]]:

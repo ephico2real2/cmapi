@@ -7,16 +7,68 @@ it to name the policies that a cluster's reports may hold: no list of policies i
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import yaml
 
-from cmapi.core.policygen import DIGEST, environment_of, index_of
+from cmapi.core.policygen import DIGEST, MARK, environment_of, index_of, policy_digest
+
+if TYPE_CHECKING:
+    from cmapi.core.clients.policyreports import LivePolicy
 
 DESCRIPTION = "policies.kyverno.io/description"
 GENERATED = "cmapi.net/generated"
+_GIT_POLICY = re.compile(r"(?:(?:policies/)?env/([^/]+)/)?[^/]+\.yaml")
+
+
+def bundle_hash(pairs: Iterable[tuple[str, str | None]]) -> str | None:
+    """Version 1 identifies a bundle by its sorted policy names and digests."""
+    policies = sorted([name, digest] for name, digest in pairs)
+    if not policies:
+        return None
+    data = json.dumps({"format": 1, "policies": policies}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class GitHash:
+    digest: str | None
+    tampered: bool
+
+
+def git_hash(files: Mapping[str, str]) -> GitHash:
+    """Hash one env folder. Git paths may be relative to the repo, policies/, or the folder itself."""
+    pairs = []
+    tampered = False
+    environments = set()
+    for path, text in files.items():
+        match = _GIT_POLICY.fullmatch(path)
+        if not match or not text.startswith(MARK):
+            continue
+        if match[1]:
+            environments.add(match[1])
+            if len(environments) > 1:
+                raise ValueError("git_hash requires the files of one environment")
+        for doc in yaml.safe_load_all(text):
+            if doc is None:
+                continue
+            meta = doc["metadata"]
+            digest = policy_digest(doc)
+            if digest != (meta.get("annotations") or {}).get(DIGEST):
+                tampered = True
+            if doc.get("kind") == "ValidatingPolicy":
+                pairs.append((meta["name"], digest))
+    return GitHash(bundle_hash(pairs), tampered)
+
+
+def live_hash(policies: Iterable[LivePolicy]) -> str | None:
+    """All generated policies observed on one cluster, including obsolete policies."""
+    return bundle_hash((p.name, p.digest) for p in policies if p.generated)
 
 
 def bundle_files(policies_dir: str | Path | None, rendered: Mapping[str, str] | None) -> dict[str, str]:
@@ -39,10 +91,11 @@ class BundlePolicy:
 
 
 class PolicyBundle:
-    def __init__(self, files: Mapping[str, str]):
-        self.files = dict(files)
+    def __init__(self, files: Mapping[str, str], *, policies_dir: str | Path | None = None):
+        self.files = bundle_files(policies_dir, files)
         self.index = index_of(self.files)
         self.policies: list[BundlePolicy] = []
+        rendered: dict[str, list[tuple[str, str | None]]] = {}
         for path, text in sorted(self.files.items()):
             if not path.endswith(".yaml"):
                 continue
@@ -54,10 +107,17 @@ class PolicyBundle:
                 if not isinstance(name, str) or not name:
                     continue
                 ann = meta.get("annotations") or {}
-                self.policies.append(BundlePolicy(
+                policy = BundlePolicy(
                     name=name, kind=str(doc.get("kind") or ""), environment=environment_of(path),
                     description=ann.get(DESCRIPTION), digest=ann.get(DIGEST), generated=ann.get(GENERATED) == "true",
-                    check=self.index.get(name)))
+                    check=self.index.get(name))
+                self.policies.append(policy)
+                if path in files and policy.environment and policy.generated and policy.kind == "ValidatingPolicy":
+                    rendered.setdefault(policy.environment, []).append((name, policy.digest))
+        self._rendered_hashes = {env: bundle_hash(pairs) for env, pairs in rendered.items()}
+
+    def rendered_hash(self, env: str) -> str | None:
+        return self._rendered_hashes.get(env)
 
     def for_environment(self, environment: str) -> dict[str, BundlePolicy]:
         """The policies that run for one environment, by name: those outside env/, and those under env/<environment>/."""

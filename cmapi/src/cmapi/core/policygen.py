@@ -439,7 +439,8 @@ def render_bundle(catalog: TierCatalog, keys: MetadataKeys, policy: PolicySettin
     return out
 
 
-_HEADER = ("# Rendered by cmapi from its configuration (core/policygen.py, #212). Do not edit: change tiers.yaml,\n"
+MARK = "# Rendered by cmapi"
+_HEADER = (f"{MARK} from its configuration (core/policygen.py, #212). Do not edit: change tiers.yaml,\n"
            "# metadata-keys.yaml or instance.yaml policy, and render again (cmapi-tools policies render).\n")
 
 
