@@ -32,21 +32,23 @@ def test_a_create_without_the_environment_suffix_is_still_refused_on_the_environ
     assert create(keys, {}, "legacy") == [("invalid_value", "env")]
 
 
-# ---- F08: a desired name between the two ends
-@pytest.mark.parametrize("namespace,accepted", [
-    ("abc-dev", False), ("abc--dev", False), ("abc-x-dev", True), ("abc-payments-api-dev", True),
+# ---- F08: the two ends alone, or with a desired name between them
+@pytest.mark.parametrize("namespace,environment,accepted", [
+    ("abc-dev", "dev", True), ("abc--dev", "dev", False), ("abc-payments-dev", "dev", True),
+    ("abc-dev", "rnd", False), ("abc-x-dev", "dev", True), ("abc-payments-api-dev", "dev", True),
 ])
-def test_a_create_needs_a_desired_name_between_the_mnemonic_and_the_environment(namespace, accepted):
-    assert create(MetadataKeys(NAME_KEYS), {"mnemonic": "abc"}, namespace) == \
+def test_a_create_accepts_team_wide_and_named_namespaces(namespace, environment, accepted):
+    assert create(MetadataKeys(NAME_KEYS), {"mnemonic": "abc"}, namespace, environment) == \
         ([] if accepted else [("invalid_value", "env")])
 
 
-def test_dashed_ends_are_matched_whole_and_still_need_a_desired_name():
+def test_dashed_ends_are_matched_whole_in_both_name_forms():
     keys = MetadataKeys({"requiredLabels": {
         "owner": {"namespacePrefix": True, "example": "ab-c"},
         "env": {"value": {"from": "environment"}, "namespaceSuffix": True}}})
     assert create(keys, {"owner": "ab-c"}, "ab-c-payments-qa-dev", "qa-dev") == []
-    assert create(keys, {"owner": "ab-c"}, "ab-c-qa-dev", "qa-dev") == [("invalid_value", "env")]
+    assert create(keys, {"owner": "ab-c"}, "ab-c-qa-dev", "qa-dev") == []
+    assert create(keys, {"owner": "ab-c"}, "ab-c--qa-dev", "qa-dev") == [("invalid_value", "env")]
 
 
 # ---- F11: one error for one empty required key

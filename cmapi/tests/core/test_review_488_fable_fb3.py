@@ -19,6 +19,6 @@ def test_a_refused_mnemonic_gets_no_desired_name_error_on_the_environment_key():
     assert create({"mnemonic": "abcde"}, "abcde--dev") == [("invalid_value", "mnemonic")]
 
 
-def test_an_accepted_mnemonic_still_needs_a_desired_name():
-    assert create({"mnemonic": "abc"}, "abc-dev") == [("invalid_value", "env")]
+def test_an_accepted_mnemonic_with_an_empty_segment_is_refused_on_the_environment_key():
+    assert create({"mnemonic": "abc"}, "abc--dev") == [("invalid_value", "env")]
     assert create({"mnemonic": "abc"}, "abc-x-dev") == []
