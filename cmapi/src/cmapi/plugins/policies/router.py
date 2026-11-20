@@ -29,7 +29,7 @@ from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import Lister, ListQuery, Sorts
 from cmapi.core.models import PolicyResultPage, RejectionPage
-from cmapi.core.policybundle import BundlePolicy
+from cmapi.core.policybundle import BundlePolicy, live_hash
 from cmapi.core.policygen import ACTIONS
 from cmapi.core.registry import ClusterState
 from cmapi.core.rejections import RejectionRepo
@@ -77,6 +77,18 @@ def _empty() -> dict[str, int]:
     return {v: 0 for v in VERDICTS}
 
 
+def hash_state(state: str, rendered: str | None, live: str | None, git: str | None = None) -> str:
+    if state in ("mode-off", "engine-off") and rendered is None and live is None:
+        return "off"
+    if state not in ("ok", "drift"):
+        return "unknown"
+    if live == rendered:
+        return "off" if live is None else "current"
+    if git is not None and live == git:
+        return "behind"
+    return "drift"
+
+
 def _bundle_view(bundle: Mapping[str, BundlePolicy], snap: Snapshot, mode: str) -> tuple[dict[str, Any] | None, list[str], bool]:
     """(the bundle on the cluster against the render, the live validationActions, drift)."""
     live = snap.policies
@@ -99,11 +111,13 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
     """One cluster's view, its listed rows, and the counts of each policy that runs on it (following `namespace`); no
     policy has counts from a cluster whose state leaves them unknown."""
     mode = c.cfg.policy.mode_for(env)
+    rendered = c.bundle.rendered_hash(env) if c.bundle else None
     view: dict[str, Any] = {"clusterId": st.cluster_id, "env": env, "mode": mode, "liveActions": [], "state": "ok",
+                            "hashes": {"rendered": rendered, "live": None}, "hashState": "unknown",
                             "stateDetail": None, "asOf": None, "bundle": None, "counts": None, "hidden": None, "dropped": None}
 
     def unknown(state: str, detail: str, as_of: Any = None):
-        view.update(state=state, stateDetail=detail, asOf=_iso(as_of))
+        view.update(state=state, stateDetail=detail, asOf=_iso(as_of), hashState=hash_state(state, rendered, None))
         return view, [], {}
 
     if c.cfg.policy.engine == "none":
@@ -176,6 +190,10 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         view.update(state="drift", stateDetail=f"{b['expected'] - b['live']} missing, {b['live'] - b['current']} differ "
                                                f"from the render, {b['actionsDifferTotal']} without the actions "
                                                f"{', '.join(ACTIONS.get(mode, []))} of mode {mode}")
+    if live is not None:
+        observed = live_hash(live.values())
+        view["hashes"]["live"] = observed
+        view["hashState"] = hash_state(view["state"], rendered, observed)
     return view, rows, per_policy
 
 
