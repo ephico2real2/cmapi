@@ -1121,8 +1121,8 @@ try {
           await run(page, `${width} ${theme}`);
           assert.deepEqual(errors, [], `${width} ${theme}`);
         } catch (error) {
-          error.message = `${width} ${theme}: ${error.message}`;
-          throw error;
+          // Name the view in what the suite prints (Node prints the stack, which holds the first message).
+          throw Object.assign(new Error(`${width} ${theme}: ${error.message}`, { cause: error }), { stack: `${width} ${theme}: ${error.stack}` });
         } finally { await context.close(); }
       }
     }
