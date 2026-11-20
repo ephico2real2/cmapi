@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-20 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,21 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-19, 19:40Z
+## Current: 2026-11-20, 09:50Z
+
+`main` is `fb727b5`. CRC runs `7122ec6` until OB1 run 27 rolls out `fb727b5` (in progress). kind is deleted by the owner (#487). Open: PR #488 (draft).
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Automatic import-token renewal, `clusterTokens` parameters, manual fallback | #398 | Merged #469, #478; #398 closed | CI (all checks); full service suite on this Mac; Fable review. Not yet live on CRC (run 27) |
+| Bundle hash S1, `hashState` | #244 | Merged #477 (S1 of S8) | CI; Fable review. Not yet live on CRC (run 27) |
+| ci/kyverno on non-bot PRs | #429 | Merged #475 | CI |
+| Paged tabs busy state | #407 | Merged #472 | CI (portal-ui) |
+| Deterministic secret forms | #470 | Merged #471 | CI |
+| Namespace contract Phase 1 (required keys, name rule, expiry `enabled`) | #479 | PR #488, draft | Implementer: 43 new tests fail on main, pass on the branch; service suite in two halves 992 + 771 passed; contract gate pass. Coordinator checks and review pending |
+| Change metadata of existing namespaces | #481 to #485 | Designed (#482), not started | None |
+
+## Previous: 2026-11-19, 19:40Z
 
 `main` is `7122ec6`. CRC runs `7122ec6` (OB1 run 26). kind re-imported; token renew by 2026-11-25T09:51:14Z. No open PRs.
 

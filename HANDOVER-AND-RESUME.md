@@ -1,10 +1,43 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-19. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-20. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-19, 19:40Z (after OB1 run 26)
+## Resume here: 2026-11-20, 09:50Z
+
+Supersedes the 2026-11-19 19:40Z section below.
+
+| Item | State |
+|---|---|
+| `main` | `fb727b5` (PR #478) |
+| CRC | Runs `7122ec6` (run 26) until OB1 run 27 rolls out `fb727b5` (in progress, `workbench/cmapi/ob1-run27/`). CRC was down early on 2026-11-20: all cmapi pods' probes timed out at about 08:28Z, and keycloak-0 restarted (4 restarts, last at 08:25:56Z). Another agent recovered it; everything answered 200 at 08:36Z |
+| kind | **Deleted.** The owner shut it down ("shut down the kind for now"; `podman stop` at 08:14Z). docs/13 step 2 refuses a deploy while any kind cluster exists, and Claude Code refused `down.sh` for the agent (#487), so the owner ran `deploy/kind-import/down.sh --stale` themselves. Verified: no kind cluster, no `cmapi-imports/cmapi-cluster-kind-cmapi-test`. `cmapi-test-pg` (the test database) still runs. Recreate with `up.sh` only when the owner asks |
+| Open PRs | #488 (#479 Phase 1, draft, `review:fable`): implementer's report in; next are the coordinator's checks and the Codex astra xhigh review, after run 27 |
+
+**Merged since run 26:**
+- #469 and #478 (#398): CRC's import uses a TokenRequest token; cmapi renews import tokens itself. `clusterTokens {duration, renewBefore | renewBeforePercentage}` is set per instance and per cluster; the rule is halfway at the earliest and 10 minutes before expiry at the latest; the manual path is kept as the fallback. Fable reviewed it, by the owner's exception.
+- #471 (#470), #472 (#407), #475 (#429).
+- #476 (#244 design) and #477 (#244 S1: bundle hash and `hashState`, Fable-reviewed).
+
+**Designed today (owner's requirements):**
+- **#479, namespace contract and form:** `docs/reviews/2026-11-20-issue-479/` in PR #488.
+  - The name is `<mnemonic>-<name>-<env>`, with both ends locked.
+  - The required company keys are added, and the mnemonic fills the team by default.
+  - Extra keys go in a closed toggle, empty by default.
+  - The expiry calendar is optional, with `enabled: false` for prod. `maxLifetimeDays` never sets a date.
+  - The Swagger and ReDoc standard is #480.
+- **Epic 8 (#481), change the metadata of existing namespaces:** `docs/reviews/2026-11-20-epic-481-metadata-patch/` (this PR), with stories #483 to #485.
+
+**Next, in order:**
+1. Run 27's report: record it here and in the tracker.
+2. The short-duration token test on CRC, by the coordinator: set `clusterTokens.duration` short for CRC, watch one renewal, restore.
+3. #488: the coordinator's full suite and contract gate; Codex `gpt-6.2-astra` xhigh review; ruling; merge. Then #479 Phases 2 to 5 (Phase 5 needs the owner's answers on design §8).
+4. #483, #484, #485.
+
+**Owner items:** design §8 of #479; the live Claude Docs of docs/01 and docs/02; Kyverno audit → enforce; #244 S2 to S8; #473, #474, #486, #487.
+
+## Resume here: 2026-11-19, 19:40Z (after OB1 run 26; superseded)
 
 Supersedes the 18:00Z section below. Since then: PRs #465 (#396, #397) and #467 merged with every GitHub check passed; OB1
 run 26 deployed `main` `7122ec6` on CRC.
