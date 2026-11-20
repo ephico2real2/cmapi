@@ -545,3 +545,14 @@ def test_renewal_post_negotiates_cluster_tls(endpoints, tmp_path, monkeypatch, m
     expected_name = "another.invalid" if mode == "wrong-name" else "cluster.invalid"
     assert server_names == ([] if mode == "insecure-denied" else [expected_name])
     assert len(posts) == len(api.patches) == int(success)
+
+
+def test_short_default_grant_uses_the_documented_five_minute_floor(endpoints):
+    api = endpoints(lifetime=600)
+    api.now += 299
+    assert not api.scan() and not api.requests
+    api.now += 1
+    assert not api.scan() and len(api.patches) == 1
+    for guide in ("docs/02-technical-design-v2.md", "docs/13-crc-deployment.md"):
+        text = (ROOT / guide).read_text()
+        assert "at least five minutes before expiry" in text
