@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import yaml
 
-from cmapi.core.policygen import DIGEST, MARK, environment_of, index_of, policy_digest
+from cmapi.core.policygen import DIGEST, MARK, environment_of, family_descriptions, index_of, policy_digest
 
 if TYPE_CHECKING:
     from cmapi.core.clients.policyreports import LivePolicy
@@ -67,7 +67,7 @@ def git_hash(files: Mapping[str, str]) -> GitHash:
 
 
 def live_hash(policies: Iterable[LivePolicy]) -> str | None:
-    """All generated policies observed on one cluster, including obsolete policies."""
+    """Hash generated policies from an environment-scoped observation."""
     return bundle_hash((p.name, p.digest) for p in policies if p.generated)
 
 
@@ -114,10 +114,18 @@ class PolicyBundle:
                 self.policies.append(policy)
                 if path in files and policy.environment and policy.generated and policy.kind == "ValidatingPolicy":
                     rendered.setdefault(policy.environment, []).append((name, policy.digest))
+        self._rendered_names = {env: {name for name, _ in pairs} for env, pairs in rendered.items()}
         self._rendered_hashes = {env: bundle_hash(pairs) for env, pairs in rendered.items()}
 
     def rendered_hash(self, env: str) -> str | None:
         return self._rendered_hashes.get(env)
+
+    def observed_hash(self, env: str, policies: Iterable[LivePolicy]) -> str | None:
+        # A watch lists the entire cluster. Current names identify this render even if the description
+        # is missing. The renderer's family descriptions identify obsolete members across configurations.
+        names = self._rendered_names.get(env, ())
+        descriptions = family_descriptions(env).values()
+        return live_hash(p for p in policies if p.name in names or p.description in descriptions)
 
     def for_environment(self, environment: str) -> dict[str, BundlePolicy]:
         """The policies that run for one environment, by name: those outside env/, and those under env/<environment>/."""

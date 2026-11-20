@@ -99,8 +99,10 @@ def test_cluster_hashes_follow_the_polled_policies(test_config, keys, monkeypatc
         assert (current["hashState"], current["hashes"]) == ("current", {"rendered": DEV_HASH, "live": DEV_HASH})
 
         # Extra generated policies count even if this render never contained their names.
+        description = next(p.description for p in ctx.bundle.for_environment("dev").values() if p.generated)
         kube.objects[("ValidatingPolicy", "", "obsolete")] = {
-            "metadata": {"name": "obsolete", "annotations": {"cmapi.net/generated": "true", DIGEST: "0" * 64}}}
+            "metadata": {"name": "obsolete", "annotations": {"cmapi.net/generated": "true", DIGEST: "0" * 64,
+                                                              policybundle.DESCRIPTION: description}}}
         sync(ctx)
         extra = cluster()
         assert extra["hashState"] == "drift" and extra["hashes"]["live"] != DEV_HASH
@@ -117,3 +119,18 @@ def test_disabled_cluster_hashes_are_off(test_config, tmp_path, policy, keys, mo
         [cluster] = get(client, keys, RESULTS)["clusters"]
         assert cluster["hashes"] == {"rendered": None, "live": None}
         assert cluster["hashState"] == "off"
+
+
+def test_dev_live_hash_ignores_foreign_and_handwritten_policies(test_config, keys, monkeypatch):
+    with build_world(test_config, keys, monkeypatch) as (client, ctx, _, kube, _, _):
+        kube.served_groups = set(KYVERNO)
+        live_bundle(kube, ctx)
+        # A prod bundle can reach this dev cluster. Check both its regular generated names and its expiry policy.
+        for path in (DEV.parent / "prod").glob("*.yaml"):
+            for doc in yaml.safe_load_all(path.read_text()):
+                kube.objects[("ValidatingPolicy", "", doc["metadata"]["name"])] = doc
+        kube.objects[("ValidatingPolicy", "", "manual")] = {"metadata": {"name": "manual"}}
+        sync(ctx)
+        [cluster] = get(client, keys, RESULTS)["clusters"]
+        assert cluster["hashes"] == {"rendered": DEV_HASH, "live": DEV_HASH}
+        assert cluster["hashState"] == "current"

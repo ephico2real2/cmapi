@@ -29,7 +29,7 @@ from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import Lister, ListQuery, Sorts
 from cmapi.core.models import PolicyResultPage, RejectionPage
-from cmapi.core.policybundle import BundlePolicy, live_hash
+from cmapi.core.policybundle import BundlePolicy
 from cmapi.core.policygen import ACTIONS
 from cmapi.core.registry import ClusterState
 from cmapi.core.rejections import RejectionRepo
@@ -190,8 +190,8 @@ def _cluster(c: AppContext, st: ClusterState, env: str, namespace: str | None
         view.update(state="drift", stateDetail=f"{b['expected'] - b['live']} missing, {b['live'] - b['current']} differ "
                                                f"from the render, {b['actionsDifferTotal']} without the actions "
                                                f"{', '.join(ACTIONS.get(mode, []))} of mode {mode}")
-    if live is not None:
-        observed = live_hash(live.values())
+    if live is not None and c.bundle is not None:
+        observed = c.bundle.observed_hash(env, live.values())
         view["hashes"]["live"] = observed
         view["hashState"] = hash_state(view["state"], rendered, observed)
     return view, rows, per_policy

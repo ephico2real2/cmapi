@@ -388,21 +388,34 @@ def _check_offered(catalog: TierCatalog, env: str) -> None:
         raise PolicyGenError("the rendered policies would refuse a tier that cmapi offers: " + "; ".join(problems))
 
 
+def family_descriptions(env: str) -> dict[str, str]:
+    """The environment-specific descriptions already stamped on generated policies, including older renders."""
+    descriptions = {
+        "metadata": f"The labels and annotations that metadata-keys.yaml requires of a managed namespace in {env}.",
+        "quota": f"Each ResourceQuota key of a managed namespace at or below the {env} maximum of tiers.yaml.",
+        "limits": f"Each LimitRange value of a managed namespace at or below the {env} maximum; limits never below requests.",
+    }
+    if env == "prod":
+        descriptions["expiry"] = "Production namespaces never carry expiration metadata."
+    return descriptions
+
+
 def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str, actions: list[str]) -> dict[str, str]:
     _check_offered(catalog, env)
     written = _written(catalog, keys, env, instance)
     metadata = _metadata_checks(keys, env, instance) + [c for kind in KINDS for c in _other_key_checks(keys, kind, written[kind])]
+    descriptions = family_descriptions(env)
     families = [
         (f"cmapi-metadata-{env}", "namespaces", metadata, _MANAGED_NS,
-         f"The labels and annotations that metadata-keys.yaml requires of a managed namespace in {env}."),
+         descriptions["metadata"]),
         (f"cmapi-quota-{env}", "resourcequotas", _quota_checks(catalog, env), _IN_MANAGED,
-         f"Each ResourceQuota key of a managed namespace at or below the {env} maximum of tiers.yaml."),
+         descriptions["quota"]),
         (f"cmapi-limits-{env}", "limitranges", _limits_checks(catalog, env), _IN_MANAGED,
-         f"Each LimitRange value of a managed namespace at or below the {env} maximum; limits never below requests."),
+         descriptions["limits"]),
     ]
     if env == "prod":
         families.append(("deny-expiry-in-prod", "namespaces", _expiry_checks(), None,
-                         "Production namespaces never carry expiration metadata."))
+                         descriptions["expiry"]))
     files: dict[str, str] = {}
     index: dict[str, dict[str, str | None]] = {}
     for family, resource, checks, match, description in families:
