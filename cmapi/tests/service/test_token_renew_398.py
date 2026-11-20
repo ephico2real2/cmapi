@@ -556,3 +556,28 @@ def test_short_default_grant_uses_the_documented_five_minute_floor(endpoints):
     for guide in ("docs/02-technical-design-v2.md", "docs/13-crc-deployment.md"):
         text = (ROOT / guide).read_text()
         assert "at least five minutes before expiry" in text
+
+
+def test_public_renewal_events_and_metrics_exclude_credentials(endpoints, monkeypatch):
+    from io import StringIO
+
+    import structlog
+    from prometheus_client import generate_latest
+
+    api = endpoints()
+    api.now += 3000
+    output = StringIO()
+    logger = structlog.wrap_logger(structlog.PrintLogger(file=output), processors=[structlog.processors.JSONRenderer()])
+    monkeypatch.setattr(api.module, "log", logger)
+    api.status = 403
+    assert api.scan()
+    api.status = 201
+    assert not api.scan()
+
+    events = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [e["event"] for e in events] == ["cluster_token_renew_failed", "cluster_token_renewed"]
+    metrics = generate_latest().decode()
+    assert 'cmapi_cluster_token_renewals_total{cluster_id="TEST",outcome="success"}' in metrics
+    for credential in [api.old, *api.grants, api.hub_token.read_text()]:
+        assert credential not in output.getvalue() + metrics
+        assert encoded(credential) not in output.getvalue() + metrics
