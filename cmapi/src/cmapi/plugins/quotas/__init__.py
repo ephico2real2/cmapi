@@ -97,7 +97,7 @@ def _in_state(rows: list[dict[str, Any]], state: str | None) -> list[dict[str, A
     return [r for r in rows if FACETS[state](r)]
 
 
-@router.read("/quotas", summary="Every namespace's quota, paged",
+@router.read("/quotas", summary="List namespace quotas",
              returns="One page of namespaces with their quota, used and hard, the attention counts, and the cursors of"
                      " the pages beside it.",
              permission="objects:read", response_model=QuotaPage,
@@ -120,7 +120,7 @@ def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team
     return page
 
 
-@router.read("/quotas:suggest", summary="Type-ahead matches",
+@router.read("/quotas:suggest", summary="List quota search suggestions",
              returns="Up to ten namespaces that match the text, each with why it matched.",
              permission="objects:read", response_model=Suggestions)
 def suggest(q: str = Query(default="", examples=["pay"],

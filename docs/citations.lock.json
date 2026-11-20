@@ -338,11 +338,11 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|201-206": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|248-253": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
-  "            responses = problem_responses(codes)",
+  "            responses = problem_responses(codes, permission)",
   "            x: dict[str, Any] = {\"x-cmapi-permission\": permission, \"x-cmapi-plugin\": self.plugin,",
   "                                 \"x-plugin-version\": self.version, **extra}"
  ],
@@ -542,10 +542,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|186-186": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|193-193": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|210-210": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|217-217": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
@@ -577,7 +577,7 @@
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|22-33": [
-  "@router.read(\"/me\", summary=\"Who am I\",",
+  "@router.read(\"/me\", summary=\"Get the caller's identity and permissions\",",
   "             returns=\"The caller's identity, roles, groups and permissions, with the environments each role covers.\",",
   "             permission=None, response_model=Me, problems=[\"unauthenticated\", \"idp-unavailable\"])",
   "def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:",
@@ -593,25 +593,25 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|104-104": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|117-117": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|118-118": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|138-138": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|139-139": [
   "        c.cfg.roles.require(who, \"requests:approve\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|169-169": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|170-170": [
   "        c.cfg.roles.require(who, \"requests:reject\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|186-186": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|188-188": [
   "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|191-191": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|193-193": [
   "                  actor_is_operator=c.cfg.roles.is_operator(who, row.env))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|209-209": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|213-213": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|241-241": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|245-245": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|28-28": [

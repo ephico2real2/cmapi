@@ -209,7 +209,7 @@ def _row_names(rows: list[dict[str, Any]]) -> None:
         r["name"] = key if seen[key] == 1 else f"{key}#{seen[key]}"
 
 
-@router.read("/policies/results", summary="Kyverno's results on each cluster, paged",
+@router.read("/policies/results", summary="List Kyverno results by cluster",
              returns="Each cluster's policy report state, each policy with its counts, and one page of the fail, warn "
                      "and error results.",
              permission="objects:read",
@@ -279,7 +279,7 @@ def _rejection(row: Any) -> dict[str, Any]:
             "name": f"{row.namespace}/{row.id:012d}", "_first": row.first_at.timestamp()}
 
 
-@router.read("/policies/rejections", summary="What cmapi refused before Git, paged",
+@router.read("/policies/rejections", summary="List policy rejections before Git",
              returns="One page of refusals, warnings and failed checks, newest first, in the caller's environments.",
              permission="requests:read",
              response_model=RejectionPage, problems=["invalid-cursor", "invalid-limit", "validation-failed"])

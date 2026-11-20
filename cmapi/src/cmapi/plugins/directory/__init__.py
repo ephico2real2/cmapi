@@ -38,8 +38,8 @@ def search(q: str = Query(min_length=2, examples=["ada"],
         raise Problem(503, "idp-unavailable", f"Directory unavailable: {exc}", extra={"retryAfter": 30}) from exc
 
 
-@router.read("/directory/users/{username}", summary="One person",
-             returns="The person's username, name, email address and employee ID.",
+@router.read("/directory/users/{username}", summary="Get a directory user",
+             returns="The person's username, name and email address, and the employee ID for an operator only.",
              permission="objects:read", response_model=DirectoryUser,
              problems=["object-not-found", "idp-unavailable"])
 def get_user(username: Username, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:

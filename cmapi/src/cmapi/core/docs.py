@@ -76,7 +76,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
     "rate-limited": (429, "Too many requests"),
-    "idp-unavailable": (503, "Keycloak signing keys are unreachable and none are cached"),
+    "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
@@ -108,10 +108,49 @@ WRITE_ACCEPTED = ("The request is created. It waits for approval unless a policy
                   "`approval` say which, and `links.events` follows it.")
 DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
 
+# A read that answers 304 to a matching If-None-Match, passed to read() as **CONDITIONAL_READ; FastAPI merges it into the
+# operation (openapi_extra). RFC 9110, 15.4.5: a 304 "cannot contain content", and it repeats the ETag of the 200.
+ETAG_HEADER = {"ETag": {"description": "The strong ETag of this answer, to send back in If-None-Match.",
+                        "schema": {"type": "string"}}}
+CONDITIONAL_READ: dict[str, Any] = {
+    "parameters": [{"name": "If-None-Match", "in": "header", "required": False,
+                    "description": "The ETag of the answer the caller holds. If it is still the current one, the answer is "
+                                   "304 with no body.",
+                    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}],
+    "responses": {"200": {"headers": ETAG_HEADER},
+                  "304": {"description": "Not modified: the ETag in If-None-Match is still the current one. Use the answer "
+                                         "you hold; this one has no body.", "headers": ETAG_HEADER}},
+}
 
-def problem_example(code: str) -> dict[str, Any]:
+
+def takes_validated_input(op: dict[str, Any]) -> bool:
+    """Whether FastAPI checks an input of the operation, so it can answer 422 validation-failed: a body, or a parameter.
+    If-None-Match does not count: the conditional reads take it from the raw request and compare it, never refuse it."""
+    params = [p for p in op.get("parameters") or () if p.get("name") != "If-None-Match"]
+    return bool(params or op.get("requestBody"))
+
+
+# A route's 403 examples name the route's own permission, in the words of core/authz.py's refusal (RolePolicy.require).
+PERMISSION_DETAILS: dict[str, str] = {
+    "forbidden": "Missing permission {permission}: no role in your token grants it (roles: ['cmapi-requester'])",
+    "environment-forbidden": "Your roles grant {permission} only in ['rnd'], not dev",
+}
+
+
+# The fields beyond `detail` that a problem carries where cmapi raises it, so its example shows them too: each 503 says
+# when to try again (core/auth.py Jwks.key, core/registry.py cache, core/pipeline.py).
+PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
+    "idp-unavailable": {"retryAfter": 30},
+    "cluster-unreachable": {"retryAfter": 30},
+    "validator-unavailable": {"retryAfter": 60},
+}
+
+
+def problem_example(code: str, permission: str | None = None) -> dict[str, Any]:
     status, detail = PROBLEMS[code]
-    return Problem(status, code, detail).body()
+    if permission is not None and code in PERMISSION_DETAILS:
+        detail = PERMISSION_DETAILS[code].format(permission=permission)
+    return Problem(status, code, detail, extra=dict(PROBLEM_EXTRAS.get(code, {}))).body()
 
 
 PROBLEM_SCHEMA: dict[str, str] = {"$ref": "#/components/schemas/ProblemDetail"}
@@ -122,7 +161,7 @@ def problem_description(status: int, codes: Sequence[str]) -> str:
     return f"{PROBLEM_STATUS_TEXT[status]}\n\nCodes: " + ", ".join(f"`{c}`" for c in codes) + "."
 
 
-def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
+def problem_responses(codes: Sequence[str], permission: str | None = None) -> dict[int | str, dict[str, Any]]:
     """One response for each status, with the one media type that cmapi answers a problem with (RFC 9457, section 3).
 
     The schema is written here as a reference and not passed as FastAPI's `model`: FastAPI puts a model under the media type
@@ -137,7 +176,7 @@ def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
     for status, names in sorted(by_status.items()):
         out[status] = {"description": problem_description(status, names),
                        "content": {"application/problem+json": {
-                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n)} for n in names}}}}
+                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n, permission)} for n in names}}}}
     return out
 
 
@@ -145,11 +184,19 @@ def add_problem(op: dict[str, Any], code: str) -> None:
     """Declare one more problem code on an operation of the document: its status's response, its named example and its
     description, after the codes that the route declared."""
     status = str(PROBLEMS[code][0])
-    declared = op["responses"].get(status) or {}
-    examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
+    # Copies, level by level: FastAPI puts the route's own dicts in the document, and every app of the process shares them.
+    # Each other field of the response (a header, an x- field) stays as the route declared it.
+    response = dict(op["responses"].get(status) or {})
+    content = dict(response.get("content") or {})
+    content.pop("application/json", None)                     # FastAPI's own 422 (HTTPValidationError): main.py answers a problem
+    media = dict(content.get("application/problem+json") or {"schema": PROBLEM_SCHEMA})
+    examples = dict(media.get("examples") or {})
     examples.setdefault(code, {"value": problem_example(code)})
-    op["responses"][status] = {"description": problem_description(int(status), list(examples)),
-                               "content": {"application/problem+json": {"schema": PROBLEM_SCHEMA, "examples": examples}}}
+    media["examples"] = examples
+    content["application/problem+json"] = media
+    response["content"] = content
+    response["description"] = problem_description(int(status), list(examples))
+    op["responses"][status] = response
     op["responses"] = dict(sorted(op["responses"].items()))      # Swagger UI and ReDoc list them in this order
 
 
@@ -201,7 +248,7 @@ class DocumentedRouter(APIRouter):
             if permission:
                 desc += f"\n\n**Requires** `{permission}`."
             op_id = f"{self.plugin}_{fn.__name__}"
-            responses = problem_responses(codes)
+            responses = problem_responses(codes, permission)
             x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
                                  "x-plugin-version": self.version, **extra}
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
@@ -396,9 +443,19 @@ def sample_request(method: str, path: str, op: dict[str, Any], components: dict[
             "headers": headers, "body": body}
 
 
+# The base URL of the samples when instance.yaml has no publicUrl (main.py): a shell variable, like $TOKEN.
+URL_VARIABLE = "$CMAPI_URL"
+
+
 def curl_sample(request: dict[str, Any]) -> str:
-    """The sample as one curl command. $TOKEN stays for the shell to fill, so it is the one part in double quotes."""
-    parts = ["curl", "-X", request["method"], shlex.quote(request["url"])]
+    """The sample as one curl command. $CMAPI_URL and $TOKEN stay for the shell to fill, so they are the parts in double
+    quotes; everything else is quoted as it is."""
+    url = request["url"]
+    if url.startswith(URL_VARIABLE + "/"):
+        target = f'"{URL_VARIABLE}"' + shlex.quote(url[len(URL_VARIABLE):])
+    else:
+        target = shlex.quote(url)
+    parts = ["curl", "-X", request["method"], target]
     for name, value in request["headers"]:
         header = f"{name}: {value}"
         parts += ["-H", f'"{header}"' if "$TOKEN" in value else shlex.quote(header)]
@@ -680,7 +737,7 @@ def _document_validation_problem(spec: dict[str, Any]) -> None:
     problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
     for ops in spec["paths"].values():
         for op in ops.values():
-            if isinstance(op, dict) and (op.get("parameters") or op.get("requestBody")):
+            if isinstance(op, dict) and takes_validated_input(op):
                 add_problem(op, "validation-failed")
     schemas = spec.get("components", {}).get("schemas", {})
     schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))

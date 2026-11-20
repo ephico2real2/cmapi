@@ -59,8 +59,18 @@ def require(permission: str, env_from: Callable[..., str | None] | None = None) 
 
 def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                            examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
-                                                           description="A new random value for each new request, such as a UUID. Required, except with "
-                                                                       "`dryRun=true`. The same key and caller get the first answer again for 24 hours.")) -> str | None:
+                                                           description="A new random value for each new request, such as a UUID, of at most 100 "
+                                                                       "characters. Required, except with `dryRun=true`. The same key and caller get "
+                                                                       "the first answer again for 24 hours.")) -> str | None:
+    return idempotency_key
+
+
+def delete_idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
+                                                                  examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
+                                                                  description="A new random value for each new request, such as a UUID, of at most "
+                                                                              "100 characters. Required: a delete has no dry run. The same key and "
+                                                                              "caller get the first answer again for 24 hours.")) -> str | None:
+    """The delete's key: the same header, described without the dry run that a delete does not take (_idem(key, False))."""
     return idempotency_key
 
 

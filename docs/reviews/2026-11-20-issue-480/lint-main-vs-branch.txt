@@ -1,5 +1,7 @@
-== main ef7b488 (cmapi/contract/openapi.json)
-S1 summary and description: 0 gaps
+== main c92b04b (cmapi/contract/openapi.json)
+S1 summary and description: 22 gaps
+    GET /api/v1/admin/auto-approval: summary 'Auto-approval switch state' does not start with a verb of VERBS
+    GET /api/v1/admin/git-log: summary 'Recent commits in cluster-configs' does not start with a verb of VERBS
 S2 one tag in one group: 0 gaps
 S3 permission and security: 36 gaps
     GET /api/v1/admin/auto-approval: takes a token and has no 503 idp-unavailable, which the token check answers
@@ -7,7 +9,7 @@ S3 permission and security: 36 gaps
 S4 parameters: 0 gaps
 S5 request body: 0 gaps
 S6 request example: 0 gaps
-S7 every status described: 217 gaps
+S7 every status described: 219 gaps
     GET /api/v1/admin/auto-approval: 200 says nothing of what it returns ('Successful Response')
     GET /api/v1/admin/auto-approval: 401 does not start with what the status means
 S8 one named example per problem code: 178 gaps
@@ -15,7 +17,7 @@ S8 one named example per problem code: 178 gaps
     GET /api/v1/admin/auto-approval: 403 does not list its codes ['forbidden']
 S9 extensions: 0 gaps
 S10 curl sample: 0 gaps
-== this branch (rendered)
+== this branch (cmapi/contract/openapi.json)
 S1 summary and description: 0 gaps
 S2 one tag in one group: 0 gaps
 S3 permission and security: 0 gaps

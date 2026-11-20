@@ -13,7 +13,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Auto-approval switch state
+         * Get the auto-approval switch state
          * @description Whether the kill switch is on, who set it and why.
          *
          *     **Requires** `requests:read`.
@@ -79,7 +79,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Recent commits in cluster-configs
+         * List recent commits in cluster-configs
          * @description The last commits on the repository's default branch: the bot's merges.
          *
          *     **Requires** `reports:read`.
@@ -101,7 +101,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Integration modes and health
+         * Get integration modes and health
          * @description Each integration's mode (delivery, sync signal, operations engine, event publisher, policy engine) and the import
          *     status per cluster.
          *
@@ -124,7 +124,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * System KPIs
+         * Get system KPIs
          * @description The KPIs tab's data: each component's cgroup memory and CPU against its limit, the database figures,
          *     and the KPI rows cmapi computes from its own tables. A figure that cannot be measured reads unavailable, never 0.
          *
@@ -147,7 +147,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The plugins of this instance
+         * List this instance's plugins
          * @description Each part of the API with its version, and what `plugins.yaml` says for this instance: whether a plugin is
          *     enabled, and the environments where an override stops its writes. A plugin that is not enabled has no route and
          *     is not in this document.
@@ -195,7 +195,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Cluster capacity, grouped
+         * Get cluster capacity by group
          * @description Each cluster of the environments where the caller holds capacity:read: what cmapi's ResourceQuotas commit against the
          *     cluster's size times the environment's overcommit, with the size's basis (`simulated` from clusters.yaml, or the nodes'
          *     `allocatable`), the nodes, the zones and a named state. Then the groups by `groupBy`, whose figures are recomputed from the
@@ -223,7 +223,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Clusters this instance knows
+         * List known clusters
          * @description Every cluster from clusters.yaml and every imported one, with its import status and the findings
          *     of the six checks. A cluster with a policy entry but no import Secret shows not-imported.
          *
@@ -246,7 +246,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Managed namespaces on a cluster
+         * List managed namespaces on a cluster
          * @description Every namespace labelled cmapi.net/managed=true on the cluster, from the watch cache, with the request
          *     holding each one's lock. The etag is only on the single-namespace read, because it comes from Git.
          *
@@ -283,7 +283,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One namespace, with its etag
+         * Get a namespace and its ETag
          * @description The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE.
          *
          *     `git` is the folder's labels and annotations, from the same read as the etag, and `sync` compares them with the live
@@ -440,7 +440,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One person
+         * Get a directory user
          * @description A person by username (cached 15 minutes, served from the cache when Keycloak is unreachable).
          *
          *     **Requires** `objects:read`.
@@ -462,7 +462,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Namespaces by expiry, paged
+         * List namespaces by expiry
          * @description One page of the managed namespaces that can expire, in the caller's environments: each one's expiry date from the
          *     watch cache, the days left, its state and the notices sent, the count of each state over the other filters, and the
          *     rules of each environment. Where expiration is off (no entry in expiration.yaml, or enabled: false, such as prod), only a
@@ -488,7 +488,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Who am I
+         * Get the caller's identity and permissions
          * @description The caller's identity as cmapi records it, the roles and groups in the token, and the permissions
          *     each role grants with the environments it covers. The first thing to check when a call returns 403. `operator` says
          *     whether the caller may set the operator-only keys (namespaces:protect), and `operatorEnvironments` where (#366).
@@ -510,7 +510,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The rules of a new namespace's labels and annotations
+         * Get namespace label and annotation rules
          * @description This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each
          *     declared key with its rule, which keys are required, which cmapi fills in (x-cmapi-derived-from), and which only an
          *     operator (namespaces:protect) may set. The same schemas as NamespaceCreate in the API document, here also when
@@ -543,7 +543,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What cmapi refused before Git, paged
+         * List policy rejections before Git
          * @description The plans that cmapi refused (a 422 that never became a request), Kyverno's warnings on plans that went on to a request,
          *     and the pull requests that the worker's checks failed, in the environments where the caller holds requests:read, newest
          *     first. Each holds who asked by username only. A refusal repeated on its UTC day is one row with its `count`.
@@ -567,7 +567,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Kyverno's results on each cluster, paged
+         * List Kyverno results by cluster
          * @description The clusters of the caller's environments with the state of their policy reports, each policy of the bundle with its
          *     counts, and one page of the fail, warn and error results on managed namespaces, from the watch of each cluster's reports.
          *     A cluster whose results are not known (Kyverno not installed, not reachable, not readable, its mode off) has a state and
@@ -592,7 +592,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every namespace's quota, paged
+         * List namespace quotas
          * @description One page of managed namespaces in the caller's environments with hard and used requests.cpu,
          *     requests.memory and pods from the watch cache, their tier, whether the catalog moved on (tier-outdated),
          *     and the attention counts over the current filters.
@@ -638,7 +638,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Type-ahead matches
+         * List quota search suggestions
          * @description Up to ten namespaces whose name starts with the text, then contains it, then whose team or app label matches.
          *
          *     **Requires** `objects:read`.
@@ -683,7 +683,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One request
+         * Get a request
          * @description The request with its approval ledger, its PR and every event so far.
          *
          *     **Requires** `requests:read`.
@@ -705,7 +705,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Is this request approved, and for which plan
+         * Get a request's approval status
          * @description What the cmapi check in CI asks: the request is approved (or further along) and the plan hash the PR must carry.
          *
          *     **Requires** `requests:read`.
@@ -727,7 +727,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A request's events
+         * List a request's events
          * @description Every state change of the request, oldest first: what the portal's WorkflowViewer draws.
          *
          *     **Requires** `requests:read`.
@@ -819,8 +819,10 @@ export interface paths {
         put?: never;
         /**
          * Retry a failed request
-         * @description From failed: re-takes the namespace lock (409 if another request holds it) and opens the PR again.
-         *     From sync_failed: watches the sync again, or for a delete, looks for the pruned namespace again.
+         * @description Queues the next delivery step; the worker runs it after this answer. From failed: re-takes the namespace lock (409
+         *     if another request holds it) and pushes the branch and opens the PR again. From merge_failed: merges again. From
+         *     sync_failed: applies again (an apply that had not finished), looks for the pruned namespace again (a delete), or
+         *     watches the sync again.
          *
          *     **Requires** `requests:retry`.
          */
@@ -863,7 +865,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The tier catalog
+         * Get the tier catalog
          * @description The tiers offered per environment with their quota and LimitRange values, the custom bounds, and the
          *     catalog hash a rendered quota carries as cmapi.net/tier-hash.
          *
@@ -886,7 +888,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Version and commit of the running build
+         * Get the running build's version and commit
          * @description The commit the image was built from, so a deployment can be checked against its source.
          */
         get: operations["core_version"];
@@ -5393,7 +5395,10 @@ export interface operations {
                 /** @description Only this cluster. One that is not in the caller's scope returns 404 `cluster-not-found`, as an unknown one does. */
                 clusterId?: string | null;
             };
-            header?: never;
+            header?: {
+                /** @description The ETag of the answer the caller holds. If it is still the current one, the answer is 304 with no body. */
+                "If-None-Match"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5402,6 +5407,8 @@ export interface operations {
             /** @description The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's targets and snapshot state. */
             200: {
                 headers: {
+                    /** @description The strong ETag of this answer, to send back in If-None-Match. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5555,6 +5562,15 @@ export interface operations {
                      */
                     "application/json": components["schemas"]["CapacityPage"];
                 };
+            };
+            /** @description Not modified: the ETag in If-None-Match is still the current one. Use the answer you hold; this one has no body. */
+            304: {
+                headers: {
+                    /** @description The strong ETag of this answer, to send back in If-None-Match. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /**
              * @description No token, or the token is not valid.
@@ -5801,7 +5817,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -5859,7 +5875,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
             };
             path: {
@@ -6158,7 +6174,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`, `on-behalf-of-not-allowed`, `on-behalf-of-required`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`.
              */
             422: {
                 headers: {
@@ -6290,7 +6306,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -6358,7 +6374,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6544,7 +6560,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `namespace-protected`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `namespace-protected`.
              */
             422: {
                 headers: {
@@ -6583,7 +6599,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -6602,7 +6618,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6883,7 +6899,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `no-change`.
              */
             422: {
                 headers: {
@@ -6941,7 +6957,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -7192,7 +7208,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-not-set`, `expiration-in-past`, `expiration-limit`.
              */
             422: {
                 headers: {
@@ -7250,7 +7266,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -7524,7 +7540,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-not-set`.
              */
             422: {
                 headers: {
@@ -7582,7 +7598,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -7833,7 +7849,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`, `expiration-already-set`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-already-set`, `expiration-in-past`, `expiration-limit`.
              */
             422: {
                 headers: {
@@ -8096,7 +8112,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The person's username, name, email address and employee ID. */
+            /** @description The person's username, name and email address, and the employee ID for an operator only. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8486,7 +8502,10 @@ export interface operations {
     core_metadata_keys: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the answer the caller holds. If it is still the current one, the answer is 304 with no body. */
+                "If-None-Match"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8495,6 +8514,8 @@ export interface operations {
             /** @description The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each environment, with an ETag. */
             200: {
                 headers: {
+                    /** @description The strong ETag of this answer, to send back in If-None-Match. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8753,6 +8774,15 @@ export interface operations {
                      */
                     "application/json": components["schemas"]["MetadataKeysView"];
                 };
+            };
+            /** @description Not modified: the ETag in If-None-Match is still the current one. Use the answer you hold; this one has no body. */
+            304: {
+                headers: {
+                    /** @description The strong ETag of this answer, to send back in If-None-Match. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /**
              * @description No token, or the token is not valid.
@@ -10518,7 +10548,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -10614,7 +10644,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -10773,7 +10803,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -11158,7 +11188,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -11432,7 +11462,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request, with its pull request opened again (from failed) or its sync watched again (from sync_failed). */
+            /** @description The request, with the next delivery step queued for the worker: the pull request again (from failed), the merge (merge_failed), or the apply, the prune or the sync watch (sync_failed). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11590,7 +11620,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -11817,7 +11847,7 @@ export interface operations {
             /**
              * @description The caller may not do this, or not in this environment.
              *
-             *     Codes: `forbidden`.
+             *     Codes: `forbidden`, `environment-forbidden`.
              */
             403: {
                 headers: {
@@ -11843,7 +11873,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `invalid-transition`, `change-pending`.
+             *     Codes: `invalid-transition`.
              */
             409: {
                 headers: {
@@ -12116,7 +12146,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `validation-failed`.
+             *     Codes: `policy-violation`, `validation-failed`.
              */
             422: {
                 headers: {

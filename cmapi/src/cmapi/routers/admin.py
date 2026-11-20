@@ -165,7 +165,7 @@ def resume(body: SwitchBody, who: Identity = Depends(require("approvals:pause"))
     return _switch(c)
 
 
-@router.read("/auto-approval", summary="Auto-approval switch state",
+@router.read("/auto-approval", summary="Get the auto-approval switch state",
              returns="Whether the kill switch is on, with who set it, when and why.",
              permission="requests:read", response_model=SwitchView)
 def switch_state(who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
@@ -179,7 +179,7 @@ def _switch(c: AppContext) -> dict:
     return {"paused": bool(v.get("paused")), "reason": v.get("reason"), "setBy": v.get("setBy"), "setAt": v.get("setAt")}
 
 
-@router.read("/integrations", summary="Integration modes and health",
+@router.read("/integrations", summary="Get integration modes and health",
              returns="Each integration's mode and health, and the import status of each cluster.",
              permission="clusters:read", response_model=Integrations)
 def integrations(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
@@ -193,7 +193,7 @@ def integrations(who: Identity = Depends(require("clusters:read")), c: AppContex
             "policy": c.cfg.policy.view(c.cfg.allowed_environments)}
 
 
-@router.read("/plugins", summary="The plugins of this instance",
+@router.read("/plugins", summary="List this instance's plugins",
              returns="Each plugin with its version, whether plugins.yaml enables it, and where an override stops its "
                      "writes.",
              permission="clusters:read", response_model=PluginList)
@@ -210,7 +210,7 @@ def plugins(request: Request, who: Identity = Depends(require("clusters:read")),
     return {"instance": c.cfg.name, "configured": switch.configured, "items": core + built_in}
 
 
-@router.read("/git-log", summary="Recent commits in cluster-configs",
+@router.read("/git-log", summary="List recent commits in cluster-configs",
              returns="The last commits on the default branch of cluster-configs.",
              permission="reports:read", response_model=GitLog,
              problems=["git-unavailable"])
@@ -222,7 +222,7 @@ def git_log(who: Identity = Depends(require("reports:read")), c: AppContext = De
         raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
 
 
-@router.read("/kpi", summary="System KPIs",
+@router.read("/kpi", summary="Get system KPIs",
              returns="Each component's memory and CPU against its limit, the database figures and the KPI rows; a "
                      "figure not measured reads unavailable.",
              permission="reports:read", response_model=KpiView)

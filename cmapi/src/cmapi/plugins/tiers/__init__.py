@@ -14,10 +14,11 @@ router = DocumentedRouter("tiers", prefix="/api/v1", version=__version__, group=
                           description="The tier catalog: the quota and LimitRange values that each environment offers.")
 
 
-@router.read("/tiers", summary="The tier catalog",
+@router.read("/tiers", summary="Get the tier catalog",
              returns="The tiers of each environment asked for, the catalog's hash, and what a request may size or "
                      "override.",
-             permission="objects:read", response_model=TierCatalogView)
+             permission="objects:read", response_model=TierCatalogView,
+             problems=["policy-violation"])     # an environment that the instance does not serve (TierError, main.py)
 def tiers(environment: str | None = Query(default=None, examples=["dev"],
                                               description="Only this environment. Without it, the answer has each environment "
                                                           "that the instance serves."),

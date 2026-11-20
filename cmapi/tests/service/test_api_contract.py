@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from cmapi.core.docs import PROBLEMS, check_documented
+from cmapi.core.docs import PROBLEMS, check_documented, takes_validated_input
 
 
 def test_openapi_lists_every_route_with_summary_permission_and_problems(world):
@@ -97,6 +97,6 @@ def test_a_request_that_fastapi_refuses_is_an_rfc_9457_problem_like_every_other_
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             r422 = op["responses"].get("422")
-            if op.get("parameters") or op.get("requestBody"):
+            if takes_validated_input(op):       # If-None-Match of a conditional read is compared, never validated (#503)
                 assert r422 and "validation-failed" in r422["content"]["application/problem+json"]["examples"], f"{method} {path}"
                 assert "application/json" not in r422["content"], f"{method} {path}"

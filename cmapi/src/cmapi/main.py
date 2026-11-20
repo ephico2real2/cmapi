@@ -25,7 +25,7 @@ from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
-from cmapi.core.docs import PROBLEMS, InstanceFacts, build_openapi, check_documented, plugin_routers
+from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.kpi import register_collectors
@@ -129,7 +129,7 @@ def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None,
     _add_servers(app, cfg)
     plugins = plugin_routers((health.version_router, *authed_routers))
     app.state.plugins = plugins
-    public_url = cfg.raw_instance["instance"].get("publicUrl") or "$CMAPI_URL"
+    public_url = cfg.raw_instance["instance"].get("publicUrl") or URL_VARIABLE
     problem_base = type_base(cfg.raw_instance["instance"])
 
     def openapi() -> dict[str, Any]:

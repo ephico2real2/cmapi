@@ -7,7 +7,7 @@ import json
 from fastapi import Depends, Request, Response
 
 from cmapi.core.context import AppContext
-from cmapi.core.docs import CORE, DocumentedRouter, metadata_keys_view
+from cmapi.core.docs import CONDITIONAL_READ, CORE, DocumentedRouter, metadata_keys_view
 from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
@@ -19,7 +19,7 @@ from cmapi.routers import ClusterId, caller, ctx, require
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
-@router.read("/me", summary="Who am I",
+@router.read("/me", summary="Get the caller's identity and permissions",
              returns="The caller's identity, roles, groups and permissions, with the environments each role covers.",
              permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
 def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
@@ -33,7 +33,7 @@ def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
             "operatorEnvironments": roles.operator_environments(who)}
 
 
-@router.read("/clusters", summary="Clusters this instance knows",
+@router.read("/clusters", summary="List known clusters",
              returns="Every cluster with its environment, import status and the findings of its checks.",
              permission="clusters:read", response_model=ClusterList)
 def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
@@ -55,11 +55,11 @@ def metadata_keys_document(keys: MetadataKeys, expiration: ExpirationRules,
     return body, etag_of(body)
 
 
-@router.read("/metadata-keys", summary="The rules of a new namespace's labels and annotations",
+@router.read("/metadata-keys", summary="Get namespace label and annotation rules",
              returns="The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each "
                      "environment, with an ETag.",
              permission="objects:read",
-             response_model=MetadataKeysView)
+             response_model=MetadataKeysView, **CONDITIONAL_READ)
 def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> Response:
     """This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each

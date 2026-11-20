@@ -3,10 +3,14 @@ operation of the document meets S1 to S10, so Swagger UI and ReDoc show each one
 
 The documents are the ones that the reference instance serves (`cmapi-tools openapi render`, no database): on the
 reference metadata-keys.yaml, which test_the_committed_contract_is_the_document_this_code_serves holds equal to
-cmapi/contract/openapi.json, and on the company keys of the namespace design. Each check is one row of CHECKS: a function
-that returns one failure line per gap, such as "GET /api/v1/kpi: 200 says nothing of what it returns ('Successful
-Response')". The second test breaks the create operation once per check and holds the check to its failure, so a check
+cmapi/contract/openapi.json, on the company keys of the namespace design, and on the design's own keys. Each check is
+one row of CHECKS: a function that returns one failure line per gap, such as "GET /api/v1/kpi: 200 says nothing of what
+it returns ('Successful Response')". The second test breaks the create operation once per check and holds the check to its failure, so a check
 that can never fail is caught too.
+
+Two more tests hold the document to sources outside it: what each route declares (FastAPI's document before
+build_openapi adds to it), and the create operation's answers in the design's section 5.4. The last section holds what
+each operation can answer to the code that answers it (the review of #503).
 
 S9 is also the renderers' settings; test_api_docs.py checks that /docs and /redoc are served with them.
 """
@@ -15,35 +19,69 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
+import yaml
+from fastapi import FastAPI
+from metadata_corpus import SchemaReader
+from test_namespace_contract_479 import DESIGN
 
-from cmapi.core.docs import PROBLEM_STATUS_TEXT, PROBLEMS, WRITE_ACCEPTED, DocumentedRouter, problem_description
+from cmapi.core.docs import (PROBLEM_STATUS_TEXT, PROBLEMS, WRITE_ACCEPTED, DocumentedRouter, problem_description,
+                             takes_validated_input)
 from cmapi.core.models import Health
-from cmapi.main import openapi_document
+from cmapi.main import api_app, openapi_document
 from cmapi.tools.openapi import cluster_environments, load
 
-# The reference file of the committed contract, and the company keys of the namespace design (#479, section 3.1).
+# The reference file of the committed contract, the company keys of the namespace design (#479, section 3.1), and the
+# design's own keys, the one of the three with a namespace suffix and a default (x-cmapi-suffix-from, x-cmapi-default-from).
 POLICIES = Path(__file__).resolve().parents[3] / "examples/cluster-configs/policies"
 CREATE = ("post", "/api/v1/clusters/{cluster_id}/namespaces")
 FASTAPI_DEFAULT = "Successful Response"
 MEDIA_TYPES = ("application/json", "text/csv")
 SCALARS = ("string", "integer", "number", "boolean")
+# S1: a summary starts with what the caller does. A new kind of operation adds its verb here.
+VERBS = {"Approve", "Cancel", "Change", "Confirm", "Create", "Delete", "Export", "Extend", "Get", "Give", "List", "Pause",
+         "Probe", "Reject", "Remove", "Resume", "Retry", "Revert", "Search"}
+# S3: the operations that need a token and no permission (GET /me is how a caller finds out what it may do).
+TOKEN_ONLY = {("get", "/api/v1/me")}
+# S7: the reads that answer 304 to a matching If-None-Match (routers/me.py, plugins/capacity/router.py).
+CONDITIONAL_READS = {("get", "/api/v1/metadata-keys"), ("get", "/api/v1/capacity")}
 Op = dict[str, Any]
 
 
-@pytest.fixture(scope="module", params=["metadata-keys.yaml", "metadata-keys.company.yaml"])
-def spec(request) -> dict[str, Any]:
-    cfg = load(POLICIES / request.param, None)
+@pytest.fixture(scope="module", params=["metadata-keys.yaml", "metadata-keys.company.yaml", "design"])
+def cfg(request, tmp_path_factory) -> Any:
+    path = POLICIES / request.param
+    if request.param == "design":
+        path = tmp_path_factory.mktemp("design") / "metadata-keys.yaml"
+        path.write_text(yaml.safe_dump(DESIGN))
+    return load(path, None)
+
+
+@pytest.fixture(scope="module")
+def spec(cfg) -> dict[str, Any]:
     return openapi_document(cfg, cluster_environments(cfg, None))
+
+
+@pytest.fixture(scope="module")
+def declared(cfg) -> dict[str, Any]:
+    """The document as FastAPI writes it from the routes alone, before build_openapi adds to it: what each route declares."""
+    app, _ = api_app(cfg, cfg.raw_instance["instance"]["auth"]["issuer"], cluster_environments=cluster_environments(cfg, None))
+    return FastAPI.openapi(app)
 
 
 def operations(spec: dict[str, Any]):
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             yield method, path, op
+
+
+def problem_codes(response: dict[str, Any]) -> dict[str, Any]:
+    """The named examples of a problem response: one for each code."""
+    return ((response.get("content") or {}).get("application/problem+json") or {}).get("examples") or {}
 
 
 def schema_of(schema: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +104,8 @@ def check_summary(method: str, path: str, op: Op, spec: dict) -> list[str]:
     summary = op.get("summary") or ""
     if not summary or len(summary) > 60 or summary.endswith("."):
         out.append(f"summary {summary!r} is not a phrase of at most 60 characters with no final stop")
+    if summary.partition(" ")[0] not in VERBS:
+        out.append(f"summary {summary!r} does not start with a verb of VERBS")
     if len(op.get("description") or "") < 40:
         out.append("description says too little (under 40 characters)")
     return out
@@ -84,6 +124,12 @@ def check_permission(method: str, path: str, op: Op, spec: dict) -> list[str]:
     """S3: the permission in x-cmapi-permission and in the description; a token-only route says 401 and 503."""
     out = []
     permission, secured = op.get("x-cmapi-permission"), bool(op.get("security"))
+    schemes = (spec.get("components") or {}).get("securitySchemes") or {}
+    for requirement in op.get("security") or ():
+        out.extend(f"names the security scheme {name}, which the document does not define"
+                   for name in requirement if name not in schemes)
+    if secured and permission is None and (method, path) not in TOKEN_ONLY:
+        out.append("takes a token and names no x-cmapi-permission")
     codes = {s: set(((r.get("content") or {}).get("application/problem+json") or {}).get("examples") or ())
              for s, r in op["responses"].items()}
     if permission is not None:
@@ -131,6 +177,9 @@ def check_request_body(method: str, path: str, op: Op, spec: dict) -> list[str]:
     if list(content) != ["application/json"] or len(refs) != 1:
         return [f"request body is not one application/json schema by reference: {list(content)}"]
     out = []
+    optional = any(sub.get("type") == "null" for sub in schema.get("anyOf") or ())
+    if not optional and op["requestBody"].get("required") is not True:
+        out.append("request body is not marked required")
     model = schema_of(refs[0], spec)
     for field, prop in (model.get("properties") or {}).items():
         if not prop.get("description"):
@@ -143,14 +192,16 @@ def check_request_body(method: str, path: str, op: Op, spec: dict) -> list[str]:
 
 
 def check_request_example(method: str, path: str, op: Op, spec: dict) -> list[str]:
-    """S6: one complete Example Value for the request body (recorded or generated, so it is an object)."""
+    """S6: one complete Example Value for the request body (recorded or generated, so it is an object) that its own schema
+    accepts, so "Try it out" sends a body that passes validation."""
     media = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
     if media is None:
         return []
     values = [media["example"]] if "example" in media else [e.get("value") for e in (media.get("examples") or {}).values()]
     if not values or not all(isinstance(v, dict) and v for v in values):
         return ["request body has no complete example"]
-    return []
+    validator = SchemaReader().validator({**media["schema"], "components": spec["components"]})
+    return [f"request example breaks its schema: {e.message[:200]}" for v in values for e in validator.iter_errors(v)]
 
 
 def check_responses(method: str, path: str, op: Op, spec: dict) -> list[str]:
@@ -165,12 +216,21 @@ def check_responses(method: str, path: str, op: Op, spec: dict) -> list[str]:
         if status.startswith("2"):
             if len(content) != 1 or list(content)[0] not in MEDIA_TYPES:
                 out.append(f"{status} is not one of {MEDIA_TYPES}: {list(content)}")
+            elif not any(k in media for media in content.values() for k in ("example", "examples")):
+                out.append(f"{status} has no example")
+        elif status == "304":
+            # RFC 9110, 15.4.5: a 304 "cannot contain content", and it repeats the ETag of the 200.
+            if content or "ETag" not in (r.get("headers") or {}):
+                out.append("304 has a body or no ETag header")
         elif list(content) != ["application/problem+json"]:
             out.append(f"{status} is not application/problem+json alone: {list(content)}")
         elif not description.startswith(PROBLEM_STATUS_TEXT.get(int(status), "\0")):
             out.append(f"{status} does not start with what the status means")
-    if (op.get("parameters") or op.get("requestBody")) and "422" not in responses:
+    if takes_validated_input(op) and "422" not in responses:
         out.append("takes input and has no 422 validation-failed")
+    conditional = any(p.get("name") == "If-None-Match" for p in op.get("parameters") or ())
+    if ((method, path) in CONDITIONAL_READS) != ("304" in responses) or ("304" in responses) != conditional:
+        out.append("answers 304 to If-None-Match and does not document both, or documents them and does not")
     return out
 
 
@@ -222,8 +282,15 @@ def check_curl_sample(method: str, path: str, op: Op, spec: dict) -> list[str]:
         return [f"has not one Shell curl sample: {samples}"]
     source = samples[0].get("source", "")
     out = []
-    if not source.startswith(f"curl -X {method.upper()} ") or "{" in source.split()[3]:
-        out.append(f"curl sample is not a {method.upper()} with its path filled: {source[:120]}")
+    # The path that the sample calls: the operation's, each path parameter at its documented example.
+    expected = path
+    for p in op.get("parameters") or ():
+        if p.get("in") == "path":
+            expected = expected.replace("{" + p["name"] + "}", str(((p.get("schema") or {}).get("examples") or ["?"])[0]))
+    words = shlex.split(source)
+    url = words[3] if len(words) > 3 else ""
+    if words[:3] != ["curl", "-X", method.upper()] or not url.split("?")[0].endswith(expected):
+        out.append(f"curl sample is not a {method.upper()} of {expected}: {source[:120]}")
     if ('"Authorization: Bearer $TOKEN"' in source) != bool(op.get("security")):
         out.append("curl sample's token does not match the security scheme")
     return out
@@ -278,6 +345,208 @@ def test_a_route_that_says_nothing_of_its_answer_does_not_register():
     assert r.routes[-1].response_description == WRITE_ACCEPTED
 
 
+def test_the_document_keeps_what_each_route_declares(declared, spec):
+    """build_openapi adds to the routes' own document and takes nothing away: the security, the permission, each
+    parameter's rules and required flag, the body's required flag and each field's rules, each status and each code."""
+    out = []
+    for method, path, route in operations(declared):
+        op, label = spec["paths"][path][method], f"{method.upper()} {path}"
+        for key in ("security", "x-cmapi-permission"):
+            if op.get(key) != route.get(key):
+                out.append(f"{label}: {key} is {op.get(key)}, the route declares {route.get(key)}")
+        published = {(p["name"], p["in"]): p for p in op.get("parameters") or ()}
+        for p in route.get("parameters") or ():
+            mine = published.get((p["name"], p["in"]), {})
+            rules = {k: v for k, v in p["schema"].items() if k not in ("examples", "description", "title")}
+            kept = {k: v for k, v in (mine.get("schema") or {}).items() if k in rules}
+            if kept != rules or mine.get("required") != p.get("required"):
+                out.append(f"{label}: parameter {p['name']} lost a rule or its required flag")
+        if (op.get("requestBody") or {}).get("required") != (route.get("requestBody") or {}).get("required"):
+            out.append(f"{label}: the body's required flag changed")
+        for status, response in route["responses"].items():
+            codes, shown = problem_codes(response), problem_codes(op["responses"].get(status) or {})
+            if status not in op["responses"] or not set(codes) <= set(shown):
+                out.append(f"{label}: {status} or one of its codes {sorted(codes)} is missing")
+    models = declared["components"]["schemas"]
+    for name, model in models.items():
+        if name in ("HTTPValidationError", "ValidationError"):
+            continue            # FastAPI's 422, which the problem validation-failed replaces (_document_validation_problem)
+        for field, prop in (model.get("properties") or {}).items():
+            if name in ("NamespaceCreate", "NamespacePatch") and field in ("labels", "annotations"):
+                continue        # the instance's metadata-keys.yaml writes these two (the next test)
+            mine = spec["components"]["schemas"].get(name, {}).get("properties", {}).get(field, {})
+            lost = [k for k, v in prop.items() if k not in ("examples", "description", "title") and mine.get(k) != v]
+            if lost:
+                out.append(f"{name}.{field} lost {lost}")
+    assert out == [], "\n  ".join(out)
+
+
+def test_the_namespace_fields_carry_the_rules_of_metadata_keys(cfg, spec):
+    """S5 and S9 for the configured fields: labels and annotations are the instance's JSON Schemas, with their x-cmapi-*
+    markers, and the namespace name says which keys start and end it (#479, design section 5.5)."""
+    fields = spec["components"]["schemas"]["NamespaceCreate"]["properties"]
+    for field, kind in (("labels", "label"), ("annotations", "annotation")):
+        for key, value in cfg.metadata.json_schema(kind, "create").items():
+            assert fields[field].get(key) == value, f"NamespaceCreate.{field}: {key}"
+    for marker, target in (("x-cmapi-prefix-from", cfg.metadata.prefix_key()),
+                           ("x-cmapi-suffix-from", cfg.metadata.suffix_key())):
+        assert fields["namespace"].get(marker) == (target[1] if target else None), marker
+
+
+# The answers of the create operation, as the design's section 5.4 lists them, with two changes that the code decides: the
+# token check's 503 idp-unavailable (#504), and no top-level invalid-team-dl or no-change. A bad team-dl is an item of a
+# policy-violation (core/metadata.py), and a create always changes Git: namespace-exists refuses a folder that holds one.
+CREATE_ANSWERS = {
+    "200": [], "202": [],
+    "400": ["idempotency-key-required"],
+    "401": ["unauthenticated"],
+    "403": ["forbidden", "environment-forbidden"],
+    "404": ["cluster-not-found"],
+    "409": ["change-pending", "idempotency-replay", "namespace-exists", "namespace-exists-unmanaged"],
+    "422": ["cluster-not-writable", "environment-not-served", "plugin-disabled", "validation-failed", "policy-violation",
+            "capacity-exceeded", "identity-incomplete", "unknown-user", "unknown-serviceaccount", "reserved-namespace",
+            "invalid-namespace-name", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",
+            "on-behalf-of-required"],
+    "502": ["git-unavailable"],
+    "503": ["cluster-unreachable", "validator-unavailable", "idp-unavailable"],
+}
+
+
+def test_the_create_operation_answers_what_the_design_lists(spec):
+    responses = _create(spec)["responses"]
+    assert sorted(responses) == sorted(CREATE_ANSWERS)
+    for status, codes in CREATE_ANSWERS.items():
+        assert sorted(problem_codes(responses[status])) == sorted(codes), status
+
+
+# ---------------------------------------------------------------- what each operation can answer (#503 review)
+
+def _codes(spec: dict, operation_id: str, status: str) -> set[str]:
+    op = next(op for _, _, op in operations(spec) if op["operationId"] == operation_id)
+    return set(problem_codes(op["responses"].get(status) or {}))
+
+
+@pytest.mark.parametrize("operation_id", ["requests_get_request", "requests_get_events", "requests_approval_status",
+                                          "requests_cancel", "requests_retry", "requests_revert",
+                                          "namespaces_list_namespaces", "namespaces_get_namespace"])
+def test_a_route_that_checks_the_permission_in_an_environment_shows_environment_forbidden(spec, operation_id):
+    """Each of these calls roles.require with the request's or the cluster's environment (core/authz.py)."""
+    assert "environment-forbidden" in _codes(spec, operation_id, "403")
+
+
+def test_revert_takes_no_namespace_lock_so_it_has_no_change_pending(spec):
+    """:revert only queues open_revert (routers/requests.py); the new request takes the lock in the worker."""
+    assert _codes(spec, "requests_revert", "409") == {"invalid-transition"}
+
+
+def test_a_delete_renders_nothing_and_names_no_requester(spec):
+    """plan_delete runs no validator, no capacity check and no render of a namespace, and sends no onBehalfOf."""
+    codes = _codes(spec, "namespaces_delete_namespace", "422") | _codes(spec, "namespaces_delete_namespace", "503")
+    assert codes.isdisjoint({"policy-violation", "capacity-exceeded", "unknown-serviceaccount", "no-change",
+                             "validator-unavailable", "unknown-user", "on-behalf-of-not-allowed"})
+    assert "on-behalf-of-required" in codes
+
+
+@pytest.mark.parametrize("operation_id,has", [
+    ("namespaces_create_namespace", {"unknown-user", "on-behalf-of-not-allowed", "on-behalf-of-required", "expiration-in-past"}),
+    ("namespaces_update_namespace", {"unknown-user", "on-behalf-of-not-allowed", "on-behalf-of-required", "no-change"}),
+    ("namespaces_extend", {"on-behalf-of-required", "expiration-not-set", "expiration-in-past", "expiration-limit"}),
+    ("namespaces_set_expiry", {"on-behalf-of-required", "expiration-already-set", "expiration-in-past", "expiration-limit"}),
+    ("namespaces_make_permanent", {"on-behalf-of-required", "expiration-not-set"}),
+])
+def test_each_namespace_write_shows_the_refusals_of_its_own_steps(spec, operation_id, has):
+    """No top-level invalid-team-dl (a policy-violation item), and only the date checks that each expiry route runs
+    (plugins/expiration/rules.py): :makePermanent takes no date, :set refuses a date that exists."""
+    codes = _codes(spec, operation_id, "422")
+    assert has <= codes and "invalid-team-dl" not in codes
+    every = {"unknown-user", "on-behalf-of-not-allowed", "no-change", "expiration-not-set", "expiration-already-set",
+             "expiration-in-past", "expiration-limit"}
+    assert not (codes & every) - has, sorted((codes & every) - has)
+
+
+def test_an_environment_that_the_tier_catalog_does_not_serve_is_a_policy_violation(spec):
+    """GET /tiers?environment=x raises TierError, which main.py answers with 422 policy-violation."""
+    assert "policy-violation" in _codes(spec, "tiers_tiers", "422")
+
+
+def test_each_403_example_names_the_permission_of_its_route(spec):
+    for _, path, op in operations(spec):
+        permission = op.get("x-cmapi-permission")
+        for code in ("forbidden", "environment-forbidden"):
+            example = problem_codes(op["responses"].get("403") or {}).get(code)
+            if permission and example:
+                assert permission in example["value"]["detail"], (path, code)
+
+
+def test_the_token_checks_503_example_is_the_answer_of_the_token_check(spec):
+    """core/auth.py, Jwks.key: an unknown key while Keycloak cannot be read is 503 idp-unavailable with retryAfter."""
+    from cmapi.core.auth import Jwks
+    from cmapi.core.errors import Problem
+
+    def unreachable(url):
+        raise OSError("Keycloak is down")
+
+    with pytest.raises(Problem) as refusal:
+        Jwks("issuer", "https://keycloak.test/certs", fetch=unreachable).key("a-key-it-never-saw")
+    for _, path, op in operations(spec):
+        if op.get("security"):
+            assert op["responses"]["503"]["content"]["application/problem+json"]["examples"]["idp-unavailable"]["value"] == \
+                refusal.value.body(), path
+
+
+def test_a_sample_without_a_public_url_lets_the_shell_fill_cmapi_url(tmp_path):
+    """instance.yaml without publicUrl: the samples start with $CMAPI_URL, which single quotes would keep from the shell."""
+    import os
+    import subprocess
+
+    from cmapi.core.docs import curl_sample
+
+    command = curl_sample({"method": "GET", "url": "$CMAPI_URL/api/v1/version", "headers": [], "body": None})
+    shown = subprocess.run(["sh", "-c", "curl() { printf '%s\\n' \"$@\"; }; " + command], check=True, text=True,
+                           capture_output=True, env={**os.environ, "CMAPI_URL": "https://cmapi.test"}).stdout.splitlines()
+    assert shown == ["-X", "GET", "https://cmapi.test/api/v1/version"]
+
+
+def test_the_directory_and_the_retry_say_what_the_caller_gets(spec):
+    """GET /directory/users/{username} gives the employee ID to an operator only (Person.public), and :retry queues the
+    next step for the worker (routers/requests.py): it opens no pull request itself."""
+    person = spec["paths"]["/api/v1/directory/users/{username}"]["get"]["responses"]["200"]["description"]
+    retry = spec["paths"]["/api/v1/requests/{request_id}:retry"]["post"]["responses"]["200"]["description"]
+    assert "operator only" in person and "queued" in retry
+
+
+def test_the_delete_key_is_described_as_the_delete_checks_it(spec):
+    """DELETE takes no dryRun and always checks its Idempotency-Key (_idem(key, False)): 400 without one, or past 100."""
+    from cmapi.plugins.namespaces.router import _idem
+
+    for key in (None, "", "k" * 101):
+        with pytest.raises(Exception, match="Idempotency-Key"):
+            _idem(key, False)
+    ops = spec["paths"]["/api/v1/clusters/{cluster_id}/namespaces/{ns}"]
+    delete = next(p for p in ops["delete"]["parameters"] if p["name"] == "Idempotency-Key")["description"]
+    patch = next(p for p in ops["patch"]["parameters"] if p["name"] == "Idempotency-Key")["description"]
+    assert "dryRun" not in delete and "100 characters" in delete
+    assert "dryRun" in patch and "100 characters" in patch
+
+
+def test_adding_a_problem_keeps_what_the_response_declared_and_the_order_of_the_statuses():
+    """add_problem (core/docs.py) adds a code to a copy of the response: its headers stay, the route's dict is not changed,
+    and the statuses stay in order, as Swagger UI and ReDoc list them."""
+    from cmapi.core.docs import add_problem, problem_responses
+
+    declared = problem_responses(["cluster-unreachable"])[503]
+    declared["headers"] = {"Retry-After": {"schema": {"type": "integer"}}}
+    before = copy.deepcopy(declared)
+    op = {"responses": {"200": {"description": "ok"}, "503": declared}}
+    add_problem(op, "validation-failed")
+    add_problem(op, "idp-unavailable")
+    assert declared == before        # the route's own dict, which FastAPI shares between the apps of a process
+    assert list(op["responses"]) == ["200", "422", "503"]
+    assert op["responses"]["503"]["headers"] == {"Retry-After": {"schema": {"type": "integer"}}}
+    assert set(op["responses"]["503"]["content"]["application/problem+json"]["examples"]) == {"cluster-unreachable",
+                                                                                            "idp-unavailable"}
+
+
 # ---------------------------------------------------------------- each check can fail
 
 def _create(spec: dict) -> Op:
@@ -290,22 +559,32 @@ def _problem(spec: dict, status: str) -> dict[str, Any]:
 
 BREAKS: list[tuple[str, str, Callable[[dict], Any]]] = [
     ("S1 summary and description", "final stop", lambda s: _create(s).update(summary="Create a namespace.")),
+    ("S1 summary and description", "verb", lambda s: _create(s).update(summary="Namespace creation")),
     ("S2 one tag in one group", "not the one tag", lambda s: _create(s).update(tags=["namespaces", "quotas"])),
     ("S3 permission and security", "no 503 idp-unavailable", lambda s: _create(s)["responses"].pop("503")),
     ("S3 permission and security", "**Requires**", lambda s: _create(s).update(description="Plans a new namespace on the cluster.")),
+    ("S3 permission and security", "no x-cmapi-permission", lambda s: _create(s).pop("x-cmapi-permission")),
+    ("S3 permission and security", "does not define", lambda s: _create(s).update(security=[{"missing": []}])),
     ("S4 parameters", "has no example", lambda s: _create(s)["parameters"][0]["schema"].pop("examples")),
     ("S5 request body", "has no description",
      lambda s: s["components"]["schemas"]["NamespaceCreate"]["properties"]["namespace"].pop("description")),
+    ("S5 request body", "not marked required", lambda s: _create(s)["requestBody"].pop("required")),
     ("S6 request example", "no complete example",
      lambda s: _create(s)["requestBody"]["content"]["application/json"].update(examples={})),
+    ("S6 request example", "breaks its schema",
+     lambda s: _create(s)["requestBody"]["content"]["application/json"]["examples"]["permanent"].update(value={"namespace": "x"})),
     ("S7 every status described", "says nothing", lambda s: _create(s)["responses"]["202"].update(description=FASTAPI_DEFAULT)),
     ("S7 every status described", "what the status means", lambda s: _create(s)["responses"]["409"].update(description="409")),
+    ("S7 every status described", "202 has no example",
+     lambda s: _create(s)["responses"]["202"]["content"]["application/json"].pop("example")),
     ("S8 one named example per problem code", "does not list its codes",
      lambda s: _problem(s, "409")["examples"].pop("idempotency-replay")),
     ("S8 one named example per problem code", "not a registered code",
      lambda s: _problem(s, "409")["examples"].update({"forbidden": _problem(s, "409")["examples"]["change-pending"]})),
     ("S9 extensions", "has no x-plugin-version", lambda s: _create(s).pop("x-plugin-version")),
     ("S10 curl sample", "not one Shell curl sample", lambda s: _create(s).pop("x-codeSamples")),
+    ("S10 curl sample", "is not a POST of",
+     lambda s: _create(s)["x-codeSamples"][0].update(source=_create(s)["x-codeSamples"][0]["source"].replace("/namespaces ", "/x "))),
 ]
 
 
