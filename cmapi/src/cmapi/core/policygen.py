@@ -32,6 +32,9 @@ disallowed, one the count of other keys over allowOther.max, and for annotations
 maxBytesTotal. They read classify()'s own lists and its globs as metadata's regexes (`_glob_regex`), and they allow the
 keys that cmapi's renderer writes on every namespace, which a request never sends. Who sent a system, operator-only or
 reserved key is not on the object: those keys are allowed there, and refusing them to a requester stays cmapi's check.
+A disallowed key whose value the object already held is kept, as a declared key is (#497): cmapi keeps it on a change
+(#492). At admission the policy does not count a key that oldObject holds, so it runs at admission only (#345). At plan
+time cmapi reads the keys that a failure names from its message (outside_keys) and drops it when Git holds each one.
 """
 from __future__ import annotations
 
@@ -152,6 +155,12 @@ def _same(kind: str, key: str) -> str:
             f"(!({k} in {new}) || {new}[{k}] == {old}[{k}]))")
 
 
+def _held_key(kind: str) -> str:
+    """CEL, inside a filter over the key k: an UPDATE whose oldObject holds k with the same value (#497)."""
+    new, old = _meta(kind), _meta(kind, "oldObject")
+    return f"(variables.update && k in {old} && {old}[k] == {new}[k])"
+
+
 def _value_rule(rule: KeyRule, value: str, domains: list[str]) -> tuple[str, str, str] | None:
     """(rule name, CEL that is true when the value is good, the rule in words) for a declared key's value. A pattern or
     a format is metadata.value_regex: the one string that cmapi's validator matches too, already anchored for CEL's
@@ -267,6 +276,23 @@ def _under(globs: Iterable[str], *, exact: bool) -> str | None:
     return f"(!k.startsWith('/') && k.matches({cel('^(?:' + '|'.join(parts) + ')/')}))"
 
 
+# The message of the policy on keys outside allowOther.prefixes, around the sorted keys it names. outside_keys reads it
+# back, so the plan-time ratchet can keep a key whose value Git holds (#497): one text, written and read here only.
+OUTSIDE_LEAD = "the {kind} keys "
+OUTSIDE_TAIL = " are not declared in metadata-keys.yaml"
+
+
+def outside_keys(message: str | None, kind: str) -> list[str] | None:
+    """The keys that a failure of the outside-keys policy of this kind names, or None when the message is not one of its
+    messages (another policy's, or Kyverno's static fallback). A key never holds ", " (Kubernetes key syntax), so the
+    list splits on it. None makes the caller keep the failure: a false refusal at worst, never a false pass."""
+    lead = OUTSIDE_LEAD.format(kind=kind)
+    if not message or not message.startswith(lead) or OUTSIDE_TAIL not in message:
+        return None
+    named = message[len(lead):message.index(OUTSIDE_TAIL)]
+    return named.split(", ") if named else None
+
+
 def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[Check]:
     """The keys of one kind that no stanza declares (#333), as validate() reads them on the result of a request: a key
     that classify() calls disallowed, more other keys than allowOther.max, and an annotation's bytes."""
@@ -287,12 +313,12 @@ def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[
     counted = f"!(k in {fixed}){f' && !{reserved}' if reserved else ''} && ({team})"
     v = f"variables.{kind}Other"
     checks = [Check(kind, None, "prefix", f"size(variables.{kind}Outside) == 0",
-                    f"{cel(f'the {kind} keys ')} + variables.{kind}Outside.sort().join(', ') + "
-                    + cel(f" are not declared in metadata-keys.yaml, and are outside {stanza}.allowOther.prefixes "
-                          f"[{shown}]"),
+                    f"{cel(OUTSIDE_LEAD.format(kind=kind))} + variables.{kind}Outside.sort().join(', ') + "
+                    + cel(f"{OUTSIDE_TAIL}, and are outside {stanza}.allowOther.prefixes [{shown}]"),
                     f"a {kind} key is not declared in metadata-keys.yaml, and is outside {stanza}.allowOther.prefixes "
                     f"[{shown}]",
-                    ((f"{kind}Outside", f"{m}.filter(k, !({allowed}))"),)),
+                    # At admission a key whose value oldObject holds is not counted (#497), as _same keeps a declared key.
+                    ((f"{kind}Outside", f"{m}.filter(k, !({allowed}) && !{_held_key(kind)})"),)),
               Check(kind, None, "max", f"size({v}) <= {other.max}",
                     f"{cel('there are ')} + string(size({v})) + "
                     + cel(f" other {kind}s (keys under {stanza}.allowOther.prefixes); at most {other.max} "

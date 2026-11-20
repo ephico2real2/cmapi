@@ -306,11 +306,14 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
     cmapi.net/generated: 'true'
-    cmapi.net/policy-digest: 13109b822d9195d990b846d54d63f774d6176a7fb5aac183a2a529a9007e350e
+    cmapi.net/policy-digest: 72812d8d87cd2a526db2f33cb3219d2019c22230c4c859f6d5c4b8272f9b2da2
 spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -329,7 +332,8 @@ spec:
   - name: update
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   - name: labelOutside
-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))) && !(variables.update && k in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})
+      && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})[k] == (has(object.metadata.labels) ? object.metadata.labels : {})[k]))'
   validations:
   - expression: size(variables.labelOutside) == 0
     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
@@ -378,11 +382,14 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
     cmapi.net/generated: 'true'
-    cmapi.net/policy-digest: 3c504e6c73388ffeaf61792f875a7ca77bd583c8208fb231d204b28c3526ea1c
+    cmapi.net/policy-digest: c5d915648773e2b37642faa92c03f386f57a319fc6402d91fc0d0224bd1b8291
 spec:
   validationActions:
   - Audit
   - Warn
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -401,7 +408,8 @@ spec:
   - name: update
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   - name: annotationOutside
-    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash", "do-not-delete"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+    expression: '(has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, !(k in ["argocd.argoproj.io/sync-options", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/team-dl", "cmapi.net/tier", "cmapi.net/tier-hash", "do-not-delete"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))) && !(variables.update && k in (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}) && (has(oldObject.metadata.annotations)
+      ? oldObject.metadata.annotations : {})[k] == (has(object.metadata.annotations) ? object.metadata.annotations : {})[k]))'
   validations:
   - expression: size(variables.annotationOutside) == 0
     message: a annotation key is not declared in metadata-keys.yaml, and is outside extraAnnotations.allowOther.prefixes ["", "*.ephico2real.com/"]

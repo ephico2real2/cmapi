@@ -43,9 +43,9 @@ def test_a_label_that_git_holds_under_an_annotations_key_can_be_removed_but_neve
                         "annotations": {}}, cls                                          # the annotation stays
 
 
-def test_the_plan_time_policy_reports_a_label_under_an_annotations_key_on_every_change(kyverno, catalog, tmp_path):
-    """Why the removal must be possible, as for M2: the other-keys policy has no ratchet, so in enforce every change of a
-    namespace that holds such a label is refused, and before this fix no request could remove it."""
+def test_the_plan_time_policy_keeps_a_label_under_an_annotations_key_that_git_holds(kyverno, catalog, tmp_path):
+    """Before #497 the other-keys policy had no ratchet, so in enforce every change of a namespace that held such a label
+    was refused (the reason for M2's removal). Now an unchanged held label is kept, and null can still remove it."""
     from cmapi.core.policy import PolicySettings
     from test_policygen import validator
     from test_review_479_suffix_policy import rendered, suffix_keys
@@ -60,8 +60,7 @@ def test_the_plan_time_policy_reports_a_label_under_an_annotations_key_on_every_
     now[path] = yaml.safe_dump(doc)
     found = validator(catalog, keys, tmp_path / "enforce", policy=PolicySettings(default_mode="enforce")).validate(
         now, "OCP_GF15", "rnd", previous=dict(now))                    # unchanged from Git
-    assert [(f.rule, f.severity) for f in found if f.source == "kyverno"] == [
-        ("cmapi-metadata-rnd-label-other-keys-prefix", "error")]
+    assert [(f.rule, f.severity) for f in found if f.source == "kyverno"] == []
     held = {k: v for k, v in doc["metadata"]["labels"].items() if keys.classify(k, "label") != "system"}
     assert keys.validate({key: None}, {}, operator=False, existing=True, current_labels=held,
                          current_annotations=doc["metadata"]["annotations"]) == []
