@@ -329,6 +329,30 @@ try {
     await context.close();
   });
 
+  await check("407 paused Requests keeps the previous page's cursors off until reconnect", async () => {
+    const { context, page } = await fresh();
+    try {
+      await open(page);
+      const next = panel(page).getByRole("button", { name: "Next ›" });
+      const prev = panel(page).getByRole("button", { name: "‹ Previous" });
+      await next.click();
+      await waitRange(page, "26–50 of 61");
+      await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+      await page.getByRole("textbox", { name: "Find a request" }).fill("LEDGER");
+      await page.waitForURL((url) => url.hash === "#requests?q=LEDGER");
+      const table = page.getByRole("table", { name: "Requests" });
+      await table.and(page.locator("[aria-busy=true]")).waitFor();
+      assert.ok(await prev.isDisabled() && await next.isDisabled(), "paused rows still have the old cursors");
+      assert.equal(calls("/api/v1/requests").filter((c) => c.query.q === "LEDGER").length, 0);
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+      await waitRange(page, "1–25 of 30");
+      assert.equal(await table.getAttribute("aria-busy"), null);
+      assert.ok(await prev.isDisabled() && await next.isEnabled());
+    } finally {
+      await context.close();
+    }
+  });
+
   await check("3 loading, then empty with the mockup's words", async () => {
     const { context, page, errors } = await fresh({ mode: "empty" });
     api.state.delayMs = 700;
