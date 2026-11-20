@@ -634,6 +634,22 @@ kind: ClusterRoleBinding
 metadata: {name: cmapi-reader-monitoring}     # Thanos Querier for the capacity plugin
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
 subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cmapi-reader-renew, namespace: cmapi-system}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [cmapi-reader]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-renew, namespace: cmapi-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-renew}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
 ```
 
 The reader can request its own token through a Role in cmapi-system scoped to `resourceNames: [cmapi-reader]`. The baseline keeps the reserved `cmapi-token-issuer` ClusterRole empty, including on reapply to older installations. Existing bindings in managed workload namespaces therefore grant the reader no token issuance there. A future sa-tokens implementation needs a separate issuer identity.
@@ -793,7 +809,7 @@ Each refusal is a finding on that cluster only; the other clusters keep being re
 | Polling tokens had no expiry, chosen so nothing ever had to re-authenticate with the shared account; rotation was a manual Rejoin. | Bounded baseline TokenRequest tokens renewed by the worker (defaults of seven days and 80% of issued life), with the expiry visible as a metric and an alert. |
 | Every login left an OAuthAccessToken object on the remote, which needed careful revocation, and a list-and-delete sweep once removed people's own oc sessions. | Nothing to clean up: ServiceAccount tokens create no OAuthAccessToken objects. |
 | Connections came from both chart values and Secrets, so precedence rules and a secret-shadows-values finding were needed. | Disjoint fields: the import Secret holds the connection, clusters.yaml holds policy. |
-| Generated Secrets were only safe to delete with an exact managed-by value plus UID and resourceVersion preconditions, the way ArgoCD prunes only what it tracks. | One writer per import Secret (managed-by: cluster-baseline); cmapi is read-only on the hub. |
+| Generated Secrets were only safe to delete with an exact managed-by value plus UID and resourceVersion preconditions, the way ArgoCD prunes only what it tracks. | The baseline bootstraps the import. The worker patches the token and expiry on its observed Secret version. The operator can refresh it manually with the same version check. |
 | Three TLS modes; naming two at once is refused; a failure names the trust store in use and the fix for that mode. | Adopted as-is (the TLS table above). |
 | A remote API or proxy echoed the request, putting the bearer token into error messages that were stored and served. Truncating before redacting left half a token behind. | Redact the token and its JSON-escaped forms first, then truncate. |
 | One HTTP 200 without an items field was read as "no groups", deleting 60 groups and writing 120 false removal events. | Require items on every list; otherwise the outcome is bad-response. |

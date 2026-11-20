@@ -435,3 +435,18 @@ def test_managed_namespace_binding_cannot_expand_the_readers_token_grant():
     assert binding["subjects"] == [{"kind": "ServiceAccount", "name": "cmapi-reader", "namespace": "cmapi-system"}]
     role = next(d for d in docs if d["kind"] == "ClusterRole" and d["metadata"]["name"] == binding["roleRef"]["name"])
     assert role["rules"] == []  # The reserved plugin binding grants no access in a workload namespace.
+
+
+def test_documented_baseline_installs_renewal_and_keeps_recovery_commands():
+    design = (ROOT / "docs/02-technical-design-v2.md").read_text()
+    crc = (ROOT / "docs/13-crc-deployment.md").read_text()
+    block = design.split("**What the baseline creates on every cluster.", 1)[1].split("```yaml", 1)[1].split("```", 1)[0]
+    def renewal_objects(source):
+        return [d for d in yaml.safe_load_all(source) if d and d["metadata"]["name"] == "cmapi-reader-renew"]
+    baseline = renewal_objects((ROOT / "examples/baseline/cmapi-reader-rbac.yaml").read_text())
+    assert len(baseline) == 2
+    assert renewal_objects(block) == baseline
+    assert "cmapi is read-only on the hub" not in design
+    for guide in (design, crc):
+        assert all(term in guide for term in ("deploy/crc-reader-import.sh", "deploy/kind-import/up.sh <checkout>",
+                                              "cluster_token_renew_failed", "CmapiClusterTokenExpiring"))
