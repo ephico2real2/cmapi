@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 
 READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
+MIN_WINDOW = 300
+DEFAULT_PERCENTAGE = 20
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
@@ -20,10 +22,13 @@ def duration_seconds(value: str) -> int:
 class TokenPolicy:
     duration: int = 7 * 86400
     renew_before: int | None = None
-    percentage: int | None = 20
+    percentage: int | None = DEFAULT_PERCENTAGE
 
     def window(self, lifetime: int) -> float:
         if self.renew_before is not None:
+            # A capped grant must leave time for normal use before starting another rotation.
+            if lifetime < self.duration and lifetime - self.renew_before < MIN_WINDOW:
+                return lifetime * DEFAULT_PERCENTAGE / 100
             return self.renew_before
         return lifetime * self.percentage / 100
 
@@ -43,7 +48,7 @@ class TokenPolicy:
         if not 600 <= duration <= (2**63 - 1) // 1_000_000_000:
             raise ValueError("duration must be at least 10m and fit a Kubernetes duration")
         policy = TokenPolicy(duration, before, percent)
-        if not 300 <= policy.window(duration) < duration:
+        if not MIN_WINDOW <= policy.window(duration) < duration:
             raise ValueError("renewal window must be at least 5m and shorter than duration")
         return policy
 
@@ -72,7 +77,7 @@ class ReaderGrant:
         return cls(issued, expires)
 
     def renewal_time(self, policy: TokenPolicy) -> float:
-        return self.expires - max(300, policy.window(self.expires - self.issued))
+        return self.expires - max(MIN_WINDOW, policy.window(self.expires - self.issued))
 
     def check_new(self, policy: TokenPolicy, now: float) -> None:
         if self.issued > now or self.expires - self.issued > policy.duration:

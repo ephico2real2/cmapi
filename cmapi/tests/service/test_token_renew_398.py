@@ -450,3 +450,16 @@ def test_documented_baseline_installs_renewal_and_keeps_recovery_commands():
     for guide in (design, crc):
         assert all(term in guide for term in ("deploy/crc-reader-import.sh", "deploy/kind-import/up.sh <checkout>",
                                               "cluster_token_renew_failed", "CmapiClusterTokenExpiring"))
+
+
+@pytest.mark.parametrize("before", ["24h", "3599s"])
+def test_shorter_grant_with_unusable_absolute_window(endpoints, before):
+    api = endpoints({"duration": "7d", "renewBefore": before}, lifetime=3600)
+    api.now += 60
+    assert not api.scan() and not api.requests
+    api.now = START + 2879
+    assert not api.scan() and not api.requests
+    api.now += 1
+    assert not api.scan() and len(api.patches) == 1
+    api.now += 60
+    assert not api.scan() and len(api.requests) == 1

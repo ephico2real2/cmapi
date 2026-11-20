@@ -144,7 +144,10 @@ Durations use an unsigned whole number and one suffix, `d`, `h`, `m` or `s`. For
 configured maximum. Kubernetes may grant a shorter lifetime. Choose one of `renewBefore`
 (a duration before expiry) and `renewBeforePercentage` (an integer from 1 to 99). At startup the
 effective window must be at least 5 minutes and shorter than the requested duration. At runtime
-the percentage uses the JWT's actual lifetime, with a 5-minute minimum window. A grant already
+the percentage uses the JWT's actual lifetime, with a 5-minute minimum window. A fixed window
+normally retains its configured duration. If the server shortens the grant enough that this window
+leaves less than five minutes from issuance to renewal, cmapi uses 20% of the issued lifetime
+as the window, with the same five-minute minimum. Bootstrap applies the same rule. A grant already
 due for renewal is refused. The kind example schedules renewal 12 minutes before expiry for a
 full one-hour grant.
 

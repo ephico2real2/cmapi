@@ -233,3 +233,11 @@ def test_first_import_creates_with_the_bootstrap_manager(tmp_path, monkeypatch):
     assert "resourceVersion" not in secret["metadata"]
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
     assert calls[-1] == ["create", "--field-manager=crc-reader-import.sh", "-f", "-"]
+
+
+def test_bootstrap_accepts_short_grant_with_long_absolute_window(tmp_path, monkeypatch):
+    monkeypatch.setenv("CMAPI_TOKEN_DURATION", "7d")
+    monkeypatch.setenv("CMAPI_TOKEN_RENEW_BEFORE", "24h")
+    now = int(time.time())
+    secret, _, diagnostic = import_crc(tmp_path, now, lifetime=3600)
+    assert secret["metadata"]["annotations"]["cmapi.net/token-expires-at"] in diagnostic
