@@ -1,0 +1,176 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>Cluster Token Renewal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · #398 · import-token renewal · 2026-11-20</div>
+    <h1>How cmapi renews each cluster's import token</h1>
+    <p class="lede">Each managed cluster is reached with a bounded TokenRequest token for <code>cmapi-system/cmapi-reader</code>, kept
+      in an import Secret on the hub. The worker renews it before it expires, so nobody renews tokens by hand. The manual
+      script stays as the fallback. Shipped in #469 and #478, and proven on CRC on 2026-11-20.</p>
+  </header>
+
+  <section>
+    <h2>The renewal loop</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 720" role="img" aria-label="Every 60 seconds the worker lists the import Secrets, and for each one whose renewal time has come it requests a new reader token from the cluster with the current one, checks it, and patches the Secret under its resourceVersion; the API and the worker use it from their next relist. Any failure is logged with a fixed reason, counted, retried with backoff and alerted at ten percent of the lifetime left.">
+          <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
+            <rect x="20" y="14" width="450" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
+            <text x="245" y="34" text-anchor="middle" fill="var(--host)">HUB  ·  cmapi's worker and cmapi-imports</text>
+            <rect x="510" y="14" width="450" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/>
+            <text x="735" y="34" text-anchor="middle" fill="var(--remote)">MANAGED CLUSTER  ·  its API server</text>
+          </g>
+          <line x1="490" y1="14" x2="490" y2="582" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <rect x="50" y="62" width="410" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="83" font-weight="600">① token_renew, every 60 s, in the worker</text>
+            <text x="64" y="101" fill="var(--muted)">jobs/token_renew.py: one scan of every import Secret</text>
+            <line x1="255" y1="112" x2="255" y2="128" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah)"/>
+
+            <rect x="50" y="130" width="410" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="151" font-weight="600">② list the import Secrets of cmapi-imports</text>
+            <text x="64" y="169" fill="var(--muted)">managed-by cluster-baseline, with token-expires-at</text>
+            <line x1="255" y1="180" x2="255" y2="196" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah)"/>
+
+            <rect x="50" y="198" width="410" height="66" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="219" font-weight="600">③ due?  now ≥ renewal_time(policy)</text>
+            <text x="64" y="237">the token's sub is cmapi-reader; its exp = the annotation</text>
+            <text x="64" y="255" fill="var(--muted)">not due → nothing is written or logged</text>
+            <line x1="255" y1="264" x2="255" y2="280" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah)"/>
+            <text x="263" y="277" fill="var(--muted)">due</text>
+
+            <rect x="50" y="282" width="410" height="50" rx="6" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="64" y="303" font-weight="600" fill="var(--remote)">④ request a new token with the current one</text>
+            <text x="64" y="321">trust from the import: its CA and serverName (#434)</text>
+            <line x1="460" y1="307" x2="526" y2="307" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah)"/>
+
+            <rect x="530" y="272" width="420" height="70" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="546" y="294" font-weight="600" fill="var(--remote)">TokenRequest for cmapi-system/cmapi-reader</text>
+            <text x="546" y="312">expirationSeconds = clusterTokens.duration</text>
+            <text x="546" y="330" fill="var(--muted)">Role cmapi-reader-renew: create, cmapi-reader only</text>
+            <text x="546" y="368" fill="var(--muted)">The issuer may grant a shorter lifetime, so the</text>
+            <text x="546" y="385" fill="var(--muted)">client reads exp (k8s.io/api authentication/v1).</text>
+
+            <path d="M 530,336 C 494,348 494,380 462,386" fill="none" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="350" y="355" fill="var(--muted)">token, expiry</text>
+
+            <rect x="50" y="366" width="410" height="66" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="387" font-weight="600">⑤ check the new grant before writing it</text>
+            <text x="64" y="405">sub; lifetime ≤ duration; iat ≤ now + 60 s; not yet due</text>
+            <text x="64" y="423" fill="var(--muted)">expirationTimestamp must equal the token's exp</text>
+            <line x1="255" y1="432" x2="255" y2="448" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah)"/>
+
+            <rect x="50" y="450" width="410" height="66" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="471" font-weight="600">⑥ PATCH the Secret at its resourceVersion</text>
+            <text x="64" y="489">token and token-expires-at · Role cmapi-imports-renewer</text>
+            <text x="64" y="507" fill="var(--muted)">a newer version wins (409): this grant is dropped</text>
+            <line x1="255" y1="516" x2="255" y2="532" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah)"/>
+
+            <rect x="50" y="534" width="410" height="48" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="64" y="555" font-weight="600">⑦ the API and the worker relist (≤ 300 s)</text>
+            <text x="64" y="572" fill="var(--muted)">the new token is in use within the 10-minute floor</text>
+
+            <line x1="36" y1="88" x2="36" y2="602" stroke="var(--gap)" stroke-width="1.4" marker-end="url(#ah)"/>
+            <rect x="30" y="604" width="920" height="70" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5"/>
+            <text x="46" y="626" font-weight="600" fill="var(--gap)">Any step fails → cluster_token_renew_failed, with a fixed reason (never a response: it could hold a token)</text>
+            <text x="46" y="644">cmapi_cluster_token_renewals_total{outcome="failure"} + 1 · the next scan retries in 5, 10, 20, 40, then 60 s</text>
+            <text x="46" y="662" fill="var(--muted)">CmapiClusterTokenExpiring fires at ≤ 10 % of the lifetime left · manual fallback: deploy/crc-reader-import.sh</text>
+            <text x="30" y="704" fill="var(--muted)">All shipped (#469, #478). On CRC on 2026-11-20 a 20-minute token was renewed on its next scan; both processes used it by 10:09:12Z.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Every 60 seconds the worker scans the import Secrets. For each one that is due, it asks the cluster for a new
+        reader token with the current one, checks the grant, and patches the Secret under its resourceVersion, so a newer
+        write always wins. The API and the worker use the new token from their next relist. A failure is logged with a fixed
+        reason, counted, retried with backoff, and alerted before the token runs out.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>When renewal is due</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 372" role="img" aria-label="Renewal is due at the wanted window before expiry, but never before halfway through the lifetime and never later than ten minutes before expiry: a 7-day token at 20 percent renews at 5.6 days, a 1-hour token at 48 minutes, and a 20-minute token at 10 minutes, which was proven on CRC.">
+                    <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <text x="60" y="30" font-weight="600">issued (iat)</text>
+            <text x="900" y="30" text-anchor="end" font-weight="600">expires (exp)</text>
+            <text x="480" y="30" text-anchor="middle" fill="var(--muted)">halfway: the earliest</text>
+
+            <text x="60" y="66" font-weight="600">duration 7 d · renewBeforePercentage 20</text>
+            <rect x="60" y="76" width="840" height="16" rx="4" fill="var(--none-wash)" stroke="var(--rule)"/>
+            <rect x="732" y="76" width="168" height="16" rx="4" fill="var(--remote-wash)" stroke="var(--remote)"/>
+            <line x1="480" y1="70" x2="480" y2="98" stroke="var(--muted)" stroke-width="1.2"/>
+            <line x1="732" y1="68" x2="732" y2="100" stroke="var(--remote)" stroke-width="2.4"/>
+            <text x="900" y="114" text-anchor="end" font-weight="600" fill="var(--remote)">due at 5.6 d · the window, 20 %, is 1.4 d</text>
+
+            <text x="60" y="154" font-weight="600">duration 1 h · renewBeforePercentage 20</text>
+            <rect x="60" y="164" width="840" height="16" rx="4" fill="var(--none-wash)" stroke="var(--rule)"/>
+            <rect x="732" y="164" width="168" height="16" rx="4" fill="var(--remote-wash)" stroke="var(--remote)"/>
+            <line x1="480" y1="158" x2="480" y2="186" stroke="var(--muted)" stroke-width="1.2"/>
+            <line x1="760" y1="158" x2="760" y2="186" stroke="var(--host)" stroke-width="1.4"/>
+            <line x1="732" y1="156" x2="732" y2="188" stroke="var(--remote)" stroke-width="2.4"/>
+            <text x="900" y="202" text-anchor="end" font-weight="600" fill="var(--remote)">due at 48 min · the floor (amber), exp − 10 min, is 50 min</text>
+
+            <text x="60" y="242" font-weight="600">duration 20 min · renewBeforePercentage 20 · proven on CRC</text>
+            <rect x="60" y="252" width="840" height="16" rx="4" fill="var(--none-wash)" stroke="var(--rule)"/>
+            <rect x="480" y="252" width="420" height="16" rx="4" fill="var(--host-wash)" stroke="var(--host)"/>
+            <line x1="732" y1="246" x2="732" y2="274" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="900" y="288" text-anchor="end" fill="var(--muted)">the window alone (dotted) would say 16 min</text>
+            <line x1="480" y1="244" x2="480" y2="276" stroke="var(--remote)" stroke-width="2.4"/>
+            <text x="200" y="288" font-weight="600" fill="var(--remote)">due at 10 min: the 10-minute floor</text>
+
+            <text x="60" y="326">due = min( max( exp − window, iat + lifetime ÷ 2 ), exp − 10 min ) · window = renewBefore, or the percentage of the actual lifetime</text>
+            <text x="60" y="350" fill="var(--muted)">CRC, 2026-11-20: a 20-minute import expiring 10:14:20Z was due at 10:04:20Z and renewed at 10:05:08Z with a 7-day token.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Renewal is due one window before expiry: renewBefore, or a percentage of the lifetime the cluster actually
+        granted. It is never due before halfway, and never later than ten minutes before expiry. The ten minutes cover the
+        five-minute relist and the scan delay. A 20-minute token is therefore due at 10 minutes, which the CRC test showed.</figcaption>
+    </figure>
+  </section>
+</div>
