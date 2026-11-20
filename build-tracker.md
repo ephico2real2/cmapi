@@ -19,14 +19,14 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-20, 09:50Z
+## Current: 2026-11-20, 10:15Z
 
-`main` is `fb727b5`. CRC runs `7122ec6` until OB1 run 27 rolls out `fb727b5` (in progress). kind is deleted by the owner (#487). Open: PR #488 (draft).
+`main` is `fb727b5`. CRC runs `fb727b5` (OB1 run 27; steps 23 to 25 wait for CRC monitoring, #489). kind is deleted by the owner (#487). Open: PR #488 (draft).
 
 | Area | Issue | State | Proof |
 |---|---|---|---|
-| Automatic import-token renewal, `clusterTokens` parameters, manual fallback | #398 | Merged #469, #478; #398 closed | CI (all checks); full service suite on this Mac; Fable review. Not yet live on CRC (run 27) |
-| Bundle hash S1, `hashState` | #244 | Merged #477 (S1 of S8) | CI; Fable review. Not yet live on CRC (run 27) |
+| Automatic import-token renewal, `clusterTokens` parameters, manual fallback | #398 | Merged #469, #478; #398 closed | CI (all checks); full service suite on this Mac; Fable review; **CRC live**: 20m import renewed by the worker at 10:05:08Z (due 10:04:20Z), api and worker on the new 7d token by 10:09:12Z |
+| Bundle hash S1, `hashState` | #244 | Merged #477 (S1 of S8) | CI; Fable review; CRC run 27: `hashState` current |
 | ci/kyverno on non-bot PRs | #429 | Merged #475 | CI |
 | Paged tabs busy state | #407 | Merged #472 | CI (portal-ui) |
 | Deterministic secret forms | #470 | Merged #471 | CI |
