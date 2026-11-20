@@ -4433,7 +4433,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Whether the kill switch is on, with who set it, when and why. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4450,7 +4450,11 @@ export interface operations {
                     "application/json": components["schemas"]["SwitchView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4459,8 +4463,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4488,7 +4509,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The kill switch, now on, with who set it, when and why. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4505,7 +4526,11 @@ export interface operations {
                     "application/json": components["schemas"]["SwitchView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4514,7 +4539,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4523,8 +4552,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4552,7 +4598,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The kill switch, now off, with who set it and when. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4569,7 +4615,11 @@ export interface operations {
                     "application/json": components["schemas"]["SwitchView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4578,7 +4628,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4587,8 +4641,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4607,7 +4678,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The last commits on the default branch of cluster-configs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4624,7 +4695,11 @@ export interface operations {
                     "application/json": components["schemas"]["GitLog"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4633,7 +4708,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4642,8 +4721,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4662,7 +4758,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Each integration's mode and health, and the import status of each cluster. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4701,7 +4797,11 @@ export interface operations {
                     "application/json": components["schemas"]["Integrations"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4710,8 +4810,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4730,7 +4847,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Each component's memory and CPU against its limit, the database figures and the KPI rows; a figure not measured reads unavailable. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4840,7 +4957,11 @@ export interface operations {
                     "application/json": components["schemas"]["KpiView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4849,8 +4970,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4869,7 +5007,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Each plugin with its version, whether plugins.yaml enables it, and where an override stops its writes. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4956,7 +5094,11 @@ export interface operations {
                     "application/json": components["schemas"]["PluginList"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4965,8 +5107,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4995,7 +5154,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The delete request, with the prune confirmed. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5157,7 +5316,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5166,7 +5329,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5175,7 +5342,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description nothing-to-prune */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `nothing-to-prune`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5184,8 +5355,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5211,7 +5399,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's targets and snapshot state. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5368,7 +5556,11 @@ export interface operations {
                     "application/json": components["schemas"]["CapacityPage"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5377,7 +5569,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5386,7 +5582,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5395,8 +5595,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed, environment-not-served */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`, `environment-not-served`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5415,7 +5632,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Every cluster with its environment, import status and the findings of its checks. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5453,7 +5670,11 @@ export interface operations {
                     "application/json": components["schemas"]["ClusterList"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5462,8 +5683,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5492,7 +5730,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The managed namespaces of the cluster that match the filters, with their count and the facets. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5547,7 +5785,11 @@ export interface operations {
                     "application/json": components["schemas"]["NamespaceList"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5556,7 +5798,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5565,7 +5811,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5574,7 +5824,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5583,7 +5837,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5601,7 +5859,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
             };
             path: {
@@ -5616,7 +5874,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan, with `dryRun=true`. cmapi writes nothing and opens no request. */
+            /** @description Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5752,7 +6010,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -5832,7 +6090,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5841,7 +6103,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5850,7 +6116,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5859,7 +6129,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5868,7 +6142,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay, namespace-exists, namespace-exists-unmanaged */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`, `namespace-exists`, `namespace-exists-unmanaged`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5877,7 +6155,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, reserved-namespace, invalid-namespace-name, expiration-not-allowed, expiration-in-past, on-behalf-of-not-allowed, on-behalf-of-required */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`, `on-behalf-of-not-allowed`, `on-behalf-of-required`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5886,7 +6168,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -5895,7 +6181,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5920,7 +6210,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with the ETag that a change sends in If-Match. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5984,7 +6274,11 @@ export interface operations {
                     "application/json": components["schemas"]["NamespaceView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5993,7 +6287,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6002,7 +6300,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6011,7 +6313,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6020,8 +6326,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6035,7 +6358,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6050,7 +6373,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6140,7 +6463,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6149,7 +6476,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6158,7 +6489,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6167,7 +6502,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6176,7 +6515,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6185,7 +6528,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-failed */
+            /**
+             * @description The object changed since it was read: If-Match no longer matches its ETag.
+             *
+             *     Codes: `precondition-failed`.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -6194,7 +6541,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, namespace-protected */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `namespace-protected`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6203,7 +6554,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-required */
+            /**
+             * @description A change needs If-Match with the ETag of the object as it was read.
+             *
+             *     Codes: `precondition-required`.
+             */
             428: {
                 headers: {
                     [name: string]: unknown;
@@ -6212,7 +6567,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -6221,7 +6580,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6239,7 +6602,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6264,7 +6627,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan, with `dryRun=true`. cmapi writes nothing and opens no request. */
+            /** @description Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6348,7 +6711,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6439,7 +6802,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6448,7 +6815,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6457,7 +6828,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6466,7 +6841,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6475,7 +6854,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6484,7 +6867,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-failed */
+            /**
+             * @description The object changed since it was read: If-Match no longer matches its ETag.
+             *
+             *     Codes: `precondition-failed`.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -6493,7 +6880,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6502,7 +6893,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-required */
+            /**
+             * @description A change needs If-Match with the ETag of the object as it was read.
+             *
+             *     Codes: `precondition-required`.
+             */
             428: {
                 headers: {
                     [name: string]: unknown;
@@ -6511,7 +6906,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -6520,7 +6919,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6538,7 +6941,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6563,7 +6966,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan, with `dryRun=true`. cmapi writes nothing and opens no request. */
+            /** @description Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6629,7 +7032,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6708,7 +7111,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6717,7 +7124,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6726,7 +7137,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6735,7 +7150,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6744,7 +7163,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6753,7 +7176,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-failed */
+            /**
+             * @description The object changed since it was read: If-Match no longer matches its ETag.
+             *
+             *     Codes: `precondition-failed`.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -6762,7 +7189,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6771,7 +7202,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-required */
+            /**
+             * @description A change needs If-Match with the ETag of the object as it was read.
+             *
+             *     Codes: `precondition-required`.
+             */
             428: {
                 headers: {
                     [name: string]: unknown;
@@ -6780,7 +7215,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -6789,7 +7228,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6807,7 +7250,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -6831,7 +7274,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan, with `dryRun=true`. cmapi writes nothing and opens no request. */
+            /** @description Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6909,7 +7352,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -7000,7 +7443,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7009,7 +7456,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7018,7 +7469,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7027,7 +7482,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7036,7 +7495,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7045,7 +7508,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-failed */
+            /**
+             * @description The object changed since it was read: If-Match no longer matches its ETag.
+             *
+             *     Codes: `precondition-failed`.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -7054,7 +7521,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7063,7 +7534,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-required */
+            /**
+             * @description A change needs If-Match with the ETag of the object as it was read.
+             *
+             *     Codes: `precondition-required`.
+             */
             428: {
                 headers: {
                     [name: string]: unknown;
@@ -7072,7 +7547,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -7081,7 +7560,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7099,7 +7582,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description Required on writes; the same key and caller return the first response for 24 hours */
+                /** @description A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from GET; required on a change or delete */
                 "If-Match"?: string | null;
@@ -7124,7 +7607,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan, with `dryRun=true`. cmapi writes nothing and opens no request. */
+            /** @description Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7190,7 +7673,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
-            /** @description Successful Response */
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -7269,7 +7752,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description idempotency-key-required */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7278,7 +7765,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7287,7 +7778,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7296,7 +7791,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found, object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7305,7 +7804,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description change-pending, idempotency-replay */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7314,7 +7817,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-failed */
+            /**
+             * @description The object changed since it was read: If-Match no longer matches its ETag.
+             *
+             *     Codes: `precondition-failed`.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -7323,7 +7830,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past, expiration-already-set */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`, `expiration-already-set`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7332,7 +7843,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description precondition-required */
+            /**
+             * @description A change needs If-Match with the ETag of the object as it was read.
+             *
+             *     Codes: `precondition-required`.
+             */
             428: {
                 headers: {
                     [name: string]: unknown;
@@ -7341,7 +7856,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description git-unavailable */
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -7350,7 +7869,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-unreachable, validator-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7373,7 +7896,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The cluster's diagnostics after the checks ran again: status, findings, server version and token expiry. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7407,7 +7930,11 @@ export interface operations {
                     "application/json": components["schemas"]["ClusterView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7416,7 +7943,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7425,7 +7956,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description cluster-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7434,8 +7969,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7457,7 +8009,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The people whose username, name or email address matches. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7478,7 +8030,11 @@ export interface operations {
                     "application/json": components["schemas"]["DirectoryUsers"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7487,7 +8043,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7496,7 +8056,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7505,7 +8069,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description idp-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7528,7 +8096,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The person's username, name, email address and employee ID. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7545,7 +8113,11 @@ export interface operations {
                     "application/json": components["schemas"]["DirectoryUser"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7554,7 +8126,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7563,7 +8139,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7572,7 +8152,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7581,7 +8165,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description idp-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7618,7 +8206,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description One page of the namespaces that can expire, with their dates, days left and notices, the count of each state, and each environment's rules. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7723,7 +8311,11 @@ export interface operations {
                     "application/json": components["schemas"]["ExpirationPage"];
                 };
             };
-            /** @description invalid-cursor, invalid-sort, invalid-limit */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-cursor`, `invalid-sort`, `invalid-limit`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7732,7 +8324,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7741,7 +8337,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7750,8 +8350,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7770,7 +8387,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The caller's identity, roles, groups and permissions, with the environments each role covers. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7838,7 +8455,11 @@ export interface operations {
                     "application/json": components["schemas"]["Me"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7847,7 +8468,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description idp-unavailable */
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7867,7 +8492,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each environment, with an ETag. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8129,7 +8754,11 @@ export interface operations {
                     "application/json": components["schemas"]["MetadataKeysView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8138,8 +8767,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8179,7 +8825,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description One page of refusals, warnings and failed checks, newest first, in the caller's environments. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8265,7 +8911,11 @@ export interface operations {
                     "application/json": components["schemas"]["RejectionPage"];
                 };
             };
-            /** @description invalid-cursor, invalid-limit */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-cursor`, `invalid-limit`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8274,7 +8924,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8283,7 +8937,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8292,8 +8950,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8329,7 +9004,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Each cluster's policy report state, each policy with its counts, and one page of the fail, warn and error results. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9077,7 +9752,11 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyResultPage"];
                 };
             };
-            /** @description invalid-cursor, invalid-limit */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-cursor`, `invalid-limit`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9086,7 +9765,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9095,7 +9778,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9104,8 +9791,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9145,7 +9849,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description One page of namespaces with their quota, used and hard, the attention counts, and the cursors of the pages beside it. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9201,7 +9905,11 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaPage"];
                 };
             };
-            /** @description invalid-cursor, invalid-sort, invalid-limit */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-cursor`, `invalid-sort`, `invalid-limit`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9210,7 +9918,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9219,7 +9931,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9228,8 +9944,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9263,7 +9996,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The body as text/csv */
+            /** @description Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 rows. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9276,7 +10009,11 @@ export interface operations {
                     "text/csv": string;
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9285,7 +10022,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9294,8 +10035,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9317,7 +10075,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Up to ten namespaces that match the text, each with why it matched. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9337,7 +10095,11 @@ export interface operations {
                     "application/json": components["schemas"]["Suggestions"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9346,7 +10108,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9355,8 +10121,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9392,7 +10175,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description One page of requests, newest first, with the cursors of the pages beside it. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9498,7 +10281,11 @@ export interface operations {
                     "application/json": components["schemas"]["RequestPage"];
                 };
             };
-            /** @description invalid-cursor, invalid-limit */
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-cursor`, `invalid-limit`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9507,7 +10294,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9516,7 +10307,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9525,8 +10320,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9548,7 +10360,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The request with its approval ledger, its pull request and every event so far. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9690,7 +10502,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9699,7 +10515,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9708,7 +10528,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9717,8 +10541,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9740,7 +10581,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Whether the request is approved, its status and the plan hash that its pull request must carry. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9757,7 +10598,11 @@ export interface operations {
                     "application/json": components["schemas"]["ApprovalStatus"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9766,7 +10611,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9775,7 +10624,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9784,8 +10637,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9807,7 +10677,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Every state change of the request, oldest first. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9887,7 +10757,11 @@ export interface operations {
                     "application/json": components["schemas"]["RequestEvents"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9896,7 +10770,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9905,7 +10783,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9914,8 +10796,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9946,7 +10845,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The request with this approval recorded; `status` says whether more approvals are needed. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10054,7 +10953,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10063,7 +10966,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, not-eligible, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `not-eligible`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10072,7 +10979,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10081,7 +10992,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description not-pending, already-approved, self-approval */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `not-pending`, `already-approved`, `self-approval`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10090,8 +11005,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10113,7 +11045,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The request, now cancelled; its pull request is closed. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10210,7 +11142,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10219,7 +11155,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10228,7 +11168,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10237,7 +11181,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description invalid-transition */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `invalid-transition`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10246,8 +11194,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10278,7 +11243,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The request, now rejected. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10375,7 +11340,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10384,7 +11353,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden, environment-forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10393,7 +11366,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10402,7 +11379,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description not-pending */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `not-pending`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10411,8 +11392,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10434,7 +11432,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The request, with its pull request opened again (from failed) or its sync watched again (from sync_failed). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10576,7 +11574,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10585,7 +11587,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10594,7 +11600,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10603,7 +11613,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description invalid-transition, change-pending */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `invalid-transition`, `change-pending`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10612,8 +11626,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10635,7 +11666,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The request, with its revert queued: the worker marks it reverted and opens a new request that restores the folder. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10770,7 +11801,11 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeRequest"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10779,7 +11814,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10788,7 +11827,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description object-not-found */
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `object-not-found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10797,7 +11840,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description invalid-transition, change-pending */
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `invalid-transition`, `change-pending`.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10806,8 +11853,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10829,7 +11893,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The tiers of each environment asked for, the catalog's hash, and what a request may size or override. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11023,7 +12087,11 @@ export interface operations {
                     "application/json": components["schemas"]["TierCatalogView"];
                 };
             };
-            /** @description unauthenticated */
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -11032,7 +12100,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description forbidden */
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11041,8 +12113,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description validation-failed */
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `idp-unavailable`.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11061,7 +12150,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The version, the commit and the component of the running build. */
             200: {
                 headers: {
                     [name: string]: unknown;

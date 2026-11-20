@@ -7475,7 +7475,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Whether the kill switch is on, with who set it, when and why."
           },
           "401": {
             "content": {
@@ -7496,7 +7496,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -7517,7 +7517,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -7573,7 +7594,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The kill switch, now on, with who set it, when and why."
           },
           "401": {
             "content": {
@@ -7594,7 +7615,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -7615,7 +7636,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -7636,7 +7657,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -7692,7 +7734,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The kill switch, now off, with who set it and when."
           },
           "401": {
             "content": {
@@ -7713,7 +7755,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -7734,7 +7776,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -7755,7 +7797,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -7798,7 +7861,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The last commits on the default branch of cluster-configs."
           },
           "401": {
             "content": {
@@ -7819,7 +7882,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -7840,7 +7903,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "502": {
             "content": {
@@ -7861,7 +7924,28 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -7926,7 +8010,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Each integration's mode and health, and the import status of each cluster."
           },
           "401": {
             "content": {
@@ -7947,7 +8031,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -7968,7 +8052,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -8104,7 +8209,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Each component's memory and CPU against its limit, the database figures and the KPI rows; a figure not measured reads unavailable."
           },
           "401": {
             "content": {
@@ -8125,7 +8230,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -8146,7 +8251,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -8259,7 +8385,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Each plugin with its version, whether plugins.yaml enables it, and where an override stops its writes."
           },
           "401": {
             "content": {
@@ -8280,7 +8406,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -8301,7 +8427,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -8503,7 +8650,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The delete request, with the prune confirmed."
           },
           "401": {
             "content": {
@@ -8524,7 +8671,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -8554,7 +8701,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "409": {
             "content": {
@@ -8575,7 +8722,7 @@
                 }
               }
             },
-            "description": "nothing-to-prune"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `nothing-to-prune`."
           },
           "422": {
             "content": {
@@ -8596,7 +8743,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -8838,7 +9006,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's targets and snapshot state."
           },
           "401": {
             "content": {
@@ -8859,7 +9027,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -8889,7 +9057,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -8910,7 +9078,7 @@
                 }
               }
             },
-            "description": "cluster-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
           },
           "422": {
             "content": {
@@ -8940,7 +9108,28 @@
                 }
               }
             },
-            "description": "validation-failed, environment-not-served"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`, `environment-not-served`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -9004,7 +9193,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Every cluster with its environment, import status and the findings of its checks."
           },
           "401": {
             "content": {
@@ -9025,7 +9214,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -9046,7 +9235,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -9209,7 +9419,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The managed namespaces of the cluster that match the filters, with their count and the facets."
           },
           "401": {
             "content": {
@@ -9230,7 +9440,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -9251,7 +9461,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -9272,7 +9482,7 @@
                 }
               }
             },
-            "description": "cluster-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
           },
           "422": {
             "content": {
@@ -9293,7 +9503,7 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
           "503": {
             "content": {
@@ -9307,6 +9517,15 @@
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
                     }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
                   }
                 },
                 "schema": {
@@ -9314,7 +9533,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -9371,7 +9590,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -9384,7 +9603,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -9569,7 +9788,7 @@
                 }
               }
             },
-            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -9648,7 +9867,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -9669,7 +9888,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -9690,7 +9909,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -9720,7 +9939,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -9741,7 +9960,7 @@
                 }
               }
             },
-            "description": "cluster-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
           },
           "409": {
             "content": {
@@ -9789,7 +10008,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay, namespace-exists, namespace-exists-unmanaged"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `namespace-exists`, `namespace-exists-unmanaged`."
           },
           "422": {
             "content": {
@@ -9970,7 +10189,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, reserved-namespace, invalid-namespace-name, expiration-not-allowed, expiration-in-past, on-behalf-of-not-allowed, on-behalf-of-required"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`, `on-behalf-of-not-allowed`, `on-behalf-of-required`."
           },
           "502": {
             "content": {
@@ -9991,7 +10210,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -10004,6 +10223,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -10021,7 +10249,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -10079,7 +10307,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -10092,7 +10320,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -10209,7 +10437,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -10230,7 +10458,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -10251,7 +10479,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -10281,7 +10509,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -10311,7 +10539,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "409": {
             "content": {
@@ -10341,7 +10569,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
           },
           "412": {
             "content": {
@@ -10362,7 +10590,7 @@
                 }
               }
             },
-            "description": "precondition-failed"
+            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -10482,7 +10710,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, namespace-protected"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `namespace-protected`."
           },
           "428": {
             "content": {
@@ -10503,7 +10731,7 @@
                 }
               }
             },
-            "description": "precondition-required"
+            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -10524,7 +10752,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -10537,6 +10765,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -10554,7 +10791,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -10672,7 +10909,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with the ETag that a change sends in If-Match."
           },
           "401": {
             "content": {
@@ -10693,7 +10930,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -10714,7 +10951,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -10744,7 +10981,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "422": {
             "content": {
@@ -10765,7 +11002,7 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
           "502": {
             "content": {
@@ -10786,7 +11023,28 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -10857,7 +11115,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -10870,7 +11128,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -10995,7 +11253,7 @@
                 }
               }
             },
-            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -11085,7 +11343,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -11106,7 +11364,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -11127,7 +11385,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -11157,7 +11415,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -11187,7 +11445,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "409": {
             "content": {
@@ -11217,7 +11475,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
           },
           "412": {
             "content": {
@@ -11239,7 +11497,7 @@
                 }
               }
             },
-            "description": "precondition-failed"
+            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -11350,7 +11608,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`."
           },
           "428": {
             "content": {
@@ -11371,7 +11629,7 @@
                 }
               }
             },
-            "description": "precondition-required"
+            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -11392,7 +11650,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -11405,6 +11663,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -11422,7 +11689,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -11495,7 +11762,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -11508,7 +11775,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -11615,7 +11882,7 @@
                 }
               }
             },
-            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -11693,7 +11960,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -11714,7 +11981,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -11735,7 +12002,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -11765,7 +12032,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -11795,7 +12062,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "409": {
             "content": {
@@ -11825,7 +12092,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
           },
           "412": {
             "content": {
@@ -11846,7 +12113,7 @@
                 }
               }
             },
-            "description": "precondition-failed"
+            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -11993,7 +12260,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`."
           },
           "428": {
             "content": {
@@ -12014,7 +12281,7 @@
                 }
               }
             },
-            "description": "precondition-required"
+            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -12035,7 +12302,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -12048,6 +12315,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -12065,7 +12341,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -12138,7 +12414,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12151,7 +12427,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12269,7 +12545,7 @@
                 }
               }
             },
-            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -12359,7 +12635,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -12380,7 +12656,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -12401,7 +12677,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -12431,7 +12707,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -12461,7 +12737,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "409": {
             "content": {
@@ -12491,7 +12767,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
           },
           "412": {
             "content": {
@@ -12512,7 +12788,7 @@
                 }
               }
             },
-            "description": "precondition-failed"
+            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -12659,7 +12935,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`."
           },
           "428": {
             "content": {
@@ -12680,7 +12956,7 @@
                 }
               }
             },
-            "description": "precondition-required"
+            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -12701,7 +12977,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -12714,6 +12990,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -12731,7 +13016,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -12804,7 +13089,7 @@
             }
           },
           {
-            "description": "Required on writes; the same key and caller return the first response for 24 hours",
+            "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12817,7 +13102,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Required on writes; the same key and caller return the first response for 24 hours",
+              "description": "A new random value for each new request, such as a UUID. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12924,7 +13209,7 @@
                 }
               }
             },
-            "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
           },
           "202": {
             "content": {
@@ -13002,7 +13287,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it."
           },
           "400": {
             "content": {
@@ -13023,7 +13308,7 @@
                 }
               }
             },
-            "description": "idempotency-key-required"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `idempotency-key-required`."
           },
           "401": {
             "content": {
@@ -13044,7 +13329,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -13074,7 +13359,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -13104,7 +13389,7 @@
                 }
               }
             },
-            "description": "cluster-not-found, object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
           },
           "409": {
             "content": {
@@ -13134,7 +13419,7 @@
                 }
               }
             },
-            "description": "change-pending, idempotency-replay"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
           },
           "412": {
             "content": {
@@ -13155,7 +13440,7 @@
                 }
               }
             },
-            "description": "precondition-failed"
+            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -13311,7 +13596,7 @@
                 }
               }
             },
-            "description": "cluster-not-writable, environment-not-served, plugin-disabled, validation-failed, policy-violation, capacity-exceeded, no-change, identity-incomplete, unknown-user, invalid-team-dl, unknown-serviceaccount, expiration-not-allowed, expiration-limit, expiration-not-set, expiration-in-past, expiration-already-set"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `policy-violation`, `capacity-exceeded`, `no-change`, `identity-incomplete`, `unknown-user`, `invalid-team-dl`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-limit`, `expiration-not-set`, `expiration-in-past`, `expiration-already-set`."
           },
           "428": {
             "content": {
@@ -13332,7 +13617,7 @@
                 }
               }
             },
-            "description": "precondition-required"
+            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -13353,7 +13638,7 @@
                 }
               }
             },
-            "description": "git-unavailable"
+            "description": "The Git host failed.\n\nCodes: `git-unavailable`."
           },
           "503": {
             "content": {
@@ -13366,6 +13651,15 @@
                       "status": 503,
                       "title": "cluster unreachable",
                       "type": "https://cmapi.ephico2real.com/problems/cluster-unreachable"
+                    }
+                  },
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
                   "validator-unavailable": {
@@ -13383,7 +13677,7 @@
                 }
               }
             },
-            "description": "cluster-unreachable, validator-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
           }
         },
         "security": [
@@ -13459,7 +13753,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The cluster's diagnostics after the checks ran again: status, findings, server version and token expiry."
           },
           "401": {
             "content": {
@@ -13480,7 +13774,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -13501,7 +13795,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -13522,7 +13816,7 @@
                 }
               }
             },
-            "description": "cluster-not-found"
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
           },
           "422": {
             "content": {
@@ -13543,7 +13837,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -13607,7 +13922,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The people whose username, name or email address matches."
           },
           "401": {
             "content": {
@@ -13628,7 +13943,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -13649,7 +13964,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -13670,7 +13985,7 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
           "503": {
             "content": {
@@ -13691,7 +14006,7 @@
                 }
               }
             },
-            "description": "idp-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -13750,7 +14065,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The person's username, name, email address and employee ID."
           },
           "401": {
             "content": {
@@ -13771,7 +14086,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -13792,7 +14107,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -13813,7 +14128,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "422": {
             "content": {
@@ -13834,7 +14149,7 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
           "503": {
             "content": {
@@ -13855,7 +14170,7 @@
                 }
               }
             },
-            "description": "idp-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -14138,7 +14453,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "One page of the namespaces that can expire, with their dates, days left and notices, the count of each state, and each environment's rules."
           },
           "400": {
             "content": {
@@ -14177,7 +14492,7 @@
                 }
               }
             },
-            "description": "invalid-cursor, invalid-sort, invalid-limit"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-cursor`, `invalid-sort`, `invalid-limit`."
           },
           "401": {
             "content": {
@@ -14198,7 +14513,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -14219,7 +14534,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -14240,7 +14555,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -14334,7 +14670,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The caller's identity, roles, groups and permissions, with the environments each role covers."
           },
           "401": {
             "content": {
@@ -14355,7 +14691,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "503": {
             "content": {
@@ -14376,7 +14712,7 @@
                 }
               }
             },
-            "description": "idp-unavailable"
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -14663,7 +14999,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each environment, with an ETag."
           },
           "401": {
             "content": {
@@ -14684,7 +15020,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -14705,7 +15041,28 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -15011,7 +15368,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "One page of refusals, warnings and failed checks, newest first, in the caller's environments."
           },
           "400": {
             "content": {
@@ -15041,7 +15398,7 @@
                 }
               }
             },
-            "description": "invalid-cursor, invalid-limit"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-cursor`, `invalid-limit`."
           },
           "401": {
             "content": {
@@ -15062,7 +15419,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -15083,7 +15440,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -15104,7 +15461,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -16030,7 +16408,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Each cluster's policy report state, each policy with its counts, and one page of the fail, warn and error results."
           },
           "400": {
             "content": {
@@ -16060,7 +16438,7 @@
                 }
               }
             },
-            "description": "invalid-cursor, invalid-limit"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-cursor`, `invalid-limit`."
           },
           "401": {
             "content": {
@@ -16081,7 +16459,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -16102,7 +16480,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -16123,7 +16501,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -16399,7 +16798,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "One page of namespaces with their quota, used and hard, the attention counts, and the cursors of the pages beside it."
           },
           "400": {
             "content": {
@@ -16438,7 +16837,7 @@
                 }
               }
             },
-            "description": "invalid-cursor, invalid-sort, invalid-limit"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-cursor`, `invalid-sort`, `invalid-limit`."
           },
           "401": {
             "content": {
@@ -16459,7 +16858,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -16480,7 +16879,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -16501,7 +16900,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -16676,7 +17096,7 @@
                 }
               }
             },
-            "description": "The body as text/csv"
+            "description": "Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 rows."
           },
           "401": {
             "content": {
@@ -16697,7 +17117,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -16718,7 +17138,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -16739,7 +17159,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -16803,7 +17244,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Up to ten namespaces that match the text, each with why it matched."
           },
           "401": {
             "content": {
@@ -16824,7 +17265,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -16845,7 +17286,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -16866,7 +17307,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -17156,7 +17618,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "One page of requests, newest first, with the cursors of the pages beside it."
           },
           "400": {
             "content": {
@@ -17186,7 +17648,7 @@
                 }
               }
             },
-            "description": "invalid-cursor, invalid-limit"
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-cursor`, `invalid-limit`."
           },
           "401": {
             "content": {
@@ -17207,7 +17669,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -17228,7 +17690,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -17249,7 +17711,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -17433,7 +17916,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request with its approval ledger, its pull request and every event so far."
           },
           "401": {
             "content": {
@@ -17454,7 +17937,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -17475,7 +17958,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -17496,7 +17979,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "422": {
             "content": {
@@ -17517,7 +18000,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -17576,7 +18080,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Whether the request is approved, its status and the plan hash that its pull request must carry."
           },
           "401": {
             "content": {
@@ -17597,7 +18101,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -17618,7 +18122,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -17639,7 +18143,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "422": {
             "content": {
@@ -17660,7 +18164,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -17782,7 +18307,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Every state change of the request, oldest first."
           },
           "401": {
             "content": {
@@ -17803,7 +18328,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -17824,7 +18349,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -17845,7 +18370,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "422": {
             "content": {
@@ -17866,7 +18391,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -18036,7 +18582,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request with this approval recorded; `status` says whether more approvals are needed."
           },
           "401": {
             "content": {
@@ -18057,7 +18603,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -18096,7 +18642,7 @@
                 }
               }
             },
-            "description": "forbidden, not-eligible, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `not-eligible`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -18117,7 +18663,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "409": {
             "content": {
@@ -18156,7 +18702,7 @@
                 }
               }
             },
-            "description": "not-pending, already-approved, self-approval"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `not-pending`, `already-approved`, `self-approval`."
           },
           "422": {
             "content": {
@@ -18177,7 +18723,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -18316,7 +18883,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request, now cancelled; its pull request is closed."
           },
           "401": {
             "content": {
@@ -18337,7 +18904,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -18358,7 +18925,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -18379,7 +18946,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "409": {
             "content": {
@@ -18400,7 +18967,7 @@
                 }
               }
             },
-            "description": "invalid-transition"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `invalid-transition`."
           },
           "422": {
             "content": {
@@ -18421,7 +18988,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -18573,7 +19161,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request, now rejected."
           },
           "401": {
             "content": {
@@ -18594,7 +19182,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -18624,7 +19212,7 @@
                 }
               }
             },
-            "description": "forbidden, environment-forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
           },
           "404": {
             "content": {
@@ -18645,7 +19233,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "409": {
             "content": {
@@ -18666,7 +19254,7 @@
                 }
               }
             },
-            "description": "not-pending"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `not-pending`."
           },
           "422": {
             "content": {
@@ -18687,7 +19275,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -18871,7 +19480,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request, with its pull request opened again (from failed) or its sync watched again (from sync_failed)."
           },
           "401": {
             "content": {
@@ -18892,7 +19501,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -18913,7 +19522,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -18934,7 +19543,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "409": {
             "content": {
@@ -18964,7 +19573,7 @@
                 }
               }
             },
-            "description": "invalid-transition, change-pending"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `invalid-transition`, `change-pending`."
           },
           "422": {
             "content": {
@@ -18985,7 +19594,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -19162,7 +19792,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The request, with its revert queued: the worker marks it reverted and opens a new request that restores the folder."
           },
           "401": {
             "content": {
@@ -19183,7 +19813,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -19204,7 +19834,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "404": {
             "content": {
@@ -19225,7 +19855,7 @@
                 }
               }
             },
-            "description": "object-not-found"
+            "description": "What the path names is not known.\n\nCodes: `object-not-found`."
           },
           "409": {
             "content": {
@@ -19256,7 +19886,7 @@
                 }
               }
             },
-            "description": "invalid-transition, change-pending"
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `invalid-transition`, `change-pending`."
           },
           "422": {
             "content": {
@@ -19277,7 +19907,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -19520,7 +20171,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The tiers of each environment asked for, the catalog's hash, and what a request may size or override."
           },
           "401": {
             "content": {
@@ -19541,7 +20192,7 @@
                 }
               }
             },
-            "description": "unauthenticated"
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
           "403": {
             "content": {
@@ -19562,7 +20213,7 @@
                 }
               }
             },
-            "description": "forbidden"
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
           "422": {
             "content": {
@@ -19583,7 +20234,28 @@
                 }
               }
             },
-            "description": "validation-failed"
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and none are cached",
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
           }
         },
         "security": [
@@ -19625,7 +20297,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The version, the commit and the component of the running build."
           }
         },
         "summary": "Version and commit of the running build",
