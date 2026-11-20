@@ -36,6 +36,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # Keep the PR head (a parent of the merge commit) for its author and trailers.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
@@ -47,4 +49,8 @@ jobs:
           tar xzf kyverno.tgz kyverno && sudo mv kyverno /usr/local/bin/
           kyverno version
       - name: Each namespace folder through its environment's bundle
-        run: python .github/scripts/kyverno_check.py .
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            set -- --pull-request-event "$GITHUB_EVENT_PATH"
+          fi
+          python .github/scripts/kyverno_check.py . "$@"
