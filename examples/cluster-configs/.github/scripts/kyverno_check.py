@@ -2,12 +2,13 @@
 """ci/kyverno of a cmapi cluster-configs repository: each namespace folder under clusters/ through the Kyverno bundle that cmapi
 renders for that namespace's environment (`cmapi-tools policies render` into policies/env/<env>/, #212).
 
-    kyverno_check.py [<repository root>] [--kyverno PATH]
+    kyverno_check.py [<repository root>] [--kyverno PATH] [--pull-request-event PATH]
 
 The environment of a folder is its Namespace's label cmapi.net/env, which cmapi derives. The policies of policies/env/<env>/ run on
 the folder's Namespace, ResourceQuota and LimitRange documents, as cmapi's own validator runs them (core/validate). The mode of
 the environment is in the bundle itself: a rendered policy without Deny in validationActions ([Audit, Warn], audit, the default
-since #342) reports a failure as a warning, and one with Deny fails the check, as the cluster's admission would. An environment with no rendered policy runs Kyverno off.
+since #342) reports a failure as a warning on cmapi's request PRs, main pushes and local runs. On other PRs a violation fails
+the check even in audit (#429). A Deny violation fails in every case. An environment with no rendered policy runs Kyverno off.
 
 It fails, as cmapi's validator does, when the CLI cannot evaluate a policy (result error), gives no report, or gives no result for
 a file of a kind a policy matches: the 1.16 CLI applied no rule to a policies.kyverno.io/v1 document and said nothing (docs/08).
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,7 +50,26 @@ def _matched_kinds(policy: dict) -> set[str]:
     return {CHECKED[r] for rule in rules for r in rule.get("resources", []) if r in CHECKED}
 
 
-def check_folder(root: Path, folder: Path, kyverno: str) -> tuple[list[str], list[str]]:
+def is_cmapi_pr(root: Path, event: Path) -> bool:
+    """Match the single commit cmapi writes on cmapi/<cluster>/<requestId>. These markers are unsigned."""
+    pr = json.loads(event.read_text())["pull_request"]
+    head = pr["head"]
+    branch = re.fullmatch(r"cmapi/[^/]+/([^/]+)", head["ref"])
+    if pr.get("commits") != 1 or not branch or not head["repo"] or head["repo"]["id"] != pr["base"]["repo"]["id"]:
+        return False
+    # Inspect the event's head, even though the manifests under test are from GitHub's synthetic merge.
+    # A NUL between trailer values makes duplicate trailers fail the exact comparison too.
+    commit = subprocess.check_output([
+        "git", "show", "-s", "--format=format:%P%x00%an%x00%cn%x00%ae%x00%ce%x00"
+        "%(trailers:key=Cmapi-Request-Id,valueonly,separator=%x00)",
+        "--end-of-options", head["sha"], "--",
+    ], cwd=root)
+    parents, author, committer, author_email, committer_email, request_id = commit.split(b"\0", 5)
+    return (len(parents.split()) == 1 and author == committer == b"cmapi-git-bot"
+            and author_email == committer_email and request_id == branch[1].encode())
+
+
+def check_folder(root: Path, folder: Path, kyverno: str, *, fail_audit: bool = False) -> tuple[list[str], list[str]]:
     """(errors, warnings) of one namespace folder, each as a GitHub annotation."""
     rel = lambda p: p.relative_to(root).as_posix()  # noqa: E731
     files = {f: _docs(f) for f in sorted(folder.glob("*.yaml"))}
@@ -96,7 +117,7 @@ def check_folder(root: Path, folder: Path, kyverno: str) -> tuple[list[str], lis
         # with Warn (the ValidatingPolicy CRD). A policy with no actions is not audit: it fails, as an unknown result does.
         actions = policies[name][1]["spec"].get("validationActions")
         audit = isinstance(actions, list) and bool(actions) and "Deny" not in actions
-        if result == "fail" and audit:
+        if result == "fail" and audit and not fail_audit:
             warnings.append(f"::warning file={rel(f)}::{name} (audit): {message}")
         elif result == "fail":
             errors.append(f"::error file={rel(f)}::{name}: {message}")
@@ -113,12 +134,16 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root", nargs="?", default=".")
     ap.add_argument("--kyverno", default="kyverno")
+    ap.add_argument("--pull-request-event", type=Path, help="GitHub pull_request event JSON for the merge under test")
     a = ap.parse_args(argv)
     root = Path(a.root).resolve()
+    fail_audit = a.pull_request_event is not None and not is_cmapi_pr(root, a.pull_request_event)
+    if fail_audit:
+        print("ci/kyverno: this PR is outside cmapi's request flow; audit violations fail the check")
     folders = sorted(p for p in root.glob("clusters/*/namespaces/*") if p.is_dir())
     errors, warnings = [], []
     for folder in folders:
-        e, w = check_folder(root, folder, a.kyverno)
+        e, w = check_folder(root, folder, a.kyverno, fail_audit=fail_audit)
         errors += e
         warnings += w
     for line in warnings + errors:

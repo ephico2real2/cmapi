@@ -5,6 +5,7 @@ it, with CRC's own configuration: the bundle that `cmapi-tools policies render` 
 The CLI is the image's pin, v1.20.0. Skipped with no kyverno on PATH; CMAPI_REQUIRE_KYVERNO=1 (CI) fails instead."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -156,3 +157,102 @@ def test_an_environment_with_no_bundle_is_kyverno_off(kyverno, crc, tmp_path):
     shutil.rmtree(root / "policies/env/dev")
     r = run(root, kyverno)
     assert r.returncode == 0 and "Kyverno is off in dev" in r.stdout, r.stdout
+
+
+BOT = "cmapi-git-bot"
+TRAILER = "Cmapi-Request-Id: req-1"
+
+
+def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org", merge_head=False):
+    """Run the template's check step on a merge checkout with GitHub's PR metadata."""
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-c", "user.name=Fixture", "-c", "user.email=ci@example.org", "-c", "commit.gpgsign=false", *args],
+            cwd=root, text=True,
+        ).strip()
+
+    shutil.copytree(TEMPLATE, root / ".github")
+    git("init", "-q", "-b", "main")
+    git("commit", "-q", "--allow-empty", "-m", "base")
+    branch = "cmapi/CRC/req-1"
+    git("switch", "-qc", branch)
+    git("add", ".")
+    for author, body in commits:
+        git("-c", f"user.name={committer or author}", "-c", f"user.email={committer_email}", "commit", "-q",
+            "--allow-empty", "--author", f"{author} <user@example.org>", "-m", "change", "-m", body)
+    if merge_head:
+        # Merge the same two tips on each branch. Only the PR's merge is absent from main.
+        git("switch", "-q", "main")
+        git("commit", "-q", "--allow-empty", "-m", "main advanced")
+        base_tip = git("rev-parse", "HEAD")
+        git("merge", "--no-ff", "-qm", "integrate topic on main", branch)
+        git("switch", "-q", branch)
+        git("-c", f"user.name={BOT}", "merge", "--no-ff", "-qm", f"integrate main on topic\n\n{TRAILER}", base_tip)
+    head = git("rev-parse", "HEAD")
+    base = git("rev-parse", "main")
+    count = int(git("rev-list", "--count", f"{base}..{head}"))
+    if merge_head:
+        assert count == 1
+    git("switch", "-q", "main")
+    git("merge", "--no-ff", "-qm", "synthetic merge", head)
+    steps = yaml.safe_load((TEMPLATE / "workflows/ci.yml").read_text())["jobs"]["kyverno"]["steps"]
+    depth = steps[0].get("with", {}).get("fetch-depth", 1)
+    checkout = root.parent / "checkout"
+    git("clone", "-q", *([f"--depth={depth}"] if depth else []), root.as_uri(), str(checkout))
+    event = root.parent / "event.json"
+    event.write_text(json.dumps({"pull_request": {
+        "user": {"login": "owner"}, "commits": count,
+        "base": {"sha": base, "repo": {"id": 1}}, "head": {"sha": head, "ref": branch, "repo": {"id": 2 if fork else 1}},
+    }}))
+    path = os.pathsep.join((str(Path(sys.executable).parent), str(Path(kyverno).parent), os.environ["PATH"]))
+    return subprocess.run(["bash", "-e", "-c", steps[-1]["run"]], cwd=checkout, capture_output=True, text=True, timeout=300,
+                          env={**os.environ, "PATH": path, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+
+
+@pytest.mark.parametrize(("commits", "fork", "warn"), [
+    pytest.param([("Maintainer", TRAILER)], False, False, id="hand-with-trailer"),
+    pytest.param([(BOT, TRAILER)], False, True, id="bot"),
+    pytest.param([(BOT, TRAILER + "\n\nbody paragraph")], False, False, id="trailer-in-body"),
+    pytest.param([(BOT, "Cmapi-Request-Id: req-2")], False, False, id="another-request"),
+    pytest.param([(BOT, TRAILER + "\n" + TRAILER)], False, False, id="duplicate-trailer"),
+    pytest.param([("Maintainer", ""), (BOT, TRAILER)], False, False, id="mixed"),
+    pytest.param([(BOT, TRAILER)], True, False, id="fork"),
+])
+def test_pr_audit_violation(kyverno, crc, tmp_path, commits, fork, warn):
+    root = repository(tmp_path / "origin", crc)
+    edit(folder(root) / "namespace.yaml", lambda d: d["metadata"]["labels"].update({"cmapi.net/team": "BAD_Team"}))
+    r = run_pr_step(root, kyverno, commits, fork=fork)
+    assert r.returncode == (0 if warn else 1), r.stdout + r.stderr
+    severity = "warning" if warn else "error"
+    assert f"::{severity} file=clusters/CRC/namespaces/{NS}/namespace.yaml::cmapi-metadata-dev-label-cmapi-net-team-pattern" in r.stdout
+
+
+@pytest.mark.parametrize(("committer", "email"), [
+    ("Maintainer", "user@example.org"),
+    (BOT, "other@example.org"),
+], ids=["different-name", "different-email"])
+def test_recommitted_change_uses_hand_pr_checks(kyverno, crc, tmp_path, committer, email):
+    root = repository(tmp_path / "origin", crc)
+    r = run_pr_step(root, kyverno, [(BOT, TRAILER)], committer=committer, committer_email=email)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "audit violations fail the check" in r.stdout
+
+
+def test_one_commit_pr_with_a_merge_head_uses_hand_pr_checks(kyverno, crc, tmp_path):
+    root = repository(tmp_path / "origin", crc)
+    r = run_pr_step(root, kyverno, [(BOT, TRAILER)], merge_head=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "audit violations fail the check" in r.stdout
+
+
+@pytest.mark.parametrize("author", ["Maintainer", BOT])
+def test_pr_uncompilable_policy_fails(kyverno, crc, tmp_path, author):
+    root = repository(tmp_path / "origin", crc)
+    policy = root / "policies/env/dev/broken.yaml"
+    doc = next(yaml.safe_load_all((root / "policies/env/dev/cmapi-metadata-dev.yaml").read_text()))
+    doc["metadata"]["name"] = "broken"
+    doc["spec"]["validations"] = [{"expression": "missingFunction(object)"}]
+    policy.write_text(yaml.safe_dump(doc))
+    r = run_pr_step(root, kyverno, [(author, TRAILER)])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "::error file=" in r.stdout and "broken" in r.stdout, r.stdout
