@@ -137,7 +137,7 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
             prop = spec["components"]["schemas"][model]["properties"][field]
             for example in prop["examples"]:
                 assert check.validator(prop).is_valid(example), (model, field, example)
-    tried = create["requestBody"]["content"]["application/json"]["example"]
+    tried = create["requestBody"]["content"]["application/json"]["examples"]["permanent"]["value"]
     for body in (tried, curl_body(create)):
         assert check.validator(body_schema(spec, "NamespaceCreate")).is_valid(body), body
         r = client.post(URL + "?dryRun=true", json=body, headers=auth(keys, "ola", **OLA))
@@ -158,14 +158,16 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
         assert tried["namespace"] == "abc-payments-dev" and "cmapi.net/team" not in json.dumps(tried)
     # The curl sample sends the "Try it out" body: the recorded request, with this instance's labels and annotations.
     for op in (create, patch):
-        assert curl_body(op) == op["requestBody"]["content"]["application/json"]["example"], op["operationId"]
+        media = op["requestBody"]["content"]["application/json"]
+        expected = media["example"] if "example" in media else media["examples"]["permanent"]["value"]
+        assert curl_body(op) == expected, op["operationId"]
 
 
 def test_a_patch_cannot_remove_a_required_or_derived_key_in_the_schema_or_in_the_api(instance):
     name, (client, ctx, git, kube, validator, keys) = instance
     spec = document(client)
     check = SchemaReader().validator(body_schema(spec, "NamespacePatch"))
-    tried = operation(spec, "post", "/api/v1/clusters/{cluster_id}/namespaces")["requestBody"]["content"]["application/json"]["example"]
+    tried = operation(spec, "post", "/api/v1/clusters/{cluster_id}/namespaces")["requestBody"]["content"]["application/json"]["examples"]["permanent"]["value"]
     assert client.post(URL, json=tried, headers=auth(keys, "ola", **OLA)).status_code == 202
     run_jobs(ctx)
     ns = tried["namespace"]

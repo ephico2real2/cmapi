@@ -259,6 +259,8 @@ def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[
     """True when the key that a rendered policy checks has the same value in the previous version of the object."""
     if old is None or not check.get("key") or check.get("rule") == "order":
         return False
+    if check.get("rule") == "namespaceSuffix":
+        return True             # the name was chosen at create and a change cannot rename it, as cmapi checks it (#479)
     kind, key = check["kind"], str(check["key"])
     if kind in ("label", "annotation"):
         field = "labels" if kind == "label" else "annotations"

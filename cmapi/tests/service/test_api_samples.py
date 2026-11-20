@@ -95,11 +95,14 @@ REQUEST_ID = re.compile(r"req-\d{8}-\d{4}")
 
 def fixed(sample: dict[str, Any]) -> dict[str, Any]:
     """What a sample must keep exactly from one run to the next (#183): the method, the path, the status, the media type and,
-    for a problem, its type, title, status and code. A request ID in the path has the date and a counter, so it is made neutral.
+    for a problem, its type, title, status and code, and for a create's dry run its metadata: each final value with its source,
+    the same at each run (#479, R9). A request ID in the path has the date and a counter, so it is made neutral.
     The other values differ at each run (IDs, times, etags, cursors) and are held by their shape only."""
     request, response = sample["request"], sample["response"]
     out = {"method": request["method"], "path": REQUEST_ID.sub("req-<id>", request["path"]),
            "status": response["status"], "contentType": response["contentType"]}
+    if request["method"] == "POST" and request["path"].endswith("/namespaces?dryRun=true") and response["status"] == 200:
+        out["metadata"] = response["body"]["metadata"]
     if response["contentType"] == "application/problem+json":
         out["problem"] = {k: response["body"].get(k) for k in ("type", "title", "status", "code")}
     return out

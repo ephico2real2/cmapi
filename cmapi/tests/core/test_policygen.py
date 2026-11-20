@@ -201,7 +201,7 @@ def test_each_rule_refuses_with_its_key_the_value_and_the_configured_value(kyver
             'the label company.net/cl is "7"; it must be: required; one of 0, 1, 2, 3, 4, 5, 6',
         "cmapi-metadata-rnd-label-company-net-mnemonic-pattern":
             "the label company.net/mnemonic is missing; it must be: required; must match ^[a-z]{3,4}$; "
-            "the start of the namespace name, before its first '-'",
+            "the namespace name starts with this value and '-'",
         "cmapi-metadata-rnd-label-cmapi-net-env-derived":
             "the label cmapi.net/env is prod; it must be rnd, the environment of this policy",
         "cmapi-quota-rnd-quota-requests-cpu-max":

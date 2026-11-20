@@ -6,6 +6,7 @@ that the two agree: a date set through the API is the date that the list shows o
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -156,11 +157,36 @@ def test_a_caller_without_objects_read_is_refused(fleet):
     assert client.get("/api/v1/expirations").status_code == 401
 
 
-def test_an_environment_where_nothing_expires_is_left_out(fleet, monkeypatch):
-    client, ctx, git, kube, validator, keys = fleet
+def test_an_environment_where_nothing_expires_and_nothing_kept_a_date_is_left_out(world, monkeypatch):
+    client, ctx, git, kube, validator, keys = world
+    monkeypatch.setattr(expiration_mod, "today", lambda: TODAY)
+    put(kube, "perm-dev")
+    ctx.registry.cache("CRC")._list("Namespace")
     monkeypatch.setattr(ctx.cfg.expiration, "envs", {})       # as on prod: expiration.yaml has no entry for the environment
     body = page(client, keys)
     assert body["items"] == [] and body["rules"] == {}
+
+
+@pytest.mark.parametrize("off", ["no entry", "enabled: false"])
+def test_where_expiration_is_off_a_namespace_that_kept_a_date_is_listed_with_make_permanent_only(fleet, monkeypatch, off):
+    """The coordinator's ruling on F02 (#479): the kept date shows, and Make permanent is the one write offered."""
+    client, ctx, git, kube, validator, keys = fleet
+    envs = ctx.cfg.expiration.envs
+    monkeypatch.setattr(ctx.cfg.expiration, "envs", {} if off == "no entry" else {**envs, "dev": replace(envs["dev"], enabled=False)})
+    body = page(client, keys, "?sort=name")
+    assert names(body) == ["far-dev", "gone-dev", "lastgrace-dev", "notice-dev", "past-dev", "today-dev", "tomorrow-dev"]
+    rows = {i["name"]: i for i in body["items"]}
+    assert rows["far-dev"]["expiresAt"] == day(15) and rows["far-dev"]["daysLeft"] == 15
+    assert all(r["actions"] == ["makePermanent"] and r["state"] == "permanent" and r["graceEnds"] is None
+               for r in rows.values()), "no notice and no delete where expiration is off"
+    assert body["rules"] == {}
+
+
+def test_each_row_offers_the_expiry_writes_its_namespace_takes(fleet):
+    client, ctx, git, kube, validator, keys = fleet
+    rows = {i["name"]: i for i in page(client, keys)["items"]}
+    assert rows["perm-dev"]["actions"] == ["set"]
+    assert rows["far-dev"]["actions"] == rows["gone-dev"]["actions"] == ["extend", "makePermanent"]
 
 
 # --------------------------------------------------------------------------- the writes, and the agreement of list and Git
@@ -268,3 +294,19 @@ def test_the_creation_time_is_read_with_and_without_a_z():
     assert expiration_mod._created({"creationTimestamp": "2026-10-01T09:00:00Z"}) == date(2026, 10, 1)
     assert expiration_mod._created({"creationTimestamp": datetime(2026, 10, 2, 23, 0, tzinfo=timezone.utc).isoformat()}) == date(2026, 10, 2)
     assert expiration_mod._created({}) is None and expiration_mod._created({"creationTimestamp": "yesterday"}) is None
+
+
+def test_a_date_kept_where_expiration_is_now_off_is_made_permanent_from_the_list(world, monkeypatch):
+    """End to end (#479, ruling on F02): dated while dev took expiry; dev turned off; the list offers Make permanent; it plans."""
+    client, ctx, git, kube, validator, keys = world
+    until = (date.today() + timedelta(days=20)).isoformat()
+    etag = created_namespace(client, ctx, keys, expiresAt=until)
+    envs = ctx.cfg.expiration.envs
+    monkeypatch.setitem(envs, "dev", replace(envs["dev"], enabled=False))
+    row = next(i for i in page(client, keys)["items"] if i["name"] == "payments-dev")
+    assert row["expiresAt"] == until and row["actions"] == ["makePermanent"]
+    planned = write(client, keys, "makePermanent", {"justification": "dev no longer expires"}, etag, dry=True)
+    assert planned.status_code == 200, planned.text
+    assert "cmapi.net/expires-at" not in planned.json()["files"]["clusters/CRC/namespaces/payments-dev/namespace.yaml"]
+    extended = write(client, keys, "extend", {"days": 5}, etag, dry=True)
+    assert extended.status_code == 422 and extended.json()["code"] == "expiration-not-allowed"

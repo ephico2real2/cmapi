@@ -34,6 +34,7 @@ def test_the_route_answers_the_instances_rules(instance):
     assert r.status_code == 200, r.text
     assert r.headers["content-type"] == "application/json"
     body = r.json()
+    assert body.pop("x-cmapi-expiration") == ctx.cfg.expiration.contract_view(["rnd", "dev"])
     assert body == ctx.cfg.metadata.keys_view() == {"labels": ctx.cfg.metadata.json_schema("label", "create"),
                                                     "annotations": ctx.cfg.metadata.json_schema("annotation", "create")}
     labels, annotations = body["labels"], body["annotations"]
@@ -73,7 +74,7 @@ def test_the_documents_example_of_the_route_is_this_instances_answer(instance):
     instance does not have (the defect of #334): the document shows this instance's own answer."""
     name, (client, ctx, *_, keys) = instance
     op = document(client)["paths"][ROUTE]["get"]
-    assert op["responses"]["200"]["content"]["application/json"]["example"] == ctx.cfg.metadata.keys_view()
+    assert op["responses"]["200"]["content"]["application/json"]["example"] == get(client, keys).json()
     assert op["x-cmapi-permission"] == "objects:read"
     if name == "company":
         assert "cmapi.net/team" not in json.dumps(op["responses"]["200"]["content"]["application/json"]["example"])
@@ -84,7 +85,10 @@ def test_docs_disabled_keeps_the_route(test_config, tmp_path, fresh_db, keys, mo
     with build_world(_config(test_config, tmp_path, {"enabled": False}), keys, monkeypatch) as (client, ctx, *_):
         assert client.get("/openapi.json").status_code == 404
         r = get(client, keys)
-        assert r.status_code == 200 and r.json() == ctx.cfg.metadata.keys_view(), r.text
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body.pop("x-cmapi-expiration") == ctx.cfg.expiration.contract_view(["rnd", "dev"])
+        assert body == ctx.cfg.metadata.keys_view()
 
 
 def test_a_strong_etag_and_304(world, monkeypatch):

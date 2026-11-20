@@ -262,8 +262,8 @@ test("M5 a field's check: the validator's order and words, characters as code po
   const company = fieldsOf(RULES.company);
   const [mnemonic, lob, cl] = company.fields;
   const ctx = { namespace: "abc-rnd", labelValue: company.labelValue };
-  assert.equal(await checkField(mnemonic, "", ctx, ecma), "Required: must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'");
-  assert.equal(await checkField(mnemonic, "ABC", ctx, ecma), "Not valid: must match ^[a-z]{3,4}$; the start of the namespace name, before its first '-'");
+  assert.equal(await checkField(mnemonic, "", ctx, ecma), "Required: must match ^[a-z]{3,4}$; the namespace name starts with this value and '-'");
+  assert.equal(await checkField(mnemonic, "ABC", ctx, ecma), "Not valid: must match ^[a-z]{3,4}$; the namespace name starts with this value and '-'");
   assert.equal(await checkField(mnemonic, "a b", ctx, ecma), "Not a valid label value", "the label syntax first, as _syntax");
   assert.equal(await checkField(mnemonic, "xyz", ctx, ecma), "abc-rnd does not start with xyz-");
   assert.equal(await checkField(mnemonic, "abc", ctx, ecma), null);

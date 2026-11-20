@@ -48,8 +48,9 @@ Swagger and the portal show as hints, and nothing enforces them.
 7. **Expiration** (optional; the rules are `expiration.yaml`'s): `expiresAt` is a date. Left out, the namespace
    is permanent. Each environment has an **`enabled` flag** (NEW; `defaults.enabled: true`). With `enabled: false`, or
    no entry, expiration is off there: the field is blank and hidden in the portal and `expiresAt` is refused
-   (`expiration-not-allowed`). Production ships with `prod: {enabled: false}`; cmapi also refuses `prod: {enabled: true}`
-   at start and never writes an expiry on a prod namespace (the #222 backstop). A date not after today is refused
+   (`expiration-not-allowed`). A namespace dated while it was on keeps its date on every other change; **Make permanent**
+   still removes it, and Extend and Set are refused. Production ships with `prod: {enabled: false}`; cmapi also refuses
+   `prod: {enabled: true}` at start and never writes an expiry on a prod namespace (the #222 backstop). A date not after today is refused
    (`expiration-in-past`). More than `maxLifetimeDays` (180) after creation is allowed with one more approver-platform
    approval. Notices go to the team DL at 14, 7 and 1 days before; the namespace keeps running `graceDays` (7) after the
    date, then a delete request is opened. **On the namespace**, cmapi writes the annotation
@@ -212,10 +213,10 @@ same two maps. What changes is what the schema says about the keys, one endpoint
 | A2 | Same | A key with `default: {from: K}`: listed in `required`, description "default: the value of K", `x-cmapi-default-from: K` | Additive |
 | A3 | `NamespaceCreate.namespace` | Description and extensions for the name: `x-cmapi-prefix-from: company.net/mnemonic`, `x-cmapi-suffix-from: company.net/app-environment`; "`<mnemonic>-<desired name>-<cluster env>`, at most 63"; the example built from the configuration's examples and the instance's first environment | Additive |
 | A4 | The environment key's schema | `x-cmapi-namespace-suffix: true`, beside the existing prefix marker on the mnemonic key | Additive |
-| A5 | `GET /api/v1/metadata-keys` | Nothing new to add: it returns the same two schemas, so A1–A4 reach the portal by themselves. Its contract test checks they stay equal to `NamespaceCreate`'s | None (test only) |
+| A5 | `GET /api/v1/metadata-keys` | It returns the same two schemas, so A1–A4 reach the portal by themselves, and `x-cmapi-expiration` of A11 beside them (D15), so its ETag changes when `expiration.yaml` does. Its contract test checks they stay equal to `NamespaceCreate`'s | Additive |
 | A6 | Request examples (Swagger, ReDoc, docs/04, the recorded samples) | Generated from the configuration's `example:` values: every required key, the optional keys that have an example, and **one extra label and one extra annotation** from a new optional `allowOther.example` in the configuration, so the Example Value shows that extra keys go in the same maps | Additive |
-| A7 | Dry-run answer (`?dryRun=true`) | `changes.labels` and `changes.annotations` give each final value with its `source`: `request`, `namespace`, `environment`, or `default:<key>`. Extra keys are `request` | Additive |
-| A8 | Validation (`core/metadata.py`) | New: the suffix check (the name must end with `-<env>`); `default: {from: K}` filled before the checks. The loader refuses a `from` naming no key, a chain of defaults, a key of the other kind, or more than one key with `namespacePrefix` or with `namespaceSuffix` | Behaviour |
+| A7 | Dry-run answer (`?dryRun=true`) | `metadata.labels` and `metadata.annotations` give each final value with its `source`: `request`, `namespace`, `environment`, or `default:<key>`. Extra keys are `request` | Additive |
+| A8 | Validation (`core/metadata.py`) | New: the suffix check on a create (the name must end with `-<env>`, with a desired name between the two ends); `default: {from: K}` filled before the checks. The loader refuses a `from` naming no key, a chain of defaults, a key of the other kind, more than one key with `namespacePrefix` or with `namespaceSuffix`, or one key with both | Behaviour |
 | A9 | Errors | No new code. A name that does not end with the environment is `invalid_value` on the environment key ("abc-payments-rnd does not end with -dev"); the rest as today | Behaviour |
 | A11 | `NamespaceCreate.expiresAt` | Description from `expiration.yaml` (optional; never in prod; up to `maxLifetimeDays` from creation, more needs one approver-platform approval) and `x-cmapi-expiration: {environments: {<env>: {enabled, allowedAtCreate, maxLifetimeDays, notifyDaysBefore, graceDays}}}` for each environment the instance serves (an unlisted one appears with `enabled: false`), so the portal's calendar reads its limits, and whether it is shown at all, from the contract. `expiration.yaml` gains `enabled` (default `true`); `prod: {enabled: false}` now loads, `prod: {enabled: true}` is refused | Additive |
 | A10 | Kyverno bundle | Re-rendered from the new configuration (the new required keys, the prefix and suffix rules); delivered to `cmapi-cluster-configs` | Config repository |
@@ -387,7 +388,7 @@ A minimal API client may send less: cmapi fills `name`, `company.net/app-environ
 ```json
 {
   "planHash": "9c41…",
-  "changes": {
+  "metadata": {
     "namespace": "abc-payments-dev",
     "labels": {
       "name":                        {"value": "abc-payments-dev", "source": "namespace"},
@@ -402,7 +403,8 @@ A minimal API client may send less: cmapi fills `name`, `company.net/app-environ
       "cmapi.net/team-dl":           {"value": "payments-team@company.net", "source": "request"}
     }
   },
-  "files": { "clusters/CRC/namespaces/abc-payments-dev/namespace.yaml": "added", "…": "added" },
+  "changes": { "clusters/CRC/namespaces/abc-payments-dev/namespace.yaml": "added" },
+  "files": { "clusters/CRC/namespaces/abc-payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\n…" },
   "capacity": { "status": "fits" },
   "approval": { "rule": "dev-create", "remaining": [{"group": "approver-platform", "needed": 1}] },
   "findings": []
@@ -543,7 +545,7 @@ A minimal API client may send less: cmapi fills `name`, `company.net/app-environ
 
 | Step | What | Proof |
 |---|---|---|
-| 1 | Loader and validation: `namespaceSuffix`, `default: {from: …}`, filled-in keys required (A1, A2, A3, A6, A8) | Service tests: fill, keep, refuse; a name ending in another environment refused; config refusals |
+| 1 | Loader and validation: `namespaceSuffix`, `default: {from: …}`, filled-in keys required (A1, A2, A3, A6, A8) | Service tests: fill, keep, refuse; a name that does not end with its own cluster's environment refused (`abc-payments-rnd` on a `dev` cluster). A name is checked against its target cluster only: `abc-payments-qa-dev` is valid on a `dev` cluster, with the desired name `payments-qa`; config refusals |
 | 2 | Contract: schema, examples, `metadata-keys` (A1–A5, A7); accepted-breaking lines | Contract tests; oasdiff report; docs/04 regenerated |
 | 3 | Portal form, preview and the extra-key section (P1–P11) | Browser checks at 390/820/1440 px, mutants, screenshots |
 | 4 | CRC configuration (section 8), Kyverno bundle re-rendered to `cmapi-cluster-configs` (A9) | CRC deploy; Swagger and form screenshots through the Route |

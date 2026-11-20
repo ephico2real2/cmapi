@@ -1,10 +1,11 @@
 """Expiration rules (config/expiration.yaml) and the daily expire_check decisions.
 
 Optional, and never in prod: an environment with no entry in expiration.yaml, or with enabled: false,
-refuses every expiry field with 422 expiration-not-allowed. prod may have an entry only with enabled: false
-(the owner's #222 decision: production never expires). Within limits an extension follows the environment's change
-rule; past maxLifetimeDays from creation, or :makePermanent, adds approver-platform. A single
-extension longer than maxExtensionDays is refused (expiration-limit).
+refuses every expiry field with 422 expiration-not-allowed, except :makePermanent of a namespace that has a date: a date
+given while expiration was on stays as it is on every other change, until :makePermanent removes it (#479). prod may
+have an entry only with enabled: false (the owner's #222 decision: production never expires). Within limits an
+extension follows the environment's change rule; past maxLifetimeDays from creation, or :makePermanent, adds
+approver-platform. A single extension longer than maxExtensionDays is refused (expiration-limit).
 
 States (GET /api/v1/expirations?state=):
     permanent       no expiry
@@ -76,10 +77,14 @@ class CheckResult:
 class ExpirationRules:
     def __init__(self, raw: Mapping[str, Any], allowed_environments: set[str] | None = None):
         d = raw.get("defaults") or {}
+        def check_enabled(entry: Mapping[str, Any]) -> None:
+            if not isinstance(entry.get("enabled", True), bool):
+                raise ValueError(f"expiration.yaml: enabled is true or false, not {entry['enabled']!r}")
+
+        check_enabled(d)            # a wrong default stops the start even when no environment inherits it
         def mk(over: Mapping[str, Any]) -> EnvRules:
             v = {**d, **(over or {})}
-            if not isinstance(v.get("enabled", True), bool):
-                raise ValueError(f"expiration.yaml: enabled is true or false, not {v['enabled']!r}")
+            check_enabled(v)
             return EnvRules(enabled=v.get("enabled", True), allowed_at_create=v.get("allowedAtCreate", True),
                             max_extension_days=v.get("maxExtensionDays", 30),
                             max_lifetime_days=v.get("maxLifetimeDays", 180),
@@ -172,8 +177,9 @@ class ExpirationRules:
         return ExpiryPlan("set", until, self._lifetime(r, ns.created, until, reasons), tuple(reasons))
 
     def plan_make_permanent(self, ns: ExpiryInfo) -> ExpiryPlan:
-        self.rules(ns.environment)
+        # Taken where expiration is off too (#479): it is how a date given while expiration was on is removed.
         if ns.expires_at is None:
+            self.rules(ns.environment)                    # an environment that takes no expiry says so first, as before
             raise Problem.unprocessable("expiration-not-set", "The namespace is already permanent")
         return ExpiryPlan("makePermanent", None, ("approver-platform",), ("make permanent",))
 

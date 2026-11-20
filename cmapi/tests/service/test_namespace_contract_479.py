@@ -150,7 +150,7 @@ def create_schema(spec: dict) -> dict:
 
 
 def create_example(spec: dict) -> dict:
-    return spec["paths"][URL.replace("CRC", "{cluster_id}")]["post"]["requestBody"]["content"]["application/json"]["example"]
+    return spec["paths"][URL.replace("CRC", "{cluster_id}")]["post"]["requestBody"]["content"]["application/json"]["examples"]["permanent"]["value"]
 
 
 # --------------------------------------------------------------------------- the loader (A8)
@@ -193,10 +193,10 @@ def test_a_default_from_a_key_of_the_other_kind_is_refused_at_load():
     assert "default.from cmapi.net/team-dl is an annotation, not a label" in refused(raw)
 
 
-def test_a_default_from_a_filled_in_key_is_refused_at_load():
+def test_a_default_from_a_filled_in_key_loads():
     raw = design()
     raw["requiredLabels"]["cmapi.net/team"]["default"] = {"from": "name"}
-    assert "default.from name is filled in by cmapi" in refused(raw)
+    assert MetadataKeys(raw).rules["label"]["cmapi.net/team"].default_from == "name"
 
 
 def test_a_chain_of_defaults_is_refused_at_load():

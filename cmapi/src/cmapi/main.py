@@ -95,13 +95,13 @@ class UnhandledToProblemMiddleware:
 
 
 def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:
-    """The create example's target and the expiry rules of the API document (#479). Its environment is the example
-    cluster's in clusters.yaml when that lists it, so "Try it out" on that cluster is accepted, else the first served."""
+    """The create example's target and the expiry rules of the API document (#479). cluster_environments: the writable
+    clusters of clusters.yaml. The target is CRC when it is one of them, else the first of them, with its environment,
+    so "Try it out" names a cluster that takes it; with none, CRC and the first served environment."""
     served = tuple(cfg.raw_instance["instance"]["allowedEnvironments"])
-    environment = (cluster_environments or {}).get(EXAMPLE_CLUSTER)
-    if environment not in served:
-        environment = served[0]
-    return InstanceFacts(cfg.name, EXAMPLE_CLUSTER, environment, served, cfg.expiration)
+    clusters = cluster_environments or {}
+    cluster = EXAMPLE_CLUSTER if EXAMPLE_CLUSTER in clusters else next(iter(clusters), EXAMPLE_CLUSTER)
+    return InstanceFacts(cfg.name, cluster, clusters.get(cluster, served[0]), served, cfg.expiration)
 
 
 def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None,
@@ -168,7 +168,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     docs_cfg = (ctx.cfg.raw_instance["instance"].get("docs") or {})
     docs_enabled = docs_cfg.get("enabled", True)
     app, authed = api_app(ctx.cfg, issuer, lifespan,
-                          {cid: p.environment for cid, p in ctx.registry.policies.items()})
+                          {cid: p.environment for cid, p in ctx.registry.policies.items() if p.writes})
     app.state.ctx = ctx
     app.state.auth = ctx.auth
     problem_base = type_base(ctx.cfg.raw_instance["instance"])

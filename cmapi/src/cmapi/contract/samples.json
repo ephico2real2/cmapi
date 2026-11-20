@@ -80,7 +80,7 @@
               "cpuThrottledPeriods": null,
               "cpuThrottledSeconds": null,
               "cpuUsageSeconds": null,
-              "measuredAt": 1795170776.945011,
+              "measuredAt": 1795174472.8533142,
               "memoryBytes": null,
               "memoryLimitBytes": null
             }
@@ -103,7 +103,7 @@
               "target": "under 10 min",
               "targetStatus": "proposed",
               "unit": "seconds",
-              "value": 0.266329
+              "value": 0.239371
             },
             {
               "id": "lead-time-approved-p90",
@@ -190,7 +190,7 @@
         "body": {
           "paused": true,
           "reason": "incident 1234",
-          "setAt": "2026-11-20T10:33:01.492933+00:00",
+          "setAt": "2026-11-20T11:34:37.588317+00:00",
           "setBy": "ada"
         },
         "contentType": "application/json",
@@ -306,7 +306,7 @@
           "approval": {
             "approvals": [
               {
-                "at": "2026-11-20T10:33:06.205884Z",
+                "at": "2026-11-20T11:34:41.386288Z",
                 "comment": "",
                 "relayedBy": null,
                 "sub": "sub-amy",
@@ -333,74 +333,74 @@
           "baseSha": "42c28d55db885b61d2f81efe3a4655f69e366bbd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:06.118570Z",
+          "createdAt": "2026-11-20T11:34:41.299372Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:06.118570Z",
+              "at": "2026-11-20T11:34:41.299372Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:33:06.205884Z",
+              "at": "2026-11-20T11:34:41.386288Z",
               "by": "amy",
               "event": "approval",
               "note": "",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:33:06.205884Z",
+              "at": "2026-11-20T11:34:41.386288Z",
               "by": "amy",
               "event": "approved",
               "note": "approval count met",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:06.349545Z",
+              "at": "2026-11-20T11:34:41.529396Z",
               "by": "cmapi-bot",
               "event": "branch_pushed",
               "note": "cmapi/CRC/req-20261120-0008 at d7b0c767 on 42c28d55 (created)",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:06.472407Z",
+              "at": "2026-11-20T11:34:41.643003Z",
               "by": "cmapi-bot",
               "event": "pr_opened",
               "note": "cmapi/CRC/req-20261120-0008 #7",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:06.568846Z",
+              "at": "2026-11-20T11:34:41.722787Z",
               "by": "ci",
               "event": "ci",
               "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:06.662421Z",
+              "at": "2026-11-20T11:34:41.799531Z",
               "by": "worker",
               "event": "merge_verified",
               "note": "merged d7b0c767; the folder at it is the plan's",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:06.662421Z",
+              "at": "2026-11-20T11:34:41.799531Z",
               "by": "cmapi-bot",
               "event": "merged",
               "note": "merged d7b0c767",
               "status": "merged"
             },
             {
-              "at": "2026-11-20T10:33:06.770495Z",
+              "at": "2026-11-20T11:34:41.888040Z",
               "by": "cmapi-deliverer",
               "event": "prune_pending",
               "note": "Prune=confirm: waiting for an operator to confirm the prune",
               "status": "awaiting_prune"
             },
             {
-              "at": "2026-11-20T10:33:07.266580Z",
+              "at": "2026-11-20T11:34:42.307094Z",
               "by": "opal",
               "event": "prune_confirm",
               "note": "operator confirmed the prune",
@@ -450,7 +450,7 @@
             "submittedByClient": null
           },
           "status": "awaiting_prune",
-          "updatedAt": "2026-11-20T10:33:07.207643Z"
+          "updatedAt": "2026-11-20T11:34:42.223071Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -472,7 +472,7 @@
         "body": {
           "paused": false,
           "reason": "incident 1234 closed",
-          "setAt": "2026-11-20T10:33:01.511793+00:00",
+          "setAt": "2026-11-20T11:34:37.582977+00:00",
           "setBy": "ada"
         },
         "contentType": "application/json",
@@ -512,7 +512,7 @@
         "body": {
           "clusters": [
             {
-              "asOf": "2026-11-20T10:33:00Z",
+              "asOf": "2026-11-20T11:34:00Z",
               "basis": "simulated",
               "boundBy": "cpu",
               "clusterId": "CRC",
@@ -657,7 +657,7 @@
         },
         "contentType": "application/json",
         "headers": {
-          "etag": "\"854373e171f867395bd081a622112223\""
+          "etag": "\"c69e460f5ac79378507b28c30a05b709\""
         },
         "status": 200
       }
@@ -674,7 +674,7 @@
         "body": {
           "items": [
             {
-              "checkedAt": "2026-11-20T10:32:54.849857Z",
+              "checkedAt": "2026-11-20T11:34:30.778961Z",
               "clusterId": "CRC",
               "environment": "dev",
               "findingDetails": [],
@@ -683,11 +683,11 @@
               "labels": {
                 "region": "us-central"
               },
-              "lastProbeAt": "2026-11-20T10:32:54.849857Z",
+              "lastProbeAt": "2026-11-20T11:34:30.778961Z",
               "secretName": "cmapi-cluster-crc",
               "serverVersion": "v1.35.6-fake",
               "status": "connected",
-              "statusSince": "2026-11-20T10:32:54.849857Z",
+              "statusSince": "2026-11-20T11:34:30.778961Z",
               "tokenExpiresAt": null,
               "trust": {
                 "downgrade": false,
@@ -961,11 +961,37 @@
                 "*.ephico2real.com/"
               ]
             }
+          },
+          "x-cmapi-expiration": {
+            "environments": {
+              "dev": {
+                "allowedAtCreate": true,
+                "enabled": true,
+                "graceDays": 7,
+                "maxLifetimeDays": 180,
+                "notifyDaysBefore": [
+                  14,
+                  7,
+                  1
+                ]
+              },
+              "rnd": {
+                "allowedAtCreate": true,
+                "enabled": true,
+                "graceDays": 7,
+                "maxLifetimeDays": 180,
+                "notifyDaysBefore": [
+                  14,
+                  7,
+                  1
+                ]
+              }
+            }
           }
         },
         "contentType": "application/json",
         "headers": {
-          "etag": "\"9415b425a9b08bf3e7076447b5af8156\""
+          "etag": "\"88a6b2e9cd1d8348f7f3c3c507a11c16\""
         },
         "status": 200
       }
@@ -980,7 +1006,7 @@
       },
       "response": {
         "body": {
-          "checkedAt": "2026-11-20T10:32:55.226025Z",
+          "checkedAt": "2026-11-20T11:34:31.154865Z",
           "clusterId": "CRC",
           "environment": "dev",
           "findingDetails": [],
@@ -989,11 +1015,11 @@
           "labels": {
             "region": "us-central"
           },
-          "lastProbeAt": "2026-11-20T10:32:55.226025Z",
+          "lastProbeAt": "2026-11-20T11:34:31.154865Z",
           "secretName": "cmapi-cluster-crc",
           "serverVersion": "v1.35.6-fake",
           "status": "connected",
-          "statusSince": "2026-11-20T10:32:54.849857Z",
+          "statusSince": "2026-11-20T11:34:30.778961Z",
           "tokenExpiresAt": null,
           "trust": {
             "downgrade": false,
@@ -1088,6 +1114,10 @@
           },
           "items": [
             {
+              "actions": [
+                "extend",
+                "makePermanent"
+              ],
               "app": null,
               "clusterId": "CRC",
               "created": "2026-11-20",
@@ -1103,6 +1133,10 @@
               "team": "payments"
             },
             {
+              "actions": [
+                "extend",
+                "makePermanent"
+              ],
               "app": null,
               "clusterId": "CRC",
               "created": "2026-11-20",
@@ -1118,6 +1152,9 @@
               "team": "payments"
             },
             {
+              "actions": [
+                "set"
+              ],
               "app": null,
               "clusterId": "CRC",
               "created": "2026-11-20",
@@ -1181,7 +1218,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "dc56df6b-cfc7-44d7-a883-a6fb0fed65a5"
+          "Idempotency-Key": "4d58c461-346e-4dfe-9823-d2ab123c4c63"
         },
         "method": "POST",
         "path": "/api/v1/clusters/CRC/namespaces"
@@ -1206,11 +1243,11 @@
           "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:32:55.981438Z",
+          "createdAt": "2026-11-20T11:34:31.921522Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:32:55.981438Z",
+              "at": "2026-11-20T11:34:31.921522Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "auto:baseline-rnd-namespace",
@@ -1254,7 +1291,7 @@
             "submittedByClient": null
           },
           "status": "approved",
-          "updatedAt": "2026-11-20T10:32:55.975881Z"
+          "updatedAt": "2026-11-20T11:34:31.892361Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -1433,7 +1470,7 @@
       "request": {
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "c4222e12-0e8a-47bf-8d69-cabd9cad635e",
+          "Idempotency-Key": "3b2e3256-d374-4d11-ab6c-9dce072ba6ea",
           "If-Match": "\"a8cfd5ae51d7eb9e\""
         },
         "method": "DELETE",
@@ -1469,11 +1506,11 @@
           "baseSha": "42c28d55db885b61d2f81efe3a4655f69e366bbd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:06.118570Z",
+          "createdAt": "2026-11-20T11:34:41.299372Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:06.118570Z",
+              "at": "2026-11-20T11:34:41.299372Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
@@ -1517,7 +1554,7 @@
             "submittedByClient": null
           },
           "status": "pending_approval",
-          "updatedAt": "2026-11-20T10:33:06.063078Z"
+          "updatedAt": "2026-11-20T11:34:41.218730Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -1532,7 +1569,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "99d7b6f7-34ec-4b2b-84d5-105a3471aba4",
+          "Idempotency-Key": "bd83e2ff-4c30-4350-ab06-14dfb23cef94",
           "If-Match": "\"33e3cb4377f0a613\""
         },
         "method": "POST",
@@ -1557,11 +1594,11 @@
           "baseSha": "653097d85729c316d41bbf5d82a0b66c07c89fc0",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:32:59.870601Z",
+          "createdAt": "2026-11-20T11:34:35.871255Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:32:59.870601Z",
+              "at": "2026-11-20T11:34:35.871255Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "none-required",
@@ -1605,7 +1642,7 @@
             "submittedByClient": null
           },
           "status": "approved",
-          "updatedAt": "2026-11-20T10:32:59.876010Z"
+          "updatedAt": "2026-11-20T11:34:35.855258Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -1780,7 +1817,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "084d80a5-0a0b-43bc-b898-b9eee470e213",
+          "Idempotency-Key": "1fe67b88-77c6-413c-9011-f39030252e77",
           "If-Match": "\"6c68bebe0a929af0\""
         },
         "method": "POST",
@@ -1817,11 +1854,11 @@
           "baseSha": "35a1bbba3dc7f0033bf2eeb5101cecbacbba181b",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:11.794155Z",
+          "createdAt": "2026-11-20T11:34:46.547821Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:11.794155Z",
+              "at": "2026-11-20T11:34:46.547821Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
@@ -1865,7 +1902,7 @@
             "submittedByClient": null
           },
           "status": "pending_approval",
-          "updatedAt": "2026-11-20T10:33:11.804243Z"
+          "updatedAt": "2026-11-20T11:34:46.533150Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -1961,7 +1998,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "afd50626-c0fa-4f70-b3f4-25c75391d81d",
+          "Idempotency-Key": "fac98d84-1b72-4567-af12-f5e45ba7de95",
           "If-Match": "\"79da208d3cbbec1e\""
         },
         "method": "POST",
@@ -1986,11 +2023,11 @@
           "baseSha": "2c01808b40ae5b3e5dcf8f3f3e592539190fa899",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:10.949876Z",
+          "createdAt": "2026-11-20T11:34:45.760801Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:10.949876Z",
+              "at": "2026-11-20T11:34:45.760801Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "none-required",
@@ -2034,7 +2071,7 @@
             "submittedByClient": null
           },
           "status": "approved",
-          "updatedAt": "2026-11-20T10:33:10.954889Z"
+          "updatedAt": "2026-11-20T11:34:45.741338Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -2119,7 +2156,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "0b09ad61-af2b-4097-8816-ca395690c198",
+          "Idempotency-Key": "2a7257e8-fe3a-4833-9546-2525e7efeb4c",
           "If-Match": "\"8b67bd76ddf33c88\""
         },
         "method": "PATCH",
@@ -2156,11 +2193,11 @@
           "baseSha": "d059a3d1e7a668d048e58f375ea118c148edbfd4",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:32:57.274605Z",
+          "createdAt": "2026-11-20T11:34:33.184307Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:32:57.274605Z",
+              "at": "2026-11-20T11:34:33.184307Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
@@ -2204,7 +2241,7 @@
             "submittedByClient": null
           },
           "status": "pending_approval",
-          "updatedAt": "2026-11-20T10:32:57.282611Z"
+          "updatedAt": "2026-11-20T11:34:33.163617Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -2297,7 +2334,7 @@
       },
       "response": {
         "body": {
-          "from": "2026-11-13T10:33:12.015603Z",
+          "from": "2026-11-13T11:34:46.745588Z",
           "items": [
             {
               "action": "create",
@@ -2316,9 +2353,9 @@
                   "source": "cmapi"
                 }
               ],
-              "firstAt": "2026-11-20T10:33:09.751026Z",
+              "firstAt": "2026-11-20T11:34:44.568621Z",
               "id": "rej-2",
-              "lastAt": "2026-11-20T10:33:09.751026Z",
+              "lastAt": "2026-11-20T11:34:44.568621Z",
               "namespace": "kube-tools",
               "outcome": "refused",
               "plugin": "namespaces",
@@ -2344,9 +2381,9 @@
                   "source": "cmapi"
                 }
               ],
-              "firstAt": "2026-11-20T10:33:03.631292Z",
+              "firstAt": "2026-11-20T11:34:39.102622Z",
               "id": "rej-1",
-              "lastAt": "2026-11-20T10:33:03.631292Z",
+              "lastAt": "2026-11-20T11:34:39.102622Z",
               "namespace": "search-dev",
               "outcome": "refused",
               "plugin": "namespaces",
@@ -2388,7 +2425,7 @@
         "body": {
           "clusters": [
             {
-              "asOf": "2026-11-20T10:33:11.902213Z",
+              "asOf": "2026-11-20T11:34:46.632196Z",
               "bundle": {
                 "actionsDiffer": [],
                 "actionsDifferTotal": 0,
@@ -3263,7 +3300,7 @@
           "approval": {
             "approvals": [
               {
-                "at": "2026-11-20T10:32:57.509239Z",
+                "at": "2026-11-20T11:34:33.408114Z",
                 "comment": "sizing reviewed",
                 "relayedBy": null,
                 "sub": "sub-amy",
@@ -3291,25 +3328,25 @@
           "baseSha": "d059a3d1e7a668d048e58f375ea118c148edbfd4",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:32:57.274605Z",
+          "createdAt": "2026-11-20T11:34:33.184307Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:32:57.274605Z",
+              "at": "2026-11-20T11:34:33.184307Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:32:57.509239Z",
+              "at": "2026-11-20T11:34:33.408114Z",
               "by": "amy",
               "event": "approval",
               "note": "sizing reviewed",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:32:57.509239Z",
+              "at": "2026-11-20T11:34:33.408114Z",
               "by": "amy",
               "event": "approved",
               "note": "approval count met",
@@ -3353,7 +3390,7 @@
             "submittedByClient": null
           },
           "status": "approved",
-          "updatedAt": "2026-11-20T10:32:57.474895Z"
+          "updatedAt": "2026-11-20T11:34:33.345493Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -3398,18 +3435,18 @@
           "baseSha": "d7b0c767b07bc0b02ea75261144529ca1cc3a5cd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:01.039775Z",
+          "createdAt": "2026-11-20T11:34:37.153113Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:01.039775Z",
+              "at": "2026-11-20T11:34:37.153113Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:33:01.398952Z",
+              "at": "2026-11-20T11:34:37.493805Z",
               "by": "ola",
               "event": "cancel",
               "note": "",
@@ -3453,7 +3490,7 @@
             "submittedByClient": null
           },
           "status": "cancelled",
-          "updatedAt": "2026-11-20T10:33:01.345469Z"
+          "updatedAt": "2026-11-20T11:34:37.415951Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -3472,63 +3509,63 @@
         "body": {
           "events": [
             {
-              "at": "2026-11-20T10:32:55.981438Z",
+              "at": "2026-11-20T11:34:31.921522Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "auto:baseline-rnd-namespace",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:32:56.093722Z",
+              "at": "2026-11-20T11:34:32.036333Z",
               "by": "cmapi-bot",
               "event": "branch_pushed",
               "note": "cmapi/CRC/req-20261120-0001 at d059a3d1 on aaaaaaaa (created)",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:32:56.139178Z",
+              "at": "2026-11-20T11:34:32.079918Z",
               "by": "cmapi-bot",
               "event": "pr_opened",
               "note": "cmapi/CRC/req-20261120-0001 #1",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.175801Z",
+              "at": "2026-11-20T11:34:32.116788Z",
               "by": "ci",
               "event": "ci",
               "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.218889Z",
+              "at": "2026-11-20T11:34:32.158552Z",
               "by": "cmapi-deliverer",
               "event": "apply_started",
               "note": "applying d059a3d1 before the merge",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.208963Z",
+              "at": "2026-11-20T11:34:32.147941Z",
               "by": "cmapi-deliverer",
               "event": "applied",
               "note": "5 objects from cmapi/CRC/req-20261120-0001 at d059a3d1, before the merge, confirmed by a read: quota matches the plan",
               "status": "applied"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "worker",
               "event": "merge_verified",
               "note": "merged d059a3d1; the folder at it is the plan's",
               "status": "applied"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "cmapi-bot",
               "event": "merged",
               "note": "merged d059a3d1",
               "status": "merged"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "cmapi-deliverer",
               "event": "synced",
               "note": "applied and confirmed by a read before the merge",
@@ -3571,67 +3608,67 @@
           "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:32:55.981438Z",
+          "createdAt": "2026-11-20T11:34:31.921522Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:32:55.981438Z",
+              "at": "2026-11-20T11:34:31.921522Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "auto:baseline-rnd-namespace",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:32:56.093722Z",
+              "at": "2026-11-20T11:34:32.036333Z",
               "by": "cmapi-bot",
               "event": "branch_pushed",
               "note": "cmapi/CRC/req-20261120-0001 at d059a3d1 on aaaaaaaa (created)",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:32:56.139178Z",
+              "at": "2026-11-20T11:34:32.079918Z",
               "by": "cmapi-bot",
               "event": "pr_opened",
               "note": "cmapi/CRC/req-20261120-0001 #1",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.175801Z",
+              "at": "2026-11-20T11:34:32.116788Z",
               "by": "ci",
               "event": "ci",
               "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.218889Z",
+              "at": "2026-11-20T11:34:32.158552Z",
               "by": "cmapi-deliverer",
               "event": "apply_started",
               "note": "applying d059a3d1 before the merge",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:32:56.208963Z",
+              "at": "2026-11-20T11:34:32.147941Z",
               "by": "cmapi-deliverer",
               "event": "applied",
               "note": "5 objects from cmapi/CRC/req-20261120-0001 at d059a3d1, before the merge, confirmed by a read: quota matches the plan",
               "status": "applied"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "worker",
               "event": "merge_verified",
               "note": "merged d059a3d1; the folder at it is the plan's",
               "status": "applied"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "cmapi-bot",
               "event": "merged",
               "note": "merged d059a3d1",
               "status": "merged"
             },
             {
-              "at": "2026-11-20T10:32:56.288516Z",
+              "at": "2026-11-20T11:34:32.226670Z",
               "by": "cmapi-deliverer",
               "event": "synced",
               "note": "applied and confirmed by a read before the merge",
@@ -3681,7 +3718,7 @@
             "submittedByClient": null
           },
           "status": "synced",
-          "updatedAt": "2026-11-20T10:32:56.250280Z"
+          "updatedAt": "2026-11-20T11:34:32.163495Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -3729,11 +3766,11 @@
               "baseSha": "d059a3d1e7a668d048e58f375ea118c148edbfd4",
               "beyondTier": null,
               "clusterId": "CRC",
-              "createdAt": "2026-11-20T10:32:57.274605Z",
+              "createdAt": "2026-11-20T11:34:33.184307Z",
               "env": "dev",
               "events": [
                 {
-                  "at": "2026-11-20T10:32:57.274605Z",
+                  "at": "2026-11-20T11:34:33.184307Z",
                   "by": "ola",
                   "event": "plan_needs_approval",
                   "note": "waiting for [('approver-platform', 1)]",
@@ -3777,7 +3814,7 @@
                 "submittedByClient": null
               },
               "status": "pending_approval",
-              "updatedAt": "2026-11-20T10:32:57.282611Z"
+              "updatedAt": "2026-11-20T11:34:33.163617Z"
             }
           ],
           "letters": {
@@ -3838,18 +3875,18 @@
           "baseSha": "d7b0c767b07bc0b02ea75261144529ca1cc3a5cd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:01.187695Z",
+          "createdAt": "2026-11-20T11:34:37.290623Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:01.187695Z",
+              "at": "2026-11-20T11:34:37.290623Z",
               "by": "ola",
               "event": "plan_needs_approval",
               "note": "waiting for [('approver-platform', 1)]",
               "status": "pending_approval"
             },
             {
-              "at": "2026-11-20T10:33:01.306015Z",
+              "at": "2026-11-20T11:34:37.402286Z",
               "by": "amy",
               "event": "rejected",
               "note": "Use the medium tier",
@@ -3893,7 +3930,7 @@
             "submittedByClient": null
           },
           "status": "rejected",
-          "updatedAt": "2026-11-20T10:33:01.251710Z"
+          "updatedAt": "2026-11-20T11:34:37.323458Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -3928,67 +3965,67 @@
           "baseSha": "d7b0c767b07bc0b02ea75261144529ca1cc3a5cd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:03.084776Z",
+          "createdAt": "2026-11-20T11:34:38.728830Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:03.084776Z",
+              "at": "2026-11-20T11:34:38.728830Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "auto:baseline-rnd-namespace",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:03.244876Z",
+              "at": "2026-11-20T11:34:38.842670Z",
               "by": "cmapi-bot",
               "event": "branch_pushed",
               "note": "cmapi/CRC/req-20261120-0007 at 42c28d55 on d7b0c767 (created)",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:03.400838Z",
+              "at": "2026-11-20T11:34:38.937914Z",
               "by": "cmapi-bot",
               "event": "pr_opened",
               "note": "cmapi/CRC/req-20261120-0007 #5",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:03.631292Z",
+              "at": "2026-11-20T11:34:39.102622Z",
               "by": "ci",
               "event": "ci",
               "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:03.631292Z",
+              "at": "2026-11-20T11:34:39.102622Z",
               "by": "ci",
               "event": "head_moved",
               "note": "PR head moved from 42c28d55 to 35d81f69 after approval",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:03.631292Z",
+              "at": "2026-11-20T11:34:39.102622Z",
               "by": "ci",
               "event": "pr_failed",
               "note": "checks failed",
               "status": "failed"
             },
             {
-              "at": "2026-11-20T10:33:03.631292Z",
+              "at": "2026-11-20T11:34:39.102622Z",
               "by": "worker",
               "event": "pr_closed",
               "note": "#5: its checks failed; the request is failed and may be retried",
               "status": "failed"
             },
             {
-              "at": "2026-11-20T10:33:03.802475Z",
+              "at": "2026-11-20T11:34:39.231277Z",
               "by": "worker",
               "event": "branch_deleted",
               "note": "cmapi/CRC/req-20261120-0007 at 35d81f69",
               "status": "failed"
             },
             {
-              "at": "2026-11-20T10:33:04.863274Z",
+              "at": "2026-11-20T11:34:40.165121Z",
               "by": "opal",
               "event": "retry",
               "note": "retry requested",
@@ -4038,7 +4075,7 @@
             "submittedByClient": null
           },
           "status": "approved",
-          "updatedAt": "2026-11-20T10:33:04.814334Z"
+          "updatedAt": "2026-11-20T11:34:40.088973Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -4073,60 +4110,60 @@
           "baseSha": "d7b0c767b07bc0b02ea75261144529ca1cc3a5cd",
           "beyondTier": null,
           "clusterId": "CRC",
-          "createdAt": "2026-11-20T10:33:08.464466Z",
+          "createdAt": "2026-11-20T11:34:43.382561Z",
           "env": "dev",
           "events": [
             {
-              "at": "2026-11-20T10:33:08.464466Z",
+              "at": "2026-11-20T11:34:43.382561Z",
               "by": "ola",
               "event": "plan_auto_approved",
               "note": "auto:baseline-rnd-namespace",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:08.578086Z",
+              "at": "2026-11-20T11:34:43.470843Z",
               "by": "cmapi-bot",
               "event": "branch_pushed",
               "note": "cmapi/CRC/req-20261120-0009 at bca2877b on d7b0c767 (created)",
               "status": "approved"
             },
             {
-              "at": "2026-11-20T10:33:08.627969Z",
+              "at": "2026-11-20T11:34:43.517301Z",
               "by": "cmapi-bot",
               "event": "pr_opened",
               "note": "cmapi/CRC/req-20261120-0009 #8",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:08.673672Z",
+              "at": "2026-11-20T11:34:43.559033Z",
               "by": "ci",
               "event": "ci",
               "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:08.715846Z",
+              "at": "2026-11-20T11:34:43.597744Z",
               "by": "worker",
               "event": "merge_verified",
               "note": "merged bca2877b; the folder at it is the plan's",
               "status": "pr_open"
             },
             {
-              "at": "2026-11-20T10:33:08.715846Z",
+              "at": "2026-11-20T11:34:43.597744Z",
               "by": "cmapi-bot",
               "event": "merged",
               "note": "merged bca2877b",
               "status": "merged"
             },
             {
-              "at": "2026-11-20T10:33:08.775792Z",
+              "at": "2026-11-20T11:34:43.649878Z",
               "by": "worker",
               "event": "sync_timeout",
               "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
               "status": "sync_failed"
             },
             {
-              "at": "2026-11-20T10:33:08.951356Z",
+              "at": "2026-11-20T11:34:43.814850Z",
               "by": "opal",
               "event": "revert_requested",
               "note": "",
@@ -4176,7 +4213,7 @@
             "submittedByClient": null
           },
           "status": "sync_failed",
-          "updatedAt": "2026-11-20T10:33:08.891663Z"
+          "updatedAt": "2026-11-20T11:34:43.730399Z"
         },
         "contentType": "application/json",
         "headers": {},
@@ -4390,7 +4427,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "05a7d2b7-e020-4174-9d89-f0ea1ad754c8",
+          "Idempotency-Key": "4e09c8a4-ba2a-4fb5-a90f-9cd97aea7266",
           "If-Match": "\"6c68bebe0a929af0\""
         },
         "method": "POST",
@@ -4530,7 +4567,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "3e6fda25-76dc-4a9c-8cdf-528b3b9f3ef4"
+          "Idempotency-Key": "c03c37b2-2521-4734-b325-e06ea534bb76"
         },
         "method": "POST",
         "path": "/api/v1/clusters/CRC/namespaces"
@@ -4624,7 +4661,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "0b214908-86c6-4eef-b6d4-d8f332a6f8fc",
+          "Idempotency-Key": "75cd7b03-c6dc-4225-8436-adaa01fd5245",
           "If-Match": "\"stale\""
         },
         "method": "PATCH",
@@ -4652,7 +4689,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "d2b7cd37-10b9-4c5f-a57b-de43cb641830"
+          "Idempotency-Key": "778d443c-1762-4e6d-81c7-cc422cff4552"
         },
         "method": "PATCH",
         "path": "/api/v1/clusters/CRC/namespaces/payments-dev"
@@ -4687,7 +4724,7 @@
         },
         "headers": {
           "Authorization": "Bearer $TOKEN",
-          "Idempotency-Key": "fc060132-9bab-47f4-b222-fcc9dfa10031"
+          "Idempotency-Key": "a7fdbacc-5f02-480d-9aaf-59881b862875"
         },
         "method": "POST",
         "path": "/api/v1/clusters/CRC/namespaces"

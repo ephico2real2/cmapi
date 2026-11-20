@@ -83,8 +83,8 @@ class Check:
     """One validation: the key it checks, its rule, and its CEL."""
     kind: str                 # label | annotation | quota | limit
     key: str | None           # None: a rule over the keys that no stanza declares (#333)
-    rule: str                 # required | pattern | enum | format | namespacePrefix | derived | max | min | step | order | absent
-                              # | prefix | max-value-bytes | max-bytes-total
+    rule: str                 # required | pattern | enum | format | namespacePrefix | namespaceSuffix | derived | max | min
+                              # | step | order | absent | prefix | max-value-bytes | max-bytes-total
     expression: str
     message: str
     # The static message, with the key and the configured value and without the offending one. Kyverno falls back to it
@@ -186,6 +186,18 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
             value = f"{m}[{k}]"
             shown = f"({k} in {m} ? '\"' + {value} + '\"' : 'missing')"
             where = f"the {kind} {key}"
+            if rule.namespace_suffix:
+                # A name is set at create and never changes, and cmapi checks its end only on a create (validate): an
+                # UPDATE passes, so a namespace named before the rule is not refused when the label is added to it.
+                present = f"{k} in {m}"
+                end = f"object.metadata.name.endsWith('-' + {value})"
+                if keys.prefix_key() is not None:
+                    # A desired name between the two ends (rule 1), as cmapi's _check_desired_name: abc-dev is refused.
+                    pk, pm = cel(keys.prefix_key()[1]), _meta(keys.prefix_key()[0])
+                    end += f" && (!({pk} in {pm}) || size(object.metadata.name) > size({pm}[{pk}]) + size({value}) + 2)"
+                good = f"{present} && {end}" if rule.required else f"!({present}) || {end}"
+                message = f"the namespace name must end with '-' and the value of {where}, after a desired name"
+                checks.append(Check(kind, key, "namespaceSuffix", f"variables.update || ({good})", cel(message), message))
             if rule.derived:
                 if rule.derived == "namespace":
                     want, said = "object.metadata.name", "the namespace name"
@@ -217,7 +229,7 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 parts.append(f"(!({k} in {m}) || {value} == '' || ({syntax}))")
             words = "; ".join(w for w in ("required" if rule.required else "",
                                           vr[2] if vr else "",
-                                          "the start of the namespace name, before its first '-'" if rule.namespace_prefix else "")
+                                          "the namespace name starts with this value and '-'" if rule.namespace_prefix else "")
                               if w)
             name = "required" if rule.required and not vr and not rule.namespace_prefix else \
                 (vr[0] if vr else "namespacePrefix")

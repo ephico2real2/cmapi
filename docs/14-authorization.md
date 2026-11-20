@@ -181,7 +181,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:133` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
-| List expirations | Only the environments where the caller has `objects:read`, and where a namespace can expire | `cmapi/src/cmapi/plugins/expiration/router.py:109` |
+| List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:117` |
 | List policy results (#302) | Only the clusters of the environments where the caller has `objects:read`; of those, only the results on namespaces that cmapi manages, of the bundle's policies that are on the cluster. The rest is counted in `hidden`, with no name | `cmapi/src/cmapi/plugins/policies/router.py`, `results` |
 | Capacity (#302) | Only the clusters of the environments where the caller has `capacity:read`; the groups are summed from those clusters only, and the others are counted in `hiddenClusters`, with no name. No namespace is named. `env` in another environment answers 403 `environment-forbidden`; `clusterId` outside the scope answers 404 `cluster-not-found`, as an unknown cluster does | `cmapi/src/cmapi/plugins/capacity/router.py`, `capacity` |
 | List refusals (#302) | Only the environments where the caller has `requests:read`, the audience of `GET /api/v1/requests`. A row names who asked by username only, never the email, the employee ID or the justification (the owner, 2026-11-17) | `cmapi/src/cmapi/plugins/policies/router.py`, `rejections` |
@@ -360,7 +360,7 @@ The code `forbidden` has two more causes. Each is a refusal of the code, not of 
 | Cause | Detail | Source |
 |---|---|---|
 | A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:178` |
-| A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Only an operator (namespaces:protect) may set <keys>" | `cmapi/src/cmapi/core/metadata.py:1129` |
+| A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Only an operator (namespaces:protect) may set <keys>" | `cmapi/src/cmapi/core/metadata.py:1161` |
 
 The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:331`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").
 
@@ -378,7 +378,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 
 ## See your own access
 
-`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:21-30`, `authz.py:188-193`). `operator` says whether the caller holds `namespaces:protect` somewhere, and `operatorEnvironments` where: `all`, or a list (`authz.py:168-176`). The portal shows the operator's controls from these two fields; the API checks each write in its environment. It needs a valid token and no permission. Read it first when a call returns 403.
+`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:22-31`, `authz.py:188-193`). `operator` says whether the caller holds `namespaces:protect` somewhere, and `operatorEnvironments` where: `all`, or a list (`authz.py:168-176`). The portal shows the operator's controls from these two fields; the API checks each write in its environment. It needs a valid token and no permission. Read it first when a call returns 403.
 
 ## What is not built
 

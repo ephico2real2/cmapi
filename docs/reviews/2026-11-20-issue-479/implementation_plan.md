@@ -70,7 +70,7 @@ different files and may run in parallel once Phase 3 is merged.
 | 1.2 | `core/metadata.py` | One function per check, in this order: fill filled-in keys → fill defaults → check the prefix → check the suffix → check each key's rule → check extra keys. Each returns a list of `errors` entries; nothing else |
 | 1.3 | `core/docs.py` (`_document_metadata`, `metadata_example`, `example_namespace`) | Filled-in keys required and shown (drop `readOnly`); `x-cmapi-default-from`; `x-cmapi-prefix-from` and `x-cmapi-suffix-from` on `namespace`; examples from the configuration, including one extra key and `expiresAt` |
 | 1.4 | `plugins/expiration/rules.py`, `core/models.py`, `core/docs.py` | `expiration.yaml` gains `enabled` (default `true`, per environment); `prod: {enabled: false}` loads, `prod: {enabled: true}` is refused (the #222 backstop stays). `expiresAt`: description and `x-cmapi-expiration` per environment. The namespace keeps getting `cmapi.net/expires-at` and `cmapi.net/expiry: managed` when a date is set |
-| 1.5 | The dry-run answer | `changes.labels` and `changes.annotations` give each value with its `source` |
+| 1.5 | The dry-run answer | `metadata.labels` and `metadata.annotations` give each value with its `source` |
 | 1.6 | `cmapi/contract/` | Regenerate `openapi.json`, the samples and docs/04 with the generators; one `accepted-breaking.txt` line per filled-in key that became required |
 | 1.7 | Tests (`tests/service/`) | One test per behaviour (C6): prefix, suffix, default kept/filled, filled-in key left out/right/wrong, extra key allowed/refused, expiry in the past/beyond 180/prod, the loader refusals |
 

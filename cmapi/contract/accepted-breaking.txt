@@ -217,4 +217,3 @@ GET /api/v1/policies/results added the new `not-imported` enum value to the `clu
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/name` became required
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/company.net/app-environment` became required
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations/company.net/app-environment` became required
-POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations` became required

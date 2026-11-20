@@ -862,7 +862,7 @@ try {
       await mnemonic.fill("ABC");
       await lob.fill("amg sst");
       await cl.selectOption("1");
-      await waitError(mnemonic, /^Not valid: must match \^\[a-z\]\{3,4\}\$; the start of the namespace name, before its first '-'/);
+      await waitError(mnemonic, /^Not valid: must match \^\[a-z\]\{3,4\}\$; the namespace name starts with this value and '-'/);
       await waitError(lob, /^Not a valid label value/);
       assert.equal(await mnemonic.getAttribute("aria-invalid"), "true");
       assert.equal(await name.inputValue(), "ABC-dev", "the name that cmapi copies follows the namespace");

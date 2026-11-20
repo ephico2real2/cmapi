@@ -67,7 +67,7 @@ def cluster_environments(cfg: Any, config_dir: Path | None) -> dict[str, str] | 
     if not path.exists():
         return None
     try:
-        return {cid: p.environment for cid, p in load_policies(path, cfg.allowed_environments).items()}
+        return {cid: p.environment for cid, p in load_policies(path, cfg.allowed_environments).items() if p.writes}
     except (ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
         raise Refused(f"{type(exc).__name__}: {exc}") from exc
 

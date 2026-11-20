@@ -313,7 +313,7 @@ export function expiryRow({ name, clusterId = "CRC", env = "dev", team = "paymen
   const rules = EXP_RULES.dev, daysLeft = expiresAt ? Math.round((Date.parse(expiresAt) - Date.parse(today)) / 864e5) : null;
   return { ...EXP_SAMPLE.items[0], name, clusterId, env, team, app: null, created, expiresAt, daysLeft, state: expiryState(expiresAt, today),
     graceEnds: expiresAt ? isoPlus(expiresAt, rules.graceDays) : null, lifetimeDays: expiresAt && created ? Math.round((Date.parse(expiresAt) - Date.parse(created)) / 864e5) : null,
-    noticesSent, openRequest };
+    noticesSent, openRequest, actions: expiresAt ? ["extend", "makePermanent"] : ["set"] };
 }
 /** `count` rows over every state: permanent, active, expiring, in grace and past grace. Not sorted. */
 export function expirationsFrom(count, today, { envs = ["dev", "rnd"] } = {}) {

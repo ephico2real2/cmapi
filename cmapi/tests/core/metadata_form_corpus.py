@@ -94,7 +94,7 @@ def accepted(keys: MetadataKeys, kind: str, key: str, value: str | None, namespa
     else:
         body[kind][key] = value
     sources = {"namespace": namespace, "environment": ENVIRONMENT, "cluster": "CRC", "instance": "nonprod"}
-    return not keys.validate(body["label"], body["annotation"], operator=False, sources=sources)
+    return not keys.validate(body["label"], body["annotation"], operator=False, sources=sources, create=True)
 
 
 def build(keys: MetadataKeys) -> dict[str, Any]:

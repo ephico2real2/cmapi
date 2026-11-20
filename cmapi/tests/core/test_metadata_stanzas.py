@@ -103,7 +103,7 @@ def test_the_refusal_is_one_problem_that_names_each_key_and_its_rule(keys):
     assert by_key["company.net/lob"]["detail"] == "not a valid label value"
     assert by_key["company.net/cl"]["detail"] == "one of ['0', '1', '2', '3', '4', '5', '6']"
     assert by_key["company.net/mnemonic"]["code"] == "missing_required_key"
-    assert "the start of the namespace name" in by_key["company.net/mnemonic"]["detail"]
+    assert "the namespace name starts with this value and" in by_key["company.net/mnemonic"]["detail"]
 
 
 def test_other_keys_are_limited_by_kind(keys):

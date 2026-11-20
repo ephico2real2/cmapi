@@ -184,6 +184,8 @@ def loose_reason(keys: MetadataKeys, case: Case, errors: list[dict[str, Any]]) -
             reasons.add(code)
         elif code == "invalid_value" and "does not start with" in e.get("detail", ""):
             reasons.add("namespacePrefix")
+        elif code == "invalid_value" and "does not end with" in e.get("detail", ""):
+            reasons.add("namespaceSuffix")
         elif code == "invalid_key" and case.op == "patch" and len(key.rpartition("/")[0]) > 253:
             reasons.add("prefix over 253")
         elif code == "invalid_key" and case.op == "patch" and keys._syntax(key, None, case.kind):
@@ -196,7 +198,7 @@ def loose_reason(keys: MetadataKeys, case: Case, errors: list[dict[str, Any]]) -
 def only_filled_keys_missing(keys: MetadataKeys, kind: str, found: list[ValidationError]) -> bool:
     """Each schema error is a required key missing that cmapi fills in on a create (value.from or default.from): the one
     way the schema is stricter than validate(), on purpose (#479, A1)."""
-    fills = {k for k, r in keys.rules[kind].items() if r.derived or r.default_from}
+    fills = {k for k, r in keys.rules[kind].items() if r.required and (r.derived or r.default_from)}
     for e in found:
         if e.validator != "required":
             return False
@@ -218,7 +220,7 @@ def run(keys: MetadataKeys, schemas: Mapping[tuple[str, str], Mapping[str, Any]]
         problems = [e.message for e in found]
         result.total += 1
         result.accepted += not errors
-        if not errors and problems and only_filled_keys_missing(keys, case.kind, found):
+        if case.op == "create" and not errors and problems and only_filled_keys_missing(keys, case.kind, found):
             result.filled += 1
         elif not errors and problems:
             result.unsound.append((case, problems[:3]))
