@@ -168,7 +168,8 @@ def _namespace_page(c: AppContext, rows: list[dict[str, Any]], q: str | None, mn
 
 
 @router.read("/namespaces", summary="Managed namespaces on a cluster",
-             returns="The managed namespaces of the cluster that match the filters, with their count and the facets.", permission="objects:read", response_model=NamespaceList,
+             returns="The managed namespaces of the cluster that match the filters, with their count and the facets.",
+             permission="objects:read", response_model=NamespaceList,
              problems=["cluster-not-found", "cluster-unreachable"])
 def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemonic = None, limit: SearchLimit = None,
                     who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
@@ -193,7 +194,9 @@ def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemo
 
 
 @router.read("/namespaces/{ns}", summary="One namespace, with its etag",
-             returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with the ETag that a change sends in If-Match.", permission="objects:read", response_model=NamespaceView,
+             returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with "
+                     "the ETag that a change sends in If-Match.",
+             permission="objects:read", response_model=NamespaceView,
              problems=["cluster-not-found", "object-not-found", "git-unavailable"])
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:

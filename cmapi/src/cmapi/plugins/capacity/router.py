@@ -175,7 +175,9 @@ def _targets(c: AppContext, envs: list[str]) -> list[dict[str, Any]]:
 
 
 @router.read("/capacity", summary="Cluster capacity, grouped",
-             returns="The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's targets and snapshot state.", permission="capacity:read", response_model=CapacityPage,
+             returns="The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's"
+                     " targets and snapshot state.",
+             permission="capacity:read", response_model=CapacityPage,
              problems=["validation-failed", "environment-not-served", "environment-forbidden", "cluster-not-found"])
 def capacity(request: Request, group_by: GroupBy = "region,environment", env: EnvFilter = None,
              cluster_id: ClusterFilter = None, who: Identity = Depends(require("capacity:read")),

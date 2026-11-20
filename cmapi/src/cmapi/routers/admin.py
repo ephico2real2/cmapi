@@ -113,7 +113,8 @@ class KpiView(Api):
 
 
 @router.write("/prune:confirm", summary="Confirm the prune of a deleted namespace",
-              returns="The delete request, with the prune confirmed.", permission="operations:run",
+              returns="The delete request, with the prune confirmed.",
+              permission="operations:run",
               response_model=ChangeRequest, status_code=200, problems=["nothing-to-prune", "validation-failed", "environment-forbidden"])
 def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
     """An operator confirms that a merged delete may remove the namespace. In `argocd` delivery the
@@ -139,7 +140,8 @@ def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operation
 
 
 @router.write("/auto-approval:pause", summary="Pause auto-approval",
-              returns="The kill switch, now on, with who set it, when and why.", permission="approvals:pause",
+              returns="The kill switch, now on, with who set it, when and why.",
+              permission="approvals:pause",
               response_model=SwitchView, status_code=200)
 def pause(body: SwitchBody, who: Identity = Depends(require("approvals:pause")), c: AppContext = Depends(ctx)) -> dict:
     """The kill switch: every request follows the normal rules until resumed. Immediate, no PR; recorded with who and why."""
@@ -151,7 +153,8 @@ def pause(body: SwitchBody, who: Identity = Depends(require("approvals:pause")),
 
 
 @router.write("/auto-approval:resume", summary="Resume auto-approval",
-              returns="The kill switch, now off, with who set it and when.", permission="approvals:pause",
+              returns="The kill switch, now off, with who set it and when.",
+              permission="approvals:pause",
               response_model=SwitchView, status_code=200)
 def resume(body: SwitchBody, who: Identity = Depends(require("approvals:pause")), c: AppContext = Depends(ctx)) -> dict:
     """Turns the kill switch off again."""
@@ -163,7 +166,8 @@ def resume(body: SwitchBody, who: Identity = Depends(require("approvals:pause"))
 
 
 @router.read("/auto-approval", summary="Auto-approval switch state",
-             returns="Whether the kill switch is on, with who set it, when and why.", permission="requests:read", response_model=SwitchView)
+             returns="Whether the kill switch is on, with who set it, when and why.",
+             permission="requests:read", response_model=SwitchView)
 def switch_state(who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """Whether the kill switch is on, who set it and why."""
     return _switch(c)
@@ -176,7 +180,8 @@ def _switch(c: AppContext) -> dict:
 
 
 @router.read("/integrations", summary="Integration modes and health",
-             returns="Each integration's mode and health, and the import status of each cluster.", permission="clusters:read", response_model=Integrations)
+             returns="Each integration's mode and health, and the import status of each cluster.",
+             permission="clusters:read", response_model=Integrations)
 def integrations(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
     """Each integration's mode (delivery, sync signal, operations engine, event publisher, policy engine) and the import
     status per cluster."""
@@ -189,7 +194,9 @@ def integrations(who: Identity = Depends(require("clusters:read")), c: AppContex
 
 
 @router.read("/plugins", summary="The plugins of this instance",
-             returns="Each plugin with its version, whether plugins.yaml enables it, and where an override stops its writes.", permission="clusters:read", response_model=PluginList)
+             returns="Each plugin with its version, whether plugins.yaml enables it, and where an override stops its "
+                     "writes.",
+             permission="clusters:read", response_model=PluginList)
 def plugins(request: Request, who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
     """Each part of the API with its version, and what `plugins.yaml` says for this instance: whether a plugin is
     enabled, and the environments where an override stops its writes. A plugin that is not enabled has no route and
@@ -204,7 +211,8 @@ def plugins(request: Request, who: Identity = Depends(require("clusters:read")),
 
 
 @router.read("/git-log", summary="Recent commits in cluster-configs",
-             returns="The last commits on the default branch of cluster-configs.", permission="reports:read", response_model=GitLog,
+             returns="The last commits on the default branch of cluster-configs.",
+             permission="reports:read", response_model=GitLog,
              problems=["git-unavailable"])
 def git_log(who: Identity = Depends(require("reports:read")), c: AppContext = Depends(ctx)) -> dict:
     """The last commits on the repository's default branch: the bot's merges."""
@@ -215,7 +223,9 @@ def git_log(who: Identity = Depends(require("reports:read")), c: AppContext = De
 
 
 @router.read("/kpi", summary="System KPIs",
-             returns="Each component's memory and CPU against its limit, the database figures and the KPI rows; a figure not measured reads unavailable.", permission="reports:read", response_model=KpiView)
+             returns="Each component's memory and CPU against its limit, the database figures and the KPI rows; a "
+                     "figure not measured reads unavailable.",
+             permission="reports:read", response_model=KpiView)
 def kpi(who: Identity = Depends(require("reports:read")), c: AppContext = Depends(ctx)) -> dict:
     """The KPIs tab's data: each component's cgroup memory and CPU against its limit, the database figures,
     and the KPI rows cmapi computes from its own tables. A figure that cannot be measured reads unavailable, never 0."""

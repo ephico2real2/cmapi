@@ -15,7 +15,9 @@ router = DocumentedRouter("tiers", prefix="/api/v1", version=__version__, group=
 
 
 @router.read("/tiers", summary="The tier catalog",
-             returns="The tiers of each environment asked for, the catalog's hash, and what a request may size or override.", permission="objects:read", response_model=TierCatalogView)
+             returns="The tiers of each environment asked for, the catalog's hash, and what a request may size or "
+                     "override.",
+             permission="objects:read", response_model=TierCatalogView)
 def tiers(environment: str | None = Query(default=None, examples=["dev"],
                                               description="Only this environment. Without it, the answer has each environment "
                                                           "that the instance serves."),

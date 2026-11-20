@@ -210,7 +210,9 @@ def _row_names(rows: list[dict[str, Any]]) -> None:
 
 
 @router.read("/policies/results", summary="Kyverno's results on each cluster, paged",
-             returns="Each cluster's policy report state, each policy with its counts, and one page of the fail, warn and error results.", permission="objects:read",
+             returns="Each cluster's policy report state, each policy with its counts, and one page of the fail, warn "
+                     "and error results.",
+             permission="objects:read",
              response_model=PolicyResultPage, problems=["invalid-cursor", "invalid-limit", "validation-failed"])
 def results(cluster_id: ClusterFilter = None, env: EnvFilter = None, namespace: NamespaceFilter = None, policy: PolicyFilter = None,
             result: ResultFilter = "fail,warn,error", q: Text = "", limit: Limit = 50, cursor: Cursor = None,
@@ -278,7 +280,8 @@ def _rejection(row: Any) -> dict[str, Any]:
 
 
 @router.read("/policies/rejections", summary="What cmapi refused before Git, paged",
-             returns="One page of refusals, warnings and failed checks, newest first, in the caller's environments.", permission="requests:read",
+             returns="One page of refusals, warnings and failed checks, newest first, in the caller's environments.",
+             permission="requests:read",
              response_model=RejectionPage, problems=["invalid-cursor", "invalid-limit", "validation-failed"])
 def rejections(since: Since = "7d", cluster_id: ClusterFilter = None, env: EnvFilter = None, namespace: NamespaceFilter = None,
                stage: Stage = None, outcome: Outcome = None, policy: PolicyFilter = None, q: Text = "", limit: Limit = 50,

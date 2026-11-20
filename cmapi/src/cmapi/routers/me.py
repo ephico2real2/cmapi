@@ -20,7 +20,8 @@ router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
 @router.read("/me", summary="Who am I",
-             returns="The caller's identity, roles, groups and permissions, with the environments each role covers.", permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
+             returns="The caller's identity, roles, groups and permissions, with the environments each role covers.",
+             permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
 def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
     """The caller's identity as cmapi records it, the roles and groups in the token, and the permissions
     each role grants with the environments it covers. The first thing to check when a call returns 403. `operator` says
@@ -33,7 +34,8 @@ def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
 
 
 @router.read("/clusters", summary="Clusters this instance knows",
-             returns="Every cluster with its environment, import status and the findings of its checks.", permission="clusters:read", response_model=ClusterList)
+             returns="Every cluster with its environment, import status and the findings of its checks.",
+             permission="clusters:read", response_model=ClusterList)
 def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every cluster from clusters.yaml and every imported one, with its import status and the findings
     of the six checks. A cluster with a policy entry but no import Secret shows not-imported."""
@@ -54,7 +56,9 @@ def metadata_keys_document(keys: MetadataKeys, expiration: ExpirationRules,
 
 
 @router.read("/metadata-keys", summary="The rules of a new namespace's labels and annotations",
-             returns="The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each environment, with an ETag.", permission="objects:read",
+             returns="The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each "
+                     "environment, with an ETag.",
+             permission="objects:read",
              response_model=MetadataKeysView)
 def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> Response:
@@ -80,7 +84,9 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
 
 
 @router.read("/clusters/{id}:probe", method="POST", summary="Probe one cluster's held credential",
-             returns="The cluster's diagnostics after the checks ran again: status, findings, server version and token expiry.", permission="operations:run",
+             returns="The cluster's diagnostics after the checks ran again: status, findings, server version and token"
+                     " expiry.",
+             permission="operations:run",
              problems=["cluster-not-found"], response_model=ClusterView)
 def probe(id: ClusterId, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
     """Run the relist checks on this cluster's last discovered import and return its current diagnostics.
