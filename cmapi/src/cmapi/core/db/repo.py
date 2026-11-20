@@ -164,8 +164,13 @@ class RequestRepo:
             self.s.rollback()
             if "uq_cr_open_namespace" in str(exc.orig):
                 holder = self.open_for(row.cluster_id, row.namespace)
-                raise Problem.conflict("change-pending", f"{holder.request_id if holder else 'another request'} holds "
-                                       f"{row.namespace}", requestId=holder.request_id if holder else None) from exc
+                if holder is None:
+                    # The holder closed after this INSERT failed and before the read (#496): nothing holds the
+                    # namespace now, so there is no request to name. Reading it again shows what changed.
+                    raise Problem.conflict("change-pending", f"the request that held {row.namespace} has just finished; "
+                                           "read the namespace again and resend the change") from exc
+                raise Problem.conflict("change-pending", f"{holder.request_id} holds {row.namespace}",
+                                       requestId=holder.request_id) from exc
             if "uq_cr_idempotency" in str(exc.orig):
                 raise Problem.conflict("idempotency-replay", "Idempotency-Key is in use for another request") from exc
             raise
