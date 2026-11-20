@@ -1,0 +1,329 @@
+<title>cmapi Namespaces Tab Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600&family=Red+Hat+Text:wght@400;500;600&family=Red+Hat+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the portal's masthead and tabs, then the target picker, a sync status strip, one wide Git | Live | Your change table, and the change box with Check and Submit. */
+:root {
+  --bg: #f0f0f0; --surface: #ffffff; --surface-2: #f5f7fa; --fg: #151515; --muted: #4d5258; --line: #d2d2d2;
+  --accent: #0066cc; --accent-fg: #ffffff; --accent-soft: #e7f1fa; --mast: #1b1d21; --mast-fg: #ffffff;
+  --ok: #3e8635; --ok-soft: #f3faf2; --warn: #795600; --warn-soft: #fdf7e7; --bad: #c9190b; --bad-soft: #faeae8;
+  --lock: #eceef0; --code-bg: #f8f9fb; --chg: #f0e8ff; --chg-fg: #5a2a9c;
+  --display: "Red Hat Display", "Segoe UI", system-ui, sans-serif; --text: "Red Hat Text", "Segoe UI", system-ui, sans-serif; --mono: "Red Hat Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; --chg: #2c2140; --chg-fg: #c9a7ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; --chg: #2c2140; --chg-fg: #c9a7ff; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--text) }
+.mast { background: var(--mast); color: var(--mast-fg); padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap }
+.brand b { font-family: var(--display); font-size: 18px; font-weight: 600 } .brand span { display: block; font-size: 12px; opacity: .75 }
+.who { text-align: right; font-size: 12px; opacity: .9 } .who b { display: block; font-size: 13px }
+.wrap { padding-block: 0 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto }
+.mockbar { margin-top: 12px; background: var(--warn-soft); border: 1px solid var(--line); border-left: 4px solid var(--warn); padding: 8px 12px; font-size: 13px }
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin-top: 12px; background: var(--surface); padding: 0 8px }
+.tabs a { padding: 10px 12px; color: var(--muted); text-decoration: none; white-space: nowrap; border-bottom: 3px solid transparent }
+.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600 }
+h1 { font-family: var(--display); font-weight: 600; font-size: 26px; margin: 20px 0 4px }
+.lead { color: var(--muted); margin: 0 0 16px; max-width: 75ch }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 18px; margin-bottom: 16px; min-width: 0 }
+.pick { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 14px }
+@media (max-width: 640px) { .pick { grid-template-columns: minmax(0, 1fr) } }
+label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px }
+.hint { font-size: 12px; color: var(--muted) }
+input[type=text], select, textarea { width: 100%; font: 14px var(--text); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-bottom-color: var(--muted); border-radius: 3px; padding: 7px 9px }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, li[role=option]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+.ta { position: relative } .ta ul { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin: 2px 0 0; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; max-height: 220px; overflow: auto; box-shadow: 0 4px 12px rgba(0,0,0,.12) }
+.ta li { padding: 6px 10px; cursor: pointer; font-family: var(--mono); font-size: 13px } .ta li:hover, .ta li[aria-selected=true] { background: var(--accent-soft) }
+.ta li small { font-family: var(--text); color: var(--muted); margin-left: 8px }
+.strip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-radius: 4px; border: 1px solid var(--line); margin-bottom: 16px; font-size: 13px }
+.strip b { font-size: 14px } .strip .sp { flex: 1 }
+.strip.in-sync { background: var(--ok-soft); border-left: 4px solid var(--ok) } .strip.drift { background: var(--warn-soft); border-left: 4px solid var(--warn) }
+.strip.pending { background: var(--accent-soft); border-left: 4px solid var(--accent) } .strip.unknown { background: var(--surface-2); border-left: 4px solid var(--muted) }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block } .in-sync .dot { background: var(--ok) } .drift .dot { background: var(--warn) } .pending .dot { background: var(--accent) } .unknown .dot { background: var(--muted) }
+.tw { overflow-x: auto }
+table.kv { width: 100%; border-collapse: collapse; min-width: 820px }
+table.kv th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface-2) }
+table.kv td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px }
+table.kv td.v { font-family: var(--mono); word-break: break-all }
+table.kv tr.changed td { background: var(--chg) }
+.kname b { display: block } .kname code { font: 11px var(--mono); color: var(--muted) }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; margin-left: 4px; font-weight: 600 }
+.tag.sens { background: var(--chg); color: var(--chg-fg) } .tag.lockt { background: var(--lock); color: var(--muted) }
+.mk { font-size: 12px; white-space: nowrap } .mk.ok { color: var(--ok) } .mk.dr { color: var(--warn); font-weight: 600 }
+.why { font-size: 12px; color: var(--muted) }
+.cell-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
+.cell-edit input, .cell-edit select { font-family: var(--mono); font-size: 13px; padding: 5px 7px; max-width: 260px }
+.removed { font-family: var(--mono); color: var(--bad); text-decoration: line-through }
+button { font: 600 14px var(--text); border-radius: 3px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--accent) }
+button.primary { background: var(--accent); color: var(--accent-fg) } button.secondary { background: transparent; color: var(--accent) }
+button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; font-size: 13px }
+button.small { padding: 4px 10px; font-size: 12px } button:disabled { opacity: .45; cursor: not-allowed }
+.xsec { border: 1px solid var(--line); border-radius: 4px; margin: 14px 0 0 }
+.xtoggle { width: 100%; display: flex; gap: 10px; align-items: center; background: var(--surface-2); border: 0; padding: 10px 12px; font: 600 14px var(--text); color: var(--fg); text-align: left; cursor: pointer }
+.xtoggle .cnt { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted) }
+.xbody { padding: 12px; font-size: 13px; color: var(--muted) }
+.changes { font-family: var(--mono); font-size: 13px; display: grid; gap: 4px; margin: 0 0 12px }
+.changes .none { font-family: var(--text); color: var(--muted) }
+.status { margin-top: 12px; padding: 10px 12px; border-radius: 3px; font-size: 13px; border: 1px solid var(--line) }
+.status.ok { background: var(--ok-soft); border-left: 4px solid var(--ok) } .status.bad { background: var(--bad-soft); border-left: 4px solid var(--bad) } .status.info { background: var(--accent-soft); border-left: 4px solid var(--accent) } .status.idle { background: var(--surface-2) }
+.status ul { margin: 6px 0 0; padding-left: 18px }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px }
+.sim { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); margin-top: 10px }
+.conflict { margin-top: 8px; display: grid; gap: 6px } .conflict div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: var(--mono); font-size: 13px }
+.empty { color: var(--muted); padding: 24px; text-align: center }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px }
+.chip { font: 500 12px var(--text); border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 14px; padding: 3px 10px; cursor: pointer }
+.chip b { font-family: var(--mono); } .chip small { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums }
+.chip[aria-pressed=true] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent) } .chip[aria-pressed=true] small { color: var(--accent-fg) }
+.ta li mark { background: transparent; color: var(--accent); font-weight: 600 }
+.ta li .meta { font-family: var(--text); font-size: 12px; color: var(--muted); margin-left: 10px }
+.ta li .st { margin-left: 8px; font-family: var(--text); font-size: 12px }
+.ta .foot { padding: 6px 10px; font: 12px var(--text); color: var(--muted); border-top: 1px solid var(--line); cursor: default }
+.recent { font-size: 12px; color: var(--muted); margin-top: 6px } .recent button { font-family: var(--mono) }
+</style>
+
+<header class="mast">
+  <div class="brand"><b>cmapi</b><span>Cluster Management Portal · nonprod (rnd, dev)</span></div>
+  <div class="who"><b>cmapi.requester</b>namespaces:write in dev, rnd</div>
+</header>
+
+<div class="wrap">
+  <div class="mockbar"><b>Mockup</b> of the Namespaces tab (#481, story #484) for review. company.net stands for your domain; values are examples. "Simulate" buttons show the 409 and 412 paths. Nothing is sent.</div>
+  <nav class="tabs" aria-label="Portal tabs"><a href="#workflow">Workflow</a><a href="#new">New namespace</a><a class="on" href="#namespaces" aria-current="page">Namespaces</a><a href="#quotas">Quotas</a><a href="#expiration">Expiration</a><a href="#requests">Requests</a><a href="#approvals">Approvals</a><a href="#policies">Policies</a><a href="#capacity">Capacity</a><a href="#kpis">KPIs</a></nav>
+
+  <h1>Namespaces</h1>
+  <p class="lead">Pick a cluster, then a namespace. See what Git holds beside what the cluster has, and change its labels and annotations. Changes go through a request, approval and Git, like a new namespace.</p>
+
+  <div class="card pick">
+    <div>
+      <label for="cluster">Cluster</label>
+      <select id="cluster"><option value="">Choose a cluster…</option><option value="CRC">CRC (dev)</option><option value="KIND_CMAPI_TEST">KIND_CMAPI_TEST (rnd)</option></select>
+      <span class="hint">Every cluster cmapi manages.</span>
+    </div>
+    <div class="ta">
+      <label id="mn-label">Mnemonic</label>
+      <div class="chips" id="chips" role="group" aria-labelledby="mn-label"><span class="hint">Choose a cluster first.</span></div>
+      <label for="ns" style="margin-top:10px">Namespace</label>
+      <input type="text" id="ns" placeholder="Type 2+ letters, e.g. abc pay" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="nslist" aria-autocomplete="list" disabled>
+      <ul id="nslist" role="listbox" hidden></ul>
+      <span class="hint" id="ns-hint">Choose a cluster first.</span>
+      <div class="recent" id="recent" hidden></div>
+    </div>
+  </div>
+
+  <div id="detail" hidden>
+    <div class="strip" id="strip"></div>
+
+    <div class="card">
+      <div class="tw"><table class="kv"><thead><tr><th style="width:24%">Key</th><th style="width:20%">Git (desired)</th><th style="width:22%">Live (cluster)</th><th>Your change</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="xsec"><button type="button" class="xtoggle" id="xt" aria-expanded="false"><span id="caret">▸</span>Add labels and annotations (optional)<span class="cnt">none</span></button>
+        <div class="xbody" id="xb" hidden>Two empty key/value tables, as on the New namespace form (closed and empty by default; checked as you type).</div></div>
+    </div>
+
+    <div class="card">
+      <b>Your change</b>
+      <div class="changes" id="changes"></div>
+      <label for="why">Justification *</label>
+      <textarea id="why" rows="2" placeholder="Why this change is needed"></textarea>
+      <div class="status idle" id="status">Make a change, then press <b>Check (dry run)</b>.</div>
+      <div class="actions"><button type="button" class="secondary" id="check">Check (dry run)</button><button type="button" class="primary" id="submit" disabled>Submit request</button></div>
+      <div class="sim">Simulate: <button type="button" class="secondary small" id="sim409">Someone else's request is open (409)</button><button type="button" class="secondary small" id="sim412">Git changed meanwhile (412)</button></div>
+    </div>
+  </div>
+  <div class="card empty" id="placeholder">Choose a cluster and a namespace to see it.</div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const D = "company.net";
+  // Each key: its class from metadata-keys.yaml (x-cmapi-edit), Git value and live value. Data only; the UI reads it.
+  const KEYS = [
+    { kind: "label", key: "name", title: "Name", mode: "automatic", reason: "Copied from the namespace name.", git: "abc-payments-dev", live: "abc-payments-dev" },
+    { kind: "label", key: D + "/app-environment", title: "App environment", mode: "automatic", reason: "Copied from the cluster's environment.", git: "dev", live: "dev" },
+    { kind: "label", key: D + "/mnemonic", title: "Mnemonic", mode: "fixed", reason: "Part of the namespace's fixed name.", git: "abc", live: "abc" },
+    { kind: "label", key: D + "/lob", title: "Line of business", mode: "required", git: "amgsst", live: "amgsst-old", re: /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/ },
+    { kind: "label", key: D + "/cl", title: "Critical level", mode: "required", sensitive: true, git: "1", live: "1", options: ["0","1","2","3","4","5","6"] },
+    { kind: "label", key: "cmapi.net/team", title: "Team", mode: "required", sensitive: true, git: "payments", live: "payments", re: /^[a-z0-9-]{2,40}$/ },
+    { kind: "label", key: "cmapi.net/cost-center", title: "Cost center", mode: "optional", git: "cc-4410", live: "cc-4410", re: /^cc-[0-9]{4}$/ },
+    { kind: "label", key: "team.company.net/squad", title: "team.company.net/squad", mode: "optional", extra: true, git: "checkout", live: "checkout", re: /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/ },
+    { kind: "annotation", key: "cmapi.net/team-dl", title: "Team DL", mode: "required", git: "payments-team@company.net", live: "payments-team@company.net", re: /^[^@\s]+@company\.net$/ },
+    { kind: "annotation", key: "cmapi.net/expires-at", title: "Expires", mode: "fixed", reason: "Change it with Extend, Set expiry or Make permanent.", git: "2026-12-15", live: "2026-12-15" }
+  ];
+  // Each cluster's managed namespaces as the lookup (GET .../namespaces?q=&mnemonic=&limit=10) would return them.
+  const NAMESPACES = {
+    CRC: [
+      { name: "abc-payments-dev", mnemonic: "abc", team: "payments", sync: "drift" },
+      { name: "abc-paylater-dev", mnemonic: "abc", team: "billing", sync: "pending", req: "req-20261120-0011" },
+      { name: "abc-ledger-dev", mnemonic: "abc", team: "ledger", sync: "in-sync" },
+      { name: "abc-reports-dev", mnemonic: "abc", team: "reports", sync: "in-sync" },
+      { name: "xyz-orders-dev", mnemonic: "xyz", team: "orders", sync: "in-sync" },
+      { name: "xyz-payments-dev", mnemonic: "xyz", team: "payments", sync: "in-sync" },
+      { name: "lmn-search-dev", mnemonic: "lmn", team: "search", sync: "in-sync" }
+    ],
+    KIND_CMAPI_TEST: [
+      { name: "abc-payments-rnd", mnemonic: "abc", team: "payments", sync: "in-sync" },
+      { name: "abc-sandbox-rnd", mnemonic: "abc", team: "payments", sync: "in-sync" },
+      { name: "qrs-lab-rnd", mnemonic: "qrs", team: "lab", sync: "in-sync" }
+    ]
+  };
+  let mnemonic = "", lookupTimer = null, active = -1;
+  const recent = {};
+  let draft = {}, checked = false, pending = null, conflicts = [];
+
+  const rowId = (k) => k.kind + ":" + k.key;
+  const drifted = () => KEYS.filter((k) => k.git !== k.live);
+
+  function strip() {
+    const s = $("strip"), d = drifted();
+    if (pending) { s.className = "strip pending"; s.innerHTML = '<span class="dot"></span><b>Pending</b><span>' + pending + '</span><span class="sp"></span><button type="button" class="link" id="reload">Reload</button>'; }
+    else if (d.length) { s.className = "strip drift"; s.innerHTML = '<span class="dot"></span><b>Drift</b><span>' + d.length + ' key' + (d.length > 1 ? "s" : "") + ' on the cluster differ' + (d.length > 1 ? "" : "s") + ' from Git · no open request. Your change applies to Git, which the cluster is brought back to.</span><span class="sp"></span><button type="button" class="link" id="reload">Reload</button>'; }
+    else { s.className = "strip in-sync"; s.innerHTML = '<span class="dot"></span><b>In sync</b><span>The cluster has what Git holds.</span><span class="sp"></span><button type="button" class="link" id="reload">Reload</button>'; }
+    $("reload").addEventListener("click", () => { pending = null; draft = {}; conflicts = []; render(); setStatus("idle", "Reloaded from Git and the cluster."); });
+  }
+
+  function editor(k) {
+    if (k.mode === "fixed" || k.mode === "automatic") return '<span class="why">🔒 ' + k.reason + '</span>';
+    const id = "e-" + rowId(k).replace(/[^a-z0-9]/gi, "_");
+    if (draft[rowId(k)] === null) return '<span class="removed">' + k.git + '</span> <button type="button" class="link" data-undo="' + rowId(k) + '">↺ Undo</button>';
+    const cur = rowId(k) in draft ? draft[rowId(k)] : k.git;
+    const field = k.options ? '<select id="' + id + '" data-key="' + rowId(k) + '">' + k.options.map((o) => '<option' + (o === cur ? " selected" : "") + '>' + o + '</option>').join("") + '</select>'
+      : '<input type="text" id="' + id + '" data-key="' + rowId(k) + '" value="' + cur + '">';
+    const rm = k.mode === "optional" ? ' <button type="button" class="link" data-remove="' + rowId(k) + '">Remove</button>' : "";
+    return '<div class="cell-edit">' + field + rm + '</div><div class="why" data-err="' + rowId(k) + '"></div>';
+  }
+
+  function render() {
+    strip();
+    const body = $("rows"); body.innerHTML = "";
+    for (const k of KEYS) {
+      const tr = document.createElement("tr"); if (rowId(k) in draft) tr.className = "changed";
+      const lock = (k.mode === "fixed" || k.mode === "automatic") ? '<span class="tag lockt">fixed</span>' : "";
+      const sens = k.sensitive ? '<span class="tag sens">sensitive</span>' : "";
+      const live = k.git === k.live ? '<span class="mk ok">✓ ' + k.live + '</span>' : '<span class="mk dr">⚠ drift: ' + k.live + '</span>';
+      tr.innerHTML = '<td class="kname"><b>' + k.title + (k.mode === "required" ? " *" : "") + lock + sens + '</b><code>' + k.kind + ' ' + k.key + '</code></td><td class="v">' + k.git + '</td><td class="v">' + live + '</td><td>' + editor(k) + '</td>';
+      body.appendChild(tr);
+    }
+    for (const el of body.querySelectorAll("[data-key]")) el.addEventListener("input", onEdit);
+    for (const el of body.querySelectorAll("select[data-key]")) el.addEventListener("change", onEdit);
+    for (const b of body.querySelectorAll("[data-remove]")) b.addEventListener("click", () => { draft[b.dataset.remove] = null; invalidate(); render(); });
+    for (const b of body.querySelectorAll("[data-undo]")) b.addEventListener("click", () => { delete draft[b.dataset.undo]; invalidate(); render(); });
+    changes();
+  }
+
+  function onEdit(e) {
+    const id = e.target.dataset.key, k = KEYS.find((x) => rowId(x) === id), v = e.target.value.trim();
+    if (v === k.git) delete draft[id]; else draft[id] = v;
+    e.target.closest("tr").className = id in draft ? "changed" : "";
+    const err = document.querySelector('[data-err="' + id + '"]'); const bad = k.re && v && !k.re.test(v);
+    err.textContent = bad ? "Not a valid value for this key." : (k.mode === "required" && !v ? "Required: change it, do not empty it." : "");
+    e.target.setAttribute("aria-invalid", err.textContent ? "true" : "false");
+    invalidate(); changes();
+  }
+
+  function changes() {
+    const box = $("changes"), ids = Object.keys(draft);
+    if (!ids.length) { box.innerHTML = '<span class="none">No change yet.</span>'; return; }
+    box.innerHTML = ids.map((id) => { const k = KEYS.find((x) => rowId(x) === id);
+      return '<div>' + k.kind + ' ' + k.key + '   ' + k.git + ' → ' + (draft[id] === null ? '(removed)' : draft[id]) + (k.sensitive ? '   <span class="tag sens">+1 approval</span>' : "") + '</div>'; }).join("");
+  }
+
+  function invalidate() { if (checked) { checked = false; $("submit").disabled = true; setStatus("idle", "Changed since the last check. Press <b>Check (dry run)</b> again."); } }
+  function setStatus(kind, html) { const s = $("status"); s.className = "status " + kind; s.innerHTML = html; }
+
+  $("check").addEventListener("click", () => {
+    const ids = Object.keys(draft); const errs = [...document.querySelectorAll("[data-err]")].filter((e) => e.textContent);
+    if (pending) { setStatus("bad", "<b>409 change-pending.</b> " + pending + " Reload when it finishes."); return; }
+    if (conflicts.length) { setStatus("bad", "Choose <b>Use current</b> or <b>Keep my edit</b> for each key both sides changed."); return; }
+    if (!ids.length) { setStatus("bad", "<b>422 no-change.</b> The request changes nothing."); return; }
+    if (errs.length) { setStatus("bad", "<b>422 policy-violation.</b> Fix the marked fields."); return; }
+    if (!$("why").value.trim()) { setStatus("bad", "Say why this change is needed."); $("why").focus(); return; }
+    const sens = ids.some((id) => KEYS.find((x) => rowId(x) === id).sensitive);
+    setStatus("ok", "<b>The check passed (dry run, 200).</b> metadataDiff: " + ids.length + " change" + (ids.length > 1 ? "s" : "") + ". Approval: " + (sens ? "1 from approver-platform (a sensitive key changed)." : "none needed beyond the environment's rule.") + " If-Match \"3f9a1c0b7e2d4a68\".");
+    checked = true; $("submit").disabled = false;
+  });
+  $("submit").addEventListener("click", () => {
+    if (!checked) return;
+    pending = "req-20261120-0011 (pending approval) holds abc-payments-dev.";
+    setStatus("info", "<b>Request req-20261120-0011 submitted (202).</b> The strip shows Pending until the cluster has the change.");
+    draft = {}; checked = false; $("submit").disabled = true; render();
+  });
+  $("sim409").addEventListener("click", () => { pending = "req-20261120-0009 by cmapi.operator (pr_open) holds abc-payments-dev."; checked = false; $("submit").disabled = true; strip(); setStatus("bad", "<b>409 change-pending.</b> Another request holds this namespace. Reload when it finishes."); });
+  $("sim412").addEventListener("click", () => {
+    // Someone's merged request changed critical level and cost center in Git meanwhile.
+    const cl = KEYS.find((k) => k.key === D + "/cl"), cc = KEYS.find((k) => k.key === "cmapi.net/cost-center");
+    cl.git = "3"; cl.live = "3"; cc.git = "cc-5000"; cc.live = "cc-5000";
+    conflicts = Object.keys(draft).filter((id) => id === rowId(cl) || id === rowId(cc));
+    checked = false; $("submit").disabled = true; render();
+    if (!conflicts.length) { setStatus("info", "<b>412: the namespace changed in Git.</b> Reloaded; your changes are kept. Check again."); return; }
+    setStatus("bad", "<b>412: the namespace changed in Git.</b> Reloaded; your other changes are kept. Both sides changed these keys:<div class='conflict' id='cf'></div>");
+    $("cf").innerHTML = conflicts.map((id) => { const k = KEYS.find((x) => rowId(x) === id);
+      return '<div>' + k.key + ': now ' + k.git + ', yours ' + (draft[id] === null ? "(removed)" : draft[id]) + ' <button type="button" class="secondary small" data-use="' + id + '">Use current</button><button type="button" class="secondary small" data-keep="' + id + '">Keep my edit</button></div>'; }).join("");
+    for (const b of $("cf").querySelectorAll("button")) b.addEventListener("click", () => {
+      const id = b.dataset.use || b.dataset.keep; if (b.dataset.use) delete draft[id];
+      conflicts = conflicts.filter((c) => c !== id); b.parentElement.remove(); render();
+      if (!conflicts.length) setStatus("info", "Choices made. Press <b>Check (dry run)</b> again.");
+    });
+  });
+  $("xt").addEventListener("click", () => { const open = $("xb").hidden; $("xb").hidden = !open; $("xt").setAttribute("aria-expanded", String(open)); $("caret").textContent = open ? "▾" : "▸"; });
+  $("why").addEventListener("input", invalidate);
+
+  // Step 1: the cluster. Step 2: mnemonic chips (the cluster's facets with counts) and the lookup as you type.
+  function chips() {
+    const c = $("cluster").value, box = $("chips");
+    if (!c) { box.innerHTML = '<span class="hint">Choose a cluster first.</span>'; return; }
+    const counts = {}; for (const n of NAMESPACES[c]) counts[n.mnemonic] = (counts[n.mnemonic] || 0) + 1;
+    box.innerHTML = '<button type="button" class="chip" data-m="" aria-pressed="' + (!mnemonic) + '">All<small>' + NAMESPACES[c].length + '</small></button>' +
+      Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map((m) => '<button type="button" class="chip" data-m="' + m + '" aria-pressed="' + (m === mnemonic) + '"><b>' + m + '</b><small>' + counts[m] + '</small></button>').join("");
+  }
+  function lookup() {
+    const c = $("cluster").value, list = $("nslist"); let q = $("ns").value.trim().toLowerCase();
+    // A first word that is one of this cluster's mnemonics turns its chip on: "abc pay" = abc's namespaces containing pay.
+    const first = q.split(/[\s-]/)[0];
+    if (first && first !== q && NAMESPACES[c].some((n) => n.mnemonic === first)) { mnemonic = first; q = q.slice(first.length).replace(/^[\s-]+/, ""); chips(); }
+    if ($("ns").value.trim().length < 2) { list.hidden = true; $("ns").setAttribute("aria-expanded", "false"); return; }
+    let hits = NAMESPACES[c].filter((n) => (!mnemonic || n.mnemonic === mnemonic) && (!q || n.name.includes(q) || n.team.includes(q)));
+    hits.sort((a, b) => (b.name.startsWith(mnemonic + "-" + q) - a.name.startsWith(mnemonic + "-" + q)) || a.name.localeCompare(b.name));
+    const shown = hits.slice(0, 10); active = -1;
+    const mark = (name) => q ? name.replace(q, "<mark>" + q + "</mark>") : name;
+    const st = (n) => n.sync === "drift" ? '<span class="st mk dr">⚠ drift</span>' : n.sync === "pending" ? '<span class="st">⏳ pending ' + n.req + '</span>' : '<span class="st mk ok">✓ in sync</span>';
+    list.innerHTML = (shown.length ? shown.map((n) => '<li role="option" tabindex="-1" data-name="' + n.name + '">' + mark(n.name) + '<span class="meta">team ' + n.team + '</span>' + st(n) + '</li>').join("") : '<li aria-disabled="true">No namespace matches' + (mnemonic ? " in " + mnemonic : "") + '.</li>') +
+      '<li class="foot" aria-hidden="true">' + shown.length + ' of ' + hits.length + ' in ' + c + (mnemonic ? " · mnemonic " + mnemonic : "") + ' · ↑↓ Enter</li>';
+    list.hidden = false; $("ns").setAttribute("aria-expanded", "true");
+  }
+  function openNs(name) {
+    const c = $("cluster").value; $("ns").value = name; $("nslist").hidden = true; $("ns").setAttribute("aria-expanded", "false");
+    recent[c] = [name, ...(recent[c] || []).filter((n) => n !== name)].slice(0, 3); showRecent();
+    draft = {}; checked = false; pending = null; conflicts = []; $("detail").hidden = false; $("placeholder").hidden = true; render();
+    setStatus("idle", "Make a change, then press <b>Check (dry run)</b>.");
+  }
+  function showRecent() {
+    const c = $("cluster").value, r = recent[c] || [];
+    $("recent").hidden = !r.length;
+    $("recent").innerHTML = "Recent in " + c + ": " + r.map((n) => '<button type="button" class="link" data-recent="' + n + '">' + n + '</button>').join(" ");
+  }
+  $("cluster").addEventListener("change", () => {
+    const c = $("cluster").value; mnemonic = ""; $("ns").value = ""; $("ns").disabled = !c; $("detail").hidden = true; $("placeholder").hidden = false; $("nslist").hidden = true;
+    $("ns-hint").textContent = c ? NAMESPACES[c].length + " managed namespaces in " + c + ". Type 2+ letters, or start with a mnemonic." : "Choose a cluster first.";
+    chips(); showRecent();
+  });
+  $("chips").addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (!b) return; mnemonic = b.dataset.m; chips(); if ($("ns").value.trim().length >= 2) lookup(); else $("ns").focus(); });
+  $("ns").addEventListener("input", () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookup, 250); });
+  $("ns").addEventListener("keydown", (e) => {
+    const opts = [...$("nslist").querySelectorAll("li[role=option]")]; if ($("nslist").hidden || !opts.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; opts.forEach((o, i) => o.setAttribute("aria-selected", String(i === active))); }
+    if (e.key === "Enter" && active >= 0) { e.preventDefault(); openNs(opts[active].dataset.name); }
+    if (e.key === "Escape") { $("nslist").hidden = true; }
+  });
+  $("nslist").addEventListener("click", (e) => { const li = e.target.closest("li[role=option]"); if (li) openNs(li.dataset.name); });
+  $("recent").addEventListener("click", (e) => { const b = e.target.closest("[data-recent]"); if (b) openNs(b.dataset.recent); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".ta")) $("nslist").hidden = true; });
+})();
+</script>
