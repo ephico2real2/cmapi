@@ -53,7 +53,7 @@ class CA:
         self.path = tmp / f"{cn}.pem"
         self.path.write_text(self.pem)
 
-    def server(self, tmp: Path, sans: list[x509.GeneralName]) -> "Server":
+    def server_files(self, tmp: Path, sans: list[x509.GeneralName]) -> tuple[Path, Path]:
         key = ec.generate_private_key(ec.SECP256R1())
         now = dt.datetime.now(dt.timezone.utc)
         cert = (x509.CertificateBuilder().subject_name(_name("kube-apiserver")).issuer_name(self.cert.subject)
@@ -66,7 +66,10 @@ class CA:
         crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
         pem.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                           serialization.NoEncryption()))
-        return Server(crt, pem)
+        return crt, pem
+
+    def server(self, tmp: Path, sans: list[x509.GeneralName]) -> "Server":
+        return Server(*self.server_files(tmp, sans))
 
 
 LOCAL = [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]

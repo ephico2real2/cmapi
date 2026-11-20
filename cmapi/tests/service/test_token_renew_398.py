@@ -116,6 +116,10 @@ class Endpoints:
         monkeypatch.setattr(self.module, "time", lambda: self.now)
         monkeypatch.setattr(self.module, "log", self.logs)
 
+    def transport(self, req):
+        assert req.extensions.get("sni_hostname") == "cluster.invalid"
+        return self.spoke(req)
+
     def client(self, cid, url, token, trust, *, insecure):
         assert cid == "TEST" and url == "https://reader.invalid"
         assert trust.server_name == "cluster.invalid"
@@ -123,7 +127,8 @@ class Endpoints:
         self.trust_modes.append(trust.source)
         client = KubeClient(cid, url, token, trust)
         client._client.close()
-        client._client = httpx.Client(base_url=url, headers=client._client.headers, transport=httpx.MockTransport(self.spoke))
+        client._client = httpx.Client(base_url=url, headers=client._client.headers, event_hooks=client._client.event_hooks,
+                                      transport=httpx.MockTransport(self.transport))
         return client
 
     def spoke(self, req):
@@ -463,3 +468,80 @@ def test_shorter_grant_with_unusable_absolute_window(endpoints, before):
     assert not api.scan() and len(api.patches) == 1
     api.now += 60
     assert not api.scan() and len(api.requests) == 1
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("caData", True), ("trusted", True), ("wrong-ca", False), ("wrong-name", False),
+    ("insecure-allowed", True), ("insecure-denied", False),
+])
+def test_renewal_post_negotiates_cluster_tls(endpoints, tmp_path, monkeypatch, mode, success):
+    import http.client
+    import socket
+    import ssl
+    from concurrent.futures import ThreadPoolExecutor
+
+    import httpcore
+    from cryptography import x509
+    from httpcore._backends.sync import SyncStream
+    from test_cluster_trust_434 import CA
+
+    api = endpoints()
+    api.now += 3000
+    api.registry.client_factory = KubeClient
+    monkeypatch.setenv("NO_PROXY", "*")
+    authority = CA(tmp_path, "issuer")
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(*authority.server_files(tmp_path, [x509.DNSName("cluster.invalid")]))
+    server_names = []
+    server.set_servername_callback(lambda sock, name, ctx: server_names.append(name))
+
+    data = api.doc["data"]
+    if mode in ("caData", "wrong-name"):
+        data["caData"] = encoded(authority.pem)
+    elif mode == "trusted":
+        api.registry.trusted_ca_file = str(authority.path)
+    elif mode == "wrong-ca":
+        api.registry.trusted_ca_file = str(authority.path)
+        data["caData"] = encoded(CA(tmp_path, "unrelated").pem)
+    else:
+        data["insecure"] = encoded("true")
+        if mode == "insecure-allowed":
+            api.registry.insecure_environments = {"rnd"}
+    if mode == "wrong-name":
+        data["tlsServerName"] = encoded("another.invalid")
+
+    posts = []
+    def serve(peer):
+        with peer:
+            try:
+                conn = server.wrap_socket(peer, server_side=True)
+            except ssl.SSLError:
+                return  # the client rejected the certificate
+            with conn, conn.makefile("rb") as stream:
+                method, path, _ = stream.readline().decode().split()
+                headers = http.client.parse_headers(stream)
+                body = stream.read(int(headers["Content-Length"]))
+                request = httpx.Request(method, "https://reader.invalid" + path, headers=headers.items(), content=body)
+                response = api.spoke(request)
+                posts.append(path)
+                conn.sendall(b"HTTP/1.1 201 Created\r\nConnection: close\r\nContent-Length: "
+                             + str(len(response.content)).encode() + b"\r\n\r\n" + response.content)
+
+    # Replace only TCP dialing. httpcore negotiates TLS using the production context and SNI.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        connections = []
+        def connect(backend, host, port, **kwargs):
+            assert (host, port) == ("reader.invalid", 443)
+            client, peer = socket.socketpair()
+            peer.settimeout(5)
+            connections.append(executor.submit(serve, peer))
+            return SyncStream(client)
+
+        monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", connect)
+        failed = api.scan()
+        for connection in connections:
+            connection.result(timeout=6)
+    assert failed is (not success), api.logs.mock_calls
+    expected_name = "another.invalid" if mode == "wrong-name" else "cluster.invalid"
+    assert server_names == ([] if mode == "insecure-denied" else [expected_name])
+    assert len(posts) == len(api.patches) == int(success)
