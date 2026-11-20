@@ -64,6 +64,8 @@ def test_the_api_document_names_the_configured_keys(company):
     props = client.get("/openapi.json").json()["components"]["schemas"]["NamespaceCreate"]["properties"]
     assert "`company.net/lob` (any value)" in props["labels"]["description"]
     assert "`company.net/cl` (one of ['0', '1', '2', '3', '4', '5', '6'])" in props["labels"]["description"]
-    assert "Set by cmapi, not by the requester: `name` (set by cmapi from the namespace)" in props["labels"]["description"]
+    # #479 (A1): the filled-in keys are required too, and cmapi fills one that a request leaves out.
+    assert "Required, and filled in by cmapi when a request leaves them out: `name` (set by cmapi from the namespace)" \
+        in props["labels"]["description"]
     assert "`company.net/app-environment` (set by cmapi from the environment)" in props["annotations"]["description"]
 

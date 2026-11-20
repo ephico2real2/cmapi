@@ -73,7 +73,8 @@ def test_a_refused_configuration_exits_3_with_the_loaders_message(offline, tmp_p
 
 def test_a_render_that_is_not_a_document_fails_and_writes_nothing(offline, tmp_path, monkeypatch):
     """A render that lost its paths would read as "no changes" in a report; it is a broken tool, not exit 0 or 3."""
-    monkeypatch.setattr(cmapi.main, "openapi_document", lambda cfg: {"openapi": "3.1.0", "paths": {}})
+    # #479: openapi_document also takes the instance's cluster environments (from --config-dir's clusters.yaml).
+    monkeypatch.setattr(cmapi.main, "openapi_document", lambda cfg, clusters=None: {"openapi": "3.1.0", "paths": {}})
     with pytest.raises(RuntimeError, match="the document has no paths"):
         render(tmp_path, "--metadata-keys", str(REFERENCE_KEYS))
     assert not (tmp_path / "openapi.json").exists()
