@@ -4,7 +4,8 @@
 
 `render` writes the document that an instance with these files serves at /openapi.json, through the code that serves it
 (`cmapi.main.api_app`), in the form of cmapi/contract/openapi.json: sorted keys, two-space indent, one final newline. It
-needs no database, identity provider, cluster, Git host or Kyverno, and opens no connection.
+needs no database, identity provider, cluster, Git host or Kyverno, and opens no connection. A clusters.yaml in
+--config-dir gives the create example the environment of its cluster, as the served document has it (#479).
 
 With no --config-dir the instance is the reference instance packaged beside this module (reference_instance/: the
 service suite's test instance, whose document is the committed contract). Rendered for two metadata-keys.yaml files on
@@ -25,6 +26,7 @@ from typing import Any
 import yaml
 
 from cmapi.core.config import load_instance
+from cmapi.core.registry import load_policies
 
 REFERENCE_INSTANCE = Path(__file__).with_name("reference_instance")
 REFUSED = 3
@@ -59,11 +61,22 @@ def load(metadata_keys: Path, config_dir: Path | None) -> Any:
         raise Refused(f"{type(exc).__name__}: {exc}") from exc
 
 
-def render(cfg: Any) -> str:
+def cluster_environments(cfg: Any, config_dir: Path | None) -> dict[str, str] | None:
+    """{cluster ID: environment} of the instance's clusters.yaml, read as serving reads it, or None without one."""
+    path = (config_dir or REFERENCE_INSTANCE) / "clusters.yaml"
+    if not path.exists():
+        return None
+    try:
+        return {cid: p.environment for cid, p in load_policies(path, cfg.allowed_environments).items()}
+    except (ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
+        raise Refused(f"{type(exc).__name__}: {exc}") from exc
+
+
+def render(cfg: Any, clusters: dict[str, str] | None = None) -> str:
     """The document's text, checked to be one that an instance serves."""
     # Imported here: cmapi.main brings in the whole API, which only this command of cmapi-tools needs.
     from cmapi.main import openapi_document
-    doc = openapi_document(cfg)
+    doc = openapi_document(cfg, clusters)
     problems = problems_of(doc, "namespaces" in cfg.plugins.enabled)
     if problems:
         raise RuntimeError("the rendered document is not one that an instance serves: " + "; ".join(problems))
@@ -84,9 +97,10 @@ def main(argv: list[str]) -> None:
             sys.exit(f"cmapi-tools openapi: {path} does not exist")
     try:
         cfg = load(args.metadata_keys, args.config_dir)
+        clusters = cluster_environments(cfg, args.config_dir)
     except Refused as exc:
         print(f"cmapi-tools openapi: the configuration is refused: {exc}", file=sys.stderr)
         sys.exit(REFUSED)
-    text = render(cfg)
+    text = render(cfg, clusters)
     args.out.write_text(text)
     print(f"wrote {args.out} ({len(text)} bytes)")

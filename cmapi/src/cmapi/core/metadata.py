@@ -1179,8 +1179,10 @@ class MetadataKeys:
 
         It documents validate(); it never replaces it. It is sound: each map that validate() accepts passes it
         (tests/core/test_metadata_schema_328.py runs both on one corpus). What JSON Schema cannot say stays loose and is
-        said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix), the
-        count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a key's prefix."""
+        said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix and
+        namespaceSuffix), the count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a
+        key's prefix. One way it is stricter than validate(), on purpose (#479, A1): a create that leaves out a key that
+        cmapi fills in (value.from, default.from) is accepted, and the schema lists that key as required."""
         if kind not in KINDS or op not in _OPS:
             raise ValueError(f"json_schema: kind is one of {KINDS} and op one of {_OPS}, not {kind!r}, {op!r}")
         patch = op == "patch"
@@ -1195,7 +1197,8 @@ class MetadataKeys:
             # A character is one to four bytes in UTF-8, so a bound on bytes is at least this bound on characters.
             extra["maxLength"] = other.max_value_bytes
         schema: dict[str, Any] = {"type": "object", "properties": properties}
-        required = [key for key, rule in rules.items() if rule.required and not rule.derived]
+        # A filled-in key is required too (#479, A1): a client sends its value or leaves it out, and cmapi fills it in.
+        required = [key for key, rule in rules.items() if rule.required]
         if required and not patch:
             schema["required"] = required
         schema["propertyNames"] = self._key_names(kind, list(properties), patch)
@@ -1229,9 +1232,8 @@ class MetadataKeys:
         (missing_required_key, derived_key)."""
         out: dict[str, Any] = {"type": "string"}
         if rule.derived:
-            # Validation 9.4: readOnly is "managed exclusively by the owning authority". The same value is accepted
-            # (_governed), so the key stays in properties and out of required, with no const: it depends on the target.
-            out["readOnly"] = True
+            # Required and shown, not readOnly (#479, A1): Swagger UI hides a readOnly property of a request body. No const:
+            # the value depends on the request's target; another value is refused (derived_key).
             if rule.kind == "label":
                 out.update(pattern=_LABEL_VALUE, maxLength=63)
         else:
@@ -1252,9 +1254,14 @@ class MetadataKeys:
             if rule.required:
                 out["minLength"] = 1                # an empty value is a missing key (validate)
         words = [rule.description] if rule.description else []
-        words.append(rule.text(self.email_domains))
         if rule.derived:
+            # #479 (A1): the key is required and shown, so its words say that a client may leave it out.
+            words.append(f"filled in by cmapi from the {rule.derived}; you may leave it out")
             words.append("a request may send the same value, never another")
+        else:
+            words.append(rule.text(self.email_domains))
+        if rule.default_from:
+            words.append(f"default: the value of {rule.default_from}")
         if rule.title is not None:
             out["title"] = rule.title                # Validation 9.1: the short label; the description explains
         out["description"] = " ".join(w[:1].upper() + w[1:].rstrip(".") + "." for w in words)
@@ -1267,8 +1274,12 @@ class MetadataKeys:
             out["x-cmapi-derived-from"] = rule.derived
         if rule.format is not None:
             out["x-cmapi-format"] = rule.format
+        if rule.default_from:
+            out["x-cmapi-default-from"] = rule.default_from
         if rule.namespace_prefix:
             out["x-cmapi-namespace-prefix"] = True
+        if rule.namespace_suffix:
+            out["x-cmapi-namespace-suffix"] = True
         return self._nullable(out, patch and not rule.required and not rule.derived)
 
     def _key_names(self, kind: str, declared: list[str], patch: bool) -> dict[str, Any]:
