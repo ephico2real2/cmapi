@@ -208,3 +208,13 @@ PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} added 'propertyNames' constr
 GET /api/v1/capacity added the new `not-imported` enum value to the `clusters/items/nodesState` response property for the response status `200`
 GET /api/v1/capacity added the new `not-imported` enum value to the `clusters/items/state` response property for the response status `200`
 GET /api/v1/policies/results added the new `not-imported` enum value to the `clusters/items/state` response property for the response status `200`
+
+# #479 (A1), accepted on 2026-11-20, before the first release: each filled-in key (value.from) is now required and shown
+# in the request schema, as the owner asked, and no longer readOnly, which Swagger UI hides in a request body. A client that
+# leaves one out still works: cmapi fills it in. Measured with oasdiff breaking on the company file
+# (examples/cluster-configs/policies/metadata-keys.company.yaml, rendered by cmapi-tools openapi render on main and on
+# this change); the committed contract's reference file has no filled-in key, so its gate reports none of these.
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/name` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/company.net/app-environment` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations/company.net/app-environment` became required
+POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations` became required
