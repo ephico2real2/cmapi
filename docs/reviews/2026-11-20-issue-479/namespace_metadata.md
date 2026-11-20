@@ -532,12 +532,14 @@ A minimal API client may send less: cmapi fills `name`, `company.net/app-environ
 
 ## 8. On CRC
 
-| Item | Proposal | To confirm |
-|---|---|---|
-| Configuration | 3.1 with `company.net` keys, `emailDomains: [ephico2real.com]` (the test users' domain) | Yes/no |
-| Namespace names | `<mnemonic>-cmapi-<desired>-<env>` (the owner's example `abc-cmapi-payments-dev` on CRC, which is `dev`), so every cmapi namespace on the shared CRC still contains `-cmapi-` right after the mnemonic | The shared-cluster rule changes from "starts with `cmapi-`" to "has `-cmapi-` after the mnemonic"; CRC scripts that look for `cmapi-*` change with it |
-| Existing namespaces | `cmapi-live-a` … `cmapi-live-f` lack the new keys and the prefix: reported as findings until changed (as #234 decided for adoption) | Yes/no |
-| `company.net/cl` in `sensitiveKeys` | A change of critical level needs one extra approver-platform approval | Keep or drop |
+Owner's decisions (2026-11-20):
+
+| Item | Decision |
+|---|---|
+| Configuration | Use section 3.1 with `company.net` keys and `emailDomains: [ephico2real.com]` (the test users' domain); the Team DL example uses that email domain too |
+| Namespace names | Follow the designed rule `<mnemonic>-<desired>-<env>`, for example `abc-payments-dev` on CRC (`dev`); no CRC-specific variant |
+| Existing namespaces | Keep `cmapi-live-a` … `cmapi-live-f` as they are and report their missing keys and naming violations as findings; rename or delete nothing |
+| `company.net/cl` in `sensitiveKeys` | Include it: a change of critical level needs one extra approver-platform approval |
 
 ---
 
@@ -584,6 +586,5 @@ All three are claude.ai artifacts, private to the owner's account until shared f
 | D15 | `maxLifetimeDays` is a **limit, never a default**: it never sets a date. Expiration stays optional: no `expiresAt` = a permanent namespace. Defaults belong to the caller (the portal or a ServiceNow form), which reads the rules from the contract (`GET /api/v1/metadata-keys`, `x-cmapi-expiration`) and sends the person's choice; cmapi only checks it. No `defaultLifetimeDays` is added |
 | D13 | This format is the **standard for all 40 operations** in Swagger UI and ReDoc; the implementation plan is `swagger_redoc_implementation_plan.md` |
 
-**Open for the owner (section 8):** CRC's configuration and email domain; the CRC naming rule (`-cmapi-` after the
-mnemonic); existing `cmapi-live-*` namespaces as findings; `company.net/cl` as a sensitive key.
+CRC's configuration, naming rule, existing namespace findings and sensitive critical-level key are decided in section 8.
 

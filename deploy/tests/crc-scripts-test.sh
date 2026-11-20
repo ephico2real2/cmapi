@@ -64,7 +64,7 @@ J
   "label namespace default "*"--as=system:serviceaccount:cmapi:cmapi-worker"*)
     echo "${STUB_DEFAULT_ERR-Error from server (Invalid): namespaces \"default\" is invalid: : ValidatingAdmissionPolicy 'cmapi-deliverer-managed-only' denied request: cmapi-deliverer may only touch namespaces labelled cmapi.net/managed=true}" >&2; exit "${STUB_DEFAULT_RC:-1}";;
   "get namespaces -l cmapi.net/managed=true -o name") printf '%s' "${STUB_MANAGED_LEFT:-}"; exit 0;;
-  "get namespace cmapi-proof-plan --ignore-not-found -o name") printf '%s' "${STUB_PLAN_NS:-}"; exit 0;;
+  "get namespace abc-proof-plan-dev --ignore-not-found -o name") printf '%s' "${STUB_PLAN_NS:-}"; exit 0;;
   delete*|label*|"create namespace"*|"run np-probe"*|"wait pod/np-probe"*|"run cmapi-np-target -n cmapi "*|"wait pod/cmapi-np-target -n cmapi "*) exit 0;;
   "get pods -n cmapi -o json") python3 -c 'import json,os
 img=os.environ.get("STUB_IMAGE_ID","sha256:aaaa"); portal=os.environ.get("STUB_PORTAL_IMAGE_ID","sha256:pppp"); scc=os.environ.get("STUB_SCC","restricted-v2"); r=int(os.environ.get("STUB_RESTARTS","0")); start=os.environ.get("STUB_START","2026-11-06T10:00:00Z")
@@ -158,7 +158,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
       if [ -n "${STUB_PLAN_SECONDS:-}" ] && [ -n "$m" ] && [ "$STUB_PLAN_SECONDS" -gt "$m" ]; then
         echo "curl: (28) Operation timed out after ${m}000 milliseconds with 0 bytes received" >&2; exit 28
       fi
-      printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
+      printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/abc-proof-plan-dev/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
     */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'
       case "$*" in *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
@@ -383,7 +383,7 @@ pstop "a reader that may not list the reports in every namespace" STUB_READER_RE
 says 'FAIL: cmapi-reader may not list clusterpolicyreports.wgpolicyk8s.io in every namespace: the Policies tab reads "no access to the reports"'
 pstop "a plan refused" STUB_PLAN=422
 pstop "a plan that names no file" STUB_PLAN_BODY='{"changes":{}}'
-pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/cmapi-proof-plan
+pstop "a dry run that left the namespace" STUB_PLAN_NS=namespace/abc-proof-plan-dev
 pstop "a plan that outlasts the Route" STUB_PLAN_SECONDS=200
 # Stopped by the proof, which names the step, not by set -e on curl's exit with only curl's own line.
 grep -q '^FAIL: the dry-run namespace plan got no answer: curl exit 28' "$W/out" && ok "a plan with no answer says which step stopped" || bad "a plan with no answer stopped without naming the step: $(tail -1 "$W/out")"

@@ -267,8 +267,9 @@ def test_crc_has_exactly_one_more_image_placeholder_and_it_is_the_realm_sync():
     assert [i for d in crc_docs() for i in images(d) if i != PLACEHOLDER] == []
 
 
-@pytest.mark.parametrize("name", ["approval-rules.yaml", "authz-roles.yaml", "tiers.yaml", "expiration.yaml", "metadata-keys.yaml", "capacity.yaml"])
+@pytest.mark.parametrize("name", ["approval-rules.yaml", "authz-roles.yaml", "tiers.yaml", "expiration.yaml", "capacity.yaml"])
 def test_crc_policy_files_are_the_kind_files(name):
+    # CRC uses the company metadata keys from #479 section 3.1; kind keeps its demo keys.
     assert config_file("crc", name) == config_file("kind", name)
 
 
