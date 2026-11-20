@@ -124,6 +124,34 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
 
 ---
 
+### Cluster import token lifetime
+
+`instance.clusterTokens` defaults to `{duration: 7d, renewBeforePercentage: 20}`. A cluster's
+`clusterTokens` entry in `clusters.yaml` inherits the instance settings. Specifying either renewal
+setting replaces the inherited renewal setting. The Helm values use the same keys.
+
+```yaml
+instance:
+  clusterTokens: {duration: 7d, renewBefore: 24h}
+clusters:
+  KIND_CMAPI_TEST:
+    environment: rnd
+    clusterTokens: {duration: 1h, renewBeforePercentage: 20}
+```
+
+Durations use an unsigned whole number and one suffix, `d`, `h`, `m` or `s`. For example, `7d` and
+`168h` request the same duration. Request at least 10 minutes and observe the target API server's
+configured maximum. Kubernetes may grant a shorter lifetime. Choose one of `renewBefore`
+(a duration before expiry) and `renewBeforePercentage` (an integer from 1 to 99). At startup the
+effective window must be at least 5 minutes and shorter than the requested duration. At runtime
+the percentage uses the JWT's actual lifetime, with a 5-minute minimum window. A grant already
+due for renewal is refused. The kind example schedules renewal 12 minutes before expiry for a
+full one-hour grant.
+
+For the first import or manual recovery, pass the same settings to the script through
+`CMAPI_TOKEN_DURATION` and, if needed, `CMAPI_TOKEN_RENEW_BEFORE` or `CMAPI_TOKEN_RENEW_BEFORE_PERCENTAGE`.
+For example, run `CMAPI_TOKEN_DURATION=1h deploy/kind-import/up.sh <checkout>`.
+
 ### Cluster trust
 
 How cmapi verifies each cluster's API server: one mode per cluster, from its import Secret (docs/02, "TLS: one mode per cluster";

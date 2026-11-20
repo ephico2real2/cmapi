@@ -45,11 +45,12 @@ from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import order_forms, redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
+from cmapi.core.cluster_tokens import READER_IDENTITY, TokenPolicy
+from cmapi.core.config import ConfigError
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log, set_token_expiry
 from cmapi.core.tiers import qty
 
-READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
@@ -73,6 +74,7 @@ class ClusterPolicy:
     metadata: dict[str, Any] = field(default_factory=dict)
     placement: dict[str, Any] = field(default_factory=dict)
     simulated_capacity: dict[str, str] | None = None
+    cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
 
 
 @dataclass
@@ -182,7 +184,8 @@ def _size_problem(size: Any) -> str | None:
     return None
 
 
-def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, ClusterPolicy]:
+def load_policies(path: Path, allowed_environments: set[str],
+                  token_defaults: TokenPolicy = TokenPolicy()) -> dict[str, ClusterPolicy]:
     raw = yaml.safe_load(path.read_text()) or {}
     entries = raw.get("clusters") or {}
     items = entries.items() if isinstance(entries, dict) else ((e["clusterId"], e) for e in entries)
@@ -197,11 +200,15 @@ def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, Clust
         if size is not None and (why := _size_problem(size)):
             problems.append(f"cluster {cid}: simulatedCapacity {why}")
             continue
+        try:
+            tokens = token_defaults.override(e.get("clusterTokens", {}))
+        except ValueError as exc:
+            raise ConfigError([f"clusters.yaml: {cid}.clusterTokens: {exc}"]) from exc
         out[cid] = ClusterPolicy(cluster_id=cid, environment=env, gitops_path=e.get("gitopsPath", f"clusters/{cid}"),
                                  writes=bool(e.get("writes", True)), sync_signal=e.get("syncSignal", "poll"),
                                  delivery=e.get("delivery"), thanos_url=e.get("thanosUrl"),
                                  labels=dict(e.get("labels") or {}), metadata=dict(e.get("metadata") or {}),
-                                 placement=dict(e.get("placement") or {}), simulated_capacity=e.get("simulatedCapacity"))
+                                 cluster_tokens=tokens, placement=dict(e.get("placement") or {}), simulated_capacity=e.get("simulatedCapacity"))
     if problems:
         raise ValueError("clusters.yaml: " + "; ".join(problems))
     return out

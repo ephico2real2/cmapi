@@ -3,6 +3,13 @@
   "$comment": "Helm validates the merged values against this file on install, upgrade, lint and template. Draft-07, which both of Helm 3's validators read: xeipuuv/gojsonschema to 3.18 and santhosh-tekuri/jsonschema v6 from 3.19 and in Helm 4 (measured on 3.19.0 and 4.3.1). Patterns stay in the subset that Go's RE2 and ECMA-262 share. It describes metadata and configFiles; the other values are not described yet. The loader, MetadataKeys in cmapi/src/cmapi/core/metadata.py, stays the final check at start. docs/18-configuration.md, \"Setting the keys through the Helm values\" (#335).",
   "type": "object",
   "properties": {
+    "instance": {"type": "object", "properties": {"clusterTokens": {"$ref": "#/definitions/clusterTokens"}}},
+    "clusters": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": {"$ref": "#/definitions/cluster"}},
+        {"type": "array", "items": {"$ref": "#/definitions/cluster"}}
+      ]
+    },
     "metadata": {
       "description": "metadata-keys.yaml as structured values: the whole file, each stanza written out ({} or [] when empty). Empty ({}): the chart's config/metadata-keys.yaml, or configFiles.\"metadata-keys.yaml\". docs/18-configuration.md, \"metadata-keys.yaml\".",
       "type": "object",
@@ -101,6 +108,17 @@
     }
   },
   "definitions": {
+    "cluster": {"type": "object", "properties": {"clusterTokens": {"$ref": "#/definitions/clusterTokens"}}},
+    "clusterTokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": {"type": "string", "pattern": "^[0-9]+[dhms]$"},
+        "renewBefore": {"type": "string", "pattern": "^[0-9]+[dhms]$"},
+        "renewBeforePercentage": {"type": "integer", "minimum": 1, "maximum": 99}
+      },
+      "not": {"required": ["renewBefore", "renewBeforePercentage"]}
+    },
     "requiredExample": {
       "description": "A required key that cmapi does not derive (value) needs an example, which the API document shows; the loader refuses one without (#328 question 3, #332)",
       "additionalProperties": {"anyOf": [{"required": ["value"]}, {"required": ["example"]}]}

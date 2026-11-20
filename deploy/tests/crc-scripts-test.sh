@@ -8,6 +8,9 @@ fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
 mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
+mkdir -p "$W/repo/cmapi/src/cmapi/core"
+cp "$SRC/../cmapi/src/cmapi/core/cluster_tokens.py" "$W/repo/cmapi/src/cmapi/core/"
+
 mkdir -p "$W/repo/deploy/kind-import"
 cp "$SRC/kind-import/import-secret.py" "$W/repo/deploy/kind-import/"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/ca.pem" -subj "/CN=stub CA" -days 2 2>/dev/null

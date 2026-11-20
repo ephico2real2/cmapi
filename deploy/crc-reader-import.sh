@@ -8,6 +8,7 @@ OC=${CMAPI_OC:-oc}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
 
+duration=$(python3 "$HERE/kind-import/import-secret.py" --request-duration)
 ca=$(mktemp)
 trap 'rm -f "$ca"' EXIT
 oc_ get configmap kube-root-ca.crt -n cmapi-system -o 'jsonpath={.data.ca\.crt}' >"$ca"
@@ -18,7 +19,7 @@ grep -q 'BEGIN CERTIFICATE' "$ca" || { echo "ERROR: no CA in cmapi-system/kube-r
 set +ax
 unset import_document
 request_token() {
-  oc_ create token cmapi-reader -n cmapi-system --duration=168h 2>/dev/null || {
+  oc_ create token cmapi-reader -n cmapi-system --duration="$duration" 2>/dev/null || {
     echo "ERROR: reader TokenRequest failed" >&2
     return 1
   }

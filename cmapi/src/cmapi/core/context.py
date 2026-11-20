@@ -109,7 +109,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
         is the node part's `forbidden` state, and the commitment against a simulated size is still known."""
         return NodeCache(client, capacity_settings.count_taints)
 
-    policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)
+    policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments, cfg.cluster_tokens)
     if import_source is None:
         if settings.imports_dir:
             import_source = DirImportSource(settings.imports_dir)

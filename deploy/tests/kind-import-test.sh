@@ -9,6 +9,9 @@ HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mkte
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc ($(tail -3 "$W/out" | tr '\n' ' '))"; fi; }
 mkdir -p "$W/bin" "$W/repo/deploy"; cp -R "$SRC/kind-import" "$W/repo/deploy/"; D=$W/repo/deploy/kind-import
+mkdir -p "$W/repo/cmapi/src/cmapi/core"
+cp "$SRC/../cmapi/src/cmapi/core/cluster_tokens.py" "$W/repo/cmapi/src/cmapi/core/"
+
 [ -d "$SRC/kyverno" ] && cp -R "$SRC/kyverno" "$W/repo/deploy/"
 # A checkout of cmapi-cluster-configs with the rnd bundle committed: three files and the index, which is not a Kubernetes object.
 B=$W/ccfg/policies/env/rnd; mkdir -p "$B"
@@ -69,7 +72,7 @@ stub oc <<'S'
 printf 'oc %s\n' "$*" >>"$ARGV_LOG"
 case "$*" in
   "whoami --show-server") echo "${STUB_SERVER:-https://api.crc.testing:6443}"; exit 0;;
-  "apply --server-side --field-manager=cmapi-baseline -f -") cat >"$ARGV_LOG.applied"; exit 0;;
+  "apply --server-side --field-manager=cmapi-baseline --force-conflicts -f -") cat >"$ARGV_LOG.applied"; exit 0;;
   "get secret cmapi-cluster-kind-cmapi-test -n cmapi-imports --ignore-not-found -o name") printf '%s' "${STUB_SECRET-secret/cmapi-cluster-kind-cmapi-test}"; exit 0;;
   "get secret cmapi-cluster-kind-cmapi-test -n cmapi-imports -o jsonpath={.metadata.labels.cmapi\.net/cluster-id}") printf '%s' "${STUB_SECRET_ID-KIND_CMAPI_TEST}"; exit 0;;
   "delete secret cmapi-cluster-kind-cmapi-test -n cmapi-imports") exit 0;;
