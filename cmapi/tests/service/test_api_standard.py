@@ -3,10 +3,10 @@ operation of the document meets S1 to S10, so Swagger UI and ReDoc show each one
 
 The documents are the ones that the reference instance serves (`cmapi-tools openapi render`, no database): on the
 reference metadata-keys.yaml, which test_the_committed_contract_is_the_document_this_code_serves holds equal to
-cmapi/contract/openapi.json, and on the company keys of the namespace design. Each check is one
-row of CHECKS: a function that returns one failure line per gap, such as "POST /api/v1/x: 409 has no example named
-idempotency-replay". The second test breaks the create operation once per check and holds the check to its failure, so a
-check that can never fail is caught too.
+cmapi/contract/openapi.json, and on the company keys of the namespace design. Each check is one row of CHECKS: a function
+that returns one failure line per gap, such as "GET /api/v1/kpi: 200 says nothing of what it returns ('Successful
+Response')". The second test breaks the create operation once per check and holds the check to its failure, so a check
+that can never fail is caught too.
 
 S9 is also the renderers' settings; test_api_docs.py checks that /docs and /redoc are served with them.
 """
