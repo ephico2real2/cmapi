@@ -63,13 +63,12 @@ def wait_for(what: str, test, timeout: float = 300):
 
 def test_kind_proof(test_config, fresh_db, keys, monkeypatch):  # noqa: F811
     kubectl("apply", "--server-side", "-f", str(WT / "deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml"))
-    token = wait_for("the reader's token", lambda: json.loads(kubectl("get", "secret", "cmapi-reader-token", "-n", "cmapi-system",
-                                                                          "-o", "json")).get("data", {}).get("token"))
+    token = kubectl("create", "token", "cmapi-reader", "-n", "cmapi-system", "--duration=168h").strip()
     cfg = yaml.safe_load(Path(HERE / "kubeconfig").read_text())
     cluster = cfg["clusters"][0]["cluster"]
     api_url, ca = cluster["server"], base64.b64decode(cluster["certificate-authority-data"]).decode()
     with build_world(test_config, keys, monkeypatch) as (client, ctx, git, kube, validator, keys):
-        ctx.registry.source = KindSecret(api_url, base64.b64decode(token).decode(), ca)
+        ctx.registry.source = KindSecret(api_url, token, ca)
         ctx.registry.client_factory = KubeClient
         ctx.registry._fingerprints.clear()
         ctx.registry.clusters["CRC"].client = None

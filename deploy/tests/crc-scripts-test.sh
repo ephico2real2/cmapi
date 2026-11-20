@@ -8,6 +8,8 @@ fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
 mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
+mkdir -p "$W/repo/deploy/kind-import"
+cp "$SRC/kind-import/import-secret.py" "$W/repo/deploy/kind-import/"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/ca.pem" -subj "/CN=stub CA" -days 2 2>/dev/null
 # The ingress bundle as measured on CRC: the site's certificate, then its CA.
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$W/ingress-ca.key" -out "$W/ingress-ca.pem" -subj "/CN=ingress-operator@1" -days 2 2>/dev/null
@@ -26,8 +28,13 @@ case "$s" in
   "get route default-route"*) printf 'registry.stub'; exit 0;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
-  "get secret cmapi-reader-token"*) [ -n "${STUB_NO_TOKEN:-}" ] && { echo '{"data":{}}'; exit 0; }; printf '{"data":{"token":"%s","ca.crt":"Y2E="}}\n' "$(printf '%s' "$TOKEN" | base64)"; exit 0;;
-  "apply --server-side --field-manager=cmapi-wave1 -f -") cat >"$ARGV_LOG.applied"; exit 0;;
+  "get configmap kube-root-ca.crt"*) cat "$STUB_CA"; exit 0;;
+  "create token cmapi-reader -n cmapi-system --duration=168h")
+    [ -z "${STUB_NO_TOKEN:-}" ] || exit 1
+    issued=$(date +%s)
+    payload=$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$issued" "$((issued + 604800))" | base64 | tr -d '=\n' | tr '+/' '-_')
+    printf 'stub.%s.%s\n' "$payload" "$TOKEN"; exit 0;;
+  "apply --server-side --field-manager=crc-reader-import.sh --force-conflicts -f -") cat >"$ARGV_LOG.applied"; exit 0;;
   "get pod postgres-0 -n keycloak -o json") cat <<'J'
 {"spec":{"containers":[{"name":"postgres","image":"registry.redhat.io/rhel9/postgresql-16:latest","resources":{"limits":{"memory":"512Mi"}},"env":[{"name":"POSTGRESQL_USER","valueFrom":{"secretKeyRef":{"name":"keycloak-db","key":"user"}}},{"name":"POSTGRESQL_PASSWORD","value":"literal-value-never-to-be-seen"}]}]}}
 J
@@ -149,7 +156,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
       printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/cmapi-proof-plan/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
     */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'
-      case "$*" in *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
+      case "$*" in *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -262,8 +269,8 @@ printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tre
 
 # crc-reader-import.sh
 want "reader import" 0 "$(run "$D/crc-reader-import.sh")"; no_secret "$W/out" "reader import"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d["metadata"]; sys.exit(0 if m["namespace"]=="cmapi-imports" and m["labels"]["cmapi.net/cluster-id"]=="CRC" and m["labels"]["cmapi.net/secret-type"]=="cluster" and set(d["data"])=={"apiUrl","token","caData"} else 1)' "$ARGV_LOG.applied" && ok "the import Secret is what the registry reads" || bad "the import Secret"
-want "reader import: an unfilled token stops" 1 "$(CMAPI_READER_POLL=0 STUB_NO_TOKEN=1 run "$D/crc-reader-import.sh")"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d["metadata"]; sys.exit(0 if m["namespace"]=="cmapi-imports" and m["labels"]["cmapi.net/cluster-id"]=="CRC" and m["labels"]["cmapi.net/secret-type"]=="cluster" and set(d["data"])=={"apiUrl","token","caData","insecure"} else 1)' "$ARGV_LOG.applied" && ok "the import Secret is what the registry reads" || bad "the import Secret"
+want "reader import: a refused TokenRequest stops" 1 "$(STUB_NO_TOKEN=1 run "$D/crc-reader-import.sh")"
 
 # crc-backup.sh
 B=$W/backup; export CMAPI_BACKUP_DIR=$B
@@ -380,6 +387,7 @@ pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "two api targets up and no worker" 'STUB_UP={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
+pstop "worker has not observed the bounded import" 'STUB_EXPIRY={"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "no cmapi_cluster_status series at all" STUB_CONNECTED=
 pstop "cmapi_cluster_status connected at 0" 'STUB_CONNECTED={"value":[0,"0"]},{"value":[0,"0"]}'
 pstop "one target's series missing" 'STUB_CONNECTED={"value":[0,"1"]}'
@@ -459,9 +467,17 @@ cp "$ARGV_LOG" "$W/rollback-argv"; : >"$ARGV_LOG.ldap-deleted"; [ "$(STUB_LDAP_A
 # The static rule, on every script: no broad delete, no prune, ever. It must be able to fail: a copy with --all has to be caught.
 broad() { cat "$@" | grep -vE '^[[:space:]]*#' | grep -nE '(oc_|oc|kc) delete .*( --all| -l | --selector| -f | -R)|(^|[[:space:]])del .*( --all| -l | --selector| -f | -R)|--prune'; }
 if broad "$D"/crc-*.sh; then bad "a broad delete in a script"; else ok "no broad delete in any script"; fi
-# Every apply server-side, under the one field manager, so a later reader can see which fields this wave owns. Also able to fail.
-unmanaged() { cat "$@" | grep -vE '^[[:space:]]*#' | grep -E '(oc_|oc|kc) apply' | grep -vE -- 'apply --server-side( --dry-run=server)? --field-manager=cmapi-wave1 '; }
-if unmanaged "$D"/crc-*.sh; then bad "an apply without --field-manager=cmapi-wave1"; else ok "every apply in the scripts is --server-side --field-manager=cmapi-wave1"; fi
+# The CRC import has its own field manager. All other scripts use the wave manager.
+unmanaged() {
+  local f manager
+  for f in "$@"; do
+    manager=cmapi-wave1
+    [ "${f##*/}" != crc-reader-import.sh ] || manager=crc-reader-import.sh
+    grep -vE '^[[:space:]]*#' "$f" | grep -E '(oc_|oc|kc) apply' | grep -vE -- "apply --server-side( --dry-run=server)? --field-manager=$manager " && return 0
+  done
+  return 1
+}
+if unmanaged "$D"/crc-*.sh; then bad "an apply without its field manager"; else ok "every apply is server-side with its field manager"; fi
 printf 'oc_ apply --server-side -f -\n' >"$W/mut.sh"; if unmanaged "$W/mut.sh" >/dev/null; then ok "and that rule can fail"; else bad "the field-manager rule caught nothing"; fi
 printf 'oc_ delete keycloakrealmimport --all -n keycloak\n' >"$W/mut.sh"; if broad "$W/mut.sh" >/dev/null; then ok "and that rule can fail"; else bad "the broad-delete rule caught nothing"; fi
 

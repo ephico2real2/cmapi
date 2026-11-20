@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
-# deploy/crc-reader-import.sh: the part of the reader baseline that cannot be plain YAML, the import Secret holding the reader's token. The token goes from one
-# Secret to the other through a pipe: no file, no argument. Idempotent. A token Secret the controller has not filled stops it after 30 s.
+# Renew CRC's import using the reader ServiceAccount and the CA for the in-cluster API.
 set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
+cluster_id=${1:-CRC}
+namespace=${2:-cmapi-imports}
 OC=${CMAPI_OC:-oc}
 # shellcheck disable=SC2086  # CMAPI_OC may carry --kubeconfig
 oc_() { $OC "$@"; }
-for _ in $(seq 1 30); do
-  json=$(oc_ get secret cmapi-reader-token -n cmapi-system -o json)
-  ready=$(printf '%s' "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin).get("data") or {}; print("yes" if d.get("token") and d.get("ca.crt") else "no")')
-  [ "$ready" = yes ] && break
-  sleep "${CMAPI_READER_POLL:-1}"
-done
-[ "$ready" = yes ] || { echo "ERROR: Secret cmapi-reader-token has no token after 30 tries" >&2; exit 1; }
-printf '%s' "$json" | python3 -c 'import base64,json,sys
-d=json.load(sys.stdin)["data"]
-print(json.dumps({"apiVersion":"v1","kind":"Secret","type":"Opaque",
-  "metadata":{"name":"cmapi-cluster-crc","namespace":"cmapi-imports","labels":{"cmapi.net/secret-type":"cluster","cmapi.net/cluster-id":"CRC","app.kubernetes.io/part-of":"cmapi"}},
-  "data":{"apiUrl":base64.b64encode(b"https://kubernetes.default.svc").decode(),"token":d["token"],"caData":d["ca.crt"]}}))' | oc_ apply --server-side --field-manager=cmapi-wave1 -f - >/dev/null
-echo "import Secret cmapi-imports/cmapi-cluster-crc is current"
+
+ca=$(mktemp)
+trap 'rm -f "$ca"' EXIT
+oc_ get configmap kube-root-ca.crt -n cmapi-system -o 'jsonpath={.data.ca\.crt}' >"$ca"
+grep -q 'BEGIN CERTIFICATE' "$ca" || { echo "ERROR: no CA in cmapi-system/kube-root-ca.crt" >&2; exit 1; }
+
+# Finish and check both producers before allowing the API write. Keep the
+# rendered Secret in shell memory, including under bash -x or set -a.
+set +ax
+unset import_document
+request_token() {
+  oc_ create token cmapi-reader -n cmapi-system --duration=168h 2>/dev/null || {
+    echo "ERROR: reader TokenRequest failed" >&2
+    return 1
+  }
+}
+import_document=$(request_token | python3 "$HERE/kind-import/import-secret.py" "$cluster_id" https://kubernetes.default.svc "$ca" --namespace "$namespace")
+
+# Take ownership of the import fields previously applied by cmapi-wave1.
+if ! builtin printf '%s\n' "$import_document" |
+  oc_ apply --server-side --field-manager=crc-reader-import.sh --force-conflicts -f - >/dev/null 2>&1; then
+  echo "ERROR: CRC import apply failed" >&2
+  exit 1
+fi
+echo "import Secret for $cluster_id in $namespace is current"

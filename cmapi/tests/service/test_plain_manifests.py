@@ -579,9 +579,7 @@ def test_crc_reader_reads_only_what_the_code_reads():
     rules = crc("ClusterRole", "cmapi-reader")["rules"]
     assert {(g, r) for rule in rules for g in rule["apiGroups"] for r in rule["resources"]} == from_code
     assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules)
-    token = crc("Secret", "cmapi-reader-token")
-    assert "data" not in token and "stringData" not in token, "the controller fills it; no value in Git"
-    assert token["type"] == "kubernetes.io/service-account-token"
+    assert not any(d.get("type") == "kubernetes.io/service-account-token" for d in crc_docs("reader/*.yaml"))
 
 
 def test_crc_trust_holds_certificates_only():

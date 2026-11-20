@@ -266,4 +266,9 @@ for attempt in $(seq 1 "${CMAPI_PROOF_SCRAPE_TRIES:-20}"); do up=$(by_job 'up{na
 # Exactly this: one series with the value 1 for each of the two targets, since the api and the worker each run a registry and
 # export the gauge (#280). A missing series (a target not scraped, a label renamed) or one target not connected must not pass.
 connected=$(by_job 'cmapi_cluster_status{namespace="cmapi",cluster_id="CRC",status="connected",job=~"cmapi-api|cmapi-worker"}'); [ "$connected" = "cmapi-api=1 cmapi-worker=1" ] || fail "the reader is not connected on both targets: $connected"; say "cmapi_cluster_status connected on the api and the worker"
+# On a legacy-to-bounded migration the old client can still report connected.
+# Its unannotated import has no expiry series. Check each registry before cleanup.
+bounded=$(by_job 'cmapi_cluster_token_expiry_seconds{namespace="cmapi",cluster_id="CRC",job=~"cmapi-api|cmapi-worker"} > bool 0')
+[ "$bounded" = "cmapi-api=1 cmapi-worker=1" ] || fail "the bounded CRC import is not current on both targets: $bounded"
+say "the api and the worker have observed a current bounded CRC import"
 say "all passed"
