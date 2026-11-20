@@ -112,3 +112,16 @@ def test_a_range_past_the_end_of_the_file_fails(copy):
     (copy / "pkg/code.py").write_text("def one():\n    return 1\n")
     r = run(copy, "--check")
     assert r.returncode == 1 and r.stderr.count("changed") == 2
+
+
+def test_one_range_that_a_document_cites_twice_is_moved_in_both_places(copy):
+    """#491: two citations of one range share a lock key. relocate popped it for the first and raised KeyError on the
+    second, after it had written the documents and before the lock, so the tree was left half relocated."""
+    doc = copy / "docs/14-authorization.md"
+    doc.write_text(DOC + "\nTwo again (`pkg/code.py:6`).\n")
+    assert run(copy, "--write").returncode == 0
+    (copy / "pkg/code.py").write_text('"""A module."""\nimport os\n\n' + CODE)
+    r = run(copy, "--relocate")
+    assert r.returncode == 0 and "4 citations moved" in r.stdout, (r.stdout, r.stderr)
+    assert doc.read_text().count("`pkg/code.py:9`") == 1 and "Two holds a value (`code.py:9`)" in doc.read_text()
+    assert run(copy, "--check").returncode == 0
