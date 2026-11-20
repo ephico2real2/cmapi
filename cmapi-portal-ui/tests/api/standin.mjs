@@ -450,6 +450,15 @@ export function rejectionsFrom(count, now = Date.parse(REJECTION_SAMPLE.from) + 
     return { ...ci, ...common };
   });
 }
+export function heldPageRows(now = Date.now()) {
+  // Past dates keep their full label if UTC midnight falls between the two reads of the same rows.
+  const yesterday = now - 86_400_000;
+  return {
+    items: requestsFrom(SAMPLES.operations.requests_list_requests.response.body.items[0], 61, yesterday),
+    rejections: rejectionsFrom(61, yesterday)
+  };
+}
+
 /** GET /api/v1/policies/rejections: a page, or a problem. */
 export function rejectionsPage(rows, params) {
   const since = params.get("since") || "7d", limit = Number(params.get("limit") ?? 50), cursor = params.get("cursor");

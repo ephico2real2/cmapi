@@ -291,6 +291,19 @@ test("M6 a refusal's errors: each on the field that it names, the others in the 
   assert.deepEqual(errorsByField([{ code: "invalid_value", key: "company.net/app-environment", detail: "d" }], company).byField, { "ns-label-4": "d" });
 });
 
+test("407 retained rows have the same visible timestamps across UTC midnight", async () => {
+  const { heldPageRows } = await import("./standin.mjs");
+  const { whenOf } = await import("../../src/portal/format.ts");
+  const before = new Date("2026-11-19T23:59:59.999Z");
+  const after = new Date(before.getTime() + 1);
+  const { items, rejections } = heldPageRows(before.getTime());
+  for (const times of [items.map(r => r.updatedAt), rejections.map(r => r.firstAt)]) {
+    const middle = times.slice(25, 50);
+    assert.equal(middle.length, 25);
+    assert.deepEqual(middle.map(t => whenOf(t, after)), middle.map(t => whenOf(t, before)));
+  }
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }

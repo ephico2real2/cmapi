@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, heldPageRows, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
   startApi, startIssuer, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -322,7 +322,7 @@ try {
   });
 
   await check("407 Requests keeps both cursors off while a search loads", async () => {
-    const { context, page } = await fresh();
+    const { context, page } = await fresh({ items: heldPageRows().items });
     await open(page);
     await checkHeldPage(page, {
       label: "Requests", path: "/api/v1/requests",
@@ -3027,7 +3027,7 @@ try {
   });
 
   await check("407 Policies refusals keep both cursors off while another page loads", async () => {
-    const { context, page } = await fresh({ rejections: rejectionsFrom(61) });
+    const { context, page } = await fresh({ rejections: heldPageRows().rejections });
     await openPol(page);
     await checkHeldPage(page, {
       label: "Refused by cmapi", path: "/api/v1/policies/rejections",
