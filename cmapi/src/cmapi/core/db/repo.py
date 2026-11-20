@@ -107,6 +107,13 @@ class RequestRepo:
                                                             ChangeRequestRow.namespace == namespace,
                                                             ChangeRequestRow.status.in_(OPEN_STATES))).first()
 
+    def open_holders(self, cluster_id: str) -> dict[str, dict[str, str]]:
+        """The open request of each namespace on the cluster that one holds, by namespace, with its status: the sync
+        state of a namespace says which request holds it and how far it is (#481)."""
+        q = select(ChangeRequestRow.namespace, ChangeRequestRow.request_id, ChangeRequestRow.status) \
+            .where(ChangeRequestRow.status.in_(OPEN_STATES), ChangeRequestRow.cluster_id == cluster_id)
+        return {n: {"requestId": r, "status": status} for n, r, status in self.s.execute(q)}
+
     def open_namespaces(self, cluster_id: str | None = None) -> dict[tuple[str, str], str]:
         q = select(ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, ChangeRequestRow.request_id) \
             .where(ChangeRequestRow.status.in_(OPEN_STATES))

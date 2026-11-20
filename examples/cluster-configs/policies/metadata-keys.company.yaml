@@ -46,4 +46,7 @@ extraAnnotations:
 adoptionLabels:
   company.net/provisioner: {recognise: [cluster-configs]}
 sensitiveKeys: [company.net/mnemonic, company.net/lob, cmapi.net/protected, do-not-delete]
+# Keys that only the cluster or its controllers write on a live namespace, never Git: the comparison of Git with the
+# cluster (sync of GET .../namespaces/{ns}) leaves them out (#481). fnmatch globs; also the default without this stanza.
+liveOnlyKeys: [kubernetes.io/metadata.name, "openshift.io/*", "argocd.argoproj.io/*", app.kubernetes.io/instance]
 emailDomains: [company.net]

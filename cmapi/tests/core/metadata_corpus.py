@@ -26,6 +26,7 @@ LOOSE = {
     "operator_only_key": "the caller's role",
     "derived_key": "the request's target",
     "namespacePrefix": "the request's namespace",
+    "name kept": "the value that Git holds: a change keeps the keys that the name is made of (#481)",
     "too_many_keys": "a count of keys",
     "annotations_too_large": "a size in bytes",
     "prefix over 253": "a length bound on one part of a key, on a patch (propertyNames checks the class only there)",
@@ -186,6 +187,8 @@ def loose_reason(keys: MetadataKeys, case: Case, errors: list[dict[str, Any]]) -
             reasons.add("namespacePrefix")
         elif code == "invalid_value" and "does not end with" in e.get("detail", ""):
             reasons.add("namespaceSuffix")
+        elif code == "invalid_value" and e.get("detail", "").startswith("part of the namespace's fixed name"):
+            reasons.add("name kept")
         elif code == "invalid_key" and case.op == "patch" and len(key.rpartition("/")[0]) > 253:
             reasons.add("prefix over 253")
         elif code == "invalid_key" and case.op == "patch" and keys._syntax(key, None, case.kind):

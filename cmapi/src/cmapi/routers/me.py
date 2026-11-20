@@ -61,6 +61,10 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
     docs.enabled is false. Each property carries x-cmapi-rule, the rule in the words of a refusal, and title when the file
     gives one. x-cmapi-expiration is expiresAt's: each served environment's expiration rules (expiration.yaml).
 
+    Each property also carries x-cmapi-edit, how the key may change on an existing namespace (#481): `mode` fixed (part of
+    the namespace's fixed name), automatic (filled in by cmapi), required or optional, the `reason` a person sees, and
+    `sensitive` when a change of it adds one approval. One answer, the same for a create and a change.
+
     cmapi checks every request against the file itself: this answer describes the rules, it does not replace them. The
     answer is the instance's, the same for every caller; it has a strong ETag, and If-None-Match answers 304."""
     body, etag = metadata_keys_document(c.cfg.metadata, c.cfg.expiration,

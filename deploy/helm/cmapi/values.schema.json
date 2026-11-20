@@ -90,6 +90,8 @@
           "additionalProperties": false
         },
         "sensitiveKeys": {"description": "A change of one of these keys adds an approver-platform approval", "$ref": "#/definitions/keyList"},
+        "liveOnlyKeys": {"description": "Keys that only the cluster writes, left out when Git is compared with the live namespace; * matches as in fnmatch",
+                         "type": "array", "items": {"type": "string", "pattern": "^\\S+$"}},
         "emailDomains": {
           "description": "The mail domains of the format email-in-domains",
           "type": "array",
