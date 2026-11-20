@@ -8,7 +8,12 @@
         "maxLength": 63,
         "description": "A copy of the namespace name. Filled in by cmapi from the namespace; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the namespace",
-        "x-cmapi-derived-from": "namespace"
+        "x-cmapi-derived-from": "namespace",
+        "x-cmapi-edit": {
+          "mode": "automatic",
+          "reason": "Copied from the namespace name.",
+          "sensitive": false
+        }
       },
       "company.net/app-environment": {
         "type": "string",
@@ -16,7 +21,12 @@
         "maxLength": 63,
         "description": "The environment of the namespace's cluster. Filled in by cmapi from the environment; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the environment",
-        "x-cmapi-derived-from": "environment"
+        "x-cmapi-derived-from": "environment",
+        "x-cmapi-edit": {
+          "mode": "automatic",
+          "reason": "Copied from the cluster's environment.",
+          "sensitive": false
+        }
       },
       "company.net/mnemonic": {
         "type": "string",
@@ -34,7 +44,12 @@
         "examples": [
           "abc"
         ],
-        "x-cmapi-namespace-prefix": true
+        "x-cmapi-namespace-prefix": true,
+        "x-cmapi-edit": {
+          "mode": "fixed",
+          "reason": "Part of the namespace's fixed name. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       },
       "company.net/lob": {
         "type": "string",
@@ -45,7 +60,12 @@
         "x-cmapi-rule": "any value",
         "examples": [
           "amgsst"
-        ]
+        ],
+        "x-cmapi-edit": {
+          "mode": "required",
+          "reason": "Required on every namespace. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       },
       "company.net/cl": {
         "type": "string",
@@ -64,21 +84,36 @@
         "x-cmapi-rule": "one of ['0', '1', '2', '3', '4', '5', '6']",
         "examples": [
           "1"
-        ]
+        ],
+        "x-cmapi-edit": {
+          "mode": "required",
+          "reason": "Required on every namespace.",
+          "sensitive": false
+        }
       },
       "cmapi.net/protected": {
         "type": "string",
         "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
         "maxLength": 63,
         "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
-        "x-cmapi-operator-only": true
+        "x-cmapi-operator-only": true,
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       },
       "do-not-delete": {
         "type": "string",
         "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
         "maxLength": 63,
         "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
-        "x-cmapi-operator-only": true
+        "x-cmapi-operator-only": true,
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       }
     },
     "required": [
@@ -131,7 +166,12 @@
         "type": "string",
         "description": "Filled in by cmapi from the environment; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the environment",
-        "x-cmapi-derived-from": "environment"
+        "x-cmapi-derived-from": "environment",
+        "x-cmapi-edit": {
+          "mode": "automatic",
+          "reason": "Copied from the cluster's environment.",
+          "sensitive": false
+        }
       },
       "company.net/mnemonic-group-contact": {
         "type": "string",
@@ -141,7 +181,12 @@
         "examples": [
           "abc-team@company.net"
         ],
-        "x-cmapi-format": "email-in-domains"
+        "x-cmapi-format": "email-in-domains",
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": null,
+          "sensitive": false
+        }
       },
       "company.net/mnemonic-confluence": {
         "type": "string",
@@ -151,17 +196,32 @@
         "examples": [
           "https://wiki.company.net/abc"
         ],
-        "x-cmapi-format": "url"
+        "x-cmapi-format": "url",
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": null,
+          "sensitive": false
+        }
       },
       "cmapi.net/protected": {
         "type": "string",
         "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
-        "x-cmapi-operator-only": true
+        "x-cmapi-operator-only": true,
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       },
       "do-not-delete": {
         "type": "string",
         "description": "An operator only (namespaces:protect): another caller gets 403 forbidden.",
-        "x-cmapi-operator-only": true
+        "x-cmapi-operator-only": true,
+        "x-cmapi-edit": {
+          "mode": "optional",
+          "reason": "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.",
+          "sensitive": true
+        }
       }
     },
     "required": [
