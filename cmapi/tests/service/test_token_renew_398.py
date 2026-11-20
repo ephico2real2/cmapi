@@ -426,3 +426,12 @@ def test_two_scans_and_relist_share_a_versioned_import(endpoints, monkeypatch):
         assert not api.scan() and len(api.patches) == 2
     finally:
         api.registry.stop()
+
+
+def test_managed_namespace_binding_cannot_expand_the_readers_token_grant():
+    docs = list(yaml.safe_load_all((ROOT / "examples/baseline/cmapi-reader-rbac.yaml").read_text()))
+    binding = yaml.safe_load((ROOT / "examples/cluster-configs/clusters/OCP_GF15/namespaces/payments-dev/"
+                             "token-issuer-rolebinding.yaml").read_text())
+    assert binding["subjects"] == [{"kind": "ServiceAccount", "name": "cmapi-reader", "namespace": "cmapi-system"}]
+    role = next(d for d in docs if d["kind"] == "ClusterRole" and d["metadata"]["name"] == binding["roleRef"]["name"])
+    assert role["rules"] == []  # The reserved plugin binding grants no access in a workload namespace.

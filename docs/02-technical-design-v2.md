@@ -636,7 +636,7 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-
 subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
 ```
 
-The reader can request its own token through a Role in cmapi-system scoped to resourceNames: [cmapi-reader]. The sa-tokens plugin has a separate grant to issue tokens in managed namespaces. Its grant (create on serviceaccounts/token) is never cluster-wide, since that would let cmapi mint a token for any ServiceAccount, including system ones. cmapi renders a RoleBinding named cmapi-token-issuer into each managed namespace's folder, so the grant exists only where cmapi manages the namespace.
+The reader can request its own token through a Role in cmapi-system scoped to `resourceNames: [cmapi-reader]`. The baseline keeps the reserved `cmapi-token-issuer` ClusterRole empty, including on reapply to older installations. Existing bindings in managed workload namespaces therefore grant the reader no token issuance there. A future sa-tokens implementation needs a separate issuer identity.
 
 **Prerequisite: a network path from the hub to each cluster.** The site's network team opens HTTPS from the hub's cmapi pods (API and worker) to each cluster's API server, usually port 6443, before the cluster is imported. cmapi uses that path. It creates and manages no firewall rule, proxy or route. Without the path, the cluster shows `unreachable` in `GET /api/v1/clusters` and the import goes no further (`ClusterRegistry._check`, `cmapi/src/cmapi/core/registry.py`). On the lab Mac, the path from CRC to the kind cluster stands in for it (docs/13, "A second cluster: kind").
 
