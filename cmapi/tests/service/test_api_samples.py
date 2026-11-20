@@ -193,7 +193,8 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("requests_approval_status", "GET", f"/api/v1/requests/{rid}/approval-status", ola)
     for kind in ("Namespace", "ResourceQuota"):               # the fake cluster's watch does not stream: read the cache's lists again, as test_flow does
         ctx.registry.cache("CRC")._list(kind)
-    rec.call("namespaces_list_namespaces", "GET", base, ola)
+    # The lookup of #481: the sample shows total and facets beside the items, which the list without parameters has too.
+    rec.call("namespaces_list_namespaces", "GET", f"{base}?q=pay&limit=10", ola)
     one = rec.call("namespaces_get_namespace", "GET", f"{base}/payments-dev", ola)
     etag = one.json()["etag"]
     rec.call("quotas_quotas", "GET", "/api/v1/quotas?limit=25", ola)
@@ -295,8 +296,13 @@ def test_each_operation_has_a_sample_from_a_run(world):
     # ---- the dry run of a change: the plan of a PATCH, with nothing written
     etag = client.get(f"{base}/payments-dev", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
     planned = rec.call("namespaces_update_namespace:dryRun", "PATCH", f"{base}/payments-dev?dryRun=true", ola,
-                       json_body={"tier": "medium", "justification": "A smaller size after the load test"}, headers={"If-Match": f'"{etag}"'})
+                       json_body={"tier": "medium", "labels": {"cmapi.net/cost-center": None},
+                                  "annotations": {"runbook.ephico2real.com/url": "https://wiki.ephico2real.com/payments/runbook"},
+                                  "justification": "A smaller size after the load test; the cost code retired, the runbook added"},
+                       headers={"If-Match": f'"{etag}"'})
     assert planned.status_code == 200, planned.text
+    # #481: the merge patch's effective changes, a removal and an addition, each with its source.
+    assert set(planned.json()["metadataDiff"]["labels"]) == {"cmapi.net/cost-center"}, planned.text
 
     # ---- the refusals a client meets most
     rec.call("core_me", "GET", "/api/v1/me", None)                                                            # 401

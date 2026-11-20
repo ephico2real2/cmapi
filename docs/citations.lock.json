@@ -322,7 +322,7 @@
   "any namespace name (outside the reserved ones) in the environments that role covers; approval rules decide what needs approval,",
   "and approving groups (Keycloak groups) decide who may approve."
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/db/repo.py|208-210": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/db/repo.py|215-217": [
   "        submitter = (row.requester or {}).get(\"submittedBySub\")",
   "        ledger = ApprovalLedger(req, requester_sub=row.requester_sub,",
   "                                operation_starter_sub=None if req.self_approval else submitter)"
@@ -497,27 +497,27 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1187-1187": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1307-1307": [
   "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|125-127": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|127-129": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|187-187": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|189-189": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|193-193": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|195-195": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|197-197": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|199-199": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|380-380": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|416-416": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|433-433": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|471-471": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [
@@ -542,10 +542,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|119-119": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|184-184": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|135-135": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|205-205": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
@@ -966,13 +966,13 @@
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/models.py|18-18": [
   "OPEN_STATES = (\"pending_approval\", \"approved\", \"pr_open\", \"applied\", \"merge_failed\", \"merged\", \"awaiting_prune\", \"sync_failed\")"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|117-117": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|124-124": [
   "    def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|148-148": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|155-155": [
   "    def insert(self, row: ChangeRequestRow, first_event: E, by: str, note: str = \"\") -> ChangeRequestRow:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|168-173": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|175-180": [
   "    def event(self, row: ChangeRequestRow, event: str, by: str, note: str = \"\", detail: Mapping[str, Any] | None = None) -> None:",
   "        self.s.add(RequestEventRow(request_id=row.request_id, event=event, status=row.status, by=by, note=note,",
   "                                   detail=dict(detail) if detail else None))",
@@ -980,40 +980,40 @@
   "",
   "    def move(self, row: ChangeRequestRow, event: E, by: str, note: str = \"\", **kw: Any) -> S:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|173-173": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|180-180": [
   "    def move(self, row: ChangeRequestRow, event: E, by: str, note: str = \"\", **kw: Any) -> S:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|202-202": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|209-209": [
   "    def ledger(self, row: ChangeRequestRow) -> ApprovalLedger | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|216-216": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|223-223": [
   "    def record_approval(self, row: ChangeRequestRow, who: Identity, comment: str, relayed_by: str | None,"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|232-232": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|239-239": [
   "    def enqueue(self, kind: str, *, request_id: str | None = None, cluster_id: str = \"\", delay: float = 0,"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|245-245": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|252-252": [
   "    def claim(self, worker_id: str, lease_seconds: int = 300) -> JobRow | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|258-258": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|265-265": [
   "    def assert_lease(self, job_id: int, worker_id: str, generation: int) -> None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|304-304": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|311-311": [
   "    def record(self, actor: Identity, action: str, target: str, detail: Mapping[str, Any] | None = None) -> None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|308-308": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|315-315": [
   "    def recent(self, limit: int = 200) -> list[AuditEventRow]:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|316-316": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|323-323": [
   "    def get(self, name: str) -> dict[str, Any] | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|320-320": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|327-327": [
   "    def set(self, name: str, value: Mapping[str, Any], by: str) -> None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|334-334": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|341-341": [
   "    def load(self, issuer: str) -> list[dict[str, Any]] | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|339-339": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|346-346": [
   "    def save(self, issuer: str, keys: list[dict[str, Any]]) -> None:"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [

@@ -10,6 +10,7 @@ watch cache joined in memory, so this module never touches a cluster or the data
     limit      25, 50 (default) or 100, at most 200
     startsWith with sort=name, the page starts at the first name from that letter
     q / suggest  names starting with the text, then containing it, then team or app label matches
+    ranked     the same match, best first: the namespace lookup of one cluster (GET .../namespaces, #481)
 """
 from __future__ import annotations
 
@@ -112,6 +113,14 @@ class Lister:
                 continue
             out.append(r)
         return sorted(out, key=self.sorts.keyfn(query.sort))
+
+    def ranked(self, rows: Iterable[Mapping[str, Any]], query: ListQuery) -> list[Mapping[str, Any]]:
+        """The rows that `filtered` keeps, best match of q first (match_rank: name starts with it, then name contains it,
+        then a team or app match), in sort order within a rank: a type-ahead's order (GET .../namespaces, #481)."""
+        out = self.filtered(rows, query)
+        if query.q:
+            out.sort(key=lambda r: match_rank(r, query.q)[0])     # stable: the sort order stays within each rank
+        return out
 
     def page(self, rows: Iterable[Mapping[str, Any]], query: ListQuery,
              facets: Mapping[str, Callable[[Mapping[str, Any]], bool]] | None = None) -> dict[str, Any]:

@@ -11,7 +11,7 @@
       ]
     },
     "metadata": {
-      "description": "metadata-keys.yaml as structured values: the whole file, each stanza written out ({} or [] when empty). Empty ({}): the chart's config/metadata-keys.yaml, or configFiles.\"metadata-keys.yaml\". docs/18-configuration.md, \"metadata-keys.yaml\".",
+      "description": "metadata-keys.yaml as structured values: the whole file, each stanza written out ({} or [] when empty), except liveOnlyKeys, which takes the loader's default when left out. Empty ({}): the chart's config/metadata-keys.yaml, or configFiles.\"metadata-keys.yaml\". docs/18-configuration.md, \"metadata-keys.yaml\".",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -90,6 +90,8 @@
           "additionalProperties": false
         },
         "sensitiveKeys": {"description": "A change of one of these keys adds an approver-platform approval", "$ref": "#/definitions/keyList"},
+        "liveOnlyKeys": {"description": "Keys that only the cluster writes, left out when Git is compared with the live namespace; * matches as in fnmatch",
+                         "type": "array", "items": {"type": "string", "pattern": "^\\S+$"}},
         "emailDomains": {
           "description": "The mail domains of the format email-in-domains",
           "type": "array",

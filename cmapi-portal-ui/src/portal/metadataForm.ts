@@ -84,7 +84,9 @@ export const KEYWORDS = {
   property: {
     read: ["type", "pattern", "allOf", "maxLength", "minLength", "enum", "title", "description", "examples", "readOnly", "x-cmapi-rule",
       "x-cmapi-derived-from", "x-cmapi-format", "x-cmapi-namespace-prefix", "x-cmapi-operator-only"],
-    ignored: {}
+    ignored: {
+      "x-cmapi-edit": "how the key may change on an existing namespace (#481): a create sets every key; the Namespaces tab reads it (#484)"
+    }
   },
   /** An entry of a property's allOf: the label-value syntax beside a key's own pattern. */
   allOf: { read: ["type", "pattern"], ignored: {} },

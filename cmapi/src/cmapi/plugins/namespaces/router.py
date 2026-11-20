@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Annotated, Any
 
-import yaml
-from fastapi import Depends, Response
+from fastapi import Depends, Query, Response
 from fastapi.responses import JSONResponse
 
 from cmapi import __version__
@@ -14,12 +13,14 @@ from cmapi.core.db.repo import AuditRepo, JobRepo, RequestRepo, fingerprint
 from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
+from cmapi.core.listquery import ListQuery
 from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView,
                                PlanView)
-from cmapi.core.pipeline import folder_etag
+from cmapi.core.pipeline import folder_etag, metadata_of, namespace_doc
 from cmapi.core.rejections import record_warned, refusals
 from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
+from cmapi.plugins.namespaces.state import sync_view
 from cmapi.routers import ClusterId, DryRun, NamespaceName, caller, ctx, idempotency_key, if_match, require
 from pydantic import Field
 
@@ -33,6 +34,20 @@ WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-
                   "identity-incomplete", "unknown-user", "invalid-team-dl", "idempotency-key-required",
                   "idempotency-replay", "git-unavailable", "cluster-unreachable", "validator-unavailable",
                   "unknown-serviceaccount"]
+
+# The lookup of one cluster's namespaces (#481, design section 4.4): the portal's type-ahead after the cluster is chosen.
+SEARCH_LIMIT, SEARCH_LIMIT_MAX = 10, 50
+# 63: the longest name or label value, so a longer q can match nothing.
+SearchText = Annotated[str | None, Query(max_length=63, examples=["pay"],
+                                         description="Text that the name, the team label or the app label contains. Case does "
+                                                     "not matter. Names that start with it come first.")]
+Mnemonic = Annotated[str | None, Query(examples=["abc"],
+                                       description="Only the namespaces of this mnemonic: the value of the key that starts the "
+                                                   "namespace name (`namespacePrefix` of metadata-keys.yaml).")]
+SearchLimit = Annotated[int | None, Query(ge=1, le=SEARCH_LIMIT_MAX, examples=[SEARCH_LIMIT],
+                                          description=f"The most namespaces to return: {SEARCH_LIMIT} when `q` or `mnemonic` "
+                                                      f"is sent without it, at most {SEARCH_LIMIT_MAX}. With none of the "
+                                                      "three, every namespace is returned, by name.")]
 
 
 class ExtendBody(Api):
@@ -94,60 +109,115 @@ def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict
         raise
 
 
-def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], open_map: dict) -> dict[str, Any]:
+def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], holders: dict[str, dict[str, str]], *,
+                    live_fresh: bool, git: dict[str, dict[str, str]] | None = None,
+                    on_cluster: bool = True) -> dict[str, Any]:
+    """NamespaceView of a live namespace (or the placeholder of one that only Git holds: on_cluster False). git: its
+    labels and annotations in Git, which only the single-namespace read has; without them the sync state cannot compare
+    (unknown)."""
     m = obj["metadata"]
     labels, ann = m.get("labels") or {}, m.get("annotations") or {}
+    holder = holders.get(m["name"])
     return {"clusterId": cluster_id, "name": m["name"], "env": labels.get("cmapi.net/env"), "team": labels.get("cmapi.net/team"),
             "tier": labels.get("cmapi.net/tier"), "labels": labels, "annotations": ann,
             "managed": labels.get("cmapi.net/managed") == "true", "expiresAt": ann.get("cmapi.net/expires-at"),
-            "etag": None, "openRequest": open_map.get((cluster_id, m["name"]))}
+            "etag": None, "openRequest": holder["requestId"] if holder else None,
+            "mnemonic": c.cfg.metadata.mnemonic(labels, ann), "git": None,
+            "sync": sync_view(c.cfg.metadata, git, {"label": labels, "annotation": ann}, holder, live_fresh, on_cluster)}
 
 
-def _git_labels(files: dict[str, str]) -> dict[str, str]:
-    """The labels of namespace.yaml in the folder, or none when Git holds no folder."""
-    text = next((t for p, t in files.items() if p.endswith("/namespace.yaml")), None)
-    return ((yaml.safe_load(text) or {}).get("metadata") or {}).get("labels") or {} if text else {}
+def _live_namespace(c: AppContext, cluster_id: str, ns: str) -> tuple[dict[str, Any] | None, bool]:
+    """(the namespace from the watch cache, whether that watch is fresh). A cluster that is not connected has no cache:
+    (None, False), and the read still answers from Git."""
+    try:
+        cache = c.registry.cache(cluster_id)
+        live = cache.namespace(ns)
+    except Problem:
+        return None, False
+    return live, not cache.kind_stale("Namespace")[0]
+
+
+def _search_row(view: dict[str, Any]) -> dict[str, Any]:
+    """The view with the app label beside it, which q matches as the Quotas list does (match_rank)."""
+    return {**view, "app": view["labels"].get("cmapi.net/app")}
+
+
+def _mnemonic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """The namespaces of each mnemonic among the rows, by mnemonic: the facets of the lookup."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        if row["mnemonic"]:
+            counts[row["mnemonic"]] = counts.get(row["mnemonic"], 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _namespace_page(c: AppContext, rows: list[dict[str, Any]], q: str | None, mnemonic: str | None,
+                    limit: int | None) -> dict[str, Any]:
+    """NamespaceList (#481, design section 4.4). With none of q, mnemonic and limit sent: every row by name, as before.
+    With any sent, even empty: the first `limit` matches, best first (Lister.ranked, the Quotas list's matching). The
+    mnemonic counts are over every filter but the mnemonic, so each chip keeps its number when one is chosen."""
+    searching = q is not None or mnemonic is not None or limit is not None
+    matched = c.lister.ranked(rows, ListQuery(q=q or ""))
+    counts = _mnemonic_counts(matched)
+    if mnemonic is not None:
+        # Compared as a value: a namespace without a mnemonic never matches one (not even the text "None").
+        matched = [row for row in matched if row["mnemonic"] == mnemonic]
+    shown = matched[:limit or SEARCH_LIMIT] if searching else matched
+    items = [{k: v for k, v in row.items() if k != "app"} for row in shown]
+    return {"items": items, "total": len(matched), "facets": {"mnemonics": counts}}
 
 
 @router.read("/namespaces", summary="Managed namespaces on a cluster", permission="objects:read", response_model=NamespaceList,
              problems=["cluster-not-found", "cluster-unreachable"])
-def list_namespaces(cluster_id: ClusterId, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
+def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemonic = None, limit: SearchLimit = None,
+                    who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every namespace labelled cmapi.net/managed=true on the cluster, from the watch cache, with the request
-    holding each one's lock. The etag is only on the single-namespace read, because it comes from Git."""
+    holding each one's lock. The etag is only on the single-namespace read, because it comes from Git.
+
+    The lookup after a cluster is chosen (#481): `q` matches the name, the team label and the app label, names that
+    start with it first, then names that contain it, then team and app matches; `mnemonic` keeps one mnemonic's
+    namespaces; `limit` caps the answer. `total` counts every match before the cap, and `facets.mnemonics` the
+    namespaces of each mnemonic. Each item's `sync` is `pending` when a request holds it and `unknown` otherwise: the
+    list reads no Git, so it compares nothing. With none of the three parameters the list is every namespace by name."""
     st = c.registry.get(cluster_id)
     if st.policy:
         c.cfg.roles.require(who, "objects:read", st.policy.environment)
     cache = c.registry.cache(cluster_id)
+    live_fresh = not cache.kind_stale("Namespace")[0]
     with c.db.session() as s:
-        open_map = RequestRepo(s).open_namespaces(cluster_id)
-    items = [_namespace_view(c, cluster_id, o, open_map) for o in cache.all("Namespace")
-             if (o["metadata"].get("labels") or {}).get("cmapi.net/managed") == "true"]
-    return {"items": sorted(items, key=lambda x: x["name"])}
+        holders = RequestRepo(s).open_holders(cluster_id)
+    rows = [_search_row(_namespace_view(c, cluster_id, o, holders, live_fresh=live_fresh)) for o in cache.all("Namespace")
+            if (o["metadata"].get("labels") or {}).get("cmapi.net/managed") == "true"]
+    return _namespace_page(c, rows, q, mnemonic, limit)
 
 
 @router.read("/namespaces/{ns}", summary="One namespace, with its etag", permission="objects:read", response_model=NamespaceView,
              problems=["cluster-not-found", "object-not-found", "git-unavailable"])
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:
-    """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE."""
+    """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE.
+
+    `git` is the folder's labels and annotations, from the same read as the etag, and `sync` compares them with the live
+    namespace (#481): `pending` while a request holds it, `drift` when a governed, extra or operator-only key differs
+    (each in `driftedKeys`), `in-sync` when none does, and `unknown` when the cluster's watch is not fresh."""
     st = c.registry.get(cluster_id)
     if st.policy:
         c.cfg.roles.require(who, "objects:read", st.policy.environment)
     files, _ = c.pipeline._read_folder(cluster_id, ns)
-    live = None
-    try:
-        live = c.registry.cache(cluster_id).namespace(ns)
-    except Problem:
-        pass
+    live, live_fresh = _live_namespace(c, cluster_id, ns)
     if not files and live is None:
         raise Problem(404, "object-not-found", f"{ns} is not on {cluster_id} and not in Git")
     with c.db.session() as s:
-        open_map = RequestRepo(s).open_namespaces(cluster_id)
+        holders = RequestRepo(s).open_holders(cluster_id)
     obj = live or {"metadata": {"name": ns, "labels": {}, "annotations": {}}}
-    view = _namespace_view(c, cluster_id, obj, open_map)
+    git_doc = namespace_doc(files)
+    git = metadata_of(git_doc)
+    view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None,
+                           on_cluster=live is not None)
+    view["git"] = {"labels": git["label"], "annotations": git["annotation"]} if git_doc else None
     view["etag"] = folder_etag(files)
     # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).
-    view["protectedBy"] = c.cfg.approvals.protected_by(_git_labels(files))
+    view["protectedBy"] = c.cfg.approvals.protected_by(git["label"])
     view["protected"] = bool(view["protectedBy"])
     response.headers["ETag"] = f'"{view["etag"]}"'
     return view

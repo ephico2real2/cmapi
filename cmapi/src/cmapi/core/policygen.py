@@ -273,7 +273,7 @@ def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[
     other = keys.allow_other[kind]
     stanza = "extraLabels" if kind == "label" else "extraAnnotations"
     m = _meta(kind)
-    # classify()'s order: system, operatorOnly, an adoption label, a declared key; then a reserved prefix; then allowOther.
+    # classify()'s order: system, a reserved prefix, operatorOnly, an adoption label, a declared key; then allowOther.
     fixed = cel(sorted({*keys.system, *keys.operator_only, *(keys.adoption_labels if kind == "label" else ()),
                         *keys.rules[kind], *written}))
     no_prefix = "(!k.contains('/') || k.startsWith('/'))" if "" in other.prefixes else None

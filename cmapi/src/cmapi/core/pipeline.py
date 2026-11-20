@@ -62,6 +62,7 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     beyond_tier: dict[str, Any] | None = None      # the new beyond-tier keys of this request and the approvals they add
     metadata: dict[str, Any] | None = None         # a create's final labels and annotations, each with its source (#479)
+    metadata_diff: dict[str, Any] | None = None    # a change's effective label and annotation changes, with sources (#481)
 
     @property
     def hash(self) -> str:
@@ -75,7 +76,8 @@ class Plan:
                              "bindingResource": self.capacity.binding_resource, **dict(self.capacity.detail)},
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
-                "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier, "metadata": self.metadata}
+                "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier, "metadata": self.metadata,
+                "metadataDiff": self.metadata_diff}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
@@ -196,7 +198,7 @@ class Pipeline:
             label_value_of(requester.person.username)
         operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
-        prev_ns = next((yaml.safe_load(t) for p, t in prev_files.items() if p.endswith("namespace.yaml")), None)
+        prev_ns = namespace_doc(prev_files)
         if action == "create" and prev_ns:
             raise Problem.conflict("namespace-exists", f"{ns} is already in Git")
         if action != "create" and not prev_ns:
@@ -208,15 +210,9 @@ class Pipeline:
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
-        # The keys that a request may send, as Git holds them: a change merges its patch over them. Operator-only keys
-        # (cmapi.net/protected) are among them, so a change that does not name one keeps it, and only an operator's patch
-        # sets or removes it (#374). System keys are the renderer's own and are written again from the spec.
-        kept = ("governed", "team", "operatorOnly")
-        cur_l = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("labels", {}).items()
-                 if self.cfg.metadata.classify(k, "label") in kept}
-        cur_a = {k: v for k, v in (prev_ns or {}).get("metadata", {}).get("annotations", {}).items()
-                 if self.cfg.metadata.classify(k, "annotation") in kept}
+        cur_l, cur_a = self._kept_metadata(prev_ns, "label"), self._kept_metadata(prev_ns, "annotation")
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
+        sent = {"label": dict(labels), "annotation": dict(anns)}
         # The request's target: cmapi fills each value.from key of metadata-keys.yaml from it, never from the body.
         sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
         # cmapi's own metadata check is the refusal in every policy mode and with no Kyverno at all (#342). A refused body is
@@ -310,6 +306,13 @@ class Pipeline:
                                            [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message,
                                              "kyvernoRule": f.kyverno_rule} for f in errors],
                                            findings=[f.view() for f in findings if f.severity != "error"])
+        metadata_diff = None
+        if action != "create":
+            metadata_diff = self.cfg.metadata.metadata_diff(metadata_of(prev_ns), metadata_of(namespace_doc(files)), sent)
+            findings = [*findings, *self._environment_moved(cluster_id, ns, prev_ns, env)]
+        if action == "update" and reason is None:
+            # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
+            findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
         old_hard = {}
         if old_tier:
             # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
@@ -324,7 +327,7 @@ class Pipeline:
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
-                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns)}
+                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns, existing=prev_ns is not None)}
         if old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
@@ -344,7 +347,40 @@ class Pipeline:
                            "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
-                    beyond_tier=beyond_view, metadata=metadata_view)
+                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff)
+
+    def _kept_metadata(self, prev_ns: Mapping[str, Any] | None, kind: str) -> dict[str, str]:
+        """The keys of one kind that Git holds and a change merges its patch over: every key but a system one, which the
+        renderer writes again from the spec. An operator-only key (cmapi.net/protected) is kept, so a change that does not
+        name it keeps it, and only an operator's patch sets or removes it (#374). A reserved, adoption or disallowed key
+        is kept as Git holds it, and no request may send one (#481, design section 3)."""
+        held = metadata_of(prev_ns)[kind]
+        return {k: v for k, v in held.items() if self.cfg.metadata.classify(k, kind) != "system"}
+
+    def _environment_moved(self, cluster_id: str, ns: str, prev_ns: Mapping[str, Any] | None, env: str) -> list[Finding]:
+        """A warning when Git's cmapi.net/env is not the cluster's environment any more: the renderer writes the system
+        label from the cluster, while each automatic key (app-environment) stays as Git holds it (#481, design section
+        3, row 5), and metadataDiff lists neither, since a system key is not one that a request names."""
+        held = metadata_of(prev_ns)["label"].get("cmapi.net/env")
+        if not held or held == env:
+            return []
+        return [Finding("cmapi", "environment_moved", folder(cluster_id, ns) + "namespace.yaml",
+                        f"Git holds the environment {held} and the cluster is now {env}: this change writes {env}",
+                        "warning")]
+
+    def _held_key_findings(self, cluster_id: str, ns: str, labels: Mapping[str, str],
+                           annotations: Mapping[str, str]) -> list[Finding]:
+        """Each required key that the namespace lacks and the change leaves out: held, not refused (#234), and reported as
+        a warning (#481, design section 3, the adoption finding): that this change can add it, or, for a key that a change
+        cannot set (fixed or automatic in x-cmapi-edit), that adoption must."""
+        path = folder(cluster_id, ns) + "namespace.yaml"
+        findings = []
+        for kind, key in self.cfg.metadata.missing_required(labels, annotations):
+            mode = self.cfg.metadata.edit_rule(kind, key)["mode"]
+            remedy = "adoption must supply it" if mode in ("fixed", "automatic") else "this change can add it"
+            findings.append(Finding("cmapi", "missing_required_key", path,
+                                    f"the {kind} {key} is required and the namespace lacks it: {remedy}", "warning"))
+        return findings
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
         """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only an operator may set
@@ -389,7 +425,9 @@ class Pipeline:
                 raise Problem(428, "precondition-required", "If-Match is required on a delete; GET the namespace for its etag")
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
-        ns_doc = yaml.safe_load(next(t for p, t in prev.items() if p.endswith("namespace.yaml")))
+        ns_doc = namespace_doc(prev)
+        if ns_doc is None:
+            raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:
@@ -462,6 +500,18 @@ def count_refusal(problem: Problem) -> None:
         VALIDATION_FAILURES.labels("cmapi").inc()
 
 
+def namespace_doc(files: Mapping[str, str | None]) -> dict[str, Any] | None:
+    """The Namespace object of a folder's namespace.yaml, or None when the folder has none."""
+    text = next((t for p, t in files.items() if p.endswith("/namespace.yaml") and t), None)
+    return yaml.safe_load(text) if text else None
+
+
+def metadata_of(doc: Mapping[str, Any] | None) -> dict[str, dict[str, str]]:
+    """{label: ..., annotation: ...} of a Namespace object; empty maps for none."""
+    meta = (doc or {}).get("metadata") or {}
+    return {"label": dict(meta.get("labels") or {}), "annotation": dict(meta.get("annotations") or {})}
+
+
 def _date(v: Any) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
@@ -517,4 +567,5 @@ def _grants(prev: Mapping[str, str], *, scc: bool) -> list[tuple[str, str]]:
     return out
 
 
-__all__ = ["CMAPI_REFUSALS", "Pipeline", "Plan", "approval_view", "count_refusal", "folder_etag", "fingerprint"]
+__all__ = ["CMAPI_REFUSALS", "Pipeline", "Plan", "approval_view", "count_refusal", "folder_etag", "fingerprint", "metadata_of",
+           "namespace_doc"]

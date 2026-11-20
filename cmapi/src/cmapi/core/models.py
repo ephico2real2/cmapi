@@ -277,6 +277,24 @@ class PlanMetadata(Api):
                                                   examples=[{}])
 
 
+class MetadataChange(Api):
+    before: str | None = Field(description="The value that Git holds; null when the change adds the key", examples=["1"])
+    after: str | None = Field(description="The value after the change; null when the change removes the key", examples=["2"])
+    source: str = Field(description="request (the body sent the key), or the value.from target that cmapi filled it in from: "
+                                    "namespace, environment, cluster or instance", examples=["request"])
+
+
+class PlanMetadataDiff(Api):
+    labels: dict[str, MetadataChange] = Field(
+        description="Each label whose value the change moves, by key: only effective changes, and only the keys that a "
+                    "request may name or that cmapi fills in (cmapi's own system labels are not listed)",
+        examples=[{"cmapi.net/cost-center": {"before": "cc-4410", "after": None, "source": "request"}}])
+    annotations: dict[str, MetadataChange] = Field(
+        description="Each annotation whose value the change moves, by key, in the same form",
+        examples=[{"runbook.ephico2real.com/url": {"before": None, "after": "https://wiki.ephico2real.com/payments/runbook",
+                                                   "source": "request"}}])
+
+
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
@@ -289,6 +307,49 @@ class PlanView(Api):
     beyond_tier: BeyondTier | None = Field(default=None, description="The values beyond the tier and the approvals they add; null when the request has none")
     metadata: PlanMetadata | None = Field(default=None, description="On a create: the final labels and annotations, each "
                                                                      "with its source (#479). Null on other writes")
+    metadata_diff: PlanMetadataDiff | None = Field(
+        default=None, description="On a change of an existing namespace (PATCH and the expiry calls): each label and "
+                                  "annotation that it moves, before and after, with its source (#481). Empty maps when it "
+                                  "moves none. Null on a create, whose `metadata` lists every key")
+
+
+SyncState = Literal["in-sync", "pending", "drift", "unknown"]
+
+
+class OpenRequestRef(Api):
+    request_id: str = Field(description="The request that holds the namespace", examples=["req-20261120-0007"])
+    status: ChangeStatus = Field(description="Its lifecycle state: merged means that Git has the change and the cluster "
+                                             "may not have it yet", examples=["pending_approval"])
+
+
+class DriftedKey(Api):
+    kind: Literal["label", "annotation"] = Field(description="Whether the key is a label or an annotation", examples=["label"])
+    key: str = Field(description="The key", examples=["cmapi.net/cost-center"])
+    git: str | None = Field(description="Its value in Git; null when Git does not hold it", examples=["cc-4410"])
+    live: str | None = Field(description="Its value on the cluster; null when the live namespace does not carry it",
+                             examples=["cc-9999"])
+
+
+class NamespaceSync(Api):
+    state: SyncState = Field(
+        description="pending: an open request holds the namespace (openRequest), also once Git is merged and the cluster "
+                    "does not have it yet. drift: no request is open and a governed, extra or operator-only key differs "
+                    "between Git and the cluster (driftedKeys), or the cluster does not have the namespace. in-sync: they are the same. unknown: cmapi cannot compare, "
+                    "because the cluster's watch is not fresh, or because the read holds no Git (the list)",
+        examples=["drift"])
+    open_request: OpenRequestRef | None = Field(description="The open request that holds the namespace, or null",
+                                                examples=[None])
+    drifted_keys: list[DriftedKey] = Field(
+        description="Each governed, extra or operator-only key whose value differs between Git and the cluster, leaving out "
+                    "the keys that only the cluster writes (liveOnlyKeys of metadata-keys.yaml). Empty when cmapi cannot "
+                    "compare",
+        examples=[[{"kind": "label", "key": "cmapi.net/cost-center", "git": "cc-4410", "live": "cc-9999"}]])
+
+
+class GitMetadata(Api):
+    labels: dict[str, str] = Field(description="The labels of namespace.yaml in Git", examples=[{"cmapi.net/team": "payments"}])
+    annotations: dict[str, str] = Field(description="The annotations of namespace.yaml in Git",
+                                        examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
 
 
 class NamespaceView(ClusterScoped):
@@ -307,10 +368,26 @@ class NamespaceView(ClusterScoped):
                                    "approval-rules.yaml. Null on the list, which reads no Git", examples=[False])
     protected_by: list[str] | None = Field(default=None, description="The entries of protected.labels that its labels in Git "
                                            "match, such as cmapi.net/protected=true. Null on the list", examples=[[]])
+    mnemonic: str | None = Field(description="The value of the key that starts the namespace name "
+                                 "(namespacePrefix of metadata-keys.yaml), from the live labels; null when no key has "
+                                 "namespacePrefix or the namespace does not carry it", examples=[None])
+    git: GitMetadata | None = Field(description="Its labels and annotations in Git, from the same read as its "
+                                    "etag (the desired state; `labels` and `annotations` are the live ones). Null on the "
+                                    "list, which reads no Git, and when Git holds no folder for it")
+    sync: NamespaceSync = Field(description="Git against the cluster: the state, the request that holds "
+                                       "the namespace and the keys that differ (#481)")
+
+
+class NamespaceFacets(Api):
+    mnemonics: dict[str, int] = Field(description="The namespaces of each mnemonic on the cluster, over the current filters "
+                                                  "but `mnemonic`, so each chip keeps its count", examples=[{"abc": 3}])
 
 
 class NamespaceList(Api):
-    items: list[NamespaceView] = Field(description="Managed namespaces on the cluster")
+    items: list[NamespaceView] = Field(description="Managed namespaces on the cluster: all of them by name with no "
+                                                   "parameter, or the first `limit` matches, best match first")
+    total: int = Field(description="The namespaces that match the filters, before `limit`", examples=[3])
+    facets: NamespaceFacets = Field(description="Counts for filter chips")
 
 
 # --------------------------------------------------------------------------- quotas
@@ -864,9 +941,14 @@ class MetadataKeysView(Api):
     labels: dict[str, Any] = Field(
         description="The JSON Schema of NamespaceCreate.labels on this instance: each declared key with its rule, which keys "
                     "are required, which cmapi fills in (x-cmapi-derived-from) and which only an operator may set "
-                    "(x-cmapi-operator-only)",
+                    "(x-cmapi-operator-only). Each key's x-cmapi-edit says how it may change on an existing namespace "
+                    "(#481): mode fixed, automatic, required or optional, the reason a person sees, and sensitive when a "
+                    "change of it adds one approval",
         examples=[{"type": "object", "properties": {"cmapi.net/team": {"type": "string", "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
-                                                                       "title": "Team", "x-cmapi-rule": "must match ^[a-z0-9-]{2,40}$"}},
+                                                                       "title": "Team", "x-cmapi-rule": "must match ^[a-z0-9-]{2,40}$",
+                                                                       "x-cmapi-edit": {"mode": "required",
+                                                                                        "reason": "Required on every namespace.",
+                                                                                        "sensitive": False}}},
                    "required": ["cmapi.net/team"]}])
     annotations: dict[str, Any] = Field(
         description="The JSON Schema of NamespaceCreate.annotations on this instance, in the same form",

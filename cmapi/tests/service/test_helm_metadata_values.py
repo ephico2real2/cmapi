@@ -231,7 +231,8 @@ def test_the_schema_names_what_the_loader_reads():
     assert tuple(rule["properties"]["value"]["properties"]["from"]["enum"]) == metadata.DERIVED_FROM
     assert tuple(rule["properties"]["format"]["enum"]) == metadata.FORMATS
     block = schema["properties"]["metadata"]
-    assert set(block["then"]["required"]) == set(block["properties"]) == set(_chart_keys())
+    assert set(block["properties"]) == set(_chart_keys())
+    assert set(block["then"]["required"]) == set(block["properties"]) - {"liveOnlyKeys"}
     assert schema["$schema"] == "http://json-schema.org/draft-07/schema#"
 
 

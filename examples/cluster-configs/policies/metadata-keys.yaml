@@ -29,6 +29,9 @@ extraAnnotations:
 adoptionLabels:
   company.net/provisioner: {recognise: [cluster-configs]}
 sensitiveKeys: [cmapi.net/team, network.ephico2real.com/zone, cmapi.net/protected, do-not-delete]   # a change adds one approver-platform approval
+# Keys that only the cluster or its controllers write on a live namespace, never Git: the comparison of Git with the
+# cluster (sync of GET .../namespaces/{ns}) leaves them out (#481). fnmatch globs; also the default without this stanza.
+liveOnlyKeys: [kubernetes.io/metadata.name, "openshift.io/*", "argocd.argoproj.io/*", app.kubernetes.io/instance]
 # The organisation's mail domains, one or more. ephico2real.com is a placeholder. Read by cmapi (plan time)
 # and by the Kyverno bundle (CI and admission), so every email-valued governed key is checked the same way.
 emailDomains: [ephico2real.com]

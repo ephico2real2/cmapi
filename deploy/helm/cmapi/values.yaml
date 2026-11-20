@@ -306,8 +306,9 @@ podDisruptionBudget:
 # -------------------------------------------------------------------------- labels and annotations
 # metadata-keys.yaml as structured values (#335): the required and optional labels and annotations of a namespace,
 # and the keys cmapi reserves. The block is the whole file, not a patch of the chart's file: write each of its ten
-# stanzas, {} or [] when empty. values.schema.json refuses a missing or misspelled stanza, an unknown field and a wrong
-# type at helm install, upgrade, lint and template, before a pod starts. Empty: the chart's config/metadata-keys.yaml,
+# stanzas, {} or [] when empty; liveOnlyKeys (#481) may be left out, for the loader's default. values.schema.json
+# refuses a missing or misspelled stanza, an unknown field and a wrong type at helm install, upgrade, lint and
+# template, before a pod starts. Empty: the chart's config/metadata-keys.yaml,
 # or configFiles."metadata-keys.yaml"; setting both fails. docs/18-configuration.md, "metadata-keys.yaml", has an example.
 metadata: {}
 
