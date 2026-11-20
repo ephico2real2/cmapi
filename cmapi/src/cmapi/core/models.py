@@ -442,6 +442,13 @@ class PolicyBundleView(Api):
                                                   "than the mode's: `actionsDiffer` names 20 at most", examples=[0])
 
 
+class PolicyBundleHashes(Api):
+    rendered: str | None = Field(description="Version 1 SHA-256 of the generated policies rendered for this environment. "
+                                             "Null for an empty render.", examples=[None])
+    live: str | None = Field(description="Version 1 SHA-256 from the generated policy digest annotations observed on this "
+                                         "cluster. Null for an empty bundle or an unavailable policy list.", examples=[None])
+
+
 class PolicyCluster(Api):
     cluster_id: str = Field(description="Cluster", examples=["CRC"])
     env: str = Field(description="Its environment", examples=["dev"])
@@ -465,6 +472,12 @@ class PolicyCluster(Api):
                                    examples=["2026-11-17T18:02:11Z"])
     bundle: PolicyBundleView | None = Field(description="The bundle on the cluster against the render. Null when the policies "
                                                         "are not read", examples=[None])
+    hashes: PolicyBundleHashes = Field(description="The environment's rendered hash and the cluster's observed hash.")
+    hash_state: Literal["current", "behind", "drift", "unknown", "off"] = Field(
+        description="Current when the live hash matches the render, drift when it differs, off for an empty bundle, "
+                    "unknown when the reports or live policies cannot establish the comparison. Behind means live "
+                    "matches Git while the render differs. The API has no Git hash yet, so behind cannot occur.",
+        examples=["current"])
     counts: PolicyCounts | None = Field(description="Results of the bundle's policies on the managed namespaces. Null, never "
                                                     "zero, when they are not known", examples=[None])
     hidden: PolicyHidden | None = Field(description="Results that are counted and not shown. Null when the counts are null",

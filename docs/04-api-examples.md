@@ -1340,6 +1340,11 @@ The answer was 200 (`application/json`):
       },
       "dropped": 0,
       "env": "dev",
+      "hashState": "current",
+      "hashes": {
+        "live": "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f",
+        "rendered": "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f"
+      },
       "hidden": {
         "otherPolicies": 0,
         "stale": 0,

@@ -29,7 +29,7 @@ from typing import Any, Callable, Mapping
 
 from cmapi.core.clients.kube import ClusterUnreachable, KubeClient, KubeError, WatchCache
 from cmapi.core.observability import log
-from cmapi.core.policybundle import BundlePolicy
+from cmapi.core.policybundle import DESCRIPTION, BundlePolicy
 from cmapi.core.policygen import DIGEST
 
 REPORTS_GROUP = "wgpolicyk8s.io/v1alpha2"
@@ -72,6 +72,7 @@ class LivePolicy:
     generated: bool
     actions: tuple[str, ...]
     ready: bool | None
+    description: str | None = None
 
 
 def _iso(ts: Any) -> str | None:
@@ -117,7 +118,7 @@ def reduce_policy(obj: Mapping[str, Any]) -> LivePolicy:
     actions = (obj.get("spec") or {}).get("validationActions") or []
     ready = ((obj.get("status") or {}).get("conditionStatus") or {}).get("ready")
     return LivePolicy(str(meta.get("name") or ""), ann.get(DIGEST), ann.get("cmapi.net/generated") == "true",
-                      tuple(str(a) for a in actions), ready if isinstance(ready, bool) else None)
+                      tuple(str(a) for a in actions), ready if isinstance(ready, bool) else None, ann.get(DESCRIPTION))
 
 
 @dataclass(frozen=True)

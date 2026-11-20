@@ -124,6 +124,47 @@ Sources: `core/policy.py`, `core/validate/__init__.py` (`CliValidator.validate`)
 
 ---
 
+### Cluster import token lifetime
+
+`instance.clusterTokens` defaults to `{duration: 7d, renewBeforePercentage: 20}`. A cluster's
+`clusterTokens` entry in `clusters.yaml` inherits the instance settings. Specifying either renewal
+setting replaces the inherited renewal setting. The Helm values use the same keys.
+
+```yaml
+instance:
+  clusterTokens: {duration: 7d, renewBefore: 24h}
+clusters:
+  KIND_CMAPI_TEST:
+    environment: rnd
+    clusterTokens: {duration: 1h, renewBeforePercentage: 20}
+```
+
+Durations use an unsigned whole number and one suffix, `d`, `h`, `m` or `s`. For example, `7d` and
+`168h` request the same duration. Request at least 20 minutes (`duration` ≥ `20m`, twice the
+minimum renewal window) and observe the target API server's configured maximum. Kubernetes may
+grant a shorter lifetime. Choose one of `renewBefore` and `renewBeforePercentage`; setting both
+is refused at startup. `renewBefore` must be at least `10m` and strictly less than half of
+`duration`. `renewBeforePercentage` must be an integer from 1 to 50, inclusive. These limits
+also apply after inheriting instance settings.
+
+The wanted window is `renewBefore` if set, otherwise the configured percentage (default 20) of
+the JWT's **actual** lifetime (`exp - iat`). If the server grants less than `duration`, an
+absolute `renewBefore` is replaced by 20% of that actual lifetime. Renewal is due at `exp - window`,
+clamped to no earlier than `iat + lifetime / 2` and no later than `exp - 600`. The ten-minute
+minimum exceeds the registry relist (300 seconds) plus the scan delay so every API pod reads the
+new token before expiry. Bootstrap and manual recovery compute the same deadline. A new grant
+already due for renewal is refused. A cluster clock up to 60 seconds ahead is allowed when checking
+a new token. A full seven-day grant at 20% renews at 5.6 days, the one-hour example at 48 minutes,
+and a twenty-minute grant at 10 minutes. A capped grant of either 86,700 or 86,699 seconds with
+`renewBefore: 24h` renews at 80% of the grant, without a threshold jump.
+
+When the chart manages the reader grant in an existing `cmapi-system` namespace, set
+`reader.installRenewalRole: true`. The CRC and kind baseline manifests include this grant.
+
+For the first import or manual recovery, pass the same settings to the script through
+`CMAPI_TOKEN_DURATION` and, if needed, `CMAPI_TOKEN_RENEW_BEFORE` or `CMAPI_TOKEN_RENEW_BEFORE_PERCENTAGE`.
+For example, run `CMAPI_TOKEN_DURATION=1h deploy/kind-import/up.sh <checkout>`.
+
 ### Cluster trust
 
 How cmapi verifies each cluster's API server: one mode per cluster, from its import Secret (docs/02, "TLS: one mode per cluster";

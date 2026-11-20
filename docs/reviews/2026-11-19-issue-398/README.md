@@ -1,5 +1,7 @@
 # CRC reader token renewal (#398)
 
+> **Superseded by the reopened #398.** The worker now renews bounded baseline imports automatically. The record below describes PR #469. Its bounded TokenRequest bootstrap, expiry annotation, CA verification, legacy retirement checks and manual scripts remain in use for setup and recovery.
+
 The operator who runs [CRC deployment step 7](../../13-crc-deployment.md#step-7-the-reader-and-the-workers-one-write-with-its-containment) owns renewal. Run `deploy/crc-reader-import.sh` against CRC before the deadline printed by the previous successful run, including between deploys. A full seven-day grant gives the operator 5 days, 14 hours and 24 minutes. Record the new deadline each time. No controller schedules this work.
 
 The writer requests 168 hours for `cmapi-system/cmapi-reader` and reads the in-cluster API CA from `cmapi-system/kube-root-ca.crt`. CRC and kind share the Secret renderer, which checks the subject, rejects lifetimes outside the seven-day contract, records the granted expiry in UTC and computes the renewal deadline from the issued-at and expiry claims. The token travels through pipes. The import keeps its name, cluster ID, API endpoint and CA verification. The script takes field ownership from `cmapi-wave1` on the named import so that the first rotation can replace its token. The registry observes the changed credential at its next relist. [Writer](../../../deploy/crc-reader-import.sh) · [Renderer](../../../deploy/kind-import/import-secret.py) · [Import contract](../../02-technical-design-v2.md)
@@ -18,3 +20,18 @@ On the base revision, `git grep -n cmapi-reader-token` finds two deployment read
 - Kubernetes, “Manually create a long-lived API token for a ServiceAccount”, shows the persistent mechanism with `type: kubernetes.io/service-account-token`. The preceding section recommends TokenRequest. [Kubernetes service account guide](https://github.com/kubernetes/website/blob/main/content/en/docs/tasks/configure-pod-container/configure-service-account.md#manually-create-a-long-lived-api-token-for-a-serviceaccount)
 - The TokenRequest API defines `expirationSeconds` as the “requested duration of validity of the request.” The CLI documents the consequence for `--duration` explicitly. “The server may return a token with a longer or shorter lifetime.” [Kubernetes API type](https://github.com/kubernetes/api/blob/master/authentication/v1/types.go) · [kubectl create token](https://github.com/kubernetes/website/blob/main/content/en/docs/reference/kubectl/generated/kubectl_create/kubectl_create_token.md)
 - OpenShift Container Platform 4.18, “Creating bound service account tokens outside the pod”, uses `oc create token build-robot`. The deployment operator can issue the CRC credential directly. [OpenShift documentation](https://github.com/openshift/openshift-docs/blob/enterprise-4.18/modules/bound-sa-tokens-configuring-externally.adoc)
+
+## Fable review (2026-11-20)
+
+F1 accepted unchanged: checking a new token allows the issuing cluster's clock to be up to
+60 seconds ahead. The one renewal rule fixes the registry relist gap, the capped-grant cliff
+and the 99% case. The minimum window is ten minutes, longer than the 300-second relist plus
+the scan delay. An absolute window falls back to 20% whenever the grant is shorter than the
+requested duration. The deadline is clamped between halfway through the lifetime and ten minutes
+before expiry; startup refuses percentages outside 1–50. The worker and scripts are checked
+against one named case table.
+
+Two residual risks remain. The worker's hub Role may patch any Secret in `cmapi-imports`:
+RBAC cannot select by label, and that namespace holds only import Secrets. A stolen reader
+token can keep minting successors, bounded by the API server's maximum token lifetime. This
+issuance is visible in the audit log; deleting the ServiceAccount revokes the tokens.

@@ -1,0 +1,16 @@
+[
+  {"name": "7d-20-percent-at-5.6-days", "values": {}, "lifetime": 604800, "deadline": 483840},
+  {"name": "7d-renewBefore-24h", "values": {"renewBefore": "24h"}, "lifetime": 604800, "deadline": 518400},
+  {"name": "capped-86700s-at-80-percent", "values": {"renewBefore": "24h"}, "lifetime": 86700, "deadline": 69360},
+  {"name": "capped-86699s-at-80-percent", "values": {"renewBefore": "24h"}, "lifetime": 86699, "deadline": 69359.2},
+  {"name": "99-percent-refused", "values": {"renewBeforePercentage": 99}, "lifetime": 604800, "error": "renewBeforePercentage 99"},
+  {"name": "1h-at-48-minutes", "values": {"duration": "1h"}, "lifetime": 3600, "deadline": 2880},
+  {"name": "20m-at-10-minutes", "values": {"duration": "20m"}, "lifetime": 1200, "deadline": 600},
+  {"name": "19m-refused", "values": {"duration": "19m"}, "lifetime": 1140, "error": "duration 1140s"},
+  {"name": "renewBefore-9m-refused", "values": {"renewBefore": "9m"}, "lifetime": 604800, "error": "renewBefore 540s"},
+  {"name": "default-percentage-on-capped-1h-grant", "values": {"duration": "7d"}, "lifetime": 3600, "deadline": 2880},
+  {"name": "1h-renewBefore-10m", "values": {"duration": "1h", "renewBefore": "10m"}, "lifetime": 3600, "deadline": 3000},
+  {"name": "8-percent-clamped-to-10-minutes", "values": {"duration": "1h", "renewBeforePercentage": 8}, "lifetime": 3600, "deadline": 3000},
+  {"name": "1-percent-clamped-to-10-minutes", "values": {"duration": "1h", "renewBeforePercentage": 1}, "lifetime": 3600, "deadline": 3000},
+  {"name": "50-percent-at-halfway", "values": {"renewBeforePercentage": 50}, "lifetime": 604800, "deadline": 302400}
+]

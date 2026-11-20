@@ -25,7 +25,7 @@ from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
 from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
-from cmapi.core.policybundle import PolicyBundle, bundle_files
+from cmapi.core.policybundle import PolicyBundle
 from cmapi.core.policygen import render_bundle
 from cmapi.core.registry import ClusterRegistry, ClusterState, DirImportSource, HubImportSource, ImportSource, load_policies
 from cmapi.core.sync import DeliveryConfig
@@ -92,7 +92,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures, and
     # the Policies tab reads each cluster's reports against the same policies (#302).
     bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name)
-    policy_bundle = PolicyBundle(bundle_files(settings.policies_dir, bundle))
+    policy_bundle = PolicyBundle(bundle, policies_dir=settings.policies_dir)
 
     def reports_for(st: ClusterState, client: KubeClient) -> ReportCache | None:
         """A report cache for a cluster whose environment runs Kyverno; none with engine none or mode off (no call at all)."""
@@ -109,7 +109,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
         is the node part's `forbidden` state, and the commitment against a simulated size is still known."""
         return NodeCache(client, capacity_settings.count_taints)
 
-    policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments)
+    policies = load_policies(settings.config_dir / "clusters.yaml", cfg.allowed_environments, cfg.cluster_tokens)
     if import_source is None:
         if settings.imports_dir:
             import_source = DirImportSource(settings.imports_dir)

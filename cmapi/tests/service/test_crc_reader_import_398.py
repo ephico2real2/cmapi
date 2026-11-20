@@ -34,7 +34,14 @@ from pathlib import Path
 args = sys.argv[1:]
 with open("calls", "a") as log:
     print(json.dumps(args), file=log)
-if args[:2] == ["create", "token"]:
+version = Path("version")
+if args[:3] == ["get", "secret", "cmapi-cluster-crc"]:
+    assert args[3:] == ["-n", "cmapi-imports", "--ignore-not-found", "-o", "jsonpath={.metadata.resourceVersion}"]
+    print(version.read_text() if version.exists() else os.environ.get("INITIAL_VERSION", "1"))
+elif args[:2] == ["create", "token"]:
+    if os.environ.get("WORKER_WINS"):
+        version.write_text("2")
+        Path("applied").write_text('{"winner":"concurrent"}')
     print(os.environ["ISSUED_TOKEN"])
     if os.environ.get("CLIENT_DIAGNOSTICS"):
         print(os.environ["ISSUED_TOKEN"], file=sys.stderr)
@@ -44,8 +51,12 @@ elif args == ["get", "configmap", "kube-root-ca.crt", "-n", "cmapi-system", "-o"
     print(os.environ["ISSUER_CA"], end="")
 elif args == ["get", "secret", "cmapi-reader-token", "-n", "cmapi-system", "-o", "json"]:
     print(json.dumps({"data": {"token": "bGVnYWN5", "ca.crt": "Y2E="}}))
-elif args[0] == "apply" and args[-2:] == ["-f", "-"]:
+elif args[0] in ("apply", "create") and args[-2:] == ["-f", "-"]:
     document = json.load(sys.stdin)
+    current = version.read_text() if version.exists() else os.environ.get("INITIAL_VERSION", "1")
+    observed = document["metadata"].get("resourceVersion")
+    if (args[0] == "create" and current) or (observed is not None and observed != current):
+        sys.exit(1)
     if any(document["data"]["token"] in arg for arg in [*args, *os.environ.values()]):
         sys.exit("encoded credential in client argv or environment")
     if os.environ.get("CLIENT_DIAGNOSTICS"):
@@ -149,7 +160,7 @@ def test_issuer_must_exit_successfully_before_any_apply(tmp_path, monkeypatch):
         import_crc(tmp_path, now)
     assert json.loads((tmp_path / "applied").read_text()) == previous
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
-    assert [args[0] for args in calls] == ["get", "create"]
+    assert [args[0] for args in calls] == ["get", "get", "create"]
 
 def test_kind_proof_bootstraps_its_reader_from_the_current_manifest(tmp_path, monkeypatch):
     proof = ROOT / "docs/reviews/2026-11-17-issue-302-policies/evidence/kind/test_kind_proof_302.py"
@@ -194,7 +205,7 @@ def test_stale_grant_leaves_the_previous_import_in_place(tmp_path, age):
     assert "renewal deadline" in failure.value.stderr
     assert json.loads((tmp_path / "applied").read_text()) == previous
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
-    assert [args[0] for args in calls] == ["get", "create"]
+    assert [args[0] for args in calls] == ["get", "get", "create"]
 
 def test_malformed_ca_cannot_replace_a_working_import(tmp_path):
     now = int(time.time())
@@ -205,3 +216,28 @@ def test_malformed_ca_cannot_replace_a_working_import(tmp_path):
     assert "CA" in failure.value.stderr
     assert json.loads((tmp_path / "applied").read_text()) == previous
     assert all(json.loads(line)[0] != "apply" for line in (tmp_path / "calls").read_text().splitlines())
+
+
+@pytest.mark.parametrize("initial", ["1", ""], ids=["update", "first-import"])
+def test_manual_import_cannot_overwrite_a_concurrent_winner(tmp_path, monkeypatch, initial):
+    monkeypatch.setenv("INITIAL_VERSION", initial)
+    monkeypatch.setenv("WORKER_WINS", "1")
+    with pytest.raises(subprocess.CalledProcessError):
+        import_crc(tmp_path, int(time.time()))
+    assert json.loads((tmp_path / "applied").read_text()) == {"winner": "concurrent"}
+
+
+def test_first_import_creates_with_the_bootstrap_manager(tmp_path, monkeypatch):
+    monkeypatch.setenv("INITIAL_VERSION", "")
+    secret, _, _ = import_crc(tmp_path, int(time.time()))
+    assert "resourceVersion" not in secret["metadata"]
+    calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
+    assert calls[-1] == ["create", "--field-manager=crc-reader-import.sh", "-f", "-"]
+
+
+def test_bootstrap_accepts_short_grant_with_long_absolute_window(tmp_path, monkeypatch):
+    monkeypatch.setenv("CMAPI_TOKEN_DURATION", "7d")
+    monkeypatch.setenv("CMAPI_TOKEN_RENEW_BEFORE", "24h")
+    now = int(time.time())
+    secret, _, diagnostic = import_crc(tmp_path, now, lifetime=3600)
+    assert secret["metadata"]["annotations"]["cmapi.net/token-expires-at"] in diagnostic
