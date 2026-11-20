@@ -123,6 +123,10 @@ const MUTANTS = [
   ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "rows={items}\n              busy={busy}", "rows={items}\n              busy={false}", "portal", "11 Quotas: the rows"],
   ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "busy={busy}\n      range={text}", "busy={false}\n      range={text}", "portal", "11 Quotas: the rows"],
   ["407: the pager accepts cursors from the previous answer", "src/components/ui.tsx", "busy || String(flag)", "String(flag)", "portal", "407"],
+  ["407: Requests accepts old cursors", "src/portal/RequestsTab.tsx", "busy={result.refreshing}\n              range=", "busy={false}\n              range=", "portal", "407 Requests keeps"],
+  ["407: Expiration accepts old cursors", "src/portal/ExpirationTab.tsx", "busy={busy}\n              range=", "busy={false}\n              range=", "portal", "407 Expiration keeps"],
+  ["407: Policies results accept old cursors", "src/portal/PoliciesTab.tsx", "busy={busy}\n              range=", "busy={false}\n              range=", "portal", "407 Policies results"],
+  ["407: Policies refusals accept old cursors", "src/portal/PoliciesTab.tsx", "busy={result.refreshing}\n            range=", "busy={false}\n            range=", "portal", "407 Policies refusals"],
   // #347: the read waits for the tab bar and the theme, and still fails on a transition that has not ended.
   ["347: a tab bar transition outlives the read", "src/app.css", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }\n.pf-v6-c-tabs__scroll-button { transition-duration: 6s !important; }", "portal", "7 the Workflow"],
   ["347: a theme colour transition outlives the read", "src/app.css", ".cp-wrap { overflow-wrap: anywhere; }", ".cp-wrap { overflow-wrap: anywhere; }\n.pf-v6-c-page { transition: background-color 6s !important; }", "portal", "7 layout"],

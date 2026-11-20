@@ -405,14 +405,14 @@ probe and every run's log are in `docs/reviews/2026-11-18-issue-347-392/evidence
 
 ## Cursor paging during a query change (#407)
 
-The four `407` checks start on page two with both a Previous and a Next cursor. The stand-in holds the answer to a
+The four held-response `407` checks start on page two with both a Previous and a Next cursor. The stand-in holds the answer to a
 Requests search, an Expiration environment change, a Policies cluster change, or a page turn in the seven-day refusals
 list. Each check verifies that the old rows stay visible, the table has `aria-busy="true"`, and both buttons have
 `aria-disabled="true"`. Forced clicks must send no additional list request. After release, the check verifies the new
 range, the cleared busy state and the available buttons. Quotas check 11 covers the same guard during a sort change.
 
-Run these commands from `cmapi-portal-ui` with a local browser and loopback sockets available. The mutant removes the
-shared pager's busy check while leaving the table's busy state in place.
+Run these commands from `cmapi-portal-ui` with a local browser and loopback sockets available. The mutants remove the
+shared guard and then disconnect each list's pager separately. Each disconnected pager runs its own browser check.
 
 ```sh
 npx vite build
