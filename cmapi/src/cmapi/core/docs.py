@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import json
 import shlex
+from dataclasses import dataclass
 from importlib import resources
 from typing import Any, Callable, Sequence
 
@@ -334,7 +335,12 @@ def sample_request(method: str, path: str, op: dict[str, Any], components: dict[
         # by the schema"): the recorded request, with this instance's labels and annotations (#334), which "Try it out"
         # sends too. A body put together from each property's first example can pair fields that refuse each other, as
         # limitRange with a named tier (#349), so it is only for an operation that no run recorded.
-        body = content["example"] if "example" in content else _example_of(content.get("schema") or {}, components)
+        if "example" in content:
+            body = content["example"]
+        elif content.get("examples"):
+            body = next(iter(content["examples"].values()))["value"]      # the first named example (create, #479)
+        else:
+            body = _example_of(content.get("schema") or {}, components)
         if body is None:
             body = {}
         headers.append(("Content-Type", "application/json"))
@@ -353,13 +359,25 @@ def curl_sample(request: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+@dataclass(frozen=True)
+class InstanceFacts:
+    """What the namespace contract reads from the instance beyond metadata-keys.yaml (#479): the target of the create
+    example, and the expiration rules of each served environment."""
+    name: str                       # instance.yaml name: the value of a value.from instance key
+    cluster: str                    # the cluster_id path parameter's example
+    environment: str                # that cluster's environment, or the first served one (main.py, example_environment)
+    environments: tuple[str, ...]   # served, in instance.yaml's order
+    expiration: Any                 # plugins/expiration/rules.py ExpirationRules
+
+
 def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE,
-                  metadata: Any = None) -> dict[str, Any]:
+                  metadata: Any = None, instance: InstanceFacts | None = None) -> dict[str, Any]:
     """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation.
 
     The routes declare their problem examples at import, with the default type base. `problem_base` is the base of this
     instance (instance.yaml `problems.typeBase`), so each example shows the type that this instance answers. `metadata`
-    (core/metadata.py) is this instance's metadata-keys.yaml: the labels and annotations of a namespace say its keys."""
+    (core/metadata.py) is this instance's metadata-keys.yaml: the labels and annotations of a namespace say its keys.
+    `instance` names the create example's target and gives expiresAt its rules (#479)."""
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
@@ -368,14 +386,17 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
                            if (names := [n for n, r in sorted(plugins.items()) if r.group == g])]
     if metadata is not None:
         # Before the curl samples, which take the body from the examples that this sets (#334).
-        _document_metadata(spec, metadata)
+        _document_metadata(spec, metadata, instance)
+    if instance is not None:
+        _document_expiry(spec, instance)
     _document_validation_problem(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
-    add_recorded_examples(spec, load_samples(), metadata)
+    add_recorded_examples(spec, load_samples(), metadata, instance)
+    _document_create_examples(spec, instance)
     if metadata is not None:
         # After the recorded examples: the sample was recorded on the reference file, and this instance's own rules are the
         # answer that it gives (the defect of #334, for GET /api/v1/metadata-keys; #336).
-        _document_metadata_keys_example(spec, metadata)
+        _document_metadata_keys_example(spec, metadata, instance)
     components = (spec.get("components") or {}).get("schemas") or {}
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
@@ -402,14 +423,25 @@ def metadata_description(keys: Any, kind: str) -> str:
     parts = [f"Required: {listed(required)}.", f"Optional: {listed(extra)}.",
              f"Any other key with {prefixes}, at most {other.max}{sizes}."]
     if derived:
-        parts.append(f"Set by cmapi, not by the requester: {listed(derived)}. A request may send the same value, never another.")
+        parts.append(f"Required, and filled in by cmapi when a request leaves them out: {listed(derived)}. A request may "
+                     "send the same value, never another.")
     return " ".join(parts)
 
 
-def metadata_example(keys: Any, kind: str) -> dict[str, str]:
-    """What a requester sends for one kind: each required key that cmapi does not set, with the example of its rule.
-    A key with no example is left out, so the document never shows a value that the plan would refuse."""
-    return {k: str(r.example) for k, r in keys.rules[kind].items() if r.required and not r.derived and r.example is not None}
+def metadata_example(keys: Any, kind: str, sources: dict[str, str] | None = None) -> dict[str, str]:
+    """What a create sends for one kind (#479, A6): each required key at its example, each filled-in key at its value
+    for `sources` (the example's target), each optional key that has an example, then allowOther.example, so the
+    example shows that extra keys go in the same map. A key with no value to show is left out."""
+    sources = sources or {}
+    out: dict[str, str] = {}
+    for key, rule in keys.rules[kind].items():
+        if rule.derived:
+            if sources.get(rule.derived):
+                out[key] = sources[rule.derived]
+        elif rule.example is not None:
+            out[key] = str(rule.example)
+    out.update(keys.allow_other[kind].example)
+    return out
 
 
 def metadata_patch_example(keys: Any, kind: str) -> dict[str, str] | None:
@@ -421,20 +453,52 @@ def metadata_patch_example(keys: Any, kind: str) -> dict[str, str] | None:
     return None
 
 
-def example_namespace(keys: Any, default: str) -> str:
-    """The namespace of the create example: when a required key is the start of the namespace name (namespacePrefix),
-    that key's example and "-" start it, so the example body is one that this instance accepts (#334)."""
-    for kind in ("label", "annotation"):
-        for rule in keys.rules[kind].values():
-            if rule.required and not rule.derived and rule.namespace_prefix and rule.example is not None:
-                return f"{rule.example}-{default.split('-', 1)[-1]}"
-    return default
+def example_namespace(keys: Any, default: str, environment: str | None = None) -> str:
+    """The namespace of the create example, `<prefix>-<desired name>-<environment>` (#479, A3): the default's last
+    "-" part is the environment when a key ends the name (namespaceSuffix), and the namespacePrefix key's example and
+    "-" start it, so the example body is one that this instance accepts (#334)."""
+    name = default
+    if keys.suffix_key() is not None and environment:
+        name = f"{default.rsplit('-', 1)[0]}-{environment}"
+    found = keys.prefix_key()
+    if found is not None and keys.rules[found[0]][found[1]].example is not None:
+        name = f"{keys.rules[found[0]][found[1]].example}-{name}"
+    return name
 
 
-def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
+def example_sources(namespace: str, instance: InstanceFacts | None) -> dict[str, str]:
+    """The target of the create example, from which its filled-in keys take their values."""
+    if instance is None:
+        return {"namespace": namespace}
+    return {"namespace": namespace, "environment": instance.environment, "cluster": instance.cluster,
+            "instance": instance.name}
+
+
+def namespace_description(keys: Any) -> str | None:
+    """The rule of the namespace name in words, when keys start or end it (#479, A3), or None."""
+    prefix, suffix = keys.prefix_key(), keys.suffix_key()
+    if prefix is None and suffix is None:
+        return None
+    shape, rules = "<desired name>", []
+    if prefix is not None:
+        shape = f"<{prefix[1]}>-{shape}"
+        rules.append(f'starts with the value of {prefix[1]} and "-"')
+    if suffix is not None:
+        shape = f"{shape}-<{suffix[1]}>"
+        rules.append(f'ends with "-" and the value of {suffix[1]}')
+    return (f"The name is `{shape}`, at most 63 characters: it {' and '.join(rules)}. cmapi refuses another name with "
+            "invalid_value on that key.")
+
+
+def _document_metadata(spec: dict[str, Any], keys: Any, instance: InstanceFacts | None = None) -> None:
     """The labels and annotations of NamespaceCreate and NamespacePatch are this instance's keys and rules, as schema
     (MetadataKeys.json_schema, #328) and in words beside it, with examples that this instance accepts (#334)."""
     schemas = spec.get("components", {}).get("schemas", {})
+    create = schemas.get("NamespaceCreate") or {}
+    names = (create.get("properties") or {}).get("namespace", {}).get("examples") or ["payments-dev"]
+    environment = instance.environment if instance else None
+    sources = example_sources(example_namespace(keys, names[0], environment), instance)
+    _document_plan_metadata(schemas, keys, sources)
     for name, op, prefix in (("NamespaceCreate", "create", ""), ("NamespacePatch", "patch", "Merge patch; null removes a key. ")):
         model = schemas.get(name) or {}
         props = model.get("properties") or {}
@@ -445,7 +509,7 @@ def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
             words = {"title": props[field].get("title", field.capitalize()),
                      "description": prefix + metadata_description(keys, kind)}
             if op == "create":
-                props[field] = {**schema, **words, "examples": [metadata_example(keys, kind)]}
+                props[field] = {**schema, **words, "examples": [metadata_example(keys, kind, sources)]}
                 if schema.get("required") and field not in model.setdefault("required", []):
                     # A map that is left out is an empty one, which the plan refuses for its required keys.
                     model["required"].append(field)
@@ -453,16 +517,102 @@ def _document_metadata(spec: dict[str, Any], keys: Any) -> None:
                 props[field] = {"anyOf": [schema, {"type": "null"}], **words,
                                 "examples": [metadata_patch_example(keys, kind)]}
         if op == "create" and "namespace" in props:
-            props["namespace"]["examples"] = [example_namespace(keys, ex) for ex in props["namespace"].get("examples") or []]
+            _document_namespace(props["namespace"], keys, environment)
 
 
-def _document_metadata_keys_example(spec: dict[str, Any], keys: Any) -> None:
+def _document_plan_metadata(schemas: dict[str, Any], keys: Any, sources: dict[str, str]) -> None:
+    """PlanMetadata's examples (#479, A7): the dry run of the create example sent without the keys that cmapi fills in
+    (value.from, default.from), so they show each source with this instance's own keys and values (D10)."""
+    props = (schemas.get("PlanMetadata") or {}).get("properties")
+    if not props:
+        return
+    sent = {}
+    for kind in ("label", "annotation"):
+        rules = keys.rules[kind]
+        sent[kind] = {k: v for k, v in metadata_example(keys, kind, sources).items()
+                      if k not in rules or not (rules[k].derived or rules[k].default_from)}
+    values = keys.value_sources(sent["label"], sent["annotation"], keys.filled(sent["label"], sent["annotation"], sources))
+    props["namespace"]["examples"] = [sources["namespace"]]
+    props["labels"]["examples"] = [values["label"]]
+    props["annotations"]["examples"] = [values["annotation"]]
+
+
+def _document_namespace(prop: dict[str, Any], keys: Any, environment: str | None) -> None:
+    """NamespaceCreate.namespace: the keys that start and end it, as x-cmapi-prefix-from and x-cmapi-suffix-from, its
+    rule in words, and an example made of the keys' examples and the example's environment (#479, A3)."""
+    prop["examples"] = [example_namespace(keys, ex, environment) for ex in prop.get("examples") or []]
+    words = namespace_description(keys)
+    if words is None:
+        return
+    prop["description"] = f"{prop.get('description', '').rstrip('.')}. {words}"
+    if keys.prefix_key() is not None:
+        prop["x-cmapi-prefix-from"] = keys.prefix_key()[1]
+    if keys.suffix_key() is not None:
+        prop["x-cmapi-suffix-from"] = keys.suffix_key()[1]
+
+
+def _document_expiry(spec: dict[str, Any], instance: InstanceFacts) -> None:
+    """NamespaceCreate.expiresAt (#479, A11): its rules in words and, per served environment, as x-cmapi-expiration,
+    from this instance's expiration.yaml, so the portal's calendar reads its limits from the contract."""
+    prop = ((spec.get("components", {}).get("schemas", {}).get("NamespaceCreate") or {}).get("properties") or {}).get("expiresAt")
+    if prop is None:
+        return
+    view = instance.expiration.contract_view(list(instance.environments))
+    on = [env for env, rules in view["environments"].items() if rules.get("allowedAtCreate")]
+    later = [env for env, rules in view["environments"].items() if rules["enabled"] and not rules["allowedAtCreate"]]
+    off = [env for env, rules in view["environments"].items() if not rules["enabled"]]
+    words = ["Optional: the day the namespace expires, after today. Left out, the namespace is permanent."]
+    if on:
+        words.append(f"Taken in {', '.join(on)}: past maxLifetimeDays from creation (x-cmapi-expiration) it needs one "
+                     "more approver-platform approval.")
+    if later:
+        words.append(f"Refused with expiration-not-allowed at create in {', '.join(later)}.")
+    if off:
+        words.append(f"Refused with expiration-not-allowed in {', '.join(off)}, where expiration is off.")
+    words.append("Never in prod.")
+    prop["description"] = " ".join(words)
+    prop["x-cmapi-expiration"] = view
+
+
+def _document_create_examples(spec: dict[str, Any], instance: InstanceFacts | None) -> None:
+    """The create's example target and body (#479, A6, §5.2). Its cluster_id is the example's cluster, one that this
+    instance writes to. Its body is two named examples: "permanent" first, which "Try it out" and the curl sample send,
+    and "withExpiry" with expiresAt where the example's environment takes a date at create. That date is fixed, so the
+    document stays the same from day to day; its summary says to choose a future date."""
+    op = spec["paths"].get("/api/v1/clusters/{cluster_id}/namespaces", {}).get("post")
+    if not op or not instance:
+        return
+    for parameter in op.get("parameters", []):
+        if parameter["in"] == "path" and parameter["name"] == "cluster_id":
+            parameter["schema"]["examples"] = [instance.cluster]
+    media = op["requestBody"]["content"]["application/json"]
+    if "example" not in media:
+        return
+    permanent = dict(media.pop("example"))
+    permanent.pop("expiresAt", None)
+    examples = {"permanent": {"summary": "Permanent namespace", "value": permanent}}
+    env = instance.environment
+    if instance.expiration.allows(env) and instance.expiration.rules(env).allowed_at_create:
+        dates = spec["components"]["schemas"]["NamespaceCreate"]["properties"]["expiresAt"]["examples"]
+        examples["withExpiry"] = {"summary": "With expiration (choose a future date when sending)",
+                                  "value": {**permanent, "expiresAt": dates[0]}}
+    media["examples"] = examples
+
+
+def metadata_keys_view(keys: Any, expiration: Any, environments: Sequence[str]) -> dict[str, Any]:
+    """The body of GET /api/v1/metadata-keys: the schemas of NamespaceCreate's labels and annotations (#336), and the
+    x-cmapi-expiration of its expiresAt (#479, D15), so a form reads every rule it shows from one answer and one ETag."""
+    return {**keys.keys_view(), "x-cmapi-expiration": expiration.contract_view(list(environments))}
+
+
+def _document_metadata_keys_example(spec: dict[str, Any], keys: Any, instance: InstanceFacts | None = None) -> None:
     """The 200 example of GET /api/v1/metadata-keys is this instance's answer, not the recorded one of the reference file."""
     for ops in spec["paths"].values():
         for op in ops.values():
             if isinstance(op, dict) and op.get("operationId") == "core_metadata_keys":
                 media = op["responses"]["200"].setdefault("content", {}).setdefault("application/json", {})
-                media["example"] = keys.keys_view()
+                media["example"] = (metadata_keys_view(keys, instance.expiration, instance.environments) if instance
+                                    else keys.keys_view())
 
 
 def _with_type_base(node: Any, problem_base: str) -> Any:
@@ -513,15 +663,17 @@ def load_samples() -> dict[str, Any]:
     return json.loads(resources.files("cmapi.contract").joinpath("samples.json").read_text())
 
 
-def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any], metadata: Any = None) -> None:
+def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any], metadata: Any = None,
+                          instance: InstanceFacts | None = None) -> None:
     """Put the recorded samples into the document as examples, so Swagger UI, ReDoc and docs/04 show the same payloads.
 
     A success goes in as the media type's `example`. A recorded problem replaces the synthesized example of its code.
     The dry run of a write is keyed `<operationId>:dryRun` and fills that operation's 200.
 
-    The service suite records on the reference metadata-keys.yaml. `metadata` is this instance's: a recorded namespace
-    body whose labels or annotations it refuses gets this instance's examples instead, so the body that Swagger UI's
-    "Try it out" sends is one that this instance accepts (#334).
+    The service suite records on the reference metadata-keys.yaml. `metadata` is this instance's: the create body's
+    namespace, labels and annotations are this instance's examples (#479, A6), and a recorded patch body whose labels
+    or annotations it refuses gets this instance's example instead, so the body that Swagger UI's "Try it out" sends is
+    one that this instance accepts (#334).
     """
     by_id = {op["operationId"]: op for ops in spec["paths"].values() for op in ops.values()
              if isinstance(op, dict) and "operationId" in op}
@@ -534,7 +686,7 @@ def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any], metadat
         if body_content is not None and "body" in request and ":" not in key:    # the body of the write, not of its dry run
             body = request["body"]
             if metadata is not None and isinstance(body, dict):
-                body = _with_instance_metadata(body, (body_content.get("schema") or {}).get("$ref", ""), metadata)
+                body = _with_instance_metadata(body, (body_content.get("schema") or {}).get("$ref", ""), metadata, instance)
             body_content["example"] = body
         declared = op["responses"].setdefault(str(response["status"]), {"description": "Successful Response"})
         media = declared.setdefault("content", {}).setdefault(response["contentType"] or "application/json", {})
@@ -547,24 +699,36 @@ def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any], metadat
             examples[code] = {"value": sample["response"]["body"]}
 
 
-def _with_instance_metadata(body: dict[str, Any], schema_ref: str, keys: Any) -> dict[str, Any]:
-    """A recorded namespace body, or a copy with this instance's example labels and annotations when its own are refused.
-    A create is checked whole; a patch only for what it sends, since the namespace's required keys are in Git."""
+def _with_instance_metadata(body: dict[str, Any], schema_ref: str, keys: Any,
+                            instance: InstanceFacts | None = None) -> dict[str, Any]:
+    """A recorded namespace body with this instance's metadata. A create always takes the instance's examples (#479,
+    A6); a patch is checked only for what it sends, since the namespace's required keys are in Git, and takes the
+    instance's example only when its own is refused."""
     name = schema_ref.rsplit("/", 1)[-1]
-    if name not in ("NamespaceCreate", "NamespacePatch") or not ({"labels", "annotations"} & set(body)):
+    if name == "NamespaceCreate":
+        return _create_example(body, keys, instance)
+    if name != "NamespacePatch" or not ({"labels", "annotations"} & set(body)):
         return body
-    create = name == "NamespaceCreate"
-    refused = keys.validate(body.get("labels") or {}, body.get("annotations") or {}, operator=False,
-                            require_governed=create, sources={"namespace": body.get("namespace")})
-    if not refused:
+    if not keys.validate(body.get("labels") or {}, body.get("annotations") or {}, operator=False, require_governed=False):
         return body
     out = dict(body)
     for field, kind in (("labels", "label"), ("annotations", "annotation")):
-        example = metadata_example(keys, kind) if create else metadata_patch_example(keys, kind)
+        example = metadata_patch_example(keys, kind)
         if example is None:
             out.pop(field, None)
         else:
             out[field] = example
-    if create and "namespace" in out:
-        out["namespace"] = example_namespace(keys, out["namespace"])
+    return out
+
+
+def _create_example(body: dict[str, Any], keys: Any, instance: InstanceFacts | None) -> dict[str, Any]:
+    """The recorded create body with the namespace, labels and annotations made from this instance's configuration
+    (#479, A3, A6). expiresAt is left out: the suite and "Try it out" send this body, and a fixed date stops being one
+    that cmapi takes once it has passed."""
+    out = dict(body)
+    namespace = example_namespace(keys, body.get("namespace") or "payments-dev", instance.environment if instance else None)
+    sources = example_sources(namespace, instance)
+    out["namespace"] = namespace
+    out["labels"] = metadata_example(keys, "label", sources)
+    out["annotations"] = metadata_example(keys, "annotation", sources)
     return out

@@ -79,10 +79,9 @@ def _expires(cluster_id: str, name: str, raw: str | None) -> date | None:
     try:
         return date.fromisoformat(raw)
     except ValueError:
-        # Only the renderer writes the key, and no Kyverno policy checks its value here: the list skips each environment that
-        # cannot expire, so prod (the one environment deny-expiry-in-prod covers) never reaches this. A hand-edited value that
-        # is not a date is shown as the cluster has it and counted as no date, because no plan can extend it; the log names
-        # it for the platform team.
+        # Only the renderer writes the key, and no Kyverno policy checks its value here; prod's namespaces never carry it
+        # (deny-expiry-in-prod). A hand-edited value that is not a date is shown as the cluster has it and counted as no
+        # date, because no plan can extend it; the log names it for the platform team.
         log.warning("expires_at_unreadable", cluster_id=cluster_id, namespace=name, value=raw[:40])
         return None
 
@@ -97,8 +96,17 @@ def _notices(c: AppContext) -> dict[tuple[str, str, str], int]:
         return {(cl, ns, at): n for cl, ns, at, n in s.execute(q)}
 
 
+def actions_of(expiration_on: bool, expires: date | None) -> list[str]:
+    """The expiry writes that a row's namespace takes: :extend and :makePermanent with a date, :set without one. Where
+    expiration is off, only :makePermanent of a date given while it was on (#479, the coordinator's ruling on F02)."""
+    if not expiration_on:
+        return ["makePermanent"] if expires else []
+    return ["extend", "makePermanent"] if expires else ["set"]
+
+
 def expiration_rows(c: AppContext, who: Identity, day: date) -> tuple[list[dict[str, Any]], set[str]]:
-    """Each managed namespace that can expire, in an environment where the caller holds objects:read, and those environments."""
+    """Each managed namespace that can expire, in an environment where the caller holds objects:read, and the environments
+    whose expiration is on. Where it is off, only a namespace that kept a date is listed, so it can be made permanent."""
     with c.db.session() as s:
         open_map = RequestRepo(s).open_namespaces()
     notices = _notices(c)
@@ -106,13 +114,15 @@ def expiration_rows(c: AppContext, who: Identity, day: date) -> tuple[list[dict[
     envs: set[str] = set()
     for st in c.registry.connected():
         env = st.policy.environment if st.policy else None
-        if env is None or not c.cfg.roles.allowed(who, "objects:read", env) or not c.cfg.expiration.allows(env):
+        if env is None or not c.cfg.roles.allowed(who, "objects:read", env):
             continue
         cache = st.cache                    # once: the registry clears it when the cluster drops, after `connected()` (#402)
         if cache is None:
             continue
-        envs.add(env)
-        rules = c.cfg.expiration.rules(env)
+        on = c.cfg.expiration.allows(env)
+        rules = c.cfg.expiration.rules(env) if on else None
+        if on:
+            envs.add(env)
         for ns in cache.all("Namespace"):
             m = ns["metadata"]
             labels, ann = m.get("labels") or {}, m.get("annotations") or {}
@@ -120,14 +130,17 @@ def expiration_rows(c: AppContext, who: Identity, day: date) -> tuple[list[dict[
                 continue
             raw = ann.get("cmapi.net/expires-at")
             expires, created = _expires(st.cluster_id, m["name"], raw), _created(m)
+            if not on and expires is None:
+                continue                    # expiration is off here: nothing to show but a kept date
+            # Where expiration is off a kept date is not acted on (no notice, no delete), so its state is permanent.
             state = c.cfg.expiration.state(ExpiryInfo(m["name"], env, created or day, expires), day)
             rows.append({"name": m["name"], "clusterId": st.cluster_id, "env": labels.get("cmapi.net/env") or env,
                          "team": labels.get("cmapi.net/team"), "app": labels.get("cmapi.net/app"), "created": created,
                          "expiresAt": raw, "daysLeft": (expires - day).days if expires else None, "state": state,
-                         "graceEnds": expires + timedelta(days=rules.grace_days) if expires else None,
+                         "graceEnds": expires + timedelta(days=rules.grace_days) if expires and rules else None,
                          "lifetimeDays": (expires - created).days if expires and created else None,
                          "noticesSent": notices.get((st.cluster_id, m["name"], raw), 0) if expires else 0,
-                         "openRequest": open_map.get((st.cluster_id, m["name"]))})
+                         "openRequest": open_map.get((st.cluster_id, m["name"])), "actions": actions_of(on, expires)})
     return rows, envs
 
 
@@ -144,8 +157,9 @@ def expirations(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None,
                 who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """One page of the managed namespaces that can expire, in the caller's environments: each one's expiry date from the
     watch cache, the days left, its state and the notices sent, the count of each state over the other filters, and the
-    rules of each environment. Environments where no namespace can expire (no entry in expiration.yaml, such as prod) are
-    left out. `today` is the day the API counts from."""
+    rules of each environment. Where expiration is off (no entry in expiration.yaml, or enabled: false, such as prod), only a
+    namespace that kept a date from before is listed, with :makePermanent as its one action, and the environment has no
+    rules. `today` is the day the API counts from."""
     if state and state not in STATES:
         raise Problem.unprocessable("validation-failed", f"state is one of {sorted(STATES)}, not {state}")
     day = today()

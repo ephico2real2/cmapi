@@ -16,7 +16,9 @@ import os
 import pytest
 import yaml
 
+from cmapi.core.docs import metadata_keys_view
 from cmapi.core.metadata import KINDS, MetadataKeys
+from cmapi.plugins.expiration.rules import ExpirationRules
 from conftest import EX
 from metadata_form_corpus import build
 
@@ -24,6 +26,7 @@ SHIPPED = EX / "cluster-configs/policies/metadata-keys.yaml"
 COMPANY = EX / "cluster-configs/policies/metadata-keys.company.yaml"
 PORTAL = EX.parent / "cmapi-portal-ui/tests/api"
 SAMPLES = EX.parent / "cmapi/src/cmapi/contract/samples.json"
+REFERENCE = EX.parent / "cmapi/src/cmapi/tools/reference_instance"     # the instance that the samples are recorded on
 WRITE = os.environ.get("CMAPI_WRITE_FIXTURES") == "1"
 
 
@@ -87,17 +90,26 @@ def _write_or_compare(path, text: str) -> None:
     assert path.read_text() == text, f"{path.name} is not what the code builds: run this test with CMAPI_WRITE_FIXTURES=1"
 
 
+def instance_view(path):
+    """GET /api/v1/metadata-keys of the reference instance with the metadata-keys.yaml at path (#479: with its expiration
+    rules). Built from the instance's own instance.yaml and expiration.yaml, as load_instance reads them, so this test needs
+    only examples/local/requirements.txt: loading the whole instance imports the service's packages (structlog)."""
+    served = raw(REFERENCE / "instance.yaml")["instance"]["allowedEnvironments"]
+    expiration = ExpirationRules(raw(REFERENCE / "expiration.yaml"), set(served))
+    return metadata_keys_view(MetadataKeys.load(path), expiration, served)
+
+
 def test_the_portals_company_fixture_is_the_company_files_answer():
     """The stand-in API of the portal's suite serves it as GET /api/v1/metadata-keys of a company instance."""
     _write_or_compare(PORTAL / "metadata-keys.company.json",
-                      json.dumps(MetadataKeys.load(COMPANY).keys_view(), indent=2, ensure_ascii=False) + "\n")
+                      json.dumps(instance_view(COMPANY), indent=2, ensure_ascii=False) + "\n")
 
 
 def test_the_recorded_sample_is_the_reference_files_answer():
     """The stand-in serves the recorded sample for a reference instance. test_api_samples compares a sample's shape only,
     so a change of a rule's words or pattern would leave the sample behind: this holds its values."""
     sample = json.loads(SAMPLES.read_text())["operations"]["core_metadata_keys"]["response"]["body"]
-    assert sample == MetadataKeys.load(SHIPPED).keys_view()
+    assert sample == instance_view(SHIPPED)
 
 
 def test_the_portals_corpus_is_the_one_this_code_builds():

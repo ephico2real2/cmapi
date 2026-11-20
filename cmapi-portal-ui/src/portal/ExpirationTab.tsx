@@ -121,7 +121,8 @@ export function ExpirationTab({ config, params, setParams, open }: TabProps) {
   const items = page?.items ?? [];
   const shown = items.find((r) => keyOf(r) === chosen) ?? (chosen && lastShown.current && keyOf(lastShown.current) === chosen ? lastShown.current : items[0]) ?? null;
   lastShown.current = shown;
-  const rulesOf = (r: ExpirationRow): Rules | undefined => (r.env ? page?.rules[r.env] : undefined) ?? (page ? Object.values(page.rules)[0] : undefined);
+  // An environment with expiration off has no rules (#479); a row with no env takes the first environment's.
+  const rulesOf = (r: ExpirationRow): Rules | undefined => (r.env ? page?.rules[r.env] : page ? Object.values(page.rules)[0] : undefined);
   // The call that this page sent, as the mockup's footnote shows it. A cursor is cut: it is long, and it is not for reading.
   const sent = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, k === "cursor" ? `${String(v).slice(0, 10)}…` : String(v)]));
 
@@ -261,12 +262,12 @@ function Detail({ row, rules, today, canChange, onOpen }: DetailProps) {
                   <div><Button variant="secondary" size="sm" onClick={() => onOpen(row.openRequest!)}>Open at current step</Button></div>
                 </Stack>
               </Callout>
-            ) : !rules ? (
+            ) : row.actions.length === 0 ? (
               <Empty>{`Namespaces in ${row.env ?? "this environment"} cannot carry an expiry date.`}</Empty>
             ) : etag === null ? (
               ns.state === "loading" ? <span role="status">Loading the namespace…</span> : null
             ) : (
-              <ChangeForm row={row} rules={rules} today={today} etag={etag} reread={ns.reload} />
+              <ChangeForm row={row} rules={rules ?? NO_RULES} today={today} etag={etag} reread={ns.reload} />
             )}
           </Panel>
         </GridItem>
@@ -277,15 +278,20 @@ function Detail({ row, rules, today, canChange, onOpen }: DetailProps) {
 
 type Act = { id: string; label: string; sub: string; change: ExpiryChange };
 
-/** The mockup's actions: extend by 7, 14 or the most days of one step, or make permanent; set a date for a permanent namespace. */
+/** The mockup's actions: extend by 7, 14 or the most days of one step, or make permanent; set a date for a permanent namespace.
+ *  Only those of the row's `actions` (the API's): where expiration is off, Make permanent alone (#479). */
 function actionsOf(row: ExpirationRow, rules: Rules, until: string): Act[] {
-  if (!row.expiresAt) return [{ id: "set", label: "Set a date", sub: `at most ${rules.maxExtensionDays} days from today`, change: { route: "set", body: { until } } }];
   const steps = [...new Set([7, 14, rules.maxExtensionDays])].filter((n) => n > 0 && n <= rules.maxExtensionDays);
-  return [
+  const all: Act[] = [
+    { id: "set", label: "Set a date", sub: `at most ${rules.maxExtensionDays} days from today`, change: { route: "set", body: { until } } },
     ...steps.map((n): Act => ({ id: `ext${n}`, label: `Extend ${n} days`, sub: n === rules.maxExtensionDays ? `+${n}, the most per step` : `+${n}`, change: { route: "extend", body: { days: n } } })),
     { id: "perm", label: "Make permanent", sub: "adds approver-platform", change: { route: "makePermanent", body: {} } }
   ];
+  return all.filter((a) => row.actions.includes(a.change.route));
 }
+
+/** The rules of an environment whose expiration is off: none. Its rows take only Make permanent, which reads no rule. */
+const NO_RULES: Rules = { maxExtensionDays: 0, maxLifetimeDays: 0, notifyDaysBefore: [], graceDays: 0 };
 
 /** The date that a plan writes in the namespace's manifest, or null when it writes none: what Git will hold. */
 function plannedDate(plan: Plan): string | null {
@@ -352,7 +358,9 @@ function ChangeForm({ row, rules, today, etag, reread }: { row: ExpirationRow; r
   const from = row.expiresAt && row.expiresAt > today ? row.expiresAt : today;
   const newIso = act.change.route === "extend" ? plusDays(from, act.change.body.days) : act.change.route === "set" ? until : null;
   const tooEarly = act.change.route === "set" && (!until || until <= today);
-  const checks: Check[] = [{ s: "pass", mark: MARK.pass, main: "Non-prod namespace", note: `${row.env ?? "—"} allows expiration` }];
+  const checks: Check[] = row.actions.includes("extend") || row.actions.includes("set")
+    ? [{ s: "pass", mark: MARK.pass, main: "Non-prod namespace", note: `${row.env ?? "—"} allows expiration` }]
+    : [{ s: "pass", mark: MARK.pass, main: "Expiration is off", note: `${row.env ?? "—"} takes no new date; the kept one can be removed` }];
   if (act.change.route === "extend") {
     const n = act.change.body.days;
     checks.push({ s: n <= rules.maxExtensionDays ? "pass" : "fail", mark: n <= rules.maxExtensionDays ? MARK.pass : MARK.fail, main: `Extension within ${rules.maxExtensionDays} days`, note: `+${n} days, to ${dayName(newIso!)}` });

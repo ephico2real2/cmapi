@@ -230,7 +230,14 @@ def plan_namespace(who: Identity, cluster_id: str, body: dict[str, Any], *, acti
     if action != "create" and not prev_ns:
         raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
     labels, anns = body.get("labels", {}), body.get("annotations", {})
-    CFG.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a)
+    if action == "create":
+        # As core/pipeline.py: a create fills in its value.from and default keys, is checked with them, and renders them.
+        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": CFG.name}
+        CFG.metadata.check(labels, anns, operator=operator, sources=sources, create=True)
+        filled = CFG.metadata.filled(labels, anns, sources)
+        labels, anns = filled["label"], filled["annotation"]
+    else:
+        CFG.metadata.check(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a)
     labels = CFG.metadata.merge_patch(cur_l, labels)
     anns = CFG.metadata.merge_patch(cur_a, anns)
 

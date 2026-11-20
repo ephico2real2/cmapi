@@ -53,7 +53,7 @@ CASES: list[tuple[str, str, Callable[[dict], Any]]] = [
     ("the document has no groups", "cmapi-tag-in-one-group", lambda s: s.pop("x-tagGroups")),
     # ---- 3. examples
     ("a parameter has no example", "cmapi-parameter-example", lambda s: op(s)["parameters"][0]["schema"].pop("examples")),
-    ("a request body has no example", "cmapi-body-example", lambda s: op(s)["requestBody"]["content"]["application/json"].pop("example")),
+    ("a request body has no example", "cmapi-body-example", lambda s: op(s)["requestBody"]["content"]["application/json"].pop("examples")),
     ("a response body has no example", "cmapi-body-example", lambda s: op(s)["responses"]["202"]["content"]["application/json"].pop("example")),
     ("the plan of a dry run has no example", "cmapi-body-example", lambda s: op(s)["responses"]["200"]["content"]["application/json"].pop("example")),
     ("an example does not fit its schema", "oas3-valid-media-example",
@@ -91,7 +91,7 @@ CASES: list[tuple[str, str, Callable[[dict], Any]]] = [
     ("a cmapi.net/ key is a property of a schema in an example that is not of a metadata map", "cmapi-net-keys-only-in-labels",
      lambda s: set_(op(s)["responses"]["202"]["content"]["application/json"]["example"], "quota", {"properties": {"cmapi.net/tier": {}}})),
     ("a cmapi.net/ key is under a properties object of a body's labels map, not of the schema of one", "cmapi-net-keys-only-in-labels",
-     lambda s: set_(op(s)["requestBody"]["content"]["application/json"]["example"], "labels", {"properties": {"cmapi.net/team": "payments"}})),
+     lambda s: set_(op(s)["requestBody"]["content"]["application/json"]["examples"]["permanent"]["value"], "labels", {"properties": {"cmapi.net/team": "payments"}})),
 ]
 
 

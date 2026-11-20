@@ -61,6 +61,7 @@ class Plan:
     etag: str = ""
     warnings: list[str] = field(default_factory=list)
     beyond_tier: dict[str, Any] | None = None      # the new beyond-tier keys of this request and the approvals they add
+    metadata: dict[str, Any] | None = None         # a create's final labels and annotations, each with its source (#479)
 
     @property
     def hash(self) -> str:
@@ -74,7 +75,7 @@ class Plan:
                              "bindingResource": self.capacity.binding_resource, **dict(self.capacity.detail)},
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
-                "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier}
+                "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier, "metadata": self.metadata}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
@@ -223,7 +224,14 @@ class Pipeline:
         # warning on the same value. Anything that fails after the refusal came from the refused body, and the refusal stands,
         # as it did when the check stopped the plan here.
         refusal = self._metadata_refusal(labels, anns, operator=operator, current_labels=cur_l, current_annotations=cur_a,
-                                         sources=sources, existing=prev_ns is not None)
+                                         sources=sources, existing=prev_ns is not None, create=action == "create")
+        metadata_view = None
+        if action == "create":
+            # Steps 1 and 2 of the check (#479): what cmapi fills in is rendered, and the dry run says where each value came from.
+            filled = self.cfg.metadata.filled(labels, anns, sources)
+            by_kind = self.cfg.metadata.value_sources(labels, anns, filled)
+            metadata_view = {"namespace": ns, "labels": by_kind["label"], "annotations": by_kind["annotation"]}
+            labels, anns = filled["label"], filled["annotation"]
         labels = self.cfg.metadata.merge_patch(cur_l, labels)
         anns = self.cfg.metadata.merge_patch(cur_a, anns)
 
@@ -234,8 +242,9 @@ class Pipeline:
             old_quota = _hard(old_rq)
             tier = body.get("tier") or old_tier or "small"
             quota, limits = body.get("quota"), body.get("limitRange")
-            expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
-                date.fromisoformat(old_exp) if old_exp and action != "create" else None)
+            # A change that sends no expiry keeps the date that Git holds, also where expiration is off now (#479).
+            kept = date.fromisoformat(old_exp) if old_exp and action != "create" else None
+            expires = _date(body["expiresAt"]) if body.get("expiresAt") else kept
             exp_facts: dict[str, Any] = {}
             if action == "create":
                 p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None
@@ -335,7 +344,7 @@ class Pipeline:
                            "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
-                    beyond_tier=beyond_view)
+                    beyond_tier=beyond_view, metadata=metadata_view)
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:
         """cmapi's own metadata check: the policy-violation it refuses with, or None. A key that only an operator may set

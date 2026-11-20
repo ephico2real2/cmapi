@@ -1,8 +1,9 @@
 # Source: docs/01-design-and-architecture.md, "Namespace expiration"
-# examples/instances/prod/expiration.yaml: deployed as config/expiration.yaml on the prod instance. prod has no entry:
-# a prod request with any expiry field gets 422 expiration-not-allowed, and policies/env/prod
-# denies the keys at admission.
+# examples/instances/prod/expiration.yaml: deployed as config/expiration.yaml on the prod instance. prod's entry says
+# enabled: false, the only value the loader takes for prod (#479): a prod request with any expiry field gets 422
+# expiration-not-allowed, and policies/env/prod denies the keys at admission.
 defaults:
+  enabled: true                  # false: no expiry in an environment, as one with no entry (#479)
   allowedAtCreate: true          # optional; leaving expiresAt out creates a permanent namespace
   maxExtensionDays: 30           # each :extend adds at most this many days
   maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds approver-platform
@@ -10,4 +11,5 @@ defaults:
   graceDays: 7                   # still running and extendable after the date
   deleteAfterGrace: true         # expire_check opens a delete request (expired-namespace policy)
   minNoticesBeforeDelete: 2
-environments: {}                 # prod never expires: no environment takes expiry here
+environments:
+  prod: {enabled: false}         # prod never expires: the API document shows the field off here

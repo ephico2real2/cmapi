@@ -40,8 +40,11 @@ const visit = (level, where, schema) => {
   for (const keyword of Object.keys(schema)) if (!known(level).has(keyword)) unknown.push(`${where}: ${keyword}`);
 };
 for (const [name, answer] of Object.entries(answers)) {
-  assert.deepEqual(Object.keys(answer).sort(), ["annotations", "labels"], `${name}: the answer's two maps`);
-  for (const [field, map] of Object.entries(answer)) {
+  assert.deepEqual(Object.keys(answer).sort(), ["annotations", "labels", "x-cmapi-expiration"],
+    `${name}: the answer's two maps and expiresAt's rules (#479)`);
+  visit("answer", name, answer);
+  for (const field of KEYWORDS.answer.read) {
+    const map = answer[field];
     visit("map", `${name} ${field}`, map);
     visit("additionalProperties", `${name} ${field}.additionalProperties`, map.additionalProperties);
     for (const [key, prop] of Object.entries(map.properties)) {

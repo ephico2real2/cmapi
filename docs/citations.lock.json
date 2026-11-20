@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|155-160": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|156-161": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -497,27 +497,27 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|939-939": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1187-1187": [
   "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|124-126": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|125-127": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|186-186": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|187-187": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|192-192": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|193-193": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|196-196": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|197-197": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|371-371": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|380-380": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|424-424": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|433-433": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [
@@ -531,16 +531,16 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|116-116": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|127-127": [
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|176-178": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|190-192": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|109-109": [
-  "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env) or not c.cfg.expiration.allows(env):"
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
+  "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|119-119": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
@@ -551,7 +551,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|42-54": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|45-57": [
   "def require(permission: str, env_from: Callable[..., str | None] | None = None) -> Callable[..., Identity]:",
   "    \"\"\"A dependency that checks one permission (the route's x-cmapi-permission).\"\"\"",
   "",
@@ -566,7 +566,7 @@
   "",
   "    return dep"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|47-51": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|50-54": [
   "        try:",
   "            c.cfg.roles.require(who, permission)",
   "        except Problem:",
@@ -576,7 +576,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|133-133": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|21-30": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|22-31": [
   "@router.read(\"/me\", summary=\"Who am I\", permission=None, response_model=Me, problems=[\"unauthenticated\", \"idp-unavailable\"])",
   "def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:",
   "    \"\"\"The caller's identity as cmapi records it, the roles and groups in the token, and the permissions",
@@ -815,7 +815,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|109-110": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|120-121": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],

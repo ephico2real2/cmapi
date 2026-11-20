@@ -285,7 +285,7 @@ def make_permanent(cluster_id: ClusterId, ns: NamespaceName, body: PermanentBody
                    who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Removes the expiry date (`cmapi.net/expires-at` and `cmapi.net/expiry`), so the namespace no longer expires. It always
     adds an approval from approver-platform (docs/01, Namespace expiration). A namespace with no date is refused with 422
-    expiration-not-set. A normal request: plan, approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan."""
+    expiration-not-set. It is taken where expiration is now off too, so a date given while it was on can be removed. A normal request: plan, approval, bot PR. Needs If-Match. `dryRun=true` answers 200 with the plan."""
     raw: dict[str, Any] = {"namespace": ns, "clusterId": cluster_id, "makePermanent": True}
     return _expiry_write(c, who, cluster_id, raw, key=key, etag=etag, dry_run=dry_run, reason="expiration:makePermanent",
                          justification=body.justification)

@@ -7,12 +7,13 @@ import json
 from fastapi import Depends, Request, Response
 
 from cmapi.core.context import AppContext
-from cmapi.core.docs import CORE, DocumentedRouter
+from cmapi.core.docs import CORE, DocumentedRouter, metadata_keys_view
 from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.models import ClusterList, ClusterView, Me, MetadataKeysView
+from cmapi.plugins.expiration.rules import ExpirationRules
 from cmapi.routers import ClusterId, caller, ctx, require
 
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
@@ -38,11 +39,15 @@ def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = 
 
 
 @functools.lru_cache(maxsize=4)
-def metadata_keys_document(keys: MetadataKeys) -> tuple[bytes, str]:
-    """The body of GET /api/v1/metadata-keys and its strong ETag, built once for each loaded file. metadata-keys.yaml is
-    read at start and a change restarts the pods (checksum/config), so a process serves one file; the cache is keyed by
-    the loaded object, so a test that loads another file gets its own answer."""
-    body = json.dumps(keys.keys_view(), separators=(",", ":"), ensure_ascii=False).encode()
+def metadata_keys_document(keys: MetadataKeys, expiration: ExpirationRules,
+                           environments: tuple[str, ...]) -> tuple[bytes, str]:
+    """The body of GET /api/v1/metadata-keys and its strong ETag, built once for each loaded configuration. The files are
+    read at start and a change restarts the pods (checksum/config), so a process serves one answer; the cache is keyed by
+    the loaded objects, so a test that loads another file gets its own answer. The body holds each environment's
+    enabled, allowedAtCreate, maxLifetimeDays, notifyDaysBefore and graceDays of expiration.yaml (#479, D15), so a
+    change of one of those alone changes the ETag. maxExtensionDays is not here: GET /api/v1/expirations serves it."""
+    body = json.dumps(metadata_keys_view(keys, expiration, environments), separators=(",", ":"),
+                      ensure_ascii=False).encode()
     return body, etag_of(body)
 
 
@@ -51,13 +56,15 @@ def metadata_keys_document(keys: MetadataKeys) -> tuple[bytes, str]:
 def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> Response:
     """This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each
-    declared key with its rule, which keys are required, which cmapi sets (readOnly), and which only an operator
-    (namespaces:protect) may set. The same schemas as NamespaceCreate in the API document, here also when docs.enabled is
-    false. Each property carries x-cmapi-rule, the rule in the words of a refusal, and title when the file gives one.
+    declared key with its rule, which keys are required, which cmapi fills in (x-cmapi-derived-from), and which only an
+    operator (namespaces:protect) may set. The same schemas as NamespaceCreate in the API document, here also when
+    docs.enabled is false. Each property carries x-cmapi-rule, the rule in the words of a refusal, and title when the file
+    gives one. x-cmapi-expiration is expiresAt's: each served environment's expiration rules (expiration.yaml).
 
     cmapi checks every request against the file itself: this answer describes the rules, it does not replace them. The
     answer is the instance's, the same for every caller; it has a strong ETag, and If-None-Match answers 304."""
-    body, etag = metadata_keys_document(c.cfg.metadata)
+    body, etag = metadata_keys_document(c.cfg.metadata, c.cfg.expiration,
+                                        tuple(c.cfg.raw_instance["instance"]["allowedEnvironments"]))
     # private: the request carries Authorization (RFC 9111, 3.5); no-cache: revalidated before each reuse (5.2.2.4).
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
     if etag_matches(request.headers.get("if-none-match"), etag):

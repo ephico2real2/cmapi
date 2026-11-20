@@ -162,16 +162,20 @@ def test_a_patch_cannot_remove_a_required_or_derived_key_and_can_remove_any_othe
         assert "required" not in keys.json_schema("label", "patch")
         assert not check.is_valid({required: None})
         if derived:
-            assert not check.is_valid({derived: None}) and keys.json_schema("label", "patch")["properties"][derived]["readOnly"]
+            # #479 (A1): shown and not readOnly; still not removable on a patch.
+            prop = keys.json_schema("label", "patch")["properties"][derived]
+            assert not check.is_valid({derived: None}) and "readOnly" not in prop and prop["x-cmapi-derived-from"] == "namespace"
         if optional:
             assert check.is_valid({optional: None})
         assert check.is_valid({"owner": None}) and check.is_valid({"cmapi.net/protected": None})
 
 
-def test_the_company_schema_has_its_own_keys_and_marks_the_derived_ones_read_only():
+def test_the_company_schema_has_its_own_keys_and_marks_the_derived_ones_required_and_shown():
     keys = MetadataKeys.load(COMPANY)
     labels, annotations = keys.json_schema("label", "create"), keys.json_schema("annotation", "create")
-    assert labels["required"] == ["company.net/mnemonic", "company.net/lob", "company.net/cl"]
+    # #479 (A1): the filled-in keys are required and shown; cmapi still fills one that a create leaves out.
+    assert labels["required"] == ["name", "company.net/app-environment", "company.net/mnemonic", "company.net/lob",
+                                  "company.net/cl"]
     # #358, the owner: the critical level is 0 to 6, and the line of business is free text (amgsst is an example), so
     # its schema is the label-value syntax with no enum.
     assert labels["properties"]["company.net/cl"]["enum"] == ["0", "1", "2", "3", "4", "5", "6"]
@@ -181,14 +185,16 @@ def test_the_company_schema_has_its_own_keys_and_marks_the_derived_ones_read_onl
     assert "enum" not in lob and lob["pattern"] == _LABEL_VALUE and lob["maxLength"] == 63 and lob["minLength"] == 1
     assert lob["examples"] == ["amgsst"]
     check = SchemaReader().validator(labels)
-    assert check.is_valid({"company.net/mnemonic": "abc", "company.net/lob": "retail", "company.net/cl": "6"})
-    assert check.is_valid({"company.net/mnemonic": "abcd", "company.net/lob": "retail", "company.net/cl": "6"})
+    filled = {"name": "abc-rnd", "company.net/app-environment": "rnd"}
+    assert check.is_valid({**filled, "company.net/mnemonic": "abc", "company.net/lob": "retail", "company.net/cl": "6"})
+    assert check.is_valid({**filled, "company.net/mnemonic": "abcd", "company.net/lob": "retail", "company.net/cl": "6"})
     for bad in ({"company.net/cl": "7"}, {"company.net/lob": "retail sales"}, {"company.net/lob": "a" * 64},
                 {"company.net/mnemonic": "ab"}, {"company.net/mnemonic": "abcde"}):
-        assert not check.is_valid({"company.net/mnemonic": "abc", "company.net/lob": "retail", "company.net/cl": "6", **bad})
+        assert not check.is_valid({**filled, "company.net/mnemonic": "abc", "company.net/lob": "retail",
+                                   "company.net/cl": "6", **bad})
     for derived in ("name", "company.net/app-environment"):
-        assert labels["properties"][derived]["readOnly"] is True and derived not in labels["required"]
-    assert "required" not in annotations, "the only required annotation is derived"
+        assert "readOnly" not in labels["properties"][derived] and derived in labels["required"]
+    assert annotations["required"] == ["company.net/app-environment"], "the only required annotation is filled in"
     assert labels["properties"]["company.net/mnemonic"]["x-cmapi-namespace-prefix"] is True
 
 

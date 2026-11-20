@@ -8,7 +8,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 from fastapi import Depends, FastAPI, Request
@@ -25,14 +25,14 @@ from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
-from cmapi.core.docs import PROBLEMS, build_openapi, check_documented, plugin_routers
+from cmapi.core.docs import PROBLEMS, InstanceFacts, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.kpi import register_collectors
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
-from cmapi.routers import admin, health, me, requests
+from cmapi.routers import EXAMPLE_CLUSTER, admin, health, me, requests
 from cmapi.settings import Settings, settings
 
 STATIC = Path(os.environ.get("CMAPI_STATIC_DIR", "/opt/app-root/static"))
@@ -94,7 +94,18 @@ class UnhandledToProblemMiddleware:
             await response(scope, receive, send)
 
 
-def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None) -> tuple[FastAPI, Any]:
+def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:
+    """The create example's target and the expiry rules of the API document (#479). cluster_environments: the writable
+    clusters of clusters.yaml. The target is CRC when it is one of them, else the first of them, with its environment,
+    so "Try it out" names a cluster that takes it; with none, CRC and the first served environment."""
+    served = tuple(cfg.raw_instance["instance"]["allowedEnvironments"])
+    clusters = cluster_environments or {}
+    cluster = EXAMPLE_CLUSTER if EXAMPLE_CLUSTER in clusters else next(iter(clusters), EXAMPLE_CLUSTER)
+    return InstanceFacts(cfg.name, cluster, clusters.get(cluster, served[0]), served, cfg.expiration)
+
+
+def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None,
+            cluster_environments: Mapping[str, str] | None = None) -> tuple[FastAPI, Any]:
     """The routes of an instance and its API document, from its configuration alone (#337): (app, the sign-in dependency).
 
     create_app adds what serving needs (middleware, error handlers, the docs pages, the context). `cmapi-tools openapi
@@ -123,16 +134,18 @@ def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None) -> tuple[Fas
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, cfg.metadata)
+            app.openapi_schema = build_openapi(app, plugins, public_url, problem_base, cfg.metadata,
+                                               instance_facts(cfg, cluster_environments))
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
     return app, authed
 
 
-def openapi_document(cfg: InstanceConfig) -> dict[str, Any]:
-    """The OpenAPI document that an instance with this configuration serves at /openapi.json (#337)."""
-    return api_app(cfg, cfg.raw_instance["instance"]["auth"]["issuer"])[0].openapi()
+def openapi_document(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """The OpenAPI document that an instance with this configuration serves at /openapi.json (#337). cluster_environments:
+    {cluster ID: environment} of its clusters.yaml, as the served document reads them."""
+    return api_app(cfg, cfg.raw_instance["instance"]["auth"]["issuer"], cluster_environments=cluster_environments)[0].openapi()
 
 
 def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> FastAPI:
@@ -154,7 +167,8 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     docs_cfg = (ctx.cfg.raw_instance["instance"].get("docs") or {})
     docs_enabled = docs_cfg.get("enabled", True)
-    app, authed = api_app(ctx.cfg, issuer, lifespan)
+    app, authed = api_app(ctx.cfg, issuer, lifespan,
+                          {cid: p.environment for cid, p in ctx.registry.policies.items() if p.writes})
     app.state.ctx = ctx
     app.state.auth = ctx.auth
     problem_base = type_base(ctx.cfg.raw_instance["instance"])

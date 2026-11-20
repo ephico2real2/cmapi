@@ -259,6 +259,24 @@ class NamespacePatch(Api):
     justification: str | None = Field(default=None, description="Why", examples=["More capacity for the batch"])
 
 
+class MetadataValue(Api):
+    value: str = Field(description="The value that the namespace will carry", examples=["abc"])
+    source: str = Field(description="Where it came from: request (the body sent it); namespace, environment, cluster or "
+                                    "instance (cmapi filled it in from the request's target, value.from of "
+                                    "metadata-keys.yaml); or default:<key> (copied from that key, default.from)",
+                        examples=["request"])
+
+
+class PlanMetadata(Api):
+    namespace: str = Field(description="The namespace name", examples=["abc-payments-dev"])
+    labels: dict[str, MetadataValue] = Field(description="Each label that the request sets or that cmapi fills in, with "
+                                                         "its source. cmapi's own system labels are not listed",
+                                             examples=[{"cmapi.net/team": {"value": "payments", "source": "request"}}])
+    annotations: dict[str, MetadataValue] = Field(description="Each annotation that the request sets or that cmapi fills "
+                                                              "in, with its source",
+                                                  examples=[{}])
+
+
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
@@ -269,6 +287,8 @@ class PlanView(Api):
     files: dict[str, str] = Field(description="Rendered content of each changed file", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\n..."}])
     findings: list[dict[str, Any]] = Field(default_factory=list, description="Validator warnings", examples=[[]])
     beyond_tier: BeyondTier | None = Field(default=None, description="The values beyond the tier and the approvals they add; null when the request has none")
+    metadata: PlanMetadata | None = Field(default=None, description="On a create: the final labels and annotations, each "
+                                                                     "with its source (#479). Null on other writes")
 
 
 class NamespaceView(ClusterScoped):
@@ -348,6 +368,10 @@ class ExpirationRow(Api):
                                           "database", examples=[0])
     open_request: str | None = Field(default=None, description="The request that holds the namespace; while it is open, another "
                                                                "change is refused with 409 change-pending", examples=[None])
+    actions: list[Literal["extend", "set", "makePermanent"]] = Field(
+        description="The expiry writes this namespace takes (#479): `extend` and `makePermanent` with a date, `set` without one. "
+                    "Where expiration is off in its environment, only `makePermanent`, for a date kept from before",
+        examples=[["extend", "makePermanent"]])
 
 
 class ExpirationRulesView(Api):
@@ -839,7 +863,8 @@ class MetadataKeysView(Api):
     .annotations, without the title, description and examples that the document puts around it."""
     labels: dict[str, Any] = Field(
         description="The JSON Schema of NamespaceCreate.labels on this instance: each declared key with its rule, which keys "
-                    "are required, which cmapi sets (readOnly) and which only an operator may set (x-cmapi-operator-only)",
+                    "are required, which cmapi fills in (x-cmapi-derived-from) and which only an operator may set "
+                    "(x-cmapi-operator-only)",
         examples=[{"type": "object", "properties": {"cmapi.net/team": {"type": "string", "pattern": "^(?:^[a-z0-9-]{2,40}$)$",
                                                                        "title": "Team", "x-cmapi-rule": "must match ^[a-z0-9-]{2,40}$"}},
                    "required": ["cmapi.net/team"]}])
@@ -848,6 +873,12 @@ class MetadataKeysView(Api):
         examples=[{"type": "object", "properties": {"cmapi.net/team-dl": {"type": "string", "title": "Team DL",
                                                                           "x-cmapi-format": "email-in-domains"}},
                    "required": ["cmapi.net/team-dl"]}])
+    expiration: dict[str, Any] = Field(
+        alias="x-cmapi-expiration",
+        description="NamespaceCreate.expiresAt's x-cmapi-expiration (#479): the expiration rules of each environment that "
+                    "this instance serves, from expiration.yaml; {\"enabled\": false} alone where it takes no expiry",
+        examples=[{"environments": {"dev": {"enabled": True, "allowedAtCreate": True, "maxLifetimeDays": 180,
+                                            "notifyDaysBefore": [14, 7, 1], "graceDays": 7}, "prod": {"enabled": False}}}])
 
 
 class PruneConfirm(Api):

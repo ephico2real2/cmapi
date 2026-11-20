@@ -26,7 +26,7 @@ import difflib
 import functools
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Mapping
@@ -52,8 +52,11 @@ KINDS = ("label", "annotation")
 # What cmapi can fill a key from. Each comes from the request's own target, never from the requester's text.
 DERIVED_FROM = ("namespace", "environment", "cluster", "instance")
 FORMATS = ("email-in-domains", "url")
-_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "title", "description", "example"}
+_RULE_FIELDS = {"value", "pattern", "enum", "format", "namespacePrefix", "namespaceSuffix", "default", "title",
+                "description", "example"}
 _OLD_STANZAS = ("governed", "team")
+# The label and the annotation that cmapi writes for expiresAt (core/render/manifests.py), and nothing else writes.
+EXPIRY_KEYS = ("cmapi.net/expiry", "cmapi.net/expires-at")
 # The stanzas of the file (#338): a list of text, or a mapping. Any other top-level key stops the start, so a misspelt
 # stanza (requiredLabel) cannot load as a file with no rule in it.
 _LIST_STANZAS = ("system", "operatorOnly", "reservedPrefixes", "sensitiveKeys", "emailDomains")
@@ -516,6 +519,8 @@ class KeyRule:
     enum: tuple[str, ...] | None = None
     format: str | None = None           # one of FORMATS
     namespace_prefix: bool = False      # the namespace name must start with "<value>-"
+    namespace_suffix: bool = False      # the namespace name must end with "-<value>" (#479)
+    default_from: str | None = None     # a key of the same kind whose value fills this one when it is not sent (#479)
     title: str | None = None            # a short label for a form (JSON Schema title, #336); the key when absent
     description: str | None = None
     example: str | None = None
@@ -534,7 +539,9 @@ class KeyRule:
         if self.format == "url":
             parts.append("an http or https URL")
         if self.namespace_prefix:
-            parts.append("the start of the namespace name, before its first '-'")
+            parts.append("the namespace name starts with this value and '-'")
+        if self.namespace_suffix:
+            parts.append("the namespace name ends with '-' and this value")
         return "; ".join(parts) or "any value"
 
 
@@ -545,6 +552,7 @@ class AllowOther:
     max: int
     max_value_bytes: int | None = None
     max_bytes_total: int | None = None
+    example: Mapping[str, str] = field(default_factory=dict)   # extra keys that the API document's examples show (#479)
 
 
 class MetadataKeys:
@@ -566,6 +574,10 @@ class MetadataKeys:
                 problems.append(f"unknown stanza {stanza!r}" + (f": did you mean {near[0]}?" if near else
                                                                  f"; the stanzas are {list(_LIST_STANZAS + _MAP_STANZAS)}"))
         self.system = self._texts(raw, "system", problems)
+        for key in EXPIRY_KEYS:
+            # Only expiresAt writes them (rule 7 of #479), so a file that leaves them out of system cannot let a request.
+            if key not in self.system:
+                self.system.append(key)
         self.operator_only = self._texts(raw, "operatorOnly", problems)
         self.reserved_prefixes = [p.rstrip("/") for p in self._texts(raw, "reservedPrefixes", problems)]
         self.sensitive = set(self._texts(raw, "sensitiveKeys", problems))
@@ -600,6 +612,8 @@ class MetadataKeys:
                 self._add(kind, key, spec, False, extra_name, problems)
             self.allow_other[kind] = self._allow_other(kind, self._mapping(extra, "allowOther", problems, extra_name),
                                                        extra_name, problems)
+        self._check_name_keys(problems)
+        self._check_defaults(problems)
         self.adoption_labels: dict[str, tuple[str, ...]] = {}
         for key, spec in self._mapping(raw, "adoptionLabels", problems).items():
             if not isinstance(spec, Mapping) or set(spec) - {"recognise"}:
@@ -617,6 +631,7 @@ class MetadataKeys:
             if key in self.system or key in self.operator_only:
                 problems.append(f"adoptionLabels.{key}: a system or operator-only key is not an adoption label")
             self.adoption_labels[key] = tuple(values)
+        self._check_other_examples(problems)
         if problems:
             raise ValueError("invalid metadata-keys.yaml: " + "; ".join(problems))
 
@@ -669,10 +684,11 @@ class MetadataKeys:
             problems.append(f"{where}: a system, operator-only or reserved key cannot be set by a requester")
         if key in self.rules[kind]:
             problems.append(f"{where}: declared twice as a {kind}")
-        for field, want in (("title", str), ("description", str), ("example", str), ("namespacePrefix", bool)):
-            if spec.get(field) is not None and not isinstance(spec[field], want):
-                problems.append(f"{where}: {field} must be {'text' if want is str else 'true or false'}, "
-                                f"not {_kind_of(spec[field])}")
+        for name, want in (("title", str), ("description", str), ("example", str), ("namespacePrefix", bool),
+                           ("namespaceSuffix", bool)):
+            if spec.get(name) is not None and not isinstance(spec[name], want):
+                problems.append(f"{where}: {name} must be {'text' if want is str else 'true or false'}, "
+                                f"not {_kind_of(spec[name])}")
         title = spec.get("title")
         if isinstance(title, str) and not title.strip():
             # A form labels the field with it (#336): an empty label would leave the field with no name.
@@ -702,14 +718,19 @@ class MetadataKeys:
             problems.append(f"{where}: format {fmt} is for annotations only; a label value cannot hold {holds}")
         pattern = spec.get("pattern")
         regex_ok = self._pattern_ok(where, pattern, problems)
-        if derived and (pattern is not None or enum is not None or fmt is not None or spec.get("namespacePrefix")):
-            problems.append(f"{where}: a key with value.from takes no pattern, enum, format or namespacePrefix")
+        default_from = self._default_from(where, spec, problems)
+        if derived and (pattern is not None or enum is not None or fmt is not None or spec.get("namespacePrefix")
+                        or default_from is not None):
+            problems.append(f"{where}: a key with value.from takes no pattern, enum, format, namespacePrefix or default")
         if sum(x is not None for x in (pattern, enum, fmt)) > 1:
             problems.append(f"{where}: give one of pattern, enum and format")
+        if spec.get("namespacePrefix") and spec.get("namespaceSuffix"):
+            problems.append(f"{where}: a key starts the namespace name or ends it, not both (namespacePrefix, namespaceSuffix)")
         example = spec.get("example")
         rule = KeyRule(kind=kind, required=required, derived=derived, pattern=pattern,
                        enum=tuple(enum) if enum is not None else None, format=fmt,
                        namespace_prefix=bool(spec.get("namespacePrefix")),
+                       namespace_suffix=bool(spec.get("namespaceSuffix")), default_from=default_from,
                        title=title if isinstance(title, str) else None,
                        description=spec.get("description"), example=example)
         self.rules[kind][key] = rule
@@ -723,6 +744,61 @@ class MetadataKeys:
             if refused:
                 problems.append(f"{where}: the example {example!r} breaks the key's own rule "
                                 f"({refused.get('detail', rule.text(self.email_domains))})")
+
+    @staticmethod
+    def _default_from(where: str, spec: Mapping[str, Any], problems: list[str]) -> str | None:
+        """default: {from: <key>}, the key whose value fills this one when a create does not send it (#479)."""
+        if "default" not in spec:
+            return None
+        value = spec["default"]
+        if not isinstance(value, Mapping) or set(value) != {"from"} or not isinstance(value["from"], str):
+            problems.append(f"{where}: default must be {{from: <key>}}, not {_kind_of(value)}")
+            return None
+        return value["from"]
+
+    def _check_name_keys(self, problems: list[str]) -> None:
+        """At most one key starts the namespace name and one ends it: the name has one start and one end (#479)."""
+        prefixes = [f"{kind} {key}" for kind in KINDS for key, rule in self.rules[kind].items() if rule.namespace_prefix]
+        suffixes = [f"{kind} {key}" for kind in KINDS for key, rule in self.rules[kind].items() if rule.namespace_suffix]
+        for name, marked in (("namespacePrefix", prefixes), ("namespaceSuffix", suffixes)):
+            if len(marked) > 1:
+                problems.append(f"{name}: only one key may have it, not {marked}")
+
+    def _check_defaults(self, problems: list[str]) -> None:
+        """Each default: {from: K} names a declared key of the same kind that has no default itself, so a value is copied
+        once and never through a chain (#479). K may be a filled-in key: step 1 fills it before step 2 copies it."""
+        for kind in KINDS:
+            other = "annotation" if kind == "label" else "label"
+            for key, rule in self.rules[kind].items():
+                source = rule.default_from
+                if source is None:
+                    continue
+                where = f"the {kind} {key}: default.from {source}"
+                target = self.rules[kind].get(source)
+                if target is None:
+                    reason = f"is {'an' if other == 'annotation' else 'a'} {other}, not a {kind}" \
+                        if source in self.rules[other] else "is not a declared key"
+                    problems.append(f"{where} {reason}")
+                elif target.default_from is not None:
+                    problems.append(f"{where} has a default itself; a default is copied once, never through a chain")
+
+    def _check_other_examples(self, problems: list[str]) -> None:
+        """Each allowOther.example is an extra key that a request may send: one that allowOther admits, with a valid
+        value, within the limits. The API document puts it in the create example (#479)."""
+        for kind, stanza in (("label", "extraLabels"), ("annotation", "extraAnnotations")):
+            other = self.allow_other[kind]
+            for key, value in other.example.items():
+                where = f"{stanza}.allowOther.example.{key}"
+                if self._syntax(key, value, kind) is not None:
+                    problems.append(f"{where}: not a valid {kind} key and value")
+                elif self.classify(key, kind) != "team" or any(key in self.rules[k] for k in KINDS):
+                    problems.append(f"{where}: not a key that allowOther admits (its prefixes are {list(other.prefixes)})")
+            if len(other.example) > other.max:
+                problems.append(f"{stanza}.allowOther.example: more keys than max ({other.max})")
+            if kind == "annotation":
+                sizes = [len(v.encode()) for v in other.example.values()]
+                if any(n > (other.max_value_bytes or 0) for n in sizes) or sum(sizes) > (other.max_bytes_total or 0):
+                    problems.append(f"{stanza}.allowOther.example: values over maxValueBytes or maxBytesTotal")
 
     @staticmethod
     def _pattern_ok(where: str, pattern: Any, problems: list[str]) -> bool:
@@ -756,7 +832,7 @@ class MetadataKeys:
 
     @staticmethod
     def _allow_other(kind: str, raw: Mapping[str, Any], stanza: str, problems: list[str]) -> AllowOther:
-        known = {"prefixes", "max"} | ({"maxValueBytes", "maxBytesTotal"} if kind == "annotation" else set())
+        known = {"prefixes", "max", "example"} | ({"maxValueBytes", "maxBytesTotal"} if kind == "annotation" else set())
         unknown = set(raw) - known
         if unknown:
             problems.append(f"{stanza}.allowOther: unknown fields {sorted(unknown)}")
@@ -772,8 +848,15 @@ class MetadataKeys:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 problems.append(f"{stanza}.allowOther.{name} must be a whole number, zero or more")
                 limits[name] = 0
+        example = raw.get("example")
+        if example is None:
+            example = {}                    # absent, or null: as each stanza reads null (_texts, _mapping)
+        if not isinstance(example, Mapping) or not all(isinstance(k, str) and isinstance(v, str) for k, v in example.items()):
+            problems.append(f"{stanza}.allowOther.example must be a mapping of keys to text values")
+            example = {}
         return AllowOther(prefixes=tuple(p.rstrip("/") for p in prefixes), max=limits["max"],
-                          max_value_bytes=limits.get("maxValueBytes"), max_bytes_total=limits.get("maxBytesTotal"))
+                          max_value_bytes=limits.get("maxValueBytes"), max_bytes_total=limits.get("maxBytesTotal"),
+                          example=dict(example))
 
     @classmethod
     def load(cls, path: str | Path) -> "MetadataKeys":
@@ -822,37 +905,192 @@ class MetadataKeys:
                     out[kind][key] = sources[rule.derived]
         return out["label"], out["annotation"]
 
+    # ---- the keys that the namespace name is made of (#479)
+    def prefix_key(self) -> tuple[str, str] | None:
+        """(kind, key) of the key with namespacePrefix: the name starts with its value and "-". The loader allows one."""
+        for kind in KINDS:
+            for key, rule in self.rules[kind].items():
+                if rule.namespace_prefix:
+                    return kind, key
+        return None
+
+    def suffix_key(self) -> tuple[str, str] | None:
+        """(kind, key) of the key with namespaceSuffix: the name ends with "-" and its value. The loader allows one."""
+        for kind in KINDS:
+            for key, rule in self.rules[kind].items():
+                if rule.namespace_suffix:
+                    return kind, key
+        return None
+
+    # ---- steps 1 and 2 of a create: what cmapi fills in before it checks (#479)
+    def filled(self, labels: Mapping[str, str | None], annotations: Mapping[str, str | None],
+               sources: Mapping[str, str]) -> dict[str, dict[str, str | None]]:
+        """{kind: map}: the request's maps with each filled-in key (value.from) and then each default (default.from)
+        that the request leaves out. A key that the request sends keeps its value, so a wrong one is still refused."""
+        out = {}
+        for kind, items in (("label", labels), ("annotation", annotations)):
+            out[kind] = self._fill_defaults(kind, self._fill_derived(kind, items, sources))
+        return out
+
+    def _fill_derived(self, kind: str, items: Mapping[str, str | None], sources: Mapping[str, str]) -> dict[str, str | None]:
+        """Step 1: each value.from key that is not sent, from the request's target (namespace, environment, ...)."""
+        out = dict(items)
+        for key, rule in self.rules[kind].items():
+            if rule.derived and key not in out and sources.get(rule.derived):
+                out[key] = sources[rule.derived]
+        return out
+
+    def _fill_defaults(self, kind: str, items: Mapping[str, str | None]) -> dict[str, str | None]:
+        """Step 2: each default.from key that is not sent, from the value of its source key (the loader forbids chains)."""
+        out = dict(items)
+        for key, rule in self.rules[kind].items():
+            if rule.default_from and key not in out and out.get(rule.default_from):
+                out[key] = out[rule.default_from]
+        return out
+
+    def value_sources(self, labels: Mapping[str, str | None], annotations: Mapping[str, str | None],
+                      filled: Mapping[str, Mapping[str, str | None]]) -> dict[str, dict[str, dict[str, str]]]:
+        """{kind: {key: {value, source}}} of a create's filled maps, for the dry run (#479, A7). source is request, the
+        value.from target (namespace, environment, cluster, instance), or default:<key>."""
+        out: dict[str, dict[str, dict[str, str]]] = {}
+        for kind, sent in (("label", labels), ("annotation", annotations)):
+            out[kind] = {}
+            for key, value in self.ordered({k: v for k, v in filled[kind].items() if v is not None}).items():
+                if key in sent:
+                    source = "request"
+                elif self.rules[kind][key].derived:          # only a declared key is filled in
+                    source = self.rules[kind][key].derived
+                else:
+                    source = f"default:{self.rules[kind][key].default_from}"
+                out[kind][key] = {"value": value, "source": source}
+        return out
+
     # ---- validation of what a caller sends (never the renderer's own system keys)
     def validate(self, labels: Mapping[str, str | None], annotations: Mapping[str, str | None], *,
                  operator: bool, require_governed: bool = True,
                  current_labels: Mapping[str, str] | None = None,
                  current_annotations: Mapping[str, str] | None = None,
-                 sources: Mapping[str, str] | None = None, existing: bool = False) -> list[dict[str, Any]]:
-        """labels/annotations: what the caller sends (a merge patch; None removes a key).
-        Classes and values are checked on what is sent; required keys and limits on the result,
-        so a PATCH can neither remove a required key nor slip past the caps. sources: the request's target
-        (namespace, environment, cluster, instance), from which cmapi fills each value.from key.
+                 sources: Mapping[str, str] | None = None, existing: bool = False,
+                 create: bool = False) -> list[dict[str, Any]]:
+        """labels/annotations: what the caller sends (a merge patch; None removes a key). The steps, in order (#479):
+
+            1, 2  on a create: fill each filled-in key, then each default, that the request leaves out (filled)
+            3     the namespace name starts with the value of the namespacePrefix key and "-" (_check_prefix)
+            4     on a create: the namespace name ends with "-" and the value of the namespaceSuffix key (_check_suffix),
+                  with a desired name between the two ends (_check_desired_name)
+            5     each key sent: its syntax, its class and its rule (_check_sent_keys); each required key (_check_required)
+            6     the extra keys of allowOther: their count and bytes (_check_other_keys)
+
+        Classes and values are checked on what is sent; required keys and limits on the result, so a PATCH can neither
+        remove a required key nor slip past the caps. sources: the request's target (namespace, environment, cluster,
+        instance), from which cmapi fills each value.from key.
 
         existing: the namespace is in Git already. Then a required key that its current version lacks, and that the
         request does not touch, is held: not refused, as the rendered policies hold it (the owner's decision on #26: a
         missing required key is never forced, only reported). A request that sends the key must give a valid value."""
         sources = sources or {}
+        sent = {"label": dict(labels), "annotation": dict(annotations)}
+        if create:
+            sent = self.filled(labels, annotations, sources)
+        current = {"label": current_labels or {}, "annotation": current_annotations or {}}
+        merged = {kind: self.merge_patch(current[kind], sent[kind]) for kind in KINDS}
+        errs = self._check_prefix(sent, current, sources)
+        if create:
+            # A name is chosen once, at create. A PATCH cannot rename, so it is not refused for a name made before the rule.
+            errs += self._check_suffix(sent, sources)
+            if not errs:
+                errs += self._check_desired_name(sent, sources)
+        errs += self._check_sent_keys(sent, current, operator, sources)
+        if require_governed:
+            errs += self._check_required(sent, current, merged, existing, errs)
+        errs += self._check_other_keys(merged)
+        if create:
+            errs = self._without_copied_faults(errs, {"label": labels, "annotation": annotations}, sent)
+        return errs
+
+    def _without_copied_faults(self, errs: list[dict[str, Any]], request: Mapping[str, Mapping[str, str | None]],
+                               sent: Mapping[str, Mapping[str, str | None]]) -> list[dict[str, Any]]:
+        """One fault, one error: step 2 copies a default from its source key, so a refused source value would be refused
+        again on a key that the request never sent (mnemonic ABC, then team ABC). The source's error stays and the copy's
+        goes. A key that got no copy (an empty source) keeps its missing_required_key."""
+        refused = {(e.get("kind"), e.get("key")) for e in errs}
+        kept = []
+        for e in errs:
+            kind, key = e.get("kind"), e.get("key")
+            rule = self.rules[kind].get(key) if kind in self.rules else None
+            copied = rule is not None and rule.default_from is not None and key not in request[kind] \
+                and bool(sent[kind].get(key))
+            if not (copied and (kind, rule.default_from) in refused):
+                kept.append(e)
+        return kept
+
+    def _breaks_own_rule(self, key: str, value: str, kind: str, sources: Mapping[str, str]) -> bool:
+        """The value breaks its key's syntax or rule. Step 5 reports that, so the name checks skip it: one error per key."""
+        return self._syntax(key, value, kind) is not None or bool(self._governed(key, value, kind, sources))
+
+    def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
+                      sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Step 3: the namespace name starts with "<value>-" of the namespacePrefix key, when the request sends it."""
+        found, namespace = self.prefix_key(), sources.get("namespace")
+        if found is None or not namespace:
+            return []
+        kind, key = found
+        value = sent[kind].get(key)
+        if value and value == current[kind].get(key):
+            # The value that Git holds: a change cannot rename, so a namespace named before the rule is not refused for
+            # sending it back. The rendered policy (_same) and the plan-time check (_held) pass it too.
+            return []
+        # An empty value is a missing key, which step 5 reports.
+        if not value or self._breaks_own_rule(key, value, kind, sources) or namespace.startswith(f"{value}-"):
+            return []
+        return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not start with {value}-"}]
+
+    def _check_suffix(self, sent: Mapping[str, Mapping[str, str | None]], sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Step 4: the namespace name ends with "-<value>" of the namespaceSuffix key (the cluster's environment, filled
+        in at step 1), when the request has it. The refusal is on that key, as the prefix's is on its key (#479, A9)."""
+        found, namespace = self.suffix_key(), sources.get("namespace")
+        if found is None or not namespace:
+            return []
+        kind, key = found
+        value = sent[kind].get(key)
+        if not value or self._breaks_own_rule(key, value, kind, sources) or namespace.endswith(f"-{value}"):
+            return []
+        return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not end with -{value}"}]
+
+    def _check_desired_name(self, sent: Mapping[str, Mapping[str, str | None]],
+                            sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Step 4, after both ends passed: the name has a desired name between "<prefix>-" and "-<suffix>", so abc-dev
+        and abc--dev are refused for abc and dev (rule 1 of #479). The refusal is on the suffix key, as the end's is."""
+        prefix, suffix, namespace = self.prefix_key(), self.suffix_key(), sources.get("namespace")
+        if prefix is None or suffix is None or not namespace:
+            return []
+        start, end = sent[prefix[0]].get(prefix[1]), sent[suffix[0]].get(suffix[1])
+        if not start or not end or not namespace.startswith(f"{start}-") or not namespace.endswith(f"-{end}"):
+            return []                       # an end that steps 3 and 4 refused or skipped has its own error
+        if self._breaks_own_rule(prefix[1], start, prefix[0], sources) or \
+                self._breaks_own_rule(suffix[1], end, suffix[0], sources):
+            return []                       # step 5 refuses that value on its key: no name error is built on it
+        if len(namespace) > len(start) + len(end) + 2:
+            return []
+        return [{"code": "invalid_value", "key": suffix[1], "kind": suffix[0],
+                 "detail": f"{namespace} has no desired name between {start}- and -{end}"}]
+
+    def _check_sent_keys(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
+                         operator: bool, sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Step 5: each key that the request sends, by its syntax, its class and the rule of its stanza."""
         errs: list[dict[str, Any]] = []
-        merged = {"label": self.merge_patch(current_labels or {}, labels),
-                  "annotation": self.merge_patch(current_annotations or {}, annotations)}
-        for kind, items in (("label", labels), ("annotation", annotations)):
-            held = (current_labels if kind == "label" else current_annotations) or {}
-            for key, value in items.items():
+        for kind in KINDS:
+            other = "annotation" if kind == "label" else "label"
+            for key, value in sent[kind].items():
                 # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
                 # holds from before #330 ("/foo") can be removed, though no request may set it now.
-                e = None if value is None and key in held else self._syntax(key, value, kind)
+                e = None if value is None and key in current[kind] else self._syntax(key, value, kind)
                 if e:
                     errs.append(e)
                     continue
                 cls = self.classify(key, kind)
                 # A key declared for the other kind only (#234: the company's contact and wiki keys are annotations)
                 # is refused here even when allowOther admits its prefix, or it would pass as a team key.
-                other = "annotation" if kind == "label" else "label"
                 if cls in ("team", "disallowed") and key in self.rules[other]:
                     article = "an" if other == "annotation" else "a"
                     errs.append({"code": "invalid_key", "key": key, "detail": f"{key} is {article} {other}"})
@@ -864,18 +1102,30 @@ class MetadataKeys:
                     errs.append({"code": "operator_only_key", "key": key})
                 elif cls == "governed":
                     errs.extend(self._governed(key, value, kind, sources))
-        if require_governed:
-            for kind in KINDS:
-                for key, rule in self.rules[kind].items():
-                    if rule.required and not rule.derived and not merged[kind].get(key):
-                        sent = labels if kind == "label" else annotations
-                        current = (current_labels if kind == "label" else current_annotations) or {}
-                        if existing and key not in sent and not current.get(key):
-                            continue                # held: the namespace lacked it before, and the request leaves it
-                        errs.append({"code": "missing_required_key", "key": key, "kind": kind,
-                                     "detail": rule.text(self.email_domains)})
-        # A value that the request does not send is the current one, which Git holds: it is not checked again (the same
-        # rule as the bounds of tiers.py and the rendered policies). Each value that the request sends is checked above.
+        return errs
+
+    def _check_required(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
+                        merged: Mapping[str, Mapping[str, str]], existing: bool,
+                        reported: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Step 5: each required key that the result lacks. A filled-in key is cmapi's to set, so it is never missing. A
+        key that an earlier step refused already has its error (an empty mnemonic that breaks its pattern): one per key."""
+        refused = {(e.get("kind"), e.get("key")) for e in reported}
+        errs: list[dict[str, Any]] = []
+        for kind in KINDS:
+            for key, rule in self.rules[kind].items():
+                if not rule.required or rule.derived or merged[kind].get(key) or (kind, key) in refused:
+                    continue
+                if existing and key not in sent[kind] and not current[kind].get(key):
+                    continue                        # held: the namespace lacked it before, and the request leaves it
+                errs.append({"code": "missing_required_key", "key": key, "kind": kind,
+                             "detail": rule.text(self.email_domains)})
+        return errs
+
+    def _check_other_keys(self, merged: Mapping[str, Mapping[str, str]]) -> list[dict[str, Any]]:
+        """Step 6: the extra keys of each kind (class team) within allowOther's count and, for annotations, bytes.
+        A value that the request does not send is the current one, which Git holds: it is not checked again (the same
+        rule as the bounds of tiers.py and the rendered policies). Each value that the request sends is checked above."""
+        errs: list[dict[str, Any]] = []
         for kind in KINDS:
             limits = self.allow_other[kind]
             team = {k: v for k, v in merged[kind].items() if self.classify(k, kind) == "team"}
@@ -925,16 +1175,14 @@ class MetadataKeys:
             return [{"code": "invalid_value", "key": key, "kind": kind, "detail": detail}]
         if rule.enum is not None and value not in rule.enum:
             return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"one of {list(rule.enum)}"}]
-        namespace = sources.get("namespace")
-        if rule.namespace_prefix and namespace and not namespace.startswith(f"{value}-"):
-            return [{"code": "invalid_value", "key": key, "kind": kind, "detail": f"{namespace} does not start with {value}-"}]
         return []
 
     def check(self, labels, annotations, *, operator: bool, require_governed: bool = True,
-              current_labels=None, current_annotations=None, sources=None, existing: bool = False) -> None:
+              current_labels=None, current_annotations=None, sources=None, existing: bool = False,
+              create: bool = False) -> None:
         errs = self.validate(labels, annotations, operator=operator,
                              require_governed=require_governed, current_labels=current_labels,
-                             current_annotations=current_annotations, sources=sources, existing=existing)
+                             current_annotations=current_annotations, sources=sources, existing=existing, create=create)
         if any(e["code"] == "operator_only_key" for e in errs):
             raise Problem.forbidden("Only an operator (namespaces:protect) may set " +
                                     ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key"))
@@ -989,8 +1237,10 @@ class MetadataKeys:
 
         It documents validate(); it never replaces it. It is sound: each map that validate() accepts passes it
         (tests/core/test_metadata_schema_328.py runs both on one corpus). What JSON Schema cannot say stays loose and is
-        said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix), the
-        count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a key's prefix."""
+        said in words: who the caller is (operatorOnly), the request's target (a derived value, namespacePrefix and
+        namespaceSuffix), the count of other keys and the sizes in bytes (allowOther), and on a patch the 253 characters of a
+        key's prefix. One way it is stricter than validate(), on purpose (#479, A1): a create that leaves out a key that
+        cmapi fills in (value.from, default.from) is accepted, and the schema lists that key as required."""
         if kind not in KINDS or op not in _OPS:
             raise ValueError(f"json_schema: kind is one of {KINDS} and op one of {_OPS}, not {kind!r}, {op!r}")
         patch = op == "patch"
@@ -1005,7 +1255,8 @@ class MetadataKeys:
             # A character is one to four bytes in UTF-8, so a bound on bytes is at least this bound on characters.
             extra["maxLength"] = other.max_value_bytes
         schema: dict[str, Any] = {"type": "object", "properties": properties}
-        required = [key for key, rule in rules.items() if rule.required and not rule.derived]
+        # A filled-in key is required too (#479, A1): a client sends its value or leaves it out, and cmapi fills it in.
+        required = [key for key, rule in rules.items() if rule.required]
         if required and not patch:
             schema["required"] = required
         schema["propertyNames"] = self._key_names(kind, list(properties), patch)
@@ -1039,9 +1290,8 @@ class MetadataKeys:
         (missing_required_key, derived_key)."""
         out: dict[str, Any] = {"type": "string"}
         if rule.derived:
-            # Validation 9.4: readOnly is "managed exclusively by the owning authority". The same value is accepted
-            # (_governed), so the key stays in properties and out of required, with no const: it depends on the target.
-            out["readOnly"] = True
+            # Required and shown, not readOnly (#479, A1): Swagger UI hides a readOnly property of a request body. No const:
+            # the value depends on the request's target; another value is refused (derived_key).
             if rule.kind == "label":
                 out.update(pattern=_LABEL_VALUE, maxLength=63)
         else:
@@ -1062,9 +1312,15 @@ class MetadataKeys:
             if rule.required:
                 out["minLength"] = 1                # an empty value is a missing key (validate)
         words = [rule.description] if rule.description else []
-        words.append(rule.text(self.email_domains))
         if rule.derived:
+            # #479 (A1): the key is required and shown, so its words say that a client may leave it out.
+            words.append(f"filled in by cmapi from the {rule.derived}; you may leave it out")
             words.append("a request may send the same value, never another")
+        else:
+            words.append(rule.text(self.email_domains))
+        if rule.default_from and not patch:
+            # Only a create fills a default (steps 1 and 2 of validate); a PATCH never does.
+            words.append(f"default: the value of {rule.default_from}")
         if rule.title is not None:
             out["title"] = rule.title                # Validation 9.1: the short label; the description explains
         out["description"] = " ".join(w[:1].upper() + w[1:].rstrip(".") + "." for w in words)
@@ -1077,8 +1333,12 @@ class MetadataKeys:
             out["x-cmapi-derived-from"] = rule.derived
         if rule.format is not None:
             out["x-cmapi-format"] = rule.format
+        if rule.default_from and not patch:
+            out["x-cmapi-default-from"] = rule.default_from
         if rule.namespace_prefix:
             out["x-cmapi-namespace-prefix"] = True
+        if rule.namespace_suffix:
+            out["x-cmapi-namespace-suffix"] = True
         return self._nullable(out, patch and not rule.required and not rule.derived)
 
     def _key_names(self, kind: str, declared: list[str], patch: bool) -> dict[str, Any]:

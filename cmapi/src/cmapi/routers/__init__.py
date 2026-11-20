@@ -12,7 +12,10 @@ from cmapi.core.observability import AUTHZ_DENIED
 
 
 # The parameters that more than one route takes, each described once. check_documented refuses a parameter with no description or example.
-ClusterId = Annotated[str, Path(description="The cluster's ID, as `GET /api/v1/clusters` returns it.", examples=["CRC"])]
+# The cluster that every example names; the create example takes its environment where clusters.yaml has it (#479).
+EXAMPLE_CLUSTER = "CRC"
+ClusterId = Annotated[str, Path(description="The cluster's ID, as `GET /api/v1/clusters` returns it.",
+                                examples=[EXAMPLE_CLUSTER])]
 NamespaceName = Annotated[str, Path(description="The name of the namespace on that cluster.", examples=["payments-dev"])]
 RequestId = Annotated[str, Path(description="The request's ID, as the write that opened the request returned it.",
                                 examples=["req-20261105-0001"])]

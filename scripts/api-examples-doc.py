@@ -65,6 +65,10 @@ def render() -> str:
                 out += [f"Permission: `{permission}`." if permission else
                         ("Permission: none. A valid token is necessary." if op.get("security") else "Permission: none, and no token."), ""]
                 out += block("bash", op["x-codeSamples"][0]["source"])
+                media = op.get("requestBody", {}).get("content", {}).get("application/json", {})
+                dated = media.get("examples", {}).get("withExpiry")
+                if dated:
+                    out += [dated["summary"], ""] + block("json", json.dumps(dated["value"], indent=2))
                 for key in (op_id, f"{op_id}:dryRun"):
                     sample = samples["operations"].get(key)
                     if sample is None:

@@ -9,11 +9,18 @@ from test_metadata_stanzas_api import URL, body, company  # noqa: F401
 def test_the_api_documents_example_is_one_that_this_instance_accepts(company):
     client, ctx, git, kube, validator, keys = company
     props = client.get("/openapi.json").json()["components"]["schemas"]["NamespaceCreate"]["properties"]
-    # c830276: [{"cmapi.net/team": "payments"}], the model's fixed example, which this instance refuses.
-    assert props["labels"]["examples"] == [{"company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1"}]
-    assert props["annotations"]["examples"] == [{}]
+    # c830276: [{"cmapi.net/team": "payments"}], the model's fixed example, which this instance refuses. #479 (A6): the
+    # example also holds each filled-in key at its value for the example's target, and each optional key's example.
+    namespace = props["namespace"]["examples"][0]
+    assert namespace == "abc-payments-dev"
+    assert props["labels"]["examples"] == [{"name": namespace, "company.net/app-environment": "dev",
+                                            "company.net/mnemonic": "abc", "company.net/lob": "amgsst", "company.net/cl": "1"}]
+    assert props["annotations"]["examples"] == [{"company.net/app-environment": "dev",
+                                                 "company.net/mnemonic-group-contact": "abc-team@company.net",
+                                                 "company.net/mnemonic-confluence": "https://wiki.company.net/abc"}]
     r = client.post(URL + "?dryRun=true", headers=auth(keys, "ola", **OLA),
-                    json=body(labels=props["labels"]["examples"][0], annotations=props["annotations"]["examples"][0]))
+                    json=body(namespace=namespace, labels=props["labels"]["examples"][0],
+                              annotations=props["annotations"]["examples"][0]))
     assert r.status_code == 200, r.text
 
 

@@ -103,7 +103,7 @@ def test_the_refusal_is_one_problem_that_names_each_key_and_its_rule(keys):
     assert by_key["company.net/lob"]["detail"] == "not a valid label value"
     assert by_key["company.net/cl"]["detail"] == "one of ['0', '1', '2', '3', '4', '5', '6']"
     assert by_key["company.net/mnemonic"]["code"] == "missing_required_key"
-    assert "the start of the namespace name" in by_key["company.net/mnemonic"]["detail"]
+    assert "the namespace name starts with this value and" in by_key["company.net/mnemonic"]["detail"]
 
 
 def test_other_keys_are_limited_by_kind(keys):
@@ -202,6 +202,9 @@ def test_a_held_value_that_breaks_its_rule_is_not_checked_again(keys):
     current = {**SENT, "company.net/mnemonic": "xyz"}
     assert keys.validate({"company.net/cl": "2"}, {}, operator=False, sources=SOURCES, current_labels=current,
                          existing=True) == []
+    # Sent back as Git holds it, it writes nothing and is kept (review of #488, FB1); another value is checked.
+    assert keys.validate({"company.net/mnemonic": "xyz"}, {}, operator=False, sources=SOURCES, current_labels=current,
+                         existing=True) == []
     assert ("invalid_value", "company.net/mnemonic") in codes(
-        keys.validate({"company.net/mnemonic": "xyz"}, {}, operator=False, sources=SOURCES, current_labels=current,
+        keys.validate({"company.net/mnemonic": "xyw"}, {}, operator=False, sources=SOURCES, current_labels=current,
                       existing=True))

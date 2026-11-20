@@ -319,6 +319,7 @@ data:
     # a prod request with any expiry field gets 422 expiration-not-allowed, and policies/env/prod
     # denies the keys at admission.
     defaults:
+      enabled: true                  # false: no expiry in an environment, as one with no entry (#479)
       allowedAtCreate: true          # optional; leaving expiresAt out creates a permanent namespace
       maxExtensionDays: 30           # each :extend adds at most this many days
       maxLifetimeDays: 180           # from creation; past it, or :makePermanent, adds approver-platform
