@@ -80,7 +80,8 @@ def _empty() -> dict[str, int]:
 def hash_state(state: str, rendered: str | None, live: str | None, git: str | None = None) -> str:
     if state in ("mode-off", "engine-off") and rendered is None and live is None:
         return "off"
-    if state not in ("ok", "drift"):
+    # capped is about report rows past the cap. The policy list is complete, so the hashes still decide.
+    if state not in ("ok", "drift", "capped"):
         return "unknown"
     if live == rendered:
         return "off" if live is None else "current"
