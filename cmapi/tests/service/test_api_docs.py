@@ -161,7 +161,7 @@ def test_a_plugin_that_is_not_included_is_not_in_the_spec():
     def router(plugin: str, group: str) -> DocumentedRouter:
         r = DocumentedRouter(plugin, prefix="/api/v1", version="1.2.3", description=f"What the {plugin} plugin does.", group=group)
 
-        @r.read(f"/{plugin}", summary=f"Read {plugin}", permission=None, response_model=Health)
+        @r.read(f"/{plugin}", summary=f"Read {plugin}", permission=None, returns="The health.", response_model=Health)
         def read():
             """Reads it."""
 
@@ -316,7 +316,7 @@ def test_a_parameter_without_a_description_or_an_example_stops_startup():
     def app_with(**query) -> FastAPI:
         r = DocumentedRouter("x", prefix="/api/v1", version="1", description="What the x plugin does.", group="Admin")
 
-        @r.read("/x/{thing}", summary="Read x", permission=None, response_model=Health)
+        @r.read("/x/{thing}", summary="Read x", permission=None, returns="The health.", response_model=Health)
         def read(thing: str, limit: int = Query(default=5, **query)):
             """Reads it."""
 
@@ -409,7 +409,7 @@ def test_redoc_starts_with_its_telemetry_off(bundles, test_config, fresh_db, key
         page = client.get("/redoc").text
         start = client.get("/docs/redoc-start.js").text
     assert "<redoc" not in page and "spec-url" not in page
-    assert 'init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));' in start
+    assert redoc_options(start)["disableTelemetry"] is True
 
 
 def test_the_redoc_pin_carries_the_dompurify_fix():
@@ -429,7 +429,7 @@ def test_the_redoc_page_asks_no_other_host(bundles, test_config, fresh_db, keys,
     with build_world(test_config, keys, monkeypatch) as (client, *_):
         r = client.get("/redoc")
         start = client.get("/docs/redoc-start.js").text
-    assert "disableTelemetry: true" in start, "ReDoc's telemetry is on"
+    assert redoc_options(start).get("disableTelemetry") is True, "ReDoc's telemetry is on"
     policy = {d.split()[0]: d.split()[1:] for d in r.headers.get("content-security-policy", "").split(";") if d.strip()}
     assert policy.get("default-src") == ["'none'"], policy
     assert policy.get("connect-src") == ["'self'"], "the page may send data to another host"
@@ -445,3 +445,40 @@ def test_the_front_doors_redoc_policy_is_the_apis_own():
     template = (Path(__file__).resolve().parents[3] / "cmapi-portal-ui/nginx/templates/cmapi.conf.template").read_text()
     found = re.findall(r'map \$host \$cmapi_csp_redoc \{\s*default "([^"]*)";', template)
     assert found == [main_mod.REDOC_CSP]
+
+
+# ---------------------------------------------------------------- #480: the renderers' settings (the standard's S9)
+
+def redoc_options(start: str) -> dict:
+    """The options object that the start module passes to ReDoc's init (one JSON object)."""
+    found = re.findall(r'^init\("/openapi\.json", (\{.*\}), document\.getElementById\("redoc"\)\);$', start, flags=re.M)
+    assert len(found) == 1, start
+    return json.loads(found[0])
+
+
+def swagger_parameters(page: str) -> dict:
+    """The "key": value lines that the /docs page passes to SwaggerUIBundle (FastAPI writes one per line)."""
+    block = page.split("SwaggerUIBundle({", 1)[1].split("presets:", 1)[0]
+    return {k: json.loads(v) for k, v in re.findall(r'^\s*"(\w+)": (.+),$', block, flags=re.M)}
+
+
+def test_swagger_ui_is_served_with_the_settings_of_the_standard(bundles, test_config, fresh_db, keys, monkeypatch):
+    """docs/reviews/2026-11-20-issue-479/implementation_plan.md, 3.1: the x- fields and the rule keywords shown, the request
+    time shown, tags open and operations closed, the models one level deep and a model three, and Try it out off until
+    chosen. Each is the documented option of https://swagger.io/docs/open-source-tools/swagger-ui/usage/configuration/."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        params = swagger_parameters(client.get("/docs").text)
+    expected = {"persistAuthorization": True, "showExtensions": True, "showCommonExtensions": True,
+                "displayRequestDuration": True, "docExpansion": "list", "defaultModelsExpandDepth": 1,
+                "defaultModelExpandDepth": 3, "tryItOutEnabled": False}
+    assert {k: params.get(k) for k in expected} == expected
+
+
+def test_redoc_starts_with_the_options_of_the_standard(bundles, test_config, fresh_db, keys, monkeypatch):
+    """Plan 3.2, in ReDoc 3's names (https://redocly.com/docs/redoc/config-migration): showExtensions, sortRequiredPropsFirst
+    (2.x's requiredPropsFirst), hideDownloadButtons (2.x's hideDownloadButton), and the telemetry off. expandResponses and
+    sortPropsAlphabetically were removed in ReDoc 3, so passing them would do nothing."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        options = redoc_options(client.get("/docs/redoc-start.js").text)
+    assert options == {"disableTelemetry": True, "showExtensions": True, "sortRequiredPropsFirst": True,
+                       "hideDownloadButtons": False}

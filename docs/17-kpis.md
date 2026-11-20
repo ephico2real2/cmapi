@@ -105,7 +105,7 @@ the process's own cgroup, and pg_stat_activity -> the same response: components,
 
 ## The API contract
 
-`GET /api/v1/admin/kpi` needs the permission `reports:read`. Its response has a schema in the OpenAPI document (`KpiView`, `KpiRow`, `KpiComponent`, `KpiDatabase`), and `docs/04`, "System KPIs", has a recorded sample.
+`GET /api/v1/admin/kpi` needs the permission `reports:read`. Its response has a schema in the OpenAPI document (`KpiView`, `KpiRow`, `KpiComponent`, `KpiDatabase`), and `docs/04`, "Get system KPIs", has a recorded sample.
 
 | Part | Content |
 |---|---|

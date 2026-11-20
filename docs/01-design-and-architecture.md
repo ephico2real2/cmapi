@@ -760,6 +760,9 @@ async def create_namespace(cluster_id: ClusterId, body: NamespaceCreate) -> Plan
 - description and at least one example on every field of every public model (Field(description=…, examples=\[…\])).
 - A declared problem list on every route that can fail, with each problem type registered in core/errors.py.
 - An example request body on every write.
+- A `returns` on every read and on every write that answers 200: the description of its success answer, in place of FastAPI's "Successful Response".
+
+**One format for every operation (#480).** Each operation meets the standard S1 to S10 of `docs/reviews/2026-11-20-issue-479/implementation_plan.md`, section 3, checked by `cmapi/tests/service/test_api_standard.py` on the generated document: a summary and a description; one tag in one group; the permission in `x-cmapi-permission` and the "Requires" line; every parameter with its description, location, required flag, type and example; the request body's fields described, with a complete Example Value; every status described, a problem status by one sentence of what it means and then its codes; one named example per problem code, which Swagger UI shows in its **Examples** dropdown and ReDoc in its example selector; the `x-` fields; and one curl sample. An operation that takes a token also documents what the token check answers: 401 `unauthenticated` and 503 `idp-unavailable`. Swagger UI shows the `x-` fields in each operation's **Extensions** section (`showExtensions`, `showCommonExtensions`), and ReDoc beside each operation (`showExtensions`, with `sortRequiredPropsFirst`); the settings and their sources are in `cmapi/src/cmapi/main.py` (`SWAGGER_UI_PARAMETERS`, `REDOC_OPTIONS`).
 
 **CI gates on the spec.**
 

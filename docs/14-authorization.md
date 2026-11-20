@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:156-161`).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:248-253`).
 
 | Permission | Routes |
 |---|---|
@@ -175,10 +175,10 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:189`, `:416` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:184`, `:205` |
-| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:87`, `:98`, `:110` |
-| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:129`, `:158`, `:173`, `:193`, `:222` |
-| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:133` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:217` |
+| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:91`, `:104`, `:118` |
+| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:139`, `:170`, `:188`, `:213`, `:245` |
+| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
 | List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:117` |
@@ -196,7 +196,7 @@ An approval has more checks than the permission (`approvals.py:321-348`). They a
 
 | Check | Refusal |
 |---|---|
-| The caller has `requests:approve` in the environment of the request (`requests.py:129`) | 403 `environment-forbidden` |
+| The caller has `requests:approve` in the environment of the request (`requests.py:139`) | 403 `environment-forbidden` |
 | The caller has not approved this request before | 409 `already-approved` |
 | The caller did not file the request for another person, and does not own the client that filed it | 409 `self-approval`, "The operation starter or client owner cannot approve" |
 | The caller is not the requester, unless the rule has `selfApproval: true` | 409 `self-approval`, "Requesters cannot approve their own request here" |
@@ -359,7 +359,7 @@ The code `forbidden` has two more causes. Each is a refusal of the code, not of 
 
 | Cause | Detail | Source |
 |---|---|---|
-| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:178` |
+| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:193` |
 | A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Only an operator (namespaces:protect) may set <keys>" | `cmapi/src/cmapi/core/metadata.py:1307` |
 
 The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:331`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").
@@ -378,7 +378,7 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 
 ## See your own access
 
-`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:22-31`, `authz.py:188-193`). `operator` says whether the caller holds `namespaces:protect` somewhere, and `operatorEnvironments` where: `all`, or a list (`authz.py:168-176`). The portal shows the operator's controls from these two fields; the API checks each write in its environment. It needs a valid token and no permission. Read it first when a call returns 403.
+`GET /api/v1/me` returns the identity that cmapi recorded, the roles and groups of the token, and the permissions of each role with its environments (`cmapi/src/cmapi/routers/me.py:22-33`, `authz.py:188-193`). `operator` says whether the caller holds `namespaces:protect` somewhere, and `operatorEnvironments` where: `all`, or a list (`authz.py:168-176`). The portal shows the operator's controls from these two fields; the API checks each write in its environment. It needs a valid token and no permission. Read it first when a call returns 403.
 
 ## What is not built
 
