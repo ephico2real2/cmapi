@@ -21,7 +21,7 @@ from typing import Any, Iterable, Literal, Mapping
 
 import httpx
 
-from cmapi.core.clients.redact import redact, redact_cut, sent_forms
+from cmapi.core.clients.redact import order_forms, redact, redact_cut, sent_forms
 from cmapi.core.ports import PrRef, PrStatus
 
 CheckState = Literal["pending", "success", "failure"]
@@ -135,7 +135,7 @@ class HostGitProvider:
         credentials = credential_values(token, basic_auth)
         for value in credentials:
             register_secret(value)
-        self._forms = tuple(sorted({form for value in credentials for form in sent_forms(value)}, key=len, reverse=True))
+        self._forms = order_forms({form for value in credentials for form in sent_forms(value)})
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"token {token}", "Accept": "application/json"}
