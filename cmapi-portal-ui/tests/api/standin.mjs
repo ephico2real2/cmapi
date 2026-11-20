@@ -785,8 +785,13 @@ export async function startApi({ issuer, portalOrigin }) {
       if (RESERVED.test(body.namespace)) return problem(res, refuse(422, "reserved-namespace", `${body.namespace} is reserved`), cors);
       // cmapi/src/cmapi/core/metadata.py, validate(): each required key of the instance's rules, in the shape of the recorded
       // refusal. The stand-in runs no configured pattern: an operator's pattern can backtrack, and cmapi matches with RE2.
+      // A key that cmapi fills in (x-cmapi-derived-from, or x-cmapi-default-from with its source sent) is never missing (#479).
+      const fills = (map, key) => {
+        const prop = state.metadataKeys[map].properties[key];
+        return prop["x-cmapi-derived-from"] !== undefined || Boolean(body[map]?.[prop["x-cmapi-default-from"]]);
+      };
       const missing = ["labels", "annotations"].flatMap((map) => (state.metadataKeys[map].required ?? [])
-        .filter((key) => !body[map]?.[key])
+        .filter((key) => !body[map]?.[key] && !fills(map, key))
         .map((key) => ({ code: "missing_required_key", key, kind: map.slice(0, -1), detail: state.metadataKeys[map].properties[key]["x-cmapi-rule"] })));
       if (missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: missing }, cors);
       const protection = protectionRefusal(body.labels);
