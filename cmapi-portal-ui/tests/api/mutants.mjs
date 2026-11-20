@@ -253,9 +253,27 @@ const only = process.argv[2];
 // Each text must be in its file exactly one time. Check all of them before the first build, not in the middle of a run.
 const stale = MUTANTS.filter(([, file, from]) => readFileSync(join(app, file), "utf8").split(from).length !== 2).map(([what, file]) => `${what} (${file})`);
 if (stale.length) throw new Error(`the text of these mutants is not in the source exactly one time: ${stale.join("; ")}`);
+const selected = MUTANTS.filter(([what]) => !only || what.includes(only));
+if (!selected.length) throw new Error(`No mutant matches ${only}`);
+function runSuite(suite, checks) {
+  return spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], {
+    cwd: app, env: { ...process.env, CHECK: checks ?? "" }, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL"
+  });
+}
+// Run each selected check on a clean build before crediting failures to any edit.
+execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
+const baselines = new Set();
+for (const [, , , , suite, checks] of selected) {
+  const key = JSON.stringify([suite, checks]);
+  if (baselines.has(key)) continue;
+  const run = runSuite(suite, checks);
+  if (run.status !== 0 || (checks && !run.stdout.includes(`ok - ${checks}`))) {
+    throw new Error(`Baseline failed for ${suite} ${checks ?? ""}: ${run.error ?? (run.stderr || run.stdout)}`);
+  }
+  baselines.add(key);
+}
 const results = [];
-for (const [what, file, from, to, suite, checks] of MUTANTS) {
-  if (only && !what.includes(only)) continue;
+for (const [what, file, from, to, suite, checks] of selected) {
   const path = join(app, file), source = readFileSync(path, "utf8");
   if (source.split(from).length !== 2) throw new Error(`${what}: the text is not in ${file} exactly one time`);
   writeFileSync(path, source.replace(from, to));
@@ -263,12 +281,14 @@ for (const [what, file, from, to, suite, checks] of MUTANTS) {
   try {
     execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
     // A mutant can make the page wait without end. The suite has its own limit for each check; this one is the backstop.
-    const env = checks ? { ...process.env, CHECK: checks } : { ...process.env, CHECK: "" };
-    const run = spawnSync(process.execPath, [join(app, "tests", "api", `${suite}.test.mjs`)], { cwd: app, env, encoding: "utf8", timeout: SUITE_TIMEOUT_MS, killSignal: "SIGKILL" });
-    if (run.error?.code === "ETIMEDOUT") outcome = "killed: timeout";
+    const run = runSuite(suite, checks);
+    if (run.error || run.signal) outcome = `unverified: ${run.error ?? run.signal}`;
+    else if (suite === "portal" && run.status !== 0 && !run.stderr.split("\n").some(line => line.startsWith(`not ok - ${checks ?? ""}`))) {
+      outcome = `unverified: no selected portal check failed\n${run.stderr}`;
+    }
     else outcome = run.status === 0 ? "SURVIVED" : `killed: ${(run.stderr.match(/AssertionError[^\n]*\n?[^\n]*|TimeoutError[^\n]*|Timeout \d+ms[^\n]*|did not end in \d+ s/) ?? ["the suite failed"])[0].replace(/\s+/g, " ").slice(0, 150)}`;
-  } catch {
-    outcome = "killed: the build failed";
+  } catch (error) {
+    outcome = `unverified: ${error.message}`;
   } finally {
     writeFileSync(path, source);
   }
@@ -276,7 +296,7 @@ for (const [what, file, from, to, suite, checks] of MUTANTS) {
   console.log(`${outcome.startsWith("killed") ? "ok  " : "FAIL"} ${what} - ${outcome}`);
 }
 execFileSync(vite, ["build"], { cwd: app, stdio: "ignore" });
-const dirty = execFileSync("git", ["status", "--porcelain", "--", "src"], { cwd: app, encoding: "utf8" }).split("\n").filter((l) => / M /.test(` ${l}`) && MUTANTS.some((m) => l.endsWith(m[1].replace("src/", ""))));
-const survived = results.filter(([, outcome]) => !outcome.startsWith("killed"));
-console.log(`${results.length} mutants, ${results.length - survived.length} killed, ${survived.length} survived. The source is restored and the portal is built again.`);
-if (survived.length) process.exit(1);
+const killed = results.filter(([, outcome]) => outcome.startsWith("killed")).length;
+const survived = results.filter(([, outcome]) => outcome === "SURVIVED").length;
+console.log(`${results.length} mutants, ${killed} killed, ${survived} survived, ${results.length - killed - survived} unverified. The source is restored and the portal is built again.`);
+if (killed !== results.length) process.exit(1);

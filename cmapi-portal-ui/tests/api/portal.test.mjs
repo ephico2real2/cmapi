@@ -134,6 +134,9 @@ async function check(name, run) {
   const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`"${name}" did not end in ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); });
   try {
     await Promise.race([run(), late]);
+  } catch (error) {
+    console.error(`not ok - ${name}`);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
