@@ -1127,16 +1127,20 @@ class MetadataKeys:
     def _check_name_keys_kept(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
                               sources: Mapping[str, str]) -> list[dict[str, Any]]:
         """Steps 3 and 4 of a change: the namespacePrefix and namespaceSuffix keys are fixed, since a change cannot rename.
-        Sending back Git's value is accepted; another value, or a removal, is refused on that key. A filled-in key is
-        checked against its source at step 5 (derived_key), and so is a value that breaks the key's own rule."""
+        Sending back Git's value is accepted; another value, or a removal, is refused on that key. Step 5 refuses the
+        rest, one error per key: a filled-in key against its source (derived_key), a value that breaks the key's own
+        rule, and the removal of a required key (missing_required_key, as before #481)."""
         errs: list[dict[str, Any]] = []
         for found in (self.prefix_key(), self.suffix_key()):
             if found is None:
                 continue
             kind, key = found
-            if key not in sent[kind] or self.rules[kind][key].derived or self._is_echo(kind, key, sent, current):
+            rule = self.rules[kind][key]
+            if key not in sent[kind] or rule.derived or self._is_echo(kind, key, sent, current):
                 continue
             value, held = sent[kind][key], current[kind].get(key)
+            if value is None and rule.required:
+                continue
             if value is not None and self._breaks_own_rule(key, value, kind, sources):
                 continue
             keeps = f"a change keeps {held!r}" if held else "a change cannot add it; adoption does (story #26)"

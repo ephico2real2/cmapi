@@ -306,7 +306,7 @@ The old stanzas `governed` and `team` stop the start. The error names the new st
 
 The shape of the file is checked too (#338), so that a typo cannot load as a file with fewer rules:
 
-- A top-level key that is not one of the ten stanzas above stops the start, and the error names the nearest stanza: `unknown stanza 'requiredLabel': did you mean requiredLabels?`.
+- A top-level key that is not one of the eleven stanzas above stops the start, and the error names the nearest stanza: `unknown stanza 'requiredLabel': did you mean requiredLabels?`.
 - A list stanza (`system`, `operatorOnly`, `reservedPrefixes`, `sensitiveKeys`, `emailDomains`) must be a list of text. A text such as `emailDomains: ephico2real.com` is refused; before #338 it loaded as its characters (`['e', 'p', 'h', ...]`).
 - A mapping stanza (`requiredLabels`, `requiredAnnotations`, `extraLabels`, `extraAnnotations`, `adoptionLabels`), and `keys` and `allowOther` in an extra stanza, must be a mapping. An `adoptionLabels` entry has the one field `recognise`.
 - Each `emailDomains` entry must be a domain name: labels of letters, digits and `-`, joined by `.`, as the chart's `values.schema.json` says.
@@ -429,7 +429,7 @@ With the Helm chart, an operator sets the file as the structured value `metadata
 
 The rules of the value:
 
-- **The block is the whole file**, not a patch of the chart's file. Write each of the ten stanzas of the table above, `{}` or `[]` when one is empty. The schema refuses a block that leaves one out, so a partial block cannot silently drop the reserved keys or the required ones.
+- **The block is the whole file**, not a patch of the chart's file. Write each of the eleven stanzas of the table above (`liveOnlyKeys` too, #481), `{}` or `[]` when one is empty. The schema refuses a block that leaves one out, so a partial block cannot silently drop the reserved keys or the required ones.
 - **Empty (`metadata: {}`, the default):** the chart's `config/metadata-keys.yaml`, or the full text in `configFiles."metadata-keys.yaml"`. That text stays the fallback, and the schema does not read inside it.
 - **Both set:** the render fails: `metadata and configFiles."metadata-keys.yaml" both set metadata-keys.yaml: set one of them`.
 - **What the schema refuses:** an unknown or misspelled stanza or field (`additionalProperties: false` at each level, so the old stanzas `governed` and `team` too); a missing stanza; a wrong type (a text for a list, a limit that is not a whole number of zero or more); a key that is not a valid label or annotation key, including an empty prefix such as `/foo`; a `format` on a label; more than one of `pattern`, `enum` and `format`; `value.from` with a source other than `namespace`, `environment`, `cluster` or `instance`, or beside a `pattern`, `enum`, `format`, `namespacePrefix: true` or `default`; a `namespaceSuffix` that is not a boolean; a `default` that is not `{from: <key>}`; an `allowOther.example` key that is not a valid key or, for labels, a value that is not a label value; an empty `enum`, or a label `enum` value that a label cannot hold; an `adoptionLabels` entry with no `recognise`; a rule or an `example` that is not text; a required key with no `example` and no `value` (#332); a domain that is not a DNS name. The loader still checks what JSON Schema cannot: that a `pattern` compiles and is in the subset of "Patterns" above (its grammar nests parentheses, which the schema's own `pattern` keyword cannot describe), that an `example` passes its key's rule, that `email-in-domains` has a domain, that a key is not reserved or declared twice.
@@ -459,6 +459,7 @@ metadata:
     allowOther: {prefixes: ["", "*.acme.example/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536}
   adoptionLabels: {}
   sensitiveKeys: [cmapi.net/team, cmapi.net/protected, do-not-delete]
+  liveOnlyKeys: [kubernetes.io/metadata.name, "openshift.io/*", "argocd.argoproj.io/*", app.kubernetes.io/instance]
   emailDomains: [acme.example]
 ```
 

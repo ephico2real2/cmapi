@@ -115,9 +115,18 @@ def test_a_change_of_the_mnemonic_is_refused_even_when_the_name_starts_with_the_
     assert "a change keeps 'abc'" in found[0]["detail"]
 
 
-def test_a_change_that_removes_the_mnemonic_is_refused_as_part_of_the_name():
+def test_a_change_that_removes_the_mnemonic_is_refused_once_as_a_missing_required_key():
     found = KEYS.validate({"company.net/mnemonic": None}, {}, **CHANGE)
-    assert errors(found) == [("invalid_value", "company.net/mnemonic")]
+    assert errors(found) == [("missing_required_key", "company.net/mnemonic")]
+
+
+def test_a_change_that_removes_an_optional_key_that_starts_the_name_is_refused_as_part_of_the_name():
+    raw = {**RAW, "requiredLabels": {k: v for k, v in RAW["requiredLabels"].items() if k != "company.net/mnemonic"}}
+    raw["extraLabels"] = {**RAW["extraLabels"], "keys": {**RAW["extraLabels"]["keys"],
+                                                         "company.net/unit": {"pattern": "^[a-z]{3}$", "namespacePrefix": True}}}
+    current = {**CHANGE, "current_labels": {**GIT, "company.net/unit": "abc"}}
+    found = MetadataKeys(raw).validate({"company.net/unit": None}, {}, **current)
+    assert errors(found) == [("invalid_value", "company.net/unit")]
 
 
 def test_a_change_cannot_add_a_mnemonic_that_the_namespace_lacks():

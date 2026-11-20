@@ -105,7 +105,8 @@
       "if": {"minProperties": 1},
       "then": {
         "required": ["system", "operatorOnly", "reservedPrefixes", "requiredLabels", "requiredAnnotations",
-                     "extraLabels", "extraAnnotations", "adoptionLabels", "sensitiveKeys", "emailDomains"]
+                     "extraLabels", "extraAnnotations", "adoptionLabels", "sensitiveKeys", "emailDomains",
+                     "liveOnlyKeys"]
       }
     },
     "configFiles": {
