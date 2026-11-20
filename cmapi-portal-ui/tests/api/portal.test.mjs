@@ -73,7 +73,8 @@ const tabNames = (page) => page.getByRole("tab").allInnerTexts();
 
 // Start on a middle page so that both cursors would work with the old answer.
 async function checkHeldPage(page, { label, path, change, match, after, lastPage = false }) {
-  const table = panel(page).getByRole("table", { name: label, exact: true });
+  // PatternFly renders these tables with role="grid", so a role="table" query matches none of them: find it by its label.
+  const table = panel(page).locator(`table[aria-label="${label}"]`);
   // The nearest ancestor with both controls owns this table's pager, including on the two-list Policies tab.
   const list = table.locator("xpath=ancestor::*[.//button[normalize-space(.)='Next ›'] and .//button[normalize-space(.)='‹ Previous']][1]");
   const next = list.getByRole("button", { name: "Next ›", exact: true });
@@ -344,7 +345,7 @@ try {
       await page.evaluate(() => window.dispatchEvent(new Event("offline")));
       await page.getByRole("textbox", { name: "Find a request" }).fill("LEDGER");
       await page.waitForURL((url) => url.hash === "#requests?q=LEDGER");
-      const table = page.getByRole("table", { name: "Requests" });
+      const table = page.locator("table[aria-label=Requests]");
       await table.and(page.locator("[aria-busy=true]")).waitFor();
       assert.ok(await prev.isDisabled() && await next.isDisabled(), "paused rows still have the old cursors");
       assert.equal(calls("/api/v1/requests").filter((c) => c.query.q === "LEDGER").length, 0);
