@@ -73,12 +73,13 @@ const tabNames = (page) => page.getByRole("tab").allInnerTexts();
 
 // Start on a middle page so that both cursors would work with the old answer.
 async function checkHeldPage(page, { label, path, change, match, after, lastPage = false }) {
-  const table = page.getByRole("table", { name: label, exact: true });
-  const card = panel(page).locator(".pf-v6-c-card").filter({ has: table });
-  const next = card.getByRole("button", { name: "Next ›" });
-  const prev = card.getByRole("button", { name: "‹ Previous" });
+  const table = panel(page).getByRole("table", { name: label, exact: true });
+  // The nearest ancestor with both controls owns this table's pager, including on the two-list Policies tab.
+  const list = table.locator("xpath=ancestor::*[.//button[normalize-space(.)='Next ›'] and .//button[normalize-space(.)='‹ Previous']][1]");
+  const next = list.getByRole("button", { name: "Next ›", exact: true });
+  const prev = list.getByRole("button", { name: "‹ Previous", exact: true });
   await next.click();
-  await card.getByText(/^26–50 of 61/).waitFor();
+  await list.getByText(/^26–50 of 61/).waitFor();
   assert.ok(await prev.isEnabled() && await next.isEnabled(), "both old cursors are available");
   const rows = table.locator("tbody tr");
   const previousRows = await rows.allTextContents();
@@ -106,7 +107,7 @@ async function checkHeldPage(page, { label, path, change, match, after, lastPage
     api.state.hold = null;
     held.resolve();
   }
-  await card.getByText(after).waitFor();
+  await list.getByText(after).waitFor();
   assert.equal(await table.getAttribute("aria-busy"), null);
   assert.equal(await prev.isEnabled(), lastPage);
   assert.equal(await next.isEnabled(), !lastPage);
