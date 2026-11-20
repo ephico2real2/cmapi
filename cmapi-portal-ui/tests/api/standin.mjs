@@ -575,8 +575,10 @@ export function capacityFleet() {
 const QUANTITY = { "": 1, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 2 ** 10, Mi: 2 ** 20, Gi: 2 ** 30, Ti: 2 ** 40 };
 /** A Kubernetes quantity as a number ("500m" is 0.5), or null. */
 const quantity = (text) => { const m = /^(\d+(?:\.\d+)?)(m|k|M|G|Ki|Mi|Gi|Ti)?$/.exec(String(text ?? "")); return m ? Number(m[1]) * QUANTITY[m[2] ?? ""] : null; };
-const NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
-const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|ocp-.*)$/;
+// core/naming.py: a DNS-1123 label of 2 to 63 characters, not a built-in reserved name nor one of the reference instance's
+// reservedPatterns (ocp-*, kubernetes-*, tools/reference_instance/instance.yaml).
+const NAME = /^[a-z0-9][-a-z0-9]{0,61}[a-z0-9]$/;
+const RESERVED = /^(default|openshift(-.*)?|kube-.*|cmapi-system|cmapi-imports|ocp-.*|kubernetes-.*)$/;
 // The body's fingerprint, with the keys of each object in order, as the API compares two bodies of one key.
 const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
 const fingerprint = (value) => JSON.stringify(sorted(value));

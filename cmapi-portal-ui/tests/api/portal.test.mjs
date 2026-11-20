@@ -1346,6 +1346,129 @@ try {
     }, { metadataKeys: off, setup: () => { api.state.clusters = [...api.state.clusters, RND_CLUSTER]; api.state.tiers = TIERS_RND; } });
   });
 
+  // PR #506 review (reviewer 1 Codex gpt-6.2-astra, reviewer 2 Opus 5.5): the defects of findings 01, 02, 04, 11 and 12.
+  // Each is one behaviour, not a layout, so each runs on one view.
+  const waitFor = async (page, ready, what) => {
+    for (let i = 0; i < 50 && !ready(); i++) await page.waitForTimeout(100);
+    assert.ok(ready(), what);
+  };
+  const extraToggle = (page) => panel(page).getByRole("button", { name: /^Additional labels and annotations \(optional\)/ });
+
+  await check("506-01 Submit is off again after a change that leaves the body as it was; Check on a checked form asks cmapi again", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: KEYS_479 });
+    try {
+      await newTab(page);
+      await fill479(page);
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      const first = dryRuns().length;
+      await checkButton(page).click();
+      await waitFor(page, () => dryRuns().length === first + 1, "a second Check of the same form sends a second dry run");
+      await passed(page).waitFor();
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), null);
+      // Team emptied: unedited it was not sent, emptied it is sent as "" (finding 09), so the form is not the checked one.
+      await page.getByLabel("Team (required)").fill("");
+      await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true", "an emptied Team closes Submit");
+      await page.getByLabel("Team (required)").fill("abc");
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      // A row with no key yet: the body is as it was, but the form is not.
+      await extraToggle(page).click();
+      await page.getByRole("button", { name: "+ Add label" }).click();
+      await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true", "a new row closes Submit");
+      await checkButton(page).click();
+      await panel(page).getByText("The check did not run. Fix these:").waitFor();
+      assert.equal(await passed(page).count(), 0, "the last pass is not shown beside the form's problems");
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("506-02 a required default copied from a key that cmapi fills in is filled, and the check runs", async () => {
+    const keys = structuredClone(KEYS_479);
+    keys.labels.properties["cmapi.net/team"]["x-cmapi-default-from"] = "company.net/app-environment";
+    const { context, page, errors } = await fresh({ metadataKeys: keys });
+    try {
+      await newTab(page);
+      await fill479(page);
+      assert.equal(await page.getByLabel("Team (required)").inputValue(), "dev", "the cluster's environment, as cmapi fills it");
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      assert.equal("cmapi.net/team" in dryRuns().at(-1).body.labels, false, "unedited: cmapi fills it in");
+      assert.match(await statusText(page), /cmapi\.net\/team = dev default from company\.net\/app-environment/);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("506-04 a refusal of an extra row, of the name or of the date shows on that control (P8)", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: KEYS_479 });
+    expectedStatus = [409, 422];
+    try {
+      await newTab(page);
+      await fill479(page);
+      await extraToggle(page).click();
+      await page.getByRole("button", { name: "+ Add annotation" }).click();
+      const key = page.getByLabel("Key of additional annotation 1");
+      await key.fill("runbook");
+      await extraToggle(page).click();
+      api.state.answers.push(refusedWith([{ code: "reserved_key", key: "runbook" }]));
+      await checkButton(page).click();
+      await panel(page).getByText("The check failed: policy-violation").waitFor();
+      assert.equal(await extraToggle(page).getAttribute("aria-expanded"), "true", "the refused row's section opens");
+      await waitError(key, /^reserved_key/);
+      await panel(page).getByRole("button", { name: "runbook: reserved_key" }).click();
+      await page.waitForFunction(() => document.activeElement?.id.endsWith("-key"));
+      await page.getByRole("button", { name: "Remove additional annotation 1" }).click();
+      const exists = SAMPLES.problems["namespace-exists"].response.body;
+      api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 409, body: exists });
+      await checkButton(page).click();
+      await panel(page).getByText("The check failed: namespace-exists").waitFor();
+      await waitError(page.getByLabel("Namespace (required)"), new RegExp(`^${exists.detail}`));
+      await page.getByLabel("Expires (optional)").fill(isoAfter(3));
+      api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 422,
+        body: { type: "https://cmapi.ephico2real.com/problems/expiration-in-past", title: "expiration in past", status: 422, code: "expiration-in-past", detail: "The expiry must be after today" } });
+      await checkButton(page).click();
+      await panel(page).getByText("The check failed: expiration-in-past").waitFor();
+      assert.match(await page.locator("#ns-exp-refused").innerText(), /^The expiry must be after today/);
+      assert.equal(await page.getByLabel("Expires (optional)").getAttribute("aria-invalid"), "true");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("506-11 a region picked in one environment does not hide the clusters of another", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: KEYS_479 });
+    try {
+      api.state.clusters = [...api.state.clusters, { ...RND_CLUSTER, labels: { ...RND_CLUSTER.labels, region: "rnd-only" } }];
+      api.state.tiers = TIERS_RND;
+      await newTab(page);
+      await page.getByLabel("Region").selectOption("rnd-only");
+      await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
+      assert.equal(await page.getByLabel("Region").inputValue(), "any");
+      assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
+      assert.equal(await checkButton(page).isEnabled(), true);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
+  await check("506-12 a day that the month lacks (2099-02-30) is not a date: the picker says so on the field", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: KEYS_479 });
+    try {
+      await newTab(page);
+      const date = page.getByLabel("Expires (optional)");
+      const pickerError = panel(page).locator(".pf-v6-c-date-picker__helper-text");
+      await date.fill("2099-02-30");
+      await date.press("Tab");
+      await pickerError.getByText("Enter a date as YYYY-MM-DD.").waitFor();
+      assert.equal(await date.getAttribute("aria-invalid"), "true");
+      await date.fill("2099-03-02");
+      await date.press("Tab");
+      assert.equal(await pickerError.count(), 0, "a real day: no error");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
   const ola = SAMPLES.operations.requests_list_requests.response.body.items[0];
   const second = { ...ola, requestId: "req-20261115-2002", namespace: "ledger-dev" };
   const cardOf = (page, id) => panel(page).locator(".pf-v6-l-grid").filter({ has: page.getByRole("heading", { name: new RegExp(`^${id} ·`) }) });

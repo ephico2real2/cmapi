@@ -202,6 +202,8 @@ function otherKeysOf(name: string, map: Json): OtherKeys | null {
   }
   const prefixes = textList(limits.prefixes), max = countOf(limits.max);
   if (prefixes === null || max === null) throw new RulesUnreadable(`${name}.x-cmapi-other-keys has no prefixes or max`);
+  // No allowOther prefix, or max 0: cmapi refuses every undeclared key here, so the form offers no table for it.
+  if (other === null || max === 0) return null;
   const value = isObject(values) ? { pattern: textOf(values.pattern), maxLength: countOf(values.maxLength) } : { pattern: null, maxLength: null };
   return { syntax: { pattern, maxLength, notPattern }, declared, other, value, prefixes, max,
     maxValueBytes: countOf(limits.maxValueBytes), maxBytesTotal: countOf(limits.maxBytesTotal) };
@@ -278,14 +280,17 @@ export function derivedValue(f: MetaField, target: Record<Source, string>): stri
 /**
  * What the form sends: each field that the requester fills, with a value, and the extra keys. Never an empty optional key
  * (cmapi refuses "" for a declared pattern), never a key that cmapi sets (it fills the value itself, and refuses another
- * one), never an unedited default (`values` holds what was typed, so cmapi fills it), never an operator-only key.
+ * one), never an unedited default (`values` holds what was typed, so cmapi fills it), never an operator-only key. An
+ * edited default is sent as typed, even emptied.
  */
 export function bodyOf(form: MetaForm, values: Record<string, string>,
   extras: Record<Kind, ExtraRow[]> = { label: [], annotation: [] }): { labels: Record<string, string>; annotations: Record<string, string> } {
   const out = { labels: {} as Record<string, string>, annotations: {} as Record<string, string> };
   for (const f of form.fields) {
     const value = values[valueKey(f)] ?? "";
-    if (f.derivedFrom === null && value !== "") (f.kind === "label" ? out.labels : out.annotations)[f.key] = value;
+    // An emptied default is sent as "": left out, cmapi would copy its source into it (core/metadata.py, step 2).
+    const emptied = f.defaultFrom !== null && valueKey(f) in values;
+    if (f.derivedFrom === null && (value !== "" || emptied)) (f.kind === "label" ? out.labels : out.annotations)[f.key] = value;
   }
   // Extra keys go in the same maps (#479 P11). A row with no key is a row not filled in yet; checkExtras holds it back.
   for (const [kind, map] of [["label", out.labels], ["annotation", out.annotations]] as const) {
@@ -300,11 +305,13 @@ export function bodyOf(form: MetaForm, values: Record<string, string>,
  * then in `typed`, even when they empty it, so a later change of the source leaves it alone (plan R5). An unedited
  * default is never sent (bodyOf reads `typed`): cmapi fills it in, and its dry run says so (source default:<key>).
  */
-export function shownValues(form: MetaForm, typed: Record<string, string>): Record<string, string> {
+export function shownValues(form: MetaForm, typed: Record<string, string>, target: Record<Source, string>): Record<string, string> {
   const out = { ...typed };
   for (const f of form.fields) {
     if (f.defaultFrom === null || valueKey(f) in typed) continue;
-    out[valueKey(f)] = typed[`${f.kind}:${f.defaultFrom}`] ?? "";
+    // A source that cmapi fills in (value.from) is filled first, then copied: steps 1 and 2 of core/metadata.py.
+    const source = defaultSource(form, f);
+    out[valueKey(f)] = source?.derivedFrom ? target[source.derivedFrom] : typed[`${f.kind}:${f.defaultFrom}`] ?? "";
   }
   return out;
 }
@@ -319,17 +326,22 @@ export function nameEnds(form: MetaForm): { start: MetaField | null; end: MetaFi
   return { start: form.fields.find((f) => f.namespacePrefix) ?? null, end: form.fields.find((f) => f.namespaceSuffix) ?? null };
 }
 
-/** The value of one end of the name: what cmapi fills in for a key that it sets, else what the form shows. */
+/**
+ * The value of one end of the name: what cmapi fills in for a key that it sets, else what the form shows. An optional
+ * end left empty is no end (null): cmapi checks an end only when the request has its value (_check_prefix).
+ */
 export function endValue(f: MetaField | null, shown: Record<string, string>, target: Record<Source, string>): string | null {
   if (f === null) return null;
-  return f.derivedFrom !== null ? target[f.derivedFrom] : shown[valueKey(f)] ?? "";
+  const value = f.derivedFrom !== null ? target[f.derivedFrom] : shown[valueKey(f)] ?? "";
+  return value === "" && !f.required ? null : value;
 }
 
 /** `<start>-<desired>-<end>`: the ends that the instance has, around the part that the person types. */
 export const joinName = (start: string | null, desired: string, end: string | null): string =>
   [start, desired, end].filter((part): part is string => part !== null).join("-");
 
-/** The longest namespace name: a DNS-1123 label (core/naming.py). */
+/** The shortest and the longest namespace name: a DNS-1123 label of 2 to 63 characters (core/naming.py). */
+export const NAME_MIN = 2;
 export const NAME_MAX = 63;
 const DNS_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
@@ -342,6 +354,7 @@ export function checkName(start: string | null, desired: string, end: string | n
   if (desired === "") return ends ? "Type the middle of the name." : "Required: a namespace name";
   if (start === "" || end === "") return null;
   const name = joinName(start, desired, end);
+  if (length(name) < NAME_MIN) return `The name has at least ${NAME_MIN} characters.`;
   if (length(name) > NAME_MAX) return `The full name is longer than ${NAME_MAX} characters.`;
   if (!DNS_LABEL.test(name)) return ends ? "The middle of the name: lowercase letters, digits and '-'. The name starts and ends with a letter or digit."
     : "A DNS-1123 name: lowercase letters, digits and '-', starting and ending with a letter or digit.";
@@ -353,6 +366,15 @@ export interface ExtraRow { id: number; key: string; value: string }
 
 /** UTF-8 bytes, as cmapi counts an annotation's size (len(value.encode())). */
 export const bytesOf = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * A placeholder key under the first named prefix, its globs' "*" written as "example": "e.g. example.company.net/key".
+ * Never a value: it is grey hint text.
+ */
+export function keyPlaceholder(rules: OtherKeys): string {
+  const named = rules.prefixes.find((p) => p !== "");
+  return `e.g. ${named ? named.replaceAll("*", "example") : ""}key`;
+}
 
 /** "*.company.net/ (or none)": the prefixes of x-cmapi-other-keys in words. */
 export function prefixWords(prefixes: string[]): string {
@@ -461,9 +483,10 @@ const length = (value: string): number => [...value].length;
  * its words; null when the form sees none. A pattern that was not checked here counts as passed: cmapi's dry run decides.
  */
 export async function checkField(f: MetaField, value: string, ctx: { namespace: string; labelValue: MetaForm["labelValue"] },
-  test: PatternTest): Promise<string | null> {
+  test: PatternTest, sent = false): Promise<string | null> {
   if (f.derivedFrom !== null) return null;
-  if (value === "") return f.required ? `Required: ${f.rule}` : null;
+  // An empty value is not sent, except an emptied default (bodyOf): that one is checked by its rule, as cmapi checks it.
+  if (value === "" && (f.required || !sent)) return f.required ? `Required: ${f.rule}` : null;
   if (f.kind === "label" && ctx.labelValue) {
     const { pattern, maxLength } = ctx.labelValue;
     if (length(value) > maxLength || (await test(pattern, value)) === false) return "Not a valid label value";
@@ -479,9 +502,13 @@ export async function checkField(f: MetaField, value: string, ctx: { namespace: 
 }
 
 /** The problem of each field, by its id (null for none), for one state of the form. */
-export async function checkAll(form: MetaForm, values: Record<string, string>, namespace: string, test: PatternTest): Promise<Record<string, string | null>> {
+export async function checkAll(form: MetaForm, values: Record<string, string>, namespace: string, test: PatternTest,
+  typed: Record<string, string> = {}): Promise<Record<string, string | null>> {
   const out: Record<string, string | null> = {};
-  for (const f of form.fields) out[f.id] = await checkField(f, values[valueKey(f)] ?? "", { namespace, labelValue: form.labelValue }, test);
+  for (const f of form.fields) {
+    const sent = f.defaultFrom !== null && valueKey(f) in typed;
+    out[f.id] = await checkField(f, values[valueKey(f)] ?? "", { namespace, labelValue: form.labelValue }, test, sent);
+  }
   return out;
 }
 

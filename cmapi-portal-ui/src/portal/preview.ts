@@ -43,7 +43,9 @@ function fieldLine(input: PreviewInput, f: MetaField): PreviewLine | null {
     const source = input.form.fields.find((s) => s.kind === f.kind && s.key === f.defaultFrom);
     return value === "" ? null : { key: f.key, value, note: `from ${source?.title ?? f.defaultFrom}` };
   }
-  if (value === "") return f.required ? { key: f.key, value: "", note: "required, not set yet" } : null;
+  if (value === "" && f.required) return { key: f.key, value: "", note: "required, not set yet" };
+  // An emptied default is sent as "" (bodyOf), so it is written; any other empty optional key is not sent.
+  if (value === "" && f.defaultFrom === null) return null;
   return { key: f.key, value, note: "" };
 }
 
@@ -65,16 +67,21 @@ export function previewLines(input: PreviewInput): Record<Kind, PreviewLine[]> {
   return out;
 }
 
-/** A YAML scalar: a key as it is when it is plain, every value double-quoted (JSON's string syntax is YAML's). */
-const yamlKey = (key: string): string => (/^[A-Za-z0-9][-A-Za-z0-9_./]*$/.test(key) ? key : JSON.stringify(key));
+/**
+ * A YAML scalar: a key as it is when YAML reads it as that text, every value double-quoted (JSON's string syntax is YAML's).
+ * A key such as "on", "no" or "01" is quoted: YAML 1.1, which Kubernetes reads, takes it for a boolean or a number.
+ */
+const plainKey = (key: string): boolean => /^[A-Za-z][-A-Za-z0-9_./]*$/.test(key) && !/^(y|yes|n|no|true|false|on|off|null)$/i.test(key);
+const yamlKey = (key: string): string => (plainKey(key) ? key : JSON.stringify(key));
 const yamlLine = (l: PreviewLine): string => `    ${yamlKey(l.key)}: ${JSON.stringify(l.value)}${l.note ? `   # ${l.note}` : ""}`;
 
 /** The Namespace as the form describes it now. The keys that only cmapi writes are named in one comment. */
 export function previewYaml(name: string, lines: Record<Kind, PreviewLine[]>): string {
   return [
     "apiVersion: v1", "kind: Namespace", "metadata:", `  name: ${JSON.stringify(name)}`,
-    "  labels:", ...lines.label.map(yamlLine), "    # cmapi.net/managed, cluster-id, request-id, tier … added by cmapi",
-    "  annotations:", ...lines.annotation.map(yamlLine)
+    // An empty map is {}: "labels:" alone is null in YAML.
+    lines.label.length ? "  labels:" : "  labels: {}", ...lines.label.map(yamlLine), "    # cmapi.net/managed, cluster-id, request-id, tier … added by cmapi",
+    lines.annotation.length ? "  annotations:" : "  annotations: {}", ...lines.annotation.map(yamlLine)
   ].join("\n");
 }
 

@@ -8,7 +8,7 @@ import { TimesIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { Hint, Small } from "../components/ui";
 import type { ExtraCheck, ExtraRow, Kind, MetaForm, OtherKeys } from "./metadataForm";
-import { bytesOf } from "./metadataForm";
+import { bytesOf, keyPlaceholder } from "./metadataForm";
 
 const WORDS = { label: { one: "label", many: "labels", title: "Additional labels", add: "+ Add label" },
   annotation: { one: "annotation", many: "annotations", title: "Additional annotations", add: "+ Add annotation" } } as const;
@@ -27,23 +27,19 @@ export function extraCount(rows: Record<Kind, ExtraRow[]>): string {
 /** The allowed prefixes in the mockup's words: "Allowed: no prefix, or *.company.net/." */
 const allowedWords = (rules: OtherKeys): string => `Allowed: ${rules.prefixes.map((p) => (p === "" ? "no prefix" : p)).join(", or ")}.`;
 
-/** A placeholder key under the first named prefix: "e.g. example.company.net/key". Never a value: it is grey hint text. */
-const keyPlaceholder = (rules: OtherKeys): string => {
-  const named = rules.prefixes.find((p) => p !== "");
-  return `e.g. ${named ? named.replace(/^\*\./, "example.") : ""}key`;
-};
-
 function counterOf(kind: Kind, rules: OtherKeys, rows: ExtraRow[]): string {
   const count = `${rows.length} of ${rules.max}`;
   if (kind !== "annotation" || rules.maxBytesTotal === null) return count;
   return `${count} · ${rows.reduce((n, r) => n + bytesOf(r.value), 0)} of ${rules.maxBytesTotal} bytes`;
 }
 
-function KeyTable({ kind, rules, rows, check, shown, onChange, onAdd }: {
+function KeyTable({ kind, rules, rows, check, refused, shown, onChange, onAdd }: {
   kind: Kind;
   rules: OtherKeys;
   rows: ExtraRow[];
   check: ExtraCheck | undefined;
+  /** cmapi's refusals by the id of the input that they name (P8). */
+  refused: Record<string, string>;
   /** Whether a row's problem shows: an empty new row says "Enter a key." only once the person tried the form. */
   shown: (row: ExtraRow, problem: string | null) => string | null;
   onChange: (rows: ExtraRow[]) => void;
@@ -63,8 +59,8 @@ function KeyTable({ kind, rules, rows, check, shown, onChange, onAdd }: {
         <Tbody>
           {rows.length === 0 && <Tr><Td colSpan={3}><Small>None. Add one only if you need it.</Small></Td></Tr>}
           {rows.map((r, i) => {
-            const keyError = shown(r, check?.rows[r.id]?.key ?? null), valueError = check?.rows[r.id]?.value ?? null;
             const keyId = extraInputId(kind, r.id, "key"), valueId = extraInputId(kind, r.id, "value");
+            const keyError = shown(r, check?.rows[r.id]?.key ?? null) ?? refused[keyId], valueError = check?.rows[r.id]?.value ?? refused[valueId];
             return (
               <Tr key={r.id}>
                 <Td dataLabel="Key">
@@ -98,10 +94,11 @@ function KeyTable({ kind, rules, rows, check, shown, onChange, onAdd }: {
   );
 }
 
-export function ExtraKeysSection({ form, rows, checks, attempted, expanded, onExpand, onChange, onAdd }: {
+export function ExtraKeysSection({ form, rows, checks, refused, attempted, expanded, onExpand, onChange, onAdd }: {
   form: MetaForm;
   rows: Record<Kind, ExtraRow[]>;
   checks: Partial<Record<Kind, ExtraCheck>>;
+  refused: Record<string, string>;
   attempted: boolean;
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
@@ -116,7 +113,7 @@ export function ExtraKeysSection({ form, rows, checks, attempted, expanded, onEx
       toggleContent={<>Additional labels and annotations (optional) <Small>{extraCount(rows)}</Small></>}>
       <Stack hasGutter>
         {kinds.map((k) => (
-          <KeyTable key={k} kind={k} rules={form.otherKeys[k]!} rows={rows[k]} check={checks[k]} shown={shown}
+          <KeyTable key={k} kind={k} rules={form.otherKeys[k]!} rows={rows[k]} check={checks[k]} refused={refused} shown={shown}
             onChange={(next) => onChange(k, next)} onAdd={() => onAdd(k)} />
         ))}
       </Stack>

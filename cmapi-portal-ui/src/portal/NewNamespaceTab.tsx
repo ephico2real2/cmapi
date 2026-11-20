@@ -117,7 +117,7 @@ interface CheckInput {
  * a refused source has no error of its own.
  */
 async function checkForm(input: CheckInput): Promise<FormCheck> {
-  const fields = await checkAll(input.form, input.shown, input.nsName, sharedPatternTest);
+  const fields = await checkAll(input.form, input.shown, input.nsName, sharedPatternTest, input.typed);
   for (const f of input.form.fields) {
     const source = defaultSource(input.form, f);
     if (source && !(valueKey(f) in input.typed) && fields[source.id]) fields[f.id] = null;
@@ -157,6 +157,19 @@ function problemsOf(form: MetaForm, checked: FormCheck, extras: Record<Kind, Ext
   return [...out, ...extraProblems(checked, extras)];
 }
 
+/** The codes of a refusal of the namespace name itself (core/naming.py, the create's checks): shown on the name (P8). */
+const NAME_REFUSALS = new Set(["invalid-namespace-name", "reserved-namespace", "namespace-exists", "namespace-exists-unmanaged"]);
+
+/** The input of the extra row that a refusal's item names by its key (an extra key has no field above), or null. */
+function rowInputOf(item: ProblemItem, extras: Record<Kind, ExtraRow[]>): string | null {
+  for (const kind of ["label", "annotation"] as const) {
+    if (item.kind !== undefined && item.kind !== kind) continue;
+    const row = extras[kind].find((r) => r.key === item.key);
+    if (row) return extraInputId(kind, row.id, item.code === "invalid_value" ? "value" : "key");
+  }
+  return null;
+}
+
 /** Each input's own message for the browser's native validation, so Check stops on it and focuses the first one. */
 function setValidity(form: HTMLFormElement | null, fields: MetaField[], errors: Record<string, string | null>, name: string | null) {
   for (const f of fields) {
@@ -191,8 +204,9 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const [expires, setExpires] = useState("");
   const [protect, setProtect] = useState(false);
   const [why, setWhy] = useState("");
-  // The body that the last Check planned. It stays while the form changes: the status then says that the form changed.
-  const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody } | null>(null);
+  // The body that the last Check planned, and the form's draft then. It stays while the form changes: the status then
+  // says that the form changed.
+  const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody; draft: string } | null>(null);
   // The last Check found problems in the form itself and sent nothing: the status lists them, as they are now.
   const [blocked, setBlocked] = useState(false);
   // The body that the last Submit sent, so that its refusal shows on the fields only while the form is that body.
@@ -214,29 +228,33 @@ export function NewNamespaceTab({ config, open }: TabProps) {
 
   const form: MetaForm | null = rules.state === "ok" ? rules.data.form : null;
   const fingerprint = rules.state === "ok" ? rules.data.fingerprint : null;
-  const shown = form ? shownValues(form, typed) : typed;
 
   const offered = tiers.state === "ok" ? tiersOf(tiers.data, env) : [];
   const current = offered.find((t) => t.name === tier) ?? offered[0];
   const inEnv = (writable ?? []).filter((c) => c.environment === env);
-  const candidates = inEnv.filter((c) => region === ANY_REGION || c.labels.region === region);
+  // A region that this environment's clusters lack (picked in another environment, or gone in a refetch) filters nothing.
+  const activeRegion = inEnv.some((c) => c.labels.region === region) ? region : ANY_REGION;
+  const candidates = inEnv.filter((c) => activeRegion === ANY_REGION || c.labels.region === activeRegion);
   const cluster: Cluster | undefined = candidates.find((c) => c.clusterId === chosen) ?? candidates[0];
   // The name: its ends come from the keys that make them (P2), and the person types the rest.
   const ends = form ? nameEnds(form) : { start: null, end: null };
   const place: Record<Source, string> = { namespace: "", environment: env, cluster: cluster?.clusterId ?? "", instance: me.state === "ok" ? me.data.instance : "" };
-  const startValue = endValue(ends.start, shown, place), endPart = endValue(ends.end, shown, place);
-  const hasEnds = ends.start !== null || ends.end !== null;
-  const nsName = hasEnds ? joinName(startValue, desired, endPart) : desired || (form ? nameSuggestion(form, shown, env) : "");
+  // The ends read the values before the name is known; a default copied from the name itself is read after it, below.
+  const early = form ? shownValues(form, typed, place) : typed;
+  const startValue = endValue(ends.start, early, place), endPart = endValue(ends.end, early, place);
+  const hasEnds = startValue !== null || endPart !== null;
+  const nsName = hasEnds ? joinName(startValue, desired, endPart) : desired || (form ? nameSuggestion(form, early, env) : "");
   // What the page shows for the name: an end or a middle not typed yet is "…", as in the mockup; the body sends nsName.
   const shownName = hasEnds ? joinName(startValue === null ? null : startValue || "…", desired || "…", endPart === null ? null : endPart || "…") : nsName;
   const target: Record<Source, string> = { ...place, namespace: shownName };
+  const shown = form ? shownValues(form, typed, { ...place, namespace: nsName }) : typed;
   const expiryRules = form ? expiryRulesOf(form, env) : null;
   const expiry = expiryRules ? expiryInfo(expires, today, expiryRules) : null;
 
   // The fields' own checks: CHECK_AFTER_MS after the last change, each pattern in a worker with a time limit (patterns.ts).
   // A result is of the inputs it was run on; it shows only while the form still has them.
   const input: CheckInput | null = form ? { form, typed, shown, nsName, name: { start: startValue, desired: hasEnds ? desired : nsName, end: endPart }, extras } : null;
-  const inputs = JSON.stringify([fingerprint, typed, nsName, desired, extras]);
+  const inputs = JSON.stringify([fingerprint, typed, shown, nsName, desired, extras]);
   const [checked, setChecked] = useState<{ inputs: string; result: FormCheck } | null>(null);
   // WAI-ARIA 1.2, aria-invalid: "if the user has not attempted to submit the form, authors SHOULD NOT set the aria-invalid
   // attribute on required widgets simply because the user has not yet entered data". An empty required field shows its
@@ -268,6 +286,9 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     if (firstRules.current === null) firstRules.current = fingerprint;
     const kept = new Set(form.fields.map(valueKey));
     setTyped((v) => (Object.keys(v).every((k) => kept.has(k)) ? v : Object.fromEntries(Object.entries(v).filter(([k]) => kept.has(k)))));
+    // The rows of a table that the new rules no longer offer go too: hidden, they could not be removed.
+    setExtras((x) => (x.label.length && !form.otherKeys.label) || (x.annotation.length && !form.otherKeys.annotation)
+      ? { label: form.otherKeys.label ? x.label : [], annotation: form.otherKeys.annotation ? x.annotation : [] } : x);
   }, [fingerprint]);
   const rulesChanged = firstRules.current !== null && fingerprint !== null && fingerprint !== firstRules.current;
 
@@ -286,15 +307,24 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     justification: why || null,
     ...(expiryRules && expires ? { expiresAt: expires } : {})
   };
-  // The plan on the page is of this form: same cluster, same body. A refetch of the clusters, tiers or rules can change the
-  // form without an edit, so the bodies are compared.
-  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body);
+  // The plan on the page is of this form: same cluster, same body, same draft. A refetch of the clusters, tiers or rules can
+  // change the form without an edit, so the bodies are compared; an edit can leave the body as it was (a row with no key
+  // yet), so the drafts are compared too (P7: Submit is off again after any change).
+  const draft = JSON.stringify([typed, extras]);
+  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body) && planned.draft === draft;
   const refusal: Refusal | null = plan.state === "refused" && planIsOfForm ? plan
     : submit.state === "refused" && submitted === JSON.stringify(body) ? submit : null;
   const mapped = form && refusal ? errorsByField(refusal.errors, form) : null;
+  // P8 where the form has no field for it: an extra row's key or value, by the id of its input.
+  const refusedAt: Record<string, string> = {};
+  for (const { item, field } of mapped?.items ?? []) {
+    const id = field ? null : rowInputOf(item, extras);
+    if (id) refusedAt[id] = item.detail ?? item.code;
+  }
   const refusalKey = refusal ? JSON.stringify([refusal.code, refusal.errors]) : "";
   useEffect(() => {
     if (!refusalKey) return;
+    if (Object.keys(refusedAt).length) setExtraOpen(true);  // a refused row shows in the open section
     summaryRef.current?.focus();                         // the summary of a refusal takes the focus (WCAG 2.2, 3.3.1)
     if (mapped?.unknownKey) rules.reload();              // a key that the form does not show: the rules changed
   }, [refusalKey]);
@@ -331,7 +361,8 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     !attempted && (shown[valueKey(f)] ?? "") === "" ? null : result?.fields[f.id] ?? null;
   const fieldErrors: Record<string, string | null | undefined> = Object.fromEntries(
     form.fields.map((f) => [f.id, shownError(f) ?? mapped?.byField[f.id] ?? null]));
-  const nameError = !attempted && desired === "" ? null : result?.name ?? null;
+  const nameRefused = refusal && NAME_REFUSALS.has(refusal.code) ? refusal.detail : null;
+  const nameError = !attempted && desired === "" ? null : result?.name ?? nameRefused;
   const planOk = plan.state === "ok" && planIsOfForm ? plan.data : null;
   const problems = result ? problemsOf(form, result, extras, expiry, ends.start) : [];
   const canSubmit = planOk !== null && submit.state !== "sending" && !!cluster;
@@ -358,7 +389,9 @@ export function NewNamespaceTab({ config, open }: TabProps) {
       return;
     }
     setBlocked(false);
-    setPlanned({ cluster: cluster.clusterId, body });
+    // Check on a form that has its plan asks cmapi again: the answer can change (capacity, a namespace made since).
+    if (planIsOfForm) plan.reload();
+    else setPlanned({ cluster: cluster.clusterId, body, draft });
   };
   /** Submit: only the plan on the page, of the form as it is now (P7). Nothing goes straight to submit. */
   const onSubmit = (e: FormEvent) => {
@@ -390,9 +423,10 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   // The error summary of a refusal: each item, and a link to the field that it names.
   const summary = mapped && mapped.items.length > 0 && (
     <List>
-      {mapped.items.map(({ field, text }, i) => (
-        <ListItem key={i}>{field ? <Button variant="link" isInline onClick={() => focusOn(field.id)}>{text}</Button> : text}</ListItem>
-      ))}
+      {mapped.items.map(({ item, field, text }, i) => {
+        const id = field?.id ?? rowInputOf(item, extras);
+        return <ListItem key={i}>{id ? <Button variant="link" isInline onClick={() => focusOn(id)}>{text}</Button> : text}</ListItem>;
+      })}
     </List>
   );
   const stale = planned !== null && !planIsOfForm;
@@ -455,7 +489,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
                 <Grid hasGutter>
                   <GridItem md={6}>
                     <FormGroup label="Region" fieldId="ns-region">
-                      <FormSelect id="ns-region" value={region} aria-describedby="ns-region-help" onChange={(_, v) => { setRegion(v); setChosen(""); }}>
+                      <FormSelect id="ns-region" value={activeRegion} aria-describedby="ns-region-help" onChange={(_, v) => { setRegion(v); setChosen(""); }}>
                         {regions.map((r) => <FormSelectOption key={r} value={r} label={r} />)}
                         <FormSelectOption value={ANY_REGION} label="Any region" />
                       </FormSelect>
@@ -482,7 +516,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
                 {ends.start && ends.start.derivedFrom === null && (
                   <Field field={ends.start} value={shown[valueKey(ends.start)] ?? ""} error={fieldErrors[ends.start.id]} target={target} onChange={(v) => setValue(ends.start!, v)} />
                 )}
-                <NamespaceNameField start={ends.start} end={ends.end} startValue={startValue} endValue={endPart} desired={hasEnds ? desired : nsName}
+                <NamespaceNameField start={startValue === null ? null : ends.start} end={endPart === null ? null : ends.end} startValue={startValue} endValue={endPart} desired={hasEnds ? desired : nsName}
                   error={nameError} onChange={setDesired} />
               </FormSection>
               {(["label", "annotation"] as const).map((kind) => (
@@ -491,7 +525,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
               ))}
               {me.state === "ok" && <Hint>{`Requested by ${me.data.username} (${me.data.identity.email ?? "no email"}), from your sign-in.`}</Hint>}
               <FormSection title="Expiration (optional)" titleElement="h3">
-                <ExpiryField rules={form.expiration[env]} value={expires} today={today} onChange={setExpires} />
+                <ExpiryField rules={form.expiration[env]} value={expires} today={today} refused={refusal?.code.startsWith("expiration-") ? refusal.detail : null} onChange={setExpires} />
               </FormSection>
               {canProtect && (
                 <FormGroup label="Deletion protection" fieldId="ns-protect">
@@ -504,7 +538,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
                   <TextArea id="ns-why" value={why} onChange={(_, v) => setWhy(v)} />
                 </FormGroup>
               </FormSection>
-              <ExtraKeysSection form={form} rows={extras} checks={result?.extras ?? {}} attempted={attempted} expanded={extraOpen} onExpand={setExtraOpen}
+              <ExtraKeysSection form={form} rows={extras} checks={result?.extras ?? {}} refused={refusedAt} attempted={attempted} expanded={extraOpen} onExpand={setExtraOpen}
                 onChange={(kind, rows) => setExtras((x) => ({ ...x, [kind]: rows }))} onAdd={addRow} />
               <ActionGroup>
                 <Button variant="secondary" type="button" isDisabled={!cluster} onClick={() => void onCheck()}>Check (dry run)</Button>

@@ -16,12 +16,23 @@ function offNote(rules: ExpiryRules | undefined): string {
   return "Expiration is turned off for this environment (expiration.yaml: enabled: false). The namespace is permanent.";
 }
 
-export function ExpiryField({ rules, value, today, onChange }: {
+/**
+ * The picker's own reading of the text (yyyy-MM-dd, local midnight), but strict: a day that the month lacks is no date.
+ * Chrome's Date reads 2099-02-30 as 2 March (MDN, Date.parse: implementation-specific), so the picker would take it.
+ */
+function strictDay(text: string): Date {
+  const date = new Date(`${text}T00:00:00`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) && yyyyMMddFormat(date) === text ? date : new Date(NaN);
+}
+
+export function ExpiryField({ rules, value, today, refused, onChange }: {
   /** The environment's entry of x-cmapi-expiration; undefined when the environment is not listed (off). */
   rules: ExpiryRules | undefined;
   value: string;
   /** Today as a calendar date (YYYY-MM-DD), from which the days are counted. */
   today: string;
+  /** cmapi's refusal of the date (expiration-*), shown on the field (P8); null when there is none. */
+  refused: string | null;
   onChange: (value: string) => void;
 }) {
   // The calendar offers no day up to today, and the picker shows this message for a typed one (its own error line, after
@@ -39,9 +50,9 @@ export function ExpiryField({ rules, value, today, onChange }: {
     <FormGroup label="Expires (optional)" fieldId="ns-exp">
       <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsFlexStart" }}>
         <FlexItem>
-          <DatePicker value={value} onChange={(_, v) => onChange(v)} validators={validators} invalidFormatText="Enter a date as YYYY-MM-DD."
-            aria-label="Expires (optional)"
-            buttonAriaLabel="Open the calendar" inputProps={{ id: "ns-exp", "aria-describedby": "ns-exp-days ns-exp-help" }} />
+          <DatePicker value={value} onChange={(_, v) => onChange(v)} validators={validators} dateParse={strictDay} invalidFormatText="Enter a date as YYYY-MM-DD."
+            aria-label="Expires (optional)" buttonAriaLabel="Open the calendar"
+            inputProps={{ id: "ns-exp", "aria-describedby": `${refused ? "ns-exp-refused " : ""}ns-exp-days ns-exp-help`, ...(refused ? { validated: "error" as const } : {}) }} />
         </FlexItem>
         <FlexItem>
           <Button variant="secondary" size="sm" onClick={() => onChange("")}>No expiry</Button>
@@ -49,6 +60,7 @@ export function ExpiryField({ rules, value, today, onChange }: {
       </Flex>
       <FormHelperText>
         <HelperText>
+          {refused && <HelperTextItem id="ns-exp-refused" variant="error">{refused}</HelperTextItem>}
           <HelperTextItem id="ns-exp-days" variant={info.state === "date" && info.beyond ? "warning" : "default"}>{days}</HelperTextItem>
           <HelperTextItem id="ns-exp-help">
             {`Notices to the team DL ${listWords(rules.notifyDaysBefore)} days before. It keeps running ${rules.graceDays} days after the date.`}

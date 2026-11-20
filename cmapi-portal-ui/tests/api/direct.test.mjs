@@ -441,6 +441,71 @@ test("479-P6 the preview: each key with where its value comes from, the extra ke
   assert.deepEqual(["request", "namespace", "default:company.net/mnemonic"].map(sourceWords), ["from the request", "from the namespace", "default from company.net/mnemonic"]);
 });
 
+// PR #506 review (reviewer 1 Codex gpt-6.2-astra, reviewer 2 Opus 5.5): the defects of findings 02, 05, 07, 08 and 09.
+const with479 = (edit) => { const keys = structuredClone(KEYS_479); edit(keys); return keys; };
+const TARGET = { namespace: "abc-pay-dev", environment: "dev", cluster: "CRC", instance: "nonprod" };
+
+test("506-02 a default copied from a key that cmapi fills in shows that key's value, as cmapi fills it first (core/metadata.py steps 1, 2)", async () => {
+  const { bodyOf, fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  for (const [source, expected] of [["company.net/app-environment", "dev"], ["name", "abc-pay-dev"]]) {
+    const form = fieldsOf(with479((k) => { k.labels.properties["cmapi.net/team"]["x-cmapi-default-from"] = source; }));
+    assert.equal(shownValues(form, {}, TARGET)["label:cmapi.net/team"], expected, `Team from ${source}`);
+    assert.equal(bodyOf(form, {}).labels["cmapi.net/team"], undefined, "unedited: not sent, cmapi fills it in");
+    assert.equal(shownValues(form, { "label:cmapi.net/team": "ops" }, TARGET)["label:cmapi.net/team"], "ops", "an edit is kept");
+  }
+});
+
+test("506-05 the name has at least 2 characters (core/naming.py), and an optional prefix key left empty is no end", async () => {
+  const { checkName, endValue, fieldsOf, joinName, nameEnds } = await import("../../src/portal/metadataForm.ts");
+  assert.equal(checkName(null, "a", null), "The name has at least 2 characters.");
+  assert.equal(checkName(null, "ab", null), null);
+  const optional = fieldsOf(with479((k) => { k.labels.required = k.labels.required.filter((key) => key !== "company.net/mnemonic"); }));
+  const { start, end } = nameEnds(optional);
+  assert.equal(start.required, false);
+  assert.equal(endValue(start, {}, TARGET), null, "empty and optional: no start, as cmapi skips the prefix check (_check_prefix)");
+  assert.equal(joinName(endValue(start, {}, TARGET), "pay", endValue(end, {}, TARGET)), "pay-dev");
+  assert.equal(endValue(start, { "label:company.net/mnemonic": "abc" }, TARGET), "abc");
+  const required = nameEnds(fieldsOf(KEYS_479)).start;
+  assert.equal(endValue(required, {}, TARGET), "", "a required start not typed yet stays an end ('…')");
+});
+
+test("506-07 the preview's YAML keeps each key as text and an empty map as a map", async () => {
+  const { previewYaml } = await import("../../src/portal/preview.ts");
+  const yaml = previewYaml("yes", { label: [{ key: "on", value: "off", note: "" }, { key: "01", value: "1e3", note: "" }, { key: "app", value: "x", note: "" }], annotation: [] });
+  for (const line of ['  name: "yes"', '    "on": "off"', '    "01": "1e3"', '    app: "x"', "  annotations: {}"]) assert.ok(yaml.split("\n").includes(line), `${line} in\n${yaml}`);
+  assert.ok(previewYaml("ab", { label: [], annotation: [] }).split("\n").includes("  labels: {}"));
+});
+
+test("506-08 no table where cmapi takes no extra key (no allowOther prefix, or max 0); a glob's '*' in the placeholder is 'example'", async () => {
+  const { fieldsOf, keyPlaceholder } = await import("../../src/portal/metadataForm.ts");
+  const noPrefix = with479((k) => { k.labels.propertyNames.anyOf = k.labels.propertyNames.anyOf.filter((b) => b.enum); k.labels["x-cmapi-other-keys"].prefixes = []; });
+  assert.equal(fieldsOf(noPrefix).otherKeys.label, null, "no allowOther prefix");
+  assert.notEqual(fieldsOf(noPrefix).otherKeys.annotation, null);
+  assert.equal(fieldsOf(with479((k) => { k.annotations["x-cmapi-other-keys"].max = 0; })).otherKeys.annotation, null, "max 0");
+  const rules = fieldsOf(KEYS_479).otherKeys.label;
+  assert.equal(keyPlaceholder(rules), "e.g. example.company.net/key");
+  assert.equal(keyPlaceholder({ ...rules, prefixes: ["*/"] }), "e.g. example/key");
+  assert.equal(keyPlaceholder({ ...rules, prefixes: [""] }), "e.g. key");
+});
+
+test("506-09 an emptied optional default is sent as \"\", checked by its rule and shown in the preview; left out, cmapi would copy its source", async () => {
+  const { bodyOf, checkAll, fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  const { previewLines } = await import("../../src/portal/preview.ts");
+  const keys = with479((k) => { k.labels.properties.alias = { type: "string", "x-cmapi-default-from": "company.net/mnemonic", "x-cmapi-rule": "any value" }; });
+  const form = fieldsOf(keys), alias = form.fields.find((f) => f.key === "alias");
+  const typed = { "label:company.net/mnemonic": "abc", "label:alias": "" };
+  const shown = shownValues(form, typed, TARGET);
+  assert.equal(bodyOf(form, typed).labels.alias, "", "sent empty");
+  assert.equal("alias" in bodyOf(form, { "label:company.net/mnemonic": "abc" }).labels, false, "unedited: not sent");
+  assert.equal((await checkAll(form, shown, "abc-pay-dev", ecma, typed))[alias.id], null, "\"\" passes a key with no rule");
+  assert.deepEqual(previewLines({ form, typed, shown, target: TARGET, extras: { label: [], annotation: [] }, expiresAt: null, protect: null }).label.find((l) => l.key === "alias"),
+    { key: "alias", value: "", note: "" });
+  alias.patterns = ["^[a-z]+$"];
+  assert.match((await checkAll(form, shown, "abc-pay-dev", ecma, typed))[alias.id] ?? "", /^Not valid/, "\"\" breaks a pattern, as cmapi refuses it (_governed)");
+  const team = form.fields.find((f) => f.key === "cmapi.net/team");
+  assert.match((await checkAll(form, shownValues(form, { "label:cmapi.net/team": "" }, TARGET), "abc-pay-dev", ecma, { "label:cmapi.net/team": "" }))[team.id], /^Required/);
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }
