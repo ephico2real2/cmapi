@@ -8,8 +8,11 @@ fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
 mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
+mkdir -p "$W/repo/cmapi/src/cmapi/core"
+cp "$SRC/../cmapi/src/cmapi/core/cluster_tokens.py" "$W/repo/cmapi/src/cmapi/core/"
+
 mkdir -p "$W/repo/deploy/kind-import"
-cp "$SRC/kind-import/import-secret.py" "$W/repo/deploy/kind-import/"
+cp "$SRC/kind-import/import-secret.py" "$SRC/kind-import/write-import.sh" "$W/repo/deploy/kind-import/"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -out "$W/ca.pem" -subj "/CN=stub CA" -days 2 2>/dev/null
 # The ingress bundle as measured on CRC: the site's certificate, then its CA.
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$W/ingress-ca.key" -out "$W/ingress-ca.pem" -subj "/CN=ingress-operator@1" -days 2 2>/dev/null
@@ -28,11 +31,13 @@ case "$s" in
   "get route default-route"*) printf 'registry.stub'; exit 0;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
+  "get secret cmapi-cluster-crc -n cmapi-imports --ignore-not-found -o jsonpath={.metadata.resourceVersion}") echo 1; exit 0;;
   "get configmap kube-root-ca.crt"*) cat "$STUB_CA"; exit 0;;
-  "create token cmapi-reader -n cmapi-system --duration=168h")
+  "create token cmapi-reader -n cmapi-system --duration=168h"|"create token cmapi-reader -n cmapi-system --duration=1h")
+    life=604800; [ "${*: -1}" = "--duration=1h" ] && life=3600
     [ -z "${STUB_NO_TOKEN:-}" ] || exit 1
     issued=$(date +%s)
-    payload=$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$issued" "$((issued + 604800))" | base64 | tr -d '=\n' | tr '+/' '-_')
+    payload=$(printf '{"sub":"system:serviceaccount:cmapi-system:cmapi-reader","iat":%s,"exp":%s}' "$issued" "$((issued + life))" | base64 | tr -d '=\n' | tr '+/' '-_')
     printf 'stub.%s.%s\n' "$payload" "$TOKEN"; exit 0;;
   "apply --server-side --field-manager=crc-reader-import.sh --force-conflicts -f -") cat >"$ARGV_LOG.applied"; exit 0;;
   "get pod postgres-0 -n keycloak -o json") cat <<'J'
@@ -203,7 +208,7 @@ export CMAPI_OIDC_LOGIN=$W/bin/oidc-login-stub
 chmod +x "$W/bin/"*; export PATH="$W/bin:$PATH"
 cd "$W/repo" || exit 1; git init -q .; git -c user.email=t@t -c user.name=t commit -q --allow-empty -m t; export REPO=$W/repo; mkdir -p cmapi; printf 'version = "0.2.0"\n' >cmapi/pyproject.toml
 D=$W/repo/deploy; TRUST=$D/manifests/environments/crc/30-trust.yaml
-no_secret() { if grep -qF -e "$TOKEN" -e "$SECRETVAL" -e "$(printf '%s' "$TOKEN" | base64)" "$ARGV_LOG" "$1"; then bad "$2: a credential reached an argument or the output"; else ok "$2: no credential on an argument or in the output"; fi; }
+no_secret() { if grep -qF -f <(printf '%s\n' "$TOKEN" "$SECRETVAL"; printf '%s' "$TOKEN" | base64) "$ARGV_LOG" "$1"; then bad "$2: a credential reached an argument or the output"; else ok "$2: no credential on an argument or in the output"; fi; }
 run() { : >"$ARGV_LOG"; "$@" >"$W/out" 2>&1; echo $?; }
 
 # crc-trust.sh
@@ -253,7 +258,7 @@ if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; the
 # crc-image.sh
 want "image: pushes and prints" 0 "$(run "$D/crc-image.sh")"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi@sha256:' && ok "the last line is the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
 no_secret "$W/out" "image"; [ "$(cat "$ARGV_LOG.mode")" = 600 ] && ok "the auth file is 0600" || bad "the auth file's mode"
-grep -qF "$(printf 'unused:%s' "$TOKEN" | base64)" "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
+grep -qF -f <(printf 'unused:%s' "$TOKEN" | base64) "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
 grep -q -- '--dest-cert-dir' "$ARGV_LOG" && ok "skopeo verifies against the ingress CA" || bad "no --dest-cert-dir"
 want "image cmapi-portal: pushes and prints" 0 "$(run "$D/crc-image.sh" cmapi-portal)"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi-portal@sha256:' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
 grep -qE '^podman build .* -t localhost/cmapi-portal:sha-[0-9a-f]{10} -f cmapi-portal-ui/Containerfile \.$' "$ARGV_LOG" && ok "the front door is built from its Containerfile at the root" || bad "the portal build: $(grep '^podman build' "$ARGV_LOG")"
@@ -270,6 +275,9 @@ printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tre
 # crc-reader-import.sh
 want "reader import" 0 "$(run "$D/crc-reader-import.sh")"; no_secret "$W/out" "reader import"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d["metadata"]; sys.exit(0 if m["namespace"]=="cmapi-imports" and m["labels"]["cmapi.net/cluster-id"]=="CRC" and m["labels"]["cmapi.net/secret-type"]=="cluster" and set(d["data"])=={"apiUrl","token","caData","insecure"} else 1)' "$ARGV_LOG.applied" && ok "the import Secret is what the registry reads" || bad "the import Secret"
+python3 "$HERE/token-renewal-test.py" "$STUB_CA" && ok "worker and script renewal deadlines agree" || bad "worker and script renewal deadlines differ"
+want "CRC short-duration fallback" 0 "$(CMAPI_TOKEN_DURATION=1h run "$D/crc-reader-import.sh")"
+grep -q -- '--duration=1h' "$ARGV_LOG" && ok "CRC requested one hour" || bad "wrong CRC duration"
 want "reader import: a refused TokenRequest stops" 1 "$(STUB_NO_TOKEN=1 run "$D/crc-reader-import.sh")"
 
 # crc-backup.sh

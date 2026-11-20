@@ -56,6 +56,7 @@ instance:
   # {insecureSkipTLSVerify: true}}}. Empty: no environment may, prod included unless named. Such a cluster shows
   # trust.downgrade true in GET /api/v1/clusters and cmapi_cluster_tls_insecure 1.
   clusterTLS: {}
+  clusterTokens: {duration: 7d}    # defaults to 20% remaining; set renewBefore or renewBeforePercentage
 
 # -------------------------------------------------------------------------- identity (an existing Keycloak)
 auth:
@@ -135,6 +136,9 @@ clusters:
     writes: true
     labels: {region: us-central}
     simulatedCapacity: {cpu: 64, memory: 256Gi}
+# Enable when Helm manages the reader grant in an existing cmapi-system namespace on this cluster.
+reader:
+  installRenewalRole: false
 imports:
   namespace: cmapi-imports
   createNamespace: true

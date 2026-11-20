@@ -1,7 +1,6 @@
 {{/*
 ServiceAccounts and the least RBAC each needs:
-- api and worker: get, list and watch Secrets in the imports namespace (docs/01: cmapi has only
-  that there, so the import writer's grant never touches cmapi's own secrets);
+- api and worker: get, list and watch Secrets in the imports namespace for discovery; worker alone may patch an existing import;
 - worker only, apply delivery on the hub: the cmapi-deliverer ClusterRole (create, patch, delete on
   the kinds cmapi renders, and bind on the token-issuer ClusterRole). The api never holds it.
 */}}
@@ -59,6 +58,26 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-imports-reader}
 subjects:
   - {kind: ServiceAccount, name: {{ $name }}-api, namespace: {{ .Release.Namespace }}}
+  - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
+---
+# The worker patches the credential and expiry on existing Secrets with a resourceVersion precondition.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-imports-renewer
+  namespace: {{ .Values.imports.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-imports-renewer
+  namespace: {{ .Values.imports.namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-imports-renewer}
+subjects:
   - {kind: ServiceAccount, name: {{ $name }}-worker, namespace: {{ .Release.Namespace }}}
 {{- if and (eq .Values.delivery.mode "apply") (not .Values.delivery.hubDeliverer.acknowledgeDirectWrites) }}
 {{- fail "delivery.mode=apply makes the worker a cluster-wide writer, which the design forbids: use argocd, or set delivery.hubDeliverer.acknowledgeDirectWrites on a cluster where that is accepted" }}

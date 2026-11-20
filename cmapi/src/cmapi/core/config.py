@@ -27,6 +27,7 @@ import yaml
 
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
+from cmapi.core.cluster_tokens import TokenPolicy
 from cmapi.core.clustertls import ClusterTLSSettings
 from cmapi.core.giturl import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
@@ -56,6 +57,7 @@ class InstanceConfig:
     hashes: dict[str, str]
     policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
     cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
+    cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
 
 
 def _read(path: Path) -> tuple[dict, str]:
@@ -119,10 +121,14 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     problems.extend(policy_problems)
     cluster_tls, tls_problems = ClusterTLSSettings.parse(me.get("clusterTLS"), allowed)
     problems.extend(tls_problems)
+    try:
+        cluster_tokens = TokenPolicy().override(me.get("clusterTokens", {}))
+    except ValueError as exc:
+        problems.append(f"instance.clusterTokens: {exc}")
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
-                          cluster_tls)
+                          cluster_tls, cluster_tokens)
 
 
 def _git_problems(git: dict) -> list[str]:

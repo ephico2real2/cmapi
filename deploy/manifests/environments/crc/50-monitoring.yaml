@@ -57,6 +57,12 @@ spec:
           for: 5m
           labels: {severity: critical}
           annotations: {summary: "Git host operation failures above 20% for 5 minutes"}
+        - alert: CmapiClusterTokenExpiring
+          expr: |
+            cmapi_cluster_token_expiry_seconds{namespace="cmapi"}
+              <= 0.1 * cmapi_cluster_token_lifetime_seconds{namespace="cmapi"}
+          labels: {severity: critical}
+          annotations: {summary: "Import token has at most 10% of its issued lifetime remaining. Check worker renewal or rerun the import writer."}
         - alert: CmapiWorkerNotLooping
           # A Running worker whose loop died would pass its probes while every request stalls; absent() is the
           # worker that is gone or never started, which the age alone cannot see (measured with promtool).

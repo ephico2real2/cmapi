@@ -419,7 +419,7 @@ case "$(basename "$0")" in
       get\ cm*) echo "-----BEGIN CERTIFICATE-----" ;;
       "get configmap kube-root-ca.crt"*) printf '%s' "$TEST_READER_CA" ;;
       "create token cmapi-reader -n cmapi-system --duration=168h") printf '%s\n' "$TEST_READER" ;;
-      "apply "*" -f -") cat > "$STATE/import.json" ;;
+      "apply "*" -f -"|"create --field-manager=crc-reader-import.sh -f -") cat > "$STATE/import.json" ;;
       apply*) f="${@: -1}"; cp "$f" "$STATE/applied.$(basename "$f")" ;;
       exec*) cat "$STATE/commit" ;;
     esac ;;
@@ -453,8 +453,7 @@ def test_release_runs_twice_in_a_row(tmp_path):
 
 @pytest.mark.parametrize("args", [[], ["CUSTOM_ID", "my-imports"]])
 def test_the_baseline_an_owner_needs_is_a_command(tmp_path, args):
-    repo = tmp_path/"repo"; (repo/"examples").mkdir(parents=True)
-    shutil.copytree(ROOT/"deploy", repo/"deploy"); shutil.copytree(ROOT/"examples/baseline", repo/"examples/baseline")
+    repo = ROOT  # The standalone writer imports the shared policy from this checkout.
     docs = [d for d in yaml.safe_load_all((repo/"examples/baseline/cmapi-reader-rbac.yaml").read_text()) if d]
     names = {(d["kind"], d["metadata"]["name"]) for d in docs}
     assert {("Namespace", "cmapi-system"), ("ClusterRole", "cmapi-token-issuer"), ("ServiceAccount", "cmapi-reader")} <= names

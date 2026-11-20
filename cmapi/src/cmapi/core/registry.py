@@ -45,11 +45,12 @@ from cmapi.core.clients.nodes import NodeCache
 from cmapi.core.clients.policyreports import ReportCache
 from cmapi.core.clients.redact import order_forms, redact, secret_forms
 from cmapi.core.clients.trust import Trust, file_context, require_https, trusted_context, valid_server_name
+from cmapi.core.cluster_tokens import READER_IDENTITY, ReaderGrant, TokenPolicy
+from cmapi.core.config import ConfigError
 from cmapi.core.errors import Problem
-from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, log, set_token_expiry
+from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, cluster_http_call, log, set_token_expiry
 from cmapi.core.tiers import qty
 
-READER_IDENTITY = "system:serviceaccount:cmapi-system:cmapi-reader"
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
@@ -73,6 +74,7 @@ class ClusterPolicy:
     metadata: dict[str, Any] = field(default_factory=dict)
     placement: dict[str, Any] = field(default_factory=dict)
     simulated_capacity: dict[str, str] | None = None
+    cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
 
 
 @dataclass
@@ -152,8 +154,7 @@ def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
     return order_forms(forms)
 
 
-def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
-    value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+def parse_token_expiry(value: Any) -> datetime | None:
     if isinstance(value, str):
         if not TOKEN_EXPIRY.fullmatch(value):
             return None
@@ -162,6 +163,10 @@ def _token_expiry(secret: Mapping[str, Any]) -> datetime | None:
         except ValueError:
             return None
     return value if isinstance(value, datetime) and value.tzinfo is not None else None
+
+
+def token_expiry(secret: Mapping[str, Any]) -> datetime | None:
+    return parse_token_expiry(secret.get("annotations", {}).get("cmapi.net/token-expires-at"))
 
 
 def _size_problem(size: Any) -> str | None:
@@ -182,7 +187,8 @@ def _size_problem(size: Any) -> str | None:
     return None
 
 
-def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, ClusterPolicy]:
+def load_policies(path: Path, allowed_environments: set[str],
+                  token_defaults: TokenPolicy = TokenPolicy()) -> dict[str, ClusterPolicy]:
     raw = yaml.safe_load(path.read_text()) or {}
     entries = raw.get("clusters") or {}
     items = entries.items() if isinstance(entries, dict) else ((e["clusterId"], e) for e in entries)
@@ -197,11 +203,15 @@ def load_policies(path: Path, allowed_environments: set[str]) -> dict[str, Clust
         if size is not None and (why := _size_problem(size)):
             problems.append(f"cluster {cid}: simulatedCapacity {why}")
             continue
+        try:
+            tokens = token_defaults.override(e.get("clusterTokens", {}))
+        except ValueError as exc:
+            raise ConfigError([f"clusters.yaml: {cid}.clusterTokens: {exc}"]) from exc
         out[cid] = ClusterPolicy(cluster_id=cid, environment=env, gitops_path=e.get("gitopsPath", f"clusters/{cid}"),
                                  writes=bool(e.get("writes", True)), sync_signal=e.get("syncSignal", "poll"),
                                  delivery=e.get("delivery"), thanos_url=e.get("thanosUrl"),
                                  labels=dict(e.get("labels") or {}), metadata=dict(e.get("metadata") or {}),
-                                 placement=dict(e.get("placement") or {}), simulated_capacity=e.get("simulatedCapacity"))
+                                 cluster_tokens=tokens, placement=dict(e.get("placement") or {}), simulated_capacity=e.get("simulatedCapacity"))
     if problems:
         raise ValueError("clusters.yaml: " + "; ".join(problems))
     return out
@@ -243,25 +253,40 @@ class HubImportSource(ImportSource):
     def __init__(self, api_url: str, token_file: Path, ca_file: Path, namespace: str):
         require_https(api_url, "CMAPI_KUBE_API_URL")       # before the token is read: never sent in clear text
         self.namespace = namespace
-        token = token_file.read_text().strip()
-        self._forms = secret_forms(token)
+        self.token_file = token_file
         # The hub's own ServiceAccount CA, else the trusted mode: never httpx's verify=True (certifi or SSL_CERT_FILE, #434).
         verify = file_context(str(ca_file)) if ca_file.exists() else trusted_context()
-        self.client = httpx.Client(base_url=api_url, verify=verify, timeout=10,
-                                   headers={"Authorization": f"Bearer {token}"})
+        self.client = httpx.Client(base_url=api_url, verify=verify, timeout=10)
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        headers = kwargs.pop("headers", {})
+        # The kubelet rotates this projected credential during the worker's lifetime.
+        headers["Authorization"] = f"Bearer {self.token_file.read_text().strip()}"
+        try:
+            with cluster_http_call():
+                response = self.client.request(method, path, headers=headers, **kwargs)
+        except httpx.HTTPError:
+            response = None
+        if response is None:
+            raise RuntimeError("hub Secret request failed")
+        if not response.is_success:
+            # A proxy can echo any part of the submitted Secret. Only the status is diagnostic.
+            raise KubeError(response.status_code, path, "hub Secret request failed")
+        return response
 
     def list(self) -> list[dict[str, Any]]:
         """Every import Secret, or an error: `refresh` then keeps the previous set (docs/02 "Discovery"). An answer that is not
         a list of Secrets (not JSON, not an object, no items) is BadResponse, never an empty list that would retire every
         cluster (#421)."""
         path = f"/api/v1/namespaces/{self.namespace}/secrets"
-        try:
-            r = self.client.get(path, params={"labelSelector": "cmapi.net/secret-type=cluster"})
-            r.raise_for_status()
-        except httpx.HTTPError as exc:
-            # The hub's own token never reaches the log `imports_list_failed`, whatever the error text holds (#420).
-            raise RuntimeError(redact(f"{type(exc).__name__}: {exc}", self._forms)) from exc
-        return [_secret(s) for s in list_items(KubeClient._object(r, path), path, r.status_code)]
+        r = self._request("GET", path, params={"labelSelector": "cmapi.net/secret-type=cluster"})
+        return [_secret(s) for s in list_items(KubeClient._object(r, path, sensitive=True), path, r.status_code)]
+
+    def patch_token(self, name: str, version: str, token: str, expires: str) -> None:
+        path = f"/api/v1/namespaces/{self.namespace}/secrets/{name}"
+        self._request("PATCH", path, headers={"Content-Type": "application/merge-patch+json"},
+                      json={"metadata": {"resourceVersion": version, "annotations": {"cmapi.net/token-expires-at": expires}},
+                            "data": {"token": base64.b64encode(token.encode()).decode()}})
 
 
 def _valid_ca_data(ca_data: str) -> bool:
@@ -286,7 +311,7 @@ def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
             undecodable.append(k)
     data.update(_mapping(doc.get("stringData")))
     return {"name": meta.get("name"), "labels": _mapping(meta.get("labels")), "annotations": _mapping(meta.get("annotations")),
-            "data": data, "undecodable": undecodable}
+            "resourceVersion": meta.get("resourceVersion"), "data": data, "undecodable": undecodable}
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -323,8 +348,8 @@ class ClusterRegistry:
         self._fingerprints: dict[str, str] = {}
 
     # ---- the six checks
-    def _check(self, st: ClusterState, secret: Mapping[str, Any]) -> ClusterState:
-        cluster_id = st.cluster_id
+    def import_trust(self, secret: Mapping[str, Any], policy: ClusterPolicy | None) -> tuple[Trust | None, list[str]]:
+        """Validate the connection before either discovery or self-renewal sends a credential."""
         d = secret["data"]
         undecodable = secret.get("undecodable") or []
         findings: list[str] = [f"field {k} is not base64 of UTF-8 text" for k in undecodable]
@@ -363,27 +388,36 @@ class ClusterRegistry:
             findings.append("tlsServerName is not a DNS name or an IP address")
         # 3. TLS mode. The environment's permission is checked before any client exists, so a token never leaves this process
         # over unverified TLS where the instance does not allow it.
-        env = st.policy.environment if st.policy else None
+        env = policy.environment if policy else None
         if insecure and env not in self.insecure_environments:
             where = env if env is not None else "<none>"
             findings.append(f"insecure is not allowed for environment {where}: "
                             f"instance.clusterTLS.environments.{where}.insecureSkipTLSVerify is false")
         if findings:
-            return self._set(st, "invalid-secret", findings, None, secret)
+            return None, findings
         # The root dot of a fully qualified name names the same host; OpenSSL matches the name as written, so it is dropped.
         server_name = server_name.removesuffix(".") if server_name else None
         trust = (Trust("insecure", server_name=server_name) if insecure
                  else Trust("caData", ca_data=ca_data, server_name=server_name) if ca_data
                  else Trust("trusted", server_name=server_name, bundles=self.trusted_ca_file))
+        return trust, []
+
+    def _check(self, st: ClusterState, secret: Mapping[str, Any]) -> ClusterState:
+        cluster_id = st.cluster_id
+        trust, findings = self.import_trust(secret, st.policy)
+        if trust is None:
+            return self._set(st, "invalid-secret", findings, None, secret)
+        d = secret["data"]
+        api_url = d["apiUrl"]
         try:
             # The whole token, as a SHA-256: a rotated token that ends in the same characters still gives the caches the new
             # client. The digest stays in memory, compared and never shown.
             fp = f"{api_url}|{hashlib.sha256(d['token'].encode()).hexdigest()}|{trust.fingerprint()}"
             # The client builds the SSL context: a caData of valid base64 that is no certificate fails now, not at a call (#419),
             # and so does a bundle of CMAPI_TRUSTED_CA_FILE that does not load (TrustBundleError, which names it).
-            client = self.client_factory(cluster_id, api_url, d["token"], trust, insecure=insecure)
+            client = self.client_factory(cluster_id, api_url, d["token"], trust, insecure=trust.source == "insecure")
         except OSError as exc:                                      # ssl.SSLError is an OSError, as a missing file is
-            if ca_data and isinstance(exc, ssl.SSLError):
+            if trust.source == "caData" and isinstance(exc, ssl.SSLError):
                 return self._set(st, "invalid-secret", [f"invalid caData: {exc}"], None, secret)
             return self._set(st, "cert-verify-failed", [f"{exc}; trust store: {trust.store_name()}"], None, secret, trust)
         adopted = False                     # the client is closed unless the caches took it, whatever ends the check
@@ -482,8 +516,16 @@ class ClusterRegistry:
             if probed:
                 st.last_probe_at = st.checked_at
             st.secret_name = secret.get("name") if isinstance(secret.get("name"), str) else None
-            st.token_expires_at = _token_expiry(secret)
-            set_token_expiry(st.cluster_id, st.token_expires_at)
+            st.token_expires_at = token_expiry(secret)
+            lifetime = None
+            if st.token_expires_at:
+                try:
+                    grant = ReaderGrant.parse(secret["data"]["token"])
+                    if grant.expires == st.token_expires_at.timestamp():
+                        lifetime = grant.expires - grant.issued
+                except (ValueError, KeyError):
+                    pass
+            set_token_expiry(st.cluster_id, st.token_expires_at, lifetime)
             self.clusters[st.cluster_id] = st
             for s in STATUSES:
                 CLUSTER_STATUS.labels(st.cluster_id, s).set(1 if s == status else 0)

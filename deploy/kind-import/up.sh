@@ -7,7 +7,7 @@
 #   3. stop unless its served certificate names the address and host.crc.testing, and kind's CA verifies it
 #   4. apply the reader (reader.yaml) on kind
 #   5. Kyverno and the rnd bundle from the checkout on kind (kyverno.sh, #430)
-#   6. pipe a 7-day TokenRequest token into Secret cmapi-imports/cmapi-cluster-kind-cmapi-test on CRC
+#   6. pipe a bounded TokenRequest token into Secret cmapi-imports/cmapi-cluster-kind-cmapi-test on CRC
 # Run it again to rotate: each run writes a new token. The token goes from kubectl to oc through pipes alone: never an argument, a
 # file or a line of output. The import is read only until clusters.yaml has the KIND_CMAPI_TEST entry. Exits non-zero on the first failure.
 set -euo pipefail
@@ -15,6 +15,9 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 { [ $# = 1 ] && [[ $1 != -* ]]; } || { echo "usage: $0 <cmapi-cluster-configs checkout>" >&2; exit 2; }
 
+# shellcheck source=SCRIPTDIR/write-import.sh
+source "$HERE/write-import.sh"
+duration=$(python3 "$HERE/import-secret.py" --request-duration)
 check_config
 address_held || moved
 check_hub
@@ -40,7 +43,14 @@ kc apply --server-side --field-manager="$FIELD_MANAGER" -f "$HERE/reader.yaml" >
 say "reader applied on $NAME: cmapi-system/cmapi-reader and ClusterRole cmapi-reader"
 "$HERE/kyverno.sh" "$1"
 
-kc create token cmapi-reader -n cmapi-system --duration=168h |
-  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" host.crc.testing |
-  oc_ apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null
+# Finish the issuer and renderer before apply. Keep credentials out of xtrace, argv and exported variables.
+set +ax
+unset import_document
+version=$(import_version "$SECRET" "$HUB_NS")
+import_document=$(kc create token cmapi-reader -n cmapi-system --duration="$duration" 2>/dev/null |
+  python3 "$HERE/import-secret.py" "$CLUSTER_ID" "https://$ADDRESS:$PORT" "$T/ca.pem" host.crc.testing --resource-version "$version") ||
+  die "reader TokenRequest or import validation failed"
+builtin printf '%s\n' "$import_document" |
+  write_import "$FIELD_MANAGER" "$version" >/dev/null 2>&1 ||
+  die "kind import apply failed"
 say "Secret $HUB_NS/$SECRET is current on CRC; cmapi picks it up at its next relist (up to 5 min)"
