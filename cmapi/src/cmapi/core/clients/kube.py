@@ -186,6 +186,15 @@ class KubeClient:
         version = self._object(r, "/version").get("gitVersion")
         return version if isinstance(version, str) and version else "?"
 
+    def request_reader_token(self, duration: int) -> tuple[str, str]:
+        path = "/api/v1/namespaces/cmapi-system/serviceaccounts/cmapi-reader/token"
+        r = self._request("POST", path, json={"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest",
+                                              "spec": {"expirationSeconds": duration}})
+        if not r.is_success:
+            raise KubeError(r.status_code, path, "reader TokenRequest failed")
+        body = self._object(r, path)
+        return self._text(body, r, path, "status", "token"), self._text(body, r, path, "status", "expirationTimestamp")
+
     def whoami(self) -> str:
         """OpenShift's users/~ names the identity; on plain Kubernetes a SelfSubjectReview does."""
         path = "/apis/user.openshift.io/v1/users/~"

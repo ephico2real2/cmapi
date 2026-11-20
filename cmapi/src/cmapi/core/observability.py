@@ -68,6 +68,8 @@ POLICY_MODE = Gauge("cmapi_policy_mode", "1 for the policy mode of each served e
 CLUSTER_STATUS = Gauge("cmapi_cluster_status", "1 for the cluster's current import status", ["cluster_id", "status"])
 CLUSTER_TOKEN_EXPIRY = Gauge("cmapi_cluster_token_expiry_seconds", "Seconds remaining until the annotated import token expiry",
                              ["cluster_id"])
+CLUSTER_TOKEN_RENEWALS = Counter("cmapi_cluster_token_renewals_total", "Import token renewal attempts", ["cluster_id", "outcome"])
+CLUSTER_TOKEN_LIFETIME = Gauge("cmapi_cluster_token_lifetime_seconds", "Issued reader token lifetime", ["cluster_id"])
 CLUSTER_TLS_INSECURE = Gauge("cmapi_cluster_tls_insecure", "1 while the cluster is read with TLS verification off: its import "
                              "Secret says insecure and instance.clusterTLS allows its environment (#434)", ["cluster_id"])
 CLUSTER_CALLS = Counter("cmapi_cluster_api_calls_total", "Cluster API calls", ["cluster_id", "result"])
@@ -80,7 +82,11 @@ CONFIG_INFO = Gauge("cmapi_config_info", "Hash of the loaded configuration", ["h
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 
 
-def set_token_expiry(cluster_id: str, expiry: datetime | None) -> None:
+def set_token_expiry(cluster_id: str, expiry: datetime | None, lifetime: int | None = None) -> None:
+    if lifetime is None:
+        CLUSTER_TOKEN_LIFETIME.remove(cluster_id)
+    else:
+        CLUSTER_TOKEN_LIFETIME.labels(cluster_id).set(lifetime)
     if expiry is None:
         CLUSTER_TOKEN_EXPIRY.remove(cluster_id)
     else:

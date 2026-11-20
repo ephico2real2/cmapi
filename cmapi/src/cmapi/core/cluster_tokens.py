@@ -56,6 +56,8 @@ class ReaderGrant:
     @classmethod
     def parse(cls, token: str) -> ReaderGrant:
         try:
+            if not isinstance(token, str) or not re.fullmatch(r"[!-~]+", token):
+                raise ValueError
             header, payload, signature = token.split(".")
             if not header or not signature or not re.fullmatch(r"[A-Za-z0-9_-]+", payload):
                 raise ValueError
@@ -65,7 +67,7 @@ class ReaderGrant:
             issued, expires = claims["iat"], claims["exp"]
             if type(issued) is not int or type(expires) is not int or not 0 <= issued < expires:
                 raise ValueError
-        except (AttributeError, TypeError, ValueError, KeyError) as exc:
+        except (TypeError, ValueError, KeyError, RecursionError):
             raise ValueError("invalid reader token subject or lifetime") from None
         return cls(issued, expires)
 

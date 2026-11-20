@@ -15,6 +15,7 @@ from cmapi.jobs.open_pr import open_pr, open_revert
 from cmapi.jobs.pr_checks import pr_checks
 from cmapi.jobs.push_branch import push_branch
 from cmapi.jobs.rejections_prune import REJECTIONS_PRUNE_EVERY, rejections_prune
+from cmapi.jobs.token_renew import TOKEN_RENEW_EVERY, token_renew
 from cmapi.jobs.watch_sync import prune, watch_sync
 
 HANDLERS = {
@@ -23,6 +24,7 @@ HANDLERS = {
     "open_revert": open_revert,
     "pr_checks": pr_checks,
     "apply": apply,
+    "token_renew": token_renew,
     "merge": merge,
     "watch_sync": watch_sync,
     "prune": prune,
@@ -34,4 +36,4 @@ HANDLERS = {
 }
 
 RECURRING = {"approval_timeout": APPROVAL_TIMEOUT_EVERY, "git_reconcile": GIT_RECONCILE_EVERY,
-             "rejections_prune": REJECTIONS_PRUNE_EVERY}
+             "rejections_prune": REJECTIONS_PRUNE_EVERY, "token_renew": TOKEN_RENEW_EVERY}
