@@ -219,8 +219,12 @@ test("M2 the fields of each file: inputs in the order of required, then the keys
     required: [["cmapi.net/team", "Team", null, false, null, "payments"], ["cmapi.net/team-dl", "Team DL", null, false, "email-in-domains", "payments-team@ephico2real.com"]],
     derived: [],
     optional: [["cmapi.net/app", null, null, false, null, null], ["cmapi.net/cost-center", null, null, false, null, "cc-4410"], ["cmapi.net/rightsizing", null, null, false, null, null]] });
+  // #479 (A1): the keys that cmapi sets are required too, so they are in both groups; the form still orders them after
+  // the inputs and never sends them (bodyOf).
   assert.deepEqual(groups(RULES.company), {
-    required: [["company.net/mnemonic", null, null, false, null, "abc"], ["company.net/lob", null, null, false, null, "amgsst"], ["company.net/cl", null, null, true, null, "1"]],
+    required: [["company.net/mnemonic", null, null, false, null, "abc"], ["company.net/lob", null, null, false, null, "amgsst"], ["company.net/cl", null, null, true, null, "1"],
+      ["name", null, "namespace", false, null, null], ["company.net/app-environment", null, "environment", false, null, null],
+      ["company.net/app-environment", null, "environment", false, null, null]],
     derived: [["name", null, "namespace", false, null, null], ["company.net/app-environment", null, "environment", false, null, null],
       ["company.net/app-environment", null, "environment", false, null, null]],
     optional: [["company.net/mnemonic-confluence", null, null, false, "url", "https://wiki.company.net/abc"],
