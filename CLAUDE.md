@@ -13,6 +13,13 @@ When you reach a point where you would ask, research it instead:
 Every bug gets a GitHub issue, handled by the `fix-defect` skill in `.claude/skills/`: logged with a research mandate, linked to its parent issue, fixed by a background agent, reviewed as usual, then validated and tested by the coordinator as arbiter. Refine the issue until it says what is wrong, where, and how to prove it. Then fix it, with a test
 that fails before the fix and passes after, and close the issue from the pull request.
 
+**File it and fix it in the same session.** The owner, 2026-11-20: "any issues faced must be filed but implemented
+immediately in that session. This is a mandate for any of our agentic workflow and even in houston-mayday." A defect
+found by anyone, at any stage, is filed and fixed before the session moves on: in the current pull request when it is
+in scope, otherwise in a follow-up pull request started at once. A defect that predates the change is no exception, and
+nothing waits in Backlog. Every brief to an implementer, a reviewer or a houston-mayday job says so. A reviewer that
+cannot write to the repository returns the full fix and test, and the coordinator lands it in the same session.
+
 ## How to build: the delivery loop
 
 The owner's required way of working, from `app-architect`, "Delivering the fixes". Every step goes through it:
