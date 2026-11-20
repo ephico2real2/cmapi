@@ -113,15 +113,15 @@ const MUTANTS = [
   ["the state chip is not sent", "src/portal/QuotasTab.tsx", "if (state) query.state = state;", "", "portal", "11 Quotas: the rows"],
   ["the quota sort is not sent", "src/portal/QuotasTab.tsx", "if (sort !== \"name\") query.sort = sort;", "", "portal", "11 Quotas: the rows"],
   ["the quotas' Next is connected to nothing", "src/portal/QuotasTab.tsx", "next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}", "next={() => {}}", "portal", "11 Quotas: the rows"],
-  ["the quotas' Next is never off", "src/portal/QuotasTab.tsx", "nextDis={busy || !page.page.nextCursor}", "nextDis={false}", "portal", "11 Quotas: the rows"],
+  ["the quotas' Next is never off", "src/portal/QuotasTab.tsx", "nextDis={!page.page.nextCursor}", "nextDis={false}", "portal", "11 Quotas: the rows"],
   ["the letter jump goes nowhere", "src/portal/QuotasTab.tsx", "onClick={() => n && apply({ sort: \"name\" }, l)}", "onClick={() => {}}", "portal", "11 Quotas: the rows"],
   ["a letter with no namespace is on", "src/portal/QuotasTab.tsx", "isAriaDisabled={!n}", "isAriaDisabled={false}", "portal", "11 Quotas: the rows"],
   ["used and hard swapped", "src/portal/QuotasTab.tsx", "cpu: [cores(r.cpu[0]), cores(r.cpu[1])] as const,", "cpu: [cores(r.cpu[1]), cores(r.cpu[0])] as const,", "portal", "11 Quotas: the rows"],
   ["the CPU meter at 0", "src/portal/QuotasTab.tsx", "ariaLabel=\"CPU requests of quota\" value={c?.pct ?? 0}", "ariaLabel=\"CPU requests of quota\" value={0}", "portal", "11 Quotas: the rows"],
   // #392: while the next sort loads, the table shows the last answer's rows (keepPreviousData).
   ["392: the pager says the sort asked for, not the sort of the rows shown", "src/portal/QuotasTab.tsx", "SORTS.find(([id]) => id === shownSort)![2]", "SORTS.find(([id]) => id === sort)![2]", "portal", "11 Quotas: the rows"],
-  ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "busy={busy}", "busy={false}", "portal", "11 Quotas: the rows"],
-  ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "nextDis={busy || !page.page.nextCursor}", "nextDis={!page.page.nextCursor}", "portal", "11 Quotas: the rows"],
+  ["392: the table is not busy while it shows the last answer's rows", "src/portal/QuotasTab.tsx", "rows={items}\n              busy={busy}", "rows={items}\n              busy={false}", "portal", "11 Quotas: the rows"],
+  ["392: Next pages from the last answer's cursor while the next sort loads", "src/portal/QuotasTab.tsx", "busy={busy}\n      range={text}", "busy={false}\n      range={text}", "portal", "11 Quotas: the rows"],
   // #347: the read waits for the tab bar and the theme, and still fails on a transition that has not ended.
   ["347: a tab bar transition outlives the read", "src/app.css", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }", ".cp-mono { font-family: var(--pf-t--global--font--family--mono); }\n.pf-v6-c-tabs__scroll-button { transition-duration: 6s !important; }", "portal", "7 the Workflow"],
   ["347: a theme colour transition outlives the read", "src/app.css", ".cp-wrap { overflow-wrap: anywhere; }", ".cp-wrap { overflow-wrap: anywhere; }\n.pf-v6-c-page { transition: background-color 6s !important; }", "portal", "7 layout"],

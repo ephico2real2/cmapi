@@ -89,6 +89,7 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
   const refused = usePolicyRejections(refusedQuery);
 
   const page = result.state === "ok" ? result.data : null;
+  const busy = result.state === "ok" && result.refreshing;
   const engineOff = page?.policy.engine === "none";
   const known = page?.clusters.filter((c) => c.counts !== null) ?? [];
   // With no cluster's counts known, the head says so: a sum over nothing is not "0 failing".
@@ -190,6 +191,7 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
         {page && (
           <>
             <Pager
+              busy={busy}
               range={page.page.total ? `${page.page.from}–${page.page.to} of ${page.page.total} · by namespace` : "0 results"}
               prev={() => page.page.prevCursor && setCursor(page.page.prevCursor)}
               next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}
@@ -197,6 +199,7 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
               nextDis={!page.page.nextCursor}
             />
             <DataTable
+              busy={busy}
               label="Failing resources"
               cols={["Namespace", "Resource", "Policy", "Result", "Message", "Cluster"]}
               rows={page.items}
@@ -240,6 +243,7 @@ function Refused({ result, setCursor }: { result: ReturnType<typeof usePolicyRej
       <>
         {page.page.total > page.page.limit && (
           <Pager
+            busy={result.refreshing}
             range={`${page.page.from}–${page.page.to} of ${page.page.total} · newest first`}
             prev={() => page.page.prevCursor && setCursor(page.page.prevCursor)}
             next={() => page.page.nextCursor && setCursor(page.page.nextCursor)}
@@ -248,6 +252,7 @@ function Refused({ result, setCursor }: { result: ReturnType<typeof usePolicyRej
           />
         )}
         <DataTable
+          busy={result.refreshing}
           label="Refused by cmapi"
           cols={["When", "Where", "Stage", "Policy or check", "Detail", "By"]}
           rows={page.items}
