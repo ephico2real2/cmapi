@@ -1343,7 +1343,8 @@ try {
         "Capacity", "fits on fresh data", "Expiry", "none: permanent", "Approval", "never (permanent)", "never (prod)", "Your team's distribution list, in one of the organisation's email domains (emailDomains); format only."];
       // The labels and annotations come from GET /api/v1/metadata-keys (#336): each field's key, its label, its words and its
       // example (the placeholder), from the API's answer. Operator-only keys are not offered.
-      const rules = Object.values(REFERENCE_KEYS).flatMap((map) => Object.entries(map.properties).filter(([, p]) => !p["x-cmapi-operator-only"])
+      // The two maps only: the answer's third member, x-cmapi-expiration (#479), is not a map of keys.
+      const rules = [REFERENCE_KEYS.labels, REFERENCE_KEYS.annotations].flatMap((map) => Object.entries(map.properties).filter(([, p]) => !p["x-cmapi-operator-only"])
         .map(([key, p]) => [key, `${p.title ?? key} (${(map.required ?? []).includes(key) ? "required" : "optional"})`, p.description, ...(p.examples ?? [])])).flat();
       // The portal's own words, each in MOCKUP-CONTRACT.md: the cluster field until placement is on the API (#303), the approval before a dry run,
       // and the two sections of the instance's keys with the group of its optional ones (#336).

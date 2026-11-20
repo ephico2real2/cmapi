@@ -67,6 +67,13 @@ type Json = Record<string, unknown>;
  * that the form silently checks less than cmapi does.
  */
 export const KEYWORDS = {
+  /** The members of the answer itself. */
+  answer: {
+    read: ["labels", "annotations"],
+    ignored: {
+      "x-cmapi-expiration": "the expiry rules of each environment (#479, D15): the form has no expiry field yet; Phase 4's ExpiryField reads them (plan 4.5)"
+    }
+  },
   map: {
     read: ["type", "properties", "required", "additionalProperties"],
     ignored: {
