@@ -1,0 +1,73 @@
+# The configuration of #479 for any company (docs/reviews/2026-11-20-issue-479/namespace_metadata.md, section 3.1), as a
+# metadata-keys.yaml. company.net stands for the company's domain. Nothing reads this file by default: the portal's suite
+# serves its answer of GET /api/v1/metadata-keys (cmapi-portal-ui/tests/api/metadata-keys.company-479.json), which
+# cmapi/tests/core/test_portal_fixture_479.py holds equal to what the service builds from this file.
+#
+# Every namespace name is <mnemonic>-<desired name>-<cluster env>: the mnemonic starts it (namespacePrefix) and the
+# environment, which cmapi fills in, ends it (namespaceSuffix). cmapi.net/team defaults to the mnemonic and can be
+# changed. abc, amgsst, payments and cc-4410 are examples, never rules (the owner's decision on #358).
+system: [cmapi.net/cluster-id, cmapi.net/managed, cmapi.net/request-id, cmapi.net/requested-by,
+         cmapi.net/requested-by-user, cmapi.net/tier, cmapi.net/instance, cmapi.net/env, cmapi.net/tier-hash,
+         cmapi.net/beyond-tier, cmapi.net/expiry, cmapi.net/expires-at]
+operatorOnly: [cmapi.net/protected, do-not-delete]
+reservedPrefixes: [kubernetes.io/, "*.kubernetes.io/", k8s.io/, openshift.io/, "*.openshift.io/",
+                   argocd.argoproj.io/, "*.kyverno.io/", redhatcop.redhat.io/,
+                   olm.operatorgroup.uid/, openshift-pipelines.tekton.dev/]
+
+requiredLabels:
+  name:
+    value: {from: namespace}
+    title: Name
+  company.net/app-environment:
+    value: {from: environment}
+    namespaceSuffix: true
+    title: App environment
+  company.net/mnemonic:
+    pattern: "^[a-z]{3,4}$"
+    namespacePrefix: true
+    title: Mnemonic
+    description: "Your team's mnemonic, 3 or 4 lowercase letters; every namespace name starts with it"
+    example: abc
+  company.net/lob:
+    title: Line of business
+    description: "Free text, a valid label value"
+    example: amgsst
+  company.net/cl:
+    enum: ["0", "1", "2", "3", "4", "5", "6"]
+    title: Critical level
+    example: "1"
+  cmapi.net/team:
+    pattern: "^[a-z0-9-]{2,40}$"
+    default: {from: company.net/mnemonic}
+    title: Team
+    description: "Who owns it, for cost and notices; defaults to the mnemonic"
+    example: payments
+
+requiredAnnotations:
+  company.net/app-environment:
+    value: {from: environment}
+  cmapi.net/team-dl:
+    format: email-in-domains
+    title: Team DL
+    example: payments-team@company.net
+
+extraLabels:
+  keys:
+    cmapi.net/cost-center: {pattern: "^cc-[0-9]{4}$", title: Cost center, example: cc-4410}
+    cmapi.net/app:         {pattern: "^[a-z0-9-]{2,40}$", title: App, description: "Links an app's environments"}
+    cmapi.net/rightsizing: {enum: [auto, manual], title: Rightsizing}
+  allowOther: {prefixes: ["", "*.company.net/"], max: 50,
+               example: {team.company.net/squad: checkout}}
+
+extraAnnotations:
+  keys:
+    company.net/mnemonic-group-contact: {format: email-in-domains, title: Group contact}
+    company.net/mnemonic-confluence:    {format: url, title: Confluence page}
+  allowOther: {prefixes: ["", "*.company.net/"], max: 50, maxValueBytes: 4096, maxBytesTotal: 65536,
+               example: {runbook.company.net/url: "https://wiki.company.net/abc/runbook"}}
+
+adoptionLabels:
+  company.net/provisioner: {recognise: [cluster-configs]}
+
+sensitiveKeys: [cmapi.net/team, company.net/cl, cmapi.net/protected, do-not-delete]
+emailDomains: [company.net]
