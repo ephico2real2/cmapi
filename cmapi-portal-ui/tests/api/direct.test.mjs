@@ -320,9 +320,14 @@ test("479-P2 the name's ends: the prefix and suffix keys of the answer, their va
   assert.equal(endValue(start, { "label:company.net/mnemonic": "abc" }, target), "abc");
   assert.equal(endValue(end, {}, target), "dev", "the end is the cluster's environment, which cmapi fills in");
   assert.equal(joinName("abc", "payments", "dev"), "abc-payments-dev");
+  assert.equal(joinName("abc", "", "dev"), "abc-dev");
   assert.equal(joinName(null, "payments-dev", null), "payments-dev", "an instance with neither end: the whole name");
   assert.equal(checkName("abc", "payments", "dev"), null);
-  assert.equal(checkName("abc", "", "dev"), "Type the middle of the name.");
+  assert.equal(checkName("abc", "", "dev"), null);
+  assert.equal(checkName("abc", "", null), "Type the middle of the name.");
+  assert.equal(checkName(null, "", "dev"), "Type the middle of the name.");
+  assert.equal(checkName(null, "", null), "Required: a namespace name");
+  assert.equal(checkName("a".repeat(60), "", "dev"), "The full name is longer than 63 characters.");
   assert.equal(checkName("abc", "x".repeat(56), "dev"), "The full name is longer than 63 characters.");
   assert.equal(checkName("abc", "x".repeat(55), "dev"), null, "63 characters is the limit, not past it");
   assert.match(checkName("abc", "Pay_ments", "dev"), /^The middle of the name: lowercase letters/);

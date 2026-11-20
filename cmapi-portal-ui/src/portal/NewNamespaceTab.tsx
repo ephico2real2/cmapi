@@ -244,8 +244,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const startValue = endValue(ends.start, early, place), endPart = endValue(ends.end, early, place);
   const hasEnds = startValue !== null || endPart !== null;
   const nsName = hasEnds ? joinName(startValue, desired, endPart) : desired || (form ? nameSuggestion(form, early, env) : "");
-  // What the page shows for the name: an end or a middle not typed yet is "…", as in the mockup; the body sends nsName.
-  const shownName = hasEnds ? joinName(startValue === null ? null : startValue || "…", desired || "…", endPart === null ? null : endPart || "…") : nsName;
+  const shownName = hasEnds ? joinName(startValue, desired, endPart, "…") : nsName;
   const target: Record<Source, string> = { ...place, namespace: shownName };
   const shown = form ? shownValues(form, typed, { ...place, namespace: nsName }) : typed;
   const expiryRules = form ? expiryRulesOf(form, env) : null;
@@ -362,7 +361,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const fieldErrors: Record<string, string | null | undefined> = Object.fromEntries(
     form.fields.map((f) => [f.id, shownError(f) ?? mapped?.byField[f.id] ?? null]));
   const nameRefused = refusal && NAME_REFUSALS.has(refusal.code) ? refusal.detail : null;
-  const nameError = !attempted && desired === "" ? null : result?.name ?? nameRefused;
+  const nameError = !attempted && desired === "" && !(startValue && endPart) ? null : result?.name ?? nameRefused;
   const planOk = plan.state === "ok" && planIsOfForm ? plan.data : null;
   const problems = result ? problemsOf(form, result, extras, expiry, ends.start) : [];
   const canSubmit = planOk !== null && submit.state !== "sending" && !!cluster;
@@ -517,7 +516,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
                   <Field field={ends.start} value={shown[valueKey(ends.start)] ?? ""} error={fieldErrors[ends.start.id]} target={target} onChange={(v) => setValue(ends.start!, v)} />
                 )}
                 <NamespaceNameField start={startValue === null ? null : ends.start} end={endPart === null ? null : ends.end} startValue={startValue} endValue={endPart} desired={hasEnds ? desired : nsName}
-                  error={nameError} onChange={setDesired} />
+                  full={shownName || "…"} error={nameError} onChange={setDesired} />
               </FormSection>
               {(["label", "annotation"] as const).map((kind) => (
                 <MetadataSection key={kind} kind={kind} fields={form.fields} values={shown} typed={typed} errors={fieldErrors} target={target}
