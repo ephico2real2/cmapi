@@ -94,6 +94,9 @@ S
 # python3 too: a token on import-secret.py's argument list is as visible in ps as one on oc's.
 stub python3 <<'S'
 #!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ $arg == *"$TOKEN"* ]]; then echo "fixture credential in python argv" >&2; exit 1; fi
+done
 printf 'python3 %s\n' "$*" >>"$ARGV_LOG"
 exec "$REAL_PYTHON3" "$@"
 S
@@ -104,7 +107,7 @@ exit "${STUB_CURL_RC:-0}"
 S
 export PATH="$W/bin:$PATH"
 run() { : >"$ARGV_LOG"; rm -f "$ARGV_LOG.applied"; "$@" >"$W/out" 2>&1; echo $?; }
-no_secret() { if grep -qF -e "$TOKEN" -e "stub-signature-never-to-be-seen" "$ARGV_LOG" "$W/out"; then bad "$1: the token is on an argument list or in the output"; else ok "$1: the token is on no argument list and not in the output"; fi; }
+no_secret() { if grep -qF -f <(printf '%s\n' "$TOKEN" stub-signature-never-to-be-seen) "$ARGV_LOG" "$W/out"; then bad "$1: the token is on an argument list or in the output"; else ok "$1: the token is on no argument list and not in the output"; fi; }
 wrote_nothing() { if grep -qE '^(oc apply|oc delete|kind create|kind delete|kubectl .*(apply|create token)|helm )' "$ARGV_LOG"; then bad "$1: it wrote first: $(grep -E '^(oc apply|oc delete|kind create|kind delete|kubectl .*(apply|create token)|helm )' "$ARGV_LOG" | head -2 | tr '\n' ' ')"; else ok "$1: and wrote nothing"; fi; }
 no_bundle() { if grep -qE -- '--field-manager=cmapi-policies( -f |$)' "$ARGV_LOG"; then bad "$1: the bundle was applied"; else ok "$1: and no policy applied"; fi; }
 no_import() { [ -s "$ARGV_LOG.applied" ] && bad "$1: the import Secret was written" || ok "$1: and no import Secret written"; }
@@ -113,16 +116,16 @@ says() { grep -qF -- "$2" "$W/out" && ok "$1: says \"$2\"" || bad "$1: the messa
 echo "up.sh"
 want "a new cluster" 0 "$(run "$D/up.sh" "$CCFG")"; no_secret "a new cluster"
 grep -qxF "kind create cluster --config $D/kind-cmapi-test.yaml --kubeconfig $W/kc --wait 180s" "$ARGV_LOG" && ok "created from kind-cmapi-test.yaml" || bad "the create: $(grep '^kind create' "$ARGV_LOG")"
-python3 - "$ARGV_LOG.applied" "$TOKEN" "$STUB_CA" "$EXP" <<'PY' && ok "the import Secret is docs/02's contract" || bad "the import Secret"
-import base64, datetime, json, sys
+python3 - "$ARGV_LOG.applied" "$STUB_CA" "$EXP" <<'PY' && ok "the import Secret is docs/02's contract" || bad "the import Secret"
+import base64, datetime, json, os, sys
 d = json.load(open(sys.argv[1])); m = d["metadata"]; v = {k: base64.b64decode(x).decode() for k, x in d["data"].items()}
-exp = datetime.datetime.fromtimestamp(int(sys.argv[4]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+exp = datetime.datetime.fromtimestamp(int(sys.argv[3]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 assert m["resourceVersion"] == "7"
 assert (m["name"], m["namespace"]) == ("cmapi-cluster-kind-cmapi-test", "cmapi-imports"), m
 assert m["labels"]["cmapi.net/secret-type"] == "cluster" and m["labels"]["cmapi.net/cluster-id"] == "KIND_CMAPI_TEST", m
 assert m["annotations"] == {"cmapi.net/managed-by": "cluster-baseline", "cmapi.net/token-expires-at": exp}, m
-assert v == {"apiUrl": "https://192.168.86.110:16443", "token": sys.argv[2], "caData": open(sys.argv[3]).read(), "insecure": "false",
-             "tlsServerName": "host.crc.testing"}, v
+assert v == {"apiUrl": "https://192.168.86.110:16443", "token": os.environ["TOKEN"], "caData": open(sys.argv[2]).read(), "insecure": "false",
+             "tlsServerName": "host.crc.testing"}
 PY
 grep -qE '^curl .*--cacert .* https://192\.168\.86\.110:16443/version$' "$ARGV_LOG" && ok "kind's CA verifies the API before the import" || bad "no verified /version"
 want "an existing cluster is reused and its token rewritten" 0 "$(STUB_KIND_CLUSTERS=$'other\ncmapi-test' run "$D/up.sh" "$CCFG")"; no_secret "a rerun"

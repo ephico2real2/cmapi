@@ -208,7 +208,7 @@ export CMAPI_OIDC_LOGIN=$W/bin/oidc-login-stub
 chmod +x "$W/bin/"*; export PATH="$W/bin:$PATH"
 cd "$W/repo" || exit 1; git init -q .; git -c user.email=t@t -c user.name=t commit -q --allow-empty -m t; export REPO=$W/repo; mkdir -p cmapi; printf 'version = "0.2.0"\n' >cmapi/pyproject.toml
 D=$W/repo/deploy; TRUST=$D/manifests/environments/crc/30-trust.yaml
-no_secret() { if grep -qF -e "$TOKEN" -e "$SECRETVAL" -e "$(printf '%s' "$TOKEN" | base64)" "$ARGV_LOG" "$1"; then bad "$2: a credential reached an argument or the output"; else ok "$2: no credential on an argument or in the output"; fi; }
+no_secret() { if grep -qF -f <(printf '%s\n' "$TOKEN" "$SECRETVAL"; printf '%s' "$TOKEN" | base64) "$ARGV_LOG" "$1"; then bad "$2: a credential reached an argument or the output"; else ok "$2: no credential on an argument or in the output"; fi; }
 run() { : >"$ARGV_LOG"; "$@" >"$W/out" 2>&1; echo $?; }
 
 # crc-trust.sh
@@ -258,7 +258,7 @@ if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; the
 # crc-image.sh
 want "image: pushes and prints" 0 "$(run "$D/crc-image.sh")"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi@sha256:' && ok "the last line is the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
 no_secret "$W/out" "image"; [ "$(cat "$ARGV_LOG.mode")" = 600 ] && ok "the auth file is 0600" || bad "the auth file's mode"
-grep -qF "$(printf 'unused:%s' "$TOKEN" | base64)" "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
+grep -qF -f <(printf 'unused:%s' "$TOKEN" | base64) "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
 grep -q -- '--dest-cert-dir' "$ARGV_LOG" && ok "skopeo verifies against the ingress CA" || bad "no --dest-cert-dir"
 want "image cmapi-portal: pushes and prints" 0 "$(run "$D/crc-image.sh" cmapi-portal)"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi-portal@sha256:' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
 grep -qE '^podman build .* -t localhost/cmapi-portal:sha-[0-9a-f]{10} -f cmapi-portal-ui/Containerfile \.$' "$ARGV_LOG" && ok "the front door is built from its Containerfile at the root" || bad "the portal build: $(grep '^podman build' "$ARGV_LOG")"
