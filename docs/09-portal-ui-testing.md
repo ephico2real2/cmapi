@@ -403,6 +403,24 @@ sort's answer in the stand-in (`hold`) and asserts that moment: busy, "A–Z", a
 The stress harness (a copy of the suite with the throttle, the delay and the read's jitter added; never committed), the phase
 probe and every run's log are in `docs/reviews/2026-11-18-issue-347-392/evidence/`.
 
+## Cursor paging during a query change (#407)
+
+The four `407` checks start on page two with both a Previous and a Next cursor. The stand-in holds the answer to a
+Requests search, an Expiration environment change, a Policies cluster change, or a page turn in the seven-day refusals
+list. Each check verifies that the old rows stay visible, the table has `aria-busy="true"`, and both buttons have
+`aria-disabled="true"`. Forced clicks must send no additional list request. After release, the check verifies the new
+range, the cleared busy state and the available buttons. Quotas check 11 covers the same guard during a sort change.
+
+Run these commands from `cmapi-portal-ui` with a local browser and loopback sockets available. The mutant removes the
+shared pager's busy check while leaving the table's busy state in place.
+
+```sh
+npx vite build
+CHECK=407 node tests/api/portal.test.mjs
+CHECK="11 Quotas: the rows" node tests/api/portal.test.mjs
+node tests/api/mutants.mjs "407:"
+```
+
 ## What testing found
 
 | Found by | Problem | Fix |
