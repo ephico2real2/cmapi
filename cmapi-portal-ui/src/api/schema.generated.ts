@@ -3047,6 +3047,21 @@ export interface components {
              */
             kyvernoVersion: string | null;
         };
+        /** PolicyBundleHashes */
+        PolicyBundleHashes: {
+            /**
+             * Live
+             * @description Version 1 SHA-256 from the generated policy digest annotations observed on this cluster. Null for an empty bundle or an unavailable policy list.
+             * @example null
+             */
+            live: string | null;
+            /**
+             * Rendered
+             * @description Version 1 SHA-256 of the generated policies rendered for this environment. Null for an empty render.
+             * @example null
+             */
+            rendered: string | null;
+        };
         /** PolicyBundleView */
         PolicyBundleView: {
             /**
@@ -3155,6 +3170,15 @@ export interface components {
              * @example dev
              */
             env: string;
+            /**
+             * Hashstate
+             * @description Current when the live hash matches the render, drift when it differs, off for an empty bundle, unknown when the reports or live policies cannot establish the comparison. Behind means live matches Git while the render differs. The API has no Git hash yet, so behind cannot occur.
+             * @example current
+             * @enum {string}
+             */
+            hashState: "current" | "behind" | "drift" | "unknown" | "off";
+            /** @description The environment's rendered hash and the cluster's observed hash. */
+            hashes: components["schemas"]["PolicyBundleHashes"];
             /**
              * @description Results that are counted and not shown. Null when the counts are null
              * @example null
@@ -7884,6 +7908,11 @@ export interface operations {
                      *           },
                      *           "dropped": 0,
                      *           "env": "dev",
+                     *           "hashState": "current",
+                     *           "hashes": {
+                     *             "live": "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f",
+                     *             "rendered": "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f"
+                     *           },
                      *           "hidden": {
                      *             "otherPolicies": 0,
                      *             "stale": 0,
