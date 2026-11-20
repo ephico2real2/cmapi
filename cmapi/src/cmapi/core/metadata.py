@@ -1200,19 +1200,21 @@ class MetadataKeys:
                     continue
                 # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
                 # holds from before #330 ("/foo") can be removed, though no request may set it now.
-                e = None if value is None and key in current[kind] else self._syntax(key, value, kind)
+                removes_held = value is None and key in current[kind]
+                e = None if removes_held else self._syntax(key, value, kind)
                 if e:
                     errs.append(e)
                     continue
                 cls = self.classify(key, kind)
                 # A key declared for the other kind only (#234: the company's contact and wiki keys are annotations)
-                # is refused here even when allowOther admits its prefix, or it would pass as a team key.
-                if cls in ("team", "disallowed") and key in self.rules[other]:
+                # is refused here even when allowOther admits its prefix, or it would pass as a team key. Removing one
+                # that Git holds is accepted, as for any key that today's rules do not allow (#492, M2).
+                if cls in ("team", "disallowed") and key in self.rules[other] and not removes_held:
                     article = "an" if other == "annotation" else "a"
                     errs.append({"code": "invalid_key", "key": key, "detail": f"{key} is {article} {other}"})
                 elif cls in ("system", "reserved"):
                     errs.append({"code": "reserved_key", "key": key})
-                elif cls == "disallowed" and not (value is None and key in current[kind]):
+                elif cls == "disallowed" and not removes_held:
                     # Removing a key that Git holds and today's rules do not allow is accepted: it brings the namespace
                     # within them, and the rendered policies refuse every change that keeps it (#492, M2).
                     errs.append({"code": "invalid_key", "key": key, "detail": "prefix not allowed"})

@@ -309,6 +309,7 @@ class Pipeline:
         metadata_diff = None
         if action != "create":
             metadata_diff = self.cfg.metadata.metadata_diff(metadata_of(prev_ns), metadata_of(namespace_doc(files)), sent)
+            findings = [*findings, *self._environment_moved(cluster_id, ns, prev_ns, env)]
         if action == "update" and reason is None:
             # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
             findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
@@ -355,6 +356,17 @@ class Pipeline:
         is kept as Git holds it, and no request may send one (#481, design section 3)."""
         held = metadata_of(prev_ns)[kind]
         return {k: v for k, v in held.items() if self.cfg.metadata.classify(k, kind) != "system"}
+
+    def _environment_moved(self, cluster_id: str, ns: str, prev_ns: Mapping[str, Any] | None, env: str) -> list[Finding]:
+        """A warning when Git's cmapi.net/env is not the cluster's environment any more: the renderer writes the system
+        label from the cluster, while each automatic key (app-environment) stays as Git holds it (#481, design section
+        3, row 5), and metadataDiff lists neither, since a system key is not one that a request names."""
+        held = metadata_of(prev_ns)["label"].get("cmapi.net/env")
+        if not held or held == env:
+            return []
+        return [Finding("cmapi", "environment_moved", folder(cluster_id, ns) + "namespace.yaml",
+                        f"Git holds the environment {held} and the cluster is now {env}: this change writes {env}",
+                        "warning")]
 
     def _held_key_findings(self, cluster_id: str, ns: str, labels: Mapping[str, str],
                            annotations: Mapping[str, str]) -> list[Finding]:

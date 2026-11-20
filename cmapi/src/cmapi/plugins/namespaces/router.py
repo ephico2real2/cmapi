@@ -37,7 +37,8 @@ WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-
 
 # The lookup of one cluster's namespaces (#481, design section 4.4): the portal's type-ahead after the cluster is chosen.
 SEARCH_LIMIT, SEARCH_LIMIT_MAX = 10, 50
-SearchText = Annotated[str | None, Query(examples=["pay"],
+# 63: the longest name or label value, so a longer q can match nothing.
+SearchText = Annotated[str | None, Query(max_length=63, examples=["pay"],
                                          description="Text that the name, the team label or the app label contains. Case does "
                                                      "not matter. Names that start with it come first.")]
 Mnemonic = Annotated[str | None, Query(examples=["abc"],
@@ -109,9 +110,11 @@ def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict
 
 
 def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], holders: dict[str, dict[str, str]], *,
-                    live_fresh: bool, git: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
-    """NamespaceView of a live namespace (or the placeholder of one that only Git holds). git: its labels and annotations
-    in Git, which only the single-namespace read has; without them the sync state cannot compare (unknown)."""
+                    live_fresh: bool, git: dict[str, dict[str, str]] | None = None,
+                    on_cluster: bool = True) -> dict[str, Any]:
+    """NamespaceView of a live namespace (or the placeholder of one that only Git holds: on_cluster False). git: its
+    labels and annotations in Git, which only the single-namespace read has; without them the sync state cannot compare
+    (unknown)."""
     m = obj["metadata"]
     labels, ann = m.get("labels") or {}, m.get("annotations") or {}
     holder = holders.get(m["name"])
@@ -120,7 +123,7 @@ def _namespace_view(c: AppContext, cluster_id: str, obj: dict[str, Any], holders
             "managed": labels.get("cmapi.net/managed") == "true", "expiresAt": ann.get("cmapi.net/expires-at"),
             "etag": None, "openRequest": holder["requestId"] if holder else None,
             "mnemonic": c.cfg.metadata.mnemonic(labels, ann), "git": None,
-            "sync": sync_view(c.cfg.metadata, git, {"label": labels, "annotation": ann}, holder, live_fresh)}
+            "sync": sync_view(c.cfg.metadata, git, {"label": labels, "annotation": ann}, holder, live_fresh, on_cluster)}
 
 
 def _live_namespace(c: AppContext, cluster_id: str, ns: str) -> tuple[dict[str, Any] | None, bool]:
@@ -209,7 +212,8 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     obj = live or {"metadata": {"name": ns, "labels": {}, "annotations": {}}}
     git_doc = namespace_doc(files)
     git = metadata_of(git_doc)
-    view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None)
+    view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None,
+                           on_cluster=live is not None)
     view["git"] = {"labels": git["label"], "annotations": git["annotation"]} if git_doc else None
     view["etag"] = folder_etag(files)
     # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).

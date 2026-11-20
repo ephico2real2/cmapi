@@ -334,7 +334,7 @@ class NamespaceSync(Api):
     state: SyncState = Field(
         description="pending: an open request holds the namespace (openRequest), also once Git is merged and the cluster "
                     "does not have it yet. drift: no request is open and a governed, extra or operator-only key differs "
-                    "between Git and the cluster (driftedKeys). in-sync: they are the same. unknown: cmapi cannot compare, "
+                    "between Git and the cluster (driftedKeys), or the cluster does not have the namespace. in-sync: they are the same. unknown: cmapi cannot compare, "
                     "because the cluster's watch is not fresh, or because the read holds no Git (the list)",
         examples=["drift"])
     open_request: OpenRequestRef | None = Field(description="The open request that holds the namespace, or null",
