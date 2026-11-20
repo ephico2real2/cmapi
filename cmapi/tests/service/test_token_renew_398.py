@@ -3,7 +3,7 @@ import base64
 import json
 import shutil
 import subprocess
-from copy import deepcopy
+from copy import copy, deepcopy
 from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
@@ -398,3 +398,31 @@ def test_credential_responses_have_private_diagnostics(endpoints, monkeypatch, f
         assert marker not in str(diagnostic)
         diagnostic = diagnostic.__cause__ or diagnostic.__context__
     assert not api.patches
+
+
+def test_two_scans_and_relist_share_a_versioned_import(endpoints, monkeypatch):
+    api = endpoints()
+    api.now += 3000
+    monkeypatch.setattr(api.registry, "_probe", lambda client, trust: ("connected", [], "fixture"))
+
+    def other_worker_and_relist():
+        api.before_patch = None
+        api.registry.refresh()
+        # Each replica has its own registry and HTTP client. Only the simulated API servers share state.
+        with httpx.Client(base_url="https://hub.invalid", transport=httpx.MockTransport(api.hub)) as hub_client:
+            source = copy(api.source)
+            source.client = hub_client
+            replica = ClusterRegistry(api.registry.policies, source, client_factory=api.client, start_caches=False)
+            assert not api.module.renew_imports(replica, api.defaults)
+        api.registry.refresh()
+
+    api.before_patch = other_worker_and_relist
+    try:
+        assert api.scan()  # the first worker lost the version race
+        assert len(api.grants) == 2
+        assert [p["metadata"]["resourceVersion"] for p in api.patches] == ["1", "1"]
+        assert api.doc["data"]["token"] == encoded(api.grants[1])
+        assert api.registry.get("TEST").client._client.headers["Authorization"] == "Bearer " + api.grants[1]
+        assert not api.scan() and len(api.patches) == 2
+    finally:
+        api.registry.stop()
