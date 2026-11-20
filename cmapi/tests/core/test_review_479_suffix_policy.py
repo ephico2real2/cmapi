@@ -21,17 +21,17 @@ def suffix_keys() -> MetadataKeys:
 
 
 def rendered(catalog, keys, name: str) -> dict[str, str]:
-    """The folder that cmapi renders for the namespace `name` on the dev cluster CRC, by path."""
-    spec = NamespaceSpec(namespace=name, cluster_id="CRC", instance="nonprod", env="dev", tier="small",
+    """The folder that cmapi renders for the namespace `name` on the rnd cluster OCP_GF15, by path."""
+    spec = NamespaceSpec(namespace=name, cluster_id="OCP_GF15", instance="nonprod", env="rnd", tier="small",
                          request_id="req-1", requested_by_user="ola", requested_by_email="ola@company.net",
                          labels=SENT, annotations=OPTIONAL)
     return {p: t for p, t in ManifestRenderer(catalog, keys).render(spec).items() if t is not None}
 
 
 def failures_on_create(kyverno, catalog, keys, tmp_path, name: str) -> list[str]:
-    bundle = write(tmp_path / "bundle", render_bundle(catalog, keys, PolicySettings(), {"dev"}, "nonprod"))
-    doc = yaml.safe_load(rendered(catalog, keys, name)[f"clusters/CRC/namespaces/{name}/namespace.yaml"])
-    results = apply(kyverno, bundle / "env/dev", resources(tmp_path, {"namespace.yaml": doc}))
+    bundle = write(tmp_path / "bundle", render_bundle(catalog, keys, PolicySettings(), {"rnd"}, "nonprod"))
+    doc = yaml.safe_load(rendered(catalog, keys, name)[f"clusters/OCP_GF15/namespaces/{name}/namespace.yaml"])
+    results = apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"namespace.yaml": doc}))
     assert results.get("pass") and not results.get("error"), results
     return [message for _, message in results.get("fail", [])]
 
@@ -42,31 +42,31 @@ SUFFIX_REFUSAL = (f"the namespace name must end with '-' and the value of the la
 
 def test_the_generated_policy_refuses_a_name_that_ends_with_another_environment(kyverno, catalog, tmp_path):
     keys = suffix_keys()
-    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-payments-dev") == []
-    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-payments-rnd") == [SUFFIX_REFUSAL]
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-payments-rnd") == []
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-payments-dev") == [SUFFIX_REFUSAL]
 
 
 def test_the_generated_policy_allows_a_team_wide_name_and_refuses_an_empty_segment(kyverno, catalog, tmp_path):
     keys = suffix_keys()
-    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-dev") == []
-    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc--dev") == [SUFFIX_REFUSAL]
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-rnd") == []
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc--rnd") == [SUFFIX_REFUSAL]
 
 
 def test_a_change_of_a_namespace_named_before_the_rule_passes_the_plan_time_check(kyverno, catalog, tmp_path):
     keys = suffix_keys()
-    base = "clusters/CRC/namespaces/abc-legacy/"
+    base = "clusters/OCP_GF15/namespaces/abc-legacy/"
     now = rendered(catalog, keys, "abc-legacy")
     old_ns = yaml.safe_load(now[base + "namespace.yaml"])
     del old_ns["metadata"]["labels"][ENV_KEY]                 # rendered before the file declared the key
     previous = {**now, base + "namespace.yaml": yaml.safe_dump(old_ns)}
-    check = validator(catalog, keys, tmp_path, envs={"dev"})
-    assert [f.message for f in check.validate(now, "CRC", "dev") if f.source == "kyverno"] == [SUFFIX_REFUSAL]
-    assert [f for f in check.validate(now, "CRC", "dev", previous=previous) if f.source == "kyverno"] == []
+    check = validator(catalog, keys, tmp_path)
+    assert [f.message for f in check.validate(now, "OCP_GF15", "rnd") if f.source == "kyverno"] == [SUFFIX_REFUSAL]
+    assert [f for f in check.validate(now, "OCP_GF15", "rnd", previous=previous) if f.source == "kyverno"] == []
 
 
 def test_at_admission_an_update_passes_the_suffix_check_as_a_change_cannot_rename(catalog):
     """The CLI runs each file as a CREATE, so the UPDATE branch is read from the rendered expression itself."""
-    bundle = render_bundle(catalog, suffix_keys(), PolicySettings(), {"dev"}, "nonprod")
+    bundle = render_bundle(catalog, suffix_keys(), PolicySettings(), {"rnd"}, "nonprod")
     docs = [d for text in bundle.values() for d in yaml.safe_load_all(text) if d and d.get("kind") == "ValidatingPolicy"]
     expressions = [v["expression"] for d in docs for v in d["spec"]["validations"] if v.get("message") == SUFFIX_REFUSAL]
     assert len(expressions) == 1 and expressions[0].startswith("variables.update || (")
