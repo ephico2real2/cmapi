@@ -63,6 +63,8 @@ class Result:
     accepted: int = 0                                          # by validate()
     agree: int = 0
     unsound: list[tuple[Case, list[str]]] = field(default_factory=list)       # validate() accepts, the schema refuses
+    # validate() accepts because cmapi filled in the keys that the case left out, which the schema requires (#479, A1)
+    filled: int = 0
     loose: dict[str, int] = field(default_factory=dict)                         # the schema accepts, validate() refuses
     unexplained: list[tuple[Case, list[dict[str, Any]]]] = field(default_factory=list)
 
@@ -167,7 +169,7 @@ def verdict(keys: MetadataKeys, case: Case, sources: Mapping[str, str]) -> list[
     other = "annotation" if case.kind == "label" else "label"
     sent = {case.kind: dict(case.body), other: good(keys, other) if case.op == "create" else {}}
     if case.op == "create":
-        return keys.validate(sent["label"], sent["annotation"], operator=case.operator, sources=sources)
+        return keys.validate(sent["label"], sent["annotation"], operator=case.operator, sources=sources, create=True)
     current = {case.kind: {**good(keys, case.kind), **case.held}, other: good(keys, other)}
     return keys.validate(sent["label"], sent["annotation"], operator=case.operator, current_labels=current["label"],
                          current_annotations=current["annotation"], sources=sources, existing=True)
@@ -191,6 +193,19 @@ def loose_reason(keys: MetadataKeys, case: Case, errors: list[dict[str, Any]]) -
     return reasons
 
 
+def only_filled_keys_missing(keys: MetadataKeys, kind: str, found: list[ValidationError]) -> bool:
+    """Each schema error is a required key missing that cmapi fills in on a create (value.from or default.from): the one
+    way the schema is stricter than validate(), on purpose (#479, A1)."""
+    fills = {k for k, r in keys.rules[kind].items() if r.derived or r.default_from}
+    for e in found:
+        if e.validator != "required":
+            return False
+        missing = [k for k in e.validator_value if k not in e.instance]
+        if not missing or not set(missing) <= fills:
+            return False
+    return True
+
+
 def run(keys: MetadataKeys, schemas: Mapping[tuple[str, str], Mapping[str, Any]], sources: Mapping[str, str],
         reader: SchemaReader | None = None) -> Result:
     """Each case through validate() and through the schema of its kind and operation."""
@@ -199,10 +214,13 @@ def run(keys: MetadataKeys, schemas: Mapping[tuple[str, str], Mapping[str, Any]]
     result = Result()
     for case in cases(keys):
         errors = verdict(keys, case, sources)
-        problems = [e.message for e in check[(case.kind, case.op)].iter_errors(dict(case.body))]
+        found = list(check[(case.kind, case.op)].iter_errors(dict(case.body)))
+        problems = [e.message for e in found]
         result.total += 1
         result.accepted += not errors
-        if not errors and problems:
+        if not errors and problems and only_filled_keys_missing(keys, case.kind, found):
+            result.filled += 1
+        elif not errors and problems:
             result.unsound.append((case, problems[:3]))
         elif errors and not problems:
             reasons = loose_reason(keys, case, errors)

@@ -43,10 +43,12 @@ def test_the_route_answers_the_instances_rules(instance):
         assert annotations["properties"]["cmapi.net/team-dl"]["title"] == "Team DL"
         assert annotations["properties"]["cmapi.net/team-dl"]["x-cmapi-format"] == "email-in-domains"
     else:
-        assert labels["required"] == ["company.net/mnemonic", "company.net/lob", "company.net/cl"]
-        assert "required" not in annotations, "the company's only required annotation is derived"
+        # #479 (A1): the filled-in keys are required and shown, not readOnly.
+        assert labels["required"] == ["name", "company.net/app-environment", "company.net/mnemonic", "company.net/lob",
+                                      "company.net/cl"]
+        assert annotations["required"] == ["company.net/app-environment"], "the company's only required annotation is filled in"
         for derived, source in (("name", "namespace"), ("company.net/app-environment", "environment")):
-            assert labels["properties"][derived]["readOnly"] is True
+            assert "readOnly" not in labels["properties"][derived]
             assert labels["properties"][derived]["x-cmapi-derived-from"] == source
         assert labels["properties"]["company.net/mnemonic"]["x-cmapi-namespace-prefix"] is True
         assert labels["properties"]["company.net/cl"]["enum"] == ["0", "1", "2", "3", "4", "5", "6"]

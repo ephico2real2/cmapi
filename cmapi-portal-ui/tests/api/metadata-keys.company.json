@@ -4,19 +4,17 @@
     "properties": {
       "name": {
         "type": "string",
-        "readOnly": true,
         "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
         "maxLength": 63,
-        "description": "A copy of the namespace name. Set by cmapi from the namespace. A request may send the same value, never another.",
+        "description": "A copy of the namespace name. Filled in by cmapi from the namespace; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the namespace",
         "x-cmapi-derived-from": "namespace"
       },
       "company.net/app-environment": {
         "type": "string",
-        "readOnly": true,
         "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$",
         "maxLength": 63,
-        "description": "The environment of the namespace's cluster. Set by cmapi from the environment. A request may send the same value, never another.",
+        "description": "The environment of the namespace's cluster. Filled in by cmapi from the environment; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the environment",
         "x-cmapi-derived-from": "environment"
       },
@@ -84,6 +82,8 @@
       }
     },
     "required": [
+      "name",
+      "company.net/app-environment",
       "company.net/mnemonic",
       "company.net/lob",
       "company.net/cl"
@@ -129,8 +129,7 @@
     "properties": {
       "company.net/app-environment": {
         "type": "string",
-        "readOnly": true,
-        "description": "Set by cmapi from the environment. A request may send the same value, never another.",
+        "description": "Filled in by cmapi from the environment; you may leave it out. A request may send the same value, never another.",
         "x-cmapi-rule": "set by cmapi from the environment",
         "x-cmapi-derived-from": "environment"
       },
@@ -165,6 +164,9 @@
         "x-cmapi-operator-only": true
       }
     },
+    "required": [
+      "company.net/app-environment"
+    ],
     "propertyNames": {
       "maxLength": 317,
       "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$",

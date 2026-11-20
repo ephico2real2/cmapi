@@ -107,11 +107,13 @@ def test_the_document_requires_each_required_key_of_this_instance(instance):
         body = {"namespace": "payments-dev", "labels": {"cmapi.net/cost-center": "cc-4410"},
                 "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}}
     else:
-        assert "labels" in create["required"] and "annotations" not in create["required"]
-        assert labels["required"] == ["company.net/mnemonic", "company.net/lob", "company.net/cl"]
-        assert "required" not in annotations, "the only required annotation is derived"
+        # #479 (A1): the filled-in keys are required and shown, so the annotations map is required too.
+        assert {"labels", "annotations"} <= set(create["required"])
+        assert labels["required"] == ["name", "company.net/app-environment", "company.net/mnemonic", "company.net/lob",
+                                      "company.net/cl"]
+        assert annotations["required"] == ["company.net/app-environment"], "the only required annotation is filled in"
         for derived in ("name", "company.net/app-environment"):
-            assert labels["properties"][derived]["readOnly"] is True
+            assert "readOnly" not in labels["properties"][derived]
         body = {"namespace": "abc-dev", "labels": {"company.net/lob": "amgsst", "company.net/cl": "1"}}
     errors = [e.message for e in check.iter_errors(body)]
     assert any("is a required property" in e for e in errors), errors
@@ -152,7 +154,8 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
         r = client.patch(f"{URL}/{ns}?dryRun=true", json=body, headers=headers)
         assert r.status_code == 200, (body, r.text)
     if name == "company":
-        assert tried["namespace"] == "abc-dev" and "cmapi.net/team" not in json.dumps(tried)
+        # #479 (A3): the mnemonic is put before the model's example name, as the design's abc-payments-dev.
+        assert tried["namespace"] == "abc-payments-dev" and "cmapi.net/team" not in json.dumps(tried)
     # The curl sample sends the "Try it out" body: the recorded request, with this instance's labels and annotations.
     for op in (create, patch):
         assert curl_body(op) == op["requestBody"]["content"]["application/json"]["example"], op["operationId"]
