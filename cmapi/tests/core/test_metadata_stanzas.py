@@ -202,6 +202,9 @@ def test_a_held_value_that_breaks_its_rule_is_not_checked_again(keys):
     current = {**SENT, "company.net/mnemonic": "xyz"}
     assert keys.validate({"company.net/cl": "2"}, {}, operator=False, sources=SOURCES, current_labels=current,
                          existing=True) == []
+    # Sent back as Git holds it, it writes nothing and is kept (review of #488, FB1); another value is checked.
+    assert keys.validate({"company.net/mnemonic": "xyz"}, {}, operator=False, sources=SOURCES, current_labels=current,
+                         existing=True) == []
     assert ("invalid_value", "company.net/mnemonic") in codes(
-        keys.validate({"company.net/mnemonic": "xyz"}, {}, operator=False, sources=SOURCES, current_labels=current,
+        keys.validate({"company.net/mnemonic": "xyw"}, {}, operator=False, sources=SOURCES, current_labels=current,
                       existing=True))

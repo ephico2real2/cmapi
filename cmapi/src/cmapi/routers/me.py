@@ -43,8 +43,9 @@ def metadata_keys_document(keys: MetadataKeys, expiration: ExpirationRules,
                            environments: tuple[str, ...]) -> tuple[bytes, str]:
     """The body of GET /api/v1/metadata-keys and its strong ETag, built once for each loaded configuration. The files are
     read at start and a change restarts the pods (checksum/config), so a process serves one answer; the cache is keyed by
-    the loaded objects, so a test that loads another file gets its own answer. expiration.yaml is in the body (#479,
-    D15), so a change of it alone changes the ETag too."""
+    the loaded objects, so a test that loads another file gets its own answer. The body holds each environment's
+    enabled, allowedAtCreate, maxLifetimeDays, notifyDaysBefore and graceDays of expiration.yaml (#479, D15), so a
+    change of one of those alone changes the ETag. maxExtensionDays is not here: GET /api/v1/expirations serves it."""
     body = json.dumps(metadata_keys_view(keys, expiration, environments), separators=(",", ":"),
                       ensure_ascii=False).encode()
     return body, etag_of(body)

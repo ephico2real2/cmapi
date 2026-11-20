@@ -242,8 +242,9 @@ class Pipeline:
             old_quota = _hard(old_rq)
             tier = body.get("tier") or old_tier or "small"
             quota, limits = body.get("quota"), body.get("limitRange")
-            expires = _date(body.get("expiresAt")) if body.get("expiresAt") else (
-                date.fromisoformat(old_exp) if old_exp and action != "create" else None)
+            # A change that sends no expiry keeps the date that Git holds, also where expiration is off now (#479).
+            kept = date.fromisoformat(old_exp) if old_exp and action != "create" else None
+            expires = _date(body["expiresAt"]) if body.get("expiresAt") else kept
             exp_facts: dict[str, Any] = {}
             if action == "create":
                 p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None

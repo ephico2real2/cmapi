@@ -994,7 +994,7 @@ class MetadataKeys:
             sent = self.filled(labels, annotations, sources)
         current = {"label": current_labels or {}, "annotation": current_annotations or {}}
         merged = {kind: self.merge_patch(current[kind], sent[kind]) for kind in KINDS}
-        errs = self._check_prefix(sent, sources)
+        errs = self._check_prefix(sent, current, sources)
         if create:
             # A name is chosen once, at create. A PATCH cannot rename, so it is not refused for a name made before the rule.
             errs += self._check_suffix(sent, sources)
@@ -1004,19 +1004,42 @@ class MetadataKeys:
         if require_governed:
             errs += self._check_required(sent, current, merged, existing, errs)
         errs += self._check_other_keys(merged)
+        if create:
+            errs = self._without_copied_faults(errs, {"label": labels, "annotation": annotations}, sent)
         return errs
+
+    def _without_copied_faults(self, errs: list[dict[str, Any]], request: Mapping[str, Mapping[str, str | None]],
+                               sent: Mapping[str, Mapping[str, str | None]]) -> list[dict[str, Any]]:
+        """One fault, one error: step 2 copies a default from its source key, so a refused source value would be refused
+        again on a key that the request never sent (mnemonic ABC, then team ABC). The source's error stays and the copy's
+        goes. A key that got no copy (an empty source) keeps its missing_required_key."""
+        refused = {(e.get("kind"), e.get("key")) for e in errs}
+        kept = []
+        for e in errs:
+            kind, key = e.get("kind"), e.get("key")
+            rule = self.rules[kind].get(key) if kind in self.rules else None
+            copied = rule is not None and rule.default_from is not None and key not in request[kind] \
+                and bool(sent[kind].get(key))
+            if not (copied and (kind, rule.default_from) in refused):
+                kept.append(e)
+        return kept
 
     def _breaks_own_rule(self, key: str, value: str, kind: str, sources: Mapping[str, str]) -> bool:
         """The value breaks its key's syntax or rule. Step 5 reports that, so the name checks skip it: one error per key."""
         return self._syntax(key, value, kind) is not None or bool(self._governed(key, value, kind, sources))
 
-    def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], sources: Mapping[str, str]) -> list[dict[str, Any]]:
+    def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
+                      sources: Mapping[str, str]) -> list[dict[str, Any]]:
         """Step 3: the namespace name starts with "<value>-" of the namespacePrefix key, when the request sends it."""
         found, namespace = self.prefix_key(), sources.get("namespace")
         if found is None or not namespace:
             return []
         kind, key = found
         value = sent[kind].get(key)
+        if value and value == current[kind].get(key):
+            # The value that Git holds: a change cannot rename, so a namespace named before the rule is not refused for
+            # sending it back. The rendered policy (_same) and the plan-time check (_held) pass it too.
+            return []
         # An empty value is a missing key, which step 5 reports.
         if not value or self._breaks_own_rule(key, value, kind, sources) or namespace.startswith(f"{value}-"):
             return []
@@ -1044,6 +1067,9 @@ class MetadataKeys:
         start, end = sent[prefix[0]].get(prefix[1]), sent[suffix[0]].get(suffix[1])
         if not start or not end or not namespace.startswith(f"{start}-") or not namespace.endswith(f"-{end}"):
             return []                       # an end that steps 3 and 4 refused or skipped has its own error
+        if self._breaks_own_rule(prefix[1], start, prefix[0], sources) or \
+                self._breaks_own_rule(suffix[1], end, suffix[0], sources):
+            return []                       # step 5 refuses that value on its key: no name error is built on it
         if len(namespace) > len(start) + len(end) + 2:
             return []
         return [{"code": "invalid_value", "key": suffix[1], "kind": suffix[0],
