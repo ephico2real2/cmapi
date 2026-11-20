@@ -59,7 +59,8 @@ def require(permission: str, env_from: Callable[..., str | None] | None = None) 
 
 def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                            examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
-                                                           description="Required on writes; the same key and caller return the first response for 24 hours")) -> str | None:
+                                                           description="A new random value for each new request, such as a UUID. Required, except with "
+                                                                       "`dryRun=true`. The same key and caller get the first answer again for 24 hours.")) -> str | None:
     return idempotency_key
 
 

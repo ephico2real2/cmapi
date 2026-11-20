@@ -21,7 +21,8 @@ router = DocumentedRouter("directory", prefix="/api/v1", version=__version__, gr
                           description="The people that Keycloak knows: a search for the people picker, and one person by username.")
 
 
-@router.read("/directory/users", summary="Search people", permission="objects:read", response_model=DirectoryUsers,
+@router.read("/directory/users", summary="Search people",
+             returns="The people whose username, name or email address matches.", permission="objects:read", response_model=DirectoryUsers,
              problems=["idp-unavailable"])
 def search(q: str = Query(min_length=2, examples=["ada"],
                           description="Two or more characters of a username, a name or an email address."),
@@ -36,7 +37,8 @@ def search(q: str = Query(min_length=2, examples=["ada"],
         raise Problem(503, "idp-unavailable", f"Directory unavailable: {exc}", extra={"retryAfter": 30}) from exc
 
 
-@router.read("/directory/users/{username}", summary="One person", permission="objects:read", response_model=DirectoryUser,
+@router.read("/directory/users/{username}", summary="One person",
+             returns="The person's username, name, email address and employee ID.", permission="objects:read", response_model=DirectoryUser,
              problems=["object-not-found", "idp-unavailable"])
 def get_user(username: Username, who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)) -> dict:
     """A person by username (cached 15 minutes, served from the cache when Keycloak is unreachable)."""

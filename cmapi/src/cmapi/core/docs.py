@@ -86,12 +86,40 @@ PROBLEMS: dict[str, tuple[int, str]] = {
 }
 
 
+# What each problem status means, in one sentence: the first line of its response in Swagger UI and ReDoc (#480, S7).
+# The codes of the status follow it, and each code is one named example (S8).
+PROBLEM_STATUS_TEXT: dict[int, str] = {
+    400: "A header or a parameter that cmapi reads first is missing or not valid.",
+    401: "No token, or the token is not valid.",
+    403: "The caller may not do this, or not in this environment.",
+    404: "What the path names is not known.",
+    409: "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.",
+    412: "The object changed since it was read: If-Match no longer matches its ETag.",
+    422: "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.",
+    428: "A change needs If-Match with the ETag of the object as it was read.",
+    429: "Too many requests. Wait for the seconds in `retryAfter`.",
+    500: "The service failed.",
+    502: "The Git host failed.",
+    503: "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.",
+}
+
+# The success answer of a write that opens a request (status 202), unless the route says otherwise.
+WRITE_ACCEPTED = ("The request is created. It waits for approval unless a policy approves it at once: `status` and "
+                  "`approval` say which, and `links.events` follows it.")
+DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+
+
 def problem_example(code: str) -> dict[str, Any]:
     status, detail = PROBLEMS[code]
     return Problem(status, code, detail).body()
 
 
 PROBLEM_SCHEMA: dict[str, str] = {"$ref": "#/components/schemas/ProblemDetail"}
+
+
+def problem_description(status: int, codes: Sequence[str]) -> str:
+    """The description of a problem response: what the status means, then its codes, each a named example."""
+    return f"{PROBLEM_STATUS_TEXT[status]}\n\nCodes: " + ", ".join(f"`{c}`" for c in codes) + "."
 
 
 def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
@@ -102,13 +130,27 @@ def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
     """
     by_status: dict[int, list[str]] = {}
     for c in codes:
-        by_status.setdefault(PROBLEMS[c][0], []).append(c)
+        names = by_status.setdefault(PROBLEMS[c][0], [])
+        if c not in names:
+            names.append(c)
     out: dict[int | str, dict[str, Any]] = {}
     for status, names in sorted(by_status.items()):
-        out[status] = {"description": ", ".join(names),
+        out[status] = {"description": problem_description(status, names),
                        "content": {"application/problem+json": {
                            "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n)} for n in names}}}}
     return out
+
+
+def add_problem(op: dict[str, Any], code: str) -> None:
+    """Declare one more problem code on an operation of the document: its status's response, its named example and its
+    description, after the codes that the route declared."""
+    status = str(PROBLEMS[code][0])
+    declared = op["responses"].get(status) or {}
+    examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
+    examples.setdefault(code, {"value": problem_example(code)})
+    op["responses"][status] = {"description": problem_description(int(status), list(examples)),
+                               "content": {"application/problem+json": {"schema": PROBLEM_SCHEMA, "examples": examples}}}
+    op["responses"] = dict(sorted(op["responses"].items()))      # Swagger UI and ReDoc list them in this order
 
 
 # ReDoc's navigation groups, in docs/01's order. A tag outside every group is not displayed by ReDoc at all
@@ -140,11 +182,14 @@ class DocumentedRouter(APIRouter):
         self.group = group
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
-                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None,
+                  response_model: Any, status_code: int, returns: str, extra: dict[str, Any], media_type: str | None = None,
                   dry_run_model: Any = None) -> Callable:
         unknown = [p for p in problems if p not in PROBLEMS]
         if unknown:
             raise RuntimeError(f"{self.plugin} {method} {path}: unregistered problems {unknown}")
+        if not returns.strip():
+            # The success response's description; FastAPI's own is "Successful Response", which says nothing (#480, S7).
+            raise RuntimeError(f"{self.plugin} {method} {path}: no `returns`, the description of the {status_code} answer")
         codes = list(problems)
         if permission is not None:
             codes = ["unauthenticated", "forbidden", *codes]
@@ -161,34 +206,37 @@ class DocumentedRouter(APIRouter):
                                  "x-plugin-version": self.version, **extra}
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
                                           status_code=status_code, operation_id=op_id, responses=responses,
-                                          openapi_extra=x)
+                                          response_description=returns, openapi_extra=x)
             if media_type:
                 # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
                 # type of its own stops FastAPI from adding application/json beside it (#179).
-                responses[status_code] = {"description": f"The body as {media_type}",
-                                          "content": {media_type: {"schema": {"type": "string"}}}}
+                responses[status_code] = {"description": returns, "content": {media_type: {"schema": {"type": "string"}}}}
                 x["x-cmapi-media-type"] = media_type
                 kwargs["response_class"] = Response
             if dry_run_model is not None:
-                responses[200] = {"model": dry_run_model,
-                                  "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."}
+                responses[200] = {"model": dry_run_model, "description": DRY_RUN_RETURNS}
             return self.api_route(path, methods=[method], **kwargs)(fn)
 
         return deco
 
-    def read(self, path: str, *, summary: str, permission: str | None, problems: Sequence[str] = (),
+    def read(self, path: str, *, summary: str, permission: str | None, returns: str, problems: Sequence[str] = (),
              response_model: Any = None, method: str = "GET", media_type: str | None = None, **extra: Any) -> Callable:
+        """`returns` describes the 200 answer: what the caller gets back."""
         if response_model is None and media_type is None:
             raise RuntimeError(f"{self.plugin} {method} {path}: a read needs a response_model or a media_type")
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=200, extra=extra, media_type=media_type)
+                              response_model=response_model, status_code=200, returns=returns, extra=extra,
+                              media_type=media_type)
 
     def write(self, path: str, *, summary: str, permission: str, problems: Sequence[str] = (),
               response_model: Any, method: str = "POST", status_code: int = 202, dry_run_model: Any = None,
-              **extra: Any) -> Callable:
-        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs")."""
+              returns: str | None = None, **extra: Any) -> Callable:
+        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs").
+        `returns` describes the success answer; a write that opens a request (202) has WRITE_ACCEPTED unless it says more."""
+        if returns is None:
+            returns = WRITE_ACCEPTED if status_code == 202 else ""
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=status_code, extra=extra,
+                              response_model=response_model, status_code=status_code, returns=returns, extra=extra,
                               dry_run_model=dry_run_model)
 
 
@@ -390,6 +438,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     if instance is not None:
         _document_expiry(spec, instance)
     _document_validation_problem(spec)
+    _document_token_problems(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     add_recorded_examples(spec, load_samples(), metadata, instance)
     _document_create_examples(spec, instance)
@@ -629,23 +678,25 @@ def _with_type_base(node: Any, problem_base: str) -> Any:
 def _document_validation_problem(spec: dict[str, Any]) -> None:
     """Each operation with a parameter or a body can answer 422 validation-failed (main.py turns FastAPI's own refusal into the
     problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
-    problem = PROBLEM_SCHEMA
     for ops in spec["paths"].values():
         for op in ops.values():
-            if not isinstance(op, dict) or not (op.get("parameters") or op.get("requestBody")):
-                continue
-            declared = op["responses"].get("422") or {}
-            examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
-            examples.setdefault("validation-failed", {"value": problem_example("validation-failed")})
-            names = [n for n in (declared.get("description") or "").split(", ") if n in PROBLEMS]
-            if "validation-failed" not in names:
-                names.append("validation-failed")
-            op["responses"]["422"] = {"description": ", ".join(names),
-                                      "content": {"application/problem+json": {"schema": problem, "examples": examples}}}
+            if isinstance(op, dict) and (op.get("parameters") or op.get("requestBody")):
+                add_problem(op, "validation-failed")
     schemas = spec.get("components", {}).get("schemas", {})
     schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))
     for name in ("HTTPValidationError", "ValidationError"):
         schemas.pop(name, None)
+
+
+def _document_token_problems(spec: dict[str, Any]) -> None:
+    """Each operation that takes a token can answer what the token check answers (core/auth.py, #480): 401
+    unauthenticated, and 503 idp-unavailable when Keycloak's signing keys cannot be read and the token's key is not cached.
+    The check is a dependency of the whole router (main.py, api_app), so the document's `security` says which operations."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if isinstance(op, dict) and op.get("security"):
+                add_problem(op, "unauthenticated")
+                add_problem(op, "idp-unavailable")
 
 
 def _without_none(value: Any) -> Any:

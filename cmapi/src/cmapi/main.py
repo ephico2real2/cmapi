@@ -283,7 +283,7 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
             openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - API docs", oauth2_redirect_url="/docs/oauth2-redirect",
             swagger_js_url="/static/swagger/swagger-ui-bundle.js", swagger_css_url="/static/swagger/swagger-ui.css",
             swagger_favicon_url="/static/swagger/favicon-32x32.png",
-            init_oauth=app.swagger_ui_init_oauth, swagger_ui_parameters={"persistAuthorization": True})
+            init_oauth=app.swagger_ui_init_oauth, swagger_ui_parameters=SWAGGER_UI_PARAMETERS)
 
     @app.get("/docs/oauth2-redirect", include_in_schema=False)
     def docs_redirect() -> Response:
@@ -321,9 +321,37 @@ REDOC_START = "/docs/redoc-start.js"
 REDOC_CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
              "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; "
              "form-action 'none'")
-REDOC_START_JS = """// cmapi: starts ReDoc with its telemetry off (#235). The bundle is an ES module (#229).
-import { init } from "/static/redoc/redoc.standalone.js";
-init("/openapi.json", { disableTelemetry: true }, document.getElementById("redoc"));
+# Swagger UI's settings for /docs (#480, S9), from https://swagger.io/docs/open-source-tools/swagger-ui/usage/configuration/
+# (read 2026-11-20, Swagger UI 5.34.1 in the image). FastAPI 0.115.6 already passes showExtensions, showCommonExtensions and
+# deepLinking (fastapi.openapi.docs.swagger_ui_default_parameters); they are named here too, so the page does not depend on
+# FastAPI's defaults. showExtensions shows each x- field (x-cmapi-permission, x-cmapi-plugin, x-codeSamples, the x-cmapi-*
+# rules of the namespace's fields) in an Extensions section; showCommonExtensions shows pattern, maxLength, minLength,
+# maximum and minimum on parameters. docExpansion "list" opens the tags and not the operations; tryItOutEnabled false keeps
+# "Try it out" a choice, so nobody sends a write by accident.
+SWAGGER_UI_PARAMETERS: dict[str, Any] = {
+    "persistAuthorization": True,
+    "showExtensions": True,
+    "showCommonExtensions": True,
+    "displayRequestDuration": True,
+    "docExpansion": "list",
+    "defaultModelsExpandDepth": 1,
+    "defaultModelExpandDepth": 3,
+    "tryItOutEnabled": False,
+}
+# ReDoc's options for /redoc (#480, S9), from https://redocly.com/docs/redoc/v3.x/config and the 2.x-to-3.x table at
+# https://redocly.com/docs/redoc/config-migration (read 2026-11-20; the image pins ReDoc 3.1.0). showExtensions lists the x-
+# fields beside each operation and field; sortRequiredPropsFirst (2.x's requiredPropsFirst, renamed) puts required fields
+# first; hideDownloadButtons false keeps the download of the document. ReDoc 3 removed expandResponses and
+# sortPropsAlphabetically, so they are not passed: a field keeps the document's order, which is the model's.
+REDOC_OPTIONS: dict[str, Any] = {
+    "disableTelemetry": True,
+    "showExtensions": True,
+    "sortRequiredPropsFirst": True,
+    "hideDownloadButtons": False,
+}
+REDOC_START_JS = f"""// cmapi: starts ReDoc with its options and its telemetry off (#235, #480). The bundle is an ES module (#229).
+import {{ init }} from "/static/redoc/redoc.standalone.js";
+init("/openapi.json", {json.dumps(REDOC_OPTIONS)}, document.getElementById("redoc"));
 """
 
 

@@ -150,7 +150,8 @@ def _rules_view(c: AppContext, env: str) -> dict[str, Any]:
             "notifyDaysBefore": list(r.notify_days_before), "graceDays": r.grace_days}
 
 
-@router.read("/expirations", summary="Namespaces by expiry, paged", permission="objects:read", response_model=ExpirationPage,
+@router.read("/expirations", summary="Namespaces by expiry, paged",
+             returns="One page of the namespaces that can expire, with their dates, days left and notices, the count of each state, and each environment's rules.", permission="objects:read", response_model=ExpirationPage,
              problems=["invalid-cursor", "invalid-sort", "invalid-limit", "validation-failed"])
 def expirations(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, state: State = None,
                 sort: Sort = "urgency", limit: Limit = 50, cursor: Cursor = None,
