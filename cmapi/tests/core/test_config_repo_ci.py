@@ -163,7 +163,7 @@ BOT = "cmapi-git-bot"
 TRAILER = "Cmapi-Request-Id: req-1"
 
 
-def run_pr_step(root, kyverno, commits, *, fork=False):
+def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org"):
     """Run the template's check step on a merge checkout with GitHub's PR metadata."""
     def git(*args):
         return subprocess.check_output(
@@ -178,7 +178,8 @@ def run_pr_step(root, kyverno, commits, *, fork=False):
     git("switch", "-qc", branch)
     git("add", ".")
     for author, body in commits:
-        git("commit", "-q", "--allow-empty", "--author", f"{author} <user@example.org>", "-m", "change", "-m", body)
+        git("-c", f"user.name={committer or author}", "-c", f"user.email={committer_email}", "commit", "-q",
+            "--allow-empty", "--author", f"{author} <user@example.org>", "-m", "change", "-m", body)
     head = git("rev-parse", "HEAD")
     git("switch", "-q", "main")
     git("merge", "--no-ff", "-qm", "synthetic merge", head)
@@ -212,6 +213,17 @@ def test_pr_audit_violation(kyverno, crc, tmp_path, commits, fork, warn):
     assert r.returncode == (0 if warn else 1), r.stdout + r.stderr
     severity = "warning" if warn else "error"
     assert f"::{severity} file=clusters/CRC/namespaces/{NS}/namespace.yaml::cmapi-metadata-dev-label-cmapi-net-team-pattern" in r.stdout
+
+
+@pytest.mark.parametrize(("committer", "email"), [
+    ("Maintainer", "user@example.org"),
+    (BOT, "other@example.org"),
+], ids=["different-name", "different-email"])
+def test_recommitted_change_uses_hand_pr_checks(kyverno, crc, tmp_path, committer, email):
+    root = repository(tmp_path / "origin", crc)
+    r = run_pr_step(root, kyverno, [(BOT, TRAILER)], committer=committer, committer_email=email)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "audit violations fail the check" in r.stdout
 
 
 @pytest.mark.parametrize("author", ["Maintainer", BOT])

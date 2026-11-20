@@ -60,10 +60,11 @@ def is_cmapi_pr(root: Path, event: Path) -> bool:
     # Inspect the event's head, even though the manifests under test are from GitHub's synthetic merge.
     # A NUL between trailer values makes duplicate trailers fail the exact comparison too.
     identity = subprocess.check_output([
-        "git", "show", "-s", "--format=format:%an%x00%(trailers:key=Cmapi-Request-Id,valueonly,separator=%x00)",
+        "git", "show", "-s", "--format=format:%an%x00%cn%x00%ae%x00%ce%x00%(trailers:key=Cmapi-Request-Id,valueonly,separator=%x00)",
         "--end-of-options", head["sha"], "--",
     ], cwd=root)
-    return identity.split(b"\0") == [b"cmapi-git-bot", branch[1].encode()]
+    author, committer, author_email, committer_email, request_id = identity.split(b"\0", 4)
+    return author == committer == b"cmapi-git-bot" and author_email == committer_email and request_id == branch[1].encode()
 
 
 def check_folder(root: Path, folder: Path, kyverno: str, *, fail_audit: bool = False) -> tuple[list[str], list[str]]:
