@@ -49,6 +49,9 @@ VERBS = {"Approve", "Cancel", "Change", "Confirm", "Create", "Delete", "Export",
 TOKEN_ONLY = {("get", "/api/v1/me")}
 # S7: the reads that answer 304 to a matching If-None-Match (routers/me.py, plugins/capacity/router.py).
 CONDITIONAL_READS = {("get", "/api/v1/metadata-keys"), ("get", "/api/v1/capacity")}
+# S10: the headers that a write is refused without, so a sample that "runs as written" carries them even where the
+# document cannot mark them required: 400 idempotency-key-required (optional only on a dry run), 428 precondition-required.
+REFUSED_WITHOUT = ("Idempotency-Key", "If-Match")
 Op = dict[str, Any]
 
 
@@ -163,6 +166,12 @@ def check_parameters(method: str, path: str, op: Op, spec: dict) -> list[str]:
             out.append(f"{name} has no type")
         if not (schema.get("examples") or p.get("examples") or "example" in p):
             out.append(f"{name} has no example")
+        # S4 asks for the rule and an example: an example that the rule refuses documents a call that answers 422.
+        shown = [*(schema.get("examples") or ()), *([p["example"]] if "example" in p else ()),
+                 *(e.get("value") for e in (p.get("examples") or {}).values())]
+        validator = SchemaReader().validator({**schema, "components": spec["components"]})
+        out.extend(f"{name} has the example {value!r}, which its own rule refuses: {e.message[:120]}"
+                   for value in shown for e in validator.iter_errors(value))
     return out
 
 
@@ -257,7 +266,7 @@ def _problem_example_gaps(status: str, name: str, value: dict[str, Any]) -> list
     out = []
     if name not in PROBLEMS or str(PROBLEMS[name][0]) != status:
         out.append(f"{status} has the example {name}, which is not a registered code of that status")
-    missing = [f for f in ("type", "title", "status", "detail", "code") if f not in value]
+    missing = [f for f in ("type", "title", "status", "detail", "code") if not value.get(f)]
     if missing:
         out.append(f"{status} example {name} has no {', '.join(missing)}")
     if value.get("code") != name or str(value.get("status")) != status:
@@ -275,8 +284,14 @@ def check_extensions(method: str, path: str, op: Op, spec: dict) -> list[str]:
     return out
 
 
+def _after(words: list[str], flag: str) -> list[str]:
+    """The words of a curl command that follow one flag: each header after -H, the body after -d."""
+    return [word for before, word in zip(words, words[1:]) if before == flag]
+
+
 def check_curl_sample(method: str, path: str, op: Op, spec: dict) -> list[str]:
-    """S10: one curl sample of this method, with every path parameter filled and the token where one is needed."""
+    """S10: one curl sample of this method that runs as written: every path parameter filled, the token where one is
+    needed, each header that the call is refused without, and the request's Example Value (S6) as its JSON body."""
     samples = op.get("x-codeSamples") or []
     if len(samples) != 1 or (samples[0].get("lang"), samples[0].get("label")) != ("Shell", "curl"):
         return [f"has not one Shell curl sample: {samples}"]
@@ -293,6 +308,23 @@ def check_curl_sample(method: str, path: str, op: Op, spec: dict) -> list[str]:
         out.append(f"curl sample is not a {method.upper()} of {expected}: {source[:120]}")
     if ('"Authorization: Bearer $TOKEN"' in source) != bool(op.get("security")):
         out.append("curl sample's token does not match the security scheme")
+    headers = {header.partition(":")[0] for header in _after(words, "-H")}
+    for p in op.get("parameters") or ():
+        if p.get("in") == "header" and (p.get("required") or p["name"] in REFUSED_WITHOUT) and p["name"] not in headers:
+            out.append(f"curl sample has no {p['name']} header, which the call is refused without")
+    media = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
+    bodies = _after(words, "-d")
+    if media is None:
+        if bodies:
+            out.append("curl sample sends a body and the operation takes none")
+        return out
+    examples = [media["example"]] if "example" in media else [e.get("value") for e in (media.get("examples") or {}).values()]
+    try:
+        sent = [json.loads(body) for body in bodies]
+    except ValueError:
+        sent = []
+    if "Content-Type" not in headers or len(sent) != 1 or sent[0] not in examples:
+        out.append("curl sample does not send the request's Example Value as application/json")
     return out
 
 
@@ -585,6 +617,16 @@ BREAKS: list[tuple[str, str, Callable[[dict], Any]]] = [
     ("S10 curl sample", "not one Shell curl sample", lambda s: _create(s).pop("x-codeSamples")),
     ("S10 curl sample", "is not a POST of",
      lambda s: _create(s)["x-codeSamples"][0].update(source=_create(s)["x-codeSamples"][0]["source"].replace("/namespaces ", "/x "))),
+    ("S4 parameters", "its own rule refuses",
+     lambda s: next(p for p in _create(s)["parameters"] if p["in"] == "query")["schema"].update(examples=["maybe"])),
+    ("S8 one named example per problem code", "example change-pending has no detail",
+     lambda s: _problem(s, "409")["examples"]["change-pending"]["value"].update(detail="")),
+    ("S10 curl sample", "has no Idempotency-Key header",
+     lambda s: _create(s)["x-codeSamples"][0].update(
+         source=_create(s)["x-codeSamples"][0]["source"].replace("Idempotency-Key: ", "X-Other: "))),
+    ("S10 curl sample", "does not send the request's Example Value",
+     lambda s: _create(s)["x-codeSamples"][0].update(
+         source=_create(s)["x-codeSamples"][0]["source"].partition(" -d ")[0] + " -d '{\"namespace\": \"x\"}'")),
 ]
 
 
