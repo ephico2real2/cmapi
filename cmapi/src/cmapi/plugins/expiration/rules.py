@@ -1,7 +1,8 @@
 """Expiration rules (config/expiration.yaml) and the daily expire_check decisions.
 
-Optional, and never in prod: an environment with no entry in expiration.yaml refuses every expiry
-field with 422 expiration-not-allowed. Within limits an extension follows the environment's change
+Optional, and never in prod: an environment with no entry in expiration.yaml, or with enabled: false,
+refuses every expiry field with 422 expiration-not-allowed. prod may have an entry only with enabled: false
+(the owner's #222 decision: production never expires). Within limits an extension follows the environment's change
 rule; past maxLifetimeDays from creation, or :makePermanent, adds approver-platform. A single
 extension longer than maxExtensionDays is refused (expiration-limit).
 
@@ -30,6 +31,7 @@ from cmapi.core.errors import Problem
 
 @dataclass(frozen=True)
 class EnvRules:
+    enabled: bool = True                # false: the environment takes no expiry, as one with no entry (#479)
     allowed_at_create: bool = True
     max_extension_days: int = 30
     max_lifetime_days: int = 180
@@ -76,7 +78,9 @@ class ExpirationRules:
         d = raw.get("defaults") or {}
         def mk(over: Mapping[str, Any]) -> EnvRules:
             v = {**d, **(over or {})}
-            return EnvRules(allowed_at_create=v.get("allowedAtCreate", True),
+            if not isinstance(v.get("enabled", True), bool):
+                raise ValueError(f"expiration.yaml: enabled is true or false, not {v['enabled']!r}")
+            return EnvRules(enabled=v.get("enabled", True), allowed_at_create=v.get("allowedAtCreate", True),
                             max_extension_days=v.get("maxExtensionDays", 30),
                             max_lifetime_days=v.get("maxLifetimeDays", 180),
                             notify_days_before=tuple(sorted(v.get("notifyDaysBefore", [14, 7, 1]), reverse=True)),
@@ -84,11 +88,11 @@ class ExpirationRules:
                             delete_after_grace=v.get("deleteAfterGrace", True),
                             min_notices_before_delete=v.get("minNoticesBeforeDelete", 2))
         envs = raw.get("environments") or {}
-        if "prod" in envs:
-            raise ValueError("expiration.yaml: prod cannot have an entry; production namespaces never expire")
         if allowed_environments is not None and set(envs) - allowed_environments:
             raise ValueError(f"expiration.yaml: environments not served: {sorted(set(envs) - allowed_environments)}")
         self.envs = {e: mk(v) for e, v in envs.items()}
+        if "prod" in self.envs and self.envs["prod"].enabled:
+            raise ValueError("expiration.yaml: prod takes only enabled: false; production namespaces never expire")
 
     @classmethod
     def load(cls, path: str | Path, allowed_environments: set[str] | None = None) -> "ExpirationRules":
@@ -96,13 +100,26 @@ class ExpirationRules:
 
     def rules(self, env: str) -> EnvRules:
         r = self.envs.get(env)
-        if r is None:
+        if r is None or not r.enabled:
             raise Problem.unprocessable("expiration-not-allowed",
                                         f"Namespaces in {env} cannot carry expiration metadata")
         return r
 
     def allows(self, env: str) -> bool:
-        return env in self.envs
+        return env in self.envs and self.envs[env].enabled
+
+    def contract_view(self, environments: list[str]) -> dict[str, Any]:
+        """x-cmapi-expiration of NamespaceCreate.expiresAt (#479, A11): each served environment's limits, so a client such
+        as the portal reads them from the contract. An environment that takes no expiry is {"enabled": false} only."""
+        out: dict[str, Any] = {}
+        for env in environments:
+            if not self.allows(env):
+                out[env] = {"enabled": False}
+                continue
+            r = self.envs[env]
+            out[env] = {"enabled": True, "allowedAtCreate": r.allowed_at_create, "maxLifetimeDays": r.max_lifetime_days,
+                        "notifyDaysBefore": list(r.notify_days_before), "graceDays": r.grace_days}
+        return {"environments": out}
 
     # ---- requests
     def _lifetime(self, r: EnvRules, created: date, new_date: date, reasons: list[str]) -> tuple[str, ...]:
