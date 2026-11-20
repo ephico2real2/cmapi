@@ -581,3 +581,28 @@ def test_public_renewal_events_and_metrics_exclude_credentials(endpoints, monkey
     for credential in [api.old, *api.grants, api.hub_token.read_text()]:
         assert credential not in output.getvalue() + metrics
         assert encoded(credential) not in output.getvalue() + metrics
+
+
+def test_relist_keeps_legacy_reader_connected_during_renewal_scan(endpoints, monkeypatch):
+    api = endpoints()
+    api.doc["metadata"].pop("annotations")
+    api.doc["data"]["token"] = encoded("legacy-fixture")
+    responses = {"/version": {"gitVersion": "fixture"},
+                 "/apis/user.openshift.io/v1/users/~": {"metadata": {"name": READER_IDENTITY}},
+                 "/api/v1/namespaces": {"items": []}}
+    checked = []
+    def probe(req):
+        assert req.method == "GET" and req.headers["Authorization"] == "Bearer legacy-fixture"
+        checked.append(req.url.path)
+        return httpx.Response(200, json=responses[req.url.path])
+
+    monkeypatch.setattr(api, "spoke", probe)
+    try:
+        api.registry.refresh()
+        assert api.registry.get("TEST").status == "connected"
+        assert checked == list(responses)
+        assert not api.scan() and not api.patches
+        assert api.doc["data"]["token"] == encoded("legacy-fixture")
+        api.logs.info.assert_called_once_with("cluster_token_renew_skipped", cluster_id="TEST", reason="missing expiry annotation")
+    finally:
+        api.registry.stop()
