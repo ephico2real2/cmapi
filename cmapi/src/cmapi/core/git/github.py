@@ -24,7 +24,7 @@ import base64
 from typing import Any, Iterable, Mapping
 
 from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HeadMoved, HostGitProvider, MergeCheck, NotMergeable,
-                                 PlatformRefused, PushResult)
+                                 PlatformRefused, PushResult, is_commit_id)
 from cmapi.core.ports import PrRef, PrStatus
 
 
@@ -67,7 +67,9 @@ class GitHubProvider(HostGitProvider):
         if self.workspace is not None:
             return self.workspace.read_folder(path, ref)
         ref = ref or self.default_branch
-        head = ref if len(ref) == 40 else self.branch_head(ref)
+        # A commit ID is read as it is; anything else, even a branch name of 40 characters, is resolved to its head first,
+        # so every file of the folder comes from one commit (as Gitea's read_folder does).
+        head = ref if is_commit_id(ref) else self.branch_head(ref)
         if head is None:
             raise GitUnavailable(f"branch {ref} does not exist")
         r = self._call("read_folder", "GET", f"{self._repo()}/contents/{path.strip('/')}", params={"ref": head}, ok=(200, 404))

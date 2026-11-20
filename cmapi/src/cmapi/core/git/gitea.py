@@ -18,7 +18,7 @@ from __future__ import annotations
 import base64
 from typing import Any, Mapping
 
-from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
+from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult, is_commit_id
 from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchMoved, BranchRefused, request_branch
 from cmapi.core.ports import PrRef, PrStatus
 
@@ -43,7 +43,7 @@ class GiteaProvider(HostGitProvider):
 
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         ref = ref or self.default_branch
-        head = self.branch_head(ref) if not _is_sha(ref) else ref
+        head = ref if is_commit_id(ref) else self.branch_head(ref)
         if head is None:
             raise GitUnavailable(f"branch {ref} does not exist")
         files: dict[str, str] = {}
@@ -236,10 +236,6 @@ class GiteaProvider(HostGitProvider):
 
 def _b64(text: str) -> str:
     return base64.b64encode(text.encode()).decode()
-
-
-def _is_sha(ref: str) -> bool:
-    return len(ref) == 40 and all(c in "0123456789abcdef" for c in ref)
 
 
 def _common_folder(files: Mapping[str, Any]) -> str:

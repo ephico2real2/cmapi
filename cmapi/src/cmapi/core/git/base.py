@@ -100,6 +100,11 @@ class MergeCheck:
         return "clean"
 
 
+def is_commit_id(ref: str) -> bool:
+    """A full SHA-1 commit ID (40 lowercase hex characters), which a read takes as it is; anything else names a branch."""
+    return len(ref) == 40 and all(c in "0123456789abcdef" for c in ref)
+
+
 def credential_values(token: str | None, basic_auth: tuple[str, str] | None) -> tuple[str, ...]:
     """Each value of the bot's credential that a host could echo: the token, and with Basic auth the password and the header's
     value as httpx sends it, base64 of user:password in UTF-8 (RFC 7617)."""
