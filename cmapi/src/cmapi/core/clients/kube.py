@@ -139,27 +139,34 @@ class KubeClient:
     def _error(self, status: int, path: str, body: str) -> KubeError:
         return KubeError(status, path, self.redact(body))
 
-    def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
+    def _request(self, method: str, path: str, *, sensitive: bool = False, **kw: Any) -> httpx.Response:
         try:
             with cluster_http_call():
                 r = self._client.request(method, path, **kw)
         except httpx.HTTPError as exc:
             CLUSTER_CALLS.labels(self.cluster_id, "error").inc()
-            raise ClusterUnreachable(self.redact(f"{self.cluster_id}: {type(exc).__name__}: {exc}")) from exc
-        CLUSTER_CALLS.labels(self.cluster_id, "ok" if r.status_code < 400 else str(r.status_code)).inc()
-        return r
+            if not sensitive:
+                raise ClusterUnreachable(self.redact(f"{self.cluster_id}: {type(exc).__name__}: {exc}")) from exc
+        else:
+            CLUSTER_CALLS.labels(self.cluster_id, "ok" if r.status_code < 400 else str(r.status_code)).inc()
+            return r
+        # Raising outside the handler also keeps the raw diagnostic out of __context__.
+        raise ClusterUnreachable("reader TokenRequest transport failed")
 
     @staticmethod
-    def _object(r: httpx.Response, path: str) -> dict[str, Any]:
+    def _object(r: httpx.Response, path: str, *, sensitive: bool = False) -> dict[str, Any]:
         """The JSON object of a successful answer, or BadResponse: a proxy's login page, a truncated body or a JSON list
         is the cluster's answer, never a crash of the caller (#419)."""
         try:
             body = r.json()
         except (ValueError, RecursionError) as exc:     # JSONDecodeError, UnicodeDecodeError; a body nested past the limit
-            raise BadResponse(path, r.status_code, f"not JSON ({r.headers.get('content-type', 'no content type')[:60]})") from exc
-        if not isinstance(body, dict):
-            raise BadResponse(path, r.status_code, f"a JSON {_JSON_TYPES.get(type(body), 'value')}, not an object")
-        return body
+            if not sensitive:
+                raise BadResponse(path, r.status_code, f"not JSON ({r.headers.get('content-type', 'no content type')[:60]})") from exc
+        else:
+            if not isinstance(body, dict):
+                raise BadResponse(path, r.status_code, f"a JSON {_JSON_TYPES.get(type(body), 'value')}, not an object")
+            return body
+        raise BadResponse(path, r.status_code, "not JSON")
 
     @staticmethod
     def _text(body: Mapping[str, Any], r: httpx.Response, path: str, *keys: str) -> str:
@@ -188,11 +195,11 @@ class KubeClient:
 
     def request_reader_token(self, duration: int) -> tuple[str, str]:
         path = "/api/v1/namespaces/cmapi-system/serviceaccounts/cmapi-reader/token"
-        r = self._request("POST", path, json={"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest",
+        r = self._request("POST", path, sensitive=True, json={"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest",
                                               "spec": {"expirationSeconds": duration}})
         if not r.is_success:
             raise KubeError(r.status_code, path, "reader TokenRequest failed")
-        body = self._object(r, path)
+        body = self._object(r, path, sensitive=True)
         return self._text(body, r, path, "status", "token"), self._text(body, r, path, "status", "expirationTimestamp")
 
     def whoami(self) -> str:

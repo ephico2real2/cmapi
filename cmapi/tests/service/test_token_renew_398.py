@@ -368,3 +368,33 @@ def test_unreadable_claims_do_not_interrupt_registry_discovery(endpoints, monkey
     api.registry.refresh()
     assert api.registry.get("TEST").status == "invalid-secret"
     decoder.assert_called_once()
+
+
+@pytest.mark.parametrize("failure", ["timestamp", "spoke-header", "hub-header", "transport", "hub-transport"])
+def test_credential_responses_have_private_diagnostics(endpoints, monkeypatch, failure):
+    api = endpoints()
+    api.now += 3000
+    marker = "private-fixture-value"
+    original = api.spoke
+
+    def response(req):
+        if failure == "timestamp":
+            body = original(req).json()
+            body["status"]["expirationTimestamp"] = marker
+            return httpx.Response(201, json=body)
+        if failure in ("transport", "hub-transport"):
+            raise httpx.ReadError(marker)
+        return httpx.Response(200, content=b"invalid JSON", headers={"Content-Type": marker})
+
+    if failure.startswith("hub-"):
+        monkeypatch.setattr(api.source.client, "request", lambda *a, **kw: response(None))
+    else:
+        monkeypatch.setattr(api, "spoke", response)
+    with pytest.raises((ValueError, RuntimeError)) as error:
+        secret = api.source.list()[0]
+        api.module._renew(api.registry, api.source, "TEST", secret, api.defaults)
+    diagnostic = error.value
+    while diagnostic is not None:
+        assert marker not in str(diagnostic)
+        diagnostic = diagnostic.__cause__ or diagnostic.__context__
+    assert not api.patches

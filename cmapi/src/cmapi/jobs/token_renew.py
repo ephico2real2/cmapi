@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import timezone
 from time import time
 
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo
 from cmapi.core.observability import CLUSTER_TOKEN_RENEWALS, log
-from cmapi.core.registry import ClusterRegistry, HubImportSource, token_expiry
+from cmapi.core.registry import ClusterRegistry, HubImportSource, parse_token_expiry, token_expiry
 
 # Five scans in the minimum five-minute window; outages retry after 5, 10, 20, 40, then 60s.
 TOKEN_RENEW_EVERY = 60
@@ -48,8 +48,8 @@ def _renew(registry: ClusterRegistry, source: HubImportSource, cid: str, secret:
         token, reported = client.request_reader_token(policy.duration)
     grant = ReaderGrant.parse(token)
     grant.check_new(policy, time())
-    stamp = datetime.fromisoformat(reported)
-    if stamp.tzinfo is None or stamp.timestamp() != grant.expires:
+    stamp = parse_token_expiry(reported)
+    if stamp is None or stamp.timestamp() != grant.expires:
         raise RenewalError("TokenRequest expirationTimestamp disagrees with token")
     expires = stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     source.patch_token(secret["name"], version, token, expires)

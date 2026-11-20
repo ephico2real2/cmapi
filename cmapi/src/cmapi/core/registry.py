@@ -154,8 +154,7 @@ def _diagnostic_forms(secret: Mapping[str, Any]) -> tuple[str, ...]:
     return order_forms(forms)
 
 
-def token_expiry(secret: Mapping[str, Any]) -> datetime | None:
-    value = secret.get("annotations", {}).get("cmapi.net/token-expires-at")
+def parse_token_expiry(value: Any) -> datetime | None:
     if isinstance(value, str):
         if not TOKEN_EXPIRY.fullmatch(value):
             return None
@@ -164,6 +163,10 @@ def token_expiry(secret: Mapping[str, Any]) -> datetime | None:
         except ValueError:
             return None
     return value if isinstance(value, datetime) and value.tzinfo is not None else None
+
+
+def token_expiry(secret: Mapping[str, Any]) -> datetime | None:
+    return parse_token_expiry(secret.get("annotations", {}).get("cmapi.net/token-expires-at"))
 
 
 def _size_problem(size: Any) -> str | None:
@@ -263,7 +266,9 @@ class HubImportSource(ImportSource):
             with cluster_http_call():
                 response = self.client.request(method, path, headers=headers, **kwargs)
         except httpx.HTTPError:
-            raise RuntimeError("hub Secret request failed") from None
+            response = None
+        if response is None:
+            raise RuntimeError("hub Secret request failed")
         if not response.is_success:
             # A proxy can echo any part of the submitted Secret. Only the status is diagnostic.
             raise KubeError(response.status_code, path, "hub Secret request failed")
@@ -275,7 +280,7 @@ class HubImportSource(ImportSource):
         cluster (#421)."""
         path = f"/api/v1/namespaces/{self.namespace}/secrets"
         r = self._request("GET", path, params={"labelSelector": "cmapi.net/secret-type=cluster"})
-        return [_secret(s) for s in list_items(KubeClient._object(r, path), path, r.status_code)]
+        return [_secret(s) for s in list_items(KubeClient._object(r, path, sensitive=True), path, r.status_code)]
 
     def patch_token(self, name: str, version: str, token: str, expires: str) -> None:
         path = f"/api/v1/namespaces/{self.namespace}/secrets/{name}"
