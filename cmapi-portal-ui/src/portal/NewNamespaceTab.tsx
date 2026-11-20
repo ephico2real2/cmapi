@@ -473,7 +473,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     <Stack hasGutter>
       {head}
       <Grid hasGutter>
-        <GridItem md={12} lg={7}>
+        <GridItem md={7}>
           <Panel>
             <Form noValidate={false} onSubmit={onSubmit} ref={formRef}>
               <FormSection title="Where" titleElement="h3">
@@ -547,7 +547,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
             </Form>
           </Panel>
         </GridItem>
-        <GridItem md={12} lg={5} className="cp-sticky">
+        <GridItem md={5} className="cp-sticky">
           <Panel title="Preview">
             <Small>What will be created. It updates as you type.</Small>
             <KV rows={[

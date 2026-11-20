@@ -276,6 +276,7 @@ const MUTANTS = [
   ["#479 a changed status sentence", "src/portal/NewNamespaceTab.tsx", `title="Changed since the last check. Press Check (dry run) again."`, `title="Changed since the last check."`, "portal", "6 the Workflow"],
   ["#479 an invented sentence in the preview", "src/portal/NewNamespaceTab.tsx", "<Small>What will be created. It updates as you type.</Small>", "<Small>What will be created. It updates as you type, every second.</Small>", "portal", "6 the Workflow"],
   // PR #506 review: each defect that reviewer 1 (Codex) and reviewer 2 (Opus) found, put back; the check named for it must fail.
+  ["N1 a dry run reuses a cached pass", "src/api/hooks.ts", "    staleTime: 0,\n    gcTime: 0,\n", "", "portal", "N1 New namespace"],
   ["#506 a change that leaves the body does not close Submit", "src/portal/NewNamespaceTab.tsx", " && planned.draft === draft;", ";", "portal", "506-01"],
   ["#506 Check on a checked form does not ask cmapi again", "src/portal/NewNamespaceTab.tsx", "if (planIsOfForm) plan.reload();\n    else setPlanned(", "setPlanned(", "portal", "506-01"],
   ["#506 an emptied default is not sent", "src/portal/metadataForm.ts", "const emptied = f.defaultFrom !== null && valueKey(f) in values;", "const emptied = false;", "direct"],

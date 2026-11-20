@@ -1386,6 +1386,43 @@ try {
     } finally { await context.close(); }
   });
 
+  await check("N1 New namespace: returning to a checked draft asks cmapi again within the cache's stale time", async () => {
+    const { context, page, errors } = await fresh({ metadataKeys: KEYS_479 });
+    try {
+      await newTab(page);
+      await fill479(page);
+      const level = page.getByLabel("Critical level (required)");
+      const started = Date.now();
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      assert.equal(dryRuns().length, 1, "the first Check sends draft A");
+      const draftA = dryRuns()[0].body;
+      await level.selectOption("2");
+      await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true");
+      await level.selectOption("1");
+      await checkButton(page).click();
+      await waitFor(page, () => dryRuns().length === 2, "Check after editing A to B and back sends a second dry run");
+      await passed(page).waitFor();
+      assert.deepEqual(dryRuns().map((c) => c.body), [draftA, draftA]);
+
+      // Also switch the query key to B: returning to A must not reuse its cached pass.
+      await level.selectOption("2");
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      assert.equal(dryRuns().length, 3, "Check sends draft B");
+      await level.selectOption("1");
+      await checkButton(page).click();
+      await waitFor(page, () => dryRuns().length === 4, "returning from checked B to A sends a new dry run");
+      await passed(page).waitFor();
+      assert.deepEqual(dryRuns().at(-1).body, draftA);
+      assert.ok(Date.now() - started < 15_000, "both returns to A happen within the app's cache freshness window");
+      assert.equal(await submitButton(page).getAttribute("aria-disabled"), null);
+      assert.equal(posts().filter((c) => c.query.dryRun !== "true").length, 0, "checking writes nothing");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+
   await check("506-02 a required default copied from a key that cmapi fills in is filled, and the check runs", async () => {
     const keys = structuredClone(KEYS_479);
     keys.labels.properties["cmapi.net/team"]["x-cmapi-default-from"] = "company.net/app-environment";
