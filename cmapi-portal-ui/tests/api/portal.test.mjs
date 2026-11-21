@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
+import { checkComboBoxLifecycle } from "../combobox.mjs";
 import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespacesOfMockup, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
   recordEtag, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, syncRecord, USERS } from "./standin.mjs";
 
@@ -2275,6 +2276,7 @@ try {
     await page.getByRole("listbox").getByText('No namespace matches "zzz".').waitFor();
     await box.press("Escape");
     assert.equal(await box.getAttribute("aria-expanded"), "false");
+    await checkComboBoxLifecycle(page, box, "#q-sug", "pay", "#requests");
     assert.deepEqual(errors, []);
     await context.close();
   });
@@ -4578,6 +4580,7 @@ try {
       await page.keyboard.type("abc pay");
       await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 2);
       const box = lookupBox(page);
+      assert.deepEqual(await hiddenOptions(page, "#nsx-list"), [], "keyboard matches are on the screen before any arrow key can scroll them (#535)");
       await page.keyboard.press("ArrowDown");
       assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-0");
       await page.keyboard.press("ArrowDown");
@@ -4594,6 +4597,7 @@ try {
       await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 1);
       await page.keyboard.press("Escape");
       assert.equal(await box.getAttribute("aria-expanded"), "false", "Escape closes the list");
+      await checkComboBoxLifecycle(page, box, "#nsx-list", "abc pay", "#requests");
     });
   });
 

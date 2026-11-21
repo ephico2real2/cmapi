@@ -131,6 +131,7 @@ export function NamespaceLookup({ clusters, clusterId, chipTitle, onCluster, onO
         <FormGroup label="Namespace" fieldId="nsx-ns">
           <ComboBox
             isOpen={listed}
+            onClose={() => { setOpenList(false); setActive(-1); }}
             input={(
               <TextInputGroup isDisabled={!clusterId}>
                 <TextInputGroupMain
@@ -153,7 +154,7 @@ export function NamespaceLookup({ clusters, clusterId, chipTitle, onCluster, onO
                 <MenuContent>
                   <MenuList id="nsx-list" aria-label="Matching namespaces">
                     {items.map((n, k) => (
-                      <MenuItem key={n.name} id={`nsx-opt-${k}`} itemId={n.name} isFocused={k === idx} isSelected={k === idx}
+                      <MenuItem component="div" key={n.name} id={`nsx-opt-${k}`} itemId={n.name} isFocused={k === idx} isSelected={k === idx}
                         description={`team ${n.team ?? "—"} · ${stateWords(n)}`} onClick={() => choose(n.name)}>{n.name}</MenuItem>
                     ))}
                     {settled && items.length === 0 && <MenuItem isDisabled>{`No namespace matches${chip ? ` in ${chip}` : ""}.`}</MenuItem>}

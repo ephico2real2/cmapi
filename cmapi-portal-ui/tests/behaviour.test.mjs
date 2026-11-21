@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
+import { checkComboBoxLifecycle } from "./combobox.mjs";
 import { serve } from "../../tests/portal/views.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,6 +96,7 @@ try {
   // The list is in document.body, outside .cp-combo (#535), so axe is pointed at both.
   const open1 = await new AxeBuilder({ page }).include(".cp-combo").include("#q-sug").analyze();
   assert.deepEqual(open1.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id), [], "axe on the open type-ahead");
+  await checkComboBoxLifecycle(page, page.locator("#q-search"), "#q-sug", "pay", "#nonprod/requests");
 
   // Workflow: which lane is acting, and what has not happened yet.
   await open("#nonprod/workflow");

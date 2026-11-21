@@ -92,12 +92,21 @@ const COMBO_GAP_PX = 4;
  * PatternFly Popper appended to document.body instead, as PatternFly's own Select typeahead is. DOM focus stays on the input
  * and aria-activedescendant names the active option (the ARIA APG combobox), so the list needs no focus or keys of its own.
  */
-export function ComboBox({ input, list, isOpen }: { input: ReactNode; list: ReactElement; isOpen: boolean }) {
+export function ComboBox({ input, list, isOpen, onClose }: { input: ReactNode; list: ReactElement; isOpen: boolean; onClose: () => void }) {
   const anchor = useRef<HTMLDivElement>(null);
   return (
-    <div className="cp-combo" ref={anchor}>
+    <div className="cp-combo" ref={anchor} onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) onClose();
+    }}>
       {input}
-      {isOpen && <Popper triggerRef={anchor} popper={list} appendTo={() => document.body} width="trigger" distance={COMBO_GAP_PX} />}
+      {isOpen && <Popper triggerRef={anchor}
+        // A pointer selection must reach onClick without blurring the input and unmounting the option first.
+        popper={<div onMouseDownCapture={(event) => event.preventDefault()}>{list}</div>}
+        appendTo={() => document.body} width="trigger" distance={COMBO_GAP_PX}
+        onDocumentClick={(event, trigger, popup) => {
+          const target = event?.target as Node | null;
+          if (target && !trigger?.contains(target) && !popup?.contains(target)) onClose();
+        }} />}
     </div>
   );
 }

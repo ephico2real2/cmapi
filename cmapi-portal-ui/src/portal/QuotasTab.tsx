@@ -332,6 +332,7 @@ function Search({ applied, onApply, onPick, onExport }: { applied: string; onApp
       <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }}>
         <ComboBox
           isOpen={listed}
+          onClose={() => { setOpenList(false); setActive(-1); }}
           input={(
             <TextInputGroup>
               <TextInputGroupMain
@@ -353,7 +354,7 @@ function Search({ applied, onApply, onPick, onExport }: { applied: string; onApp
               <MenuContent>
                 <MenuList id="q-sug" aria-label="Matching namespaces">
                   {items.map((s, k) => (
-                    <MenuItem key={keyOf(s)} id={`q-opt-${k}`} itemId={keyOf(s)} isFocused={k === idx} isSelected={k === idx} description={<>{s.clusterId} {s.why}</>} onClick={() => choose(s)}>{s.name}</MenuItem>
+                    <MenuItem component="div" key={keyOf(s)} id={`q-opt-${k}`} itemId={keyOf(s)} isFocused={k === idx} isSelected={k === idx} description={<>{s.clusterId} {s.why}</>} onClick={() => choose(s)}>{s.name}</MenuItem>
                   ))}
                   {settled && items.length === 0 && <MenuItem isDisabled>No namespace matches "{text}".</MenuItem>}
                   {!settled && suggestions.state !== "error" && suggestions.state !== "forbidden" && <MenuItem isDisabled>Searching…</MenuItem>}

@@ -7,6 +7,8 @@ function Search({ v }: TabProps) {
   return (
     <ComboBox
       isOpen={s.open}
+      // The demo owns the state; reuse its Escape dismissal without applying the search.
+      onClose={() => s.onKey({ key: "Escape" })}
       input={(
         <TextInputGroup>
           <TextInputGroupMain
@@ -28,7 +30,7 @@ function Search({ v }: TabProps) {
           <MenuContent>
             <MenuList id="q-sug" aria-label="Matching namespaces">
               {s.items.map((x: any) => (
-                <MenuItem key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} isSelected={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
+                <MenuItem component="div" key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} isSelected={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
               ))}
               {s.none && <MenuItem isDisabled>No namespace matches "{s.text}".</MenuItem>}
             </MenuList>
