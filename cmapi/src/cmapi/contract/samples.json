@@ -858,6 +858,9 @@
               "prefixes": [
                 "",
                 "*.ephico2real.com/"
+              ],
+              "sensitiveKeys": [
+                "network.ephico2real.com/zone"
               ]
             }
           },
@@ -1004,6 +1007,9 @@
               "prefixes": [
                 "",
                 "*.ephico2real.com/"
+              ],
+              "sensitiveKeys": [
+                "network.ephico2real.com/zone"
               ]
             }
           },

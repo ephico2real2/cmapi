@@ -518,7 +518,7 @@ for a removable one (`invalid_key`).
 | Each keyword of the answer is read | `node tests/contract.test.mjs` | `x-cmapi-edit` moved from "ignored" to "read" |
 | T1 to T9, the 409 and the 412, each at 390, 820 and 1440 px in each theme on a fresh profile | `CHECK="484-T" node tests/api/portal.test.mjs` | 11 checks, 66 views, pass, no console error; in the full `npm test` the longest 22.5 s (484-T9), then 13.2 s (484-T1) |
 | Operator-only keys | `CHECK="484-O"`, a requester and an operator, each at the six views | the requester: `do-not-delete` locked with the API's reason and `cmapi.net/protected` (not in Git) not offered; the operator: both are values to type, the dry run sends `{"do-not-delete": null, "cmapi.net/protected": "true"}` and the approval says one approver-platform |
-| A key that no rule admits (#492 M2) | `CHECK="484-R"`, the six views | locked with "Not allowed by this instance's rules.", no input, Remove and Undo; the dry run sends `null` and the plan's diff shows the removal; `cmapi.net/managed` is not offered |
+| A key that no rule admits (#492 M2) | `CHECK="484-R"`, the six views | locked with "Not allowed by this instance's rules.", no input, Remove and Undo; the dry run sends `null` and the plan's diff shows the removal; `cmapi.net/managed` is a locked row with no control |
 | The read's `git.edits` (#528), on the service | `PYTHONPATH=src:tests/service python -m pytest tests/service/test_namespace_git_edits_528.py` in `cmapi/`, PostgreSQL 16 on 55432 | 2 tests: fail before the change (`KeyError: 'edits'`), pass after; a system, an adoption, a reserved, an extra and a disallowed key each with the rule of `edit_rule`, and the removable key is the one the PATCH lets a change remove and never set |
 | Keyboard | `CHECK="484-K"`, at 390 and 1440 | the cluster by its first letter (a closed select's type-ahead; ArrowDown opens the native list on macOS and does not change it), Tab past the chips to the lookup, ↓ ↓ ↑ ↓ with `aria-activedescendant` and `aria-selected`, Enter opens the namespace, Escape closes the list. 4.4 s |
 | A viewer and a role limited to rnd | `CHECK="484-V"` | no change box for a viewer, nor for the rnd requester on a dev namespace; the box on an rnd one |
@@ -531,7 +531,10 @@ for a removable one (`invalid_key`).
 The full suite, `npm test` in `cmapi-portal-ui/`: exit 0 in 935.7 s; the portal suite 127 checks (27 of them #484), the
 longest 35.5 s of the 90 s limit (check 7, Policies), the direct tests 35 of 35.
 
-Screenshots at 1440 and 390, light and dark: `cmapi-portal-ui/screenshots/484-namespaces-tab/` (11 states, 44 files).
+Screenshots at 1440 and 390, light and dark: `cmapi-portal-ui/screenshots/484-namespaces-tab/` (11 states, 44 files). They
+are the pull request's evidence, captured once. A run of check 484-L writes its screenshots to the ignored
+`cmapi-portal-ui/test-output/api/484-namespaces-tab/`; only `UPDATE_COMMITTED_SCREENSHOTS=1 CHECK="484-L" node tests/api/portal.test.mjs`
+writes the committed folder (#530).
 
 **Not proven here:** the tab against the real service and Keycloak, and on CRC. The stand-in runs no configured value
 pattern (cmapi matches with RE2), so a value that only the pattern refuses is refused in the browser and by cmapi, not by the

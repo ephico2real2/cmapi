@@ -2997,6 +2997,9 @@ The answer was 200 (`application/json`, `etag: "1e1a89499078689504069cc7bb2ecc18
       "maxValueBytes": 4096,
       "prefixes": [
         ""
+      ],
+      "sensitiveKeys": [
+        "network.ephico2real.com/zone"
       ]
     }
   },
@@ -3134,6 +3137,9 @@ The answer was 200 (`application/json`, `etag: "1e1a89499078689504069cc7bb2ecc18
       "max": 50,
       "prefixes": [
         ""
+      ],
+      "sensitiveKeys": [
+        "network.ephico2real.com/zone"
       ]
     }
   },

@@ -926,14 +926,19 @@ class MetadataKeys:
     def edit_rule(self, kind: str, key: str) -> dict[str, Any]:
         """x-cmapi-edit of one key: its mode (fixed, automatic, required or optional), the reason a person sees, and
         whether a change of it adds one approval (sensitiveKeys). The same for a create's form and a change's."""
-        mode, reason = self._edit_mode(kind, key)
+        cls = self.classify(key, kind)
+        other = "annotation" if kind == "label" else "label"
+        if cls == "team" and (key in self.rules[other] or self._syntax(key, None, kind)):
+            # A legacy key with this spelling can only be removed (_check_sent_keys).
+            cls = "disallowed"
+        mode, reason = self._edit_mode(kind, key, cls)
         sensitive = key in self.sensitive
         if sensitive:
             reason = " ".join(r for r in (reason, EDIT_REASONS["sensitive"]) if r)
         rule = {"mode": mode, "reason": reason, "sensitive": sensitive}
         # Design section 3, row 3 (#492 M2): a key that no rule admits may be removed, never set or changed. A declared key
         # is never disallowed, so GET /api/v1/metadata-keys never carries this member.
-        if self.classify(key, kind) == "disallowed":
+        if cls == "disallowed":
             rule["removable"] = True
         return rule
 
@@ -941,13 +946,12 @@ class MetadataKeys:
         """GitKeyEdits (#484): edit_rule of each key in `maps` that the file does not declare, so a client can tell a system
         key from a team key or a disallowed one. Operator-only keys are declared: their rule is in metadata-keys."""
         return {name: {key: self.edit_rule(kind, key) for key in sorted(maps[kind])
-                       if key not in self.rules[kind] and key not in self.operator_only}
+                       if key not in self.rules[kind] and self.classify(key, kind) != "operatorOnly"}
                 for kind, name in (("label", "labels"), ("annotation", "annotations"))}
 
-    def _edit_mode(self, kind: str, key: str) -> tuple[str, str | None]:
+    def _edit_mode(self, kind: str, key: str, cls: KeyClass) -> tuple[str, str | None]:
         """The design's order, first match wins: system, reserved or adoption or not allowed, operator-only, filled in by
         cmapi (value.from), part of the name (namespacePrefix, namespaceSuffix), required, then optional."""
-        cls = self.classify(key, kind)
         if cls == "system":
             return "fixed", EDIT_REASONS["expiry" if key in EXPIRY_KEYS else "system"]
         if cls in ("reserved", "disallowed"):
@@ -1439,6 +1443,10 @@ class MetadataKeys:
         limits: dict[str, Any] = {"prefixes": [p + "/" if p else "" for p in other.prefixes], "max": other.max}
         if kind == "annotation":
             limits.update(maxValueBytes=other.max_value_bytes, maxBytesTotal=other.max_bytes_total)
+        sensitive = sorted(key for key in self.sensitive if key not in properties
+                           and self.edit_rule(kind, key)["mode"] == "optional")
+        if sensitive:
+            limits["sensitiveKeys"] = sensitive
         schema["x-cmapi-other-keys"] = limits
         return schema
 

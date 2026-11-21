@@ -13,9 +13,10 @@ export type Maps = Record<Kind, Record<string, string>>;
 /**
  * What the person may do with a row (design section 3): type in a declared key's own input (field), type a value with no
  * declared rule (value: an additional key, or an operator-only key for a caller with namespaces:protect), only remove it
- * (remove: a key that no rule admits, #492 M2), or nothing (locked).
+ * (remove: a key that no rule admits, #492 M2), or nothing (locked). A drifted key that has no other row is shown and never
+ * changed here (live).
  */
-export type Access = "field" | "value" | "remove" | "locked";
+export type Access = "field" | "value" | "remove" | "locked" | "live";
 
 /** x-cmapi-edit of each key that Git holds and metadata-keys.yaml does not declare, from the namespace read (#528). */
 export type GitEdits = Record<"labels" | "annotations", Record<string, KeyEdit & { removable?: boolean }>>;
@@ -58,9 +59,12 @@ const rank = (r: KeyRow): number => (r.access === "locked" ? (r.edit.mode === "a
  * fills it in. An operator-only key is a value to type for a caller who holds namespaces:protect in the namespace's
  * environment (`operator`); for anyone else it shows only where Git holds it, locked with its reason (design section 3,
  * row 4). Of the undeclared keys of Git (`edits`, the read's x-cmapi-edit of each), an additional key (optional) is a value
- * to type, a key that no rule admits (removable) can only be removed, and cmapi's own and the platform's keys are not shown.
+ * to type, a key that no rule admits (removable) can only be removed, and cmapi's own and the platform's keys are locked with the read's reason.
+ * A key of `drifted` (the read's sync.driftedKeys) that has none of these rows gets one, so the strip's count is the number of
+ * marked rows (design T3).
  */
-export function rowsOf(form: MetaForm, git: Maps, live: Maps, edits: GitEdits, operator: boolean): KeyRow[] {
+export function rowsOf(form: MetaForm, git: Maps, live: Maps, edits: GitEdits, operator: boolean,
+  drifted: ReadonlyArray<{ kind: Kind; key: string }> = []): KeyRow[] {
   const rows: KeyRow[] = [];
   const row = (kind: Kind, key: string, title: string, edit: KeyEdit, access: Access, field: MetaField | null = null, extra = false): KeyRow =>
     ({ id: `${kind}:${key}`, kind, key, title, edit, access, field, extra, git: git[kind][key] ?? null, live: live[kind][key] ?? null });
@@ -82,7 +86,16 @@ export function rowsOf(form: MetaForm, git: Maps, live: Maps, edits: GitEdits, o
       if (!(key in git[kind])) continue;
       if (edit.removable) rows.push(row(kind, key, key, edit, "remove"));
       else if (edit.mode === "optional") rows.push(row(kind, key, key, edit, "value", null, true));
+      // cmapi's own, the platform's and the adoption keys: a fixed key shows locked with its reason (design T2).
+      else rows.push(row(kind, key, key, edit, "locked"));
     }
+  }
+  // A key that only the cluster holds (kubectl label), or an operator-only key that Git does not hold.
+  const shown = new Set(rows.map((r) => r.id));
+  for (const { kind, key } of drifted) {
+    if (shown.has(`${kind}:${key}`)) continue;
+    const edit = form.edits[`${kind}:${key}`] ?? { mode: "optional", reason: "Only present on the cluster.", sensitive: false };
+    rows.push(row(kind, key, key, edit, "live"));
   }
   return rows;
 }
@@ -105,10 +118,21 @@ export function withValue(draft: Draft, row: KeyRow, value: string | null): Draf
 }
 
 /** The change box before Check: each drafted key, then each new additional key, with its value in Git and after. */
-export function changeLines(rows: KeyRow[], draft: Draft, added: Record<Kind, ExtraRow[]>): ChangeLine[] {
-  const lines: ChangeLine[] = rows.filter((r) => r.id in draft).map((r) => ({ kind: r.kind, key: r.key, before: r.git, after: draft[r.id], sensitive: r.edit.sensitive }));
+export function changeLines(rows: KeyRow[], draft: Draft, added: Record<Kind, ExtraRow[]>, otherKeys: MetaForm["otherKeys"]): ChangeLine[] {
+  // The first value of an operator-only key is not a sensitive change; a change or a removal of a held one is (#366).
+  const firstProtection = (r: KeyRow) => r.access === "value" && !r.extra && r.git === null;
+  // A new additional key is sensitive when x-cmapi-other-keys names it (sensitiveKeys under allowOther).
+  const sensitiveNew = (kind: Kind, key: string) => otherKeys[kind]?.sensitiveKeys.includes(key) ?? false;
+  const lines: ChangeLine[] = rows.filter((r) => r.id in draft).map((r) => ({ kind: r.kind, key: r.key, before: r.git, after: draft[r.id], sensitive: r.edit.sensitive && !firstProtection(r) }));
+  // An edit kept after a 412 for an additional key that Git no longer holds has no row. It is still sent, so it is still listed.
+  const shown = new Set(rows.map((r) => r.id));
+  for (const [id, after] of Object.entries(draft)) {
+    if (shown.has(id)) continue;
+    const [kind, key] = split(id);
+    lines.push({ kind, key, before: null, after, sensitive: sensitiveNew(kind, key) });
+  }
   for (const kind of ["label", "annotation"] as const) {
-    for (const r of added[kind]) if (r.key !== "") lines.push({ kind, key: r.key, before: null, after: r.value, sensitive: false });
+    for (const r of added[kind]) if (r.key !== "") lines.push({ kind, key: r.key, before: null, after: r.value, sensitive: sensitiveNew(kind, r.key) });
   }
   return lines;
 }
@@ -133,9 +157,11 @@ export interface Rebased { draft: Draft; conflicts: string[] }
  * The draft, made against `before`, put on `after` (design section 5, the 412). A key that Git did not change keeps the
  * person's edit. A key that Git changed to what the person wanted is no change any more. A key that Git changed to anything
  * else is a conflict: both sides changed it, so the person chooses "Use current" or "Keep my edit". Re-applying it blindly
- * would overwrite the other person's change (the lost update of RFC 9110, section 13.1.1).
+ * would overwrite the other person's change (the lost update of RFC 9110, section 13.1.1). A key of `unresolved` was asked
+ * about after an earlier read and is not chosen yet: it stays a conflict while the draft holds it, because `before` is by
+ * then the other person's Git and no longer shows that both sides changed it.
  */
-export function rebase(draft: Draft, before: Maps, after: Maps): Rebased {
+export function rebase(draft: Draft, before: Maps, after: Maps, unresolved: string[] = []): Rebased {
   const next: Draft = {};
   const conflicts: string[] = [];
   for (const [id, mine] of Object.entries(draft)) {
@@ -143,7 +169,7 @@ export function rebase(draft: Draft, before: Maps, after: Maps): Rebased {
     const was = before[kind][key] ?? null, now = after[kind][key] ?? null;
     if (mine === now) continue;
     next[id] = mine;
-    if (was !== now) conflicts.push(id);
+    if (was !== now || unresolved.includes(id)) conflicts.push(id);
   }
   return { draft: next, conflicts };
 }

@@ -618,8 +618,8 @@ test("484-T2 rows: the keys of x-cmapi-edit, locked where it fixes them or cmapi
   const labels = rows.filter((r) => r.kind === "label").map((r) => [r.key, r.access]);
   assert.deepEqual(labels, [["name", "locked"], ["company.net/app-environment", "locked"], ["company.net/mnemonic", "locked"], ["do-not-delete", "locked"],
     ["company.net/lob", "field"], ["company.net/cl", "field"], ["cmapi.net/team", "field"], ["cmapi.net/cost-center", "field"], ["cmapi.net/app", "field"],
-    ["cmapi.net/rightsizing", "field"], ["old.invalid/key", "remove"], ["team.company.net/squad", "value"]],
-    "locked first, then required, optional and the undeclared keys; cmapi.net/protected is not in Git; cmapi's own key is not shown");
+    ["cmapi.net/rightsizing", "field"], ["cmapi.net/managed", "locked"], ["old.invalid/key", "remove"], ["team.company.net/squad", "value"]],
+    "locked first, then required, optional and the undeclared keys; cmapi.net/protected is not in Git; cmapi's own key is locked");
   assert.equal(isEditable(rows.find((r) => r.key === "old.invalid/key")), false, "a key that no rule admits is removed, never typed in (#492 M2)");
   // Design section 3, row 4: an operator-only key is a value to type for a caller with namespaces:protect, all of them.
   const operator = rowsOf(form, git, maps(), edits, true).filter((r) => r.kind === "label" && form.operatorOnly.label.includes(r.key)).map((r) => [r.key, r.access]);
@@ -640,7 +640,7 @@ test("484-T4 the draft is a merge patch over Git: a value sets, null removes, Gi
   assert.deepEqual(withValue(draft, row("company.net/cl"), "1"), { "label:cmapi.net/cost-center": null }, "back to Git's value: no change");
   const added = { label: [], annotation: [{ id: 1, key: "runbook.company.net/url", value: "https://wiki.company.net/abc/runbook" }, { id: 2, key: "", value: "x" }] };
   assert.deepEqual(patchOf(draft, added), { labels: { "company.net/cl": "2", "cmapi.net/cost-center": null }, annotations: { "runbook.company.net/url": "https://wiki.company.net/abc/runbook" } });
-  assert.deepEqual(changeLines(rows, draft, added).map((l) => [l.key, l.before, l.after, l.sensitive]),
+  assert.deepEqual(changeLines(rows, draft, added, form.otherKeys).map((l) => [l.key, l.before, l.after, l.sensitive]),
     [["company.net/cl", "1", "2", true], ["cmapi.net/cost-center", "cc-4410", null, false], ["runbook.company.net/url", null, "https://wiki.company.net/abc/runbook", false]]);
 });
 test("484-T8 rebase after a 412: a key only I changed is kept; Git now holding my value is no change; a key both changed is asked about", async () => {
@@ -651,6 +651,116 @@ test("484-T8 rebase after a 412: a key only I changed is kept; Git now holding m
   assert.deepEqual(rebase(draft, before, after), { draft: { "label:company.net/cl": "2", "label:company.net/lob": "retail" }, conflicts: ["label:company.net/cl"] });
   assert.deepEqual(rebase({ "label:cmapi.net/cost-center": null }, before, maps({ "company.net/cl": "1" })), { draft: {}, conflicts: [] }, "removed meanwhile: no change left");
   assert.deepEqual(rebase({ "label:company.net/cl": null }, before, after), { draft: { "label:company.net/cl": null }, conflicts: ["label:company.net/cl"] }, "a removal of a key Git changed is asked about");
+});
+
+test("484-T8 a choice not yet made stays asked after another read, until Git has my value", async () => {
+  const { rebase } = await import("../../src/portal/namespaceChange.ts");
+  const mine = { "label:company.net/cl": "2" };
+  const first = rebase(mine, maps({ "company.net/cl": "1" }), maps({ "company.net/cl": "3" }));
+  assert.deepEqual(first, { draft: mine, conflicts: ["label:company.net/cl"] });
+  // The next read's `before` is the other person's Git: both Gits hold 3, and the question is still open.
+  const again = rebase(first.draft, maps({ "company.net/cl": "3" }), maps({ "company.net/cl": "3", "cmapi.net/app": "web" }), first.conflicts);
+  assert.deepEqual(again, { draft: mine, conflicts: ["label:company.net/cl"] }, "another read keeps the question");
+  const met = rebase(first.draft, maps({ "company.net/cl": "3" }), maps({ "company.net/cl": "2" }), first.conflicts);
+  assert.deepEqual(met, { draft: {}, conflicts: [] }, "Git reaching my value answers it");
+});
+
+test("484-T3 every reported drift has a row, including a cluster-only extra", async () => {
+  const { rowsOf } = await import("../../src/portal/namespaceChange.ts");
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const live = maps({ "team.company.net/owner": "old", "kubernetes.io/metadata.name": "demo" });
+  const drift = [{ kind: "label", key: "team.company.net/owner", git: null, live: "old" }];
+  const rows = rowsOf(fieldsOf(KEYS_479), maps(), live, { labels: {}, annotations: {} }, false, drift);
+  assert.deepEqual(rows.filter((r) => r.live !== null).map((r) => [r.kind, r.key, r.git, r.live]),
+    [["label", "team.company.net/owner", null, "old"]]);
+});
+
+async function namespaceApi() {
+  const { Readable } = await import("node:stream");
+  const { apiHandler, namespacesOfMockup, USERS } = await import("./standin.mjs");
+  const { handle, state } = apiHandler({ issuer: { whoHas: (role) => USERS[role] }, portalOrigin: () => "https://portal.test" });
+  state.metadataKeys = KEYS_479;
+  state.namespaces = namespacesOfMockup();
+  const record = state.namespaces[0];
+  async function call(method, body, headers = {}, query = "", role = "requester") {
+    const req = Object.assign(Readable.from(body ? [JSON.stringify(body)] : []), { method,
+      url: `/api/v1/clusters/CRC/namespaces/${record.name}${query}`, headers: { authorization: `Bearer ${role}`, ...headers } });
+    const response = {};
+    await handle(req, { writeHead(status, headers) { Object.assign(response, { status, headers }); },
+      end(text) { response.body = JSON.parse(text); } });
+    return response;
+  }
+  return { record, call };
+}
+
+test("484 stand-in refuses operator annotations and forbidden echoes, even beside an effective edit", async () => {
+  const { record, call } = await namespaceApi();
+  const { headers } = await call("GET");
+  const dry = (value, role) => call("PATCH", { labels: { "company.net/lob": "retail" }, annotations: { "do-not-delete": value } },
+    { "if-match": headers.etag }, "?dryRun=true", role);
+  assert.equal((await dry("x")).status, 403);
+  const operator = await dry("x", "operator");
+  assert.equal(operator.status, 200);
+  assert.ok(!operator.body.approval.slots.some((s) => s.reason === "Sensitive key changed"));
+  for (const [map, key] of [["labels", "cmapi.net/managed"], ["labels", "old.invalid/key"]]) {
+    if (key === "old.invalid/key") record.git.labels[key] = "old";
+    const { headers: latest } = await call("GET");
+    const r = await call("PATCH", { labels: { "company.net/lob": "retail", [key]: record.git[map][key] } },
+      { "if-match": latest.etag }, "?dryRun=true");
+    assert.deepEqual([r.status, r.body.errors?.[0]?.key], [422, key]);
+  }
+});
+
+test("484 stand-in pins the whole Git folder and returns the router's 409, 412 and replay details", async () => {
+  const { record, call } = await namespaceApi();
+  const body = { labels: { "company.net/lob": "retail" } };
+  const first = await call("GET");
+  assert.equal(first.headers.etag, `"${first.body.etag}"`);
+  record.otherFiles = { "quota.yaml": "spec: changed" };
+  const current = await call("GET");
+  assert.notEqual(current.headers.etag, first.headers.etag, "a sibling file changed the folder ETag");
+  assert.equal((await call("PATCH", body, {}, "?dryRun=true")).status, 428);
+  const stale = await call("PATCH", body, { "if-match": first.headers.etag }, "?dryRun=true");
+  assert.deepEqual([stale.status, stale.body.etag], [412, current.body.etag]);
+  const h = { "if-match": current.headers.etag, "idempotency-key": "one" };
+  const write = await call("PATCH", body, h);
+  assert.equal(write.status, 202);
+  const conflict = await call("PATCH", body, { ...h, "idempotency-key": "two" });
+  assert.deepEqual([conflict.status, conflict.body.code, conflict.body.requestId], [409, "change-pending", write.body.requestId]);
+  assert.equal((await call("PATCH", body, h, "?dryRun=true")).status, 200, "dry run takes no lock");
+  const replay = await call("PATCH", { ...body, justification: null }, { ...h, "if-match": first.headers.etag });
+  assert.deepEqual([replay.status, replay.body.requestId], [202, write.body.requestId]);
+  const different = await call("PATCH", { labels: { "company.net/lob": "finance" } }, h);
+  assert.deepEqual([different.status, different.body.code, different.body.requestId], [409, "idempotency-replay", write.body.requestId]);
+});
+
+test("484-T6 the reference configuration marks a new allowOther zone sensitive", async () => {
+  const { REFERENCE_KEYS } = await import("./standin.mjs");
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { changeLines } = await import("../../src/portal/namespaceChange.ts");
+  const added = { label: [{ id: 1, key: "network.ephico2real.com/zone", value: "local" }], annotation: [] };
+  assert.equal(changeLines([], {}, added, fieldsOf(REFERENCE_KEYS).otherKeys)[0].sensitive, true);
+});
+
+test("484-T6 an edit kept for an additional key that Git no longer holds is still listed", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { changeLines, rowsOf } = await import("../../src/portal/namespaceChange.ts");
+  const form = fieldsOf(KEYS_479);
+  // After a 412 and "Keep my edit": Git dropped team.company.net/squad, so no row holds the drafted value.
+  const rows = rowsOf(form, maps(), maps(), { labels: {}, annotations: {} }, false);
+  const lines = changeLines(rows, { "label:team.company.net/squad": "mine" }, { label: [], annotation: [] }, form.otherKeys);
+  assert.deepEqual(lines.map((l) => [l.kind, l.key, l.before, l.after]), [["label", "team.company.net/squad", null, "mine"]]);
+});
+
+test("484-T3 a fresh watch missing the namespace differs from an unavailable watch", async () => {
+  const { namespaceViewOf, namespacesOfMockup } = await import("./standin.mjs");
+  const rec = namespacesOfMockup()[0];
+  rec.live = null;
+  const view = () => namespaceViewOf(KEYS_479, rec, true);
+  assert.equal(view().sync.state, "drift");
+  assert.ok(view().sync.driftedKeys.some((d) => d.kind === "label" && d.key === "company.net/lob" && d.git === "amgsst" && d.live === null));
+  rec.liveFresh = false;
+  assert.deepEqual(view().sync, { state: "unknown", openRequest: null, driftedKeys: [] });
 });
 
 let failed = 0;

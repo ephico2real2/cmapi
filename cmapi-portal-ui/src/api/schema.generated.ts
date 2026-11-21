@@ -8716,6 +8716,9 @@ export interface operations {
                      *           "prefixes": [
                      *             "",
                      *             "*.ephico2real.com/"
+                     *           ],
+                     *           "sensitiveKeys": [
+                     *             "network.ephico2real.com/zone"
                      *           ]
                      *         }
                      *       },
@@ -8862,6 +8865,9 @@ export interface operations {
                      *           "prefixes": [
                      *             "",
                      *             "*.ephico2real.com/"
+                     *           ],
+                     *           "sensitiveKeys": [
+                     *             "network.ephico2real.com/zone"
                      *           ]
                      *         }
                      *       },

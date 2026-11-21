@@ -473,6 +473,8 @@ export function usePatchPlan(change: PlannedChange | null): Outcome<Plan> & { re
     }
   });
   if (change === null) return { state: "idle", reload: () => undefined };
+  // A check in flight is not a pass: Query keeps the last answer in `data` while it asks again.
+  if (query.isFetching) return { state: "sending", reload: () => void query.refetch() };
   return { ...outcomeOf({ isPending: query.isFetching, isIdle: false, error: query.error, data: query.data }), reload: () => void query.refetch() };
 }
 

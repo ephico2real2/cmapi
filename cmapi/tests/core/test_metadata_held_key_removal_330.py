@@ -45,3 +45,27 @@ def test_a_held_key_with_an_empty_prefix_still_cannot_be_set(keys, value):
 def test_removing_an_invalid_key_that_git_does_not_hold_is_still_refused(keys):
     assert keys.validate({"/foo": None}, {}, operator=False, current_labels={"cmapi.net/team": "payments"},
                          current_annotations=CUR_A, existing=True) == [{"code": "invalid_key", "key": "/foo"}]
+
+
+@pytest.mark.parametrize(("kind", "key"), [("label", "/foo"), ("annotation", "name")])
+def test_read_only_offers_removal_when_patch_refuses_every_value(ex, kind, key):
+    keys = MetadataKeys(yaml.safe_load((ex / "cluster-configs/policies/metadata-keys.company-479.yaml").read_text()))
+    current = {"label": {}, "annotation": {}}
+    current[kind][key] = "old"
+    edit = keys.undeclared_edits(current)[kind + "s"][key]
+    for value in ("new", None):
+        sent = {"label": {}, "annotation": {}}
+        sent[kind][key] = value
+        errors = keys.validate(sent["label"], sent["annotation"], existing=True, operator=False,
+                               current_labels=current["label"], current_annotations=current["annotation"])
+        assert (not errors) == (value is None)
+        assert (not errors) == (edit.get("removable", False) if value is None else edit["mode"] == "optional")
+
+
+def test_an_operator_only_spelling_that_is_a_system_key_has_its_rule_in_the_read(ex):
+    """json_schema leaves such a key out (it asks classify), so undeclared_edits has to carry its rule."""
+    keys = MetadataKeys(yaml.safe_load((ex / "cluster-configs/policies/metadata-keys.company-479.yaml").read_text()))
+    object.__setattr__(keys, "operator_only", type(keys.operator_only)([*keys.operator_only, "cmapi.net/managed"]))
+    assert keys.classify("cmapi.net/managed", "label") == "system"
+    edits = keys.undeclared_edits({"label": {"cmapi.net/managed": "true"}, "annotation": {}})
+    assert edits["labels"]["cmapi.net/managed"]["mode"] == "fixed"

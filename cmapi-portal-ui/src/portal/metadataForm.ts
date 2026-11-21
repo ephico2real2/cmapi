@@ -73,6 +73,8 @@ export interface OtherKeys {
   max: number;
   maxValueBytes: number | null;
   maxBytesTotal: number | null;
+  /** x-cmapi-other-keys.sensitiveKeys: the undeclared keys whose change adds one approval; none when the member is absent. */
+  sensitiveKeys: string[];
 }
 
 /** One environment's expiry rules (x-cmapi-expiration, #479 A11). `enabled: false`, or no entry: no date in it. */
@@ -137,7 +139,7 @@ export const KEYWORDS = {
   propertyNames: { read: ["maxLength", "pattern", "not", "anyOf"], ignored: {} },
   keyBranch: { read: ["enum", "pattern", "not", "anyOf"], ignored: {} },
   /** x-cmapi-other-keys of a map. */
-  otherKeys: { read: ["prefixes", "max", "maxValueBytes", "maxBytesTotal"], ignored: {} },
+  otherKeys: { read: ["sensitiveKeys", "prefixes", "max", "maxValueBytes", "maxBytesTotal"], ignored: {} },
   /** One environment of x-cmapi-expiration.environments. */
   expiration: { read: ["enabled", "allowedAtCreate", "maxLifetimeDays", "notifyDaysBefore", "graceDays"], ignored: {} }
 } as const;
@@ -225,7 +227,9 @@ function otherKeysOf(name: string, map: Json): OtherKeys | null {
   // No allowOther prefix, or max 0: cmapi refuses every undeclared key here, so the form offers no table for it.
   if (other === null || max === 0) return null;
   const value = isObject(values) ? { pattern: textOf(values.pattern), maxLength: countOf(values.maxLength) } : { pattern: null, maxLength: null };
-  return { syntax: { pattern, maxLength, notPattern }, declared, other, value, prefixes, max,
+  const sensitiveKeys = textList(limits.sensitiveKeys ?? []);
+  if (!sensitiveKeys) throw bad("lists a sensitive key that is not text");
+  return { syntax: { pattern, maxLength, notPattern }, declared, other, value, prefixes, max, sensitiveKeys,
     maxValueBytes: countOf(limits.maxValueBytes), maxBytesTotal: countOf(limits.maxBytesTotal) };
 }
 

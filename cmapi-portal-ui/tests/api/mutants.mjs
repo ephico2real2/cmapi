@@ -301,6 +301,8 @@ const MUTANTS = [
   ["the create box is everyone's", "src/portal/NewNamespaceTab.tsx", "const canProtect = me.state === \"ok\" && operatorIn(me.data, env) && !!form?.operatorOnlyLabels.includes(PROTECT_KEY);", "const canProtect = me.state === \"ok\" && !!form?.operatorOnlyLabels.includes(PROTECT_KEY);", "portal", "19 New namespace"],
   ["the create box sends the label unchecked", "src/portal/NewNamespaceTab.tsx", "...(canProtect && protect ? {", "...(canProtect ? {", "portal", "19 New namespace"],
   // #484, the Namespaces tab: one mutant for each behaviour of design section 6, each killed by its own check.
+  ["484-T1 the debounce waits too long", "src/portal/NamespaceLookup.tsx", `LOOKUP_DELAY_MS = 250`, `LOOKUP_DELAY_MS = 500`, "portal", "484-T1 the debounce"],
+  ["484-T9 the submitted request link opens a different request", "src/portal/NamespacesTab.tsx", `open("workflow", { request: done.requestId })`, `open("workflow", { request: "wrong" })`, "portal", "484-T9"],
   ["484-T1 a first word that is a mnemonic turns no chip on", "src/portal/NamespaceLookup.tsx", `if (first && first !== typed && chips.includes(first))`, `if (false)`, "portal", "484-T1 cluster"],
   ["484-T2 a fixed key can be typed in", "src/portal/namespaceChange.ts", `const locked = f.derivedFrom !== null || edit.mode === "fixed" || edit.mode === "automatic";`, `const locked = f.derivedFrom !== null;`, "portal", "484-T2"],
   ["484-T3 a drifted key is not marked", "src/portal/NamespacesTab.tsx", `if (drifted.has(id)) return`, `if (false) return`, "portal", "484-T3"],
@@ -310,11 +312,19 @@ const MUTANTS = [
   ["484-R a key that no rule admits cannot be removed", "src/portal/namespaceChange.ts", `if (edit.removable) rows.push(row(kind, key, key, edit, "remove"));`, `if (edit.removable) rows.push(row(kind, key, key, edit, "locked"));`, "portal", "484-R"],
   ["484-T6 the Justification is not required", "src/portal/NamespacesTab.tsx", `if (!why.trim()) out.push(`, `if (false) out.push(`, "portal", "484-T6"],
   ["484-T7 Submit is on before a check", "src/portal/NamespacesTab.tsx", `const canSubmit = planOk !== null && !held`, `const canSubmit = !held`, "portal", "484-T7"],
+  ["484-T7 reverting an edit restores the old plan", "src/portal/NamespacesTab.tsx", `if (planned?.draft != null && planned.draft !== draftText)`, `if (false)`, "portal", "484-T7"],
+  ["484-T7 a pending recheck exposes its old pass", "src/api/hooks.ts", `if (query.isFetching) return { state: "sending", reload: () => void query.refetch() };`, ``, "portal", "484-T7"],
   ["#527 a re-checked change is answered from the cache", "src/api/hooks.ts", `Git, capacity and the lock move.
     staleTime: 0,
     gcTime: 0,`, `Git, capacity and the lock move.`, "portal", "484-T7"],
   ["484-T8 a 409 leaves Submit on once the holder is gone", "src/portal/NamespacesTab.tsx", `{ setHeld(true); view.reload(); }`, `{ view.reload(); }`, "portal", "484-T8 409"],
-  ["484-T8 a 412 re-applies a key that both sides changed", "src/portal/namespaceChange.ts", `    if (was !== now) conflicts.push(id);
+  ["484-T2 a fixed key that Git holds has no row", "src/portal/namespaceChange.ts", `      else rows.push(row(kind, key, key, edit, "locked"));
+`, ``, "portal", "484-T2"],
+  ["484-T8 another read drops a choice not yet made", "src/portal/namespaceChange.ts", ` || unresolved.includes(id)`, ``, "direct"],
+  ["484-T3 a drifted key that only the cluster holds has no row", "src/portal/namespaceChange.ts", `rows.push(row(kind, key, key, edit, "live"));`, ``, "portal", "484-T3"],
+  ["484-T3 a value that is not Git's is ticked", "src/portal/NamespacesTab.tsx", `value !== null && value === inGit`, `value !== null`, "portal", "484-T3"],
+  ["484-T6 a new sensitive additional key is not marked", "src/portal/namespaceChange.ts", `otherKeys[kind]?.sensitiveKeys.includes(key) ?? false`, `false`, "direct"],
+  ["484-T8 a 412 re-applies a key that both sides changed", "src/portal/namespaceChange.ts", `    if (was !== now || unresolved.includes(id)) conflicts.push(id);
 `, ``, "portal", "484-T8 412"],
   ["484-T9 a 202 leaves the strip as it was", "src/portal/NamespacesTab.tsx", `      setDone(request);
       view.reload();`, `      setDone(request);`, "portal", "484-T9"],

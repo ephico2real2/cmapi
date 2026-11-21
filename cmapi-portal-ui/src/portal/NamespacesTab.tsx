@@ -180,14 +180,15 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
   const after412 = useRef(false);
   // A 409 change-pending: Submit stays off until the person reloads (design T8).
   const [held, setHeld] = useState(false);
-  const [planned, setPlanned] = useState<{ change: PlannedChange; draft: string } | null>(null);
+  // The change that was checked and the form's text it is of: null once the form left that text (design T7).
+  const [planned, setPlanned] = useState<{ change: PlannedChange; draft: string | null } | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [done, setDone] = useState<ChangeRequest | null>(null);
   const [problems, setProblems] = useState<{ text: string; focus: string }[]>([]);
   // The refusal of the last Submit, until the change or the namespace moves on: a 5xx or a lost answer is sent again as is.
   const [notSent, setNotSent] = useState<{ status: number; code: string; detail: string } | null>(null);
-  const plan = usePatchPlan(planned?.change ?? null);
+  const plan = usePatchPlan(planned?.draft != null ? planned.change : null);
   const submit = useSubmitPatch();
   // One Idempotency-Key for each change sent (#282): the same change sent again keeps it, a changed one gets a new one.
   const sent = useRef<{ key: string; request: string } | null>(null);
@@ -204,7 +205,7 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
     const git = mapsOf(data.git);
     if (base === null) { setBase({ etag, git }); return; }
     if (base.etag === etag) return;
-    const next = rebase(draft, base.git, git);
+    const next = rebase(draft, base.git, git, conflicts);
     setDraft(next.draft);
     setConflicts(next.conflicts);
     setRebased(after412.current);
@@ -217,7 +218,7 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
   const canChange = grantsIn(me.access, PATCH_NAMESPACE, env) && data?.git != null;
   // namespaces:protect in this environment, as the Quotas tab's protection control decides it (#366): design section 3, row 4.
   const operator = canChange && operatorIn(me, env);
-  const rows = data ? rowsOf(form, git, live, data.git?.edits ?? NO_EDITS, operator) : null;
+  const rows = data ? rowsOf(form, git, live, data.git?.edits ?? NO_EDITS, operator, data.sync.driftedKeys) : null;
 
   // Step 3: the checks of the draft, CHECK_AFTER_MS after the last change; a result shows only while the draft is that one.
   const inputs = JSON.stringify([draft, added, etag]);
@@ -232,6 +233,8 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
 
   const body: NamespacePatch = { ...patchOf(draft, added), justification: why || null };
   const draftText = JSON.stringify([draft, added, why]);
+  // Submit goes off after any change (design T7): coming back to the checked text still needs a new Check.
+  if (planned?.draft != null && planned.draft !== draftText) setPlanned({ ...planned, draft: null });
   const planIsOfForm = planned !== null && base !== null && planned.change.etag === base.etag && planned.draft === draftText;
   const planOk = plan.state === "ok" && planIsOfForm ? plan.data : null;
   const refusal = plan.state === "refused" && planIsOfForm ? plan : null;
@@ -259,10 +262,12 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
   const mapped = refusal ? errorsByField(refusal.errors, form) : null;
   const shownError = (r: KeyRow): string | null => errors[r.id] ?? (r.field ? mapped?.byField[r.field.id] : undefined) ?? null;
   const inputId = (r: KeyRow) => r.field?.id ?? `nsx-${r.kind}-${r.key.replace(/[^A-Za-z0-9]/g, "_")}`;
-  const lines = changeLines(rows, draft, added);
+  const lines = changeLines(rows, draft, added, form.otherKeys);
   const diffLines: (ChangeLine & { source: string })[] = planOk?.metadataDiff
     ? (["label", "annotation"] as const).flatMap((kind) => Object.entries(planOk.metadataDiff![kind === "label" ? "labels" : "annotations"]).map(([key, c]) => ({
-      kind, key, before: c.before ?? null, after: c.after ?? null, source: c.source, sensitive: !!form.edits[`${kind}:${key}`]?.sensitive })))
+      kind, key, before: c.before ?? null, after: c.after ?? null, source: c.source,
+      // The mark of the estimate's line for the key; a key that only the server added has its declared rule's.
+      sensitive: lines.find((l) => l.kind === kind && l.key === key)?.sensitive ?? !!form.edits[`${kind}:${key}`]?.sensitive })))
     : [];
 
   const reset = () => {
@@ -324,7 +329,7 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
     }, (e: unknown) => {
       const problem = e instanceof ApiProblem ? e : null;
       setNotSent({ status: problem?.status ?? 0, code: problem?.code ?? "network", detail: problem?.detail ?? "The network did not answer." });
-      if (problem?.status === 412) { after412.current = true; view.reload(); }
+      if (problem?.status === 412) { setPlanned(null); after412.current = true; view.reload(); }
       if (problem?.status === 409 && problem.code === "change-pending") { setHeld(true); view.reload(); }
     });
   };
@@ -405,9 +410,11 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
 
   const drifted = new Map(data.sync.driftedKeys.map((d) => [`${d.kind}:${d.key}`, d]));
   const compared = data.sync.state !== "unknown";
-  const liveCell = (id: string, value: string | null) => {
+  const liveCell = (id: string, value: string | null, inGit: string | null) => {
     if (drifted.has(id)) return <><Label isCompact status="warning">drift</Label> <code>{value ?? "(none)"}</code></>;
-    return <code>{compared && value !== null ? `✓ ${value}` : value ?? "—"}</code>;
+    // The tick says that the cluster has Git's value. Under a pending request the read lists no drift when the watch is not
+    // fresh, so a value last seen then is ticked only if it is Git's.
+    return <code>{compared && value !== null && value === inGit ? `✓ ${value}` : value ?? "—"}</code>;
   };
   // A key with no title of its own can be a label and an annotation (do-not-delete): its kind is in its name.
   const nameOf = (r: KeyRow) => (r.field ? r.title : `${r.kind} ${r.key}`);
@@ -451,22 +458,22 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
       </Stack>
     );
   };
+  // The expiry date is a system key that Git holds: its row has the mockup's name, and the read gives its reason (#528).
+  const titleOf = (r: KeyRow) => (r.id === `annotation:${EXPIRES_AT}` ? "Expires" : r.title);
   const keyCell = (r: KeyRow) => (
     <Stack>
       <Flex gap={{ default: "gapXs" }} alignItems={{ default: "alignItemsCenter" }}>
-        <b>{`${r.title}${r.field?.required ? " (required)" : ""}`}</b>
-        {!isEditable(r) && <Label isCompact>fixed</Label>}
+        <b>{`${titleOf(r)}${r.field?.required ? " (required)" : ""}`}</b>
+        {!isEditable(r) && r.access !== "live" && <Label isCompact>fixed</Label>}
         {r.extra && <Label isCompact color="blue">additional</Label>}
         {r.edit.sensitive && <Label isCompact color="purple">sensitive</Label>}
       </Flex>
       <Small><code>{`${r.kind} ${r.key}`}</code></Small>
     </Stack>
   );
+  // The Key, Git and Live cells break a long key or value (argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true),
+  // so the table stays in its column and the change box beside it (Td modifier="breakWord").
   const gitCell = (r: KeyRow) => (r.git === null && r.field?.required ? <Label isCompact status="warning">missing: required</Label> : <code>{r.git ?? "—"}</code>);
-  // The expiry date is a system key, changed on its own routes; the read gives its reason (#528) while Git holds a date.
-  const expiry = data.git?.edits.annotations[EXPIRES_AT];
-  const expiresGit = git.annotation[EXPIRES_AT] ?? null, expiresLive = live.annotation[EXPIRES_AT] ?? null;
-
   return (
     <Stack hasGutter>
       <SyncStrip view={data} held={held} onReload={reload} onOpen={(id) => open("workflow", { request: id })} />
@@ -479,20 +486,12 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
               <Tbody>
                 {rows.map((r) => (
                   <Tr key={r.id}>
-                    <Td dataLabel="Key">{keyCell(r)}</Td>
-                    <Td dataLabel="Git (desired)">{gitCell(r)}</Td>
-                    <Td dataLabel="Live (cluster)">{liveCell(r.id, r.live)}</Td>
+                    <Td dataLabel="Key" modifier="breakWord">{keyCell(r)}</Td>
+                    <Td dataLabel="Git (desired)" modifier="breakWord">{gitCell(r)}</Td>
+                    <Td dataLabel="Live (cluster)" modifier="breakWord">{liveCell(r.id, r.live, r.git)}</Td>
                     <Td dataLabel="Your change">{changeCell(r)}</Td>
                   </Tr>
                 ))}
-                {expiry && expiresGit !== null && (
-                  <Tr>
-                    <Td dataLabel="Key">{keyCell({ id: `annotation:${EXPIRES_AT}`, kind: "annotation", key: EXPIRES_AT, title: "Expires", edit: expiry, access: "locked", field: null, extra: false, git: expiresGit, live: expiresLive })}</Td>
-                    <Td dataLabel="Git (desired)"><code>{expiresGit}</code></Td>
-                    <Td dataLabel="Live (cluster)">{liveCell(`annotation:${EXPIRES_AT}`, expiresLive)}</Td>
-                    <Td dataLabel="Your change"><Small><LockIcon aria-hidden="true" /> {expiry.reason}</Small></Td>
-                  </Tr>
-                )}
               </Tbody>
             </Table>
             {canChange && (

@@ -680,7 +680,14 @@ export function namespacesOfMockup() {
   ];
 }
 /** folder_etag: a hash of what Git holds, so a change in Git is a new etag. */
-export const recordEtag = (rec) => createHash("sha256").update(fingerprint(rec.git)).digest("hex").slice(0, 16);
+export function recordEtag(rec) {
+  const files = { ...rec.otherFiles, "namespace.yaml": yamlOf(rec.name, rec.git) };
+  const hash = createHash("sha256");
+  for (const path of Object.keys(files).sort()) {
+    hash.update(`clusters/${rec.clusterId}/namespaces/${rec.name}/${path}\0${files[path]}\0`);
+  }
+  return createHash("sha256").update(hash.digest("hex")).digest("hex").slice(0, 16);
+}
 const MAPS = [["label", "labels"], ["annotation", "annotations"]];
 /** core/metadata.py classify(): governed (declared), operatorOnly, team (allowOther's prefixes), or neither (system, reserved, disallowed). */
 function keyClass(keys, kind, key) {
@@ -695,11 +702,12 @@ const LIVE_ONLY = [/^kubernetes\.io\/metadata\.name$/, /^openshift\.io\//, /^arg
 function syncOf(keys, rec, withGit) {
   const compared = withGit && rec.liveFresh;
   const driftedKeys = [];
-  if (compared && rec.live) {
+  if (compared) {
+    const live = rec.live ?? { labels: {}, annotations: {} };
     for (const [kind, map] of MAPS) {
-      for (const key of [...new Set([...Object.keys(rec.git[map]), ...Object.keys(rec.live[map])])].sort()) {
+      for (const key of [...new Set([...Object.keys(rec.git[map]), ...Object.keys(live[map])])].sort()) {
         if (keyClass(keys, kind, key) === "other" || LIVE_ONLY.some((re) => re.test(key))) continue;
-        const g = rec.git[map][key] ?? null, l = rec.live[map][key] ?? null;
+        const g = rec.git[map][key] ?? null, l = live[map][key] ?? null;
         if (g !== l) driftedKeys.push({ kind, key, git: g, live: l });
       }
     }
@@ -725,7 +733,10 @@ function undeclaredRule(keys, kind, key) {
   if (SYSTEM_479.includes(key)) return fixed(["cmapi.net/expiry", "cmapi.net/expires-at"].includes(key) ? "Change it with Extend, Set expiry or Make permanent." : "Managed by cmapi.");
   if (prefix && RESERVED_479.some((g) => globRe(g).test(prefix))) return fixed("Reserved for the platform.");
   if (kind === "label" && ADOPTION_479.includes(key)) return fixed("Marks how the namespace was first made.");
-  if (keyClass(keys, kind, key) === "team") return { mode: "optional", reason: null, sensitive: false, removable: false };
+  if (keyClass(keys, kind, key) === "team") {
+    const sensitive = keys[`${kind}s`]["x-cmapi-other-keys"]?.sensitiveKeys?.includes(key) ?? false;
+    return { mode: "optional", reason: sensitive ? "Changing this key needs one more approval." : null, sensitive, removable: false };
+  }
   return { mode: "fixed", reason: "Not allowed by this instance's rules.", sensitive: false, removable: true };
 }
 const gitEditsOf = (keys, git) => Object.fromEntries(MAPS.map(([kind, map]) => [map, Object.fromEntries(Object.keys(git[map]).sort()
@@ -771,7 +782,8 @@ function changeRefusal(keys, rec, sent) {
   for (const [kind, map] of MAPS) {
     for (const [key, value] of Object.entries(sent[map] ?? {})) {
       const prop = keys[map].properties[key], held = rec.git[map][key] ?? null;
-      if (value === held) continue;
+      const fixedName = prop?.["x-cmapi-derived-from"] || prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"];
+      if (fixedName && value !== null && value === held) continue;
       const keeps = held !== null ? `a change keeps '${held}'` : "a change cannot add it; adoption does (story #26)";
       if (prop?.["x-cmapi-derived-from"]) errors.push({ code: "derived_key", key, kind, detail: `cmapi sets ${key}: ${keeps}` });
       else if (prop && value === null && keys[map].required?.includes(key)) errors.push({ code: "missing_required_key", key, kind, detail: prop["x-cmapi-rule"] ?? "required" });
@@ -780,7 +792,7 @@ function changeRefusal(keys, rec, sent) {
         // An undeclared key: cmapi's own or the platform's is kept as Git holds it; one that no rule admits may only be removed.
         const rule = undeclaredRule(keys, kind, key);
         if (rule.mode === "fixed" && !rule.removable) errors.push({ code: "reserved_key", key, kind });
-        else if (rule.removable && value !== null) errors.push({ code: "invalid_key", key, kind, detail: "prefix not allowed" });
+        else if (rule.removable && (value !== null || held === null)) errors.push({ code: "invalid_key", key, kind, detail: "prefix not allowed" });
       }
     }
   }
@@ -827,7 +839,7 @@ const bodyOf = (req) => new Promise((resolve) => {
  * `namespaces` (#484) holds the Namespaces tab's namespaces: the lookup, the read with Git and sync, and the change with
  * If-Match (428, 412), the metadata refusal, no-change, the dry run's metadataDiff and the lock (409 change-pending).
  */
-export async function startApi({ issuer, portalOrigin }) {
+export function apiHandler({ issuer, portalOrigin }) {
   const recorded = SAMPLES.operations.requests_list_requests.response.body;
   const created = SAMPLES.operations.namespaces_create_namespace.response.body;
   const state = {
@@ -871,7 +883,7 @@ export async function startApi({ issuer, portalOrigin }) {
     res.end(JSON.stringify(body));
   };
   const refuse = (status, code, detail) => ({ type: `https://cmapi.ephico2real.com/problems/${code}`, title: code, status, code, detail });
-  const server = createServer(async (req, res) => {
+  const handle = async (req, res) => {
     const url = new URL(req.url, "http://api");
     // The API allows the portal's origin and no other, and takes no cookie. The headers are cmapi/src/cmapi/core/cors.py's.
     const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type, idempotency-key, if-match",
@@ -1186,10 +1198,11 @@ export async function startApi({ issuer, portalOrigin }) {
       if (denied) return problem(res, denied, cors);
       const dry = url.searchParams.get("dryRun") === "true";
       if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
-      const print = fingerprint({ ...body, clusterId: record.clusterId, namespace: record.name });
+      const raw = Object.fromEntries(Object.entries(body ?? {}).filter(([, value]) => value !== null));
+      const print = fingerprint({ ...raw, clusterId: record.clusterId, namespace: record.name });
       const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
       if (held) {
-        if (held.fingerprint !== print) return problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+        if (held.fingerprint !== print) return problem(res, { ...refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), requestId: held.request.requestId }, cors);
         if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
         return ok(held.request, 202);
       }
@@ -1198,6 +1211,11 @@ export async function startApi({ issuer, portalOrigin }) {
       const etag = recordEtag(record);
       if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
       if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
+      const operatorKeys = MAPS.flatMap(([, map]) => Object.keys(body?.[map] ?? {})
+        .filter((key) => state.metadataKeys[map].properties[key]?.["x-cmapi-operator-only"]));
+      if (operatorKeys.length && !permissions.includes(PROTECT_PERMISSION)) {
+        return problem(res, refuse(403, "forbidden", `Only an operator (namespaces:protect) may set ${operatorKeys.join(", ")}`), cors);
+      }
       const protection = protectionRefusal(body?.labels);
       if (protection) return problem(res, protection, cors);
       const errors = changeRefusal(state.metadataKeys, record, body ?? {});
@@ -1206,7 +1224,11 @@ export async function startApi({ issuer, portalOrigin }) {
       if (fingerprint(after) === fingerprint(record.git)) return problem(res, refuse(422, "no-change", "The request changes nothing"), cors);
       const metadataDiff = metadataDiffOf(record.git, after);
       // A change of a sensitiveKeys entry adds one approver-platform (x-cmapi-edit sensitive; approvals.py sensitiveKeyChanged).
-      const sensitive = MAPS.some(([, map]) => Object.keys(metadataDiff[map]).some((k) => state.metadataKeys[map].properties[k]?.["x-cmapi-edit"]?.sensitive));
+      const sensitive = MAPS.some(([, map]) => Object.entries(metadataDiff[map]).some(([key, change]) => {
+        const prop = state.metadataKeys[map].properties[key];
+        if (!prop) return state.metadataKeys[map]["x-cmapi-other-keys"]?.sensitiveKeys?.includes(key);
+        return prop["x-cmapi-edit"]?.sensitive && (change.before !== null || !prop["x-cmapi-operator-only"]);
+      }));
       const approval = sensitive ? UNPROTECT_APPROVAL : state.planUpdate.approval;
       const path = `clusters/${record.clusterId}/namespaces/${record.name}/namespace.yaml`;
       if (dry) return ok({ ...state.planUpdate, etag, changes: { [path]: "changed" }, files: { [path]: yamlOf(record.name, after) }, approval, metadataDiff, metadata: null,
@@ -1290,7 +1312,13 @@ export async function startApi({ issuer, portalOrigin }) {
       return ok(state.kpi);
     }
     return problem(res, { type: "https://cmapi.ephico2real.com/problems/not-found", title: "not-found", status: 404, code: "not-found", detail: "No such route." }, cors);
-  });
+  };
+  return { handle, state };
+}
+
+export async function startApi(options) {
+  const { handle, state } = apiHandler(options);
+  const server = createServer(handle);
   const port = await listen(server);
   return { url: `http://127.0.0.1:${port}`, state, close: () => server.close() };
 }
