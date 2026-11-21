@@ -133,6 +133,7 @@ async function check(name, run) {
   // CHECK=F2 runs only the checks whose name starts with F2.
   if (process.env.CHECK && !name.startsWith(process.env.CHECK)) return;
   let timer;
+  const started = performance.now();
   const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`"${name}" did not end in ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); });
   try {
     await Promise.race([run(), late]);
@@ -143,7 +144,8 @@ async function check(name, run) {
     clearTimeout(timer);
   }
   done.push(name);
-  console.log(`ok - ${name}`);
+  // Each check says its time against its limit, so a check that nears the limit shows in every run's log (#508).
+  console.log(`ok - ${name} (${((performance.now() - started) / 1000).toFixed(1)} s of ${CHECK_TIMEOUT_MS / 1000} s)`);
 }
 
 try {
@@ -1994,58 +1996,60 @@ try {
     }
   });
 
-  await check("7 the Workflow, New namespace and Approvals tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
-    const VIEWS = [
-      ["workflow", "requester", [applied, mergeFailed], async (page) => { await open(page, `#workflow?request=${applied.requestId}`); await banner(page).waitFor(); }],
-      ["new", "requester", undefined, async (page) => {
-        await newTab(page);
-        await fillForm(page);
-        await checkButton(page).click();
-        await panel(page).getByText(PASSED).waitFor();
-      }],
-      ["approvals", "approver", [ola, second], async (page) => {
-        await open(page, "#approvals");
-        // The reason field is a state that opens on a click: it is scanned too.
-        await cardOf(page, second.requestId).getByRole("button", { name: "Reject" }).click();
-        await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").waitFor();
-      }],
-      // The company instance's form (#336), with a value refused in the browser.
-      ["new-company", "requester", undefined, async (page) => {
-        await newTab(page);
-        await page.getByLabel("company.net/mnemonic (required)").fill("ABC");
-        await page.getByLabel("company.net/lob (required)").fill("amgsst");
-        await page.getByLabel("company.net/cl (required)").selectOption("1");
-        await waitError(page.getByLabel("company.net/mnemonic (required)"), /^Not valid: /);
-      }, { metadataKeys: COMPANY_KEYS }],
-      // #479: the form of design section 3.1 with the additional keys open, a row refused, a date past the limit (its
-      // warning) and a check that did not run; then the same form fixed and checked, with the plan's file in the preview.
-      ["new-479-problems", "requester", undefined, async (page) => {
-        await newTab(page);
-        await fill479(page);
-        await panel(page).getByRole("button", { name: /^Additional labels and annotations \(optional\)/ }).click();
-        await panel(page).getByRole("button", { name: "+ Add label" }).click();
-        await page.getByLabel("Key of additional label 1").fill("kubernetes.io/team");
-        await panel(page).getByRole("button", { name: "+ Add annotation" }).click();
-        await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/url");
-        await page.getByLabel("Value of additional annotation 1").fill("https://wiki.company.net/abc/runbook");
-        await page.getByLabel("Expires (optional)").fill(isoAfter(200));
-        await checkButton(page).click();
-        await panel(page).getByText("The check did not run. Fix these:").waitFor();
-      }, { metadataKeys: KEYS_479 }],
-      ["new-479-checked", "requester", undefined, async (page) => {
-        await newTab(page);
-        await fill479(page);
-        await panel(page).getByRole("button", { name: /^Additional labels and annotations \(optional\)/ }).click();
-        await panel(page).getByRole("button", { name: "+ Add label" }).click();
-        await page.getByLabel("Key of additional label 1").fill("team.company.net/squad");
-        await page.getByLabel("Value of additional label 1").fill("checkout");
-        await page.getByLabel("Expires (optional)").fill(isoAfter(25));
-        await checkButton(page).click();
-        await panel(page).getByText(PASSED).waitFor();
-      }, { metadataKeys: KEYS_479 }]
-    ];
-    let scans = 0;
-    for (const [tab, user, items, reach, options = {}] of VIEWS) {
+  // One check for each tab (#508, #521): the six views and their 24 axe scans took 67 s of the 90 s CHECK_TIMEOUT_MS on a
+  // loaded Mac in one check. The time is the scans that the check asserts, so it is split, with the same assertions in each part.
+  const NEW_LAYOUT_VIEWS = [
+    ["workflow", "requester", [applied, mergeFailed], async (page) => { await open(page, `#workflow?request=${applied.requestId}`); await banner(page).waitFor(); }],
+    ["new", "requester", undefined, async (page) => {
+      await newTab(page);
+      await fillForm(page);
+      await checkButton(page).click();
+      await panel(page).getByText(PASSED).waitFor();
+    }],
+    ["approvals", "approver", [ola, second], async (page) => {
+      await open(page, "#approvals");
+      // The reason field is a state that opens on a click: it is scanned too.
+      await cardOf(page, second.requestId).getByRole("button", { name: "Reject" }).click();
+      await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").waitFor();
+    }],
+    // The company instance's form (#336), with a value refused in the browser.
+    ["new-company", "requester", undefined, async (page) => {
+      await newTab(page);
+      await page.getByLabel("company.net/mnemonic (required)").fill("ABC");
+      await page.getByLabel("company.net/lob (required)").fill("amgsst");
+      await page.getByLabel("company.net/cl (required)").selectOption("1");
+      await waitError(page.getByLabel("company.net/mnemonic (required)"), /^Not valid: /);
+    }, { metadataKeys: COMPANY_KEYS }],
+    // #479: the form of design section 3.1 with the additional keys open, a row refused, a date past the limit (its
+    // warning) and a check that did not run; then the same form fixed and checked, with the plan's file in the preview.
+    ["new-479-problems", "requester", undefined, async (page) => {
+      await newTab(page);
+      await fill479(page);
+      await panel(page).getByRole("button", { name: /^Additional labels and annotations \(optional\)/ }).click();
+      await panel(page).getByRole("button", { name: "+ Add label" }).click();
+      await page.getByLabel("Key of additional label 1").fill("kubernetes.io/team");
+      await panel(page).getByRole("button", { name: "+ Add annotation" }).click();
+      await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/url");
+      await page.getByLabel("Value of additional annotation 1").fill("https://wiki.company.net/abc/runbook");
+      await page.getByLabel("Expires (optional)").fill(isoAfter(200));
+      await checkButton(page).click();
+      await panel(page).getByText("The check did not run. Fix these:").waitFor();
+    }, { metadataKeys: KEYS_479 }],
+    ["new-479-checked", "requester", undefined, async (page) => {
+      await newTab(page);
+      await fill479(page);
+      await panel(page).getByRole("button", { name: /^Additional labels and annotations \(optional\)/ }).click();
+      await panel(page).getByRole("button", { name: "+ Add label" }).click();
+      await page.getByLabel("Key of additional label 1").fill("team.company.net/squad");
+      await page.getByLabel("Value of additional label 1").fill("checkout");
+      await page.getByLabel("Expires (optional)").fill(isoAfter(25));
+      await checkButton(page).click();
+      await panel(page).getByText(PASSED).waitFor();
+    }, { metadataKeys: KEYS_479 }]
+  ];
+  for (const [tab, user, items, reach, options = {}] of NEW_LAYOUT_VIEWS) {
+    await check(`7 the Workflow, New namespace and Approvals tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${tab}`, async () => {
+      let scans = 0;
       for (const width of [390, 820, 1440]) {
         const { context, page, errors } = await fresh({ user, items, width, ...options });
         await reach(page);
@@ -2075,9 +2079,9 @@ try {
         assert.deepEqual(errors, []);
         await context.close();
       }
-    }
-    console.log(`  ${VIEWS.length} tabs, 3 widths, 2 themes, ${scans} axe scans`);
-  });
+      console.log(`  ${tab}: 3 widths, 2 themes, ${scans} axe scans`);
+    });
+  }
 
   // Portal slice 3 (#301): the Quotas and KPIs tabs. The fleet is 70 namespaces of the stand-in, in dev and rnd, with the
   // catalog's tiers for both. Each expectation is written from the mockup's forms and the API's contract, not from the page.
@@ -3431,28 +3435,31 @@ try {
     console.log(`  strings of the mockup compared: ${JSON.stringify(counts)}`);
   });
 
-  await check("7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
-    const VIEWS = [
-      ["quotas", "requester", async (page) => {
-        await manage(page, target);
-        await planOf(page, "medium");
-        await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
-      }],
-      ["quotas-typeahead", "requester", async (page) => {
-        // The type-ahead's list is a state that opens on typing: it is scanned too.
-        await openQuotas(page);
-        await page.getByRole("combobox", { name: "Find a namespace, team or app" }).fill("pay");
-        await page.locator("#q-sug [role=option]:not([aria-disabled=true])").first().waitFor();
-      }],
-      ["quotas-export", "requester", async (page) => {
-        await openQuotas(page);
-        await panel(page).getByRole("button", { name: "Export CSV" }).click();
-        await panel(page).getByRole("link", { name: "Download" }).waitFor();
-      }],
-      ["kpis", "operator", async (page) => { await open(page, "#kpis"); await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor(); }]
-    ];
-    let scans = 0;
-    for (const [view, user, reach] of VIEWS) {
+  // One check for each view (#508): the 16 axe scans of the four views took 73 s of the 91 s that the whole took on a
+  // loaded Mac (one AxeBuilder.analyze() of the Quotas page: 5.3 s, in runPartial and finishRun), past CHECK_TIMEOUT_MS.
+  // That time is the scans that the check asserts, so it is split, with the same assertions in each part.
+  const QUOTA_LAYOUT_VIEWS = [
+    ["quotas", "requester", async (page) => {
+      await manage(page, target);
+      await planOf(page, "medium");
+      await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "1 approval in cmapi" }).waitFor();
+    }],
+    ["quotas-typeahead", "requester", async (page) => {
+      // The type-ahead's list is a state that opens on typing: it is scanned too.
+      await openQuotas(page);
+      await page.getByRole("combobox", { name: "Find a namespace, team or app" }).fill("pay");
+      await page.locator("#q-sug [role=option]:not([aria-disabled=true])").first().waitFor();
+    }],
+    ["quotas-export", "requester", async (page) => {
+      await openQuotas(page);
+      await panel(page).getByRole("button", { name: "Export CSV" }).click();
+      await panel(page).getByRole("link", { name: "Download" }).waitFor();
+    }],
+    ["kpis", "operator", async (page) => { await open(page, "#kpis"); await panel(page).getByRole("heading", { name: "cmapi-api" }).waitFor(); }]
+  ];
+  for (const [view, user, reach] of QUOTA_LAYOUT_VIEWS) {
+    await check(`7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${view}`, async () => {
+      let scans = 0;
       for (const width of [390, 820, 1440]) {
         const { context, page, errors } = await quotaFresh({ user, width, kpi: podKpi });
         await reach(page);
@@ -3476,9 +3483,9 @@ try {
         assert.deepEqual(errors, []);
         await context.close();
       }
-    }
-    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
-  });
+      console.log(`  ${view}: 3 widths, 2 themes, ${scans} axe scans`);
+    });
+  }
 
   // Portal slice 4, the Policies part (#302). The fleet is CRC with 30 failing, warning and erroring rows built from the recorded
   // row of GET /api/v1/policies/results, and one cluster in each other state of the API. Each expectation is written from the
