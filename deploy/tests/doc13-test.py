@@ -235,6 +235,65 @@ exit 0
 '''
 
 
+def ghcr_secret_problems(doc):
+    """The owner's GHCR credential (#545), run: its block on stubs of pbpaste, pbcopy and oc. The token reaches the Secret on stdin, never an argument,
+    as a dockerconfigjson for ghcr.io of <github-user>:<token>, in the Secret crc-image.sh asks for, and the clipboard is cleared."""
+    import base64
+    import json
+
+    section = doc[doc.find("**4. A read-only GHCR credential"):doc.find("## The run\n")]
+    block = next((b for b in re.findall(r"```bash\n(.*?)```", section, re.S) if "cmapi-ghcr-pull" in b), "")
+    if not block:
+        return ["owner step 4 has no block that creates cmapi-ghcr-pull"]
+    script_secret = re.search(r"^PULL_SECRET=(\S+)$", open(os.path.join(ROOT, "deploy/crc-image.sh")).read(), re.M)
+    token, user = "ghp_stubtokenNeverOnAnArgument", "stub-user"
+    w = tempfile.mkdtemp(prefix="doc13-ghcr.")
+    try:
+        bin_dir = os.path.join(w, "bin"); os.mkdir(bin_dir)
+        for name, body in (("pbpaste", f'case "$CASE" in empty) exit 0;; paste) exit 3;; esac; printf "{token}\\r\\n"'), ("pbcopy", 'cat >"$W/cleared"'),
+                           ("oc", 'printf "%s\\n" "$*" >>"$W/argv"; cat >"$W/stdin"; [ "$CASE" != create ]')):
+            with open(os.path.join(bin_dir, name), "w") as f:
+                f.write(f"#!/bin/sh\n{body}\n")
+            os.chmod(os.path.join(bin_dir, name), 0o755)
+        def run(case, errexit=False):
+            args = [os.environ.get("DOC13_BASH", "bash")] + (["-e"] if errexit else [])
+            return subprocess.run(args + ["-c", block.replace("<github-user>", user)], cwd=w, capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "W": w, "CASE": case})
+        r = run("success")
+        out = [] if r.returncode == 0 else ["owner step 4 failed to create the Secret"]
+        if token in r.stdout + r.stderr:
+            out.append("owner step 4 printed the token")
+        argv = open(os.path.join(w, "argv")).read() if os.path.exists(os.path.join(w, "argv")) else ""
+        if token in argv:
+            out.append("owner step 4 puts the GHCR token on an argument")
+        want = f"create secret generic {script_secret[1] if script_secret else '?'} -n cmapi --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=/dev/stdin"
+        if argv.strip() != want:
+            out.append(f"owner step 4 runs `oc {argv.strip()}`, not `oc {want}`, the Secret crc-image.sh asks for")
+        try:
+            auths = json.load(open(os.path.join(w, "stdin")))["auths"]
+            if list(auths) != ["ghcr.io"] or base64.b64decode(auths["ghcr.io"]["auth"]).decode() != f"{user}:{token}":
+                out.append(f"owner step 4's dockerconfigjson is not ghcr.io's <github-user>:<token>: {list(auths)}")
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            out.append(f"owner step 4 gives oc no dockerconfigjson on stdin: {e}")
+        if not os.path.exists(os.path.join(w, "cleared")):
+            out.append("owner step 4 leaves the token on the clipboard")
+        for case, errexit in (("create", False), ("create", True), ("paste", False), ("empty", False)):
+            for name in ("argv", "cleared"):
+                if os.path.exists(os.path.join(w, name)):
+                    os.remove(os.path.join(w, name))
+            r = run(case, errexit)
+            if r.returncode == 0:
+                out.append(f"owner step 4 reported success after {case} failed")
+            cleared = os.path.join(w, "cleared")
+            if not os.path.exists(cleared) or os.path.getsize(cleared):
+                out.append(f"owner step 4 left clipboard data after {case} failed")
+            if case in ("paste", "empty") and os.path.exists(os.path.join(w, "argv")):
+                out.append("owner step 4 created a Secret without a token")
+        return out
+    finally:
+        shutil.rmtree(w, ignore_errors=True)
+
+
 def bundle_problems(doc):
     """"cmapi's policy bundle on CRC" (#428), run: its four blocks in a plain bash on stubs, on a bundle of the renderer's own layout (the example
     prod bundle, named as dev). The apply names the three YAML files and never index.json, under its own field manager, after a server dry run;
@@ -446,6 +505,7 @@ def problems(doc, only=None):
     need("security add-trusted-cert" in doc and "security delete-certificate" in doc, "the owner's keychain step, in and out")
     out.extend(keychain_problems(doc))
     out.extend(bundle_problems(doc))
+    out.extend(ghcr_secret_problems(doc))
     need("Sign in once as `cmapi.requester`" in doc, "the owner's LDAP sign-in")
     need("jsonpath={.data.cmapi\\.requester}' \\| base64 -d \\| pbcopy" in doc, "the owner's password to the clipboard")
     need("LDAP person" not in doc, "the owner signs in as an LDAP person, whom the realm cannot read any more")
@@ -476,6 +536,10 @@ MUTANTS = {
     "a file that does not exist": ('"$R/components/database-cnpg/cluster.yaml"', '"$R/components/database-cnpg/db.yaml"'),
     "a script that does not exist": ("deploy/crc-reader-import.sh", "deploy/crc-reader.sh"),
     "the owner's keychain step gone": ("security add-trusted-cert", "something else"),
+    "the GHCR token on an argument": ('"--from-file=.dockerconfigjson=/dev/stdin"', '"--from-literal=.dockerconfigjson=" + token.decode()'),
+    "the GHCR Secret named apart from crc-image.sh's": ('"generic", "cmapi-ghcr-pull"', '"generic", "ghcr-pull"'),
+    "the GHCR credential for another registry": ('{"auths": {"ghcr.io":', '{"auths": {"docker.io":'),
+    "the clipboard kept": ("  trap 'pbcopy </dev/null || exit 1' EXIT\n", ""),
     "the loop trusts every certificate in the bundle again": ('trust_ca "$RUN/keycloak-ca.pem" 58E4A0F4B51C06119EA25526330BEA85885B0FD8\n', 'cd "$RUN" && awk \'/BEGIN CERTIFICATE/{n++} {print > ("crc-ca-" n ".pem")}\' crc-ca.pem && cd -\nfor pem in "$RUN"/crc-ca-*.pem; do security add-trusted-cert -r trustRoot -p ssl -k ~/Library/Keychains/login.keychain-db "$pem"; done\n'),
     "the keychain's CA check gone": ("""  case "$text" in *CA:TRUE*) ;; *) echo "STOP: $pem is not a CA"; return 1;; esac\n""", ""),
     "the keychain's fingerprint check gone": ("""  [ "$got" = "$want" ] || { echo "STOP: $pem is $got, not $want"; return 1; }\n""", ""),

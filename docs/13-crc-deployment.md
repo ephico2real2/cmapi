@@ -10,7 +10,7 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 
 | Where | What |
 |---|---|
-| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the front door, the database, Routes `cmapi` and `cmapi-mockup`, the monitoring objects, image streams `cmapi` and `cmapi-portal`, Secret `cmapi-ldap-test-users` (one password per test user). Secrets `cmapi-git-bot` and `cmapi-git-bot-ssh`, and ConfigMap `cmapi-git-bot-known-hosts`, the bot account's credentials, are the owner's: [step 3 below](#steps-only-the-owner-can-take) |
+| Namespace `cmapi` (exists, holding `cmapi-ldap-bind`) | A label, the workloads, the front door, the database, Routes `cmapi` and `cmapi-mockup`, the monitoring objects, image streams `cmapi` and `cmapi-portal` (each tag imported from GHCR by digest, step 5), Secret `cmapi-ldap-test-users` (one password per test user). Secrets `cmapi-git-bot` and `cmapi-git-bot-ssh`, and ConfigMap `cmapi-git-bot-known-hosts`, the bot account's credentials, and Secret `cmapi-ghcr-pull`, the read-only GHCR credential, are the owner's: [steps 3 and 4 below](#steps-only-the-owner-can-take) |
 | Namespace `cmapi-imports` (new) | The imports reader Role, Secret `cmapi-cluster-crc` |
 | Namespace `cmapi-system` (new) | ServiceAccount `cmapi-reader` |
 | Cluster | ClusterRole and ClusterRoleBinding `cmapi-reader`: `get, list, watch` on namespaces, resourcequotas and limitranges, `get, list, watch` on nodes for the Capacity tab's allocatable and zones (#302; without it the tab shows "nodes not readable" and the commitment against the simulated size only), `list` on pods and persistentvolumeclaims, and `get, list, watch` on Kyverno's `policyreports`, `clusterpolicyreports` and `validatingpolicies` for the Policies tab (#302). CRC runs Kyverno v1.20.0 since 2026-11-17 (chart 3.10.0, namespace `kyverno`, its webhooks scoped to `cmapi.net/managed=true`), and until its bundle is applied ("Kyverno", below, #428) none of cmapi's policies is on it: the tab shows CRC **off the bundle**, Bundle running "31 missing", Policies ready "0 / 31", the cluster's counts 0 (Kyverno answers and has no result of the bundle), and "—" for each policy's counts, since none runs there. Without this rule the tab shows "no access to the reports". All of this holds while CRC's discovery serves `wgpolicyk8s.io/v1alpha2` (`GET /apis/wgpolicyk8s.io/v1alpha2` as `cmapi-reader`, the request of the API's own probe, which the CRC proof makes: it stops when the group or either report kind is not served, and records whether `openreports.io` is); a Kyverno that writes only `openreports.io` reports reads as "Kyverno not installed" until that group is read (deferred by the arbitration). ClusterRole and ClusterRoleBinding `cmapi-deliverer` for the worker's ServiceAccount, and ValidatingAdmissionPolicy and binding `cmapi-deliverer-managed-only`, which contain it (step 7) |
@@ -30,7 +30,7 @@ The realm reads LDAP through the read-only `cmapi-ldap-bind`, and only the test 
 
 | What | How to check, read-only |
 |---|---|
-| `oc`, `podman`, `skopeo`, `kind`, `python3`, `curl`, `openssl`, `git` on the Mac | `command -v oc podman skopeo kind python3 curl openssl git` |
+| `oc`, `podman` (kind's provider; nothing is built on the Mac, #545), `kind`, `python3`, `curl`, `openssl`, `git` on the Mac | `command -v oc podman kind python3 curl openssl git` |
 | `oc` logged in as kubeadmin on CRC. If the session has expired, `oc login -u kubeadmin https://api.crc.testing:6443` and type the password at the prompt, never with `-p` | `oc whoami --show-server; oc config current-context` |
 | A clean checkout of the merged commit | `git status --porcelain` prints nothing |
 | No kind cluster, and none during the run | `KIND_EXPERIMENTAL_PROVIDER=podman kind get clusters` |
@@ -52,7 +52,7 @@ The coordinator read these from CRC. Read them again if much time has passed.
 
 ### Steps only the owner can take
 
-The first two are for the Chrome proofs of step 23, and neither blocks the steps before it. The third comes before step 11.
+The first two are for the Chrome proofs of step 23, and neither blocks the steps before it. The third comes before step 11, and the fourth before step 5.
 
 **1. Trust the two CAs in the login keychain.** Chrome refuses these sites otherwise, and clicking through a warning would be TLS verification off. Neither `LDAP Enterprise Root CA` nor `ingress-operator` is on this Mac (measured with `security find-certificate -c`), and macOS asks for a password to add one, which is why this is the owner's step.
 
@@ -156,6 +156,40 @@ On every host `main` is protected, so that only a merged PR changes it: the host
 
 Give the token an expiry, and put a new one in before then: an expired token makes every request fail at the host, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. A new token: `oc delete secret cmapi-git-bot -n cmapi`, the same two lines, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since the API client reads the token at start. Git over HTTPS reads the file at each call. Step 11 checks that the token is there, and reads no value.
 
+**4. A read-only GHCR credential, before step 5.** CI builds both images and pushes them to GHCR (#545), and GHCR makes a package private when it is first published ("When you first publish a package, the default visibility is private", [GitHub, Working with the Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), read on 2026-11-21). So CRC needs a credential to read `ghcr.io/ephico2real2/cmapi` and `ghcr.io/ephico2real2/cmapi-portal`: Secret `cmapi-ghcr-pull` in namespace `cmapi`, of type `kubernetes.io/dockerconfigjson`. An import reads it ("During the import process, OKD picks up the secrets and provides them to the remote party", [OKD, Managing image streams](https://docs.okd.io/latest/openshift_images/image-streams-manage.html), read on 2026-11-21), and so does the integrated registry when a pod pulls ("`Local` allows the credentials used to pull this image to be managed from the image stream's namespace", the `TagReferencePolicy` type in [openshift/api `image/v1/types.go`](https://github.com/openshift/api/blob/master/image/v1/types.go), read on 2026-11-21). It is linked to no ServiceAccount: the pods pull from the integrated registry, never from GHCR. `deploy/crc-image.sh` stops when it is missing, and reads only its type.
+
+GHCR takes only a classic token ("GitHub Packages only supports authentication using a personal access token (classic)", the same GitHub page). Signed in as an account that can read both packages:
+
+1. Open <https://github.com/settings/tokens/new>.
+2. **Note:** `cmapi-crc-ghcr-read`. **Expiration:** 30 days, or whatever you prefer.
+3. Tick **`read:packages`** and nothing else: it reads, and cannot write or delete.
+4. Click **Generate token** and copy it.
+
+The token goes from the clipboard to the Secret on stdin, as `cmapi-git-bot`'s does: on no command line, in no shell history and on no screen. Put the token's account in place of `<github-user>`:
+
+```bash
+(
+  set -eu
+  trap 'pbcopy </dev/null || exit 1' EXIT
+  python3 - '<github-user>' <<'PY'
+import base64, json, subprocess, sys
+
+token = subprocess.check_output(["pbpaste"]).rstrip(b"\r\n")
+if not token:
+    sys.exit("Copy the read-only GHCR token before creating the Secret.")
+auth = base64.b64encode(sys.argv[1].encode() + b":" + token).decode()
+config = json.dumps({"auths": {"ghcr.io": {"auth": auth}}})
+subprocess.run(
+    ["oc", "create", "secret", "generic", "cmapi-ghcr-pull", "-n", "cmapi",
+     "--type=kubernetes.io/dockerconfigjson", "--from-file=.dockerconfigjson=/dev/stdin"],
+    input=config.encode(), check=True,
+)
+PY
+)
+```
+
+A new token: `oc delete secret cmapi-ghcr-pull -n cmapi`, then the same lines. `crc-image.sh` asks for the Secret even if the packages are later made public.
+
 ## The run
 
 Run these in one bash, not zsh, from the repository's root. Keep every output: it goes in `docs/reviews/`, once checked for secret values.
@@ -238,7 +272,9 @@ stopped() { [ "$1" = 0 ] && return 0; echo "STOP at step $2 (rc $1): report it. 
 ); stopped $? 5
 ```
 
-**Stops on** a failure of any check in either script. It is finished before any Keycloak step, so its load is never beside an import. Two images, each built from this commit and labelled with it, each in its own image stream: `cmapi` (the api, the worker and the realm sync) and `cmapi-portal` (the front door: nginx with the portal's build and the mockup, `cmapi-portal-ui/Containerfile`). `render.sh` takes each by digest only, each from its own repository. `podman push --cert-dir` is not honoured on this Mac (measured), so `crc-image.sh` pushes with `skopeo`, TLS verified against the ingress CA, with the session's token in a 0600 file and never on an argument.
+**Stops on** a failure of any check in either script. It is finished before any Keycloak step. **It builds nothing on this Mac** (#545): in run 32 this step built both images here, the load went from 11.47 to 28.42, and 58 containers in 42 namespaces restarted. CI's job `images` (`.github/workflows/ci.yml`) built both on the push to `main` of this commit, pushed each to GHCR as `sha-<commit>`, the 10-character commit, labelled `org.opencontainers.image.revision` with it, and attested it by its digest. For each image, `crc-image.sh` checks that Secret `cmapi-ghcr-pull` is there ([owner step 4](#steps-only-the-owner-can-take)), asks GHCR for the tag's digest through CRC's own importer (an `ImageStreamImport` with `import: false`, which changes nothing), and imports that digest, never the tag, with `oc import-image --reference-policy=local`. It stops when the Secret is missing, when GHCR has no image for this commit (CI has not pushed it: `gh run list --commit <commit>`), when the image stream tag does not hold GHCR's digest or is not `Local`, and when either image is labelled with another commit. A tag left from before #545, built on this Mac, holds another digest and is refused with the command that deletes it. Two images, each in its own image stream: `cmapi` (the api, the worker and the realm sync) and `cmapi-portal` (the front door: nginx with the portal's build and the mockup, `cmapi-portal-ui/Containerfile`). `render.sh` takes each by digest only, as `image-registry.openshift-image-registry.svc:5000/cmapi/<name>@sha256:…`: with `referencePolicy: Local` the pods pull through the integrated registry, which reads GHCR with the namespace's Secret.
+
+Who built an image can be checked from any machine signed in to GHCR: `gh attestation verify oci://ghcr.io/ephico2real2/cmapi@sha256:<digest> --repo ephico2real2/cmapi`. Not run yet: the first push to GHCR is the first push to `main` after #545.
 
 ### Step 6: the environment
 
@@ -507,7 +543,7 @@ Then the Chrome proofs in [The issue's proofs](#the-issues-proofs). **Stops at**
 dry-run namespace plan, the API's slowest call, which has as long as the Route gives it: 130 s, `CMAPI_PROOF_PLAN_SECONDS` (#275).
 
 **A restart is the run's from the run's start on (#425).** `CMAPI_PROOF_SINCE` is the time on the first line of step 2's
-`preflight.txt`, the run's first record, written before any step writes to the cluster or loads the Mac as step 5's build does (#157).
+`preflight.txt`, the run's first record, written before any step writes to the cluster (#157).
 A container that restarted before it is printed with its pod, count, last termination's time, reason and exit code, and passes:
 no step recreates `cmapi-db-1`, so a restart from before the run would otherwise stop every later run (run 24 stopped here on
 one from 15:44:56Z, during the host stall of #157). A container running since that time or later, or not running at all, fails, and
@@ -926,4 +962,4 @@ The first command deletes the 31 policies by the names in the files, and nothing
 
 ## Not proven before the run
 
-RHBK's Job on `spec.resources`; `restricted-v2`; the internal registry and its pull, of both images; the `cmapi-portal` image's build on this Mac (CI builds it and runs `deploy/tests/front-door-test.py --image` on it); the front door on a cluster: nginx resolving the headless Service `cmapi-api-pods` through the pod's DNS server, the router's `set-forwarded-headers: replace`, and the portal's sign-in through it; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; `apply-test-identities.sh` against the real server's rules, memberOf overlay and gate group (`deploy/tests/ldap-identities-test.sh` runs it on the same image, `osixia/openldap:1.5.0`, with rules shaped as the server's and the overlay both ways); what `oc whoami` prints for kubeadmin on this CRC (either form passes). The full request flow (#157): the GitHub adapter against GitHub itself (#61; `test_crc_environment.py` runs CRC's configuration end to end on a fake Git host and a fake cluster); `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` in the running image (the image's build stage fetches from github.com with the same base image's system trust, which is inferred evidence); the admission policy on OpenShift, including a server dry run as the worker; a RoleBinding to `cmapi-token-issuer`, which no ClusterRole defines on CRC yet, accepted on the strength of `bind` alone; the repository's Actions reporting `ci/kubeconform` and `ci/kyverno`. `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.
+RHBK's Job on `spec.resources`; `restricted-v2`; the import of both images from GHCR with Secret `cmapi-ghcr-pull`, and their pull through the integrated registry (`deploy/tests/crc-scripts-test.sh` runs `crc-image.sh` on a stub `oc` and stub registry answers; CI's first push to GHCR is after #545 merges); the `cmapi-portal` image on a cluster (CI builds it and runs `deploy/tests/front-door-test.py --image` on it); the front door on a cluster: nginx resolving the headless Service `cmapi-api-pods` through the pod's DNS server, the router's `set-forwarded-headers: replace`, and the portal's sign-in through it; OVN-Kubernetes enforcing the policy; the router through it; `ldaps` through Keycloak's truststore on a new realm; user workload monitoring; a real restart's recovery; the backup against `postgres-0` itself; `apply-test-identities.sh` against the real server's rules, memberOf overlay and gate group (`deploy/tests/ldap-identities-test.sh` runs it on the same image, `osixia/openldap:1.5.0`, with rules shaped as the server's and the overlay both ways); what `oc whoami` prints for kubeadmin on this CRC (either form passes). The full request flow (#157): the GitHub adapter against GitHub itself (#61; `test_crc_environment.py` runs CRC's configuration end to end on a fake Git host and a fake cluster); `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` in the running image (the image's build stage fetches from github.com with the same base image's system trust, which is inferred evidence); the admission policy on OpenShift, including a server dry run as the worker; a RoleBinding to `cmapi-token-issuer`, which no ClusterRole defines on CRC yet, accepted on the strength of `bind` alone; the repository's Actions reporting `ci/kubeconform` and `ci/kyverno`. `crc-proof.sh` has run only on stubs. The measurements used community Keycloak 26.6.4, since 26.6.7 is not on quay, so that RHBK behaves the same is inferred.

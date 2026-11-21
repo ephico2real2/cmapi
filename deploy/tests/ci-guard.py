@@ -38,4 +38,43 @@ check("deploy/tests/kind-test-stubs/*" in shellchecked, "shellcheck covers the k
 check("examples/cmapi-sso/ldap/apply-test-identities.sh" in shellchecked, "shellcheck covers the script that writes to the shared LDAP")
 for f in sorted(set(scripts) - set(charts)):
     check(f in shellchecked or f.rsplit("/", 1)[0] + "/*.sh" in shellchecked, f"shellcheck covers {f}")
+# The images job (#545): the only job that may write, with only what it needs; it pushes from main alone, one manifest per tag.
+images = ci["jobs"].get("images") or {}
+isteps = images.get("steps") or []
+check(images.get("runs-on") == "ubuntu-24.04", "images: the runner is a named release")
+check(images.get("permissions") == {"contents": "read", "packages": "write", "id-token": "write", "attestations": "write"}, "images: contents read; packages, id-token and attestations write; nothing else")
+check([n for n, j in ci["jobs"].items() if "permissions" in j] == ["images"], "images is the only job that widens the token")
+check(bool(isteps) and all(re.search(r"@[0-9a-f]{40}$", s["uses"]) for s in isteps if "uses" in s), "images: actions by full SHA")
+ico = next((s for s in isteps if s.get("uses", "").startswith("actions/checkout")), {})
+check((ico.get("with") or {}).get("persist-credentials") is False, "images: persist-credentials: false")
+publish_if = "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ephico2real2/cmapi'"
+check(images.get("if") == publish_if, "only a main push in the upstream repository starts the write-enabled job")
+pr = ci["jobs"].get("images-pr", {})
+check(pr.get("if") == "github.event_name == 'pull_request'" and "permissions" not in pr, "PR builds inherit contents: read")
+matrix = (images.get("strategy") or {}).get("matrix", {}).get("include", [])
+check({entry["name"] for entry in matrix} == {"cmapi", "cmapi-portal"} and pr.get("strategy") == images.get("strategy"), "PR and publisher build both images")
+def build_step(steps):
+    return next((s for s in steps if s.get("uses", "").startswith("docker/build-push-action@")), {})
+pr_build = build_step(pr.get("steps", [])).get("with", {})
+check(pr_build.get("push") is False and "outputs" not in pr_build, "PR builds have no registry export")
+bw = build_step(isteps).get("with", {})
+check(bw.get("outputs") == "type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true"
+      and "tags" not in bw, "the build exports by digest before making a deployable tag")
+check(bw.get("provenance") is False and bw.get("sbom") is False, "images: no buildx attestations, so a tag is one manifest")
+check(bw.get("platforms") == "linux/amd64", "images: linux/amd64, CRC's platform")
+check(all(a in bw.get("build-args", "") for a in ("GIT_COMMIT=${{ steps.meta.outputs.commit }}", "BUILD_VERSION=${{ steps.meta.outputs.version }}")), "images: the build args of the revision label and the version")
+check("commit=$(git rev-parse --short=10 HEAD)" in "\n".join(s.get("run", "") for s in isteps), "images: the commit is the 10-character one crc-image.sh and crc-proof.sh compare")
+attest = next((s for s in isteps if s.get("uses", "").startswith("actions/attest@")), {}).get("with") or {}
+check(attest.get("subject-digest") == "${{ steps.build.outputs.digest }}" and attest.get("subject-name") == "${{ env.IMAGE }}", "images: the attestation is of the pushed digest")
+verify = next((s for s in isteps if "imagetools inspect" in s.get("run", "")), {})
+verify_run = verify.get("run", "")
+check('ref="$IMAGE@$DIGEST"' in verify_run and verify_run.count('imagetools inspect "$ref"') == 2
+      and verify.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}",
+      "the descriptor and label are read from the same pushed digest")
+sign = next((s for s in isteps if s.get("uses", "").startswith("actions/attest@")), {})
+publish = next((s for s in isteps if "imagetools create" in s.get("run", "")), {})
+check(bool(sign and verify and publish) and isteps.index(build_step(isteps)) < isteps.index(verify) < isteps.index(sign) < isteps.index(publish)
+      and 'imagetools create --prefer-index=false --tag "$tag" "$IMAGE@$DIGEST"' in publish["run"]
+      and publish.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}" and "if" not in publish,
+      "only a verified, successfully attested digest becomes the deployment tag")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)
