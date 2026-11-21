@@ -497,7 +497,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1307-1307": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1310-1310": [
   "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|127-129": [
