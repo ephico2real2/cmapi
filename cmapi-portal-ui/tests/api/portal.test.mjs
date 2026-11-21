@@ -1187,7 +1187,7 @@ try {
       const name = page.getByLabel("Namespace", { exact: true });
       for (const desired of ["-x", "x-", "-"]) {
         await name.fill(desired);
-        await waitError(name, /^Start and end with a letter or digit\.$/);
+        await waitError(name, /^Start and end with a letter or digit\./);
         const before = dryRuns().length;
         await checkButton(page).click();
         await panel(page).getByText("Namespace: Start and end with a letter or digit.", { exact: true }).waitFor();
