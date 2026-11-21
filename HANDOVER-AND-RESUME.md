@@ -1,10 +1,46 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-20. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-21. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-20, 10:15Z
+## Resume here: 2026-11-21, 08:30Z
+
+Supersedes the 2026-11-20 10:15Z section below.
+
+| Item | State |
+|---|---|
+| `main` | `9ad4de8` (PR #499); PR #525 (#524) merging on green CI |
+| CRC | Runs `cd01af1` (OB1 run 30, `workbench/cmapi/ob1-run30/resume.md`), since 05:13:23Z. api and worker `cmapi@sha256:2ef25696...`, portal `cmapi-portal@sha256:4c3b1ec6...`. keycloak-0 restarts unchanged (4). Import token expires 2026-11-28T05:13Z |
+| CRC policies | The dev bundle at cmapi `cd01af1` is applied (cmapi-cluster-configs #19, merge `b1a5a35ade`): 40 policies, `hashState: current`, 84 pass and 0 fail; the Policies tab reads "0 failing · 0 clusters off the bundle" (`ob1-run30/screens/p2-after510-policies-1440-light-chrome.png`). The stale `cmapi-metadata-dev-label-cmapi-net-rightsizing-pattern` was deleted by name |
+| Monitoring | Off (the owner, 2026-11-20, Mac memory). Steps 23 to 25 of each run wait for it (#489) |
+| kind | Deleted |
+| Open | Story #484 (Namespaces tab): the implementer (Opus 5.5 high) is building it from the epic-481 design §6 |
+
+**Live on CRC (run 30, installed Chrome, `cmapi.requester`, nothing submitted):** a namespace name with an empty
+middle is `abc-dev`, and `payments` gives `abc-payments-dev`; both dry runs answer 200. The middle `-x` is refused at
+the field ("Start and end with a letter or digit."), and no request is sent (#511, #512).
+
+**Merged on 2026-11-21:**
+- #514 (#512): a namespace middle starts and ends with a letter or digit, in the API, the Kyverno rule, the stand-in and the portal.
+- #517 (#516), and cmapi-cluster-configs #20: `ci/kyverno` fails an audit violation only in the namespace folders a pull request changes; others warn; with no first-parent diff, every folder counts as changed.
+- cmapi-cluster-configs #19 and #515 (#510): CRC's bundle re-rendered for the metadata keys of #505, and docs/13 says that a change to the configuration needs its bundle pull request before the deploy.
+- #519 (#518), #522 (#508, #521): portal check timing. The P9 cause was in the product: the pattern time limit also timed the worker's start-up. Check 7 and the workflow check are split by view.
+- #520 (#513), #525 (#524): tests that needed the Kyverno CLI on PATH, or that ran another checkout's `cmapi-tools`.
+- #499 (#491, #494, #495, #496, #497, #501, #523): the review defects of #492, reviewed by Codex `gpt-6.2-astra` xhigh, then Fable; `clusterTokens.duration` is at most 2^32 seconds.
+
+**Next, in order:**
+1. #484: the coordinator's checks, then Codex `gpt-6.2-astra` high, then Fable; merge on green.
+2. Run 31 on CRC with #484 and everything merged since `cd01af1`, with screenshots of the Namespaces tab.
+3. #485 (Swagger and ReDoc for the namespace-change operations), #486, #487, #489, #493.
+4. The owner chooses the calm mockup variant or the approved one (artifact `9atTm9MrQBFcDCnWMxQLwm`).
+
+**Lessons recorded today:**
+- A merge of `main` into a branch, never a rebase of a pushed one: Claude Code refused a `--force-with-lease`.
+- A draft PR's red CI is still a finding: #499's service job had failed on a pinned hash before the review.
+- A reviewer's "fails on main too" is checked on `main` before it is accepted (retracted for `test_bundle_hash_244`).
+
+## Resume here: 2026-11-20, 10:15Z (superseded by the section above)
 
 Supersedes the 2026-11-19 19:40Z section below.
 
