@@ -210,7 +210,8 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE.
 
     `git` is the folder's labels and annotations, from the same read as the etag, with `edits`: how each key of Git that
-    metadata-keys.yaml does not declare may change (#484). `sync` compares them with the live
+    metadata-keys.yaml does not declare may change (#484), including operator-only keys with this cluster's environment
+    in their reason (#532). `sync` compares them with the live
     namespace (#481): `pending` while a request holds it, `drift` when a governed, extra or operator-only key differs
     (each in `driftedKeys`), `in-sync` when none does, and `unknown` when the cluster's watch is not fresh."""
     st = c.registry.get(cluster_id)
@@ -227,7 +228,9 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     git = metadata_of(git_doc)
     view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None,
                            on_cluster=live is not None)
-    view["git"] = {"labels": git["label"], "annotations": git["annotation"], "edits": c.cfg.metadata.undeclared_edits(git)} \
+    environment = st.policy.environment if st.policy else None
+    view["git"] = {"labels": git["label"], "annotations": git["annotation"],
+                   "edits": c.cfg.metadata.undeclared_edits(git, environment)} \
         if git_doc else None
     view["etag"] = folder_etag(files)
     # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).

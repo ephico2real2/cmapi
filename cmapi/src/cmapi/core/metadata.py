@@ -76,7 +76,7 @@ EDIT_REASONS = {
     "reserved": "Reserved for the platform.",
     "adoption": "Marks how the namespace was first made.",
     "disallowed": "Not allowed by this instance's rules.",
-    "operatorOnly": "Needs namespaces:protect in the namespace's environment.",
+    "operatorOnly": "Needs namespaces:protect in {environment}.",
     "namespace": "Copied from the namespace name.",
     "environment": "Copied from the cluster's environment.",
     "cluster": "Copied from the cluster's ID.",
@@ -85,6 +85,10 @@ EDIT_REASONS = {
     "required": "Required on every namespace.",
     "sensitive": "Changing this key needs one more approval.",
 }
+
+
+def _operator_only_reason(environment: str | None = None) -> str:
+    return EDIT_REASONS["operatorOnly"].format(environment=environment or "the namespace's environment")
 
 
 # ------------------------------------------------------------------------------------- the one regex of a value (#332)
@@ -923,15 +927,15 @@ class MetadataKeys:
         return "disallowed"
 
     # ---- how a key may change on an existing namespace (#481, design section 3)
-    def edit_rule(self, kind: str, key: str) -> dict[str, Any]:
+    def edit_rule(self, kind: str, key: str, environment: str | None = None) -> dict[str, Any]:
         """x-cmapi-edit of one key: its mode (fixed, automatic, required or optional), the reason a person sees, and
-        whether a change of it adds one approval (sensitiveKeys). The same for a create's form and a change's."""
+        whether a change of it adds one approval (sensitiveKeys). Without a cluster, the operator-only reason is generic."""
         cls = self.classify(key, kind)
         other = "annotation" if kind == "label" else "label"
         if cls == "team" and (key in self.rules[other] or self._syntax(key, None, kind)):
             # A legacy key with this spelling can only be removed (_check_sent_keys).
             cls = "disallowed"
-        mode, reason = self._edit_mode(kind, key, cls)
+        mode, reason = self._edit_mode(kind, key, cls, environment)
         sensitive = key in self.sensitive
         if sensitive:
             reason = " ".join(r for r in (reason, EDIT_REASONS["sensitive"]) if r)
@@ -942,14 +946,15 @@ class MetadataKeys:
             rule["removable"] = True
         return rule
 
-    def undeclared_edits(self, maps: Mapping[str, Mapping[str, str]]) -> dict[str, dict[str, dict[str, Any]]]:
-        """GitKeyEdits (#484): edit_rule of each key in `maps` that the file does not declare, so a client can tell a system
-        key from a team key or a disallowed one. Operator-only keys are declared: their rule is in metadata-keys."""
-        return {name: {key: self.edit_rule(kind, key) for key in sorted(maps[kind])
-                       if key not in self.rules[kind] and self.classify(key, kind) != "operatorOnly"}
+    def undeclared_edits(self, maps: Mapping[str, Mapping[str, str]],
+                         environment: str | None = None) -> dict[str, dict[str, dict[str, Any]]]:
+        """GitKeyEdits (#484): edit_rule of each undeclared key in `maps`, including operator-only keys so their reason
+        can name the namespace's cluster environment instead of metadata-keys' generic wording (#532)."""
+        return {name: {key: self.edit_rule(kind, key, environment) for key in sorted(maps[kind])
+                       if key not in self.rules[kind]}
                 for kind, name in (("label", "labels"), ("annotation", "annotations"))}
 
-    def _edit_mode(self, kind: str, key: str, cls: KeyClass) -> tuple[str, str | None]:
+    def _edit_mode(self, kind: str, key: str, cls: KeyClass, environment: str | None) -> tuple[str, str | None]:
         """The design's order, first match wins: system, reserved or adoption or not allowed, operator-only, filled in by
         cmapi (value.from), part of the name (namespacePrefix, namespaceSuffix), required, then optional."""
         if cls == "system":
@@ -958,7 +963,7 @@ class MetadataKeys:
             adoption = kind == "label" and key in self.adoption_labels
             return "fixed", EDIT_REASONS["adoption" if adoption else cls]
         if cls == "operatorOnly":
-            return "optional", EDIT_REASONS["operatorOnly"]
+            return "optional", _operator_only_reason(environment)
         rule = self.rules[kind].get(key)
         if rule is None:                    # a key that allowOther admits
             return "optional", None
@@ -1323,8 +1328,8 @@ class MetadataKeys:
                              require_governed=require_governed, current_labels=current_labels,
                              current_annotations=current_annotations, sources=sources, existing=existing, create=create)
         if any(e["code"] == "operator_only_key" for e in errs):
-            raise Problem.forbidden("Only an operator (namespaces:protect) may set " +
-                                    ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key"))
+            keys = ", ".join(e["key"] for e in errs if e["code"] == "operator_only_key")
+            raise Problem.forbidden(f"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.")
         if errs:
             raise Problem.policy_violation("Metadata refused", errs)
 

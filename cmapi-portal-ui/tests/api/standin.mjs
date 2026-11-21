@@ -689,6 +689,8 @@ export function recordEtag(rec) {
   return createHash("sha256").update(hash.digest("hex")).digest("hex").slice(0, 16);
 }
 const MAPS = [["label", "labels"], ["annotation", "annotations"]];
+// The same template as core/metadata.py; metadata-keys has no cluster and keeps the generic environment.
+const operatorOnlyReason = (environment, sensitive = false) => `Needs namespaces:protect in ${environment || "the namespace's environment"}.${sensitive ? " Changing this key needs one more approval." : ""}`;
 /** core/metadata.py classify(): governed (declared), operatorOnly, team (allowOther's prefixes), or neither (system, reserved, disallowed). */
 function keyClass(keys, kind, key) {
   const map = keys[`${kind}s`], prop = map.properties[key];
@@ -725,34 +727,40 @@ const ADOPTION_479 = ["company.net/provisioner"];
 const globRe = (glob) => new RegExp(`^${glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`);
 /**
  * metadata.py edit_rule() and undeclared_edits() (#528): x-cmapi-edit of each key that Git holds and the file does not
- * declare, in classify()'s order: system, reserved prefix, adoption label, a key that allowOther admits, else disallowed.
+ * declare, including operator-only keys with the cluster's environment in their reason (#532).
  */
-function undeclaredRule(keys, kind, key) {
+function undeclaredRule(keys, kind, key, environment) {
   const prefix = key.includes("/") ? key.split("/")[0] : "";
   const fixed = (reason) => ({ mode: "fixed", reason, sensitive: false, removable: false });
   if (SYSTEM_479.includes(key)) return fixed(["cmapi.net/expiry", "cmapi.net/expires-at"].includes(key) ? "Change it with Extend, Set expiry or Make permanent." : "Managed by cmapi.");
   if (prefix && RESERVED_479.some((g) => globRe(g).test(prefix))) return fixed("Reserved for the platform.");
   if (kind === "label" && ADOPTION_479.includes(key)) return fixed("Marks how the namespace was first made.");
+  const prop = keys[`${kind}s`].properties[key];
+  if (prop?.["x-cmapi-operator-only"]) {
+    const rule = prop["x-cmapi-edit"];
+    return { ...rule, reason: operatorOnlyReason(environment, rule.sensitive), removable: false };
+  }
   if (keyClass(keys, kind, key) === "team") {
     const sensitive = keys[`${kind}s`]["x-cmapi-other-keys"]?.sensitiveKeys?.includes(key) ?? false;
     return { mode: "optional", reason: sensitive ? "Changing this key needs one more approval." : null, sensitive, removable: false };
   }
   return { mode: "fixed", reason: "Not allowed by this instance's rules.", sensitive: false, removable: true };
 }
-const gitEditsOf = (keys, git) => Object.fromEntries(MAPS.map(([kind, map]) => [map, Object.fromEntries(Object.keys(git[map]).sort()
-  .filter((key) => !keys[map].properties[key]).map((key) => [key, undeclaredRule(keys, kind, key)]))]));
+const gitEditsOf = (keys, git, environment) => Object.fromEntries(MAPS.map(([kind, map]) => [map, Object.fromEntries(Object.keys(git[map]).sort()
+  .filter((key) => !keys[map].properties[key] || keys[map].properties[key]["x-cmapi-operator-only"])
+  .map((key) => [key, undeclaredRule(keys, kind, key, environment)]))]));
 /** The value of the key with x-cmapi-namespace-prefix on the live namespace (metadata.py mnemonic()). */
 function prefixOf(keys, maps) {
   for (const [, map] of MAPS) for (const [key, prop] of Object.entries(keys[map].properties)) if (prop["x-cmapi-namespace-prefix"]) return maps?.[map][key] ?? null;
   return null;
 }
 /** NamespaceView of a record: the list's (no Git, no etag) or the detail's (router.py _namespace_view and get_namespace). */
-export function namespaceViewOf(keys, rec, withGit) {
+export function namespaceViewOf(keys, rec, withGit, environment = rec.env) {
   const live = rec.live ?? { labels: {}, annotations: {} };
   return { clusterId: rec.clusterId, name: rec.name, env: live.labels["cmapi.net/env"] ?? null, team: live.labels["cmapi.net/team"] ?? null, tier: live.labels["cmapi.net/tier"] ?? null,
     labels: live.labels, annotations: live.annotations, managed: live.labels["cmapi.net/managed"] === "true", expiresAt: live.annotations["cmapi.net/expires-at"] ?? null,
     etag: withGit ? recordEtag(rec) : null, openRequest: rec.openRequest?.requestId ?? null, mnemonic: prefixOf(keys, rec.live),
-    git: withGit ? { ...rec.git, edits: gitEditsOf(keys, rec.git) } : null,
+    git: withGit ? { ...rec.git, edits: gitEditsOf(keys, rec.git, environment) } : null,
     sync: syncOf(keys, rec, withGit), protected: withGit ? false : null, protectedBy: withGit ? [] : null };
 }
 /** GET /api/v1/clusters/{id}/namespaces (router.py _namespace_page): a page, or a problem as [status, code, detail]. */
@@ -923,10 +931,10 @@ export function apiHandler({ issuer, portalOrigin }) {
       : refuse(403, "forbidden", `Missing permission ${permission}: no role in your token grants it (roles: ['${user.role}'])`));
     // cmapi/src/cmapi/core/metadata.py check() and pipeline.py _metadata_refusal(): an operator-only label from anyone else
     // is 403; from an operator, a protection label takes "true", or null to remove it (#366).
-    const protectionRefusal = (labels) => {
+    const protectionRefusal = (labels, environment) => {
       const sent = Object.keys(labels ?? {}).filter((k) => PROTECTION_LABELS.includes(k));
       if (!sent.length) return null;
-      if (!permissions.includes(PROTECT_PERMISSION)) return refuse(403, "forbidden", `Only an operator (namespaces:protect) may set ${sent.join(", ")}`);
+      if (!permissions.includes(PROTECT_PERMISSION)) return refuse(403, "forbidden", `${operatorOnlyReason(environment)} Keys: ${sent.join(", ")}.`);
       const errors = sent.filter((k) => labels[k] !== null && labels[k] !== "true")
         .map((key) => ({ code: "invalid_value", key, kind: "label", detail: "only 'true', the value that protects; null removes it" }));
       return errors.length ? { ...SAMPLES.problems["policy-violation"].response.body, errors } : null;
@@ -1053,7 +1061,7 @@ export function apiHandler({ issuer, portalOrigin }) {
       if (made.errors.length || missing.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors: [...made.errors, ...missing] }, cors);
       const late = expiryRefusal(state.metadataKeys, env, body.expiresAt);
       if (late) return problem(res, refuse(...late), cors);
-      const protection = protectionRefusal(body.labels);
+      const protection = protectionRefusal(body.labels, env);
       if (protection) return problem(res, protection, cors);
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
@@ -1188,7 +1196,8 @@ export function apiHandler({ issuer, portalOrigin }) {
       // router.py get_namespace: the live namespace, its Git and sync, and the etag, also as the ETag header.
       const denied = lacks("objects:read");
       if (denied) return problem(res, denied, cors);
-      const view = namespaceViewOf(state.metadataKeys, record, true);
+      const environment = state.clusters.find((c) => c.clusterId === record.clusterId)?.environment;
+      const view = namespaceViewOf(state.metadataKeys, record, true, environment);
       res.writeHead(200, { ...cors, "content-type": "application/json", etag: `"${view.etag}"` });
       return res.end(JSON.stringify(view));
     }
@@ -1213,10 +1222,11 @@ export function apiHandler({ issuer, portalOrigin }) {
       if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
       const operatorKeys = MAPS.flatMap(([, map]) => Object.keys(body?.[map] ?? {})
         .filter((key) => state.metadataKeys[map].properties[key]?.["x-cmapi-operator-only"]));
+      const environment = state.clusters.find((c) => c.clusterId === record.clusterId)?.environment;
       if (operatorKeys.length && !permissions.includes(PROTECT_PERMISSION)) {
-        return problem(res, refuse(403, "forbidden", `Only an operator (namespaces:protect) may set ${operatorKeys.join(", ")}`), cors);
+        return problem(res, refuse(403, "forbidden", `${operatorOnlyReason(environment)} Keys: ${operatorKeys.join(", ")}.`), cors);
       }
-      const protection = protectionRefusal(body?.labels);
+      const protection = protectionRefusal(body?.labels, environment);
       if (protection) return problem(res, protection, cors);
       const errors = changeRefusal(state.metadataKeys, record, body ?? {});
       if (errors.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors }, cors);
@@ -1277,7 +1287,7 @@ export function apiHandler({ issuer, portalOrigin }) {
         const n = quantity(v), lo = quantity(bounds?.min?.[k]), hi = quantity(bounds?.max?.[k]);
         if (n === null || (lo !== null && n < lo) || (hi !== null && n > hi)) return problem(res, refuse(422, "quota-out-of-bounds", `${k} ${v} is outside ${bounds?.min?.[k]} to ${bounds?.max?.[k]}`), cors);
       }
-      const protection = protectionRefusal(body.labels);
+      const protection = protectionRefusal(body.labels, state.clusters.find((c) => c.clusterId === clusterId)?.environment);
       if (protection) return problem(res, protection, cors);
       const newCpu = quantity(body.quota?.["requests.cpu"] ?? named?.quota?.["requests.cpu"]) ?? 0, hardCpu = quantity(row.cpu[1]) ?? 0;
       // A larger CPU quota waits for the platform group (the recorded change); another change needs no approval (the recorded dry run).

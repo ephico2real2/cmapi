@@ -287,7 +287,8 @@ export interface paths {
          * @description The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE.
          *
          *     `git` is the folder's labels and annotations, from the same read as the etag, with `edits`: how each key of Git that
-         *     metadata-keys.yaml does not declare may change (#484). `sync` compares them with the live
+         *     metadata-keys.yaml does not declare may change (#484), including operator-only keys with this cluster's environment
+         *     in their reason (#532). `sync` compares them with the live
          *     namespace (#481): `pending` while a request holds it, `drift` when a governed, extra or operator-only key differs
          *     (each in `driftedKeys`), `in-sync` when none does, and `unknown` when the cluster's watch is not fresh.
          *
@@ -2188,7 +2189,7 @@ export interface components {
         GitKeyEdits: {
             /**
              * Annotations
-             * @description Each annotation of Git that metadata-keys.yaml does not declare, by key
+             * @description Each undeclared or operator-only annotation of Git, by key
              * @example {}
              */
             annotations: {
@@ -2196,7 +2197,7 @@ export interface components {
             };
             /**
              * Labels
-             * @description Each label of Git that metadata-keys.yaml does not declare, by key
+             * @description Each undeclared or operator-only label of Git, by key
              * @example {
              *       "cmapi.net/managed": {
              *         "mode": "fixed",
@@ -2233,7 +2234,7 @@ export interface components {
             annotations: {
                 [key: string]: string;
             };
-            /** @description x-cmapi-edit of each key that Git holds and metadata-keys.yaml does not declare (the declared keys' are in GET /api/v1/metadata-keys): a system, reserved or adoption key is fixed, a key that allowOther admits is optional, and a key that no rule admits is fixed and removable (#484) */
+            /** @description x-cmapi-edit of each undeclared or operator-only key that Git holds (other declared keys' are in GET /api/v1/metadata-keys); operator-only reasons name the cluster's environment. A system, reserved or adoption key is fixed, a key that allowOther admits is optional, and a key that no rule admits is fixed and removable (#484) */
             edits: components["schemas"]["GitKeyEdits"];
             /**
              * Labels

@@ -2702,7 +2702,7 @@ try {
     assert.equal(await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "precondition-failed" }).count(), 0);
     expectedStatus = [412, 403];
     api.state.answers.push({ route: `PATCH /api/v1/clusters/${key.replace("/", "/namespaces/")}`, status: 403,
-      body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: "Only an operator (namespaces:protect) may set cmapi.net/protected" } });
+      body: { type: "https://cmapi.ephico2real.com/problems/forbidden", title: "forbidden", status: 403, code: "forbidden", detail: `Needs namespaces:protect in ${protectedTarget.env}. Keys: cmapi.net/protected.` } });
     const meBefore = calls("/api/v1/me").length;
     await dialog(page).getByRole("button", { name: "Submit request" }).click();
     await dialog(page).locator(".pf-v6-c-alert").filter({ hasText: "403 forbidden · nothing written" }).waitFor();
@@ -4503,7 +4503,7 @@ try {
 
   await check("484-O operator-only keys: changeable with namespaces:protect in the namespace's environment, locked with the API's reason for anyone else", async () => {
     const withProtection = () => { const r = nsRecord("abc-payments-dev"); for (const m of [r.git, r.live]) m.labels["do-not-delete"] = "true"; };
-    const REASON = "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.";
+    const REASON = "Needs namespaces:protect in dev. Changing this key needs one more approval.";
     await atEachNsView(async (page) => {
       withProtection();
       await openNamespace(page);

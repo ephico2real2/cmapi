@@ -18,7 +18,7 @@ export type Maps = Record<Kind, Record<string, string>>;
  */
 export type Access = "field" | "value" | "remove" | "locked" | "live";
 
-/** x-cmapi-edit of each key that Git holds and metadata-keys.yaml does not declare, from the namespace read (#528). */
+/** x-cmapi-edit of Git's undeclared and operator-only keys, with the cluster environment in the reason (#528, #532). */
 export type GitEdits = Record<"labels" | "annotations", Record<string, KeyEdit & { removable?: boolean }>>;
 
 /** One key of the namespace, as one row of the table. */
@@ -77,13 +77,13 @@ export function rowsOf(form: MetaForm, git: Maps, live: Maps, edits: GitEdits, o
       mine.push(row(kind, f.key, f.title ?? f.key, edit, locked ? "locked" : "field", locked ? null : f));
     }
     for (const key of form.operatorOnly[kind]) {
-      const edit = form.edits[`${kind}:${key}`];
+      const edit = edits[kind === "label" ? "labels" : "annotations"][key] ?? form.edits[`${kind}:${key}`];
       if (edit && (operator || key in git[kind])) mine.push(row(kind, key, key, edit, operator ? "value" : "locked"));
     }
     mine.sort((a, b) => rank(a) - rank(b));
     rows.push(...mine);
     for (const [key, edit] of Object.entries(edits[kind === "label" ? "labels" : "annotations"])) {
-      if (!(key in git[kind])) continue;
+      if (!(key in git[kind]) || form.operatorOnly[kind].includes(key)) continue;
       if (edit.removable) rows.push(row(kind, key, key, edit, "remove"));
       else if (edit.mode === "optional") rows.push(row(kind, key, key, edit, "value", null, true));
       // cmapi's own, the platform's and the adoption keys: a fixed key shows locked with its reason (design T2).
