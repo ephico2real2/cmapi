@@ -1,0 +1,152 @@
+T7 quotas 390 fresh 136
+T7 quotas 390 reach 798
+T7 quotas 390 light toggle 7
+T7 quotas 390 light settle 65
+T7 quotas 390 light layout 5
+T7 quotas 390 light screenshot 55
+T7 quotas 390 light axe 5654
+T7 quotas 390 dark toggle 3
+T7 quotas 390 dark settle 399
+T7 quotas 390 dark layout 4
+T7 quotas 390 dark screenshot 63
+T7 quotas 390 dark axe 5339
+T7 quotas 390 close 9
+T7 quotas 820 fresh 120
+T7 quotas 820 reach 757
+T7 quotas 820 light toggle 4
+T7 quotas 820 light settle 47
+T7 quotas 820 light layout 4
+T7 quotas 820 light screenshot 78
+T7 quotas 820 dark toggle 2
+T7 quotas 820 dark settle 409
+T7 quotas 820 dark layout 3
+T7 quotas 820 dark screenshot 71
+T7 quotas 820 close 7
+T7 quotas 1440 fresh 95
+T7 quotas 1440 reach 746
+T7 quotas 1440 light toggle 6
+T7 quotas 1440 light settle 50
+T7 quotas 1440 light layout 3
+T7 quotas 1440 light screenshot 96
+T7 quotas 1440 light axe 8522
+T7 quotas 1440 dark toggle 7
+T7 quotas 1440 dark settle 468
+T7 quotas 1440 dark layout 5
+T7 quotas 1440 dark screenshot 123
+T7 quotas 1440 dark axe 7846
+T7 quotas 1440 close 35
+T7 quotas-typeahead 390 fresh 144
+T7 quotas-typeahead 390 reach 589
+T7 quotas-typeahead 390 light toggle 3
+T7 quotas-typeahead 390 light settle 206
+T7 quotas-typeahead 390 light layout 4
+T7 quotas-typeahead 390 light screenshot 68
+T7 quotas-typeahead 390 light axe 6007
+T7 quotas-typeahead 390 dark toggle 3
+T7 quotas-typeahead 390 dark settle 424
+T7 quotas-typeahead 390 dark layout 4
+T7 quotas-typeahead 390 dark screenshot 79
+T7 quotas-typeahead 390 dark axe 5526
+T7 quotas-typeahead 390 close 6
+T7 quotas-typeahead 820 fresh 146
+T7 quotas-typeahead 820 reach 551
+T7 quotas-typeahead 820 light toggle 3
+T7 quotas-typeahead 820 light settle 112
+T7 quotas-typeahead 820 light layout 4
+T7 quotas-typeahead 820 light screenshot 105
+T7 quotas-typeahead 820 dark toggle 3
+T7 quotas-typeahead 820 dark settle 407
+T7 quotas-typeahead 820 dark layout 3
+T7 quotas-typeahead 820 dark screenshot 92
+T7 quotas-typeahead 820 close 5
+T7 quotas-typeahead 1440 fresh 100
+T7 quotas-typeahead 1440 reach 531
+T7 quotas-typeahead 1440 light toggle 9
+T7 quotas-typeahead 1440 light settle 114
+T7 quotas-typeahead 1440 light layout 4
+T7 quotas-typeahead 1440 light screenshot 122
+T7 quotas-typeahead 1440 light axe 5266
+T7 quotas-typeahead 1440 dark toggle 2
+T7 quotas-typeahead 1440 dark settle 409
+T7 quotas-typeahead 1440 dark layout 4
+T7 quotas-typeahead 1440 dark screenshot 152
+T7 quotas-typeahead 1440 dark axe 4857
+T7 quotas-typeahead 1440 close 6
+T7 quotas-export 390 fresh 134
+T7 quotas-export 390 reach 744
+T7 quotas-export 390 light toggle 8
+T7 quotas-export 390 light settle 49
+T7 quotas-export 390 light layout 4
+T7 quotas-export 390 light screenshot 50
+T7 quotas-export 390 light axe 5176
+T7 quotas-export 390 dark toggle 2
+T7 quotas-export 390 dark settle 404
+T7 quotas-export 390 dark layout 3
+T7 quotas-export 390 dark screenshot 64
+T7 quotas-export 390 dark axe 4699
+T7 quotas-export 390 close 6
+T7 quotas-export 820 fresh 128
+T7 quotas-export 820 reach 719
+T7 quotas-export 820 light toggle 3
+T7 quotas-export 820 light settle 24
+T7 quotas-export 820 light layout 4
+T7 quotas-export 820 light screenshot 63
+T7 quotas-export 820 dark toggle 2
+T7 quotas-export 820 dark settle 409
+T7 quotas-export 820 dark layout 3
+T7 quotas-export 820 dark screenshot 80
+T7 quotas-export 820 close 5
+T7 quotas-export 1440 fresh 101
+T7 quotas-export 1440 reach 722
+T7 quotas-export 1440 light toggle 3
+T7 quotas-export 1440 light settle 26
+T7 quotas-export 1440 light layout 3
+T7 quotas-export 1440 light screenshot 95
+T7 quotas-export 1440 light axe 5160
+T7 quotas-export 1440 dark toggle 2
+T7 quotas-export 1440 dark settle 409
+T7 quotas-export 1440 dark layout 3
+T7 quotas-export 1440 dark screenshot 105
+T7 quotas-export 1440 dark axe 4956
+T7 quotas-export 1440 close 7
+T7 kpis 390 fresh 139
+T7 kpis 390 reach 325
+T7 kpis 390 light toggle 5
+T7 kpis 390 light settle 286
+T7 kpis 390 light layout 3
+T7 kpis 390 light screenshot 36
+T7 kpis 390 light axe 1367
+T7 kpis 390 dark toggle 2
+T7 kpis 390 dark settle 227
+T7 kpis 390 dark layout 2
+T7 kpis 390 dark screenshot 76
+T7 kpis 390 dark axe 1255
+T7 kpis 390 close 6
+T7 kpis 820 fresh 108
+T7 kpis 820 reach 325
+T7 kpis 820 light toggle 4
+T7 kpis 820 light settle 22
+T7 kpis 820 light layout 2
+T7 kpis 820 light screenshot 47
+T7 kpis 820 dark toggle 1
+T7 kpis 820 dark settle 234
+T7 kpis 820 dark layout 2
+T7 kpis 820 dark screenshot 53
+T7 kpis 820 close 5
+T7 kpis 1440 fresh 93
+T7 kpis 1440 reach 327
+T7 kpis 1440 light toggle 4
+T7 kpis 1440 light settle 22
+T7 kpis 1440 light layout 3
+T7 kpis 1440 light screenshot 66
+T7 kpis 1440 light axe 1359
+T7 kpis 1440 dark toggle 2
+T7 kpis 1440 dark settle 216
+T7 kpis 1440 dark layout 2
+T7 kpis 1440 dark screenshot 88
+not ok - 7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width
+Error: "7 the Quotas and KPIs tabs at 390, 820 and 1440 px in each theme, and axe at phone and desktop width" did not end in 90 s
+    at Timeout.<anonymous> (file://cmapi-portal-ui/tests/api/portal.test.mjs:136:77)
+    at listOnTimeout (node:internal/timers:685:17)
+    at process.processTimers (node:internal/timers:618:7)
+CHECK="7 the Quotas and KPIs" node tests/api/portal.test.mjs  99.57s user 15.67s system 126% cpu 1:31.29 total

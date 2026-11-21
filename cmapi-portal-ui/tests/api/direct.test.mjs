@@ -537,6 +537,59 @@ test("506-09 an emptied optional default is sent as \"\", checked by its rule an
   assert.match((await checkAll(form, shownValues(form, { "label:cmapi.net/team": "" }, TARGET), "abc-pay-dev", ecma, { "label:cmapi.net/team": "" }))[team.id], /^Required/);
 });
 
+// #508: the pattern checker of patterns.ts on the real worker code (patternWorker.ts), in a stand-in Worker that holds
+// each test until it has "started", as a module worker that is still loading holds the messages posted to it.
+const workerScope = { onmessage: null, postMessage: (data) => workerScope.current?.answer(data) };
+globalThis.self = workerScope;
+await import("../../src/portal/patternWorker.ts");
+/** A Worker that starts `startMs` after it is made; `hang` names a pattern whose verdict it never sends (a test that runs on). */
+function standInWorker({ startMs = 0, hang = null } = {}) {
+  const target = new EventTarget(), queued = [];
+  let live = true, ready = false;
+  const run = (data) => {
+    workerScope.current = { answer: (reply) => {
+      if (live && !(hang === data.pattern && "ok" in reply)) setTimeout(() => live && target.dispatchEvent(new MessageEvent("message", { data: reply })));
+    } };
+    workerScope.onmessage({ data });
+  };
+  if (startMs !== Infinity) setTimeout(() => { ready = true; queued.splice(0).forEach(run); }, startMs);
+  return Object.assign(target, {
+    postMessage: (data) => (ready ? setTimeout(() => live && run(data)) : queued.push(data)),
+    terminate: () => { live = false; }
+  });
+}
+
+test("508 a worker's start-up does not count against a pattern's time limit: a plain pattern is checked after a slow start", async () => {
+  const { patternChecker } = await import("../../src/portal/patterns.ts");
+  let spawned = 0;
+  // Start-up past the 200 ms limit, as Chrome took on a loaded machine (CPU throttling 25: spawn 11880 ms, time-out 12118 ms).
+  const { test: check, dispose } = patternChecker({ spawn: () => { spawned++; return standInWorker({ startMs: 400 }); } });
+  try {
+    assert.equal(await check("^[a-z]+$", "bad key"), false, "checked after the start: not 'not checked here'");
+    assert.equal(await check("^[a-z]+$", "good"), true, "the pattern is not marked slow");
+    assert.equal(spawned, 1, "one worker: none was ended");
+  } finally { dispose(); }
+});
+
+test("508 the time limit still ends a test that runs on, and a worker that never starts is treated as none", async () => {
+  const { patternChecker } = await import("../../src/portal/patterns.ts");
+  const slow = "^(?:[a-z0-9]+-?)*[a-z0-9]$";
+  let spawned = 0;
+  const running = patternChecker({ limitMs: 50, spawn: () => { spawned++; return standInWorker({ hang: slow }); } });
+  try {
+    assert.equal(await running.test(slow, "aaaa"), null, "out of time: not checked here");
+    assert.equal(await running.test(slow, "bbbb"), null, "marked slow for the session");
+    assert.equal(await running.test("^[a-z]+$", "abc"), true, "another pattern is still checked, in a new worker");
+    assert.equal(spawned, 2);
+  } finally { running.dispose(); }
+  let made = 0;
+  const never = patternChecker({ startLimitMs: 50, spawn: () => { made++; return standInWorker({ startMs: Infinity }); } });
+  const late = (ms) => new Promise((resolve) => setTimeout(() => resolve("no answer"), ms));
+  assert.equal(await Promise.race([never.test("^[a-z]+$", "abc"), late(1000)]), null, "no start: not checked here, cmapi decides; the form does not wait without end");
+  assert.equal(await Promise.race([never.test("^[0-9]+$", "1"), late(1000)]), null);
+  assert.equal(made, 1, "and the page has no worker after it: no second wait for a start");
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }

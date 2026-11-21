@@ -448,6 +448,50 @@ CHECK="11 Quotas: the rows" node tests/api/portal.test.mjs
 node tests/api/mutants.mjs "407:"
 ```
 
+## A pattern's time limit that counted the worker's start, and two checks 7 near their limit (#508, #521)
+
+Measured on 2026-11-21 on this Mac (load average 8 to 11 from other work), Chromium 156.0.8078.4, against the built portal
+and the stand-ins. Stage: built-mocked. The logs, the probe harness (never committed) and the scripts are in
+`docs/reviews/2026-11-21-issue-508/evidence/`.
+
+**479-P9 (#508): the cause was in the product.** The form tests each configured pattern in a Web Worker with a 200 ms limit
+(`patterns.ts`, #336). A test that runs out of time marks its pattern slow for the session: from then on the pattern is "not
+checked here", so its errors stop showing. The limit was timed from `postMessage`. A test posted to a worker that is still
+starting waits in its queue (HTML, "run a worker": the worker's implicit port's message queue is enabled after the script
+runs; web messaging: a port message queue "is initially disabled"), so the first test of a page also paid the worker's
+start-up. A probe wrapping `Worker` measured that start at 7 to 8 ms with no throttle, 49 to 74 ms at a CPU throttle of 6
+(CDP `Emulation.setCPUThrottlingRate`), and above 200 ms at 25: spawned at 11880 ms, the first test posted at 11886 ms and
+ended at 12118 ms. The pattern was the label-value pattern, so "check out" never showed "A label value: …". The 2026-11-20
+Chrome miss was the same class, on an extra key's syntax pattern. A slow main thread was not the trigger: tests answered
+more than 200 ms after their post were not ended, because the answer and the timer both wait for the same busy thread.
+
+The worker now says that it has started a test (`{ id, started: true }`) before it runs it, and the page arms the 200 ms limit
+on that message. Until then only a start limit runs (`WORKER_START_LIMIT_MS`, 5 s). A worker that has not started by then
+is treated as no worker, as when `new Worker` throws, and cmapi's dry run decides. So is a worker that fails before it
+starts a test: a script that a CSP blocks or that is not found reaches the page as an `error` event, not as an exception
+from `new Worker` (HTML, "run a worker"), and the page makes no new worker for each later test (#522 reviewer 2). `dispose()`
+settles the test in hand at once, in either phase, and marks neither the pattern slow nor the checker broken (#522 reviewer 1). A pattern that runs on is still ended
+200 ms after it starts (check "18 New namespace: a configured pattern that backtracks").
+
+**Check 7 (#508, #521): the time is the scans.** "7 the Quotas and KPIs tabs" ran 91.3 s, past its 90 s limit. By step over
+its 12 pages: axe 73.0 s for 16 scans, reaching the views 7.1 s, the settle 5.4 s, screenshots 1.9 s. One
+`AxeBuilder.analyze()` of the Quotas page took 5.3 s. Measured apart, `axe.runPartial` took 3.2 s (a 3.98 MB partial result
+for 1938 elements), and `axe.finishRun`, in the blank page that @axe-core/playwright 4.14.0 opens, took 4.6 s.
+`setLegacyMode(true)` took 2.2 s, but the vendor's README calls it "a last resort", and fewer scans would drop assertions. So
+each view is its own check now, with the same lines. "7 the Workflow, New namespace and Approvals tabs" was the same class
+at 67.1 s (#521), and is split the same way. Each `ok` line now prints its time against the limit.
+
+| Check | How | Before (main 0304e60) | After |
+|---|---|---|---|
+| 479-P9-P11, the 390 light view | `PROBE=1 PROBE_THROTTLE=25 PROBE_VIEW="390 light"`, 8 runs each (`ab.sh`) | 7 of 7 runs that reached the form failed, `the field's error is null, not /^A label value: /` (one more timed out in sign-in, before the form) | 7 of 7 passed, no worker ended (one timed out in sign-in) |
+| The checker alone | `node tests/api/direct.test.mjs`, the two 508 tests: the real `patternWorker.ts` in a stand-in Worker that starts 400 ms late, a test that runs on, a worker that never starts | with the limit timed from the post (mutant "#508 the pattern's time limit counts the worker's start"): `checked after the start: not 'not checked here'` | 32 of 32 |
+| Mutants | `node tests/api/mutants.mjs "#508"` | | 3 new, 3 killed: the limit from the post, a worker that never starts holding the form, and one waited for again |
+| 7 the Quotas and KPIs tabs | `CHECK="7 the Quotas and KPIs"` | one check, 91.3 s: `did not end in 90 s` | quotas 24.9 s, quotas-typeahead 25.4 s, quotas-export 30.4 s, kpis 8.4 s (in `npm test`) |
+| 7 the Workflow, New namespace and Approvals tabs | `CHECK="7 "` | one check, 67.1 s | workflow 8.5 s, new 10.8 s, approvals 7.8 s, new-company 10.8 s, new-479-problems 14.3 s, new-479-checked 15.7 s (in `npm test`) |
+| The assertions of both checks | the lines with `assert`, the scan, the screenshot and the waits, before and after (`check7*-assert-*.txt`) | 14 and 18 lines | identical |
+| Everything | `npm test` | | exit 0; portal 100 checks, the longest 39.7 s ("7 the Policies tab") |
+| The installed Chrome | `PW_CHANNEL=chrome node tests/api/portal.test.mjs` | | exit 0; Chrome 158.0.8127.36, 100 of 100, the longest 34.5 s; 479-P9-P11 25.1 s; the Quotas and KPIs parts 27.0, 28.1, 28.1 and 8.5 s |
+
 ## What testing found
 
 | Found by | Problem | Fix |
@@ -460,6 +504,7 @@ node tests/api/mutants.mjs "407:"
 | Axe | A long token made a KPI card a scrollable region no keyboard could reach | Text wraps inside cards |
 | Installed Chrome | `/favicon.ico` 404 reported as a console error; a dev server hid it | An inline icon |
 | Repeated runs under CPU throttle and API delay | Check 7 read the page in the gap before PatternFly's tab scroll buttons started their transitions (#347); the Quotas pager said the new sort over the old rows (#392) | The check waits for the tab bar at rest; the pager says the shown rows' sort and the table is `aria-busy` |
+| A probe of the pattern worker under a CPU throttle | The first pattern test of a page also timed the worker's start-up, so a cold start past 200 ms marked a plain pattern slow and its errors stopped showing (#508) | The limit starts when the worker starts the test; a separate start limit |
 | Independent review | 17 defects the suites had passed, including forms submitting what the mockup refuses and a footnote about a tick that did not exist | See `docs/reviews/2026-11-05-portal-ui.md` |
 
 Mockup behaviour worth a decision, left unchanged in `Main.dc.html`: the Team DL field has a value and no handler, so typing
