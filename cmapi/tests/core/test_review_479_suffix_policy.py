@@ -38,7 +38,8 @@ def failures_on_create(kyverno, catalog, keys, tmp_path, name: str) -> list[str]
 
 
 SUFFIX_REFUSAL = (f"the namespace name must end with '-' and the value of the label {ENV_KEY}, "
-                  "joined to the prefix directly or with a desired name between them")
+                  "joined to the prefix directly or with a desired name between them "
+                  "that starts and ends with a letter or digit")
 
 
 def test_the_generated_policy_refuses_a_name_that_ends_with_another_environment(kyverno, catalog, tmp_path):
@@ -80,3 +81,14 @@ def test_at_admission_an_update_passes_the_suffix_check_as_a_change_cannot_renam
     docs = [d for text in bundle.values() for d in yaml.safe_load_all(text) if d and d.get("kind") == "ValidatingPolicy"]
     expressions = [v["expression"] for d in docs for v in d["spec"]["validations"] if v.get("message") == SUFFIX_REFUSAL]
     assert len(expressions) == 1 and expressions[0].startswith("variables.update || (")
+
+
+@pytest.mark.parametrize("name", ["abcd-x-rnd", "abcd--x-rnd", "ab-rnd"])
+def test_514_a_name_with_another_prefix_is_refused_on_the_prefix_key_only(kyverno, catalog, tmp_path, name):
+    failures = failures_on_create(kyverno, catalog, suffix_keys(), tmp_path, name)
+    assert len(failures) == 1 and SUFFIX_REFUSAL not in failures, failures
+
+
+def test_514_the_refusal_of_a_middle_says_the_rule(kyverno, catalog, tmp_path):
+    assert failures_on_create(kyverno, catalog, suffix_keys(), tmp_path, "abc--x-rnd") == [SUFFIX_REFUSAL]
+    assert SUFFIX_REFUSAL.endswith("that starts and ends with a letter or digit")
