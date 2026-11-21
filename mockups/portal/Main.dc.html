@@ -205,6 +205,10 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
 .rowbtn.off { color: #b4bcc8; cursor: default; }
 /* #537: a section that opens and closes (the WAI-ARIA disclosure: a button in the heading, with aria-expanded), its count, and numbered pages. */
 .sechead { display: flex; align-items: center; gap: 10px; }
+/* A section's region is the card's grid item now (#540): keep the card's gap and let a wide table scroll inside it instead of
+   widening the page (a grid item with visible overflow is as wide as its content). display: grid would override [hidden]. */
+.card > [role="region"] { display: grid; gap: 12px; min-width: 0; }
+.card > [role="region"][hidden] { display: none; }
 .disclose { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; min-height: 24px; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .disclose::before { content: ""; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 0.15s; }
 .disclose[aria-expanded="true"]::before { transform: rotate(90deg); }
