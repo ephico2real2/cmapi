@@ -30,8 +30,10 @@ export function patternChecker({ limitMs = PATTERN_LIMIT_MS, startLimitMs = WORK
   let broken = false;
   let next = 0;
   let queue: Promise<unknown> = Promise.resolve();
+  let cancelTest: (() => void) | null = null;
 
-  const end = () => { worker?.terminate(); worker = null; };
+  // Ending a worker also settles its test. dispose() may be called in either timed phase.
+  const end = () => { worker?.terminate(); worker = null; cancelTest?.(); };
   const once = (pattern: string, value: string): Promise<boolean | null> => {
     if (broken || slow.has(pattern)) return Promise.resolve(null);
     const memo = known.get(`${pattern}\u0000${value}`);
@@ -39,12 +41,14 @@ export function patternChecker({ limitMs = PATTERN_LIMIT_MS, startLimitMs = WORK
     try {
       worker ??= spawn();
     } catch {
-      broken = true;                 // no worker here (a policy or an old browser): nothing is checked here, cmapi decides
+      broken = true;                 // no Worker here (an old browser): nothing is checked here, cmapi decides
       return Promise.resolve(null);
     }
     const w = worker, id = ++next;
     return new Promise((resolve) => {
+      let running = false;
       const done = (ok: boolean | null) => {
+        cancelTest = null;
         clearTimeout(timer);
         w.removeEventListener("message", onMessage);
         w.removeEventListener("error", onError);
@@ -54,6 +58,7 @@ export function patternChecker({ limitMs = PATTERN_LIMIT_MS, startLimitMs = WORK
         const reply = e.data;
         if (reply.id !== id) return;
         if ("started" in reply) {
+          running = true;
           clearTimeout(timer);
           timer = setTimeout(() => { slow.add(pattern); end(); done(null); }, limitMs);
           return;
@@ -64,9 +69,13 @@ export function patternChecker({ limitMs = PATTERN_LIMIT_MS, startLimitMs = WORK
         }
         done(reply.ok);
       };
-      const onError = () => { end(); done(null); };
+      // An error before the test started is the worker's script that did not load or run: a CSP block or a 404 is a
+      // network error, and the page gets an "error" event, not an exception from new Worker (HTML, "run a worker"). That
+      // worker never starts, so the page has none, as at a missed start; an error after the start ends only this worker.
+      const onError = () => { if (!running) broken = true; end(); done(null); };
       // Until the worker starts the test, only its start-up is timed; the pattern is not at fault for it.
       let timer = setTimeout(() => { broken = true; end(); done(null); }, startLimitMs);
+      cancelTest = () => done(null);
       w.addEventListener("message", onMessage);
       w.addEventListener("error", onError);
       w.postMessage({ id, pattern, value });

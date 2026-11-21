@@ -467,7 +467,10 @@ more than 200 ms after their post were not ended, because the answer and the tim
 
 The worker now says that it has started a test (`{ id, started: true }`) before it runs it, and the page arms the 200 ms limit
 on that message. Until then only a start limit runs (`WORKER_START_LIMIT_MS`, 5 s). A worker that has not started by then
-is treated as no worker, as when `new Worker` throws, and cmapi's dry run decides. A pattern that runs on is still ended
+is treated as no worker, as when `new Worker` throws, and cmapi's dry run decides. So is a worker that fails before it
+starts a test: a script that a CSP blocks or that is not found reaches the page as an `error` event, not as an exception
+from `new Worker` (HTML, "run a worker"), and the page makes no new worker for each later test (#522 reviewer 2). `dispose()`
+settles the test in hand at once, in either phase, and marks neither the pattern slow nor the checker broken (#522 reviewer 1). A pattern that runs on is still ended
 200 ms after it starts (check "18 New namespace: a configured pattern that backtracks").
 
 **Check 7 (#508, #521): the time is the scans.** "7 the Quotas and KPIs tabs" ran 91.3 s, past its 90 s limit. By step over
