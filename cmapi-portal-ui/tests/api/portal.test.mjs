@@ -3943,6 +3943,75 @@ try {
     await context.close();
   });
 
+  await check("540-R switching clusters twice resets every time, including a smaller or empty policy list", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    await openPol(page);
+    await openPolicies(page);
+    for (const via of ["chip", "address"]) {
+      const clusterId = via === "chip" ? "CRC" : "OCP_GF6";
+      await policyPager(page).getByRole("button", { name: "Page 4", exact: true }).click();
+      api.state.policies = policyFleetWith(10);
+      if (via === "chip") await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: clusterId, exact: true }).click();
+      else await page.evaluate((id) => { location.hash = `#policies?cluster=${id}`; }, clusterId);
+      await polCard(page, "Results by policy").getByText("1–10 of 10", { exact: true }).waitFor();
+      assert.equal((await policyNames(page)).length, 10, `${via}: fewer pages than page 4`);
+      api.state.policies = EIGHTY();
+      // Do not page in CRC: that would overwrite the old cluster and mask the regression.
+      if (via === "chip") await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "All clusters", exact: true }).click();
+      else await page.evaluate(() => { location.hash = "#policies"; });
+      await polCard(page, "Results by policy").getByText("1–25 of 80", { exact: true }).waitFor();
+      assert.equal(await policyRange(page), "1–25 of 80", `${via}: returning to All clusters also resets`);
+    }
+    api.state.policies = policyFleetWith(0);
+    await page.evaluate(() => { location.hash = "#policies?cluster=OCP_GF10"; });
+    await panel(page).getByText("No policy runs in the environments of these clusters.", { exact: true }).waitFor();
+    assert.deepEqual(await policyNames(page), []);
+    assert.equal(await policyPager(page).count(), 0, "zero policies has an empty state, no phantom page");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("540-S chip wrapping stays scoped to chip strips in Policies and other cards", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    for (const hash of ["#policies", "#quotas"]) {
+      await open(page, hash);
+      if (hash === "#policies") {
+        await page.locator("table[aria-label=Clusters]").waitFor();
+        await openPolicies(page);
+      }
+      await panel(page).locator(".cp-wrap").first().waitFor();
+      const wraps = await panel(page).locator(".cp-wrap, .cp-wrap .cp-scroll").evaluateAll((els) => els.map((el) => ({
+        chips: el.classList.contains("cp-scroll"), wrap: getComputedStyle(el).overflowWrap
+      })));
+      assert.ok(wraps.some((w) => w.chips), `${hash}: exercise the shared Choices component`);
+      for (const w of wraps) assert.equal(w.wrap, w.chips ? "normal" : "anywhere", `${hash}: text outside chip strips keeps its wrapping`);
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("540-A every disclosure controls a persistent uniquely named region", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    await openPol(page);
+    for (const title of SECTIONS) {
+      const toggle = polToggle(page, title);
+      const targetId = await toggle.getAttribute("aria-controls");
+      assert.ok(targetId, `${title}: aria-controls`);
+      const target = page.locator(`[id=${JSON.stringify(targetId)}]`);
+      assert.equal(await target.count(), 1, `${title}: one persistent target`);
+      assert.equal(await target.getAttribute("aria-labelledby"), await toggle.getAttribute("id"));
+      for (const key of ["Enter", "Space"]) {
+        await toggle.focus();
+        await page.keyboard.press(key);
+        const expanded = await toggle.getAttribute("aria-expanded") === "true";
+        assert.equal(await target.isVisible(), expanded, `${title}: ${key} synchronizes visibility`);
+        assert.equal(await target.count(), 1, `${title}: closing keeps the target`);
+      }
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   await check("537-K the section toggles, the page buttons and the page sizes work from the keyboard, and focus stays on the button pressed, at 390, 820 and 1440 px in each theme", async () => {
     const fleet = EIGHTY(), names = fleet.policies.map((p) => p.name);
     for (const width of [390, 820, 1440]) {

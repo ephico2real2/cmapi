@@ -1540,9 +1540,9 @@ export class Component extends DCLogic {
       prevDis: at === 1 ? "true" : "false", prevCls: at === 1 ? "off" : "", prev: function () { if (at > 1) go(at - 1); },
       nextDis: at === last ? "true" : "false", nextCls: at === last ? "off" : "", next: function () { if (at < last) go(at + 1); },
       sizes: POL_PAGE_SIZES.map(function (n) { var on = size === n; return { label: String(n), cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { pg.setRows(n); } }; }),
-      slots: pageSlots(at, last).map(function (n) { return { isGap: n === 0, isPage: n > 0, text: n ? String(n) : "…", label: "Page " + n, current: n === at ? "page" : null, pick: function () { go(n); } }; }) };
+      slots: pageSlots(at, last).map(function (n, i) { return { key: n ? "page-" + n : "gap-" + i, isGap: n === 0, isPage: n > 0, text: n ? String(n) : "…", label: "Page " + n, current: n === at ? "page" : null, pick: function () { go(n); } }; }) };
     // Each section opens and closes; its count shows either way. Results by policy, the long one, starts closed.
-    var section = function (key, n) { var on = !!st[key]; return { show: on, open: on ? "true" : "false", count: String(n), toggle: function () { var o = {}; o[key] = !on; self.setState(o); } }; };
+    var section = function (key, n) { var on = !!st[key]; return { show: on, hidden: !on, open: on ? "true" : "false", count: String(n), toggle: function () { var o = {}; o[key] = !on; self.setState(o); } }; };
     var sec = { clusters: section("popenClusters", clRows.length), fails: section("popenFails", shown.length), refused: section("popenRefused", POL_REJECTIONS[st.inst].length), policies: section("popenPolicies", policies.length) };
     var drift = clRows.filter(function (c) { return c.bundleTone === "warn"; }).length, failN = fails.filter(function (f) { return f.result === "fail"; }).length;
     return { pinned: pinned + " (cluster-configs policies, tag per instance)", tone: drift || failN ? "warn" : "ok", head: failN + " failing · " + drift + " cluster" + (drift === 1 ? "" : "s") + " off the pinned bundle",

@@ -92,15 +92,17 @@ export function Section({ title, count, open, onToggle, children }: { title: Rea
   const id = useId();
   return (
     <Card isCompact isExpanded={open}>
-      <CardHeader onExpand={onToggle} toggleButtonProps={{ id: `${id}-toggle`, "aria-labelledby": `${id}-title${count === undefined ? "" : ` ${id}-count`}`, "aria-expanded": open }}>
+      <CardHeader onExpand={onToggle} toggleButtonProps={{ id: `${id}-toggle`, "aria-labelledby": `${id}-title${count === undefined ? "" : ` ${id}-count`}`, "aria-expanded": open, "aria-controls": `${id}-content` }}>
         <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }} flexWrap={{ default: "nowrap" }}>
           <CardTitle id={`${id}-title`} component="h2">{title}</CardTitle>
           {count !== undefined && <Badge id={`${id}-count`} isRead>{count}</Badge>}
         </Flex>
       </CardHeader>
-      <CardExpandableContent>
-        <CardBody><Stack hasGutter className="cp-wrap">{children}</Stack></CardBody>
-      </CardExpandableContent>
+      <div id={`${id}-content`} role="region" aria-labelledby={`${id}-toggle`} hidden={!open}>
+        <CardExpandableContent>
+          <CardBody><Stack hasGutter className="cp-wrap">{children}</Stack></CardBody>
+        </CardExpandableContent>
+      </div>
     </Card>
   );
 }

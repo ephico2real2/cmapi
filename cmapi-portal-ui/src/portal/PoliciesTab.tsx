@@ -81,6 +81,8 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
   // from a chip or from the address, starts at page 1; so does a new page size.
   const [perPage, setPerPage] = useState(25);
   const [at, setAt] = useState({ cluster, page: 1 });
+  // Commit the reset as well as displaying it: returning to a previous cluster must not resurrect its page.
+  if (at.cluster !== cluster) setAt({ cluster, page: 1 });
   const goTo = (n: number) => setAt({ cluster, page: n });
   const pickPerPage = (n: number) => { setPerPage(n); goTo(1); };
   const apply = (next: { cluster?: string; policy?: string }) => {

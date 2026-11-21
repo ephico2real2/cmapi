@@ -882,7 +882,8 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
           <span class="pill {{pol.tone}}">{{pol.head}}</span>
         </div>
         <div class="card">
-          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" aria-expanded="{{pol.sec.clusters.open}}" onClick="{{pol.sec.clusters.toggle}}">Clusters</button></h3><span class="count">{{pol.sec.clusters.count}}</span></div>
+          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" id="pol-clusters-toggle" aria-controls="pol-clusters-content" aria-expanded="{{pol.sec.clusters.open}}" onClick="{{pol.sec.clusters.toggle}}">Clusters</button></h3><span class="count">{{pol.sec.clusters.count}}</span></div>
+          <div id="pol-clusters-content" hidden="{{pol.sec.clusters.hidden}}" role="region" aria-labelledby="pol-clusters-toggle">
           <sc-if value="{{pol.sec.clusters.show}}" hint-placeholder-val="{{true}}">
             <div class="tablebox">
               <table class="res">
@@ -892,9 +893,11 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             </div>
             <p class="foot">Kyverno not installed, an unreachable cluster, and results dropped by the report size breaker show as states, never as zero. A cluster on another bundle tag than the pinned one raises CmapiPolicyBundleDrift after 30 minutes.</p>
           </sc-if>
+          </div>
         </div>
         <div class="card">
-          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" aria-expanded="{{pol.sec.fails.open}}" onClick="{{pol.sec.fails.toggle}}">{{pol.failTitle}}</button></h3><span class="count">{{pol.sec.fails.count}}</span></div>
+          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" id="pol-fails-toggle" aria-controls="pol-fails-content" aria-expanded="{{pol.sec.fails.open}}" onClick="{{pol.sec.fails.toggle}}">{{pol.failTitle}}</button></h3><span class="count">{{pol.sec.fails.count}}</span></div>
+          <div id="pol-fails-content" hidden="{{pol.sec.fails.hidden}}" role="region" aria-labelledby="pol-fails-toggle">
           <sc-if value="{{pol.sec.fails.show}}" hint-placeholder-val="{{true}}">
             <div class="tablebox">
               <table class="res">
@@ -905,9 +908,11 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             <sc-if value="{{pol.noFails}}" hint-placeholder-val="{{false}}"><p class="empty">Nothing failing for this selection.</p></sc-if>
             <p class="foot">GET /api/v1/policies/results?result=fail,warn,error · filtered to the environments your roles cover · paged like every list.</p>
           </sc-if>
+          </div>
         </div>
         <div class="card">
-          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" aria-expanded="{{pol.sec.refused.open}}" onClick="{{pol.sec.refused.toggle}}">Refused by cmapi before Git · last 7 days</button></h3><span class="count">{{pol.sec.refused.count}}</span></div>
+          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" id="pol-refused-toggle" aria-controls="pol-refused-content" aria-expanded="{{pol.sec.refused.open}}" onClick="{{pol.sec.refused.toggle}}">Refused by cmapi before Git · last 7 days</button></h3><span class="count">{{pol.sec.refused.count}}</span></div>
+          <div id="pol-refused-content" hidden="{{pol.sec.refused.hidden}}" role="region" aria-labelledby="pol-refused-toggle">
           <sc-if value="{{pol.sec.refused.show}}" hint-placeholder-val="{{true}}">
             <div class="tablebox">
               <table class="res">
@@ -917,9 +922,11 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             </div>
             <p class="foot">GET /api/v1/policies/rejections?since=7d · plan-time refusals never become requests, so they are listed here rather than under Requests.</p>
           </sc-if>
+          </div>
         </div>
         <div class="card">
-          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" aria-expanded="{{pol.sec.policies.open}}" onClick="{{pol.sec.policies.toggle}}">Results by policy</button></h3><span class="count">{{pol.sec.policies.count}}</span></div>
+          <div class="sechead"><h3 class="lbl"><button type="button" class="disclose" id="pol-policies-toggle" aria-controls="pol-policies-content" aria-expanded="{{pol.sec.policies.open}}" onClick="{{pol.sec.policies.toggle}}">Results by policy</button></h3><span class="count">{{pol.sec.policies.count}}</span></div>
+          <div id="pol-policies-content" hidden="{{pol.sec.policies.hidden}}" role="region" aria-labelledby="pol-policies-toggle">
           <sc-if value="{{pol.sec.policies.show}}" hint-placeholder-val="{{true}}">
             <div class="chips" role="group" aria-label="Cluster"><sc-for list="{{pol.clusterOpts}}" as="o" hint-placeholder-count="4"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div>
             <div class="pager">
@@ -927,7 +934,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
               <div class="fgroup"><span class="flabel">Per page</span><div class="chips" role="group" aria-label="Per page"><sc-for list="{{pol.pg.sizes}}" as="o" hint-placeholder-count="3"><button type="button" class="chip {{o.cls}}" aria-pressed="{{o.on}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div></div>
               <nav class="pagenav" aria-label="Results by policy pages">
                 <button type="button" class="pagebtn {{pol.pg.prevCls}}" aria-label="Previous page" aria-disabled="{{pol.pg.prevDis}}" onClick="{{pol.pg.prev}}">‹</button>
-                <sc-for list="{{pol.pg.slots}}" as="p" hint-placeholder-count="3"><sc-if value="{{p.isGap}}" hint-placeholder-val="{{false}}"><span class="pagegap" aria-hidden="true">{{p.text}}</span></sc-if><sc-if value="{{p.isPage}}" hint-placeholder-val="{{true}}"><button type="button" class="pagebtn" aria-label="{{p.label}}" aria-current="{{p.current}}" onClick="{{p.pick}}">{{p.text}}</button></sc-if></sc-for>
+                <sc-for list="{{pol.pg.slots}}" as="p" key="{{p.key}}" hint-placeholder-count="3"><sc-if value="{{p.isGap}}" hint-placeholder-val="{{false}}"><span class="pagegap" aria-hidden="true">{{p.text}}</span></sc-if><sc-if value="{{p.isPage}}" hint-placeholder-val="{{true}}"><button type="button" class="pagebtn" aria-label="{{p.label}}" aria-current="{{p.current}}" onClick="{{p.pick}}">{{p.text}}</button></sc-if></sc-for>
                 <button type="button" class="pagebtn {{pol.pg.nextCls}}" aria-label="Next page" aria-disabled="{{pol.pg.nextDis}}" onClick="{{pol.pg.next}}">›</button>
               </nav>
             </div>
@@ -939,6 +946,7 @@ dl.kv dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; fo
             </div>
             <p class="foot">{{pol.legacy}}</p>
           </sc-if>
+          </div>
         </div>
       </div>
     </sc-if>
@@ -2590,9 +2598,9 @@ class Component extends DCLogic {
       prevDis: at === 1 ? "true" : "false", prevCls: at === 1 ? "off" : "", prev: function () { if (at > 1) go(at - 1); },
       nextDis: at === last ? "true" : "false", nextCls: at === last ? "off" : "", next: function () { if (at < last) go(at + 1); },
       sizes: POL_PAGE_SIZES.map(function (n) { var on = size === n; return { label: String(n), cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { pg.setRows(n); } }; }),
-      slots: pageSlots(at, last).map(function (n) { return { isGap: n === 0, isPage: n > 0, text: n ? String(n) : "…", label: "Page " + n, current: n === at ? "page" : null, pick: function () { go(n); } }; }) };
+      slots: pageSlots(at, last).map(function (n, i) { return { key: n ? "page-" + n : "gap-" + i, isGap: n === 0, isPage: n > 0, text: n ? String(n) : "…", label: "Page " + n, current: n === at ? "page" : null, pick: function () { go(n); } }; }) };
     // Each section opens and closes; its count shows either way. Results by policy, the long one, starts closed.
-    var section = function (key, n) { var on = !!st[key]; return { show: on, open: on ? "true" : "false", count: String(n), toggle: function () { var o = {}; o[key] = !on; self.setState(o); } }; };
+    var section = function (key, n) { var on = !!st[key]; return { show: on, hidden: !on, open: on ? "true" : "false", count: String(n), toggle: function () { var o = {}; o[key] = !on; self.setState(o); } }; };
     var sec = { clusters: section("popenClusters", clRows.length), fails: section("popenFails", shown.length), refused: section("popenRefused", POL_REJECTIONS[st.inst].length), policies: section("popenPolicies", policies.length) };
     var drift = clRows.filter(function (c) { return c.bundleTone === "warn"; }).length, failN = fails.filter(function (f) { return f.result === "fail"; }).length;
     return { pinned: pinned + " (cluster-configs policies, tag per instance)", tone: drift || failN ? "warn" : "ok", head: failN + " failing · " + drift + " cluster" + (drift === 1 ? "" : "s") + " off the pinned bundle",
