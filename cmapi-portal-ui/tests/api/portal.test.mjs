@@ -1181,6 +1181,28 @@ try {
     });
   });
 
+  await check("512 the middle starts and ends with a letter or digit; inner dashes and team-wide names pass", async () => {
+    await atEachView(async (page) => {
+      await fill479(page);
+      const name = page.getByLabel("Namespace", { exact: true });
+      for (const desired of ["-x", "x-", "-"]) {
+        await name.fill(desired);
+        await waitError(name, /^Start and end with a letter or digit\.$/);
+        const before = dryRuns().length;
+        await checkButton(page).click();
+        await panel(page).getByText("Namespace: Start and end with a letter or digit.", { exact: true }).waitFor();
+        assert.equal(dryRuns().length, before, "a bad middle is refused before the dry run");
+      }
+      for (const desired of ["x-y", "x--y", "1", ""]) {
+        await name.fill(desired);
+        await waitError(name, null);
+        await checkButton(page).click();
+        await passed(page).waitFor();
+        assert.equal(dryRuns().at(-1).body.namespace, desired ? `abc-${desired}-dev` : "abc-dev");
+      }
+    });
+  });
+
   await check("479-P3-P5 the keys that cmapi sets are locked and marked automatic; Team copies Mnemonic until edited; each field checks as it is typed", async () => {
     await atEachView(async (page) => {
       for (const label of ["Name", "App environment"]) {

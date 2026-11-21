@@ -360,6 +360,7 @@ export function checkName(start: string | null, desired: string, end: string | n
   if (length(name) > NAME_MAX) return `The full name is longer than ${NAME_MAX} characters.`;
   if (!DNS_LABEL.test(name)) return ends ? "The middle of the name: lowercase letters, digits and '-'. The name starts and ends with a letter or digit."
     : "A DNS-1123 name: lowercase letters, digits and '-', starting and ending with a letter or digit.";
+  if (start !== null && end !== null && desired !== "" && !DNS_LABEL.test(desired)) return "Start and end with a letter or digit.";
   return null;
 }
 
