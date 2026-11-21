@@ -12,6 +12,17 @@
 export type Kind = "label" | "annotation";
 export type Source = "namespace" | "environment" | "cluster" | "instance";
 
+/** How a key may change on an existing namespace (x-cmapi-edit, #481 design section 3): the API decides it per key. */
+export interface KeyEdit {
+  mode: "fixed" | "automatic" | "required" | "optional";
+  /** What the person reads beside a key that is locked, needs a permission or adds an approval; null for none. */
+  reason: string | null;
+  /** A change of this key adds one approver-platform approval (sensitiveKeys). */
+  sensitive: boolean;
+}
+
+const EDIT_MODES: readonly KeyEdit["mode"][] = ["fixed", "automatic", "required", "optional"];
+
 /** One field of the form: a declared key that the requester sets, or one that cmapi sets (read-only, never sent). */
 export interface MetaField {
   /** `ns-label-0`: by kind and position, so no text of the config reaches an id, a selector or aria-describedby. */
@@ -87,6 +98,8 @@ export interface MetaForm {
   otherKeys: Record<Kind, OtherKeys | null>;
   /** The expiry rules of each environment that the instance serves. */
   expiration: Record<string, ExpiryRules>;
+  /** x-cmapi-edit of every declared key, operator-only ones too, by valueKey: what the Namespaces tab locks and why (#484). */
+  edits: Record<string, KeyEdit>;
 }
 
 /** The answer is not the shape that this portal reads: the form shows an error, never a form with fields missing. */
@@ -113,10 +126,8 @@ export const KEYWORDS = {
   property: {
     read: ["type", "pattern", "allOf", "maxLength", "minLength", "enum", "title", "description", "examples", "readOnly", "x-cmapi-rule",
       "x-cmapi-derived-from", "x-cmapi-format", "x-cmapi-namespace-prefix", "x-cmapi-namespace-suffix", "x-cmapi-default-from",
-      "x-cmapi-operator-only"],
-    ignored: {
-      "x-cmapi-edit": "how the key may change on an existing namespace (#481): a create sets every key; the Namespaces tab reads it (#484)"
-    }
+      "x-cmapi-operator-only", "x-cmapi-edit"],
+    ignored: {}
   },
   /** An entry of a property's allOf: the label-value syntax beside a key's own pattern. */
   allOf: { read: ["type", "pattern"], ignored: {} },
@@ -134,6 +145,15 @@ export const KEYWORDS = {
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 const textOf = (value: unknown): string | null => (typeof value === "string" ? value : null);
 const countOf = (value: unknown): number | null => (typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null);
+
+/** x-cmapi-edit of one key, or null when the answer has none. Any other shape is refused: the tab never locks less than cmapi. */
+function editOf(kind: Kind, key: string, prop: Json): KeyEdit | null {
+  const raw = prop["x-cmapi-edit"];
+  if (raw === undefined) return null;
+  if (!isObject(raw) || !EDIT_MODES.includes(raw.mode as KeyEdit["mode"]) || !(raw.reason === null || typeof raw.reason === "string")
+    || typeof raw.sensitive !== "boolean") throw new RulesUnreadable(`x-cmapi-edit of the ${kind} ${key} is not a mode, a reason and a sensitive flag`);
+  return { mode: raw.mode as KeyEdit["mode"], reason: raw.reason as string | null, sensitive: raw.sensitive };
+}
 
 function fieldOf(kind: Kind, key: string, prop: unknown, required: boolean, labelPattern: string | null): MetaField | "operator-only" {
   if (!isObject(prop)) throw new RulesUnreadable(`the ${kind} ${key} is not an object`);
@@ -241,6 +261,7 @@ export function fieldsOf(view: unknown): MetaForm {
   const operatorOnlyLabels: string[] = [];
   const operatorOnly: Record<Kind, string[]> = { label: [], annotation: [] };
   const otherKeys: Record<Kind, OtherKeys | null> = { label: null, annotation: null };
+  const edits: Record<string, KeyEdit> = {};
   for (const [kind, name] of [["label", "labels"], ["annotation", "annotations"]] as const) {
     const map = view[name];
     if (!isObject(map) || map.type !== "object" || !isObject(map.properties)) throw new RulesUnreadable(`${name} has no properties`);
@@ -254,6 +275,10 @@ export function fieldsOf(view: unknown): MetaForm {
     const read = Object.entries(props).map(([key, prop]) =>
       fieldOf(kind, key, prop, required.includes(key), kind === "label" ? labelValue?.pattern ?? null : null));
     const offered = read.filter((f): f is MetaField => f !== "operator-only");
+    for (const [key, prop] of Object.entries(props)) {
+      const edit = editOf(kind, key, prop as Json);
+      if (edit) edits[valueKey({ kind, key })] = edit;
+    }
     operatorOnly[kind] = Object.keys(props).filter((_, i) => read[i] === "operator-only");
     if (kind === "label") operatorOnlyLabels.push(...operatorOnly[kind]);
     otherKeys[kind] = otherKeysOf(name, map);
@@ -266,7 +291,7 @@ export function fieldsOf(view: unknown): MetaForm {
     ];
     ordered.forEach((f, i) => fields.push({ ...f, id: `ns-${kind}-${i}` }));
   }
-  return { fields, labelValue, operatorOnlyLabels, operatorOnly, otherKeys, expiration: expirationOf(view) };
+  return { fields, labelValue, operatorOnlyLabels, operatorOnly, otherKeys, expiration: expirationOf(view), edits };
 }
 
 /** The key of a field's value in the form's state: a key can be a label and an annotation, each with its own value. */

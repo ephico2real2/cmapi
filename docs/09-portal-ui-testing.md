@@ -492,6 +492,51 @@ at 67.1 s (#521), and is split the same way. Each `ok` line now prints its time 
 | Everything | `npm test` | | exit 0; portal 100 checks, the longest 39.7 s ("7 the Policies tab") |
 | The installed Chrome | `PW_CHANNEL=chrome node tests/api/portal.test.mjs` | | exit 0; Chrome 158.0.8127.36, 100 of 100, the longest 34.5 s; 479-P9-P11 25.1 s; the Quotas and KPIs parts 27.0, 28.1, 28.1 and 8.5 s |
 
+## The Namespaces tab (#484)
+
+Measured on 2026-11-21 on this Mac, against the built portal (`dist/`), the stand-in issuer and the stand-in API, in
+Playwright's Chromium 156.0.8078.4. The design is `docs/reviews/2026-11-20-epic-481-metadata-patch/design.md` (sections 3
+to 6, T1 to T9); the visual source is `mockup-namespaces-tab.html` beside it. Stage: built-mocked. It does not prove the
+deployed product.
+
+The stand-in API (`tests/api/standin.mjs`) now holds the tab's namespaces (`namespaceRecord`, `namespacesOfMockup`: the
+mockup's seven on CRC and three on KIND_CMAPI_TEST, with the keys of `metadata-keys.company-479.json`). It follows the API as
+built: `GET .../namespaces` with `q`, `mnemonic` and `limit`, `total` and the facets over every filter but the mnemonic
+(`router.py`, `_namespace_page`; `listquery.py`, `match_rank`); the read's `git`, `sync` and ETag, with the drift of the named
+keys only and the cluster's own keys left out (`state.py`, `sync_view`; `metadata.py`, `drifted_keys`); and the PATCH in the
+route's order: 400 `idempotency-key-required`, the replay, 403 `environment-forbidden`, 428, 412 with the new `etag`, the
+metadata refusal per key (`derived_key`, `missing_required_key`, `invalid_value`, `invalid_key`; `metadata.py`,
+`_fixed_key_error`), 422 `no-change`, the dry run's `metadataDiff` and the sensitive key's approval, and 409 `change-pending`
+with the holder's `requestId` (`repo.py`, lines 172 to 173). The etag is a hash of what Git holds, as `folder_etag`. The read's
+`git.edits` (#528) classifies each undeclared key of Git in `classify()`'s order, with the system keys, reserved prefixes and
+adoption labels of `metadata-keys.company-479.yaml`, and the PATCH refuses a change of a fixed one (`reserved_key`) and a value
+for a removable one (`invalid_key`).
+
+| Check | Command, in `cmapi-portal-ui/` | Result |
+|---|---|---|
+| The pure parts | `node tests/api/direct.test.mjs` (484-T2, 484-T4, 484-T8) | the rows from `x-cmapi-edit`, locked first, then required, optional and additional; the draft as a merge patch (null removes, Git's value or an emptied new key is no change); `rebase` keeps a key only the person changed, drops one Git now holds as wanted, and asks about one both changed |
+| Each keyword of the answer is read | `node tests/contract.test.mjs` | `x-cmapi-edit` moved from "ignored" to "read" |
+| T1 to T9, the 409 and the 412, each at 390, 820 and 1440 px in each theme on a fresh profile | `CHECK="484-T" node tests/api/portal.test.mjs` | 11 checks, 66 views, pass, no console error; in the full `npm test` the longest 22.5 s (484-T9), then 13.2 s (484-T1) |
+| Operator-only keys | `CHECK="484-O"`, a requester and an operator, each at the six views | the requester: `do-not-delete` locked with the API's reason and `cmapi.net/protected` (not in Git) not offered; the operator: both are values to type, the dry run sends `{"do-not-delete": null, "cmapi.net/protected": "true"}` and the approval says one approver-platform |
+| A key that no rule admits (#492 M2) | `CHECK="484-R"`, the six views | locked with "Not allowed by this instance's rules.", no input, Remove and Undo; the dry run sends `null` and the plan's diff shows the removal; `cmapi.net/managed` is not offered |
+| The read's `git.edits` (#528), on the service | `PYTHONPATH=src:tests/service python -m pytest tests/service/test_namespace_git_edits_528.py` in `cmapi/`, PostgreSQL 16 on 55432 | 2 tests: fail before the change (`KeyError: 'edits'`), pass after; a system, an adoption, a reserved, an extra and a disallowed key each with the rule of `edit_rule`, and the removable key is the one the PATCH lets a change remove and never set |
+| Keyboard | `CHECK="484-K"`, at 390 and 1440 | the cluster by its first letter (a closed select's type-ahead; ArrowDown opens the native list on macOS and does not change it), Tab past the chips to the lookup, ↓ ↓ ↑ ↓ with `aria-activedescendant` and `aria-selected`, Enter opens the namespace, Escape closes the list. 4.4 s |
+| A viewer and a role limited to rnd | `CHECK="484-V"` | no change box for a viewer, nor for the rnd requester on a dev namespace; the box on an rnd one |
+| The mockup's words | `CHECK="484-6"` | 21 static strings of the mockup on the page; 3 listed in MOCKUP-CONTRACT.md (the required mark in words, the caret, the closed section's placeholder sentence). The other direction is the list of differences, not a test |
+| Layout and axe | `CHECK="484-L"`, 11 states (empty, lookup, drift, in-sync, pending, unknown, problems, checked, conflict, held, submitted) | 3 widths, 2 themes: no sideways scroll, no leftover placeholder; the change box beside the table at 820 and 1440 and below it at 390; 44 axe scans, no serious or critical finding. In the full `npm test` the longest 17.5 s |
+| Mutants | `node tests/api/mutants.mjs 484`, then `"#527"`, then the two whose text moved | 14 new mutants, one for each of T1 to T9, the 409, the 412, the operator-only keys, the removal of a key that no rule admits, the keyboard and the layout, each run with only its own check: 14 killed. "#527": killed by 484-T7. "the approval count of the plan is wrong" (now in `plan.ts`) and "N1 a dry run reuses a cached pass" (its text made unique): both killed |
+| A gap found on the way | #528 | the read did not say how an undeclared key of Git may change, so the tab could not tell a system key from a key that no rule admits. The read's `git` gains `edits` (additive; `oasdiff breaking` against main: no breaking change), and `edit_rule` gains `removable` for a disallowed key, which a declared key never is, so `GET /api/v1/metadata-keys` is unchanged |
+| A defect found on the way | #527 | `usePatchPlan` kept the QueryClient's 15 s `staleTime`, so a change checked before was answered from the cache with no dry run (TanStack Query v5, "Important Defaults": cached data is fresh for `staleTime`). It now has `staleTime: 0` and `gcTime: 0`, as `usePlan`. Check 484-T7 asserts the second dry run; the mutant "#527" puts the cache back and the check fails |
+
+The full suite, `npm test` in `cmapi-portal-ui/`: exit 0 in 935.7 s; the portal suite 127 checks (27 of them #484), the
+longest 35.5 s of the 90 s limit (check 7, Policies), the direct tests 35 of 35.
+
+Screenshots at 1440 and 390, light and dark: `cmapi-portal-ui/screenshots/484-namespaces-tab/` (11 states, 44 files).
+
+**Not proven here:** the tab against the real service and Keycloak, and on CRC. The stand-in runs no configured value
+pattern (cmapi matches with RE2), so a value that only the pattern refuses is refused in the browser and by cmapi, not by the
+stand-in.
+
 ## What testing found
 
 | Found by | Problem | Fix |

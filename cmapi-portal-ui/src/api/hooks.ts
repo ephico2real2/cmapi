@@ -32,6 +32,8 @@ export type QuotasQuery = NonNullable<operations["quotas_quotas"]["parameters"][
 export type ExportQuery = NonNullable<operations["quotas_export"]["parameters"]["query"]>;
 export type Suggestion = components["schemas"]["Suggestion"];
 export type NamespaceView = components["schemas"]["NamespaceView"];
+export type NamespaceList = components["schemas"]["NamespaceList"];
+export type NamespaceListQuery = NonNullable<operations["namespaces_list_namespaces"]["parameters"]["query"]>;
 export type NamespacePatch = components["schemas"]["NamespacePatch"];
 export type KpiView = components["schemas"]["KpiView"];
 export type ExpirationPage = components["schemas"]["ExpirationPage"];
@@ -417,6 +419,25 @@ export function useNamespace(clusterId: string, ns: string): Result<NamespaceVie
   return { ...resultOf(query), reload: () => void query.refetch() };
 }
 
+/**
+ * GET /api/v1/clusters/{cluster_id}/namespaces with the lookup's parameters (#481 design section 4.4): the Namespaces tab's
+ * mnemonic chips and its type-ahead. A new text is a new query; Query cancels the call that it replaces through the signal,
+ * so a slow answer for an old text never shows. An empty cluster asks nothing.
+ */
+export function useNamespaceList(clusterId: string, params: NamespaceListQuery, enabled = true): Result<NamespaceList> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["namespaces", clusterId, params],
+    enabled: enabled && clusterId !== "",
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET("/api/v1/clusters/{cluster_id}/namespaces", { params: { path: { cluster_id: clusterId }, query: params }, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
 /** One change of a namespace as the person planned it: where, the etag it was read at, and the body. */
 export interface PlannedChange {
   clusterId: string;
@@ -436,6 +457,9 @@ export function usePatchPlan(change: PlannedChange | null): Outcome<Plan> & { re
   const api = useApi();
   const query = useQuery({
     queryKey: ["patch-plan", change],
+    // Every dry run asks the server again, also for a change that was checked before (#527): Git, capacity and the lock move.
+    staleTime: 0,
+    gcTime: 0,
     enabled: change !== null,
     queryFn: async ({ signal }) => {
       const { clusterId, ns, etag, body } = change!;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { PortalConfig } from "./config";
 
 /** The mockup's tabs, in its order. */
-export const TAB_IDS = ["workflow", "new", "quotas", "expiration", "requests", "approvals", "policies", "capacity", "kpis"] as const;
+export const TAB_IDS = ["workflow", "new", "namespaces", "quotas", "expiration", "requests", "approvals", "policies", "capacity", "kpis"] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 export interface Route {

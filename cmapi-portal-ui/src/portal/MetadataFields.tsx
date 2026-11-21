@@ -41,10 +41,46 @@ export interface FieldProps {
   onChange: (value: string) => void;
 }
 
+/**
+ * The input of a field that the person fills: a select for an enum, else a text input with the format's keyboard. The New
+ * namespace form puts it under its label (Field); the Namespaces tab puts it in the "Your change" cell of the key's row,
+ * named by aria-label (#484). One input for both, so a change is checked and typed as a create is.
+ */
+export function FieldInput({ field, value, error, describedBy, label, emptyOption = true, onChange }: {
+  field: MetaField;
+  value: string;
+  error?: string | null;
+  describedBy: string;
+  /** The accessible name when no visible label names the input. */
+  label?: string;
+  /** Whether a select offers "—": a create starts with nothing chosen; a change starts from the value Git holds. */
+  emptyOption?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const validated = error ? "error" : "default";
+  if (field.enum) {
+    // No preselected value: an example is a sample, not a default, so nothing is sent that the person did not choose.
+    return (
+      <FormSelect id={field.id} value={value} isRequired={field.required} validated={validated} aria-describedby={describedBy} aria-label={label}
+        onChange={(_, v) => onChange(v)}>
+        {emptyOption && <FormSelectOption value="" label="—" />}
+        {field.enum.map((v) => <FormSelectOption key={v} value={v} label={v} />)}
+      </FormSelect>
+    );
+  }
+  // email-in-domains: the browser's own address check agrees with cmapi's (#336, design B, section 2). url: type=url would
+  // refuse addresses that cmapi accepts, so it is text with the URL keyboard.
+  const type = field.format === "email-in-domains" ? "email" : "text";
+  return (
+    <TextInput id={field.id} type={type} inputMode={field.format === "url" ? "url" : undefined} isRequired={field.required} value={value}
+      placeholder={field.example ?? undefined} validated={validated} aria-describedby={describedBy} aria-label={label} spellCheck={false} autoComplete="off"
+      onChange={(_, v) => onChange(v)} />
+  );
+}
+
 /** One field: its label says required or optional in words, not by an asterisk alone (WCAG 2.2, 3.3.2). */
 export function Field({ field, value, error, target, copiesFrom = null, defaultSource = null, onChange }: FieldProps) {
   const describedBy = helpIds(field, error);
-  const validated = error ? "error" : "default";
   if (field.derivedFrom !== null) {
     // Read-only, not disabled: it stays in the tab order and a screen reader reads it (WAI-ARIA, aria-readonly). Never sent.
     return (
@@ -57,27 +93,9 @@ export function Field({ field, value, error, target, copiesFrom = null, defaultS
   const label = fieldName(field);
   const info = copiesFrom ? <Label isCompact color="blue">{`from ${copiesFrom.title ?? copiesFrom.key}`}</Label> : undefined;
   const note = defaultSource ? `Filled from ${defaultSource.title ?? defaultSource.key}; you can change it.` : undefined;
-  if (field.enum) {
-    // No preselected value: an example is a sample, not a default, so nothing is sent that the person did not choose.
-    return (
-      <FormGroup label={label} fieldId={field.id} labelInfo={info}>
-        <FormSelect id={field.id} value={value} isRequired={field.required} validated={validated} aria-describedby={describedBy}
-          onChange={(_, v) => onChange(v)}>
-          <FormSelectOption value="" label="—" />
-          {field.enum.map((v) => <FormSelectOption key={v} value={v} label={v} />)}
-        </FormSelect>
-        <Help field={field} error={error} note={note} />
-      </FormGroup>
-    );
-  }
-  // email-in-domains: the browser's own address check agrees with cmapi's (#336, design B, section 2). url: type=url would
-  // refuse addresses that cmapi accepts, so it is text with the URL keyboard.
-  const type = field.format === "email-in-domains" ? "email" : "text";
   return (
     <FormGroup label={label} fieldId={field.id} labelInfo={info}>
-      <TextInput id={field.id} type={type} inputMode={field.format === "url" ? "url" : undefined} isRequired={field.required} value={value}
-        placeholder={field.example ?? undefined} validated={validated} aria-describedby={describedBy} spellCheck={false} autoComplete="off"
-        onChange={(_, v) => onChange(v)} />
+      <FieldInput field={field} value={value} error={error} describedBy={describedBy} onChange={onChange} />
       <Help field={field} error={error} note={note} />
     </FormGroup>
   );

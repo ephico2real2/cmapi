@@ -443,13 +443,22 @@ test("479-P12 the expiry rules of each environment come from x-cmapi-expiration;
 
 test("479-P1 nothing about a company is written in the portal's code: every key, domain and example comes from the API", async () => {
   const { readdirSync } = await import("node:fs");
+  const contract = JSON.parse(readFileSync(new URL("../../../cmapi/contract/openapi.json", import.meta.url), "utf8"));
+  const { schemas } = contract.components;
+  assert.ok("mnemonic" in schemas.NamespaceView.properties && "mnemonics" in schemas.NamespaceFacets.properties
+    && contract.paths["/api/v1/clusters/{cluster_id}/namespaces"].get.parameters.some((p) => p.name === "mnemonic"), "the contract's member names");
+  const CONTRACT_MEMBER = /\.mnemonics?\b|\bmnemonics?(?=\??\s*:)/g;
   const src = new URL("../../src/", import.meta.url);
   const named = [];
   for (const entry of readdirSync(src, { recursive: true })) {
     // The demo build's model and tabs run the mockup's sample logic (MOCKUP-CONTRACT.md, "The demo build"); the generated
     // API types carry the contract's examples. The portal's code is the rest, read without its comments.
     if (!/\.(ts|tsx)$/.test(String(entry)) || /^(model|tabs)\//.test(String(entry)) || String(entry).includes("generated")) continue;
-    const text = readFileSync(new URL(String(entry), src), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    // Since #481 the contract itself names the value of the namespacePrefix key `mnemonic` (NamespaceView.mnemonic, the
+    // list's `mnemonic` parameter, NamespaceFacets.mnemonics): those member names are the API's, so a property access or
+    // an object key of that name is not a company's word. Any other use, such as text on the page, still fails here.
+    const text = readFileSync(new URL(String(entry), src), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1")
+      .replace(CONTRACT_MEMBER, "");
     for (const word of ["company.net", "ephico2real", "cnn.com", "amgsst", "mnemonic"]) if (text.toLowerCase().includes(word)) named.push(`${entry}: ${word}`);
   }
   assert.deepEqual(named, [], "the demo's model and the generated API types are the only sources that name one");
@@ -588,6 +597,60 @@ test("508 the time limit still ends a test that runs on, and a worker that never
   assert.equal(await Promise.race([never.test("^[a-z]+$", "abc"), late(1000)]), null, "no start: not checked here, cmapi decides; the form does not wait without end");
   assert.equal(await Promise.race([never.test("^[0-9]+$", "1"), late(1000)]), null);
   assert.equal(made, 1, "and the page has no worker after it: no second wait for a start");
+});
+
+// #484, the Namespaces tab: its rows, its merge patch and the 412's per-key choice, written from the design of #481 (sections
+// 3, 4.1 and 5) and the answer of GET /api/v1/metadata-keys, not from the tab's code.
+const maps = (labels = {}, annotations = {}) => ({ label: labels, annotation: annotations });
+test("484-T2 rows: the keys of x-cmapi-edit, locked where it fixes them or cmapi fills them in; an operator-only key only where Git holds it", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { isEditable, rowsOf } = await import("../../src/portal/namespaceChange.ts");
+  const form = fieldsOf(KEYS_479);
+  assert.deepEqual(form.edits["label:company.net/mnemonic"], { mode: "fixed", reason: "Part of the namespace's fixed name.", sensitive: false });
+  assert.deepEqual(form.edits["label:cmapi.net/protected"].mode, "optional", "operator-only keys have their x-cmapi-edit too");
+  const git = maps({ name: "abc-payments-dev", "company.net/mnemonic": "abc", "company.net/cl": "1", "do-not-delete": "true", "team.company.net/squad": "checkout",
+    "old.invalid/key": "legacy", "cmapi.net/managed": "true" });
+  // The read's x-cmapi-edit of each undeclared key of Git (#528).
+  const edits = { labels: { "cmapi.net/managed": { mode: "fixed", reason: "Managed by cmapi.", sensitive: false, removable: false },
+    "old.invalid/key": { mode: "fixed", reason: "Not allowed by this instance's rules.", sensitive: false, removable: true },
+    "team.company.net/squad": { mode: "optional", reason: null, sensitive: false, removable: false } }, annotations: {} };
+  const rows = rowsOf(form, git, maps(), edits, false);
+  const labels = rows.filter((r) => r.kind === "label").map((r) => [r.key, r.access]);
+  assert.deepEqual(labels, [["name", "locked"], ["company.net/app-environment", "locked"], ["company.net/mnemonic", "locked"], ["do-not-delete", "locked"],
+    ["company.net/lob", "field"], ["company.net/cl", "field"], ["cmapi.net/team", "field"], ["cmapi.net/cost-center", "field"], ["cmapi.net/app", "field"],
+    ["cmapi.net/rightsizing", "field"], ["old.invalid/key", "remove"], ["team.company.net/squad", "value"]],
+    "locked first, then required, optional and the undeclared keys; cmapi.net/protected is not in Git; cmapi's own key is not shown");
+  assert.equal(isEditable(rows.find((r) => r.key === "old.invalid/key")), false, "a key that no rule admits is removed, never typed in (#492 M2)");
+  // Design section 3, row 4: an operator-only key is a value to type for a caller with namespaces:protect, all of them.
+  const operator = rowsOf(form, git, maps(), edits, true).filter((r) => r.kind === "label" && form.operatorOnly.label.includes(r.key)).map((r) => [r.key, r.access]);
+  assert.deepEqual(operator, [["cmapi.net/protected", "value"], ["do-not-delete", "value"]]);
+  assert.equal(rows.find((r) => r.key === "team.company.net/squad").extra, true);
+  assert.equal(rows.find((r) => r.key === "company.net/cl").edit.sensitive, true);
+});
+test("484-T4 the draft is a merge patch over Git: a value sets, null removes, Git's own value or an emptied new key is no change", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { changeLines, patchOf, rowsOf, withValue } = await import("../../src/portal/namespaceChange.ts");
+  const form = fieldsOf(KEYS_479);
+  const rows = rowsOf(form, maps({ "company.net/cl": "1", "cmapi.net/cost-center": "cc-4410" }), maps(), { labels: {}, annotations: {} }, false);
+  const row = (key) => rows.find((r) => r.key === key);
+  let draft = withValue({}, row("company.net/cl"), "2");
+  draft = withValue(draft, row("cmapi.net/cost-center"), null);
+  draft = withValue(draft, row("cmapi.net/app"), "");
+  assert.deepEqual(draft, { "label:company.net/cl": "2", "label:cmapi.net/cost-center": null }, "an emptied key that Git lacks adds nothing");
+  assert.deepEqual(withValue(draft, row("company.net/cl"), "1"), { "label:cmapi.net/cost-center": null }, "back to Git's value: no change");
+  const added = { label: [], annotation: [{ id: 1, key: "runbook.company.net/url", value: "https://wiki.company.net/abc/runbook" }, { id: 2, key: "", value: "x" }] };
+  assert.deepEqual(patchOf(draft, added), { labels: { "company.net/cl": "2", "cmapi.net/cost-center": null }, annotations: { "runbook.company.net/url": "https://wiki.company.net/abc/runbook" } });
+  assert.deepEqual(changeLines(rows, draft, added).map((l) => [l.key, l.before, l.after, l.sensitive]),
+    [["company.net/cl", "1", "2", true], ["cmapi.net/cost-center", "cc-4410", null, false], ["runbook.company.net/url", null, "https://wiki.company.net/abc/runbook", false]]);
+});
+test("484-T8 rebase after a 412: a key only I changed is kept; Git now holding my value is no change; a key both changed is asked about", async () => {
+  const { rebase } = await import("../../src/portal/namespaceChange.ts");
+  const before = maps({ "company.net/cl": "1", "cmapi.net/cost-center": "cc-4410", "company.net/lob": "amgsst" });
+  const after = maps({ "company.net/cl": "3", "cmapi.net/cost-center": "cc-5000", "company.net/lob": "amgsst" });
+  const draft = { "label:company.net/cl": "2", "label:cmapi.net/cost-center": "cc-5000", "label:company.net/lob": "retail" };
+  assert.deepEqual(rebase(draft, before, after), { draft: { "label:company.net/cl": "2", "label:company.net/lob": "retail" }, conflicts: ["label:company.net/cl"] });
+  assert.deepEqual(rebase({ "label:cmapi.net/cost-center": null }, before, maps({ "company.net/cl": "1" })), { draft: {}, conflicts: [] }, "removed meanwhile: no change left");
+  assert.deepEqual(rebase({ "label:company.net/cl": null }, before, after), { draft: { "label:company.net/cl": null }, conflicts: ["label:company.net/cl"] }, "a removal of a key Git changed is asked about");
 });
 
 let failed = 0;
