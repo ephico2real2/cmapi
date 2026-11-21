@@ -566,7 +566,7 @@ Once the run is verified and the coordinator agrees. It is the owner's term.
 | Prometheus scraping | Thanos Querier's Route, the session's token on stdin: `up` for both targets, and `cmapi_cluster_status` connected. No exec into someone else's pod | `crc-proof.sh` |
 | `oc adm top node` before and after | Steps 2 and 24 | Files |
 | Only the worker writes, and only inside its policy | The api may not create or patch namespaces or create rolebindings (`oc auth can-i`). Server dry runs as the worker: a namespace labelled `cmapi.net/managed=false` is refused with the policy's own message, one labelled `true` is admitted, and a label on namespace `default` is refused with the same message. A dry run persists nothing | `crc-proof.sh` |
-| A plan reads GitHub and writes nothing | `?dryRun=true` for `cmapi-proof-plan` answers 200 with its files, through the GitHub adapter (the API process reads through GitHub's API, #286), the token in `cmapi-git-bot` and the Git trust of `CMAPI_GIT_CA_BUNDLE` (#97); afterwards no namespace `cmapi-proof-plan` | `crc-proof.sh` |
+| A plan reads GitHub and writes nothing | `?dryRun=true` for `abc-proof-plan-dev` answers 200 with its files, through the GitHub adapter (the API process reads through GitHub's API, #286), the token in `cmapi-git-bot` and the Git trust of `CMAPI_GIT_CA_BUNDLE` (#97); afterwards no namespace `abc-proof-plan-dev` | `crc-proof.sh` |
 | Kyverno's reports are served to the reader | Discovery as `cmapi-reader`, the Policies tab's premise (#387): the served groups, then `GET /apis/wgpolicyk8s.io/v1alpha2`, which must list `clusterpolicyreports` and `policyreports`, each of which the reader may list in every namespace (`oc auth can-i`); the proof stops otherwise. Without the group the tab reads "Kyverno not installed". Whether `openreports.io` is served (#382) is recorded | `crc-proof.sh` |
 | A request delivered | [The full request flow](#the-full-request-flow), in the portal and on the API | Chrome and `oc` |
 
@@ -599,7 +599,9 @@ Nothing is ever pushed to `main`. A merge that fails after the apply leaves the 
 
 **No branch protection (#227).** The repository is private on GitHub's free plan, which refuses branch protection (HTTP 403, "Upgrade to GitHub Pro or make this repository public"). So nothing on GitHub stops a person with write access from pushing to `main` or merging by hand. What holds instead is cmapi's own: the bot pushes only its request branches, each with a lease; the merge check refuses a folder on `main` that is not the plan's base; the merge is pinned to the applied head; and the admission policy keeps the worker out of every namespace not labelled `cmapi.net/managed=true`. A hand edit of a folder on `main` is refused at the next request, not prevented. A hand merge of a cmapi PR is adopted.
 
-**Which test namespaces.** Only cmapi's own: names that start `cmapi-` and are not reserved. Each one is removed by a delete request, approved, then `prune:confirm`.
+**Which test namespaces.** Only cmapi's own, non-reserved namespaces. New names follow `<mnemonic>-…-<env>`: in `deploy/manifests/environments/crc/20-config.yaml`'s `metadata-keys.yaml`, `namespacePrefix` requires a mnemonic of 3–4 lowercase letters, and `namespaceSuffix` requires the cluster's environment, `dev` on CRC. For live scenarios use the owner's chosen `cmap-live-g-dev`, created protected (`cmapi.net/protected=true`). Any later removal uses a delete request, approved, then `prune:confirm`.
+
+The existing `cmapi-live-a` through `cmapi-live-f` predate this rule and keep their names.
 
 ## Other realms unaffected
 

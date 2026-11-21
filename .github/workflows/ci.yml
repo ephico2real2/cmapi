@@ -254,7 +254,7 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
           kubectl version --client
           # The stubs and the guards read YAML.
-          python -m pip install pyyaml==6.0.2 httpx==0.28.1
+          python -m pip install pyyaml==6.0.2 httpx==0.28.1 google-re2==1.1.20251105
       - name: Shellcheck
         run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/kind-import/*.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
