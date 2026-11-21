@@ -841,6 +841,15 @@ try {
     const id = (await input.getAttribute("aria-describedby") ?? "").split(" ").find((x) => x.endsWith("-error"));
     return id ? (await input.page().locator(`#${id}`).textContent()).trim() : null;
   };
+  // A value read after an action waits for it, as Playwright's auto-retrying assertions do: one read can come before the
+  // re-render (#518; https://playwright.dev/docs/test-assertions, "using non-retrying assertions can lead to a flaky test").
+  async function waitValue(input, want) {
+    for (let i = 0; i < 40; i++) {
+      if (await input.inputValue() === want) return;
+      await input.page().waitForTimeout(100);
+    }
+    assert.equal(await input.inputValue(), want);
+  }
   async function waitError(input, want) {
     for (let i = 0; i < 40; i++) {
       const text = await errorOf(input);
@@ -1358,7 +1367,7 @@ try {
       assert.match(await statusText(page), new RegExp(`! Expiry ${isoAfter(200)}, 200 days \\(limit 180: one more approval\\)`));
       assert.match(await code(page), new RegExp(`cmapi\\.net/expires-at: '${isoAfter(200)}'`), "the plan writes the date on the namespace");
       await panel(page).getByRole("button", { name: "No expiry" }).click();
-      assert.equal(await date.inputValue(), "");
+      await waitValue(date, "");
       assert.equal(await page.locator("#ns-exp-days").innerText(), "No expiry: the namespace is permanent.");
       await checkButton(page).click();
       await passed(page).waitFor();
@@ -2237,7 +2246,7 @@ try {
     sentQuery({ limit: "50", startsWith: picked.name }, "the filters start again, and the page starts at the match");
     assert.deepEqual((await quotaRows(page))[0].at(-1), "Selected", "the match is the namespace shown below");
     assert.equal(new URL(page.url()).hash, `#quotas?ns=${encodeURIComponent(`${picked.clusterId}/${picked.name}`)}`);
-    assert.equal(await box.inputValue(), "");
+    await waitValue(box, "");
     await panel(page).getByRole("heading", { name: `${picked.name} on ${picked.clusterId}` }).waitFor();
     // No match, and Escape.
     await box.fill("zzz");
