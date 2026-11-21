@@ -200,6 +200,39 @@ async function walkExpiration() {
   assert.match(await text("main"), /Production namespaces never expire/);
 }
 
+// #537: the sections open and close from the keyboard, Results by policy is last and closed, and its pages are numbered.
+async function walkPolicies() {
+  await reload();
+  await gotoView(page, { instance: "nonprod", tab: "policies" });
+  const toggles = page.locator("main button.disclose");
+  assert.deepEqual(await toggles.allTextContents(), ["Clusters", "Failing, warning and erroring resources", "Refused by cmapi before Git · last 7 days", "Results by policy"], "the order of the sections");
+  assert.deepEqual(await toggles.evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-expanded"))), ["true", "true", "true", "false"]);
+  assert.equal(await page.locator("main table.res").count(), 3, "Results by policy starts closed");
+  const results = toggles.nth(3);
+  await step("policies: focus Results by policy", () => results.focus());
+  await step("policies: open with Enter", () => page.keyboard.press("Enter"));
+  assert.equal(await results.getAttribute("aria-expanded"), "true");
+  const rows = () => page.locator("main table.res").nth(3).locator("tbody tr");
+  assert.equal(await rows().count(), 25, "page 1 has 25 rows");
+  const range = () => page.locator("main .pager:has(nav.pagenav) .meta").innerText();
+  const total = Number(/of (\d+)/.exec(await range())[1]);
+  const two = page.getByRole("button", { name: "Page 2", exact: true });
+  await step("policies: focus page 2", () => two.focus());
+  await step("policies: page 2 with Enter", () => page.keyboard.press("Enter"));
+  assert.equal(await two.getAttribute("aria-current"), "page");
+  assert.equal(await range(), `26–${Math.min(50, total)} of ${total}`);
+  assert.equal(await rows().count(), Math.min(50, total) - 25);
+  await step("policies: 50 a page", () => page.getByRole("group", { name: "Per page" }).getByRole("button", { name: "50" }).click());
+  assert.equal(await range(), `1–${Math.min(50, total)} of ${total}`, "a new page size starts at page 1");
+  await step("policies: back to 25", () => page.getByRole("group", { name: "Per page" }).getByRole("button", { name: "25" }).click());
+  await step("policies: page 2 again", () => two.click());
+  await step("policies: a cluster", () => page.getByRole("group", { name: "Cluster" }).locator(".chip").nth(1).click());
+  assert.match(await range(), /^1–25 of /, "a new cluster starts at page 1");
+  await step("policies: close Clusters with Space", async () => { await toggles.first().focus(); await page.keyboard.press(" "); });
+  assert.equal(await toggles.first().getAttribute("aria-expanded"), "false");
+  assert.equal(await page.locator("main table.res").count(), 3);
+}
+
 // Only the standalone page has these: the hash, the bar, and running without a network.
 async function standaloneOnly() {
   await page.goto(`${url}#staging/quotas`);
@@ -255,7 +288,7 @@ async function standaloneOnly() {
   await offline.close();
 }
 
-for (const [name, walk] of [["workflow", walkWorkflows], ["quotas", walkQuotas], ["new namespace", walkNewNamespace], ["approvals", walkApprovals], ["expiration", walkExpiration]]) {
+for (const [name, walk] of [["workflow", walkWorkflows], ["quotas", walkQuotas], ["new namespace", walkNewNamespace], ["approvals", walkApprovals], ["expiration", walkExpiration], ["policies", walkPolicies]]) {
   await walk();
   console.log(`ok - ${name} (${transcript.length} steps so far)`);
 }
