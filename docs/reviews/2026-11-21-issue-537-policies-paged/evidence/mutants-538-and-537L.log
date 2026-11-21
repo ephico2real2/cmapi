@@ -1,0 +1,5 @@
+ok   #538 the cluster chips break inside a word - killed: AssertionError [ERR_ASSERTION]: open-page-2 390: no chip's label breaks inside a word + actual - expected
+1 mutants, 1 killed, 0 survived, 0 unverified. The source is restored and the portal is built again.
+ok   537-L a section toggle has no name - killed: AssertionError [ERR_ASSERTION]: axe on closed at 390 light + actual - expected
+FAIL 537-L the page buttons never wrap - SURVIVED
+2 mutants, 1 killed, 1 survived, 0 unverified. The source is restored and the portal is built again.

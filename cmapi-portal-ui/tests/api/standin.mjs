@@ -406,6 +406,19 @@ export function policyFleet(rows = policyRowsFrom(30)) {
     error: rows.filter((r) => r.policy === p.name && r.result === "error").length }])) };
   return { policy: POLICY_SAMPLE.policy, clusters, policies: POLICY_SAMPLE.policies, perCluster, items: rows };
 }
+/**
+ * The fleet with `count` policies, as a bundle of many stanzas renders (#537: 80 on CRC): the recorded ones, then copies
+ * whose names end in a number, each with the counts of the policy it copies.
+ */
+export function policyFleetWith(count, rows = policyRowsFrom(30)) {
+  const fleet = policyFleet(rows), recorded = fleet.policies;
+  const policies = Array.from({ length: count }, (_, i) => {
+    const p = recorded[i % recorded.length];
+    return i < recorded.length ? p : { ...p, name: `${p.name}-${Math.floor(i / recorded.length) + 1}` };
+  });
+  const crc = Object.fromEntries(policies.map((p, i) => [p.name, fleet.perCluster.CRC[recorded[i % recorded.length].name]]));
+  return { ...fleet, policies, perCluster: { CRC: crc } };
+}
 const policyKey = (r) => [r.namespace, r.resource.kind, r.resource.name, r.policy, r.kyvernoRule ?? ""].join("/");
 /** GET /api/v1/policies/results: a page, or a problem as [status, code, detail]. */
 export function policyResultsPage(fleet, params) {

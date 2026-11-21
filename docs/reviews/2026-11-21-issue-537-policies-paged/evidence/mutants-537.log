@@ -1,0 +1,13 @@
+ok   537-O Results by policy starts open - killed: AssertionError [ERR_ASSERTION]: 390 light: the order, the counts and what is open + actual - expected
+ok   537-O the refusals above the failing resources - killed: AssertionError [ERR_ASSERTION]: 390 light: the order, the counts and what is open + actual - expected
+ok   537-O the failing count is the rows of one page - killed: AssertionError [ERR_ASSERTION]: 390 light: the order, the counts and what is open + actual - expected
+ok   537-P every policy on one page - killed: AssertionError [ERR_ASSERTION]: 390 light: page 1 + actual - expected
+ok   537-P page 2 shows page 1 - killed: AssertionError [ERR_ASSERTION]: 390 light: page 2 is rows 26–50 + actual - expected
+ok   537-P a new page size keeps the page - killed: AssertionError [ERR_ASSERTION]: 390: a new page size starts at page 1 + actual - expected
+ok   537-P a new cluster keeps the page - killed: AssertionError [ERR_ASSERTION]: 390: a new cluster starts at page 1 + actual - expected
+ok   537-P no gap past seven pages - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   537-P the page shown is not marked current - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected
+ok   537-K paging loses the focus - killed: AssertionError [ERR_ASSERTION]: 390 light: focus stays on page 2 
+ok   537-L a section toggle has no name - killed: AssertionError [ERR_ASSERTION]: axe on closed at 390 light + actual - expected
+FAIL 537-L the pages do not wrap on a phone - SURVIVED
+12 mutants, 11 killed, 1 survived, 0 unverified. The source is restored and the portal is built again.

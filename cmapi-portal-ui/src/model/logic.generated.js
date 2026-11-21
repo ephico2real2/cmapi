@@ -811,6 +811,15 @@ var CHANGE_RULE = { rnd: 0, dev: 0, qa: 1, uat: 1, prod: 1 };
 var GEN_TEAMS = ["accounts", "analytics", "billing", "catalog", "checkout", "claims", "data", "fraud", "gateway", "identity", "inventory", "kyc", "ledger", "loyalty", "marketing", "notifications", "orders", "payments", "pricing", "quotes", "risk", "search", "shipping", "tax", "underwriting", "vendor", "warehouse"];
 var GEN_APPS = ["api", "worker", "batch", "web", "events", "scheduler", "cache", "etl", "reports", "sync", "admin", "edge", "ml", "stream", "notify", "audit"];
 var GEN_PLAN = { nonprod: [["rnd", 180, ["OCP_GF6", "OCP_GF8"]], ["dev", 80, ["OCP_GF15"]]], staging: [["qa", 110, ["OCP_GF11", "OCP_GF12"]], ["uat", 70, ["OCP_GF13"]]], prod: [["prod", 420, ["OCP_GF1", "OCP_GF2", "OCP_GF5"]]] };
+/* The numbered pages of a list (#537): every page up to 7; past that the first and the last page always, the current page with
+   its neighbours, and 0 where pages are left out (an ellipsis). Seven slots at most, as the U.S. Web Design System's pagination. */
+function pageSlots(page, last) {
+  var range = function (a, b) { var out = []; for (var n = a; n <= b; n++) out.push(n); return out; };
+  if (last <= 7) return range(1, last);
+  if (page <= 4) return range(1, 5).concat([0, last]);
+  if (page >= last - 3) return [1, 0].concat(range(last - 4, last));
+  return [1, 0, page - 1, page, page + 1, 0, last];
+}
 function rng(seed) { return function () { seed = (seed + 0x6D2B79F5) | 0; var x = Math.imul(seed ^ (seed >>> 15), 1 | seed); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; }
 function hex(r, n) { var s = ""; while (s.length < n) s += Math.floor(r() * 16).toString(16); return s; }
 function r1(n) { return Math.round(n * 10) / 10; }
@@ -1025,6 +1034,16 @@ var POLICY_DEFS = [
   { name: "generate-default-networkpolicy", kind: "GeneratingPolicy", what: "Creates a default-deny NetworkPolicy in new namespaces" },
   { name: "deny-expiry-in-prod", kind: "ValidatingPolicy", what: "Prod namespaces never carry expiration metadata", prodOnly: true }
 ];
+/* The policies cmapi renders from each environment's metadata keys, tiers and limits: one ValidatingPolicy for each check in each
+   environment, so a bundle holds many (80 on CRC, #537). Their names follow the bundle's: cmapi-<family>-<env>-<kind>-<key>-<rule>. */
+var RENDERED_CHECKS = [
+  ["metadata", "label", "cmapi.net/team", "pattern"], ["metadata", "label", "cmapi.net/app", "pattern"], ["metadata", "label", "cmapi.net/env", "derived"],
+  ["metadata", "label", "cmapi.net/cost-center", "pattern"], ["metadata", "label", "company.net/lob", "required"], ["metadata", "label", "company.net/cl", "enum"],
+  ["metadata", "annotation", "cmapi.net/team-dl", "format"], ["metadata", "annotation", "company.net/mnemonic-confluence", "format"],
+  ["quota", "quota", "requests.cpu", "max"], ["quota", "quota", "requests.memory", "max"], ["quota", "quota", "pods", "max"], ["quota", "quota", "requests.storage", "max"],
+  ["limits", "limit", "limitRange.container.max.cpu", "max"], ["limits", "limit", "limitRange.container.max.memory", "max"]
+];
+var POL_PAGE_SIZES = [25, 50, 100];
 var POL_CLUSTERS = {
   nonprod: [
     { id: "OCP_GF6", env: "rnd", bundle: "v1.4.0", state: "ok" }, { id: "OCP_GF7", env: "rnd", bundle: "—", state: "unreachable since 15:30" },
@@ -1164,7 +1183,7 @@ export class Component extends DCLogic {
   constructor(props) {
     super(props);
     var inst = (props && props.instance) || "nonprod";
-    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all", qns: null, qsize: null, qcpu: null, qmem: null, qcpuRaw: null, qmemRaw: null, qsugIdx: -1, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, nsExp: "", apvDone: {}, apvRejecting: null, apvComment: {}, xstate: "attention", xenv: "all", xq: "", xcursor: null, xsel: null, xact: null, xuntil: "", xsent: false, pcluster: "all", ppolicy: null, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qsort: "name", qlimit: 50, qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null };
+    this.state = { tab: null, inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], tier: "medium", team: "payments", region: "us-central", name: "", dry: false, filter: "all", qns: null, qsize: null, qcpu: null, qmem: null, qcpuRaw: null, qmemRaw: null, qsugIdx: -1, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, nsExp: "", apvDone: {}, apvRejecting: null, apvComment: {}, xstate: "attention", xenv: "all", xq: "", xcursor: null, xsel: null, xact: null, xuntil: "", xsent: false, pcluster: "all", ppolicy: null, popenClusters: true, popenFails: true, popenRefused: true, popenPolicies: false, ppage: 1, prows: 25, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qsort: "name", qlimit: 50, qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null };
     this._cache = {};
   }
   componentWillUnmount() { if (this._timer) clearInterval(this._timer); }
@@ -1172,7 +1191,7 @@ export class Component extends DCLogic {
   stopPlay() { if (this._timer) { clearInterval(this._timer); this._timer = null; } }
   openScn(id, at, reqId) { this.stopPlay(); this.setState({ tab: "workflow", scn: id, i: at || 0, pos: at != null ? { scn: id, i: at, id: reqId } : null, playing: false }); }
   go(i) { var n = this.data(this.state.scn).steps.length; this.setState({ i: Math.max(0, Math.min(i, n - 1)) }); }
-  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "", qns: null, qsize: null, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null, nsExp: "", xstate: "attention", xenv: "all", xq: "", xcursor: null, xsel: null, xact: null, xsent: false, pcluster: "all", ppolicy: null }); }
+  setInstance(inst) { this.stopPlay(); this.setState({ inst: inst, scn: INSTANCE_SCN[inst][0], i: 0, pos: null, playing: false, env: INSTANCES[inst].envs[0], dry: false, name: "", qns: null, qsize: null, qplan: false, qsent: false, qq: "", qapplied: "", qsugOpen: false, qenv: "all", qcluster: "all", qtier: "all", qstate: "all", qcursor: null, qstarts: null, qat: null, qexport: false, rq: "", rcursor: null, nsExp: "", xstate: "attention", xenv: "all", xq: "", xcursor: null, xsel: null, xact: null, xsent: false, pcluster: "all", ppolicy: null, ppage: 1 }); }
 
   workflow() {
     var self = this, st = this.state, d = this.data(st.scn), n = d.steps.length, i = Math.min(st.i, n - 1), step = d.steps[i];
@@ -1484,7 +1503,13 @@ export class Component extends DCLogic {
 
   policiesView(me) {
     var self = this, st = this.state, clusters = POL_CLUSTERS[st.inst], fails = POL_FAILS[st.inst];
-    var defs = POLICY_DEFS.filter(function (p) { return !p.prodOnly || st.inst === "prod"; });
+    var rendered = [];
+    INSTANCES[st.inst].envs.forEach(function (env) {
+      RENDERED_CHECKS.forEach(function (k) {
+        rendered.push({ name: ["cmapi", k[0], env, k[1], k[2].replace(/[^A-Za-z0-9]+/g, "-").toLowerCase(), k[3]].join("-"), kind: "ValidatingPolicy", what: k[1] + " " + k[2] + ": " + k[3] });
+      });
+    });
+    var defs = POLICY_DEFS.filter(function (p) { return !p.prodOnly || st.inst === "prod"; }).concat(rendered);
     var r = rng({ nonprod: 7, staging: 8, prod: 9 }[st.inst]);
     var live = function (c) { return c.bundle !== "—"; };
     var pass = {};
@@ -1499,7 +1524,7 @@ export class Component extends DCLogic {
         pass: ok ? String(p) : "—", fail: ok ? String(cnt(c.id, null, "fail")) : "—", warn: ok ? String(cnt(c.id, null, "warn")) : "—", error: ok ? String(cnt(c.id, null, "error")) : "—",
         state: c.state, stateTone: c.state === "ok" ? "ok" : (/unreachable/.test(c.state) ? "bad" : (/breaker/.test(c.state) ? "warn" : "info")) };
     });
-    var clusterOpts = [["all", "All clusters"]].concat(clusters.filter(live).map(function (c) { return [c.id, c.id]; })).map(function (o) { var on = st.pcluster === o[0]; return { label: o[1], cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { self.setState({ pcluster: o[0] }); } }; });
+    var clusterOpts = [["all", "All clusters"]].concat(clusters.filter(live).map(function (c) { return [c.id, c.id]; })).map(function (o) { var on = st.pcluster === o[0]; return { label: o[1], cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { self.setState({ pcluster: o[0], ppage: 1 }); } }; });
     var policies = defs.map(function (p) {
       var ps = 0; clusters.forEach(function (c) { if (inCl(c.id)) ps += pass[c.id + "/" + p.name]; });
       var sel = st.ppolicy === p.name, cid = st.pcluster === "all" ? null : st.pcluster;
@@ -1507,9 +1532,21 @@ export class Component extends DCLogic {
         pick: function () { self.setState({ ppolicy: sel ? null : p.name }); } };
     });
     var shown = fails.filter(function (f) { return inCl(f.cluster) && (!st.ppolicy || f.policy === st.ppolicy); });
+    // Results by policy, 25, 50 or 100 a page; a new cluster or page size starts again at page 1 (#537).
+    var size = st.prows, last = Math.max(1, Math.ceil(policies.length / size)), at = Math.min(st.ppage, last), first = (at - 1) * size;
+    var go = function (n) { self.setState({ ppage: n }); };
+    var pg = { total: policies.length, page: at, perPage: size, go: go, setRows: function (n) { self.setState({ prows: n, ppage: 1 }); },
+      range: (policies.length ? first + 1 : 0) + "–" + Math.min(policies.length, first + size) + " of " + policies.length,
+      prevDis: at === 1 ? "true" : "false", prevCls: at === 1 ? "off" : "", prev: function () { if (at > 1) go(at - 1); },
+      nextDis: at === last ? "true" : "false", nextCls: at === last ? "off" : "", next: function () { if (at < last) go(at + 1); },
+      sizes: POL_PAGE_SIZES.map(function (n) { var on = size === n; return { label: String(n), cls: on ? "on" : "", on: on ? "true" : "false", pick: function () { pg.setRows(n); } }; }),
+      slots: pageSlots(at, last).map(function (n, i) { return { key: n ? "page-" + n : "gap-" + i, isGap: n === 0, isPage: n > 0, text: n ? String(n) : "…", label: "Page " + n, current: n === at ? "page" : null, pick: function () { go(n); } }; }) };
+    // Each section opens and closes; its count shows either way. Results by policy, the long one, starts closed.
+    var section = function (key, n) { var on = !!st[key]; return { show: on, hidden: !on, open: on ? "true" : "false", count: String(n), toggle: function () { var o = {}; o[key] = !on; self.setState(o); } }; };
+    var sec = { clusters: section("popenClusters", clRows.length), fails: section("popenFails", shown.length), refused: section("popenRefused", POL_REJECTIONS[st.inst].length), policies: section("popenPolicies", policies.length) };
     var drift = clRows.filter(function (c) { return c.bundleTone === "warn"; }).length, failN = fails.filter(function (f) { return f.result === "fail"; }).length;
     return { pinned: pinned + " (cluster-configs policies, tag per instance)", tone: drift || failN ? "warn" : "ok", head: failN + " failing · " + drift + " cluster" + (drift === 1 ? "" : "s") + " off the pinned bundle",
-      clusters: clRows, clusterOpts: clusterOpts, policies: policies, legacy: POL_LEGACY[st.inst],
+      clusters: clRows, clusterOpts: clusterOpts, policies: policies, pageRows: policies.slice(first, first + size), pg: pg, sec: sec, legacy: POL_LEGACY[st.inst],
       failTitle: "Failing, warning and erroring resources" + (st.ppolicy ? " · " + st.ppolicy : "") + (st.pcluster !== "all" ? " · " + st.pcluster : ""),
       fails: shown.map(function (f) { return { ns: f.ns, res: f.res, policy: f.policy, result: f.result, tone: f.result === "fail" ? "bad" : (f.result === "warn" ? "warn" : "info"), msg: f.msg, cluster: f.cluster }; }), noFails: shown.length === 0,
       rejections: POL_REJECTIONS[st.inst] };

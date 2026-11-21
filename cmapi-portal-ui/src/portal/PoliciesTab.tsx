@@ -7,7 +7,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { usePolicyRejections, usePolicyResults } from "../api/hooks";
 import type { PolicyCluster, PolicyResultPage, PolicyResultsQuery, PolicySummary, Rejection, RejectionsQuery } from "../api/hooks";
-import { Callout, Choices, DataTable, Empty, Head, Pager, Panel, Pill, Small } from "../components/ui";
+import { Callout, Choices, DataTable, Empty, Head, NumberedPager, Pager, Pill, Section, Small } from "../components/ui";
 import type { Choice } from "../components/ui";
 import { whenOf } from "./format";
 import type { TabProps } from "./route";
@@ -74,6 +74,17 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
   // A cursor belongs to one set of filters, so it lives here and not in the address.
   const [cursor, setCursor] = useState<string | null>(null);
   const [refusedCursor, setRefusedCursor] = useState<string | null>(null);
+  // Each section opens and closes; Results by policy, the long list, starts closed (#537, the owner's layout).
+  const [open, setOpen] = useState({ clusters: true, fails: true, refused: true, policies: false });
+  const toggle = (key: keyof typeof open) => () => setOpen((o) => ({ ...o, [key]: !o[key] }));
+  // Results by policy is paged here: the API gives every policy at once. A page belongs to one cluster, so a new cluster,
+  // from a chip or from the address, starts at page 1; so does a new page size.
+  const [perPage, setPerPage] = useState(25);
+  const [at, setAt] = useState({ cluster, page: 1 });
+  // Commit the reset as well as displaying it: returning to a previous cluster must not resurrect its page.
+  if (at.cluster !== cluster) setAt({ cluster, page: 1 });
+  const goTo = (n: number) => setAt({ cluster, page: n });
+  const pickPerPage = (n: number) => { setPerPage(n); goTo(1); };
   const apply = (next: { cluster?: string; policy?: string }) => {
     setCursor(null);
     setParams({ cluster, policy, ...next });
@@ -103,7 +114,7 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
       pill={page && !engineOff ? <Pill tone={pillTone}>{`${failing} failing · ${drift} cluster${drift === 1 ? "" : "s"} off the bundle`}</Pill> : undefined}
     />
   );
-  const rejections = <Refused result={refused} setCursor={setRefusedCursor} />;
+  const rejections = <Refused result={refused} setCursor={setRefusedCursor} open={open.refused} onToggle={toggle("refused")} />;
 
   if (result.state === "forbidden") {
     return (
@@ -133,11 +144,15 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
     { label, on: cluster === id, pick: () => apply({ cluster: id }) }));
   const sent = [`result=${RESULTS}`, cluster && `clusterId=${cluster}`, policy && `policy=${policy}`].filter(Boolean).join("&");
   const title = `Failing, warning and erroring resources${policy ? ` · ${policy}` : ""}${cluster ? ` · ${cluster}` : ""}`;
+  const policies = page?.policies ?? [];
+  const lastPage = Math.max(1, Math.ceil(policies.length / perPage));
+  const policyPage = Math.min(at.cluster === cluster ? at.page : 1, lastPage);
+  const pageOfPolicies = policies.slice((policyPage - 1) * perPage, policyPage * perPage);
 
   return (
     <Stack hasGutter>
       {head}
-      <Panel title="Clusters">
+      <Section title="Clusters" count={page?.clusters.length} open={open.clusters} onToggle={toggle("clusters")}>
         {result.state === "loading" && <Stack hasGutter><span role="status">Loading the policy results…</span><Skeleton /><Skeleton /></Stack>}
         {result.state === "error" && !stale && (
           <Alert variant="danger" isInline title="The policy results did not load." actionLinks={<AlertActionLink onClick={result.reload}>Try again</AlertActionLink>}>{result.cause}</Alert>
@@ -160,26 +175,9 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
             <Small>{"Kyverno not installed, an unreachable cluster, reports that cmapi-reader may not read, and rows past the cap show as states, never as zero. A cluster whose policies differ from what cmapi renders, by digest or by their actions, is off the bundle."}</Small>
           </>
         )}
-      </Panel>
+      </Section>
 
-      {page && (
-        <Panel title="Results by policy">
-          <Choices label="Cluster" options={chips} />
-          <DataTable
-            label="Results by policy"
-            cols={["Policy", "Kind", "What it checks", "Pass", "Fail", "Warn", "Error", ""]}
-            rows={page.policies}
-            selected={(p) => p.name === policy}
-            cells={(p) => [<span className="cp-mono">{p.name}</span>, p.kind, whatOf(p), count(p.counts?.pass), count(p.counts?.fail),
-              count(p.counts?.warn), count(p.counts?.error),
-              <Button variant="secondary" size="sm" onClick={() => apply({ policy: p.name === policy ? "" : p.name })}>{p.name === policy ? "Showing" : "Show failures"}</Button>]}
-          />
-          {page.policies.length === 0 && <Empty>No policy runs in the environments of these clusters.</Empty>}
-          {known.some(inScope) && <Small>{`${hidden.unmanaged} results on namespaces that cmapi does not manage, ${hidden.other} of other policies and ${hidden.gone} of policies no longer on the cluster are counted and not shown.`}</Small>}
-        </Panel>
-      )}
-
-      <Panel title={title}>
+      <Section title={title} count={page?.page.total} open={open.fails} onToggle={toggle("fails")}>
         {stale && (
           <Callout tone="warn" title="This page link is out of date">
             <Stack hasGutter>
@@ -211,9 +209,29 @@ export function PoliciesTab({ config, params, setParams }: TabProps) {
           </>
         )}
         <Small>{`GET /api/v1/policies/results?${sent} · filtered to the environments your roles cover · paged like every list.`}</Small>
-      </Panel>
+      </Section>
 
       {rejections}
+
+      {page && (
+        <Section title="Results by policy" count={policies.length} open={open.policies} onToggle={toggle("policies")}>
+          <Choices label="Cluster" options={chips} />
+          {policies.length > 0 && (
+            <NumberedPager label="Results by policy pages" total={policies.length} page={policyPage} perPage={perPage} onPage={goTo} onPerPage={pickPerPage} />
+          )}
+          <DataTable
+            label="Results by policy"
+            cols={["Policy", "Kind", "What it checks", "Pass", "Fail", "Warn", "Error", ""]}
+            rows={pageOfPolicies}
+            selected={(p) => p.name === policy}
+            cells={(p) => [<span className="cp-mono">{p.name}</span>, p.kind, whatOf(p), count(p.counts?.pass), count(p.counts?.fail),
+              count(p.counts?.warn), count(p.counts?.error),
+              <Button variant="secondary" size="sm" onClick={() => apply({ policy: p.name === policy ? "" : p.name })}>{p.name === policy ? "Showing" : "Show failures"}</Button>]}
+          />
+          {policies.length === 0 && <Empty>No policy runs in the environments of these clusters.</Empty>}
+          {known.some(inScope) && <Small>{`${hidden.unmanaged} results on namespaces that cmapi does not manage, ${hidden.other} of other policies and ${hidden.gone} of policies no longer on the cluster are counted and not shown.`}</Small>}
+        </Section>
+      )}
     </Stack>
   );
 }
@@ -224,7 +242,7 @@ const stageOf = (r: Rejection): string => (r.stage === "ci" ? "CI" : r.outcome =
 /** The finding a row is named by: its first error, or its first warning. */
 const primaryOf = (r: Rejection) => r.findings.find((f) => f.severity === "error") ?? r.findings[0];
 
-function Refused({ result, setCursor }: { result: ReturnType<typeof usePolicyRejections>; setCursor: (c: string | null) => void }) {
+function Refused({ result, setCursor, open, onToggle }: { result: ReturnType<typeof usePolicyRejections>; setCursor: (c: string | null) => void; open: boolean; onToggle: () => void }) {
   let body: ReactNode = null;
   if (result.state === "loading") body = <Stack hasGutter><span role="status">Loading the refusals…</span><Skeleton /></Stack>;
   if (result.state === "forbidden") {
@@ -272,9 +290,9 @@ function Refused({ result, setCursor }: { result: ReturnType<typeof usePolicyRej
     );
   }
   return (
-    <Panel title="Refused by cmapi before Git · last 7 days">
+    <Section title="Refused by cmapi before Git · last 7 days" count={result.state === "ok" ? result.data.page.total : undefined} open={open} onToggle={onToggle}>
       {body}
       <Small>{"GET /api/v1/policies/rejections?since=7d · plan-time refusals never become requests, so they are listed here rather than under Requests."}</Small>
-    </Panel>
+    </Section>
   );
 }

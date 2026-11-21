@@ -169,6 +169,71 @@ test("F10 config rejects empty query and fragment delimiters", async () => {
 // #336: the New namespace form's labels and annotations, from GET /api/v1/metadata-keys. The two answers are the service's:
 // the recorded one of the reference file and the company file's (cmapi/tests/core/test_metadata_form_336.py holds both).
 const { readFileSync } = await import("node:fs");
+
+test("540 review: call the React and mockup pageSlots functions directly, including every boundary through 200 pages", async () => {
+  const { stripTypeScriptTypes } = await import("node:module");
+  const source = readFileSync(new URL("../../src/components/ui.tsx", import.meta.url), "utf8");
+  const declaration = source.match(/^export function pageSlots\([\s\S]*?^\}/m)?.[0];
+  assert.ok(declaration, "test the production function, not a copy of its algorithm");
+  const js = stripTypeScriptTypes(declaration.replace(/^export /, ""));
+  const reactSlots = new Function(`${js}; return pageSlots;`)();
+  const mockup = readFileSync(new URL("../../../mockups/portal/Main.dc.html", import.meta.url), "utf8");
+  const script = mockup.slice(mockup.indexOf(">", mockup.indexOf("data-dc-script")) + 1, mockup.lastIndexOf("</script>"));
+  const mockSlots = new Function("DCLogic", `${script}; return pageSlots;`)(class {});
+  assert.deepEqual(reactSlots(1, 0), []);
+  for (let last = 1; last <= 200; last++) {
+    for (let page = 1; page <= last; page++) {
+      const slots = reactSlots(page, last);
+      assert.deepEqual(slots, mockSlots(page, last), `${page}/${last}: mockup parity`);
+      assert.ok(slots.length <= 7);
+      const pages = slots.filter(Boolean);
+      assert.deepEqual(pages, [...new Set(pages)].sort((a, b) => a - b));
+      for (const n of [1, last, page, page - 1, page + 1].filter((n) => n >= 1 && n <= last)) assert.ok(pages.includes(n), `${page}/${last}: missing ${n}`);
+      if (last <= 7) assert.deepEqual(pages, Array.from({ length: last }, (_, i) => i + 1));
+      slots.forEach((n, i) => {
+        if (n === 0) assert.ok(slots[i - 1] > 0 && slots[i + 1] - slots[i - 1] > 2, `${page}/${last}: a real gap`);
+        else if (i && slots[i - 1]) assert.equal(n, slots[i - 1] + 1, `${page}/${last}: no hidden gap`);
+      });
+    }
+  }
+  for (const [page, want] of [[1, [1, 2, 3, 4, 5, 0, 10]], [5, [1, 0, 4, 5, 6, 0, 10]], [10, [1, 0, 6, 7, 8, 9, 10]]]) {
+    assert.deepEqual(reactSlots(page, 10), want);
+  }
+});
+
+test("540 review: mockup page counts, short and empty pages, clamping, and filter/size resets", () => {
+  const source = readFileSync(new URL("../../../mockups/portal/Main.dc.html", import.meta.url), "utf8");
+  const script = source.slice(source.indexOf(">", source.indexOf("data-dc-script")) + 1, source.lastIndexOf("</script>"));
+  class DCLogic {
+    constructor(props) { this.props = props; }
+    setState(patch) { this.state = { ...this.state, ...patch }; }
+  }
+  for (const total of [0, 1, 24, 25, 26, 49, 50, 51, 80, 100, 101, 249, 250, 251]) {
+    const Component = new Function("DCLogic", `${script}\nPOLICY_DEFS = Array.from({length: ${total}}, (_, i) => ({name: 'review-' + i, kind: 'ValidatingPolicy', what: 'Fixture'})); RENDERED_CHECKS = []; return Component;`)(DCLogic);
+    const c = new Component({ instance: "nonprod", startTab: "policies" });
+    const pol = () => c.renderVals().pol;
+    for (const size of [25, 50, 100]) {
+      pol().pg.setRows(size);
+      assert.equal(c.state.ppage, 1);
+      const last = Math.max(1, Math.ceil(total / size));
+      assert.equal(pol().pg.slots.filter((s) => s.isPage).at(-1).text, String(last));
+      for (let page = 1; page <= last; page++) {
+        pol().pg.go(page);
+        assert.deepEqual(pol().pageRows.map((p) => p.name), Array.from({ length: total }, (_, i) => `review-${i}`).slice((page - 1) * size, page * size));
+        assert.equal(pol().pg.range, `${total ? (page - 1) * size + 1 : 0}–${Math.min(page * size, total)} of ${total}`);
+        assert.equal(pol().pg.prevDis, String(page === 1));
+        assert.equal(pol().pg.nextDis, String(page === last));
+      }
+      pol().pg.go(last + 10);
+      assert.equal(pol().pg.page, last, "shrinking results clamp the displayed page");
+      pol().clusterOpts[1].pick();
+      assert.equal(c.state.ppage, 1);
+      pol().clusterOpts[0].pick();
+      assert.equal(c.state.ppage, 1, "returning to All clusters also resets");
+    }
+  }
+});
+
 const SAMPLES = JSON.parse(readFileSync(new URL("../../../cmapi/src/cmapi/contract/samples.json", import.meta.url), "utf8"));
 const RULES = { reference: SAMPLES.operations.core_metadata_keys.response.body,
   company: JSON.parse(readFileSync(new URL("metadata-keys.company.json", import.meta.url), "utf8")) };

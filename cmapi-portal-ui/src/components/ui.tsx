@@ -1,11 +1,11 @@
 // The PatternFly compositions the tabs share. Each mockup pattern maps to one component here.
 import {
-  Alert, Button, Card, CardBody, CardHeader, CardTitle, CodeBlock, CodeBlockCode, Content, DescriptionList, DescriptionListDescription,
+  Alert, Badge, Button, Card, CardBody, CardExpandableContent, CardHeader, CardTitle, CodeBlock, CodeBlockCode, Content, DescriptionList, DescriptionListDescription,
   DescriptionListGroup, DescriptionListTerm, EmptyState, Flex, FlexItem, FormHelperText, HelperText, HelperTextItem, Icon, Label, List, ListItem,
   Popper, Progress, Split, SplitItem, Stack, StackItem, Title, ToggleGroup, ToggleGroupItem
 } from "@patternfly/react-core";
 import { InnerScrollContainer, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import type { ReactElement, ReactNode } from "react";
 
 const STATUS = { ok: "success", warn: "warning", bad: "danger", info: "info", fail: "danger", pass: "success" } as const;
@@ -79,6 +79,30 @@ export function Panel({ title, pill, children }: { title?: ReactNode; pill?: Rea
         </CardHeader>
       )}
       <CardBody><Stack hasGutter className="cp-wrap">{children}</Stack></CardBody>
+    </Card>
+  );
+}
+
+/**
+ * A Panel that opens and closes, with its count beside the title: PatternFly's expandable Card (isExpanded, onExpand and
+ * CardExpandableContent, which renders nothing while closed). PatternFly's card accessibility page requires toggleButtonProps
+ * with aria-expanded, and an aria-labelledby that names the CardTitle; the count is in the name too (#537).
+ */
+export function Section({ title, count, open, onToggle, children }: { title: ReactNode; count?: ReactNode; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const id = useId();
+  return (
+    <Card isCompact isExpanded={open}>
+      <CardHeader onExpand={onToggle} toggleButtonProps={{ id: `${id}-toggle`, "aria-labelledby": `${id}-title${count === undefined ? "" : ` ${id}-count`}`, "aria-expanded": open, "aria-controls": `${id}-content` }}>
+        <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }} flexWrap={{ default: "nowrap" }}>
+          <CardTitle id={`${id}-title`} component="h2">{title}</CardTitle>
+          {count !== undefined && <Badge id={`${id}-count`} isRead>{count}</Badge>}
+        </Flex>
+      </CardHeader>
+      <div id={`${id}-content`} role="region" aria-labelledby={`${id}-toggle`} hidden={!open}>
+        <CardExpandableContent>
+          <CardBody><Stack hasGutter className="cp-wrap">{children}</Stack></CardBody>
+        </CardExpandableContent>
+      </div>
     </Card>
   );
 }
@@ -170,6 +194,59 @@ export function Pager({ range, prev, next, prevDis, nextDis, busy = false }: Pag
           <Button variant="secondary" size="sm" isAriaDisabled={disabled(prevDis)} onClick={prev}>‹ Previous</Button>
           <Button variant="secondary" size="sm" isAriaDisabled={disabled(nextDis)} onClick={next}>Next ›</Button>
         </Flex>
+      </FlexItem>
+    </Flex>
+  );
+}
+
+/**
+ * The numbered pages of a list (#537): every page up to 7; past that the first and the last page always, the current page
+ * with its neighbours, and 0 where pages are left out. Seven slots at most, as the U.S. Web Design System's pagination;
+ * the mockup's pageSlots() is the same rule.
+ */
+export function pageSlots(page: number, last: number): number[] {
+  const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  if (last <= 7) return range(1, last);
+  if (page <= 4) return [...range(1, 5), 0, last];
+  if (page >= last - 3) return [1, 0, ...range(last - 4, last)];
+  return [1, 0, page - 1, page, page + 1, 0, last];
+}
+
+export const PAGE_SIZES = [25, 50, 100];
+
+interface NumberedPages {
+  label: string;
+  total: number;
+  page: number;
+  perPage: number;
+  onPage: (page: number) => void;
+  onPerPage: (perPage: number) => void;
+}
+
+/**
+ * "1–25 of 80", 25, 50 or 100 a page, and ‹ 1 2 3 … N › for a list the browser holds whole. PatternFly 6.7's Pagination has
+ * no numbered pages (first, previous, a page field, next, last) and does not export its per-page menu, so this is built from
+ * its parts: a nav named by `label`, aria-current="page" on the page shown (MDN, aria-current), and the Per page chips of
+ * the Quotas tab.
+ */
+export function NumberedPager({ label, total, page, perPage, onPage, onPerPage }: NumberedPages) {
+  const last = Math.max(1, Math.ceil(total / perPage));
+  const from = total ? (page - 1) * perPage + 1 : 0;
+  const sizes = PAGE_SIZES.map((n) => ({ label: String(n), on: n === perPage, pick: () => onPerPage(n) }));
+  return (
+    <Flex justifyContent={{ default: "justifyContentSpaceBetween" }} alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapMd" }}>
+      <FlexItem><Small>{`${from}–${Math.min(total, page * perPage)} of ${total}`}</Small></FlexItem>
+      <FlexItem><Filter label="Per page" options={sizes} /></FlexItem>
+      <FlexItem>
+        <nav aria-label={label}>
+          <Flex gap={{ default: "gapXs" }} alignItems={{ default: "alignItemsCenter" }}>
+            <Button variant="secondary" size="sm" aria-label="Previous page" isAriaDisabled={page <= 1} onClick={() => onPage(page - 1)}>‹</Button>
+            {pageSlots(page, last).map((n, i) => (n === 0
+              ? <span key={`gap-${i}`} aria-hidden="true">…</span>
+              : <Button key={n} variant={n === page ? "primary" : "secondary"} size="sm" aria-label={`Page ${n}`} aria-current={n === page ? "page" : undefined} onClick={() => onPage(n)}>{n}</Button>))}
+            <Button variant="secondary" size="sm" aria-label="Next page" isAriaDisabled={page >= last} onClick={() => onPage(page + 1)}>›</Button>
+          </Flex>
+        </nav>
       </FlexItem>
     </Flex>
   );

@@ -83,6 +83,7 @@
     const listPath = el.getAttribute("list") || "";
     const list = attrGetter(listPath);
     const as = el.getAttribute("as") || "item";
+    const itemKey = el.hasAttribute("key") ? attrGetter(el.getAttribute("key")) : null;
     const fns = compileChildren(el);
     return (scope, out, key) => {
       const items = list(scope);
@@ -94,7 +95,7 @@
         const inner = Object.create(scope);
         inner[as] = item;
         inner.$index = i;
-        renderAll(fns, inner, out, key + "." + i + ".");
+        renderAll(fns, inner, out, key + "." + (itemKey ? itemKey(inner) : i) + ".");
       });
     };
   }

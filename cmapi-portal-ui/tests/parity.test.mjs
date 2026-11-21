@@ -262,6 +262,19 @@ await press("Open at current step");
 await compare("quotas locked opened");
 await instance("nonprod");
 
+// #537: the Policies sections open and close, and Results by policy, closed at first, pages its rows.
+await tab("Policies");
+await press(/^Results by policy/);
+await compare("policies results open");
+await press("Page 2");
+await compare("policies page 2");
+await both((page) => page.getByRole("group", { name: "Per page" }).getByRole("button", { name: "50", exact: true }).click());
+await compare("policies 50 a page");
+await both((page) => page.getByRole("group", { name: "Cluster" }).getByRole("button").nth(1).click());
+await compare("policies a cluster");
+await press(/^Clusters/);
+await compare("policies clusters closed");
+
 // Each failure here is one string the mockup shows that the page does not.
 const failing = results.filter((r) => r.missing.length);
 const unique = [...new Set(failing.flatMap((r) => r.missing))];
