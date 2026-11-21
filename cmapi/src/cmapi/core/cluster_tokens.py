@@ -12,6 +12,9 @@ MIN_WINDOW = 600
 # A cluster stamps `iat` with its own clock. Allow it to run this far ahead of the worker or the operator.
 CLOCK_SKEW = 60
 DEFAULT_PERCENTAGE = 20
+# The API server refuses a TokenRequest with expirationSeconds above 2^32 (kubernetes/kubernetes
+# pkg/apis/authentication/validation/validation.go: `exp > 1<<32`, "may not specify a duration larger than 2^32 seconds").
+MAX_TOKEN_SECONDS = 1 << 32
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
@@ -45,8 +48,8 @@ class TokenPolicy:
             before, percent = duration_seconds(values["renewBefore"]), None
         if "renewBeforePercentage" in values:
             before, percent = None, values["renewBeforePercentage"]
-        if not 2 * MIN_WINDOW <= duration <= (2**63 - 1) // 1_000_000_000:
-            raise ValueError(f"duration {duration}s must be at least 20m and fit a Kubernetes duration")
+        if not 2 * MIN_WINDOW <= duration <= MAX_TOKEN_SECONDS:
+            raise ValueError(f"duration {duration}s must be at least 20m and at most 2^32 seconds, the API server's TokenRequest limit")
         if before is not None and not MIN_WINDOW <= before < duration / 2:
             raise ValueError(f"renewBefore {before}s must be at least 10m and less than half of duration {duration}s")
         if before is None and (type(percent) is not int or not 1 <= percent <= 50):

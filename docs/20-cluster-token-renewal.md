@@ -112,7 +112,7 @@ clusters:
 
 | Field | Meaning | Limits (`TokenPolicy.override`) |
 |---|---|---|
-| `duration` | The lifetime asked for: a whole number with `d`, `h`, `m` or `s` | At least `20m` (twice the floor). The upper bound is #501: it must not exceed the API server's 2^32 seconds |
+| `duration` | The lifetime asked for: a whole number with `d`, `h`, `m` or `s` | At least `20m` (twice the floor), and at most 2^32 seconds, the API server's TokenRequest limit (`exp > 1<<32` is refused in `pkg/apis/authentication/validation/validation.go`; #501) |
 | `renewBefore` | A fixed window before expiry | At least `10m`, and less than half of `duration`; exclusive with `renewBeforePercentage` |
 | `renewBeforePercentage` | The window as a percentage of the actual lifetime | An integer from 1 to 50; the default is 20 |
 
