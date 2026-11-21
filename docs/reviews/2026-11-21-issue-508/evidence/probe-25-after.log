@@ -1,0 +1,7 @@
+PROBE-OK 390 light terminates 0 spawns 1 lat [304,5,18,45,418,200,474,213,62,736]
+not ok - 479-P9-P11 Additional labels and annotations: closed and empty by default; two key/value tables checked as typed; closing keeps the rows, which go in the same maps
+Error: "479-P9-P11 Additional labels and annotations: closed and empty by default; two key/value tables checked as typed; closing keeps the rows, which go in the same maps" did not end in 90 s
+    at Timeout.<anonymous> (file://cmapi-portal-ui/tests/api/portal.test.mjs:148:77)
+    at listOnTimeout (node:internal/timers:685:17)
+    at process.processTimers (node:internal/timers:618:7)
+PROBE 390 dark "Error: page.evaluate: Target page, context or browser has been closed"

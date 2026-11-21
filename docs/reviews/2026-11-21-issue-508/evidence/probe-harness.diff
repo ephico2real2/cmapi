@@ -1,0 +1,39 @@
+--- portal.test.orig.mjs	2026-11-21 00:27:51
++++ portal.test.probe.mjs	2026-11-21 00:39:04
+@@ -44,6 +44,18 @@
+   const context = await browser.newContext({ viewport: { width, height: 1000 } });
+   const page = await context.newPage();
+   page.setDefaultTimeout(8000);
++  if (process.env.PROBE_THROTTLE) { const cdp = await context.newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.PROBE_THROTTLE) }); }
++  if (process.env.PROBE) await page.addInitScript(() => {
++    const W = window.Worker, t0 = performance.now(), log = (window.__probe = []);
++    window.Worker = class extends W {
++      constructor(...a) { super(...a); const at = performance.now(); log.push(["spawn", Math.round(at - t0)]);
++        this.addEventListener("message", (e) => log.push(["reply", e.data.id, Math.round(performance.now() - t0)])); }
++      postMessage(m) { log.push(["post", m.id, Math.round(performance.now() - t0), m.pattern.slice(0, 20), m.value]); super.postMessage(m); }
++      terminate() { log.push(["terminate", Math.round(performance.now() - t0)]); super.terminate(); }
++    };
++  });
++  if (process.env.PROBE) process.on("probe", () => {});
++  page.__probe = async () => page.evaluate(() => window.__probe);
+   const errors = [];
+   page.on("console", (m) => {
+     if (m.type() !== "error") return;
+@@ -1122,6 +1134,7 @@
+   async function atEachView(run, { setup = () => undefined, ...options } = {}) {
+     for (const width of [390, 820, 1440]) {
+       for (const theme of ["light", "dark"]) {
++        if (process.env.PROBE_VIEW && process.env.PROBE_VIEW !== `${width} ${theme}`) continue;
+         const { context, page, errors } = await fresh({ width, metadataKeys: KEYS_479, ...options });
+         try {
+           setup();
+@@ -1129,7 +1142,9 @@
+           await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+           await run(page, `${width} ${theme}`);
+           assert.deepEqual(errors, [], `${width} ${theme}`);
++          if (process.env.PROBE) { const p = await page.__probe(); console.error("PROBE-OK", width, theme, "terminates", p.filter((x) => x[0] === "terminate").length, "spawns", p.filter((x) => x[0] === "spawn").length, "lat", JSON.stringify(p.filter((x) => x[0] === "post").map((x) => { const r = p.find((y) => y[0] === "reply" && y[1] === x[1]); return r ? r[2] - x[2] : "none"; }).filter((d, i) => i < 3 || d === "none" || d > 30))); }
+         } catch (error) {
++          if (process.env.PROBE) console.error("PROBE", width, theme, JSON.stringify(await page.__probe().catch((e) => String(e))));
+           // Name the view in what the suite prints (Node prints the stack, which holds the first message).
+           throw Object.assign(new Error(`${width} ${theme}: ${error.message}`, { cause: error }), { stack: `${width} ${theme}: ${error.stack}` });
+         } finally { await context.close(); }

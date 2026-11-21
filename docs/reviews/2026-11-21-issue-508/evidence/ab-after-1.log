@@ -1,0 +1,3 @@
+PROBE-OK 390 light terminates 0 spawns 1 lat [239,19,6,41,400,136,194,408,226,61,112]
+ok - 479-P9-P11 Additional labels and annotations: closed and empty by default; two key/value tables checked as typed; closing keeps the rows, which go in the same maps
+ok - portal on the API: 1 checks, chromium 156.0.8078.4

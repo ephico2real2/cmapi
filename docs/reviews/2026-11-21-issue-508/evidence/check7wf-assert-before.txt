@@ -1,0 +1,18 @@
+["workflow", "requester", [applied, mergeFailed], async (page) => { await open(page, `#workflow?request=${applied.requestId}`); await banner(page).waitFor(); }],
+await panel(page).getByText(PASSED).waitFor();
+await cardOf(page, second.requestId).getByLabel("Why are you rejecting it? (required, sent to the requester)").waitFor();
+await waitError(page.getByLabel("company.net/mnemonic (required)"), /^Not valid: /);
+await panel(page).getByText("The check did not run. Fix these:").waitFor();
+await panel(page).getByText(PASSED).waitFor();
+const { context, page, errors } = await fresh({ user, items, width, ...options });
+await reach(page);
+// The #479 views are long forms in a scrolling main area: the window grows to the whole form, so the screenshot shows it.
+await page.setViewportSize({ width, height: height + 200 });
+await settle(page);
+assert.equal(await running(page), 0, `${tab} ${width} ${theme}: no colour transition still runs when the page is read`);
+assert.ok(layout.doc <= 0 && layout.main <= 0, `${tab} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${tab} ${width} ${theme}: no leftover placeholder`);
+await page.screenshot({ path: join(out, `${tab}-${width}-${theme}.png`), fullPage: true });
+const scan = await new AxeBuilder({ page }).analyze();
+assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${tab} at ${width} ${theme}`);
+assert.deepEqual(errors, []);

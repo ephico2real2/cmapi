@@ -1,0 +1,21 @@
+PROBE 390 light [["spawn",11880],["post",1,11886,"^(?:[A-Za-z0-9](?:[-",""],["terminate",12118],["spawn",13993],["post",2,13998,"^(?:[a-z0-9](?:[-a-z","kubernetes.io/team"],["reply",2,14021],["post",3,14026,"^[^/]{254}","kubernetes.io/team"],["reply",3,14028],["post",4,14029,"^(?:[^/]+|[^/]*\\.com","kubernetes.io/team"],["reply",4,14031],["post",5,15796,"^(?:[a-z0-9](?:[-a-z","cmapi.net/team"],["reply",5,15813],["post",6,15813,"^[^/]{254}","cmapi.net/team"],["reply",6,15818],["post",7,17487,"^(?:[a-z0-9](?:[-a-z","cmapi.net/protected"],["reply",7,17530],["post",8,17530,"^[^/]{254}","cmapi.net/protected"],["reply",8,17543],["post",9,19122,"^(?:[a-z0-9](?:[-a-z","bad key"],["reply",9,19129],["post",10,20568,"^(?:[a-z0-9](?:[-a-z","team.company.net/squad"],["reply",10,20620],["post",11,20620,"^[^/]{254}","team.company.net/squad"],["reply",11,20641],["post",12,20641,"^(?:[^/]+|[^/]*\\.com","team.company.net/squad"],["reply",12,21013]]
+not ok - 479-P9-P11 Additional labels and annotations: closed and empty by default; two key/value tables checked as typed; closing keeps the rows, which go in the same maps
+390 light: AssertionError [ERR_ASSERTION]: the field's error is null, not /^A label value: /
+    at waitError (file://cmapi-portal-ui/tests/api/portal.test.mjs:871:12)
+    ... 4 lines matching cause stack trace ...
+    at async file://cmapi-portal-ui/tests/api/portal.test.mjs:1294:3 {
+  [cause]: AssertionError [ERR_ASSERTION]: the field's error is null, not /^A label value: /
+      at waitError (file://cmapi-portal-ui/tests/api/portal.test.mjs:871:12)
+      at async file://cmapi-portal-ui/tests/api/portal.test.mjs:1316:7
+      at async atEachView (file://cmapi-portal-ui/tests/api/portal.test.mjs:1142:11)
+      at async file://cmapi-portal-ui/tests/api/portal.test.mjs:1295:5
+      at async check (file://cmapi-portal-ui/tests/api/portal.test.mjs:150:5)
+      at async file://cmapi-portal-ui/tests/api/portal.test.mjs:1294:3 {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+}
