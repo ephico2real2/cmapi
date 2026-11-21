@@ -19,7 +19,21 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-21, 08:30Z
+## Current: 2026-11-21, 15:40Z
+
+`main` is `6066ec3`. CRC runs `a909074` (OB1 run 31, since 13:04Z), with the dev bundle 40/40 `current` (cmapi-cluster-configs merge `5926fa2`). Monitoring is off (#489). Open: #537 in build. Run 32 (#534, #536, #537) waits for #537.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Namespaces tab | #484 (story) | Merged #529 (`a909074`); **live on CRC**; the story waits for the owner's approval | T1–T9 at 390, 820 and 1440 px in both themes, each with its own mutant; Codex `gpt-6.2-astra` 8 findings, Fable narrowed them (finding 3 rejected per design §5); 484 checks 28/28, mutants 11/11, core 844. **CRC run 31**: as `cmapi.requester`, `cmapi-live-a` In sync, fixed keys locked, a cost-center dry run 200 with If-Match; as `cmapi.operator`, the operator-only keys editable; requests 13 before and after |
+| Patch-plan cache, undeclared-key edits, screenshots rewritten by the suite | #527, #528, #530 | Merged #529 | #528 additive (oasdiff: no breaking change) |
+| CRC bundle changed by #499 with no bundle PR | #531 | cmapi-cluster-configs #21 (`5926fa2`), cmapi #533 (`63df5cd`) | `policies check` exit 0; `test_crc_bundle_pin_531` fails at cd01af1's pin and passes now; **CRC run 31**: 40 policies, digests the files', `hashState: current`, 84 pass, Policies tab "0 clusters off the bundle" |
+| Operator-only reason names the environment | #532 | Merged #534 (`ba104c6`); next deploy | Core 4 failed before, 432 passed after; service 46 passed; Opus review, docs/14 citations fixed; the test moved to tests/service (the reference-code job) |
+| Lookup and Quotas type-ahead lists clipped by their card | #535 | Merged #536 (`6066ec3`); next deploy | Found live on CRC in run 31. `elementFromPoint` checks fail before and pass after; Codex review: lists close on Tab, blur and outside click; mutants 7/7 killed; `npm test` green |
+| Policies tab: collapsible, Results by policy last and paged (1, 2, 3 … N; 25, 50, 100) | #537 | In build (owner's request; layout chosen by the owner) | None yet |
+| Run 31 stopped by its guard under load, then resumed | — | Resumed on the owner's go after the load stayed below 12 | Keycloak realms slow at load 20–31 (the CRC VM); keycloak-0 restarts 4 throughout; nothing applied before the stop |
+
+## Previous: 2026-11-21, 08:30Z
 
 `main` is `9ad4de8`. CRC runs `cd01af1` (OB1 run 30), with the dev bundle 40/40 `current`. Monitoring is off (#489). Open: story #484 in build.
 
