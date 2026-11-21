@@ -207,13 +207,17 @@ def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemo
              problems=["cluster-not-found", "object-not-found", "git-unavailable", "environment-forbidden"])
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:
-    """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE.
+    """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE (the `ETag`
+    header has the same value).
 
-    `git` is the folder's labels and annotations, from the same read as the etag, with `edits`: how each key of Git that
-    metadata-keys.yaml does not declare may change (#484), including operator-only keys with this cluster's environment
-    in their reason (#532). `sync` compares them with the live
-    namespace (#481): `pending` while a request holds it, `drift` when a governed, extra or operator-only key differs
-    (each in `driftedKeys`), `in-sync` when none does, and `unknown` when the cluster's watch is not fresh."""
+    `labels` and `annotations` are the live ones, from the watch cache. `git` is the folder's labels and annotations, the
+    desired state, from the same read as the etag. Its `edits` give `x-cmapi-edit` of each key of Git that
+    metadata-keys.yaml does not declare, so a form can lock it or offer its removal: `mode`, the `reason` to show,
+    `sensitive`, and `removable` for a key that no rule admits, which a change may remove and never set (#484). An
+    operator-only key's reason names this cluster's environment (#532). The other keys' `x-cmapi-edit` are in
+    `GET /api/v1/metadata-keys`. `sync` compares Git with the live namespace (#481): `pending` while a request holds it,
+    `drift` when a governed, extra or operator-only key differs (each in `driftedKeys`), `in-sync` when none does, and
+    `unknown` when the cluster's watch is not fresh."""
     st = c.registry.get(cluster_id)
     if st.policy:
         c.cfg.roles.require(who, "objects:read", st.policy.environment)
@@ -273,8 +277,28 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
                      dry_run: DryRun = False,
                      key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
-    """A merge patch on the namespace: tier, custom quota, labels and annotations (null removes a key). Needs
-    If-Match with the etag from GET; 412 when the folder changed since. One open request per namespace."""
+    """Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.
+
+    **Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):
+    a key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,
+    in `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,
+    says how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (cmapi
+    fills it in), `required` (it changes and is never removed) or `optional`. A key that no rule admits can be removed,
+    never set. A `sensitive` key adds one approval to the request.
+
+    **Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`
+    lists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`
+    is `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).
+
+    **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). Without it the answer
+    is 428 `precondition-required` (RFC 6585, section 3). When Git has moved since, it is 412 `precondition-failed`
+    (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change to it and send it.
+    One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
+
+    **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
+    `invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).
+    A key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's
+    environment. A body that changes nothing is 422 `no-change`."""
     raw = {**body.model_dump(by_alias=True, exclude_none=True), "namespace": ns, "clusterId": cluster_id}
     # exclude_none also drops None inside dicts, and in a merge patch null is what removes a key
     for field in ("labels", "annotations"):

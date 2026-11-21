@@ -33,6 +33,8 @@ class Recorder:
         self.client, self.keys = client, keys
         self.operations: dict[str, dict[str, Any]] = {}
         self.problems: dict[str, dict[str, Any]] = {}
+        # A problem code that a second operation answers (#485): one sample for each operation, keyed "<operationId>:<code>".
+        self.operation_problems: dict[str, dict[str, Any]] = {}
 
     def call(self, op: str, method: str, path: str, who: tuple[str, dict] | None, *, json_body: Any = None,
              headers: dict[str, str] | None = None, key: bool = False, keep: bool = True):
@@ -52,11 +54,15 @@ class Recorder:
                                "headers": {k: r.headers[k] for k in ("etag", "www-authenticate", "content-disposition") if k in r.headers},
                                "body": body}}
         if kind == "application/problem+json":
-            self.problems.setdefault(body["code"], {"operationId": op, **sample})
+            first = self.problems.setdefault(body["code"], {"operationId": op, **sample})
+            if first["operationId"] != op:
+                self.operation_problems.setdefault(f"{op}:{body['code']}", {"operationId": op, **sample})
         elif keep:
             self.operations.setdefault(op, sample)
         return r
 
+
+KINDS = ("operations", "problems", "operationProblems")
 
 # GET /admin/kpi reports each figure as a number, or as the text "unavailable" where the machine cannot measure it (a Mac has no
 # cgroup files, a Linux runner does). So for that one sample only the keys are compared, not the type of each value.
@@ -74,7 +80,7 @@ def shape(value: Any, keys_only: bool = False) -> Any:
 
 def shapes(data: dict[str, Any]) -> dict[str, Any]:
     return {kind: {name: shape(sample, keys_only=name in MEASURED_OR_UNAVAILABLE) for name, sample in data[kind].items()}
-            for kind in ("operations", "problems")}
+            for kind in KINDS}
 
 
 def differences(a: Any, b: Any, path: str = "") -> list[str]:
@@ -111,7 +117,7 @@ def fixed(sample: dict[str, Any]) -> dict[str, Any]:
 def compare(committed: dict[str, Any], run: dict[str, Any]) -> list[str]:
     """Where the samples of a run differ from the committed ones: exactly for the fixed part, by shape for the rest."""
     def exact(data: dict[str, Any]) -> dict[str, Any]:
-        return {kind: {name: fixed(sample) for name, sample in data[kind].items()} for kind in ("operations", "problems")}
+        return {kind: {name: fixed(sample) for name, sample in data[kind].items()} for kind in KINDS}
 
     return differences(exact(committed), exact(run), "exact") + differences(shapes(committed), shapes(run), "shape")
 
@@ -298,7 +304,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     planned = rec.call("namespaces_update_namespace:dryRun", "PATCH", f"{base}/payments-dev?dryRun=true", ola,
                        json_body={"tier": "medium", "labels": {"cmapi.net/cost-center": None},
                                   "annotations": {"runbook.ephico2real.com/url": "https://wiki.ephico2real.com/payments/runbook"},
-                                  "justification": "A smaller size after the load test; the cost code retired, the runbook added"},
+                                  "justification": "A smaller size after the load test, with the metadata tidied"},
                        headers={"If-Match": f'"{etag}"'})
     assert planned.status_code == 200, planned.text
     # #481: the merge patch's effective changes, a removal and an addition, each with its source.
@@ -370,16 +376,56 @@ def test_each_operation_has_a_sample_from_a_run(world):
     capacity = rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola)
     assert capacity.status_code == 200 and capacity.json()["clusters"][0]["state"] == "ok", capacity.text
 
-    data ={"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items()))}
+    # ---- the refusals of a change and of its reads (#485): one answer for each, recorded for its own operation
+    patch_url = f"{base}/payments-dev"
+    now = client.get(patch_url, headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"})
+    assert now.status_code == 200, now.text
+    held = {"If-Match": f'"{now.json()["etag"]}"'}
+    rec.call("namespaces_update_namespace", "PATCH", f"{patch_url}?dryRun=true", None, json_body={"tier": "small"}, headers=held)      # 401
+    rec.call("namespaces_update_namespace", "PATCH", f"{patch_url}?dryRun=true", amy, json_body={"tier": "small"}, headers=held)       # 403: no namespaces:write
+    rec.call("namespaces_update_namespace", "PATCH", patch_url, ola, json_body={"tier": "small"}, headers=held)                         # 400: no Idempotency-Key
+    rec.call("namespaces_update_namespace", "PATCH", "/api/v1/clusters/NOPE/namespaces/payments-dev?dryRun=true", ola,
+             json_body={"tier": "small"}, headers=held)                                                                                  # 404 cluster
+    rec.call("namespaces_update_namespace", "PATCH", f"{base}/not-there-dev?dryRun=true", ola, json_body={"tier": "small"}, headers=held)  # 404 namespace
+    rec.call("namespaces_update_namespace", "PATCH", f"{patch_url}?dryRun=true", ola, json_body={"labels": "cmapi.net/team=x"}, headers=held)  # 422 validation
+    rec.call("namespaces_update_namespace", "PATCH", f"{patch_url}?dryRun=true", ola, headers=held,
+             json_body={"labels": {"cmapi.net/tier": "large", "other.example/x": "1", "cmapi.net/team": "Payments"},
+                        "annotations": {"cmapi.net/team-dl": None}})                                                                     # 422 one entry per key
+    rec.call("namespaces_update_namespace", "PATCH", f"{patch_url}?dryRun=true", ola, headers=held,
+             json_body={"labels": {"cmapi.net/team": "payments"}})                                                                       # 422 no-change
+    rec.call("namespaces_get_namespace", "GET", "/api/v1/clusters/NOPE/namespaces/payments-dev", ola)                                    # 404 cluster
+    rec.call("namespaces_get_namespace", "GET", f"{base}/not-there-dev", ola)                                                            # 404 namespace
+    rec.call("namespaces_list_namespaces", "GET", f"{base}?limit=0", ola)                                                                # 422 validation
+    rec.call("namespaces_list_namespaces", "GET", "/api/v1/clusters/NOPE/namespaces?q=pay", ola)                                         # 404 cluster
+    # Two writes on one namespace: the second is held by the first (409), and a key used for another body is a replay (409).
+    audit = client.post(base, json={**NS, "namespace": "audit-dev"},
+                        headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": str(uuid.uuid4())})
+    assert audit.status_code == 202, audit.text
+    if audit.json()["status"] == "pending_approval":
+        client.post(f"/api/v1/requests/{audit.json()['requestId']}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})
+    run_jobs(ctx)
+    ctx.registry.cache("CRC")._list("Namespace")
+    held_audit = {"If-Match": f'"{etag_of("audit-dev")}"'}
+    key = str(uuid.uuid4())
+    first = rec.call("namespaces_update_namespace", "PATCH", f"{base}/audit-dev", ola, headers={**held_audit, "Idempotency-Key": key},
+                     json_body={"labels": {"cmapi.net/cost-center": "cc-4420"}, "justification": "Book the cost to its code"})
+    assert first.status_code == 202, first.text
+    rec.call("namespaces_update_namespace", "PATCH", f"{base}/audit-dev", ola, headers={**held_audit, "Idempotency-Key": key},
+             json_body={"labels": {"cmapi.net/cost-center": "cc-4421"}, "justification": "Book the cost to its code"})                 # 409 replay
+    rec.call("namespaces_update_namespace", "PATCH", f"{base}/audit-dev", ola, headers=held_audit, key=True,
+             json_body={"labels": {"cmapi.net/cost-center": "cc-4422"}, "justification": "Book the cost to another code"})            # 409 held
+
+    data = {"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items())),
+            "operationProblems": dict(sorted(rec.operation_problems.items()))}
     spec = client.get("/openapi.json").json()
     wanted = {op["operationId"] for ops in spec["paths"].values() for op in ops.values()}
     have = {k.split(":")[0] for k in rec.operations} | {p["operationId"] for p in rec.problems.values()}
     assert wanted - have == set(), f"no sample for {sorted(wanted - have)}"
     # A refusal that a client meets must be one that the operation's documentation names.
     by_id = {op["operationId"]: op for ops in spec["paths"].values() for op in ops.values()}
-    undeclared = [f"{p['operationId']}: {code}" for code, p in rec.problems.items()
-                  if code not in ((by_id[p["operationId"]]["responses"].get(str(p["response"]["status"])) or {})
-                                  .get("content", {}).get("application/problem+json", {}).get("examples", {}))]
+    undeclared = [f"{p['operationId']}: {p['response']['body']['code']}" for p in [*rec.problems.values(), *rec.operation_problems.values()]
+                  if p["response"]["body"]["code"] not in ((by_id[p["operationId"]]["responses"].get(str(p["response"]["status"])) or {})
+                                                           .get("content", {}).get("application/problem+json", {}).get("examples", {}))]
     assert undeclared == [], f"an operation answered a problem that its documentation does not declare: {undeclared}"
     if os.environ.get("CMAPI_WRITE_SAMPLES") == "1":
         SAMPLES.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")

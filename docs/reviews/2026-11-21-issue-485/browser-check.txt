@@ -1,0 +1,20 @@
+swagger request body examples: ["Change labels and annotations: a value sets a key, null removes it (add dryRun=true to check)","Change the tier"]
+swagger request body shows: { "annotations": { "runbook.ephico2real.com/url": "https://wiki.ephico2real.com/payments/runbook" }, "justification": "A smaller size after the load test, with the metadata tidied", "labels": { "cmapi.net/cost-center": null }, "tier": "medium" }
+swagger 409 examples: ["change-pending","idempotency-replay"]
+swagger 409 shows: { "code": "change-pending", "detail": "req-20261121-0015 holds audit-dev", "requestId": "req-20261121-0015", "status": 409, "title": "change pending", "type": "
+swagger 412 examples: ["precondition-failed"]
+swagger 412 shows: { "code": "precondition-failed", "detail": "The namespace changed in Git since you read it", "etag": "e3b375ea8169d685", "status": 412, "title": "precondition f
+swagger 422 examples: ["cluster-not-writable","environment-not-served","plugin-disabled","validation-failed","identity-incomplete","on-behalf-of-required","unknown-user","on-behalf-of-not-allowed","policy-violation","capacity-exceeded","unknown-serviceaccount","no-change"]
+swagger 422 shows: { "code": "policy-violation", "detail": "Metadata refused", "errors": [ { "code": "reserved_key", "key": "cmapi.net/tier" }, { "code": "invalid_key", "detail":
+swagger 428 examples: ["precondition-required"]
+swagger 428 shows: { "code": "precondition-required", "detail": "If-Match is required on a change; GET the namespace for its etag", "status": 428, "title": "precondition required"
+swagger extensions: Extensions Field Value x-cmapi-permission "namespaces:write" x-cmapi-plugin "namespaces" x-plugin-version "0.2.0" x-codeSamples [{"lang":"Shell","label":"curl","source":"curl -X PATCH https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/namespaces/payments-dev -H \"Authorization: Bearer $TOKEN\
+redoc status tabs: ["200","202","400","401","403","404","409","412","422","428","502","503"]
+redoc 403 examples: ["forbidden","environment-forbidden"]
+redoc 403 shows: { "type": "https://cmapi.ephico2real.com/problems/environment-forbidden", "title": "environment forbidden", "status": 403, "detail": "Your roles grant namespace
+redoc 409 examples: ["change-pending","idempotency-replay"]
+redoc 409 shows: { "code": "change-pending", "detail": "req-20261121-0015 holds audit-dev", "requestId": "req-20261121-0015", "status": 409, "title": "change pending", "type": "
+redoc 412 shows: { "code": "precondition-failed", "detail": "The namespace changed in Git since you read it", "etag": "e3b375ea8169d685", "status": 412, "title": "precondition f
+redoc 422 examples: ["cluster-not-writable","environment-not-served","plugin-disabled","validation-failed","identity-incomplete","on-behalf-of-required","unknown-user","on-behalf-of-not-allowed","policy-violation","capacity-exceeded","unknown-serviceaccount","no-change"]
+redoc 422 shows: { "code": "policy-violation", "detail": "Metadata refused", "errors": [ { … }, { … }, { … }, { … } ], "findings": [], "status": 422, "title": "policy violation"
+redoc 428 shows: { "code": "precondition-required", "detail": "If-Match is required on a change; GET the namespace for its etag", "status": 428, "title": "precondition required"

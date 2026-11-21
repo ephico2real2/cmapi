@@ -66,9 +66,10 @@ def render() -> str:
                         ("Permission: none. A valid token is necessary." if op.get("security") else "Permission: none, and no token."), ""]
                 out += block("bash", op["x-codeSamples"][0]["source"])
                 media = op.get("requestBody", {}).get("content", {}).get("application/json", {})
-                dated = media.get("examples", {}).get("withExpiry")
-                if dated:
-                    out += [dated["summary"], ""] + block("json", json.dumps(dated["value"], indent=2))
+                for name in ("withExpiry", "mergePatch"):         # named bodies that the recorded request below does not show
+                    named = media.get("examples", {}).get(name)
+                    if named:
+                        out += [named["summary"], ""] + block("json", json.dumps(named["value"], indent=2))
                 for key in (op_id, f"{op_id}:dryRun"):
                     sample = samples["operations"].get(key)
                     if sample is None:
@@ -88,9 +89,14 @@ def render() -> str:
                             if refusals else "The run has no call of this operation.", ""]
     out += ["## Problems", "",
             "Each refusal is an RFC 9457 problem with the media type `application/problem+json`. These are the ones that the run met.", ""]
-    for code, p in samples["problems"].items():
+    by_id = {op["operationId"]: op for methods in spec["paths"].values() for op in methods.values()}
+    # A code that more than one operation answers has a sample for each (operationProblems): the first is the code's own.
+    recorded = [(code, p, "") for code, p in samples["problems"].items()]
+    recorded += [(p["response"]["body"]["code"], p, f" ({by_id[p['operationId']]['summary']})")
+                 for p in samples.get("operationProblems", {}).values()]
+    for code, p, operation in recorded:
         request, response = p["request"], p["response"]
-        out += [f"### {response['status']} `{code}`", "", f"`{request['method']} {request['path']}`" + (", with a body" if "body" in request else "") +
+        out += [f"### {response['status']} `{code}`{operation}", "", f"`{request['method']} {request['path']}`" + (", with a body" if "body" in request else "") +
                 (", with no token" if "Authorization" not in request["headers"] else "") + ":", ""]
         out += block("json", json.dumps(response["body"], indent=2))
     return "\n".join(out).rstrip("\n") + "\n"
