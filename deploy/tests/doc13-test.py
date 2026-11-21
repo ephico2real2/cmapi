@@ -2,7 +2,7 @@
 """docs/13's run, read: what it says is what the wave's rulings and the owner's requirements say, and every path and subcommand it names exists. A runbook is run by hand, so nothing else holds it.
 Then its blocks, run: each step in a plain bash, as pasted, on stubs of oc, git, sleep and every script, with each command it runs failing in turn. Each failure must end the step, leave the shell alive, write the stop
 file and make the next step refuse. Then the same checks on mutants of the document: a mutant that passes is a rule this test cannot fail on. Then step 12 again with its background watch logging late (#118). No cluster. usage: doc13-test.py [<docs/13 file>] [--namespaces-only]. DOC13_BASH names another bash. Exit 1 on any failure."""
-import os, re, select, shutil, stat, subprocess, sys, tempfile
+import functools, os, re, select, shutil, stat, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ARGS = [arg for arg in sys.argv[1:] if arg != "--namespaces-only"]
 PATH = ARGS[0] if ARGS else os.path.join(ROOT, "docs/13-crc-deployment.md")
@@ -235,63 +235,181 @@ exit 0
 '''
 
 
-def ghcr_secret_problems(doc):
-    """The owner's GHCR credential (#545), run: its block on stubs of pbpaste, pbcopy and oc. The token reaches the Secret on stdin, never an argument,
-    as a dockerconfigjson for ghcr.io of <github-user>:<token>, in the Secret crc-image.sh asks for, and the clipboard is cleared."""
-    import base64
-    import json
-
-    section = doc[doc.find("**4. A read-only GHCR credential"):doc.find("## The run\n")]
-    block = next((b for b in re.findall(r"```bash\n(.*?)```", section, re.S) if "cmapi-ghcr-pull" in b), "")
-    if not block:
-        return ["owner step 4 has no block that creates cmapi-ghcr-pull"]
+def owner_secret_problems(doc, helper_source=None):
+    """Run both owner token blocks on a controlling PTY (#549). Supply the token only once
+    the prompt disables echo; record every external command's argv and oc's stdin.
+    The clipboard deliberately holds the command, as it does after the owner copies it."""
+    sections = tuple((number, doc[doc.find(start):doc.find(end)], secret) for number, start, end, secret in (
+        (3, "**3. The bot account", "**The SSH key", "cmapi-git-bot"),
+        (4, "**4. A read-only GHCR credential", "## The run\n", "cmapi-ghcr-pull"),
+    ))
+    helper = os.path.join(ROOT, "deploy/owner-secret.py")
+    if helper_source is None and os.path.isfile(helper):
+        helper_source = open(helper).read()
     script_secret = re.search(r"^PULL_SECRET=(\S+)$", open(os.path.join(ROOT, "deploy/crc-image.sh")).read(), re.M)
-    token, user = "ghp_stubtokenNeverOnAnArgument", "stub-user"
-    w = tempfile.mkdtemp(prefix="doc13-ghcr.")
-    try:
-        bin_dir = os.path.join(w, "bin"); os.mkdir(bin_dir)
-        for name, body in (("pbpaste", f'case "$CASE" in empty) exit 0;; paste) exit 3;; esac; printf "{token}\\r\\n"'), ("pbcopy", 'cat >"$W/cleared"'),
-                           ("oc", 'printf "%s\\n" "$*" >>"$W/argv"; cat >"$W/stdin"; [ "$CASE" != create ]')):
-            with open(os.path.join(bin_dir, name), "w") as f:
-                f.write(f"#!/bin/sh\n{body}\n")
-            os.chmod(os.path.join(bin_dir, name), 0o755)
-        def run(case, errexit=False):
-            args = [os.environ.get("DOC13_BASH", "bash")] + (["-e"] if errexit else [])
-            return subprocess.run(args + ["-c", block.replace("<github-user>", user)], cwd=w, capture_output=True, text=True, timeout=60,
-                                  env={**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "W": w, "CASE": case})
-        r = run("success")
-        out = [] if r.returncode == 0 else ["owner step 4 failed to create the Secret"]
-        if token in r.stdout + r.stderr:
-            out.append("owner step 4 printed the token")
-        argv = open(os.path.join(w, "argv")).read() if os.path.exists(os.path.join(w, "argv")) else ""
-        if token in argv:
-            out.append("owner step 4 puts the GHCR token on an argument")
-        want = f"create secret generic {script_secret[1] if script_secret else '?'} -n cmapi --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=/dev/stdin"
-        if argv.strip() != want:
-            out.append(f"owner step 4 runs `oc {argv.strip()}`, not `oc {want}`, the Secret crc-image.sh asks for")
-        try:
-            auths = json.load(open(os.path.join(w, "stdin")))["auths"]
-            if list(auths) != ["ghcr.io"] or base64.b64decode(auths["ghcr.io"]["auth"]).decode() != f"{user}:{token}":
-                out.append(f"owner step 4's dockerconfigjson is not ghcr.io's <github-user>:<token>: {list(auths)}")
-        except (OSError, ValueError, KeyError, TypeError) as e:
-            out.append(f"owner step 4 gives oc no dockerconfigjson on stdin: {e}")
-        if not os.path.exists(os.path.join(w, "cleared")):
-            out.append("owner step 4 leaves the token on the clipboard")
-        for case, errexit in (("create", False), ("create", True), ("paste", False), ("empty", False)):
-            for name in ("argv", "cleared"):
-                if os.path.exists(os.path.join(w, name)):
-                    os.remove(os.path.join(w, name))
-            r = run(case, errexit)
-            if r.returncode == 0:
-                out.append(f"owner step 4 reported success after {case} failed")
-            cleared = os.path.join(w, "cleared")
-            if not os.path.exists(cleared) or os.path.getsize(cleared):
-                out.append(f"owner step 4 left clipboard data after {case} failed")
-            if case in ("paste", "empty") and os.path.exists(os.path.join(w, "argv")):
-                out.append("owner step 4 created a Secret without a token")
-        return out
-    finally:
-        shutil.rmtree(w, ignore_errors=True)
+    # Unrelated document mutants have identical owner instructions. Run those once;
+    # changes to either owner section, helper source or pull-secret name get fresh checks.
+    return list(_owner_secret_problems(sections, helper_source, script_secret[1] if script_secret else None))
+
+
+@functools.lru_cache(maxsize=None)
+def _owner_secret_problems(sections, helper_source, pull_secret):
+    import base64
+    import errno
+    import json
+    import pty
+    import signal
+    import termios
+    import time
+
+    out = []
+    token, user = r"ghp_stubtokenNeverOnAnArgument\$'!", "stub-user"
+    for number, section, secret in sections:
+        block = next((b for b in re.findall(r"```bash\n(.*?)```", section, re.S)
+                      if "owner-secret.py" in b or secret in b), "")
+        label = f"owner step {number}"
+        if not block:
+            out.append(f"{label} has no token-creation block")
+            continue
+        if "Terminal.app" not in section:
+            out.append(f"{label} does not say to run in Terminal.app")
+        with tempfile.TemporaryDirectory(prefix="doc13-owner.") as w:
+            bin_dir = os.path.join(w, "bin"); os.mkdir(bin_dir)
+            os.mkdir(os.path.join(w, "deploy"))
+            if helper_source is not None:
+                with open(os.path.join(w, "deploy/owner-secret.py"), "w") as f:
+                    f.write(helper_source)
+            # python3, oc and the legacy clipboard commands are the block's external
+            # processes. The wrapper records argv before execing the real Python.
+            stub = f"#!{sys.executable}\n" + r'''
+import json, os, sys
+name = os.path.basename(sys.argv[0])
+with open(os.environ["W"] + "/argv", "a") as f:
+    f.write(json.dumps([name] + sys.argv[1:]) + "\n")
+case = os.environ["CASE"]
+if name == "python3":
+    if case == "echo-unavailable":
+        import runpy, termios
+        def cannot_control_echo(*args):
+            raise termios.error("stub terminal cannot disable echo")
+        termios.tcgetattr = cannot_control_echo
+        sys.argv = sys.argv[1:]
+        runpy.run_path(sys.argv[0], run_name="__main__")
+        sys.exit(0)
+    os.execv(sys.executable, [sys.executable] + sys.argv[1:])
+if name == "pbpaste":
+    print("copied-owner-command")
+elif name == "pbcopy":
+    sys.stdin.read()
+elif sys.argv[1] == "whoami":
+    sys.exit(1 if case == "login" else 0)
+elif sys.argv[1] == "get":
+    if case == "lookup":
+        sys.exit(1)
+    if case == "exists":
+        print("secret/" + sys.argv[3])
+elif sys.argv[1] == "create":
+    payload = sys.stdin.read()
+    with open(os.environ["W"] + "/stdin", "w") as f:
+        f.write(payload)
+    if case == "create":
+        # A server diagnostic could contain submitted data. Do not echo it.
+        print(payload, file=sys.stderr)
+        sys.exit(1)
+else:
+    sys.exit(2)
+'''
+            for name in ("python3", "oc", "pbpaste", "pbcopy"):
+                path = os.path.join(bin_dir, name)
+                with open(path, "w") as f:
+                    f.write(stub)
+                os.chmod(path, 0o755)
+            for case in ("success", "empty", "login", "exists", "lookup", "create", "no-terminal", "echo-unavailable"):
+                for name in ("argv", "stdin"):
+                    if os.path.exists(os.path.join(w, name)):
+                        os.remove(os.path.join(w, name))
+                args = [os.environ.get("DOC13_BASH", "bash"), "-c", block.replace("<github-user>", user)]
+                env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "W": w, "CASE": case}
+                prompted, sent = False, False
+                if case == "no-terminal":
+                    r = subprocess.run(args, cwd=w, env=env, stdin=subprocess.DEVNULL,
+                                       capture_output=True, start_new_session=True, timeout=10)
+                    rc, output = r.returncode, r.stdout + r.stderr
+                else:
+                    pid, master = pty.fork()
+                    if pid == 0:
+                        os.chdir(w)
+                        os.execvpe(args[0], args, env)
+                    output, ended = b"", False
+                    try:
+                        deadline = time.monotonic() + 10
+                        while time.monotonic() < deadline:
+                            if not select.select([master], [], [], 0.1)[0]:
+                                continue
+                            try:
+                                chunk = os.read(master, 65536)
+                            except OSError as e:
+                                if e.errno != errno.EIO:
+                                    raise
+                                ended = True
+                                break
+                            if not chunk:
+                                ended = True
+                                break
+                            output += chunk
+                            if b"(hidden): " in output and not sent:
+                                prompted = True
+                                if termios.tcgetattr(master)[3] & termios.ECHO:
+                                    out.append(f"{label} leaves terminal echo enabled")
+                                    break
+                                os.write(master, (("" if case == "empty" else token) + "\n").encode())
+                                sent = True
+                        else:
+                            out.append(f"{label} timed out at {case}")
+                    finally:
+                        # Also ends a mutant stuck waiting for input; never leave a child.
+                        if not ended:
+                            os.kill(pid, signal.SIGKILL)
+                        _, status = os.waitpid(pid, 0)
+                        rc = os.waitstatus_to_exitcode(status)
+                        os.close(master)
+                calls = [json.loads(line) for line in open(os.path.join(w, "argv"))] if os.path.exists(os.path.join(w, "argv")) else []
+                creates = [call for call in calls if call[:2] == ["oc", "create"]]
+                if token.encode() in output:
+                    out.append(f"{label} printed the token at {case}")
+                if any(token in arg for call in [args] + calls for arg in call):
+                    out.append(f"{label} puts the token on an argument at {case}")
+                if any(call[0] in ("pbpaste", "pbcopy") for call in calls):
+                    out.append(f"{label} still uses the clipboard at {case}")
+                if case == "success":
+                    if rc or not prompted:
+                        out.append(f"{label} did not create the Secret through a hidden prompt")
+                    want = ["oc", "create", "secret", "generic", secret, "-n", "cmapi"]
+                    want += (["--type=kubernetes.io/dockerconfigjson", "--from-file=.dockerconfigjson=/dev/stdin"]
+                             if number == 4 else ["--from-file=token=/dev/stdin"])
+                    if creates != [want] or (number == 4 and secret != pull_secret):
+                        out.append(f"{label} changed the Secret name, type or key")
+                    try:
+                        payload = open(os.path.join(w, "stdin")).read()
+                        if number == 4:
+                            auths = json.loads(payload)["auths"]
+                            valid = list(auths) == ["ghcr.io"] and base64.b64decode(auths["ghcr.io"]["auth"]).decode() == f"{user}:{token}"
+                        else:
+                            valid = payload == token
+                        if not valid:
+                            out.append(f"{label} changed the Secret contents")
+                    except (OSError, ValueError, KeyError, TypeError):
+                        out.append(f"{label} supplied no valid Secret on stdin")
+                else:
+                    if rc == 0 or b"STOP:" not in output:
+                        out.append(f"{label} did not fail clearly at {case}")
+                    if case != "create" and creates:
+                        out.append(f"{label} created a Secret at {case}")
+                    if case == "exists" and f"oc delete secret {secret} -n cmapi".encode() not in output:
+                        out.append(f"{label} does not explain how to replace an existing Secret")
+                    if case in ("login", "exists", "lookup") and prompted:
+                        out.append(f"{label} prompted before checking {case}")
+    return out
 
 
 def bundle_problems(doc):
@@ -505,7 +623,7 @@ def problems(doc, only=None):
     need("security add-trusted-cert" in doc and "security delete-certificate" in doc, "the owner's keychain step, in and out")
     out.extend(keychain_problems(doc))
     out.extend(bundle_problems(doc))
-    out.extend(ghcr_secret_problems(doc))
+    out.extend(owner_secret_problems(doc))
     need("Sign in once as `cmapi.requester`" in doc, "the owner's LDAP sign-in")
     need("jsonpath={.data.cmapi\\.requester}' \\| base64 -d \\| pbcopy" in doc, "the owner's password to the clipboard")
     need("LDAP person" not in doc, "the owner signs in as an LDAP person, whom the realm cannot read any more")
@@ -536,10 +654,9 @@ MUTANTS = {
     "a file that does not exist": ('"$R/components/database-cnpg/cluster.yaml"', '"$R/components/database-cnpg/db.yaml"'),
     "a script that does not exist": ("deploy/crc-reader-import.sh", "deploy/crc-reader.sh"),
     "the owner's keychain step gone": ("security add-trusted-cert", "something else"),
-    "the GHCR token on an argument": ('"--from-file=.dockerconfigjson=/dev/stdin"', '"--from-literal=.dockerconfigjson=" + token.decode()'),
-    "the GHCR Secret named apart from crc-image.sh's": ('"generic", "cmapi-ghcr-pull"', '"generic", "ghcr-pull"'),
-    "the GHCR credential for another registry": ('{"auths": {"ghcr.io":', '{"auths": {"docker.io":'),
-    "the clipboard kept": ("  trap 'pbcopy </dev/null || exit 1' EXIT\n", ""),
+    "the GHCR command creates a git-bot Secret": ("python3 deploy/owner-secret.py ghcr '<github-user>'", "python3 deploy/owner-secret.py git-bot"),
+    "the GHCR account missing": ("python3 deploy/owner-secret.py ghcr '<github-user>'", "python3 deploy/owner-secret.py ghcr"),
+    "the git-bot command uses the clipboard again": ("python3 deploy/owner-secret.py git-bot", "pbpaste | oc create secret generic cmapi-git-bot -n cmapi --from-file=token=/dev/stdin"),
     "the loop trusts every certificate in the bundle again": ('trust_ca "$RUN/keycloak-ca.pem" 58E4A0F4B51C06119EA25526330BEA85885B0FD8\n', 'cd "$RUN" && awk \'/BEGIN CERTIFICATE/{n++} {print > ("crc-ca-" n ".pem")}\' crc-ca.pem && cd -\nfor pem in "$RUN"/crc-ca-*.pem; do security add-trusted-cert -r trustRoot -p ssl -k ~/Library/Keychains/login.keychain-db "$pem"; done\n'),
     "the keychain's CA check gone": ("""  case "$text" in *CA:TRUE*) ;; *) echo "STOP: $pem is not a CA"; return 1;; esac\n""", ""),
     "the keychain's fingerprint check gone": ("""  [ "$got" = "$want" ] || { echo "STOP: $pem is $got, not $want"; return 1; }\n""", ""),
@@ -616,6 +733,21 @@ for f in fails:
 print(f"  {'ok  ' if not fails else 'FAIL'} docs/13 holds every rule")
 survived = 0
 if not fails:
+    helper = open(os.path.join(ROOT, "deploy/owner-secret.py")).read()
+    helper_mutants = {
+        "the token on oc's argv": ('"--from-file=.dockerconfigjson=/dev/stdin"', '"--from-literal=.dockerconfigjson=" + token'),
+        "the GHCR Secret named apart from crc-image.sh's": ('"cmapi-ghcr-pull"', '"ghcr-pull"'),
+        "the GHCR Secret has the wrong type": ("--type=kubernetes.io/dockerconfigjson", "--type=Opaque"),
+        "the GHCR credential for another registry": ('{"auths": {"ghcr.io":', '{"auths": {"docker.io":'),
+        "an empty token accepted": ("if not token:", "if False:"),
+        "the token prompt echoes": ("getpass.getpass(", "input("),
+        "getpass falls back to echoed input": ('simplefilter("error",', 'simplefilter("default",'),
+    }
+    for name, (old, new) in helper_mutants.items():
+        assert old in helper, (name, old)
+        found = owner_secret_problems(DOC, helper.replace(old, new))
+        print(f"  {'killed  ' if found else 'SURVIVED'} {name}" + (f" ({found[0][:90]})" if found else ""))
+        survived += 0 if found else 1
     for name, (old, new) in MUTANTS.items():
         assert DOC.count(old) >= 1, (name, old)
         mutant = DOC.replace(old, new)
