@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-20 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-21 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,24 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-20, 10:15Z
+## Current: 2026-11-21, 08:30Z
+
+`main` is `9ad4de8`. CRC runs `cd01af1` (OB1 run 30), with the dev bundle 40/40 `current`. Monitoring is off (#489). Open: story #484 in build.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Namespace middle starts and ends with a letter or digit | #512 | Merged #514 | Core 822 passed with the Kyverno CLI; browser check and its mutant killed; Fable F1, F2 applied; **CRC run 30**: `-x` refused at the field |
+| Team-wide names `<mnemonic>-<env>` | #511 | Merged, live | **CRC run 30**: `abc-dev` dry run 200 |
+| CRC bundle stale after #505 | #510 | cmapi-cluster-configs #19, cmapi #515 | **CRC**: 40 policies ready, digests the files', `hashState: current`, 84 pass 0 fail; Policies tab 26 checks passed |
+| ci/kyverno fails folders a PR does not change | #516 | Merged #517, cmapi-cluster-configs #20 | 23 passed with the Kyverno CLI; #19's ci/kyverno passed after |
+| P12 expiry check flake | #518 | Merged #519 | Old check fails CI's exact error with a 300 ms delayed clear; new passes; broken button fails |
+| P9 miss, check 7 and workflow check near 90 s | #508, #521 | Merged #522 | P9: 7 of 7 missed before, 7 of 7 passed after at CPU throttle 25; check 7 91.3 s to 25/25/30/8 s; 5 mutants killed; Codex and Opus reviews |
+| Kyverno CLI tests without kyverno | #513 | Merged #520 | 19 passed, 0 failed without it; 48 passed with it |
+| Contract report tests ran another checkout's tool | #524 | PR #525 | 6 failed before, 11 passed after |
+| Review defects of #492 and the token duration cap | #491, #494–#497, #501, #523 | Merged #499 | Codex astra xhigh 5 findings, Fable narrowed them and found #523; core 840 passed; test_bundle_hash_244 20 of 20; CI all checks |
+| Namespaces tab | #484 | In build | None yet |
+
+## Previous: 2026-11-20, 10:15Z
 
 `main` is `fb727b5`. CRC runs `fb727b5` (OB1 run 27; steps 23 to 25 wait for CRC monitoring, #489). kind is deleted by the owner (#487). Open: PR #488 (draft).
 
