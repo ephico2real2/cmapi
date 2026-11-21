@@ -540,6 +540,42 @@ writes the committed folder (#530).
 pattern (cmapi matches with RE2), so a value that only the pattern refuses is refused in the browser and by cmapi, not by the
 stand-in.
 
+## The Policies tab in sections, Results by policy last and paged (#537)
+
+The owner's layout of #537: the header pill; Clusters, the failing resources and the refusals, each open and collapsible;
+Results by policy last, collapsible, closed, 25 rows a page with `‹ 1 2 3 … N ›`, 25, 50 or 100 a page and "1–25 of 80".
+Measured on 2026-11-21 on this Mac, Chromium 156.0.8078.4, against the built portal and the stand-ins with a fleet of 80
+policies (as CRC had in OB1 run 31). Stage: built-mocked. The sources and decisions are in
+`docs/reviews/2026-11-21-issue-537-policies-paged/decisions.md`, the logs in its `evidence/`.
+
+| What | How | Result |
+|---|---|---|
+| The mockup | `npm test` in `tests/portal/` | 13 logic tests (3 new: the page slots, the sections and their counts, the paging and its resets) and the walk "policies" (9 steps: the order, closed at first, Enter opens, 25 rows, Enter on page 2 is rows 26–36, 50 a page goes back to page 1, a cluster goes back to page 1, Space closes Clusters); no console error |
+| The mockup's checks can fail | one edit to `Main.dc.html` each, the dist rebuilt, the one test that claims it (`evidence/mock-mutants.log`) | 6 killed. "a new page size keeps the page" survived first: 36 policies have no page 2 at 50, so the logic test now reads the state |
+| Order, counts, closed until opened | check 537-O, 390, 820 and 1440 px, both themes | Clusters 8, Failing 30, Refused 3, Results by policy 80, the first three open and the last closed; the pill above Clusters; no cluster filter until the list opens; a closed section keeps its count |
+| Pages | check 537-P, 3 widths, both themes | page 1 is policies 1–25, page 2 is 26–50 ("26–50 of 80"), Next is page 3, page 4 is 76–80; 50 a page goes back to page 1 with pages `1 2`; 100 a page is all 80; a cluster chip and a cluster changed in the address each go back to page 1; with 250 policies `‹ [1] 2 3 4 5 … 10 ›`, `‹ 1 … 4 [5] 6 … 10 ›` and `‹ 1 … 6 7 8 9 [10] ›` |
+| Keyboard | check 537-K, 3 widths, both themes | Enter opens and Space closes the toggle; Tab reaches the first chip; Enter on page 2 and Space on page 3, focus staying on the button pressed; Enter on Previous; Space on 50 and Enter on 25 |
+| Layout and axe | check 537-L, 4 states (closed, page 2, 100 a page, page 10 of 10 with 250 policies), 3 widths, 2 themes | no sideways scroll, nothing outside its card but in a scroll area, no chip label split inside a word, 16 axe scans with no serious or critical finding. Screenshots at 1440 and 390: `cmapi-portal-ui/screenshots/537-policies-paged/after/`, written only with `UPDATE_COMMITTED_SCREENSHOTS=1` (820 goes to `test-output/`) |
+| Content parity with the mockup | `tests/parity.test.mjs`, 5 new states (open, page 2, 50 a page, a cluster, Clusters closed) | 103 states, 16825 strings, nothing missing, nothing added, no structural difference |
+| The existing Policies checks | the assertion lines of `portal.test.mjs`, indentation aside, before and after (`evidence/assert-*.txt`) | 1218 lines before, 1278 after: none removed, 60 added. The checks that read every policy open the list at 100 a page; check 6 and the deep link of check 7 open it first |
+| Mutants | `node tests/api/mutants.mjs 537`, `"#538"`, and the one whose text moved | 12 new, 12 killed, each by its own check (`evidence/mutants-*.log`). Two more were tried and dropped as equivalent: the pager row and the page buttons set to `nowrap`, measured at 390 px with 250 policies, shrink to fit (278 px of buttons in a 310 px nav) and show no defect |
+| A defect found on the way | #538 | at 390 px a cluster chip broke inside a word ("CR / C"): `.cp-wrap`'s `overflow-wrap: anywhere` counts its breaks in the min-content width (CSS Text 3), so the chips shrank instead of their strip scrolling. `.cp-wrap .cp-scroll { overflow-wrap: normal; }`; 537-L asserts it and the mutant "#538" removes it |
+| Check 7 near its limit | `npm test` | "7 the Policies tab" took 47.1 s of 90 s, past half its limit, so each view is its own check with the same lines (as #508, #521): policies 12.6 s, policies-policy 16.0 s in `npm test` |
+| Everything | `npm test` in `cmapi-portal-ui/` | exit 0 in 1116.9 s; the portal suite 136 checks, the longest 37.7 s of 90 s (537-L open-100); 537-O 3.6 s, 537-P 8.5 s, 537-K 4.8 s, 537-L 21.8, 28.0, 37.7 and 21.9 s; direct 42 of 42; parity as above |
+
+The tab's height, the tallest element, with 80 policies on the stand-in:
+
+| Width | Before (main ba104c6) | After, Results by policy closed | After, open at 25 a page | After, open at 100 a page |
+|---|---|---|---|---|
+| 1440 | 8038 px | 3467 px | 5034 px | 8084 px |
+| 820 | 12718 px | 6428 px | 9750 px | 12764 px |
+| 390 | 43629 px | 15406 px | 24397 px | 43761 px |
+
+On CRC before: 1440 x 5662 px (OB1 run 31). Before screenshots: `cmapi-portal-ui/screenshots/537-policies-paged/before/`.
+
+**Not proven here:** the tab on CRC with the real service and Keycloak; the deployment and its live screenshots are the
+coordinator's next step.
+
 ## What testing found
 
 | Found by | Problem | Fix |
