@@ -65,7 +65,7 @@ def test_a_reserved_an_adoption_and_a_not_allowed_key_are_fixed_each_with_its_re
     assert edit("annotation", "other.org/x") == ("fixed", "Not allowed by this instance's rules.", False)
 
 
-def test_an_operator_only_key_is_optional_for_an_operator_and_says_so():
+def test_metadata_keys_operator_only_rule_is_optional_and_generic_without_a_cluster():
     assert edit("label", "cmapi.net/protected") == \
         ("optional", "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.",
          True)

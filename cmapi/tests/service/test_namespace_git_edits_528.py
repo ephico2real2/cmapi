@@ -23,7 +23,7 @@ def test_the_read_gives_the_edit_rule_of_each_undeclared_key_that_git_holds(desi
                                                           "sensitive": False, "removable": False}
     assert edits["annotations"]["argocd.argoproj.io/sync-options"] == {"mode": "fixed", "reason": "Reserved for the platform.",
                                                                        "sensitive": False, "removable": False}
-    # A declared key, an operator-only one included, is described by GET /api/v1/metadata-keys, not here.
+    # Governed keys stay in GET /api/v1/metadata-keys; held operator-only keys also have contextual reasons here (#532).
     assert "company.net/cl" not in edits["labels"] and "cmapi.net/team-dl" not in edits["annotations"]
 
 

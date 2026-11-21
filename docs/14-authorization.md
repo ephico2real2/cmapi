@@ -175,7 +175,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:198`, `:424` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:218` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:219` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:91`, `:104`, `:118` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:139`, `:170`, `:188`, `:213`, `:245` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
@@ -360,7 +360,7 @@ The code `forbidden` has two more causes. Each is a refusal of the code, not of 
 | Cause | Detail | Source |
 |---|---|---|
 | A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:193` |
-| A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Only an operator (namespaces:protect) may set <keys>" | `cmapi/src/cmapi/core/metadata.py:1326` |
+| A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Needs namespaces:protect in <environment>. Keys: <keys>." (the cluster's environment, #532) | `cmapi/src/cmapi/core/metadata.py:1332` |
 
 The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:331`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").
 

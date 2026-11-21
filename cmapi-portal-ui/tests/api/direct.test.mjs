@@ -610,8 +610,9 @@ test("484-T2 rows: the keys of x-cmapi-edit, locked where it fixes them or cmapi
   assert.deepEqual(form.edits["label:cmapi.net/protected"].mode, "optional", "operator-only keys have their x-cmapi-edit too");
   const git = maps({ name: "abc-payments-dev", "company.net/mnemonic": "abc", "company.net/cl": "1", "do-not-delete": "true", "team.company.net/squad": "checkout",
     "old.invalid/key": "legacy", "cmapi.net/managed": "true" });
-  // The read's x-cmapi-edit of each undeclared key of Git (#528).
+  // The read's x-cmapi-edit of each undeclared or operator-only key of Git (#528, #532).
   const edits = { labels: { "cmapi.net/managed": { mode: "fixed", reason: "Managed by cmapi.", sensitive: false, removable: false },
+    "do-not-delete": { ...form.edits["label:do-not-delete"], reason: "Needs namespaces:protect in dev. Changing this key needs one more approval." },
     "old.invalid/key": { mode: "fixed", reason: "Not allowed by this instance's rules.", sensitive: false, removable: true },
     "team.company.net/squad": { mode: "optional", reason: null, sensitive: false, removable: false } }, annotations: {} };
   const rows = rowsOf(form, git, maps(), edits, false);
@@ -621,6 +622,8 @@ test("484-T2 rows: the keys of x-cmapi-edit, locked where it fixes them or cmapi
     ["cmapi.net/rightsizing", "field"], ["cmapi.net/managed", "locked"], ["old.invalid/key", "remove"], ["team.company.net/squad", "value"]],
     "locked first, then required, optional and the undeclared keys; cmapi.net/protected is not in Git; cmapi's own key is locked");
   assert.equal(isEditable(rows.find((r) => r.key === "old.invalid/key")), false, "a key that no rule admits is removed, never typed in (#492 M2)");
+  assert.equal(rows.find((r) => r.key === "do-not-delete").edit.reason,
+    "Needs namespaces:protect in dev. Changing this key needs one more approval.", "the namespace read overrides the generic metadata-keys reason");
   // Design section 3, row 4: an operator-only key is a value to type for a caller with namespaces:protect, all of them.
   const operator = rowsOf(form, git, maps(), edits, true).filter((r) => r.kind === "label" && form.operatorOnly.label.includes(r.key)).map((r) => [r.key, r.access]);
   assert.deepEqual(operator, [["cmapi.net/protected", "value"], ["do-not-delete", "value"]]);

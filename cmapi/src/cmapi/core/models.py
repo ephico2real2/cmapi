@@ -358,10 +358,10 @@ class KeyEdit(Api):
 
 
 class GitKeyEdits(Api):
-    labels: dict[str, KeyEdit] = Field(description="Each label of Git that metadata-keys.yaml does not declare, by key",
+    labels: dict[str, KeyEdit] = Field(description="Each undeclared or operator-only label of Git, by key",
                                        examples=[{"cmapi.net/managed": {"mode": "fixed", "reason": "Managed by cmapi.",
                                                                         "sensitive": False, "removable": False}}])
-    annotations: dict[str, KeyEdit] = Field(description="Each annotation of Git that metadata-keys.yaml does not declare, by key",
+    annotations: dict[str, KeyEdit] = Field(description="Each undeclared or operator-only annotation of Git, by key",
                                             examples=[{}])
 
 
@@ -369,8 +369,9 @@ class GitMetadata(Api):
     labels: dict[str, str] = Field(description="The labels of namespace.yaml in Git", examples=[{"cmapi.net/team": "payments"}])
     annotations: dict[str, str] = Field(description="The annotations of namespace.yaml in Git",
                                         examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
-    edits: GitKeyEdits = Field(description="x-cmapi-edit of each key that Git holds and metadata-keys.yaml does not declare "
-                                           "(the declared keys' are in GET /api/v1/metadata-keys): a system, reserved or adoption "
+    edits: GitKeyEdits = Field(description="x-cmapi-edit of each undeclared or operator-only key that Git holds "
+                                           "(other declared keys' are in GET /api/v1/metadata-keys); operator-only reasons name "
+                                           "the cluster's environment. A system, reserved or adoption "
                                            "key is fixed, a key that allowOther admits is optional, and a key that no rule admits "
                                            "is fixed and removable (#484)")
 
