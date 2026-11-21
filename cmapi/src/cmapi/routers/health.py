@@ -42,7 +42,9 @@ def readyz(response: Response, c: AppContext = Depends(ctx)) -> dict:
 
 
 # async, with no I/O: the liveness probe, so a saturated thread pool or database never restarts the pod
-@version_router.read("/version", summary="Version and commit of the running build", permission=None, response_model=Version)
+@version_router.read("/version", summary="Get the running build's version and commit",
+                     returns="The version, the commit and the component of the running build.",
+                     permission=None, response_model=Version)
 async def version() -> dict:
     """The commit the image was built from, so a deployment can be checked against its source."""
     return {"version": __version__, "commit": os.environ.get("CMAPI_GIT_COMMIT", "unknown"),

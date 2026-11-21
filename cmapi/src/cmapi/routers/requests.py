@@ -29,7 +29,9 @@ def _visible_envs(c: AppContext, who: Identity) -> set[str]:
     return set(c.cfg.allowed_environments) if envs is None else envs
 
 
-@router.read("/requests", summary="List requests", permission="requests:read", response_model=RequestPage,
+@router.read("/requests", summary="List requests",
+             returns="One page of requests, newest first, with the cursors of the pages beside it.",
+             permission="requests:read", response_model=RequestPage,
              problems=["invalid-cursor", "invalid-limit", "validation-failed"])
 def list_requests(
         status: str | None = Query(default=None, examples=["pending_approval"],
@@ -77,8 +79,10 @@ def _can_still_approve(repo: RequestRepo, row: Any, who: Identity) -> bool:
     return bool(ledger) and any(ledger.requirement.token_group(r["group"]) in who.groups for r in ledger.remaining())
 
 
-@router.read("/requests/{request_id}", summary="One request", permission="requests:read", response_model=ChangeRequest,
-             problems=["object-not-found"])
+@router.read("/requests/{request_id}", summary="Get a request",
+             returns="The request with its approval ledger, its pull request and every event so far.",
+             permission="requests:read", response_model=ChangeRequest,
+             problems=["object-not-found", "environment-forbidden"])
 def get_request(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """The request with its approval ledger, its PR and every event so far."""
     with c.db.session() as s:
@@ -88,8 +92,10 @@ def get_request(request_id: RequestId, who: Identity = Depends(require("requests
         return request_view(repo, row)
 
 
-@router.read("/requests/{request_id}/events", summary="A request's events", permission="requests:read",
-             response_model=RequestEvents, problems=["object-not-found"])
+@router.read("/requests/{request_id}/events", summary="List a request's events",
+             returns="Every state change of the request, oldest first.",
+             permission="requests:read",
+             response_model=RequestEvents, problems=["object-not-found", "environment-forbidden"])
 def get_events(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every state change of the request, oldest first: what the portal's WorkflowViewer draws."""
     with c.db.session() as s:
@@ -101,8 +107,10 @@ def get_events(request_id: RequestId, who: Identity = Depends(require("requests:
                            for e in repo.events(request_id)]}
 
 
-@router.read("/requests/{request_id}/approval-status", summary="Is this request approved, and for which plan",
-             permission="requests:read", response_model=ApprovalStatus, problems=["object-not-found"])
+@router.read("/requests/{request_id}/approval-status", summary="Get a request's approval status",
+             returns="Whether the request is approved, its status and the plan hash that its pull request must carry.",
+             permission="requests:read", response_model=ApprovalStatus,
+             problems=["object-not-found", "environment-forbidden"])
 def approval_status(request_id: RequestId, who: Identity = Depends(require("requests:read")), c: AppContext = Depends(ctx)) -> dict:
     """What the cmapi check in CI asks: the request is approved (or further along) and the plan hash the PR must carry."""
     with c.db.session() as s:
@@ -113,7 +121,9 @@ def approval_status(request_id: RequestId, who: Identity = Depends(require("requ
         return {"requestId": row.request_id, "approved": approved, "status": row.status, "planHash": row.plan_hash}
 
 
-@router.write("/requests/{request_id}:approve", summary="Approve a request", permission="requests:approve",
+@router.write("/requests/{request_id}:approve", summary="Approve a request",
+              returns="The request with this approval recorded; `status` says whether more approvals are needed.",
+              permission="requests:approve",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "not-pending", "already-approved", "self-approval", "not-eligible", "environment-forbidden"])
 def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identity = Depends(require("requests:approve")),
@@ -144,7 +154,9 @@ def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identi
         return request_view(repo, row)
 
 
-@router.write("/requests/{request_id}:reject", summary="Reject a request", permission="requests:reject",
+@router.write("/requests/{request_id}:reject", summary="Reject a request",
+              returns="The request, now rejected.",
+              permission="requests:reject",
               response_model=ChangeRequest, status_code=200,
               problems=["object-not-found", "not-pending", "validation-failed", "environment-forbidden"])
 def reject(request_id: RequestId, body: DecisionBody, who: Identity = Depends(require("requests:reject")),
@@ -162,8 +174,11 @@ def reject(request_id: RequestId, body: DecisionBody, who: Identity = Depends(re
         return request_view(repo, row)
 
 
-@router.write("/requests/{request_id}:cancel", summary="Cancel a request", permission="requests:cancel",
-              response_model=ChangeRequest, status_code=200, problems=["object-not-found", "invalid-transition"])
+@router.write("/requests/{request_id}:cancel", summary="Cancel a request",
+              returns="The request, now cancelled; its pull request is closed.",
+              permission="requests:cancel",
+              response_model=ChangeRequest, status_code=200,
+              problems=["object-not-found", "invalid-transition", "environment-forbidden"])
 def cancel(request_id: RequestId, who: Identity = Depends(require("requests:cancel")), c: AppContext = Depends(ctx)) -> dict:
     """The requester, or an operator, withdraws a request before an apply starts. Its PR is closed and its branch deleted."""
     with c.db.session() as s:
@@ -181,12 +196,17 @@ def cancel(request_id: RequestId, who: Identity = Depends(require("requests:canc
         return request_view(repo, row)
 
 
-@router.write("/requests/{request_id}:retry", summary="Retry a failed request", permission="requests:retry",
+@router.write("/requests/{request_id}:retry", summary="Retry a failed request",
+              returns="The request, with the next delivery step queued for the worker: the pull request again (from "
+                      "failed), the merge (merge_failed), or the apply, the prune or the sync watch (sync_failed).",
+              permission="requests:retry",
               response_model=ChangeRequest, status_code=200,
-              problems=["object-not-found", "invalid-transition", "change-pending"])
+              problems=["object-not-found", "invalid-transition", "change-pending", "environment-forbidden"])
 def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
-    """From failed: re-takes the namespace lock (409 if another request holds it) and opens the PR again.
-    From sync_failed: watches the sync again, or for a delete, looks for the pruned namespace again."""
+    """Queues the next delivery step; the worker runs it after this answer. From failed: re-takes the namespace lock (409
+    if another request holds it) and pushes the branch and opens the PR again. From merge_failed: merges again. From
+    sync_failed: applies again (an apply that had not finished), looks for the pruned namespace again (a delete), or
+    watches the sync again."""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
         row = repo.get(request_id)
@@ -209,9 +229,12 @@ def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry
         return request_view(repo, row)
 
 
-@router.write("/requests/{request_id}:revert", summary="Revert a sync-failed request", permission="requests:retry",
+@router.write("/requests/{request_id}:revert", summary="Revert a sync-failed request",
+              returns="The request, with its revert queued: the worker marks it reverted and opens a new request that "
+                      "restores the folder.",
+              permission="requests:retry",
               response_model=ChangeRequest, status_code=200,
-              problems=["object-not-found", "invalid-transition", "change-pending"])
+              problems=["object-not-found", "invalid-transition", "environment-forbidden"])
 def revert(request_id: RequestId, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
     """Queues the revert of a sync_failed request: the worker marks it reverted and opens a new request that
     restores the folder as it was before the plan, through the same approval rules, in one transaction. The new

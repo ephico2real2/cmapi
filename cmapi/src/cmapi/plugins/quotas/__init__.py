@@ -97,7 +97,10 @@ def _in_state(rows: list[dict[str, Any]], state: str | None) -> list[dict[str, A
     return [r for r in rows if FACETS[state](r)]
 
 
-@router.read("/quotas", summary="Every namespace's quota, paged", permission="objects:read", response_model=QuotaPage,
+@router.read("/quotas", summary="List namespace quotas",
+             returns="One page of namespaces with their quota, used and hard, the attention counts, and the cursors of"
+                     " the pages beside it.",
+             permission="objects:read", response_model=QuotaPage,
              problems=["invalid-cursor", "invalid-sort", "invalid-limit", "validation-failed"])
 def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
            state: State = None, sort: Sort = "name", limit: Limit = 50, cursor: Cursor = None,
@@ -117,7 +120,9 @@ def quotas(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team
     return page
 
 
-@router.read("/quotas:suggest", summary="Type-ahead matches", permission="objects:read", response_model=Suggestions)
+@router.read("/quotas:suggest", summary="List quota search suggestions",
+             returns="Up to ten namespaces that match the text, each with why it matched.",
+             permission="objects:read", response_model=Suggestions)
 def suggest(q: str = Query(default="", examples=["pay"],
                            description="The text to match. Fewer than two characters return no match."), who: Identity = Depends(require("objects:read")),
             c: AppContext = Depends(ctx)) -> dict:
@@ -125,7 +130,10 @@ def suggest(q: str = Query(default="", examples=["pay"],
     return {"items": c.lister.suggest(quota_rows(c, who), q)}
 
 
-@router.read("/quotas:export", summary="Export the quota list as CSV", permission="objects:read", media_type="text/csv")
+@router.read("/quotas:export", summary="Export the quota list as CSV",
+             returns="Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 "
+                     "rows.",
+             permission="objects:read", media_type="text/csv")
 def export(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
            state: State = None, sort: Sort = "name",
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)):

@@ -7,8 +7,10 @@ renders for that namespace's environment (`cmapi-tools policies render` into pol
 The environment of a folder is its Namespace's label cmapi.net/env, which cmapi derives. The policies of policies/env/<env>/ run on
 the folder's Namespace, ResourceQuota and LimitRange documents, as cmapi's own validator runs them (core/validate). The mode of
 the environment is in the bundle itself: a rendered policy without Deny in validationActions ([Audit, Warn], audit, the default
-since #342) reports a failure as a warning on cmapi's request PRs, main pushes and local runs. On other PRs a violation fails
-the check even in audit (#429). A Deny violation fails in every case. An environment with no rendered policy runs Kyverno off.
+since #342) reports a failure as a warning on cmapi's request PRs, main pushes and local runs. On other PRs an audit violation
+fails only in namespace folders changed between the merge under test and its first parent; unchanged folders warn (#429, #516).
+If that diff is unavailable, every folder is treated as changed. A Deny violation fails in every case. An environment with no
+rendered policy runs Kyverno off.
 
 It fails, as cmapi's validator does, when the CLI cannot evaluate a policy (result error), gives no report, or gives no result for
 a file of a kind a policy matches: the 1.16 CLI applied no rule to a policies.kyverno.io/v1 document and said nothing (docs/08).
@@ -138,12 +140,20 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     root = Path(a.root).resolve()
     fail_audit = a.pull_request_event is not None and not is_cmapi_pr(root, a.pull_request_event)
+    changed_dirs = None
     if fail_audit:
-        print("ci/kyverno: this PR is outside cmapi's request flow; audit violations fail the check")
+        print("ci/kyverno: this PR is outside cmapi's request flow; audit violations fail the check in changed namespace folders")
+        try:
+            paths = subprocess.check_output(["git", "diff", "--name-only", "-z", "HEAD^1", "HEAD"],
+                                            cwd=root, text=True, stderr=subprocess.PIPE).split("\0")
+            changed_dirs = {parent for path in paths if path for parent in Path(path).parents}
+        except (subprocess.CalledProcessError, OSError):
+            print("ci/kyverno: first-parent diff unavailable; treating every namespace folder as changed")
     folders = sorted(p for p in root.glob("clusters/*/namespaces/*") if p.is_dir())
     errors, warnings = [], []
     for folder in folders:
-        e, w = check_folder(root, folder, a.kyverno, fail_audit=fail_audit)
+        folder_changed = changed_dirs is None or folder.relative_to(root) in changed_dirs
+        e, w = check_folder(root, folder, a.kyverno, fail_audit=fail_audit and folder_changed)
         errors += e
         warnings += w
     for line in warnings + errors:

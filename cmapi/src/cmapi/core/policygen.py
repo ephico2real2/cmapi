@@ -200,12 +200,20 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 # UPDATE passes, so a namespace named before the rule is not refused when the label is added to it.
                 present = f"{k} in {m}"
                 end = f"object.metadata.name.endsWith('-' + {value})"
-                if keys.prefix_key() is not None:
-                    # A desired name between the two ends (rule 1), as cmapi's _check_desired_name: abc-dev is refused.
-                    pk, pm = cel(keys.prefix_key()[1]), _meta(keys.prefix_key()[0])
-                    end += f" && (!({pk} in {pm}) || size(object.metadata.name) > size({pm}[{pk}]) + size({value}) + 2)"
+                message = f"the namespace name must end with '-' and the value of {where}"
+                if (prefix_key := keys.prefix_key()) is not None:
+                    # As in _check_desired_name, allow the two values alone or a desired name between them.
+                    pk, pm = cel(prefix_key[1]), _meta(prefix_key[0])
+                    middle = (f"object.metadata.name.substring(size({pm}[{pk}]) + 1, "
+                              f"size(object.metadata.name) - size({value}) - 1)")
+                    # A name that does not start with the prefix has its error on the prefix key, as in the API.
+                    starts = f"object.metadata.name.startsWith({pm}[{pk}] + '-')"
+                    end += (f" && (!({pk} in {pm}) || !{starts} || object.metadata.name == {pm}[{pk}] + '-' + {value}"
+                            f" || (size(object.metadata.name) > size({pm}[{pk}]) + size({value}) + 2"
+                            f" && {middle}.matches({cel('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')})))")
+                    message += (", joined to the prefix directly or with a desired name between them"
+                                " that starts and ends with a letter or digit")
                 good = f"{present} && {end}" if rule.required else f"!({present}) || {end}"
-                message = f"the namespace name must end with '-' and the value of {where}, after a desired name"
                 checks.append(Check(kind, key, "namespaceSuffix", f"variables.update || ({good})", cel(message), message))
             if rule.derived:
                 if rule.derived == "namespace":

@@ -76,7 +76,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
     "rate-limited": (429, "Too many requests"),
-    "idp-unavailable": (503, "Keycloak signing keys are unreachable and none are cached"),
+    "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
@@ -86,15 +86,82 @@ PROBLEMS: dict[str, tuple[int, str]] = {
 }
 
 
-def problem_example(code: str) -> dict[str, Any]:
+# What each problem status means, in one sentence: the first line of its response in Swagger UI and ReDoc (#480, S7).
+# The codes of the status follow it, and each code is one named example (S8).
+PROBLEM_STATUS_TEXT: dict[int, str] = {
+    400: "A header or a parameter that cmapi reads first is missing or not valid.",
+    401: "No token, or the token is not valid.",
+    403: "The caller may not do this, or not in this environment.",
+    404: "What the path names is not known.",
+    409: "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.",
+    412: "The object changed since it was read: If-Match no longer matches its ETag.",
+    422: "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.",
+    428: "A change needs If-Match with the ETag of the object as it was read.",
+    429: "Too many requests. Wait for the seconds in `retryAfter`.",
+    500: "The service failed.",
+    502: "The Git host failed.",
+    503: "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.",
+}
+
+# The success answer of a write that opens a request (status 202), unless the route says otherwise.
+WRITE_ACCEPTED = ("The request is created. It waits for approval unless a policy approves it at once: `status` and "
+                  "`approval` say which, and `links.events` follows it.")
+DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+
+# A read that answers 304 to a matching If-None-Match, passed to read() as **CONDITIONAL_READ; FastAPI merges it into the
+# operation (openapi_extra). RFC 9110, 15.4.5: a 304 "cannot contain content", and it repeats the ETag of the 200.
+ETAG_HEADER = {"ETag": {"description": "The strong ETag of this answer, to send back in If-None-Match.",
+                        "schema": {"type": "string"}}}
+CONDITIONAL_READ: dict[str, Any] = {
+    "parameters": [{"name": "If-None-Match", "in": "header", "required": False,
+                    "description": "The ETag of the answer the caller holds. If it is still the current one, the answer is "
+                                   "304 with no body.",
+                    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}],
+    "responses": {"200": {"headers": ETAG_HEADER},
+                  "304": {"description": "Not modified: the ETag in If-None-Match is still the current one. Use the answer "
+                                         "you hold; this one has no body.", "headers": ETAG_HEADER}},
+}
+
+
+def takes_validated_input(op: dict[str, Any]) -> bool:
+    """Whether FastAPI checks an input of the operation, so it can answer 422 validation-failed: a body, or a parameter.
+    If-None-Match does not count: the conditional reads take it from the raw request and compare it, never refuse it."""
+    params = [p for p in op.get("parameters") or () if p.get("name") != "If-None-Match"]
+    return bool(params or op.get("requestBody"))
+
+
+# A route's 403 examples name the route's own permission, in the words of core/authz.py's refusal (RolePolicy.require).
+PERMISSION_DETAILS: dict[str, str] = {
+    "forbidden": "Missing permission {permission}: no role in your token grants it (roles: ['cmapi-requester'])",
+    "environment-forbidden": "Your roles grant {permission} only in ['rnd'], not dev",
+}
+
+
+# The fields beyond `detail` that a problem carries where cmapi raises it, so its example shows them too: each 503 says
+# when to try again (core/auth.py Jwks.key, core/registry.py cache, core/pipeline.py).
+PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
+    "idp-unavailable": {"retryAfter": 30},
+    "cluster-unreachable": {"retryAfter": 30},
+    "validator-unavailable": {"retryAfter": 60},
+}
+
+
+def problem_example(code: str, permission: str | None = None) -> dict[str, Any]:
     status, detail = PROBLEMS[code]
-    return Problem(status, code, detail).body()
+    if permission is not None and code in PERMISSION_DETAILS:
+        detail = PERMISSION_DETAILS[code].format(permission=permission)
+    return Problem(status, code, detail, extra=dict(PROBLEM_EXTRAS.get(code, {}))).body()
 
 
 PROBLEM_SCHEMA: dict[str, str] = {"$ref": "#/components/schemas/ProblemDetail"}
 
 
-def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
+def problem_description(status: int, codes: Sequence[str]) -> str:
+    """The description of a problem response: what the status means, then its codes, each a named example."""
+    return f"{PROBLEM_STATUS_TEXT[status]}\n\nCodes: " + ", ".join(f"`{c}`" for c in codes) + "."
+
+
+def problem_responses(codes: Sequence[str], permission: str | None = None) -> dict[int | str, dict[str, Any]]:
     """One response for each status, with the one media type that cmapi answers a problem with (RFC 9457, section 3).
 
     The schema is written here as a reference and not passed as FastAPI's `model`: FastAPI puts a model under the media type
@@ -102,13 +169,35 @@ def problem_responses(codes: Sequence[str]) -> dict[int | str, dict[str, Any]]:
     """
     by_status: dict[int, list[str]] = {}
     for c in codes:
-        by_status.setdefault(PROBLEMS[c][0], []).append(c)
+        names = by_status.setdefault(PROBLEMS[c][0], [])
+        if c not in names:
+            names.append(c)
     out: dict[int | str, dict[str, Any]] = {}
     for status, names in sorted(by_status.items()):
-        out[status] = {"description": ", ".join(names),
+        out[status] = {"description": problem_description(status, names),
                        "content": {"application/problem+json": {
-                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n)} for n in names}}}}
+                           "schema": PROBLEM_SCHEMA, "examples": {n: {"value": problem_example(n, permission)} for n in names}}}}
     return out
+
+
+def add_problem(op: dict[str, Any], code: str) -> None:
+    """Declare one more problem code on an operation of the document: its status's response, its named example and its
+    description, after the codes that the route declared."""
+    status = str(PROBLEMS[code][0])
+    # Copies, level by level: FastAPI puts the route's own dicts in the document, and every app of the process shares them.
+    # Each other field of the response (a header, an x- field) stays as the route declared it.
+    response = dict(op["responses"].get(status) or {})
+    content = dict(response.get("content") or {})
+    content.pop("application/json", None)                     # FastAPI's own 422 (HTTPValidationError): main.py answers a problem
+    media = dict(content.get("application/problem+json") or {"schema": PROBLEM_SCHEMA})
+    examples = dict(media.get("examples") or {})
+    examples.setdefault(code, {"value": problem_example(code)})
+    media["examples"] = examples
+    content["application/problem+json"] = media
+    response["content"] = content
+    response["description"] = problem_description(int(status), list(examples))
+    op["responses"][status] = response
+    op["responses"] = dict(sorted(op["responses"].items()))      # Swagger UI and ReDoc list them in this order
 
 
 # ReDoc's navigation groups, in docs/01's order. A tag outside every group is not displayed by ReDoc at all
@@ -140,11 +229,14 @@ class DocumentedRouter(APIRouter):
         self.group = group
 
     def _register(self, method: str, path: str, *, summary: str, permission: str | None, problems: Sequence[str],
-                  response_model: Any, status_code: int, extra: dict[str, Any], media_type: str | None = None,
+                  response_model: Any, status_code: int, returns: str, extra: dict[str, Any], media_type: str | None = None,
                   dry_run_model: Any = None) -> Callable:
         unknown = [p for p in problems if p not in PROBLEMS]
         if unknown:
             raise RuntimeError(f"{self.plugin} {method} {path}: unregistered problems {unknown}")
+        if not returns.strip():
+            # The success response's description; FastAPI's own is "Successful Response", which says nothing (#480, S7).
+            raise RuntimeError(f"{self.plugin} {method} {path}: no `returns`, the description of the {status_code} answer")
         codes = list(problems)
         if permission is not None:
             codes = ["unauthenticated", "forbidden", *codes]
@@ -156,39 +248,42 @@ class DocumentedRouter(APIRouter):
             if permission:
                 desc += f"\n\n**Requires** `{permission}`."
             op_id = f"{self.plugin}_{fn.__name__}"
-            responses = problem_responses(codes)
+            responses = problem_responses(codes, permission)
             x: dict[str, Any] = {"x-cmapi-permission": permission, "x-cmapi-plugin": self.plugin,
                                  "x-plugin-version": self.version, **extra}
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
                                           status_code=status_code, operation_id=op_id, responses=responses,
-                                          openapi_extra=x)
+                                          response_description=returns, openapi_extra=x)
             if media_type:
                 # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
                 # type of its own stops FastAPI from adding application/json beside it (#179).
-                responses[status_code] = {"description": f"The body as {media_type}",
-                                          "content": {media_type: {"schema": {"type": "string"}}}}
+                responses[status_code] = {"description": returns, "content": {media_type: {"schema": {"type": "string"}}}}
                 x["x-cmapi-media-type"] = media_type
                 kwargs["response_class"] = Response
             if dry_run_model is not None:
-                responses[200] = {"model": dry_run_model,
-                                  "description": "The plan, with `dryRun=true`. cmapi writes nothing and opens no request."}
+                responses[200] = {"model": dry_run_model, "description": DRY_RUN_RETURNS}
             return self.api_route(path, methods=[method], **kwargs)(fn)
 
         return deco
 
-    def read(self, path: str, *, summary: str, permission: str | None, problems: Sequence[str] = (),
+    def read(self, path: str, *, summary: str, permission: str | None, returns: str, problems: Sequence[str] = (),
              response_model: Any = None, method: str = "GET", media_type: str | None = None, **extra: Any) -> Callable:
+        """`returns` describes the 200 answer: what the caller gets back."""
         if response_model is None and media_type is None:
             raise RuntimeError(f"{self.plugin} {method} {path}: a read needs a response_model or a media_type")
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=200, extra=extra, media_type=media_type)
+                              response_model=response_model, status_code=200, returns=returns, extra=extra,
+                              media_type=media_type)
 
     def write(self, path: str, *, summary: str, permission: str, problems: Sequence[str] = (),
               response_model: Any, method: str = "POST", status_code: int = 202, dry_run_model: Any = None,
-              **extra: Any) -> Callable:
-        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs")."""
+              returns: str | None = None, **extra: Any) -> Callable:
+        """`dry_run_model` is the model of the 200 that the route answers with `dryRun=true` (docs/01: "200 Plan for dry runs").
+        `returns` describes the success answer; a write that opens a request (202) has WRITE_ACCEPTED unless it says more."""
+        if returns is None:
+            returns = WRITE_ACCEPTED if status_code == 202 else ""
         return self._register(method, path, summary=summary, permission=permission, problems=problems,
-                              response_model=response_model, status_code=status_code, extra=extra,
+                              response_model=response_model, status_code=status_code, returns=returns, extra=extra,
                               dry_run_model=dry_run_model)
 
 
@@ -348,9 +443,19 @@ def sample_request(method: str, path: str, op: dict[str, Any], components: dict[
             "headers": headers, "body": body}
 
 
+# The base URL of the samples when instance.yaml has no publicUrl (main.py): a shell variable, like $TOKEN.
+URL_VARIABLE = "$CMAPI_URL"
+
+
 def curl_sample(request: dict[str, Any]) -> str:
-    """The sample as one curl command. $TOKEN stays for the shell to fill, so it is the one part in double quotes."""
-    parts = ["curl", "-X", request["method"], shlex.quote(request["url"])]
+    """The sample as one curl command. $CMAPI_URL and $TOKEN stay for the shell to fill, so they are the parts in double
+    quotes; everything else is quoted as it is."""
+    url = request["url"]
+    if url.startswith(URL_VARIABLE + "/"):
+        target = f'"{URL_VARIABLE}"' + shlex.quote(url[len(URL_VARIABLE):])
+    else:
+        target = shlex.quote(url)
+    parts = ["curl", "-X", request["method"], target]
     for name, value in request["headers"]:
         header = f"{name}: {value}"
         parts += ["-H", f'"{header}"' if "$TOKEN" in value else shlex.quote(header)]
@@ -390,6 +495,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     if instance is not None:
         _document_expiry(spec, instance)
     _document_validation_problem(spec)
+    _document_token_problems(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     add_recorded_examples(spec, load_samples(), metadata, instance)
     _document_create_examples(spec, instance)
@@ -486,7 +592,10 @@ def namespace_description(keys: Any) -> str | None:
     if suffix is not None:
         shape = f"{shape}-<{suffix[1]}>"
         rules.append(f'ends with "-" and the value of {suffix[1]}')
-    return (f"The name is `{shape}`, at most 63 characters: it {' and '.join(rules)}. cmapi refuses another name with "
+    forms = f"`{shape}`"
+    if prefix is not None and suffix is not None:
+        forms += f" or `<{prefix[1]}>-<{suffix[1]}>` for a team-wide namespace"
+    return (f"The name is {forms}, at most 63 characters: it {' and '.join(rules)}. cmapi refuses another name with "
             "invalid_value on that key.")
 
 
@@ -629,23 +738,25 @@ def _with_type_base(node: Any, problem_base: str) -> Any:
 def _document_validation_problem(spec: dict[str, Any]) -> None:
     """Each operation with a parameter or a body can answer 422 validation-failed (main.py turns FastAPI's own refusal into the
     problem). So FastAPI's HTTPValidationError leaves the document, and the 422 of each such operation names validation-failed."""
-    problem = PROBLEM_SCHEMA
     for ops in spec["paths"].values():
         for op in ops.values():
-            if not isinstance(op, dict) or not (op.get("parameters") or op.get("requestBody")):
-                continue
-            declared = op["responses"].get("422") or {}
-            examples = dict((declared.get("content") or {}).get("application/problem+json", {}).get("examples") or {})
-            examples.setdefault("validation-failed", {"value": problem_example("validation-failed")})
-            names = [n for n in (declared.get("description") or "").split(", ") if n in PROBLEMS]
-            if "validation-failed" not in names:
-                names.append("validation-failed")
-            op["responses"]["422"] = {"description": ", ".join(names),
-                                      "content": {"application/problem+json": {"schema": problem, "examples": examples}}}
+            if isinstance(op, dict) and takes_validated_input(op):
+                add_problem(op, "validation-failed")
     schemas = spec.get("components", {}).get("schemas", {})
     schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))
     for name in ("HTTPValidationError", "ValidationError"):
         schemas.pop(name, None)
+
+
+def _document_token_problems(spec: dict[str, Any]) -> None:
+    """Each operation that takes a token can answer what the token check answers (core/auth.py, #480): 401
+    unauthenticated, and 503 idp-unavailable when Keycloak's signing keys cannot be read and the token's key is not cached.
+    The check is a dependency of the whole router (main.py, api_app), so the document's `security` says which operations."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if isinstance(op, dict) and op.get("security"):
+                add_problem(op, "unauthenticated")
+                add_problem(op, "idp-unavailable")
 
 
 def _without_none(value: Any) -> Any:

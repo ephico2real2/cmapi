@@ -28,7 +28,7 @@ from cmapi import __version__
 from cmapi.core.capacity import NOT_MEASURED, RESOURCES, bound_by, group_figures, resource_figures, worst
 from cmapi.core.capacity_backend import read_snapshot_quotas
 from cmapi.core.context import AppContext
-from cmapi.core.docs import DocumentedRouter
+from cmapi.core.docs import CONDITIONAL_READ, DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
@@ -174,8 +174,12 @@ def _targets(c: AppContext, envs: list[str]) -> list[dict[str, Any]]:
     return out
 
 
-@router.read("/capacity", summary="Cluster capacity, grouped", permission="capacity:read", response_model=CapacityPage,
-             problems=["validation-failed", "environment-not-served", "environment-forbidden", "cluster-not-found"])
+@router.read("/capacity", summary="Get cluster capacity by group",
+             returns="The capacity of each cluster in the caller's environments, grouped as asked, with each cluster's"
+                     " targets and snapshot state.",
+             permission="capacity:read", response_model=CapacityPage,
+             problems=["validation-failed", "environment-not-served", "environment-forbidden", "cluster-not-found"],
+             **CONDITIONAL_READ)
 def capacity(request: Request, group_by: GroupBy = "region,environment", env: EnvFilter = None,
              cluster_id: ClusterFilter = None, who: Identity = Depends(require("capacity:read")),
              c: AppContext = Depends(ctx)) -> Response:

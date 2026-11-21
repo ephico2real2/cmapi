@@ -308,6 +308,235 @@ test("407 retained rows have the same visible timestamps across UTC midnight", a
   }
 });
 
+// #479 (Phase 4): the pure parts of the New namespace form, on the answer of the configuration of design section 3.1.
+const KEYS_479 = JSON.parse(readFileSync(new URL("metadata-keys.company-479.json", import.meta.url), "utf8"));
+
+test("512 the stand-in checks the desired middle on the suffix key", async () => {
+  const { createMetadata } = await import("./standin.mjs");
+  for (const [namespace, accepted] of [
+    ["abc-dev", true], ["abc--dev", false], ["abc--x-dev", false], ["abc-x--dev", false],
+    ["abc---dev", false], ["abc-x-y-dev", true], ["abc-x--y-dev", true], ["abc-1-dev", true],
+  ]) {
+    const { errors } = createMetadata(KEYS_479, { labels: { "company.net/mnemonic": "abc" } },
+      { namespace, environment: "dev" });
+    assert.deepEqual(errors.map(({ code, key, kind }) => ({ code, key, kind })), accepted ? [] : [
+      { code: "invalid_value", key: "company.net/app-environment", kind: "label" },
+    ], namespace);
+  }
+});
+
+test("479-P2 the name's ends: the prefix and suffix keys of the answer, their values, the name and its checks", async () => {
+  const { checkName, endValue, fieldsOf, joinName, nameEnds } = await import("../../src/portal/metadataForm.ts");
+  const form = fieldsOf(KEYS_479);
+  const { start, end } = nameEnds(form);
+  assert.deepEqual([start?.key, end?.key, end?.derivedFrom], ["company.net/mnemonic", "company.net/app-environment", "environment"]);
+  const target = { namespace: "", environment: "dev", cluster: "CRC", instance: "nonprod" };
+  assert.equal(endValue(start, { "label:company.net/mnemonic": "abc" }, target), "abc");
+  assert.equal(endValue(end, {}, target), "dev", "the end is the cluster's environment, which cmapi fills in");
+  assert.equal(joinName("abc", "payments", "dev"), "abc-payments-dev");
+  assert.equal(joinName("abc", "", "dev"), "abc-dev");
+  assert.equal(joinName(null, "payments-dev", null), "payments-dev", "an instance with neither end: the whole name");
+  assert.equal(checkName("abc", "payments", "dev"), null);
+  assert.equal(checkName("abc", "", "dev"), null);
+  assert.equal(checkName("abc", "", null), "Type the middle of the name.");
+  assert.equal(checkName(null, "", "dev"), "Type the middle of the name.");
+  assert.equal(checkName(null, "", null), "Required: a namespace name");
+  assert.equal(checkName("a".repeat(60), "", "dev"), "The full name is longer than 63 characters.");
+  assert.equal(checkName("abc", "x".repeat(56), "dev"), "The full name is longer than 63 characters.");
+  assert.equal(checkName("abc", "x".repeat(55), "dev"), null, "63 characters is the limit, not past it");
+  assert.match(checkName("abc", "Pay_ments", "dev"), /^The middle of the name: lowercase letters/);
+  assert.equal(checkName("", "payments", "dev"), null, "a missing start: the start's own field says so");
+  assert.equal(fieldsOf(RULES.reference).fields.some((f) => f.namespacePrefix || f.namespaceSuffix), false, "the reference file has neither end");
+});
+
+test("512 a desired middle starts and ends with a letter or digit", async () => {
+  const { checkName } = await import("../../src/portal/metadataForm.ts");
+  for (const desired of ["-x", "x-", "-"]) {
+    assert.equal(checkName("abc", desired, "dev"), "Start and end with a letter or digit.", desired);
+  }
+  for (const desired of ["", "x", "1", "x-y", "x--y"]) {
+    assert.equal(checkName("abc", desired, "dev"), null, desired);
+  }
+  assert.equal(checkName(null, "abc--x-dev", null), null, "without locked ends, only the whole name is checked");
+  assert.equal(checkName("abc", "-x", null), null, "a prefix alone does not declare a middle");
+  assert.equal(checkName(null, "x-", "dev"), null, "a suffix alone does not declare a middle");
+});
+
+test("479-P4 a default copies its source until the person edits it, and an unedited default is never sent", async () => {
+  const { bodyOf, defaultSource, fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  const form = fieldsOf(KEYS_479);
+  const team = form.fields.find((f) => f.key === "cmapi.net/team");
+  assert.equal(team.defaultFrom, "company.net/mnemonic");
+  assert.equal(defaultSource(form, team).title, "Mnemonic");
+  const typed = { "label:company.net/mnemonic": "abc" };
+  assert.equal(shownValues(form, typed)["label:cmapi.net/team"], "abc", "copied from the mnemonic");
+  assert.equal(bodyOf(form, typed).labels["cmapi.net/team"], undefined, "not sent: cmapi fills it in (source default:company.net/mnemonic)");
+  const edited = { ...typed, "label:cmapi.net/team": "payments" };
+  assert.equal(shownValues(form, { ...edited, "label:company.net/mnemonic": "xyz" })["label:cmapi.net/team"], "payments", "an edit is never written over (plan R5)");
+  assert.equal(bodyOf(form, edited).labels["cmapi.net/team"], "payments");
+  assert.equal(shownValues(form, { ...typed, "label:cmapi.net/team": "" })["label:cmapi.net/team"], "", "emptied is still edited");
+});
+
+test("479-P10 extra keys: the answer's propertyNames, additionalProperties and x-cmapi-other-keys, on their rows", async () => {
+  const { checkExtras, fieldsOf, prefixWords } = await import("../../src/portal/metadataForm.ts");
+  const form = fieldsOf(KEYS_479);
+  assert.deepEqual(form.otherKeys.label.prefixes, ["", "*.company.net/"]);
+  assert.deepEqual([form.otherKeys.annotation.max, form.otherKeys.annotation.maxValueBytes, form.otherKeys.annotation.maxBytesTotal], [50, 4096, 65536]);
+  assert.equal(prefixWords(form.otherKeys.label.prefixes), "*.company.net/ (or none)");
+  const rows = (pairs) => pairs.map(([key, value], id) => ({ id, key, value }));
+  const keyOf = async (kind, pairs) => Object.values((await checkExtras(form, kind, rows(pairs), ecma)).rows).map((r) => r.key);
+  assert.deepEqual(await keyOf("label", [["team.company.net/squad", "checkout"], ["squad", "x"], ["", ""], ["kubernetes.io/x", "a"], ["cmapi.net/team", "a"],
+    ["cmapi.net/protected", "true"], ["Bad Key", "a"], ["other.example/x", "a"]]), [null, null, "Enter a key.", "The prefix must be *.company.net/ (or none).",
+    "This key has its own field above.", "Only an operator sets this key.", "Not a valid key: an optional DNS prefix and '/', then up to 63 letters, digits, '-', '_' or '.'.",
+    "The prefix must be *.company.net/ (or none)."]);
+  assert.deepEqual(await keyOf("annotation", [["name", "x"]]), ["cmapi.net sets this key, or it has its own field in the other table.".replace("cmapi.net", "cmapi")],
+    "a label's declared key is refused as an annotation (the not of propertyNames)");
+  assert.deepEqual(await keyOf("label", [["squad", "a"], ["squad", "b"]]), ["This key is already in the table.", "This key is already in the table."]);
+  const values = async (kind, value) => Object.values((await checkExtras(form, kind, rows([["squad", value]]), ecma)).rows)[0].value;
+  assert.match(await values("label", "not a label value"), /^A label value: up to 63/);
+  assert.equal(await values("label", ""), null, "an empty label value is a label value");
+  assert.equal(await values("annotation", "é".repeat(2048)), null, "4096 bytes: the limit");
+  assert.equal(await values("annotation", "é".repeat(2049)), "Up to 4096 bytes.", "counted in UTF-8 bytes, as cmapi counts them");
+  const many = rows(Array.from({ length: 51 }, (_, i) => [`k${i}`, "v"]));
+  assert.deepEqual((await checkExtras(form, "label", many, ecma)).table, ["At most 50 additional labels."]);
+  const big = rows(Array.from({ length: 17 }, (_, i) => [`k${i}`, "x".repeat(4000)]));
+  assert.deepEqual((await checkExtras(form, "annotation", big, ecma)).table, ["The additional annotations hold more than 65536 bytes in all."]);
+});
+
+test("479-P10 the form never refuses an extra key that the schema admits: every allowed shape of the answer's propertyNames", async () => {
+  const { checkExtraKey, fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  // The admitted keys of the #328 corpus's shapes on this file: no prefix, *.company.net/ at depth one and two, the longest name.
+  const form = fieldsOf(KEYS_479);
+  for (const key of ["squad", "a", "a.b_c-d", "team.company.net/squad", "a.b.company.net/x", `team.company.net/${"n".repeat(63)}`]) {
+    assert.equal(await checkExtraKey(form, "label", key, [{ id: 0, key, value: "" }], ecma), null, key);
+    assert.equal(await checkExtraKey(form, "annotation", key, [{ id: 0, key, value: "" }], ecma), null, key);
+  }
+});
+
+test("479-P11 extra keys go in the same maps as the named fields; a row with no key is not sent", async () => {
+  const { bodyOf, fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const form = fieldsOf(KEYS_479);
+  const body = bodyOf(form, { "label:company.net/mnemonic": "abc" }, { label: [{ id: 1, key: "team.company.net/squad", value: "checkout" }, { id: 2, key: "", value: "x" }],
+    annotation: [{ id: 3, key: "runbook.company.net/url", value: "https://wiki.company.net/abc/runbook" }] });
+  assert.deepEqual(body, { labels: { "company.net/mnemonic": "abc", "team.company.net/squad": "checkout" }, annotations: { "runbook.company.net/url": "https://wiki.company.net/abc/runbook" } });
+});
+
+test("479-P12 the expiry rules of each environment come from x-cmapi-expiration; maxLifetimeDays warns and never sets a date", async () => {
+  const { expiryInfo, expiryRulesOf, fieldsOf, listWords } = await import("../../src/portal/metadataForm.ts");
+  const form = fieldsOf(KEYS_479);
+  const dev = expiryRulesOf(form, "dev");
+  assert.deepEqual(dev, { enabled: true, allowedAtCreate: true, maxLifetimeDays: 180, notifyDaysBefore: [14, 7, 1], graceDays: 7 });
+  assert.equal(expiryRulesOf(form, "prod"), null, "an environment that is not listed takes no date");
+  const off = fieldsOf({ ...KEYS_479, "x-cmapi-expiration": { environments: { dev: { enabled: false } } } });
+  assert.equal(expiryRulesOf(off, "dev"), null, "enabled: false, whatever the environment's name");
+  const later = fieldsOf({ ...KEYS_479, "x-cmapi-expiration": { environments: { dev: { ...KEYS_479["x-cmapi-expiration"].environments.dev, allowedAtCreate: false } } } });
+  assert.equal(expiryRulesOf(later, "dev"), null, "allowedAtCreate: false takes no date at create");
+  assert.deepEqual(expiryInfo("", "2026-11-20", dev), { state: "none" }, "empty: permanent, never a date from the limit (D15)");
+  assert.deepEqual(expiryInfo("2026-12-15", "2026-11-20", dev), { state: "date", date: "2026-12-15", days: 25, beyond: false });
+  assert.deepEqual(expiryInfo("2027-05-19", "2026-11-20", dev), { state: "date", date: "2027-05-19", days: 180, beyond: false }, "180 days: within the limit");
+  assert.deepEqual(expiryInfo("2027-05-20", "2026-11-20", dev), { state: "date", date: "2027-05-20", days: 181, beyond: true }, "past it: one more approval, not a refusal");
+  assert.deepEqual(expiryInfo("2026-11-20", "2026-11-20", dev), { state: "bad", error: "Pick a date after today." });
+  assert.deepEqual(expiryInfo("2026-02-30", "2026-11-20", dev), { state: "bad", error: "Enter a date as YYYY-MM-DD." });
+  assert.equal(listWords([14, 7, 1]), "14, 7 and 1");
+  assert.throws(() => fieldsOf({ ...KEYS_479, "x-cmapi-expiration": { environments: { dev: { enabled: true } } } }), /not its limits/);
+});
+
+test("479-P1 nothing about a company is written in the portal's code: every key, domain and example comes from the API", async () => {
+  const { readdirSync } = await import("node:fs");
+  const src = new URL("../../src/", import.meta.url);
+  const named = [];
+  for (const entry of readdirSync(src, { recursive: true })) {
+    // The demo build's model and tabs run the mockup's sample logic (MOCKUP-CONTRACT.md, "The demo build"); the generated
+    // API types carry the contract's examples. The portal's code is the rest, read without its comments.
+    if (!/\.(ts|tsx)$/.test(String(entry)) || /^(model|tabs)\//.test(String(entry)) || String(entry).includes("generated")) continue;
+    const text = readFileSync(new URL(String(entry), src), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    for (const word of ["company.net", "ephico2real", "cnn.com", "amgsst", "mnemonic"]) if (text.toLowerCase().includes(word)) named.push(`${entry}: ${word}`);
+  }
+  assert.deepEqual(named, [], "the demo's model and the generated API types are the only sources that name one");
+});
+
+test("479-P6 the preview: each key with where its value comes from, the extra keys, and the date's two keys", async () => {
+  const { fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  const { previewLines, previewYaml, planNamespaceFile, sourceWords } = await import("../../src/portal/preview.ts");
+  const form = fieldsOf(KEYS_479);
+  const typed = { "label:company.net/mnemonic": "abc", "label:company.net/lob": "amgsst" };
+  const lines = previewLines({ form, typed, shown: shownValues(form, typed), target: { namespace: "abc-payments-dev", environment: "dev", cluster: "CRC", instance: "nonprod" },
+    extras: { label: [{ id: 1, key: "squad", value: "checkout" }], annotation: [] }, expiresAt: "2026-12-15", protect: null });
+  const yaml = previewYaml("abc-payments-dev", lines);
+  for (const line of ['name: "abc-payments-dev"   # automatic', 'company.net/app-environment: "dev"   # automatic', 'cmapi.net/team: "abc"   # from Mnemonic',
+    'company.net/cl: ""   # required, not set yet', 'squad: "checkout"   # additional', 'cmapi.net/expiry: "managed"   # from Expires', 'cmapi.net/expires-at: "2026-12-15"   # from Expires']) {
+    assert.ok(yaml.includes(line), `${line} in\n${yaml}`);
+  }
+  assert.ok(!yaml.includes("cmapi.net/cost-center"), "an empty optional key is not in the preview");
+  assert.equal(planNamespaceFile({ "a/quota.yaml": "q", "a/namespace.yaml": "n" }).text, "n");
+  assert.deepEqual(["request", "namespace", "default:company.net/mnemonic"].map(sourceWords), ["from the request", "from the namespace", "default from company.net/mnemonic"]);
+});
+
+// PR #506 review (reviewer 1 Codex gpt-6.2-astra, reviewer 2 Opus 5.5): the defects of findings 02, 05, 07, 08 and 09.
+const with479 = (edit) => { const keys = structuredClone(KEYS_479); edit(keys); return keys; };
+const TARGET = { namespace: "abc-pay-dev", environment: "dev", cluster: "CRC", instance: "nonprod" };
+
+test("506-02 a default copied from a key that cmapi fills in shows that key's value, as cmapi fills it first (core/metadata.py steps 1, 2)", async () => {
+  const { bodyOf, fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  for (const [source, expected] of [["company.net/app-environment", "dev"], ["name", "abc-pay-dev"]]) {
+    const form = fieldsOf(with479((k) => { k.labels.properties["cmapi.net/team"]["x-cmapi-default-from"] = source; }));
+    assert.equal(shownValues(form, {}, TARGET)["label:cmapi.net/team"], expected, `Team from ${source}`);
+    assert.equal(bodyOf(form, {}).labels["cmapi.net/team"], undefined, "unedited: not sent, cmapi fills it in");
+    assert.equal(shownValues(form, { "label:cmapi.net/team": "ops" }, TARGET)["label:cmapi.net/team"], "ops", "an edit is kept");
+  }
+});
+
+test("506-05 the name has at least 2 characters (core/naming.py), and an optional prefix key left empty is no end", async () => {
+  const { checkName, endValue, fieldsOf, joinName, nameEnds } = await import("../../src/portal/metadataForm.ts");
+  assert.equal(checkName(null, "a", null), "The name has at least 2 characters.");
+  assert.equal(checkName(null, "ab", null), null);
+  const optional = fieldsOf(with479((k) => { k.labels.required = k.labels.required.filter((key) => key !== "company.net/mnemonic"); }));
+  const { start, end } = nameEnds(optional);
+  assert.equal(start.required, false);
+  assert.equal(endValue(start, {}, TARGET), null, "empty and optional: no start, as cmapi skips the prefix check (_check_prefix)");
+  assert.equal(joinName(endValue(start, {}, TARGET), "pay", endValue(end, {}, TARGET)), "pay-dev");
+  assert.equal(endValue(start, { "label:company.net/mnemonic": "abc" }, TARGET), "abc");
+  const required = nameEnds(fieldsOf(KEYS_479)).start;
+  assert.equal(endValue(required, {}, TARGET), "", "a required start not typed yet stays an end ('…')");
+});
+
+test("506-07 the preview's YAML keeps each key as text and an empty map as a map", async () => {
+  const { previewYaml } = await import("../../src/portal/preview.ts");
+  const yaml = previewYaml("yes", { label: [{ key: "on", value: "off", note: "" }, { key: "01", value: "1e3", note: "" }, { key: "app", value: "x", note: "" }], annotation: [] });
+  for (const line of ['  name: "yes"', '    "on": "off"', '    "01": "1e3"', '    app: "x"', "  annotations: {}"]) assert.ok(yaml.split("\n").includes(line), `${line} in\n${yaml}`);
+  assert.ok(previewYaml("ab", { label: [], annotation: [] }).split("\n").includes("  labels: {}"));
+});
+
+test("506-08 no table where cmapi takes no extra key (no allowOther prefix, or max 0); a glob's '*' in the placeholder is 'example'", async () => {
+  const { fieldsOf, keyPlaceholder } = await import("../../src/portal/metadataForm.ts");
+  const noPrefix = with479((k) => { k.labels.propertyNames.anyOf = k.labels.propertyNames.anyOf.filter((b) => b.enum); k.labels["x-cmapi-other-keys"].prefixes = []; });
+  assert.equal(fieldsOf(noPrefix).otherKeys.label, null, "no allowOther prefix");
+  assert.notEqual(fieldsOf(noPrefix).otherKeys.annotation, null);
+  assert.equal(fieldsOf(with479((k) => { k.annotations["x-cmapi-other-keys"].max = 0; })).otherKeys.annotation, null, "max 0");
+  const rules = fieldsOf(KEYS_479).otherKeys.label;
+  assert.equal(keyPlaceholder(rules), "e.g. example.company.net/key");
+  assert.equal(keyPlaceholder({ ...rules, prefixes: ["*/"] }), "e.g. example/key");
+  assert.equal(keyPlaceholder({ ...rules, prefixes: [""] }), "e.g. key");
+});
+
+test("506-09 an emptied optional default is sent as \"\", checked by its rule and shown in the preview; left out, cmapi would copy its source", async () => {
+  const { bodyOf, checkAll, fieldsOf, shownValues } = await import("../../src/portal/metadataForm.ts");
+  const { previewLines } = await import("../../src/portal/preview.ts");
+  const keys = with479((k) => { k.labels.properties.alias = { type: "string", "x-cmapi-default-from": "company.net/mnemonic", "x-cmapi-rule": "any value" }; });
+  const form = fieldsOf(keys), alias = form.fields.find((f) => f.key === "alias");
+  const typed = { "label:company.net/mnemonic": "abc", "label:alias": "" };
+  const shown = shownValues(form, typed, TARGET);
+  assert.equal(bodyOf(form, typed).labels.alias, "", "sent empty");
+  assert.equal("alias" in bodyOf(form, { "label:company.net/mnemonic": "abc" }).labels, false, "unedited: not sent");
+  assert.equal((await checkAll(form, shown, "abc-pay-dev", ecma, typed))[alias.id], null, "\"\" passes a key with no rule");
+  assert.deepEqual(previewLines({ form, typed, shown, target: TARGET, extras: { label: [], annotation: [] }, expiresAt: null, protect: null }).label.find((l) => l.key === "alias"),
+    { key: "alias", value: "", note: "" });
+  alias.patterns = ["^[a-z]+$"];
+  assert.match((await checkAll(form, shown, "abc-pay-dev", ecma, typed))[alias.id] ?? "", /^Not valid/, "\"\" breaks a pattern, as cmapi refuses it (_governed)");
+  const team = form.fields.find((f) => f.key === "cmapi.net/team");
+  assert.match((await checkAll(form, shownValues(form, { "label:cmapi.net/team": "" }, TARGET), "abc-pay-dev", ecma, { "label:cmapi.net/team": "" }))[team.id], /^Required/);
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }

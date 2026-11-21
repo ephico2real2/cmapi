@@ -47,6 +47,8 @@ Copy `openapi.json` to `released/<version>.json`. Then run `python contract/chan
 | no inline schemas | `cmapi-no-inline-schema` |
 | `cmapi.net/` keys only in label examples, or as properties of a label or annotation map's schema (#336) | `cmapi-net-keys-only-in-labels` |
 
+The documentation standard of every operation (#480: each status described, one named example per problem code, the `x-` fields, the curl sample) is a pytest lint beside the service suite, `tests/service/test_api_standard.py`: it renders the document with no database and names each gap as `<METHOD> <path>: <gap>`.
+
 Spectral resolves each `$ref` before it runs a rule. The two rules that must see the reference itself say `resolved: false`. `info-contact` is off, because the document names no person and no address.
 
 To change Spectral's version, change it in `spectral/package.json`, run `npm install --ignore-scripts` there, and commit both files. Sources, read on 2026-11-13 at the tag `v6.17.1` of <https://github.com/stoplightio/spectral>: `docs/guides/4a-rules.md` for the form of a rule and `resolved`, and `docs/guides/5-custom-functions.md` for the functions, `functionsDir` and `context.path`.

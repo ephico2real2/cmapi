@@ -24,6 +24,8 @@ from metadata_form_corpus import build
 
 SHIPPED = EX / "cluster-configs/policies/metadata-keys.yaml"
 COMPANY = EX / "cluster-configs/policies/metadata-keys.company.yaml"
+# The configuration of #479 (design section 3.1): the name's two ends, the team's default and the titles (Phase 4's form).
+COMPANY_479 = EX / "cluster-configs/policies/metadata-keys.company-479.yaml"
 PORTAL = EX.parent / "cmapi-portal-ui/tests/api"
 SAMPLES = EX.parent / "cmapi/src/cmapi/contract/samples.json"
 REFERENCE = EX.parent / "cmapi/src/cmapi/tools/reference_instance"     # the instance that the samples are recorded on
@@ -103,6 +105,17 @@ def test_the_portals_company_fixture_is_the_company_files_answer():
     """The stand-in API of the portal's suite serves it as GET /api/v1/metadata-keys of a company instance."""
     _write_or_compare(PORTAL / "metadata-keys.company.json",
                       json.dumps(instance_view(COMPANY), indent=2, ensure_ascii=False) + "\n")
+
+
+def test_the_portals_479_fixture_is_the_479_files_answer():
+    """The stand-in serves it as GET /api/v1/metadata-keys of an instance with the configuration of #479 (section 3.1):
+    x-cmapi-namespace-prefix, x-cmapi-namespace-suffix, x-cmapi-default-from and the titles, as the service builds them."""
+    view = instance_view(COMPANY_479)
+    labels = view["labels"]["properties"]
+    assert labels["company.net/mnemonic"]["x-cmapi-namespace-prefix"] is True
+    assert labels["company.net/app-environment"]["x-cmapi-namespace-suffix"] is True
+    assert labels["cmapi.net/team"]["x-cmapi-default-from"] == "company.net/mnemonic"
+    _write_or_compare(PORTAL / "metadata-keys.company-479.json", json.dumps(view, indent=2, ensure_ascii=False) + "\n")
 
 
 def test_the_recorded_sample_is_the_reference_files_answer():

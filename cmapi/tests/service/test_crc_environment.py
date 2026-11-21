@@ -106,7 +106,7 @@ def test_a_request_on_crcs_own_configuration_is_auto_approved_merged_and_applied
     (GitHub: external_ci), the cmapi check, the merge, then apply delivery: the namespace, its quota and its two LimitRanges."""
     client, ctx, bot, git, kube, _ = crc
     git.external_ci = True
-    ns = "cmapi-flow-test"
+    ns = "abc-flow-test-dev"
     path, body = proof_request()
     import json
     body = {**json.loads(body), "namespace": ns}

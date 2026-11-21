@@ -7,7 +7,7 @@ import json
 from fastapi import Depends, Request, Response
 
 from cmapi.core.context import AppContext
-from cmapi.core.docs import CORE, DocumentedRouter, metadata_keys_view
+from cmapi.core.docs import CONDITIONAL_READ, CORE, DocumentedRouter, metadata_keys_view
 from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_matches, etag_of
 from cmapi.core.identity.claims import Identity
@@ -19,7 +19,9 @@ from cmapi.routers import ClusterId, caller, ctx, require
 router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
 
-@router.read("/me", summary="Who am I", permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
+@router.read("/me", summary="Get the caller's identity and permissions",
+             returns="The caller's identity, roles, groups and permissions, with the environments each role covers.",
+             permission=None, response_model=Me, problems=["unauthenticated", "idp-unavailable"])
 def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
     """The caller's identity as cmapi records it, the roles and groups in the token, and the permissions
     each role grants with the environments it covers. The first thing to check when a call returns 403. `operator` says
@@ -31,7 +33,9 @@ def me(who: Identity = Depends(caller), c: AppContext = Depends(ctx)) -> dict:
             "operatorEnvironments": roles.operator_environments(who)}
 
 
-@router.read("/clusters", summary="Clusters this instance knows", permission="clusters:read", response_model=ClusterList)
+@router.read("/clusters", summary="List known clusters",
+             returns="Every cluster with its environment, import status and the findings of its checks.",
+             permission="clusters:read", response_model=ClusterList)
 def clusters(who: Identity = Depends(require("clusters:read")), c: AppContext = Depends(ctx)) -> dict:
     """Every cluster from clusters.yaml and every imported one, with its import status and the findings
     of the six checks. A cluster with a policy entry but no import Secret shows not-imported."""
@@ -51,8 +55,11 @@ def metadata_keys_document(keys: MetadataKeys, expiration: ExpirationRules,
     return body, etag_of(body)
 
 
-@router.read("/metadata-keys", summary="The rules of a new namespace's labels and annotations", permission="objects:read",
-             response_model=MetadataKeysView)
+@router.read("/metadata-keys", summary="Get namespace label and annotation rules",
+             returns="The JSON Schemas of a new namespace's labels and annotations, and the expiration rules of each "
+                     "environment, with an ETag.",
+             permission="objects:read",
+             response_model=MetadataKeysView, **CONDITIONAL_READ)
 def metadata_keys(request: Request, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> Response:
     """This instance's metadata-keys.yaml as the JSON Schema 2020-12 of a new namespace's labels and annotations: each
@@ -76,7 +83,10 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
     return Response(body, media_type="application/json", headers=headers)
 
 
-@router.read("/clusters/{id}:probe", method="POST", summary="Probe one cluster's held credential", permission="operations:run",
+@router.read("/clusters/{id}:probe", method="POST", summary="Probe one cluster's held credential",
+             returns="The cluster's diagnostics after the checks ran again: status, findings, server version and token"
+                     " expiry.",
+             permission="operations:run",
              problems=["cluster-not-found"], response_model=ClusterView)
 def probe(id: ClusterId, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
     """Run the relist checks on this cluster's last discovered import and return its current diagnostics.

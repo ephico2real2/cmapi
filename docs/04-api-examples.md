@@ -53,7 +53,7 @@ The routes `/healthz`, `/readyz`, `/problems`, `/problems/{code}`, `/openapi.jso
 
 The managed namespaces by expiry: a paged list of each namespace that can expire, with its date, the days left and its state. A date is changed with :extend, :set or :makePermanent of the namespaces plugin.
 
-### Namespaces by expiry, paged
+### List namespaces by expiry
 
 `GET /api/v1/expirations`
 
@@ -130,7 +130,7 @@ The answer was 200 (`application/json`):
 
 The managed namespaces of a cluster: read them, and create, change, delete or extend one. Each write returns a change request and becomes a pull request after approval.
 
-### Managed namespaces on a cluster
+### List managed namespaces on a cluster
 
 `GET /api/v1/clusters/{cluster_id}/namespaces`
 
@@ -554,7 +554,7 @@ The answer was 202 (`application/json`):
 }
 ```
 
-### One namespace, with its etag
+### Get a namespace and its ETag
 
 `GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`
 
@@ -1330,7 +1330,7 @@ The answer was 200 (`application/json`):
 
 What the Kyverno bundle decided on each cluster, read from its policy reports, and the requests that cmapi refused before Git, with Kyverno's warnings on plans that went on.
 
-### What cmapi refused before Git, paged
+### List policy rejections before Git
 
 `GET /api/v1/policies/rejections`
 
@@ -1396,7 +1396,7 @@ The answer was 200 (`application/json`):
 
 `body.items` has 2 items in the run. The first is shown.
 
-### Kyverno's results on each cluster, paged
+### List Kyverno results by cluster
 
 `GET /api/v1/policies/results`
 
@@ -1553,7 +1553,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-### One person
+### Get a directory user
 
 `GET /api/v1/directory/users/{username}`
 
@@ -1580,7 +1580,7 @@ The answer was 200 (`application/json`):
 
 Each cluster's quota commitment against its size, live from the watch of its quotas and nodes, and the groups of clusters by clusters.yaml: the Capacity tab.
 
-### Cluster capacity, grouped
+### Get cluster capacity by group
 
 `GET /api/v1/capacity`
 
@@ -1733,7 +1733,7 @@ The answer was 200 (`application/json`, `etag: "5c13f07a6342998ebdd64aad6e4f777b
 
 The quota of each managed namespace on every cluster of the instance: a paged list, type-ahead matches and a CSV export.
 
-### Every namespace's quota, paged
+### List namespace quotas
 
 `GET /api/v1/quotas`
 
@@ -1815,7 +1815,7 @@ name,clusterId,env,team,tier,cpuUsed,cpuHard,memoryUsed,memoryHard,podsUsed,pods
 payments-dev,CRC,dev,payments,small,0,8,0,16Gi,0,50,0.0,,False
 ```
 
-### Type-ahead matches
+### List quota search suggestions
 
 `GET /api/v1/quotas:suggest`
 
@@ -1843,7 +1843,7 @@ The answer was 200 (`application/json`):
 
 The tier catalog: the quota and LimitRange values that each environment offers.
 
-### The tier catalog
+### Get the tier catalog
 
 `GET /api/v1/tiers`
 
@@ -2059,7 +2059,7 @@ The answer was 200 (`application/json`):
 
 `body.items[0].approval.reasons` has 2 items in the run. The first is shown.
 
-### One request
+### Get a request
 
 `GET /api/v1/requests/{request_id}`
 
@@ -2153,7 +2153,7 @@ The answer was 200 (`application/json`):
 `body.approval.reasons` has 2 items in the run. The first is shown.
 `body.events` has 9 items in the run. The first is shown.
 
-### Is this request approved, and for which plan
+### Get a request's approval status
 
 `GET /api/v1/requests/{request_id}/approval-status`
 
@@ -2176,7 +2176,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-### A request's events
+### List a request's events
 
 `GET /api/v1/requests/{request_id}/events`
 
@@ -2710,7 +2710,7 @@ The answer was 200 (`application/json`):
 
 The instance itself: who the caller is and what the caller can do, the clusters that the instance knows, the rules of a new namespace's labels and annotations, and the version of the running build.
 
-### Clusters this instance knows
+### List known clusters
 
 `GET /api/v1/clusters`
 
@@ -2794,7 +2794,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-### Who am I
+### Get the caller's identity and permissions
 
 `GET /api/v1/me`
 
@@ -2853,7 +2853,7 @@ The answer was 200 (`application/json`):
 `body.access.permissions` has 10 items in the run. The first is shown.
 `body.access.roles[0].permissions` has 10 items in the run. The first is shown.
 
-### The rules of a new namespace's labels and annotations
+### Get namespace label and annotation rules
 
 `GET /api/v1/metadata-keys`
 
@@ -3111,7 +3111,7 @@ The answer was 200 (`application/json`, `etag: "1e1a89499078689504069cc7bb2ecc18
 `body.x-cmapi-expiration.environments.dev.notifyDaysBefore` has 3 items in the run. The first is shown.
 `body.x-cmapi-expiration.environments.rnd.notifyDaysBefore` has 3 items in the run. The first is shown.
 
-### Version and commit of the running build
+### Get the running build's version and commit
 
 `GET /api/v1/version`
 
@@ -3137,7 +3137,7 @@ The answer was 200 (`application/json`):
 
 What an operator of the instance uses: the auto-approval switch, the prune confirmation, the integration modes, the plugins, the Git log and the system KPIs.
 
-### Auto-approval switch state
+### Get the auto-approval switch state
 
 `GET /api/v1/admin/auto-approval`
 
@@ -3218,7 +3218,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-### Recent commits in cluster-configs
+### List recent commits in cluster-configs
 
 `GET /api/v1/admin/git-log`
 
@@ -3242,7 +3242,7 @@ The answer was 200 (`application/json`):
 
 `body.log` has 2 items in the run. The first is shown.
 
-### Integration modes and health
+### Get integration modes and health
 
 `GET /api/v1/admin/integrations`
 
@@ -3287,7 +3287,7 @@ The answer was 200 (`application/json`):
 }
 ```
 
-### System KPIs
+### Get system KPIs
 
 `GET /api/v1/admin/kpi`
 
@@ -3351,7 +3351,7 @@ The answer was 200 (`application/json`):
 
 `body.kpis` has 7 items in the run. The first is shown.
 
-### The plugins of this instance
+### List this instance's plugins
 
 `GET /api/v1/admin/plugins`
 

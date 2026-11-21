@@ -235,11 +235,11 @@ done
 say "discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with $reports, the reports of the Policies tab; openreports.io: $openreports"
 # A plan reads the Git folder through the GitHub adapter and the token in Secret cmapi-git-bot, and dryRun writes nothing: no request,
 # no branch, no namespace. The namespace's required keys are CRC's metadata-keys.yaml's.
-resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"cmapi-proof-plan","tier":"small","labels":{"cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true") \
+resp=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token" | c_plan --config - -w '\n%{http_code}' -X POST -d '{"namespace":"abc-proof-plan-dev","tier":"small","labels":{"company.net/mnemonic":"abc","company.net/lob":"amgsst","company.net/cl":"1","cmapi.net/team":"platform"},"annotations":{"cmapi.net/team-dl":"platform@ephico2real.com"},"justification":"crc-proof dry run"}' "$API/api/v1/clusters/CRC/namespaces?dryRun=true") \
   || fail "the dry-run namespace plan got no answer: curl exit $? (28 is no answer within CMAPI_PROOF_PLAN_SECONDS, $PLAN_SECONDS s)"
 [ "${resp##*$'\n'}" = 200 ] || fail "a dry-run namespace plan answered ${resp##*$'\n'}, not 200: ${resp:0:300}"
 printf '%s' "${resp%$'\n'*}" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("changes") else 1)' || fail "the dry-run plan names no file it would write"
-[ -z "$(oc_ get namespace cmapi-proof-plan --ignore-not-found -o name)" ] || fail "a dry run left namespace cmapi-proof-plan on the cluster"
+[ -z "$(oc_ get namespace abc-proof-plan-dev --ignore-not-found -o name)" ] || fail "a dry run left namespace abc-proof-plan-dev on the cluster"
 say "a dry-run namespace plan reads Git and answers 200 with its files, and writes nothing to the cluster"
 
 # The database: every client connection of the application, from the server's side, and the migrate container's environment from kind-test.sh's pod.
