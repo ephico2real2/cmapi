@@ -248,8 +248,8 @@ def test_each_operation_shows_the_recorded_request_and_response(world):
         assert shown == response["body"], key
         if "body" in sample["request"] and ":" not in key:
             media = op["requestBody"]["content"]["application/json"]
-            example = media["example"] if "example" in media else media["examples"]["permanent"]["value"]
-            assert example == sample["request"]["body"], key
+            shown = [media["example"]] if "example" in media else [e["value"] for e in media["examples"].values()]
+            assert sample["request"]["body"] in shown, key
     for code, sample in samples["problems"].items():
         shown = by_id[sample["operationId"]]["responses"][str(sample["response"]["status"])]["content"]["application/problem+json"]["examples"][code]
         assert shown["value"] == sample["response"]["body"], code

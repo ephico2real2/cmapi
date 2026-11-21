@@ -497,8 +497,10 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     _document_validation_problem(spec)
     _document_token_problems(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
-    add_recorded_examples(spec, load_samples(), metadata, instance)
+    samples = load_samples()
+    add_recorded_examples(spec, samples, metadata, instance)
     _document_create_examples(spec, instance)
+    _document_patch_examples(spec, samples, metadata)
     if metadata is not None:
         # After the recorded examples: the sample was recorded on the reference file, and this instance's own rules are the
         # answer that it gives (the defect of #334, for GET /api/v1/metadata-keys; #336).
@@ -557,6 +559,36 @@ def metadata_patch_example(keys: Any, kind: str) -> dict[str, str] | None:
         if not rule.required and not rule.derived and not rule.namespace_prefix and rule.example is not None:
             return {key: str(rule.example)}
     return None
+
+
+def metadata_merge_patch(keys: Any) -> dict[str, dict[str, str | None]]:
+    """The labels and annotations of a merge patch that this instance accepts (#485): the first key with an example is
+    removed (null), and the next key of the other kind, or another of the same, is set. The keys are the instance's own:
+    an optional key with an example, then each allowOther.example key. Empty when the instance gives no example to build
+    from."""
+    found: list[tuple[str, str, str]] = []
+    for kind in ("label", "annotation"):
+        example = metadata_patch_example(keys, kind)
+        found += [(kind, key, value) for key, value in (example or {}).items()]
+    for kind in ("label", "annotation"):
+        found += [(kind, key, value) for key, value in keys.allow_other[kind].example.items()]
+    if not found:
+        return {}
+    maps: dict[str, dict[str, str | None]] = {"labels": {}, "annotations": {}}
+    field = {"label": "labels", "annotation": "annotations"}
+    kind, key, _ = found[0]
+    maps[field[kind]][key] = None
+    for kind, key, value in found[1:]:
+        if key not in maps[field[kind]]:
+            maps[field[kind]][key] = value
+            break
+    return {name: sent for name, sent in maps.items() if sent}
+
+
+def _accepted_patch(keys: Any, body: dict[str, Any]) -> bool:
+    """Check a patch for an existing namespace: absent required keys may stay absent, but a patch cannot remove one."""
+    return not keys.validate(body.get("labels") or {}, body.get("annotations") or {}, operator=False,
+                             existing=True)
 
 
 def example_namespace(keys: Any, default: str, environment: str | None = None) -> str:
@@ -708,6 +740,31 @@ def _document_create_examples(spec: dict[str, Any], instance: InstanceFacts | No
     media["examples"] = examples
 
 
+PATCH_OPERATION = "namespaces_update_namespace"
+
+
+def _document_patch_examples(spec: dict[str, Any], samples: dict[str, Any], keys: Any) -> None:
+    """The change's body as two named examples (#485): "mergePatch" first, which "Try it out" and the curl sample send, is
+    the recorded dry run, a merge patch that sets a key and removes one with null, with this instance's own keys when it
+    refuses the recorded ones; "tier" is the recorded change that opens a request. Both are bodies that a run sent."""
+    op = next((op for ops in spec["paths"].values() for op in ops.values()
+               if isinstance(op, dict) and op.get("operationId") == PATCH_OPERATION), None)
+    checked = samples.get("operations", {}).get(f"{PATCH_OPERATION}:dryRun")
+    media = ((op or {}).get("requestBody") or {}).get("content", {}).get("application/json")
+    if media is None or checked is None or "example" not in media:
+        return
+    patch = dict(checked["request"]["body"])
+    if keys is not None and not _accepted_patch(keys, patch):
+        built = metadata_merge_patch(keys)
+        patch = {**{k: v for k, v in patch.items() if k not in ("labels", "annotations")}, **built}
+        if not built or not _accepted_patch(keys, patch):
+            return
+    media["examples"] = {
+        "mergePatch": {"summary": "Change labels and annotations: a value sets a key, null removes it (add dryRun=true to "
+                                  "check)", "value": patch},
+        "tier": {"summary": "Change the tier", "value": media.pop("example")}}
+
+
 def metadata_keys_view(keys: Any, expiration: Any, environments: Sequence[str]) -> dict[str, Any]:
     """The body of GET /api/v1/metadata-keys: the schemas of NamespaceCreate's labels and annotations (#336), and the
     x-cmapi-expiration of its expiresAt (#479, D15), so a form reads every rule it shows from one answer and one ETag."""
@@ -802,7 +859,10 @@ def add_recorded_examples(spec: dict[str, Any], samples: dict[str, Any], metadat
         declared = op["responses"].setdefault(str(response["status"]), {"description": "Successful Response"})
         media = declared.setdefault("content", {}).setdefault(response["contentType"] or "application/json", {})
         media["example"] = response["body"]
-    for code, sample in samples.get("problems", {}).items():
+    # A problem that more than one operation answers is recorded once for each (operationProblems), so the operation shows
+    # its own answer: the 422 of a change names the keys of a change, not those of a create.
+    for sample in [*samples.get("problems", {}).values(), *samples.get("operationProblems", {}).values()]:
+        code = sample["response"]["body"]["code"]
         op = by_id.get(sample["operationId"])
         examples = (((op or {}).get("responses", {}).get(str(sample["response"]["status"])) or {})
                     .get("content", {}).get("application/problem+json", {}).get("examples"))
