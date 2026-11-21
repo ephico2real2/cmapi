@@ -86,7 +86,7 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         outside = [f"a list that is not complete: {exc}"]
     cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
     # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212).
-    base = ctx.git.tree_files(ctx.git.default_branch, folder(row.cluster_id, row.namespace))
+    base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env, previous=base)
     # Only an error fails a check. In audit a Kyverno finding is a warning (core/validate, #213): the plan showed it and the
     # approvers accepted it, so the PR check reports it and does not fail, as the cluster's Audit action does.

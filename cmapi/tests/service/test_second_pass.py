@@ -604,6 +604,8 @@ def test_gitea_deletes_a_stale_branch_before_reopening():
         if req.method == "POST" and p.endswith("/branches"):
             exists["branch"] = True
             return httpx.Response(201, json={})
+        if req.method == "GET" and "/git/trees/" in p:
+            return httpx.Response(200, json={"tree": [], "truncated": False})
         if req.method == "GET" and "/contents/" in p:
             return httpx.Response(404, json={})
         if req.method == "POST" and p.endswith("/contents"):

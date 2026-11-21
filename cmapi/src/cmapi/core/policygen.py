@@ -48,7 +48,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from cmapi.core import kube_yaml
-from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, value_regex
+from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, _KEY, value_regex
 from cmapi.core.policy import PolicySettings
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from cmapi.core.tiers import LIMIT_KINDS, STORAGE_KIND, TierCatalog, flatten_limits, limit_key_parts, qty
@@ -287,7 +287,7 @@ def _under(globs: Iterable[str], *, exact: bool) -> str | None:
 # The message of the policy on keys outside allowOther.prefixes, around the sorted keys it names. outside_keys reads it
 # back, so the plan-time ratchet can keep a key whose value Git holds (#497): one text, written and read here only.
 OUTSIDE_LEAD = "the {kind} keys "
-OUTSIDE_TAIL = " are not declared in metadata-keys.yaml"
+OUTSIDE_TAIL = " are not declared in metadata-keys.yaml, and are outside {stanza}.allowOther.prefixes "
 
 
 def outside_keys(message: str | None, kind: str) -> list[str] | None:
@@ -295,10 +295,25 @@ def outside_keys(message: str | None, kind: str) -> list[str] | None:
     messages (another policy's, or Kyverno's static fallback). A key never holds ", " (Kubernetes key syntax), so the
     list splits on it. None makes the caller keep the failure: a false refusal at worst, never a false pass."""
     lead = OUTSIDE_LEAD.format(kind=kind)
-    if not message or not message.startswith(lead) or OUTSIDE_TAIL not in message:
+    if kind not in _FIELD or not isinstance(message, str) or not message.startswith(lead):
         return None
-    named = message[len(lead):message.index(OUTSIDE_TAIL)]
-    return named.split(", ") if named else None
+    stanza = "extraLabels" if kind == "label" else "extraAnnotations"
+    named, separator, prefixes = message[len(lead):].partition(OUTSIDE_TAIL.format(stanza=stanza))
+    if not separator:
+        return None
+    if prefixes != "[none]":
+        try:
+            parsed = json.loads(prefixes)
+        except ValueError:
+            return None
+        if not isinstance(parsed, list) or not parsed or not all(isinstance(p, str) for p in parsed):
+            return None
+        if json.dumps(parsed) != prefixes:
+            return None
+    keys = named.split(", ")
+    if keys != sorted(set(keys)) or any(not re.fullmatch(_KEY, k) or len(k.rpartition("/")[0]) > 253 for k in keys):
+        return None
+    return keys
 
 
 def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[Check]:
@@ -322,7 +337,7 @@ def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[
     v = f"variables.{kind}Other"
     checks = [Check(kind, None, "prefix", f"size(variables.{kind}Outside) == 0",
                     f"{cel(OUTSIDE_LEAD.format(kind=kind))} + variables.{kind}Outside.sort().join(', ') + "
-                    + cel(f"{OUTSIDE_TAIL}, and are outside {stanza}.allowOther.prefixes [{shown}]"),
+                    + cel(OUTSIDE_TAIL.format(stanza=stanza) + f"[{shown}]"),
                     f"a {kind} key is not declared in metadata-keys.yaml, and is outside {stanza}.allowOther.prefixes "
                     f"[{shown}]",
                     # At admission a key whose value oldObject holds is not counted (#497), as _same keeps a declared key.

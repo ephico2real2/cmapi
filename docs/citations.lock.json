@@ -517,7 +517,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|424-424": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|478-478": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|476-476": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|53-53": [

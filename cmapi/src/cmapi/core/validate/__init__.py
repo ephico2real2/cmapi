@@ -297,6 +297,10 @@ def _held_outside(kind: str, message: str | None, new: Mapping[str, Any], old: M
     field = "labels" if kind == "label" else "annotations"
     a = (new.get("metadata") or {}).get(field) or {}
     b = (old.get("metadata") or {}).get(field) or {}
+    # An offline manifest can contain a malformed key even before Kubernetes validates it.
+    # If a key contains a list separator, the report cannot identify its elements uniquely.
+    if any(not isinstance(k, str) or ", " in k for k in a):
+        return False
     return all(isinstance(a.get(k), str) and a.get(k) == b.get(k) for k in named)
 
 

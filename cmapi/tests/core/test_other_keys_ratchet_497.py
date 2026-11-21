@@ -14,6 +14,7 @@ The CLI is the image's pin, skipped without `kyverno` on PATH (CMAPI_REQUIRE_KYV
 from __future__ import annotations
 
 import yaml
+import pytest
 
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.policy import PolicySettings
@@ -82,3 +83,25 @@ def test_the_parser_reads_the_keys_that_the_policys_own_message_names(kyverno, t
     assert [outside_keys(f.message, "label") for f in findings] == [["b.example.org/x", DISALLOWED]]
     assert outside_keys("a message of another policy", "label") is None
     assert outside_keys("the label keys a, b are not declared in metadata-keys.yaml", "annotation") is None
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "the label keys x are not declared in metadata-keys.yaml",
+    "the label keys the label keys x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes [none]",
+    "the label keys x are not declared in metadata-keys.yaml, and are outside extraLabels.allowOther.prefixes [none] (report incomplete)",
+])
+def test_incomplete_or_concatenated_prefix_diagnostics_are_unrecognized(diagnostic):
+    assert outside_keys(diagnostic, "label") is None
+
+
+def test_a_key_that_holds_the_separator_keeps_the_failure():
+    """An offline manifest can hold a key that Kubernetes would refuse. `env, team` reads as the two held keys `env` and `team`."""
+    from cmapi.core.validate import _held_outside
+
+    message = ("the label keys env, team are not declared in metadata-keys.yaml, and are outside "
+               "extraLabels.allowOther.prefixes [none]")
+    assert outside_keys(message, "label") == ["env", "team"]
+    old = {"metadata": {"labels": {"env": "dev", "team": "a"}}}
+    new = {"metadata": {"labels": {"env": "dev", "team": "a", "env, team": "x"}}}
+    assert _held_outside("label", message, new, old) is False
+    assert _held_outside("label", message, old, old) is True

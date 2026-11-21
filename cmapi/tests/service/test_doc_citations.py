@@ -63,6 +63,19 @@ def test_lines_added_above_a_cited_range_fail_the_check_and_relocate_repairs_the
     assert run(copy, "--check").returncode == 0
 
 
+def test_relocation_preserves_both_recorded_texts_when_one_would_displace_the_other(copy):
+    doc = copy / "docs/14-authorization.md"
+    source = copy / "pkg/code.py"
+    doc.write_text("First setting (`pkg/code.py:1`). Second setting (`:2`).\n")
+    source.write_text("first\nsecond\n")
+    assert run(copy, "--write").returncode == 0
+    source.write_text("second\n")
+    assert run(copy, "--relocate").returncode != 0
+    assert run(copy, "--check").returncode != 0, "the first setting disappeared"
+    lock = json.loads((copy / "docs/citations.lock.json").read_text())
+    assert sorted(lock.values()) == [["first"], ["second"]]
+
+
 def test_a_changed_cited_line_needs_a_person_and_relocate_does_not_hide_it(copy):
     (copy / "pkg/code.py").write_text(CODE.replace("value = 2", "value = 3"))
     r = run(copy, "--check")
@@ -125,3 +138,31 @@ def test_one_range_that_a_document_cites_twice_is_moved_in_both_places(copy):
     assert r.returncode == 0 and "4 citations moved" in r.stdout, (r.stdout, r.stderr)
     assert doc.read_text().count("`pkg/code.py:9`") == 1 and "Two holds a value (`code.py:9`)" in doc.read_text()
     assert run(copy, "--check").returncode == 0
+
+
+def test_relocate_recovers_after_process_death_between_documents_and_lock(copy):
+    second = copy / "docs/16-data-model.md"
+    second.write_text("The return value is `pkg/code.py:7`.\n")
+    assert run(copy, "--write").returncode == 0
+    (copy / "pkg/code.py").write_text("# inserted\n" + CODE)
+    stop_after_first_doc = """
+import os, runpy, sys
+from pathlib import Path
+script, root = sys.argv[1:]
+replace = os.replace
+def interrupt(src, dst):
+    replace(src, dst)
+    if Path(dst).name == "14-authorization.md":
+        os._exit(73)
+os.replace = interrupt
+sys.argv = [script, "--relocate", "--root", root]
+runpy.run_path(script, run_name="__main__")
+"""
+    child = subprocess.run([sys.executable, "-c", stop_after_first_doc, str(SCRIPT), str(copy)])
+    assert child.returncode == 73
+    retry = run(copy, "--relocate")
+    assert retry.returncode == 0, retry.stderr
+    checked = run(copy, "--check")
+    assert checked.returncode == 0, checked.stderr
+    assert "`pkg/code.py:2-3`" in (copy / "docs/14-authorization.md").read_text()
+    assert "`pkg/code.py:8`" in second.read_text()

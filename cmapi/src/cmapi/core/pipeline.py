@@ -425,16 +425,14 @@ class Pipeline:
         self.check_plugin_offered("namespaces", env)
         requester = self.requester_for(who, None)
         prev, base_sha = self._read_folder(cluster_id, ns)
-        if not prev:
+        ns_doc = namespace_doc(prev)
+        if ns_doc is None:
             raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         etag = folder_etag(prev)
         if reason != "expired":
             require_if_match(if_match, "delete")
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
-        ns_doc = namespace_doc(prev)
-        if ns_doc is None:
-            raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:

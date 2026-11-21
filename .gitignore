@@ -6,3 +6,5 @@ node_modules/
 .codegraph/
 .cmapi-test.kubeconfig
 deploy/rendered/
+# doc-citations.py: the journal and the temporary files of a relocation that a dead process left
+docs/.citations-*

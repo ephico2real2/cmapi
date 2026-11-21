@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from unittest.mock import Mock
+
+import pytest
+
+from cmapi.core.errors import Problem
+from cmapi.core.pipeline import Pipeline
 
 from test_expirations import created_namespace, write
 from test_flow import NS, OLA, auth, run_jobs
@@ -75,3 +81,13 @@ def test_an_unknown_namespace_without_if_match_is_still_404(world):
     client, ctx, git, kube, validator, keys = world
     r = client.patch("/api/v1/clusters/CRC/namespaces/nope-dev", json={"tier": "medium"}, headers=_with(keys, str(uuid.uuid4()), None))
     assert r.status_code == 404 and r.json()["code"] == "object-not-found", r.text
+
+
+@pytest.mark.parametrize("etag", [None, '"stale"'])
+def test_delete_with_only_a_quota_left_in_git_finds_no_namespace(etag):
+    pipeline = Mock(spec=Pipeline)
+    pipeline.registry, pipeline.cfg = Mock(), Mock()
+    pipeline._read_folder.return_value = ({"folder/quota.yaml": "kind: ResourceQuota\n"}, "a" * 40)
+    with pytest.raises(Problem) as problem:
+        Pipeline.plan_delete(pipeline, Mock(), "CRC", "payments-dev", if_match=etag)
+    assert (problem.value.status, problem.value.code) == (404, "object-not-found")
