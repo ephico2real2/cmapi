@@ -95,7 +95,9 @@ def one(item):
         os.mkdir(state)
         stub = os.path.join(HERE, "secrets-stub")
         env = dict(os.environ, STUB_DIR=state, STUB_PY=sys.executable, STUB_KUBECTL=os.path.join(stub, "kubectl-stub.py"), STUB_NO_CRD="true")
-        r = subprocess.run([os.path.join(t, "secrets-test.sh"), os.path.join(stub, "stub.sh")], env=env, capture_output=True, text=True)
+        # Execute Bash, not either freshly written script: another thread's child
+        # can temporarily inherit a write fd even with close-on-exec (ETXTBSY).
+        r = subprocess.run(["bash", os.path.join(t, "secrets-test.sh"), os.path.join(stub, "stub.sh")], env=env, capture_output=True, text=True)
         return name, r.returncode, [line.strip() for line in r.stdout.splitlines() if "FAIL" in line]
     finally:
         shutil.rmtree(t)
