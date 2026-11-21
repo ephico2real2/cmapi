@@ -25,7 +25,7 @@ import type { Check } from "../components/ui";
 import { operatorIn, PROTECT_KEY, PROTECT_VALUE } from "./access";
 import { ExpiryField } from "./ExpiryField";
 import { extraInputId, ExtraKeysSection } from "./ExtraKeysSection";
-import { isoDay, policyOf } from "./format";
+import { isoDay } from "./format";
 import { Field, fieldName, MetadataSection } from "./MetadataFields";
 import {
   bodyOf, checkAll, checkExtras, checkName, defaultSource, endValue, errorsByField, expiryInfo, expiryRulesOf, joinName, nameEnds, nameSuggestion,
@@ -34,7 +34,7 @@ import {
 import type { ExpiryInfo, ExtraCheck, ExtraRow, Kind, MetaField, MetaForm, Source } from "./metadataForm";
 import { NamespaceNameField } from "./NamespaceNameField";
 import { sharedPatternTest } from "./patterns";
-import { capacityCheck, capacityLine, MARK, sentence } from "./plan";
+import { approvalCard, capacityCheck, capacityLine, MARK } from "./plan";
 import { planNamespaceFile, previewLines, previewYaml, sourceWords } from "./preview";
 import type { TabProps } from "./route";
 
@@ -70,23 +70,6 @@ function folderOf(plan: Plan): string {
   const shared: string[] = [];
   for (let k = 0; parts.every((p) => k < p.length && p[k] === parts[0][k]); k++) shared.push(parts[0][k]);
   return `${shared.join("/")}/`;
-}
-
-/** The approval of the plan: who must approve, and why. The API decides it (docs/02); the page only says it. */
-function approvalCard(plan: Plan, env: string): { title: string; detail: string; rule: string } {
-  const a = plan.approval;
-  const need = a.slots.reduce((n, s) => n + s.count, 0);
-  if (a.auto || need === 0) {
-    const title = a.auto && a.auto !== "none-required" ? `Auto-approved by ${policyOf(a.auto)}` : "No approval needed";
-    return { title, detail: sentence(a.reasons), rule: `${a.rule} · 0 of 0 (auto)` };
-  }
-  const groups = a.slots.map((s) => s.group).join(" + ");
-  const self = a.selfApproval ? `Self-approval is allowed in ${env}.` : "The requester cannot approve their own request.";
-  return {
-    title: `${need} approval${need > 1 ? "s" : ""} in cmapi from ${groups}`,
-    detail: `${sentence(a.reasons)} ${self}`.trim(),
-    rule: `${a.rule} · ${a.slots.map((s) => `${s.count} of ${s.group}`).join(" + ")}`
-  };
 }
 
 /** How long the form waits after the last keystroke before it checks the fields (design B of #336, D7). */

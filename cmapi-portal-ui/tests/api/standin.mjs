@@ -647,6 +647,183 @@ export function expiryRefusal(keys, env, expiresAt) {
   if (expiresAt <= new Date().toISOString().slice(0, 10)) return [422, "expiration-in-past", "The expiry must be after today"];
   return null;
 }
+// The Namespaces tab's API (#484): GET /api/v1/clusters/{id}/namespaces with the lookup, GET and PATCH of one namespace with
+// its Git, its sync state, If-Match and the dry run's metadataDiff (cmapi/src/cmapi/plugins/namespaces/router.py,
+// core/pipeline.py _plan_namespace, core/metadata.py, plugins/namespaces/state.py). Each record holds the namespace's
+// labels and annotations in Git and on the cluster; its etag is a hash of what Git holds, as folder_etag hashes the folder.
+const D479 = "company.net";
+/** One namespace of the Namespaces checks, with the keys of KEYS_479 (the mockup's values). `live` changes what the cluster has. */
+export function namespaceRecord({ clusterId = "CRC", env = "dev", name, prefix, team, extraLabels = {}, liveLabels = {}, expiresAt = null, openRequest = null, onCluster = true, liveFresh = true }) {
+  const labels = { "cmapi.net/cluster-id": clusterId, "cmapi.net/env": env, "cmapi.net/managed": "true", "cmapi.net/requested-by-user": "ola", "cmapi.net/tier": "small",
+    name, [`${D479}/app-environment`]: env, [`${D479}/mnemonic`]: prefix, [`${D479}/lob`]: "amgsst", [`${D479}/cl`]: "1", "cmapi.net/team": team, "cmapi.net/cost-center": "cc-4410",
+    ...(expiresAt ? { "cmapi.net/expiry": "managed" } : {}), ...extraLabels };
+  const annotations = { "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true", "cmapi.net/instance": "nonprod", "cmapi.net/request-id": "req-20261120-0001",
+    "cmapi.net/requested-by": "ola@company.net", [`${D479}/app-environment`]: env, "cmapi.net/team-dl": `${team}-team@company.net`, ...(expiresAt ? { "cmapi.net/expires-at": expiresAt } : {}) };
+  const git = { labels, annotations };
+  // The cluster adds its own key (liveOnlyKeys); a hand change on the cluster (kubectl label) is `liveLabels`.
+  const live = onCluster ? { labels: { ...labels, "kubernetes.io/metadata.name": name, ...liveLabels }, annotations: { ...annotations } } : null;
+  return { clusterId, env, name, git, live, openRequest, liveFresh, pending: null };
+}
+/** The mockup's namespaces (mockup-namespaces-tab.html, NAMESPACES): seven on CRC, three on KIND_CMAPI_TEST. */
+export function namespacesOfMockup() {
+  return [
+    namespaceRecord({ name: "abc-payments-dev", prefix: "abc", team: "payments", extraLabels: { "team.company.net/squad": "checkout" }, liveLabels: { [`${D479}/lob`]: "amgsst-old" }, expiresAt: "2026-12-15" }),
+    namespaceRecord({ name: "abc-paylater-dev", prefix: "abc", team: "billing", openRequest: { requestId: "req-20261120-0011", status: "pending_approval" } }),
+    namespaceRecord({ name: "abc-ledger-dev", prefix: "abc", team: "ledger" }),
+    namespaceRecord({ name: "abc-reports-dev", prefix: "abc", team: "reports" }),
+    namespaceRecord({ name: "xyz-orders-dev", prefix: "xyz", team: "orders" }),
+    namespaceRecord({ name: "xyz-payments-dev", prefix: "xyz", team: "payments" }),
+    namespaceRecord({ name: "lmn-search-dev", prefix: "lmn", team: "search" }),
+    namespaceRecord({ clusterId: "KIND_CMAPI_TEST", env: "rnd", name: "abc-payments-rnd", prefix: "abc", team: "payments" }),
+    namespaceRecord({ clusterId: "KIND_CMAPI_TEST", env: "rnd", name: "abc-sandbox-rnd", prefix: "abc", team: "payments" }),
+    namespaceRecord({ clusterId: "KIND_CMAPI_TEST", env: "rnd", name: "qrs-lab-rnd", prefix: "qrs", team: "lab" })
+  ];
+}
+/** folder_etag: a hash of what Git holds, so a change in Git is a new etag. */
+export function recordEtag(rec) {
+  const files = { ...rec.otherFiles, "namespace.yaml": yamlOf(rec.name, rec.git) };
+  const hash = createHash("sha256");
+  for (const path of Object.keys(files).sort()) {
+    hash.update(`clusters/${rec.clusterId}/namespaces/${rec.name}/${path}\0${files[path]}\0`);
+  }
+  return createHash("sha256").update(hash.digest("hex")).digest("hex").slice(0, 16);
+}
+const MAPS = [["label", "labels"], ["annotation", "annotations"]];
+/** core/metadata.py classify(): governed (declared), operatorOnly, team (allowOther's prefixes), or neither (system, reserved, disallowed). */
+function keyClass(keys, kind, key) {
+  const map = keys[`${kind}s`], prop = map.properties[key];
+  if (prop) return prop["x-cmapi-operator-only"] ? "operatorOnly" : "governed";
+  const other = (map.propertyNames?.anyOf ?? []).find((b) => b.pattern);
+  const refused = (other?.not?.anyOf ?? []).flatMap((n) => n.enum ?? []);
+  return other && new RegExp(other.pattern).test(key) && !refused.includes(key) ? "team" : "other";
+}
+const LIVE_ONLY = [/^kubernetes\.io\/metadata\.name$/, /^openshift\.io\//, /^argocd\.argoproj\.io\//, /^app\.kubernetes\.io\/instance$/];
+/** state.py sync_view and metadata.py drifted_keys: pending, drift, in-sync or unknown, and each named key that differs. */
+function syncOf(keys, rec, withGit) {
+  const compared = withGit && rec.liveFresh;
+  const driftedKeys = [];
+  if (compared) {
+    const live = rec.live ?? { labels: {}, annotations: {} };
+    for (const [kind, map] of MAPS) {
+      for (const key of [...new Set([...Object.keys(rec.git[map]), ...Object.keys(live[map])])].sort()) {
+        if (keyClass(keys, kind, key) === "other" || LIVE_ONLY.some((re) => re.test(key))) continue;
+        const g = rec.git[map][key] ?? null, l = live[map][key] ?? null;
+        if (g !== l) driftedKeys.push({ kind, key, git: g, live: l });
+      }
+    }
+  }
+  const state = rec.openRequest ? "pending" : compared && (driftedKeys.length || !rec.live) ? "drift" : compared ? "in-sync" : "unknown";
+  return { state, openRequest: rec.openRequest, driftedKeys };
+}
+// The stanzas of examples/cluster-configs/policies/metadata-keys.company-479.yaml that GET /api/v1/metadata-keys does not
+// publish: the system keys, the reserved prefixes and the adoption labels. The read's git.edits classifies with them (#528).
+const SYSTEM_479 = ["cmapi.net/cluster-id", "cmapi.net/managed", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/tier",
+  "cmapi.net/instance", "cmapi.net/env", "cmapi.net/tier-hash", "cmapi.net/beyond-tier", "cmapi.net/expiry", "cmapi.net/expires-at"];
+const RESERVED_479 = ["kubernetes.io", "*.kubernetes.io", "k8s.io", "openshift.io", "*.openshift.io", "argocd.argoproj.io", "*.kyverno.io", "redhatcop.redhat.io",
+  "olm.operatorgroup.uid", "openshift-pipelines.tekton.dev"];
+const ADOPTION_479 = ["company.net/provisioner"];
+const globRe = (glob) => new RegExp(`^${glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`);
+/**
+ * metadata.py edit_rule() and undeclared_edits() (#528): x-cmapi-edit of each key that Git holds and the file does not
+ * declare, in classify()'s order: system, reserved prefix, adoption label, a key that allowOther admits, else disallowed.
+ */
+function undeclaredRule(keys, kind, key) {
+  const prefix = key.includes("/") ? key.split("/")[0] : "";
+  const fixed = (reason) => ({ mode: "fixed", reason, sensitive: false, removable: false });
+  if (SYSTEM_479.includes(key)) return fixed(["cmapi.net/expiry", "cmapi.net/expires-at"].includes(key) ? "Change it with Extend, Set expiry or Make permanent." : "Managed by cmapi.");
+  if (prefix && RESERVED_479.some((g) => globRe(g).test(prefix))) return fixed("Reserved for the platform.");
+  if (kind === "label" && ADOPTION_479.includes(key)) return fixed("Marks how the namespace was first made.");
+  if (keyClass(keys, kind, key) === "team") {
+    const sensitive = keys[`${kind}s`]["x-cmapi-other-keys"]?.sensitiveKeys?.includes(key) ?? false;
+    return { mode: "optional", reason: sensitive ? "Changing this key needs one more approval." : null, sensitive, removable: false };
+  }
+  return { mode: "fixed", reason: "Not allowed by this instance's rules.", sensitive: false, removable: true };
+}
+const gitEditsOf = (keys, git) => Object.fromEntries(MAPS.map(([kind, map]) => [map, Object.fromEntries(Object.keys(git[map]).sort()
+  .filter((key) => !keys[map].properties[key]).map((key) => [key, undeclaredRule(keys, kind, key)]))]));
+/** The value of the key with x-cmapi-namespace-prefix on the live namespace (metadata.py mnemonic()). */
+function prefixOf(keys, maps) {
+  for (const [, map] of MAPS) for (const [key, prop] of Object.entries(keys[map].properties)) if (prop["x-cmapi-namespace-prefix"]) return maps?.[map][key] ?? null;
+  return null;
+}
+/** NamespaceView of a record: the list's (no Git, no etag) or the detail's (router.py _namespace_view and get_namespace). */
+export function namespaceViewOf(keys, rec, withGit) {
+  const live = rec.live ?? { labels: {}, annotations: {} };
+  return { clusterId: rec.clusterId, name: rec.name, env: live.labels["cmapi.net/env"] ?? null, team: live.labels["cmapi.net/team"] ?? null, tier: live.labels["cmapi.net/tier"] ?? null,
+    labels: live.labels, annotations: live.annotations, managed: live.labels["cmapi.net/managed"] === "true", expiresAt: live.annotations["cmapi.net/expires-at"] ?? null,
+    etag: withGit ? recordEtag(rec) : null, openRequest: rec.openRequest?.requestId ?? null, mnemonic: prefixOf(keys, rec.live),
+    git: withGit ? { ...rec.git, edits: gitEditsOf(keys, rec.git) } : null,
+    sync: syncOf(keys, rec, withGit), protected: withGit ? false : null, protectedBy: withGit ? [] : null };
+}
+/** GET /api/v1/clusters/{id}/namespaces (router.py _namespace_page): a page, or a problem as [status, code, detail]. */
+export function namespacePage(keys, records, params) {
+  const q = params.get("q"), chip = params.get("mnemonic"), limitText = params.get("limit");
+  if (q !== null && q.length > 63) return [422, "validation-failed", "q: at most 63 characters"];
+  const limit = limitText === null ? null : Number(limitText);
+  if (limit !== null && !(Number.isInteger(limit) && limit >= 1 && limit <= 50)) return [422, "validation-failed", "limit: from 1 to 50"];
+  const rows = records.filter((r) => r.live?.labels["cmapi.net/managed"] === "true").map((r) => namespaceViewOf(keys, r, false)).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const searching = q !== null || chip !== null || limit !== null;
+  // Lister.ranked: the rows that q matches (match_rank), best rank first, by name within a rank.
+  const rank = (v) => matchRank({ name: v.name, team: v.team, app: v.labels["cmapi.net/app"] }, q)?.[0];
+  let matched = q ? rows.filter((v) => rank(v) !== undefined).sort((a, b) => rank(a) - rank(b)) : rows;
+  const counts = {};
+  for (const v of matched) if (v.mnemonic) counts[v.mnemonic] = (counts[v.mnemonic] ?? 0) + 1;
+  if (chip !== null) matched = matched.filter((v) => v.mnemonic === chip);
+  return { items: searching ? matched.slice(0, limit ?? 10) : matched, total: matched.length, facets: { mnemonics: Object.fromEntries(Object.entries(counts).sort()) } };
+}
+/**
+ * The metadata refusal of a change (metadata.py validate() on an existing namespace, _fixed_key_error, _check_required): a
+ * key that cmapi fills in or that the name is made of may be sent only with the value that Git holds; a required key is never
+ * removed; a key that no rule admits may only be removed (#492 M2). Each error names its key and kind. No configured pattern
+ * runs here: an operator's pattern can backtrack, and cmapi matches with RE2.
+ */
+function changeRefusal(keys, rec, sent) {
+  const errors = [];
+  for (const [kind, map] of MAPS) {
+    for (const [key, value] of Object.entries(sent[map] ?? {})) {
+      const prop = keys[map].properties[key], held = rec.git[map][key] ?? null;
+      const fixedName = prop?.["x-cmapi-derived-from"] || prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"];
+      if (fixedName && value !== null && value === held) continue;
+      const keeps = held !== null ? `a change keeps '${held}'` : "a change cannot add it; adoption does (story #26)";
+      if (prop?.["x-cmapi-derived-from"]) errors.push({ code: "derived_key", key, kind, detail: `cmapi sets ${key}: ${keeps}` });
+      else if (prop && value === null && keys[map].required?.includes(key)) errors.push({ code: "missing_required_key", key, kind, detail: prop["x-cmapi-rule"] ?? "required" });
+      else if (prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"]) errors.push({ code: "invalid_value", key, kind, detail: `part of the namespace's fixed name: ${keeps}` });
+      else if (!prop) {
+        // An undeclared key: cmapi's own or the platform's is kept as Git holds it; one that no rule admits may only be removed.
+        const rule = undeclaredRule(keys, kind, key);
+        if (rule.mode === "fixed" && !rule.removable) errors.push({ code: "reserved_key", key, kind });
+        else if (rule.removable && (value !== null || held === null)) errors.push({ code: "invalid_key", key, kind, detail: "prefix not allowed" });
+      }
+    }
+  }
+  return errors;
+}
+const mergePatch = (current, patch) => {
+  const out = { ...current };
+  for (const [k, v] of Object.entries(patch ?? {})) { if (v === null) delete out[k]; else out[k] = v; }
+  return out;
+};
+/** metadata.py metadata_diff: each key whose value moves, before and after, with its source. */
+function metadataDiffOf(before, after) {
+  const out = { labels: {}, annotations: {} };
+  for (const [, map] of MAPS) {
+    for (const key of [...new Set([...Object.keys(before[map]), ...Object.keys(after[map])])].sort()) {
+      const b = before[map][key] ?? null, a = after[map][key] ?? null;
+      if (b !== a) out[map][key] = { before: b, after: a, source: "request" };
+    }
+  }
+  return out;
+}
+const yamlOf = (name, git) => ["apiVersion: v1", "kind: Namespace", "metadata:", `  name: ${name}`, "  labels:", ...Object.entries(git.labels).map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`),
+  "  annotations:", ...Object.entries(git.annotations).map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`), ""].join("\n");
+/** Merges a request: what it planned goes into Git and onto the cluster, and the lock ends (the bot's merge and Argo CD's sync). */
+export function syncRecord(rec) {
+  if (rec.pending) rec.git = rec.pending;
+  rec.live = { labels: { ...rec.git.labels, "kubernetes.io/metadata.name": rec.name }, annotations: { ...rec.git.annotations } };
+  rec.pending = null;
+  rec.openRequest = null;
+}
+
 const bodyOf = (req) => new Promise((resolve) => {
   let text = "";
   req.on("data", (chunk) => { text += chunk; });
@@ -659,8 +836,10 @@ const bodyOf = (req) => new Promise((resolve) => {
  * limit, cursor), the Idempotency-Key of a write (400 without it, the first answer again for the same key and body, 409
  * for the same key and another body), the reason that a rejection needs, and the refusal of a self-approval.
  * `mode` changes one answer, to show what the portal does with it; `answers` overrides the next answers of one route.
+ * `namespaces` (#484) holds the Namespaces tab's namespaces: the lookup, the read with Git and sync, and the change with
+ * If-Match (428, 412), the metadata refusal, no-change, the dry run's metadataDiff and the lock (409 change-pending).
  */
-export async function startApi({ issuer, portalOrigin }) {
+export function apiHandler({ issuer, portalOrigin }) {
   const recorded = SAMPLES.operations.requests_list_requests.response.body;
   const created = SAMPLES.operations.namespaces_create_namespace.response.body;
   const state = {
@@ -695,14 +874,16 @@ export async function startApi({ issuer, portalOrigin }) {
     /** GET /api/v1/policies/results (policyFleet) and the rows of GET /api/v1/policies/rejections (#302). */
     policies: policyFleet(), rejections: rejectionsFrom(3),
     /** GET /api/v1/capacity (capacityFleet), and how many of its reads were answered 304 Not Modified (#302). */
-    capacity: capacityFleet(), notModified: 0
+    capacity: capacityFleet(), notModified: 0,
+    /** The namespaces of the Namespaces tab (#484): namespaceRecord, each with Git, the live namespace and the lock. */
+    namespaces: []
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
     res.end(JSON.stringify(body));
   };
   const refuse = (status, code, detail) => ({ type: `https://cmapi.ephico2real.com/problems/${code}`, title: code, status, code, detail });
-  const server = createServer(async (req, res) => {
+  const handle = async (req, res) => {
     const url = new URL(req.url, "http://api");
     // The API allows the portal's origin and no other, and takes no cookie. The headers are cmapi/src/cmapi/core/cors.py's.
     const cors = { "access-control-allow-origin": portalOrigin(), "access-control-allow-headers": "authorization, content-type, idempotency-key, if-match",
@@ -846,6 +1027,14 @@ export async function startApi({ issuer, portalOrigin }) {
       return ok({ items: state.clusters });
     }
     const create = /^\/api\/v1\/clusters\/([^/]+)\/namespaces$/.exec(url.pathname);
+    if (create && req.method === "GET") {
+      // router.py list_namespaces: objects:read, the cluster, then the page of the lookup.
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      if (!state.clusters.some((c) => c.clusterId === create[1])) return problem(res, refuse(404, "cluster-not-found", `Unknown cluster ${create[1]}`), cors);
+      const page = namespacePage(state.metadataKeys, state.namespaces.filter((r) => r.clusterId === create[1]), url.searchParams);
+      return Array.isArray(page) ? problem(res, refuse(...page), cors) : ok(page);
+    }
     if (create && req.method === "POST") {
       const denied = lacks("namespaces:create");
       if (denied) return problem(res, denied, cors);
@@ -994,6 +1183,70 @@ export async function startApi({ issuer, portalOrigin }) {
       return ok(request, 202);
     }
     const nsPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)$/.exec(url.pathname);
+    const record = nsPath && state.namespaces.find((r) => r.clusterId === nsPath[1] && r.name === nsPath[2]);
+    if (record && req.method === "GET") {
+      // router.py get_namespace: the live namespace, its Git and sync, and the etag, also as the ETag header.
+      const denied = lacks("objects:read");
+      if (denied) return problem(res, denied, cors);
+      const view = namespaceViewOf(state.metadataKeys, record, true);
+      res.writeHead(200, { ...cors, "content-type": "application/json", etag: `"${view.etag}"` });
+      return res.end(JSON.stringify(view));
+    }
+    if (record && req.method === "PATCH") {
+      // router.py update_namespace, then pipeline.py _plan_namespace, in their order.
+      const denied = lacks("namespaces:write");
+      if (denied) return problem(res, denied, cors);
+      const dry = url.searchParams.get("dryRun") === "true";
+      if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const raw = Object.fromEntries(Object.entries(body ?? {}).filter(([, value]) => value !== null));
+      const print = fingerprint({ ...raw, clusterId: record.clusterId, namespace: record.name });
+      const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
+      if (held) {
+        if (held.fingerprint !== print) return problem(res, { ...refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), requestId: held.request.requestId }, cors);
+        if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+        return ok(held.request, 202);
+      }
+      const scope = ROLE_ENVIRONMENTS[user.role];
+      if (scope && !scope.includes(record.env)) return problem(res, refuse(403, "environment-forbidden", `Your roles do not cover ${record.env}`), cors);
+      const etag = recordEtag(record);
+      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
+      const operatorKeys = MAPS.flatMap(([, map]) => Object.keys(body?.[map] ?? {})
+        .filter((key) => state.metadataKeys[map].properties[key]?.["x-cmapi-operator-only"]));
+      if (operatorKeys.length && !permissions.includes(PROTECT_PERMISSION)) {
+        return problem(res, refuse(403, "forbidden", `Only an operator (namespaces:protect) may set ${operatorKeys.join(", ")}`), cors);
+      }
+      const protection = protectionRefusal(body?.labels);
+      if (protection) return problem(res, protection, cors);
+      const errors = changeRefusal(state.metadataKeys, record, body ?? {});
+      if (errors.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors }, cors);
+      const after = { labels: mergePatch(record.git.labels, body?.labels), annotations: mergePatch(record.git.annotations, body?.annotations) };
+      if (fingerprint(after) === fingerprint(record.git)) return problem(res, refuse(422, "no-change", "The request changes nothing"), cors);
+      const metadataDiff = metadataDiffOf(record.git, after);
+      // A change of a sensitiveKeys entry adds one approver-platform (x-cmapi-edit sensitive; approvals.py sensitiveKeyChanged).
+      const sensitive = MAPS.some(([, map]) => Object.entries(metadataDiff[map]).some(([key, change]) => {
+        const prop = state.metadataKeys[map].properties[key];
+        if (!prop) return state.metadataKeys[map]["x-cmapi-other-keys"]?.sensitiveKeys?.includes(key);
+        return prop["x-cmapi-edit"]?.sensitive && (change.before !== null || !prop["x-cmapi-operator-only"]);
+      }));
+      const approval = sensitive ? UNPROTECT_APPROVAL : state.planUpdate.approval;
+      const path = `clusters/${record.clusterId}/namespaces/${record.name}/namespace.yaml`;
+      if (dry) return ok({ ...state.planUpdate, etag, changes: { [path]: "changed" }, files: { [path]: yamlOf(record.name, after) }, approval, metadataDiff, metadata: null,
+        capacity: { ...state.planUpdate.capacity, clusterId: record.clusterId } });
+      // core/db/repo.py move(): one open request for each namespace; the 409 names the holder (requestId, lines 172-173).
+      if (record.openRequest) return problem(res, { ...refuse(409, "change-pending", `${record.openRequest.requestId} holds ${record.name}`), requestId: record.openRequest.requestId }, cors);
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-6${String(++state.created).padStart(3, "0")}`;
+      const pending = approval.slots.length > 0;
+      const request = requestWith(state.updated, { requestId, namespace: record.name, status: pending ? "pending_approval" : "approved", pr: null, mergeSha: null,
+        events: [{ at: now, by: user.username, event: pending ? "plan_needs_approval" : "plan_auto_approved", note: "", status: pending ? "pending_approval" : "approved" }] });
+      Object.assign(request, { clusterId: record.clusterId, approval, justification: body?.justification ?? null });
+      state.items = [request, ...state.items];
+      record.openRequest = { requestId, status: request.status };
+      record.pending = after;
+      state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
+      return ok(request, 202);
+    }
     if (nsPath && (req.method === "GET" || req.method === "PATCH")) {
       const [, clusterId, ns] = nsPath;
       const denied = lacks(req.method === "GET" ? "objects:read" : "namespaces:write");
@@ -1059,7 +1312,13 @@ export async function startApi({ issuer, portalOrigin }) {
       return ok(state.kpi);
     }
     return problem(res, { type: "https://cmapi.ephico2real.com/problems/not-found", title: "not-found", status: 404, code: "not-found", detail: "No such route." }, cors);
-  });
+  };
+  return { handle, state };
+}
+
+export async function startApi(options) {
+  const { handle, state } = apiHandler(options);
+  const server = createServer(handle);
   const port = await listen(server);
   return { url: `http://127.0.0.1:${port}`, state, close: () => server.close() };
 }

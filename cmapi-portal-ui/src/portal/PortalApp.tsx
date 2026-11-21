@@ -20,6 +20,7 @@ import { ApprovalsTab } from "./ApprovalsTab";
 import { CapacityTab } from "./CapacityTab";
 import { ExpirationTab } from "./ExpirationTab";
 import { KpisTab } from "./KpisTab";
+import { NamespacesTab } from "./NamespacesTab";
 import { NewNamespaceTab } from "./NewNamespaceTab";
 import { PoliciesTab } from "./PoliciesTab";
 import { QuotasTab } from "./QuotasTab";
@@ -42,6 +43,7 @@ const NO_PARAMS = new URLSearchParams();
 const TABS: TabDef[] = [
   { id: "workflow", label: "Workflow", needs: PERMISSION["GET /api/v1/requests/{request_id}/events"], panel: WorkflowTab },
   { id: "new", label: "New namespace", needs: PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces"], panel: NewNamespaceTab },
+  { id: "namespaces", label: "Namespaces", needs: PERMISSION["GET /api/v1/clusters/{cluster_id}/namespaces"], panel: NamespacesTab },
   { id: "quotas", label: "Quotas", needs: PERMISSION["GET /api/v1/quotas"], panel: QuotasTab },
   { id: "expiration", label: "Expiration", needs: PERMISSION["GET /api/v1/expirations"], panel: ExpirationTab },
   { id: "requests", label: "Requests", needs: PERMISSION["GET /api/v1/requests"], panel: RequestsTab },

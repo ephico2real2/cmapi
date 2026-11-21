@@ -94,7 +94,8 @@ function KeyTable({ kind, rules, rows, check, refused, shown, onChange, onAdd }:
   );
 }
 
-export function ExtraKeysSection({ form, rows, checks, refused, attempted, expanded, onExpand, onChange, onAdd }: {
+export function ExtraKeysSection({ form, rows, checks, refused, attempted, expanded, onExpand, onChange, onAdd,
+  title = "Additional labels and annotations (optional)" }: {
   form: MetaForm;
   rows: Record<Kind, ExtraRow[]>;
   checks: Partial<Record<Kind, ExtraCheck>>;
@@ -104,13 +105,15 @@ export function ExtraKeysSection({ form, rows, checks, refused, attempted, expan
   onExpand: (expanded: boolean) => void;
   onChange: (kind: Kind, rows: ExtraRow[]) => void;
   onAdd: (kind: Kind) => void;
+  /** The toggle's words: the create's mockup says "Additional", the Namespaces tab's mockup "Add" (#484). */
+  title?: string;
 }) {
   const kinds = (["label", "annotation"] as const).filter((k) => form.otherKeys[k] !== null);
   if (!kinds.length) return null;
   const shown = (row: ExtraRow, problem: string | null) => (row.key === "" && !attempted ? null : problem);
   return (
     <ExpandableSection isExpanded={expanded} onToggle={(_, open) => onExpand(open)} toggleId="ns-extra-toggle" contentId="ns-extra"
-      toggleContent={<>Additional labels and annotations (optional) <Small>{extraCount(rows)}</Small></>}>
+      toggleContent={<>{title} <Small>{extraCount(rows)}</Small></>}>
       <Stack hasGutter>
         {kinds.map((k) => (
           <KeyTable key={k} kind={k} rules={form.otherKeys[k]!} rows={rows[k]} check={checks[k]} refused={refused} shown={shown}

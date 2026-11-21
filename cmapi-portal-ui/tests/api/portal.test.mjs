@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
-import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal,
-  startApi, startIssuer, USERS } from "./standin.mjs";
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespacesOfMockup, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
+  recordEtag, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, syncRecord, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const out = join(app, "test-output", "api");
@@ -32,11 +32,12 @@ let expectedStatus = [];
 
 /** A new browser profile: no session, no storage. */
 async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
-  expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3), capacity = capacityFleet() } = {}) {
+  expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3), capacity = capacityFleet(), namespaces = [],
+  clusters = SAMPLES.operations.core_clusters.response.body.items } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
-  Object.assign(api.state, { mode, items, delayMs: 0, hold: null, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters: SAMPLES.operations.core_clusters.response.body.items,
+  Object.assign(api.state, { mode, items, delayMs: 0, hold: null, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters, namespaces,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
     expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0 });
   issuer.state.seen.length = 0;
@@ -427,13 +428,14 @@ try {
 
   await check("5 a role sees the tabs that GET /api/v1/me permits: a viewer, an approver, a requester, an operator, and the approval relay with no capacity:read", async () => {
     // The stand-in's access token is an opaque string, so the browser cannot read a role from it.
-    const base = ["Workflow", "Quotas", "Expiration", "Requests", "Policies", "Capacity"];
+    // Namespaces needs objects:read, the permission of its first call (GET .../namespaces): every role that reads objects (#484).
+    const base = ["Workflow", "Namespaces", "Quotas", "Expiration", "Requests", "Policies", "Capacity"];
     const want = {
       viewer: base,
-      approver: ["Workflow", "Quotas", "Expiration", "Requests", "Approvals", "Policies", "Capacity"],
-      requester: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity"],
+      approver: ["Workflow", "Namespaces", "Quotas", "Expiration", "Requests", "Approvals", "Policies", "Capacity"],
+      requester: ["Workflow", "New namespace", "Namespaces", "Quotas", "Expiration", "Requests", "Policies", "Capacity"],
       // KPIs is operator and above: reports:read (docs/14).
-      operator: ["Workflow", "New namespace", "Quotas", "Expiration", "Requests", "Policies", "Capacity", "KPIs"],
+      operator: ["Workflow", "New namespace", "Namespaces", "Quotas", "Expiration", "Requests", "Policies", "Capacity", "KPIs"],
       // requests:read and approvals:relay only (docs/14): no capacity:read, so no Capacity tab (#302).
       relay: ["Workflow", "Requests"]
     };
@@ -4042,6 +4044,671 @@ try {
     }
     console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
   });
+
+  // #484, the Namespaces tab (design of #481, section 6, T1 to T9; mockup docs/reviews/2026-11-20-epic-481-metadata-patch/
+  // mockup-namespaces-tab.html). The instance has the keys of KEYS_479 and the mockup's namespaces (namespacesOfMockup), on
+  // CRC (dev) and KIND_CMAPI_TEST (rnd). Each expectation is written from the design, the mockup and the API's answer.
+  const NS_CLUSTERS = [SAMPLES.operations.core_clusters.response.body.items[0], RND_CLUSTER];
+  const nsFresh = (options = {}) => fresh({ metadataKeys: KEYS_479, namespaces: namespacesOfMockup(), clusters: NS_CLUSTERS, ...options });
+  const nsRecord = (name) => api.state.namespaces.find((r) => r.name === name);
+  const clusterBox = (page) => page.getByLabel("Cluster", { exact: true });
+  const lookupBox = (page) => page.getByRole("combobox", { name: "Namespace", exact: true });
+  const nsOptions = (page) => page.locator("#nsx-list [role=option]:not(:disabled)");
+  const nsTable = (page, ns) => panel(page).locator(`table[aria-label="Labels and annotations of ${ns}"]`);
+  /** The row of one key, by the "label <key>" line under its title. */
+  const keyRow = (page, ns, kind, key) => nsTable(page, ns).locator("tbody tr").filter({ has: page.getByText(`${kind} ${key}`, { exact: true }) });
+  const cells = (row) => row.locator("td").evaluateAll((tds) => tds.map((td) => td.innerText.replace(/\s+/g, " ").trim()));
+  const strip = (page) => panel(page).locator(".pf-v6-c-alert").first();
+  const nsStatus = async (page) => (await page.locator("#nsx-status").innerText()).replace(/\s+/g, " ");
+  const nsCheck = (page) => panel(page).getByRole("button", { name: "Check (dry run)" });
+  const nsSubmit = (page) => panel(page).getByRole("button", { name: "Submit request" });
+  const nsPatches = (ns = "abc-payments-dev") => api.state.seen.filter((c) => c.method === "PATCH" && c.path === `/api/v1/clusters/CRC/namespaces/${ns}`);
+  const nsDryRuns = (ns) => nsPatches(ns).filter((c) => c.query.dryRun === "true");
+  const detailReads = (ns = "abc-payments-dev") => api.state.seen.filter((c) => c.method === "GET" && c.path === `/api/v1/clusters/CRC/namespaces/${ns}`);
+  /** Opens one namespace from the address, as a shared link does, and waits for its table. */
+  async function openNamespace(page, ns = "abc-payments-dev", cluster = "CRC") {
+    await open(page, `#namespaces?cluster=${cluster}&ns=${ns}`);
+    await nsTable(page, ns).waitFor();
+  }
+  /** The change of the design's example (section 4.1): the critical level to 2, the cost code removed, a runbook added. */
+  async function draftExample(page) {
+    await page.getByLabel("Critical level (required)").selectOption("2");
+    await panel(page).getByRole("button", { name: "Remove Cost center" }).click();
+    const toggle = panel(page).getByRole("button", { name: /^Add labels and annotations \(optional\)/ });
+    if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+    await panel(page).getByRole("button", { name: "+ Add annotation" }).click();
+    await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/url");
+    await page.getByLabel("Value of additional annotation 1").fill("https://wiki.company.net/abc/runbook");
+    await page.getByLabel("Justification (required)").fill("Raise the critical level, retire the cost code and add the on-call runbook.");
+  }
+  const nsPassed = (page) => panel(page).locator("#nsx-status .pf-v6-c-alert").filter({ hasText: "The check passed (dry run, 200)" });
+  /** Runs one check at 390, 820 and 1440 px, in each theme, on a fresh profile. */
+  async function atEachNsView(run, options = {}) {
+    for (const width of [390, 820, 1440]) {
+      for (const theme of ["light", "dark"]) {
+        const { context, page, errors } = await nsFresh({ width, ...options });
+        try {
+          await page.addInitScript((dark) => { if (dark) addEventListener("DOMContentLoaded", () => document.documentElement.classList.add("pf-v6-theme-dark")); }, theme === "dark");
+          await run(page, `${width} ${theme}`);
+          assert.deepEqual(errors, [], `${width} ${theme}`);
+        } catch (error) {
+          throw Object.assign(new Error(`${width} ${theme}: ${error.message}`, { cause: error }), { stack: `${width} ${theme}: ${error.stack}` });
+        } finally { await context.close(); }
+      }
+    }
+  }
+
+  await check("484-T1 cluster first: every cluster, its mnemonic chips with counts, and a lookup of 2+ letters 250 ms after the last key; a first word that is a mnemonic turns its chip on", async () => {
+    await atEachNsView(async (page) => {
+      await open(page, "#namespaces");
+      assert.deepEqual(await clusterBox(page).locator("option").allInnerTexts(), ["Choose a cluster…", "CRC (dev)", "KIND_CMAPI_TEST (rnd)"], "every cluster that GET /api/v1/clusters lists");
+      assert.equal(await lookupBox(page).isDisabled(), true, "the lookup waits for a cluster");
+      await panel(page).getByText("Choose a cluster and a namespace to see it.").waitFor();
+      await clusterBox(page).selectOption("CRC");
+      await panel(page).getByText("7 managed namespaces in CRC. Type 2+ letters, or start with a mnemonic.").waitFor();
+      assert.deepEqual(await chips(page, "Mnemonic"), ["All 7", "abc 4", "xyz 2", "lmn 1"], "the cluster's facets, most first");
+      assert.deepEqual(api.state.seen.filter((c) => c.path === "/api/v1/clusters/CRC/namespaces").map((c) => c.query), [{ limit: "10" }]);
+      const box = lookupBox(page);
+      await box.pressSequentially("a");
+      await page.waitForTimeout(400);
+      assert.equal(api.state.seen.filter((c) => c.path === "/api/v1/clusters/CRC/namespaces").length, 1, "one letter asks nothing");
+      await box.pressSequentially("bc pay");
+      await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 2);
+      assert.deepEqual(api.state.seen.filter((c) => c.path === "/api/v1/clusters/CRC/namespaces").slice(1).map((c) => c.query), [{ q: "pay", mnemonic: "abc", limit: "10" }],
+        "one call for the text when the typing stopped: the first word is abc's chip, the rest is q");
+      assert.deepEqual(await chips(page, "Mnemonic").then((c) => c.length), 4);
+      assert.equal(await panel(page).locator(".pf-v6-c-toggle-group__button.pf-m-selected").innerText(), "abc 4", "abc's chip turned on by itself");
+      assert.deepEqual((await nsOptions(page).allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()),
+        ["abc-paylater-dev team billing · pending req-20261120-0011", "abc-payments-dev team payments · unknown"], "team and state; the list reads no Git, so a state is pending or unknown");
+      await page.getByText("2 of 2 in CRC · Mnemonic abc · ↑↓ Enter").waitFor();
+      // Typed text is not a target: Enter with no option chosen opens nothing.
+      await box.fill("abc-payments-dev");
+      await page.waitForTimeout(400);
+      await box.press("Enter");
+      assert.equal(await nsTable(page, "abc-payments-dev").count(), 0);
+      assert.equal(new URL(page.url()).hash, "#namespaces?cluster=CRC");
+      // A chip filters the lookup; All takes it off.
+      await box.fill("");
+      await panel(page).getByRole("button", { name: "xyz 2" }).click();
+      await box.fill("pa");
+      await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 1);
+      const asked = api.state.seen.filter((c) => c.path === "/api/v1/clusters/CRC/namespaces").map((c) => c.query);
+      assert.deepEqual(asked.at(-1), { q: "pa", mnemonic: "xyz", limit: "10" }, JSON.stringify(asked));
+      await nsOptions(page).first().click();
+      await nsTable(page, "xyz-payments-dev").waitFor();
+      assert.equal(new URL(page.url()).hash, "#namespaces?cluster=CRC&ns=xyz-payments-dev", "the address names the namespace");
+      await panel(page).getByRole("button", { name: "xyz-payments-dev", exact: true }).waitFor();
+      assert.match(await panel(page).getByText(/^Recent in CRC:/).innerText(), /^Recent in CRC:$/, "the recent list of this browser");
+    });
+  });
+
+  await check("484-T1 the debounce starts again on the last letter and fires at 250 ms", async () => {
+    await atEachNsView(async (page) => {
+      await page.clock.install();
+      await open(page, "#namespaces?cluster=CRC");
+      await panel(page).getByText(/^7 managed namespaces in CRC/).waitFor();
+      await page.clock.pauseAt(new Date(Date.now() + 60000));
+      const searched = () => api.state.seen.filter((c) => c.query.q);
+      await lookupBox(page).fill("le");
+      await page.clock.runFor(200);
+      await lookupBox(page).fill("led");
+      await page.clock.runFor(249);
+      assert.equal(searched().length, 0);
+      const received = page.waitForRequest((r) => new URL(r.url()).searchParams.get("q") === "led");
+      await page.clock.runFor(1);
+      await received;
+    });
+  });
+
+  await check("484-T1 only the latest answer is shown, and a new cluster starts a new lookup", async () => {
+    await atEachNsView(async (page) => {
+      await open(page, "#namespaces?cluster=CRC");
+      await panel(page).getByText(/^7 managed namespaces in CRC/).waitFor();
+      const held = Promise.withResolvers(), received = Promise.withResolvers();
+      api.state.hold = { match: (c) => c.path === "/api/v1/clusters/CRC/namespaces" && c.query.q === "ledger" && (received.resolve(), true), until: held.promise };
+      try {
+        await lookupBox(page).fill("ledger");
+        await received.promise;
+        await lookupBox(page).fill("orders");
+        await page.waitForFunction(() => document.querySelector("#nsx-list [role=option]:not(:disabled)")?.innerText.startsWith("xyz-orders-dev"));
+      } finally {
+        api.state.hold = null;
+        held.resolve();
+      }
+      await page.waitForTimeout(300);
+      assert.deepEqual((await nsOptions(page).allInnerTexts()).map((t) => t.split("\n")[0]), ["xyz-orders-dev"], "the late answer for ledger never shows");
+      await clusterBox(page).selectOption("KIND_CMAPI_TEST");
+      await panel(page).getByText(/^3 managed namespaces in KIND_CMAPI_TEST/).waitFor();
+      assert.equal(await lookupBox(page).inputValue(), "");
+      assert.deepEqual(await chips(page, "Mnemonic"), ["All 3", "abc 2", "qrs 1"]);
+    });
+  });
+
+  await check("484-T2 loading a namespace reads its Git, live state and sync, and the rules' x-cmapi-edit: fixed keys locked with their reason, sensitive keys marked", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      assert.equal(detailReads().length, 1, "GET .../namespaces/abc-payments-dev");
+      assert.ok(api.state.seen.some((c) => c.path === "/api/v1/metadata-keys"), "GET /api/v1/metadata-keys");
+      for (const [kind, key, title, git, reason] of [["label", "name", "Name", "abc-payments-dev", "Copied from the namespace name."],
+        // A fixed key that the file does not declare and Git holds (a system key): locked, with the read's reason.
+        ["label", "cmapi.net/managed", "cmapi.net/managed", "true", "Managed by cmapi."],
+        ["label", "company.net/app-environment", "App environment", "dev", "Copied from the cluster's environment."],
+        ["label", "company.net/mnemonic", "Mnemonic", "abc", "Part of the namespace's fixed name."],
+        // This annotation has no title in the configuration: the key names it, as on the New namespace form.
+        ["annotation", "company.net/app-environment", "company.net/app-environment", "dev", "Copied from the cluster's environment."],
+        ["annotation", "cmapi.net/expires-at", "Expires", "2026-12-15", "Change it with Extend, Set expiry or Make permanent."]]) {
+        const row = keyRow(page, "abc-payments-dev", kind, key);
+        const [k, g, , change] = await cells(row);
+        assert.equal(k, `${title} fixed ${kind} ${key}`, `${key}: locked, marked fixed`);
+        assert.equal(g, git, `${key}: what Git holds`);
+        assert.equal(change, reason, `${key}: the reason of x-cmapi-edit`);
+        assert.equal(await row.locator("input, select").count(), 0, `${key}: nothing to type in`);
+      }
+      for (const [key, title] of [["company.net/cl", "Critical level (required)"], ["cmapi.net/team", "Team (required)"]]) {
+        assert.equal((await cells(keyRow(page, "abc-payments-dev", "label", key)))[0], `${title} sensitive label ${key}`, `${key} is sensitive`);
+      }
+      assert.equal((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/lob")))[0], "Line of business (required) label company.net/lob");
+      assert.equal(await page.getByLabel("Critical level (required)").inputValue(), "1", "a changeable key starts from what Git holds");
+      assert.deepEqual(await page.getByLabel("Critical level (required)").locator("option").allInnerTexts(), ["0", "1", "2", "3", "4", "5", "6"], "no empty choice: the key has a value");
+    });
+  });
+
+  await check("484-T3 Git, Live and Your change side by side, and the status strip: Drift with each drifted key, In sync, Pending with its request, Unknown", async () => {
+    await atEachNsView(async (page) => {
+      nsRecord("abc-payments-dev").live.labels["team.company.net/owner"] = "old";
+      nsRecord("abc-reports-dev").liveFresh = false;
+      // A pending namespace whose watch went stale: the read lists no drift, and the last value seen is not Git's.
+      const stale = nsRecord("abc-paylater-dev");
+      stale.liveFresh = false;
+      stale.live.labels["cmapi.net/team"] = "last-seen";
+      await openNamespace(page);
+      assert.deepEqual(await nsTable(page, "abc-payments-dev").locator("thead th").allTextContents(), ["Key", "Git (desired)", "Live (cluster)", "Your change"]);
+      const titleOf = async () => (await strip(page).locator(".pf-v6-c-alert__title").innerText()).replace(/^\w+ alert:\s*/, "");
+      const textOf = () => strip(page).locator(".pf-v6-c-alert__description").innerText();
+      assert.equal(await titleOf(), "Drift");
+      assert.equal(await textOf(), "2 keys on the cluster differ from Git · no open request. Your change applies to Git, which the cluster is brought back to.");
+      assert.deepEqual((await cells(keyRow(page, "abc-payments-dev", "label", "team.company.net/owner"))).slice(1, 3), ["—", "drift old"]);
+      assert.deepEqual((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/lob"))).slice(1, 3), ["amgsst", "drift amgsst-old"], "the drifted key with both values");
+      assert.deepEqual((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/cl"))).slice(1, 3), ["1", "✓ 1"]);
+      for (const [ns, title, text] of [["abc-ledger-dev", "In sync", "The cluster has what Git holds."],
+        ["abc-paylater-dev", "Pending", "req-20261120-0011 (pending_approval) holds abc-paylater-dev."],
+        ["abc-reports-dev", "Unknown", "cmapi cannot compare Git with the cluster now: the cluster's watch is not fresh."]]) {
+        await open(page, `#namespaces?cluster=CRC&ns=${ns}`);
+        await nsTable(page, ns).waitFor();
+        await page.waitForFunction((t) => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith(t), title);
+        assert.equal(await textOf(), text, ns);
+        if (title === "Pending") assert.equal(await strip(page).getByRole("button", { name: "Open at current step" }).count(), 1, "the request's link");
+        if (title === "Pending") assert.equal((await cells(keyRow(page, ns, "label", "cmapi.net/team")))[2], "last-seen", "a value that is not Git's has no tick");
+        if (title === "Unknown") assert.equal((await cells(keyRow(page, ns, "label", "company.net/cl")))[2], "1", "nothing compared: no mark");
+      }
+    });
+  });
+
+  await check("484-T4 changeable fields reuse the New namespace form's inputs and checks as typed; removing an optional key stages null with Undo", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      const lob = page.getByLabel("Line of business (required)");
+      await lob.fill("amg sst");
+      await waitError(lob, /^Not a valid label value/);
+      assert.equal(await lob.getAttribute("aria-invalid"), "true");
+      await lob.fill("");
+      await waitError(lob, /^Required: /);
+      await lob.fill("retail");
+      await waitError(lob, null);
+      assert.match((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/lob")))[3], /^changed$/, "the row says it changed");
+      const dl = page.getByLabel("Team DL (required)");
+      await dl.fill("payments-team@other.example");
+      await waitError(dl, /^Not valid: an address in/);
+      await dl.fill("payments-team@company.net");
+      await waitError(dl, null);
+      await panel(page).getByRole("button", { name: "Remove Cost center" }).click();
+      const cost = keyRow(page, "abc-payments-dev", "label", "cmapi.net/cost-center");
+      assert.equal((await cells(cost))[3], "cc-4410 removed ↺ Undo", "a removal is staged, with Undo");
+      assert.equal(await cost.locator("del").innerText(), "cc-4410");
+      await panel(page).getByRole("button", { name: "Undo the removal of Cost center" }).click();
+      await waitValue(page.getByLabel("Cost center (optional)"), "cc-4410");
+      assert.equal(await keyRow(page, "abc-payments-dev", "label", "company.net/lob").getByRole("button").count(), 0, "a required key is never removed");
+      assert.equal(nsPatches().length, 0, "nothing is sent while typing");
+    });
+  });
+
+  await check("484-T5 existing additional keys can be edited and removed; new ones go in the closed, empty Add labels and annotations section", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      const squad = keyRow(page, "abc-payments-dev", "label", "team.company.net/squad");
+      assert.equal((await cells(squad))[0], "team.company.net/squad additional label team.company.net/squad");
+      const value = page.getByLabel("Value of label team.company.net/squad");
+      assert.equal(await value.inputValue(), "checkout");
+      await value.fill("check out");
+      await waitError(value, /^A label value: /);
+      await value.fill("payments");
+      await waitError(value, null);
+      await panel(page).getByRole("button", { name: "Remove label team.company.net/squad" }).click();
+      assert.equal((await cells(squad))[3], "checkout removed ↺ Undo");
+      const toggle = panel(page).getByRole("button", { name: /^Add labels and annotations \(optional\)/ });
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false", "closed by default");
+      assert.match(await toggle.innerText(), /none$/);
+      assert.equal(await page.locator("[id^=ns-xl-], [id^=ns-xa-]").count(), 0, "empty by default");
+      await toggle.click();
+      await panel(page).getByRole("button", { name: "+ Add label" }).click();
+      const key = page.getByLabel("Key of additional label 1");
+      await key.fill("team.company.net/squad");
+      await waitError(key, /^This key is already on the namespace: change it in the table\./);
+      await key.fill("kubernetes.io/team");
+      await waitError(key, /^The prefix must be \*\.company\.net\/ \(or none\)\./);
+      await key.fill("team.company.net/oncall");
+      await page.getByLabel("Value of additional label 1").fill("alice");
+      await waitError(key, null);
+      await toggle.click();
+      assert.match(await toggle.innerText(), /1 label, 0 annotations$/, "closed, it counts what it holds");
+    });
+  });
+
+  await check("484-T6 the change box lists only effective changes, before and after, with the sensitive mark; Justification is required", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      const box = panel(page).getByRole("list", { name: "The change", exact: true });
+      assert.deepEqual(await box.locator("li").allInnerTexts(), ["No change yet."]);
+      await draftExample(page);
+      const lines = async () => (await box.locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
+      assert.deepEqual(await lines(), ["label company.net/cl 1 → 2 +1 approval", "label cmapi.net/cost-center cc-4410 → (removed)",
+        "annotation runbook.company.net/url (new) → https://wiki.company.net/abc/runbook"]);
+      await page.getByLabel("Critical level (required)").selectOption("1");
+      assert.deepEqual(await lines(), ["label cmapi.net/cost-center cc-4410 → (removed)", "annotation runbook.company.net/url (new) → https://wiki.company.net/abc/runbook"],
+        "back to what Git holds: no change");
+      await page.getByLabel("Justification (required)").fill("");
+      await nsCheck(page).click();
+      await panel(page).getByText("The check did not run. Fix these:").waitFor();
+      assert.match(await nsStatus(page), /Justification: say why this change is needed\./);
+      assert.equal(nsPatches().length, 0, "nothing is sent");
+      await panel(page).getByRole("button", { name: "Justification: say why this change is needed." }).click();
+      await page.waitForFunction(() => document.activeElement?.id === "nsx-why");
+    });
+  });
+
+  await check("484-T7 Check sends the dry run with If-Match; the server's metadataDiff and approval replace the estimate; Submit is off until checked and after any change", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      const etag = recordEtag(nsRecord("abc-payments-dev"));
+      await draftExample(page);
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true", "not checked: Submit is off");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      const dry = nsDryRuns().at(-1);
+      assert.equal(dry.ifMatch, `"${etag}"`, "If-Match: the etag that the namespace was read at, quoted");
+      assert.equal(dry.key, null, "a dry run takes no Idempotency-Key");
+      assert.deepEqual(dry.body, { labels: { "company.net/cl": "2", "cmapi.net/cost-center": null }, annotations: { "runbook.company.net/url": "https://wiki.company.net/abc/runbook" },
+        justification: "Raise the critical level, retire the cost code and add the on-call runbook." }, "a merge patch: null removes the cost center");
+      assert.match(await nsStatus(page), /1 approval in cmapi from approver-platform\. dev change: 0 from approver-platform; threshold sensitiveKeyChanged: \+1 approver-platform\./);
+      assert.match(await nsStatus(page), new RegExp(`If-Match "${etag}"`));
+      const fromPlan = panel(page).getByRole("list", { name: "The change, from the dry run" });
+      assert.deepEqual((await fromPlan.locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), ["label cmapi.net/cost-center cc-4410 → (removed)",
+        "label company.net/cl 1 → 2 +1 approval", "annotation runbook.company.net/url (new) → https://wiki.company.net/abc/runbook"], "the plan's metadataDiff");
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), null, "checked: Submit is on");
+      await page.getByLabel("Critical level (required)").selectOption("3");
+      await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true", "a change turns Submit off");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      // Reverting an unchecked edit cannot resurrect the previous pass.
+      await page.getByLabel("Critical level (required)").selectOption("4");
+      await page.getByLabel("Critical level (required)").selectOption("3");
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      api.state.delayMs = 600;
+      await nsCheck(page).click();
+      await panel(page).getByText("Checking with cmapi…").waitFor();
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
+      await nsPassed(page).waitFor();
+      api.state.delayMs = 0;
+      // #527: the first change again is asked again, not answered from the cache.
+      await page.getByLabel("Critical level (required)").selectOption("2");
+      const before = nsDryRuns().length;
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      for (let i = 0; i < 20 && nsDryRuns().length === before; i++) await page.waitForTimeout(100);
+      assert.equal(nsDryRuns().length, before + 1, "Check asks cmapi again for a change that it checked before");
+      assert.equal(nsPatches().filter((c) => c.query.dryRun !== "true").length, 0, "nothing was submitted");
+    });
+  });
+
+  await check("484-T8 409: the holder is shown and Submit stays off until Reload, also when the holder has already finished", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      await draftExample(page);
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      // Someone else's request takes the lock after the check: the dry run does not check it, the submit does (repo.py).
+      nsRecord("abc-payments-dev").openRequest = { requestId: "req-20261121-0009", status: "pr_open" };
+      expectedStatus = [409];
+      await nsSubmit(page).click();
+      await panel(page).getByText("409 change-pending. Not submitted.").waitFor();
+      assert.match(await nsStatus(page), /req-20261121-0009 holds abc-payments-dev\. Submit stays off until it finishes: then Reload\./);
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Pending"));
+      assert.equal(await strip(page).locator(".pf-v6-c-alert__description").innerText(),
+        "req-20261121-0009 (pr_open) holds abc-payments-dev. Submit stays off until it finishes and you reload.");
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
+      // The holder finishes before the next read: Submit stays off until the person reloads (design T8).
+      nsRecord("abc-payments-dev").openRequest = null;
+      await strip(page).getByRole("button", { name: "Reload" }).click();
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Drift"));
+      await draftExample(page);
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      // The next write meets a holder that ends before the namespace is read again.
+      api.state.answers.push({ route: "PATCH /api/v1/clusters/CRC/namespaces/abc-payments-dev", status: 409,
+        body: { type: "https://cmapi.ephico2real.com/problems/change-pending", title: "change-pending", status: 409, code: "change-pending", detail: "req-20261121-0010 holds abc-payments-dev", requestId: "req-20261121-0010" } });
+      await nsSubmit(page).click();
+      await panel(page).getByText("409 change-pending. Not submitted.").waitFor();
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Drift"));
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true", "no holder on the page now, and Submit is still off until Reload");
+      await strip(page).getByRole("button", { name: "Reload" }).click();
+      await panel(page).getByText("Make a change, then press Check (dry run).").waitFor();
+      assert.deepEqual(await panel(page).getByRole("list", { name: "The change", exact: true }).locator("li").allInnerTexts(), ["No change yet."], "Reload starts from Git again");
+    });
+  });
+
+  await check("484-T8 412: Git changed meanwhile; the namespace is read again, the other edits are kept, each key both sides changed is asked, and a new Check uses the new ETag", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      const rec = nsRecord("abc-payments-dev"), first = recordEtag(rec);
+      await page.getByLabel("Line of business (required)").fill("retail");
+      await page.getByLabel("Critical level (required)").selectOption("2");
+      await page.getByLabel("Cost center (optional)").fill("cc-9999");
+      await page.getByLabel("Justification (required)").fill("Retail line, higher level, new cost code.");
+      await panel(page).getByRole("button", { name: /^Add labels and annotations/ }).click();
+      await panel(page).getByRole("button", { name: "+ Add annotation" }).click();
+      await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/url");
+      await page.getByLabel("Value of additional annotation 1").fill("my-runbook");
+      for (const map of [rec.git, rec.live]) map.annotations["runbook.company.net/url"] = "their-runbook";
+      // Someone's merged request added the same annotation and moved two of the same labels in Git (and on the cluster).
+      for (const map of [rec.git, rec.live]) Object.assign(map.labels, { "company.net/cl": "3", "cmapi.net/cost-center": "cc-5000" });
+      const second = recordEtag(rec);
+      expectedStatus = [412];
+      await nsCheck(page).click();
+      await panel(page).getByText("412: the namespace changed in Git. Reloaded; your other changes are kept. Both sides changed these keys:").waitFor();
+      assert.equal(nsDryRuns().at(-1).ifMatch, `"${first}"`);
+      assert.match(await nsStatus(page), /company\.net\/cl: now 3, yours 2/);
+      assert.match(await nsStatus(page), /cmapi\.net\/cost-center: now cc-5000, yours cc-9999/);
+      assert.equal((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/cl")))[1], "3", "the table shows the new Git");
+      assert.equal(await page.getByLabel("Line of business (required)").inputValue(), "retail", "a key that only this person changed is kept");
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
+      const sent = nsDryRuns().length;
+      await nsCheck(page).click();
+      assert.equal(nsDryRuns().length, sent, "no Check until each key is chosen");
+      await panel(page).getByRole("button", { name: "Use current for company.net/cl" }).click();
+      await panel(page).getByRole("button", { name: "Keep my edit for cmapi.net/cost-center" }).click();
+      await panel(page).getByText("412: the namespace changed in Git. Reloaded; your changes are kept. Press Check (dry run) again.").waitFor();
+      await waitValue(page.getByLabel("Critical level (required)"), "3");
+      // The annotation that both people added is a row of the table now: the new row cannot send it over the other value.
+      await nsCheck(page).click();
+      await panel(page).getByText("This key is already on the namespace: change it in the table.").first().waitFor();
+      assert.equal(nsDryRuns().length, sent, "no Check while a new key is one that Git now holds");
+      assert.equal((await cells(keyRow(page, "abc-payments-dev", "annotation", "runbook.company.net/url")))[1], "their-runbook");
+      await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/mine");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      const dry = nsDryRuns().at(-1);
+      assert.equal(dry.ifMatch, `"${second}"`, "the new ETag");
+      assert.deepEqual(dry.body.annotations, { "runbook.company.net/mine": "my-runbook" });
+      assert.deepEqual(dry.body.labels, { "company.net/lob": "retail", "cmapi.net/cost-center": "cc-9999" }, "Use current dropped cl; Keep my edit kept the cost code");
+      // A 412 of Submit: read again, Check again, and the stale ETag is never sent again.
+      for (const map of [rec.git, rec.live]) map.labels["cmapi.net/app"] = "web";
+      const third = recordEtag(rec);
+      await nsSubmit(page).click();
+      await panel(page).getByText("412: the namespace changed in Git. Reloaded; your changes are kept. Press Check (dry run) again.").waitFor();
+      assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      await nsSubmit(page).click();
+      await panel(page).getByText(/Request req-\d{8}-6\d{3} submitted \(202\)\./).waitFor();
+      const writes = nsPatches().filter((c) => c.query.dryRun !== "true");
+      assert.deepEqual(writes.map((c) => c.ifMatch), [`"${second}"`, `"${third}"`], "one stale write refused, then the new ETag");
+    });
+  });
+
+  await check("484-T9 after 202: the request with its link; the strip turns Pending, then In sync when the cluster has the change, on Reload (no polling)", async () => {
+    await atEachNsView(async (page) => {
+      await openNamespace(page);
+      await draftExample(page);
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      await nsSubmit(page).click();
+      const done = panel(page).locator("#nsx-status .pf-v6-c-alert").filter({ hasText: /submitted \(202\)/ });
+      await done.waitFor();
+      const write = nsPatches().filter((c) => c.query.dryRun !== "true").at(-1);
+      assert.match(write.key ?? "", /^[0-9a-f-]{36}$/, "an Idempotency-Key");
+      assert.equal(write.ifMatch, nsDryRuns().at(-1).ifMatch, "the If-Match that was checked");
+      assert.deepEqual(write.body, nsDryRuns().at(-1).body, "Submit sends the checked body");
+      const id = nsRecord("abc-payments-dev").openRequest.requestId;
+      assert.match(await done.innerText(), new RegExp(`Request ${id} submitted \\(202\\)\\.\\s+The strip shows Pending until the cluster has the change\\.`));
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Pending"));
+      assert.equal(await strip(page).locator(".pf-v6-c-alert__description").innerText(), `${id} (pending_approval) holds abc-payments-dev.`);
+      assert.deepEqual(await panel(page).getByRole("list", { name: "The change", exact: true }).locator("li").allInnerTexts(), ["No change yet."]);
+      const reads = detailReads().length;
+      await page.waitForTimeout(1500);
+      assert.equal(detailReads().length, reads, "no polling loop");
+      await done.getByRole("button", { name: "Open at current step" }).click();
+      await page.waitForURL((url) => url.hash === `#workflow?request=${id}`);
+      await openNamespace(page);
+      // The request merges and the cluster syncs: Reload shows it.
+      syncRecord(nsRecord("abc-payments-dev"));
+      await strip(page).getByRole("button", { name: "Reload" }).click();
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("In sync"));
+      assert.deepEqual((await cells(keyRow(page, "abc-payments-dev", "label", "company.net/cl"))).slice(1, 3), ["2", "✓ 2"]);
+      assert.equal((await cells(keyRow(page, "abc-payments-dev", "annotation", "runbook.company.net/url")))[1], "https://wiki.company.net/abc/runbook", "the new key is in Git");
+    });
+  });
+
+  await check("484-O operator-only keys: changeable with namespaces:protect in the namespace's environment, locked with the API's reason for anyone else", async () => {
+    const withProtection = () => { const r = nsRecord("abc-payments-dev"); for (const m of [r.git, r.live]) m.labels["do-not-delete"] = "true"; };
+    const REASON = "Needs namespaces:protect in the namespace's environment. Changing this key needs one more approval.";
+    await atEachNsView(async (page) => {
+      withProtection();
+      await openNamespace(page);
+      assert.deepEqual((await cells(keyRow(page, "abc-payments-dev", "label", "do-not-delete"))).slice(2), ["✓ true", REASON], "a requester: locked, with the API's reason");
+      assert.equal(await keyRow(page, "abc-payments-dev", "label", "cmapi.net/protected").count(), 0, "a key that Git lacks is not offered to a requester");
+      assert.equal(await page.getByLabel("Value of label do-not-delete").count(), 0);
+    });
+    await atEachNsView(async (page) => {
+      withProtection();
+      await openNamespace(page);
+      assert.equal(await page.getByLabel("Value of label do-not-delete").inputValue(), "true", "an operator types in it");
+      await page.getByLabel("Value of label cmapi.net/protected").fill("true");
+      await panel(page).getByRole("button", { name: "Remove label do-not-delete" }).click();
+      await page.getByLabel("Justification (required)").fill("Protect with the cmapi label instead.");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      assert.deepEqual(nsDryRuns().at(-1).body.labels, { "do-not-delete": null, "cmapi.net/protected": "true" });
+      assert.match(await nsStatus(page), /1 approval in cmapi from approver-platform/, "a sensitive key adds one approval");
+    }, { user: "operator" });
+  });
+
+  await check("484-R a key that no rule admits: locked against typing, with Remove and Undo only; the removal sends null", async () => {
+    await atEachNsView(async (page) => {
+      const rec = nsRecord("abc-payments-dev");
+      for (const m of [rec.git, rec.live]) m.labels["old.invalid/key"] = "legacy";
+      await openNamespace(page);
+      const row = keyRow(page, "abc-payments-dev", "label", "old.invalid/key");
+      assert.deepEqual(await cells(row), ["old.invalid/key fixed label old.invalid/key", "legacy", "✓ legacy", "Not allowed by this instance's rules. Remove"]);
+      assert.equal(await row.locator("input, select").count(), 0, "never set or changed");
+      assert.equal(await keyRow(page, "abc-payments-dev", "label", "cmapi.net/managed").locator("input, button").count(), 0, "cmapi's own key is locked");
+      await panel(page).getByRole("button", { name: "Remove label old.invalid/key" }).click();
+      assert.equal((await cells(row))[3], "legacy removed ↺ Undo");
+      await panel(page).getByRole("button", { name: "Undo the removal of label old.invalid/key" }).click();
+      assert.equal((await cells(row))[3], "Not allowed by this instance's rules. Remove");
+      await panel(page).getByRole("button", { name: "Remove label old.invalid/key" }).click();
+      await page.getByLabel("Justification (required)").fill("Drop a key from before the rules.");
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      assert.deepEqual(nsDryRuns().at(-1).body.labels, { "old.invalid/key": null }, "a merge patch removal");
+      assert.deepEqual((await panel(page).getByRole("list", { name: "The change, from the dry run" }).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()),
+        ["label old.invalid/key legacy → (removed)"]);
+    });
+  });
+
+  await check("484-K keyboard: the cluster, then the lookup with arrow keys and Enter", async () => {
+    await atEachNsView(async (page) => {
+      await open(page, "#namespaces");
+      await clusterBox(page).focus();
+      // A closed select takes the first letter of an option (HTML's select type-ahead); the arrow keys open the native list on macOS.
+      await page.keyboard.press("C");
+      await panel(page).getByText(/^7 managed namespaces in CRC/).waitFor();
+      assert.equal(await clusterBox(page).inputValue(), "CRC", "the key chose the cluster");
+      for (let i = 0; i < 6 && await page.evaluate(() => document.activeElement?.id) !== "nsx-ns"; i++) await page.keyboard.press("Tab");
+      assert.equal(await page.evaluate(() => document.activeElement?.id), "nsx-ns", "Tab reaches the lookup after the chips");
+      await page.keyboard.type("abc pay");
+      await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 2);
+      const box = lookupBox(page);
+      await page.keyboard.press("ArrowDown");
+      assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-0");
+      await page.keyboard.press("ArrowDown");
+      assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-1");
+      assert.equal(await nsOptions(page).nth(1).getAttribute("aria-selected"), "true");
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      await nsTable(page, "abc-payments-dev").waitFor();
+      assert.equal(await box.getAttribute("aria-expanded"), "false");
+      await box.fill("xyz o");
+      await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 1);
+      await page.keyboard.press("Escape");
+      assert.equal(await box.getAttribute("aria-expanded"), "false", "Escape closes the list");
+    });
+  });
+
+  await check("484-6 the tab says the mockup's words: each static string of the mockup is on the page, or listed as a difference", async () => {
+    const mockup = readFileSync(join(app, "..", "docs", "reviews", "2026-11-20-epic-481-metadata-patch", "mockup-namespaces-tab.html"), "utf8");
+    // The page part of the mockup (from its heading to its script), without the Simulate buttons, which stand in for the API.
+    const part = mockup.slice(mockup.indexOf("<h1>"), mockup.indexOf("<script>")).replace(/<div class="sim">[\s\S]*?<\/div>/, "");
+    const texts = [...new Set(part.replace(/<[^>]+>/g, "\n").split("\n").map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean))];
+    // MOCKUP-CONTRACT.md, "Where the portal's Namespaces tab differs": the required mark in words, the caret and the placeholder sentence of the closed section.
+    const LISTED = ["Justification *", "▸", "Two empty key/value tables, as on the New namespace form (closed and empty by default; checked as you type)."];
+    const fromMockup = texts.filter((t) => !LISTED.includes(t));
+    assert.ok(fromMockup.length >= 20, `the mockup was read (${fromMockup.length} strings)`);
+    const { context, page, errors } = await nsFresh();
+    await open(page, "#namespaces");
+    await panel(page).getByText("Choose a cluster and a namespace to see it.").waitFor();
+    let shown = await panel(page).innerText();
+    await openNamespace(page);
+    shown += ` ${await panel(page).innerText()}`;
+    const squeeze = (t) => t.replace(/\s+/g, "");
+    assert.deepEqual(fromMockup.filter((t) => !squeeze(shown).includes(squeeze(t))), [], "each string of the mockup is on the page");
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log(`  ${fromMockup.length} strings of the mockup compared, ${LISTED.length} listed`);
+  });
+
+  await check("484-V a viewer reads a namespace with no change box; a role limited to rnd has it on an rnd namespace only", async () => {
+    for (const [user, ns, cluster, writes] of [["viewer", "abc-payments-dev", "CRC", false], ["rndRequester", "abc-payments-dev", "CRC", false], ["rndRequester", "abc-payments-rnd", "KIND_CMAPI_TEST", true]]) {
+      const { context, page, errors } = await nsFresh({ user });
+      await openNamespace(page, ns, cluster);
+      assert.equal(await panel(page).getByRole("heading", { name: "Your change" }).count(), writes ? 1 : 0, `${user} on ${ns}`);
+      assert.equal(await page.getByLabel("Line of business (required)").count(), writes ? 1 : 0, `${user} on ${ns}: inputs`);
+      if (!writes) await panel(page).getByText(`Changing this namespace needs namespaces:write in ${cluster === "CRC" ? "dev" : "rnd"}.`).waitFor();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  // The states of the Namespaces tab at 390, 820 and 1440 px in each theme, with axe at phone and desktop width; one check for each
+  // state, so no check nears CHECK_TIMEOUT_MS (#508, #521). The screenshots at 390 and 1440 go to test-output/api/484-namespaces-tab (#530).
+  const NS_LAYOUT_VIEWS = [
+    ["empty", async (page) => { await open(page, "#namespaces"); await panel(page).getByText("Choose a cluster and a namespace to see it.").waitFor(); }],
+    ["lookup", async (page) => {
+      await open(page, "#namespaces?cluster=CRC");
+      await lookupBox(page).fill("abc pay");
+      await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 2);
+    }],
+    ["drift", (page) => openNamespace(page)],
+    ["in-sync", (page) => openNamespace(page, "abc-ledger-dev")],
+    ["pending", (page) => openNamespace(page, "abc-paylater-dev")],
+    ["unknown", async (page) => { nsRecord("abc-reports-dev").liveFresh = false; await openNamespace(page, "abc-reports-dev"); }],
+    ["problems", async (page) => {
+      await openNamespace(page);
+      await page.getByLabel("Line of business (required)").fill("amg sst");
+      await panel(page).getByRole("button", { name: /^Add labels and annotations \(optional\)/ }).click();
+      await panel(page).getByRole("button", { name: "+ Add label" }).click();
+      await page.getByLabel("Key of additional label 1").fill("kubernetes.io/team");
+      await nsCheck(page).click();
+      await panel(page).getByText("The check did not run. Fix these:").waitFor();
+    }],
+    ["checked", async (page) => { await openNamespace(page); await draftExample(page); await nsCheck(page).click(); await nsPassed(page).waitFor(); }],
+    ["conflict", async (page) => {
+      await openNamespace(page);
+      await page.getByLabel("Critical level (required)").selectOption("2");
+      await page.getByLabel("Justification (required)").fill("Higher level.");
+      const rec = nsRecord("abc-payments-dev");
+      for (const map of [rec.git, rec.live]) map.labels["company.net/cl"] = "3";
+      expectedStatus = [412];
+      await nsCheck(page).click();
+      await panel(page).getByText(/Both sides changed these keys:/).waitFor();
+    }],
+    ["held", async (page) => {
+      await openNamespace(page);
+      await draftExample(page);
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      nsRecord("abc-payments-dev").openRequest = { requestId: "req-20261121-0009", status: "pr_open" };
+      expectedStatus = [409];
+      await nsSubmit(page).click();
+      await panel(page).getByText("409 change-pending. Not submitted.").waitFor();
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Pending"));
+    }],
+    ["submitted", async (page) => {
+      await openNamespace(page);
+      await draftExample(page);
+      await nsCheck(page).click();
+      await nsPassed(page).waitFor();
+      await nsSubmit(page).click();
+      await panel(page).getByText(/submitted \(202\)/).waitFor();
+      await page.waitForFunction(() => document.querySelector("[role=tabpanel] .pf-v6-c-alert__title")?.innerText.endsWith("Pending"));
+    }]
+  ];
+  // The committed screenshots are the pull request's evidence, captured once: a run writes them only when asked to (#530).
+  const shots = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "484-namespaces-tab") : join(out, "484-namespaces-tab");
+  mkdirSync(shots, { recursive: true });
+  for (const [state, reach] of NS_LAYOUT_VIEWS) {
+    await check(`484-L the Namespaces tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${state}`, async () => {
+      let scans = 0;
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await nsFresh({ width });
+        await reach(page);
+        if (state !== "empty" && state !== "lookup") {
+          const height = await page.evaluate(() => Math.max(...[...document.querySelectorAll("*")].map((el) => el.scrollHeight)));
+          await page.setViewportSize({ width, height: height + 200 });
+        }
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          await settle(page);
+          assert.equal(await running(page), 0, `${state} ${width} ${theme}: no colour transition still runs when the page is read`);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${state} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object|null/, `${state} ${width} ${theme}: no leftover placeholder`);
+          if (!["empty", "lookup"].includes(state)) {
+            // The owner's choice: the change box sits beside the table from PatternFly's md (48rem, 768 px), below it on a phone.
+            const [table, change] = await Promise.all([panel(page).locator("table[aria-label^='Labels and annotations of ']").boundingBox(),
+              panel(page).getByRole("heading", { name: "Your change" }).boundingBox()]);
+            assert.equal(change.x > table.x + table.width, width >= 768, `${state} ${width}: the change box is ${width >= 768 ? "beside" : "below"} the table`);
+          }
+          const shot = `${state}-${width}-${theme}.png`;
+          await page.screenshot({ path: join(width === 820 ? out : shots, width === 820 ? `484-${shot}` : shot), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${state} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+      console.log(`  ${state}: 3 widths, 2 themes, ${scans} axe scans`);
+    });
+  }
 
   await check("sign out ends the session at the issuer", async () => {
     const { context, page, errors } = await fresh();
