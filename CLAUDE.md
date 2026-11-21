@@ -20,6 +20,11 @@ and what others do. Then read the primary source itself (the RFC, the KEP, the v
 the sentence the decision rests on, with its URL and date. A search summary or a model's memory is not a source. Retract,
 in so many words, what a fetched source refutes. Every brief says so.
 
+**Research, then ask.** The owner, 2026-11-21: "This is how i want you to research and prompt me questions." For a decision that is the owner's,
+fetch the primary sources and quote them, review our own evidence (the rules, what is proven and on which cluster, the risk),
+recommend one option, then ask at most four self-contained questions with the recommended option first. Record the answer on
+the issue. The method is the diagram-kit skill `/decide`.
+
 **File it and fix it in the same session.** The owner, 2026-11-20: "any issues faced must be filed but implemented
 immediately in that session. This is a mandate for any of our agentic workflow and even in houston-mayday." A defect
 found by anyone, at any stage, is filed and fixed before the session moves on: in the current pull request when it is
@@ -52,7 +57,8 @@ The owner's decision, on 2026-11-05:
 | Implementer | Opus 5.5 at `high` | Writes the code, tests and manifests of a step |
 | Reviewer 1 | Codex, with read and write access to its export | Designs each step independently, reviews the code, and returns the full code of the fix and test for each finding |
 | Reviewer 2 | A separate Opus 5.5 agent at `high` that did not write the step | Checks each of reviewer 1's snippets against the design and the code and updates it, and reports with full code what reviewer 1 missed |
-| Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Applies reviewer 2's resulting fixes narrowly. Authors no application code |
+| Documentation | Sonnet 5.5, overseen by the coordinator | Reads the as-built code and drafts the docs, the API documentation and the agile issue updates (stories, epics, the proof for each acceptance criterion). Drafts only; never posts or merges |
+| Coordinator | The main session | Writes the briefs, re-checks every verdict, arbitrates, records decisions, merges. Applies reviewer 2's resulting fixes narrowly. Authors no application code. Oversees Sonnet: checks each draft claim against commits, file:line, tests and run records, then posts it |
 
 The owner, 2026-11-05: "Let us stop using fable for now", then "Use opus 5.5 high". So Fable is paused until the owner says
 otherwise, and Opus 5.5 at `high` writes the code. Every pull request says who wrote what (which model wrote which commits or
