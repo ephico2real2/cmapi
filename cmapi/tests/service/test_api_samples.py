@@ -61,6 +61,28 @@ class Recorder:
             self.operations.setdefault(op, sample)
         return r
 
+    def operation_ids(self) -> set[str]:
+        """Every called operation, including one whose only answer repeats another operation's problem code."""
+        return ({k.split(":")[0] for k in self.operations}
+                | {p["operationId"] for p in [*self.problems.values(), *self.operation_problems.values()]})
+
+
+def test_a_repeated_problem_counts_both_operations_as_recorded():
+    import httpx
+
+    def refuse(request):
+        return httpx.Response(404, json={"code": "object-not-found"},
+                              headers={"content-type": "application/problem+json"})
+
+    with httpx.Client(transport=httpx.MockTransport(refuse), base_url="https://cmapi.test") as client:
+        rec = Recorder(client, None)
+        rec.call("first", "GET", "/first", None)
+        rec.call("second", "GET", "/second", None)
+    assert rec.operations == {}
+    assert rec.problems["object-not-found"]["operationId"] == "first"
+    assert rec.operation_problems["second:object-not-found"]["operationId"] == "second"
+    assert rec.operation_ids() == {"first", "second"}
+
 
 KINDS = ("operations", "problems", "operationProblems")
 
@@ -419,7 +441,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
             "operationProblems": dict(sorted(rec.operation_problems.items()))}
     spec = client.get("/openapi.json").json()
     wanted = {op["operationId"] for ops in spec["paths"].values() for op in ops.values()}
-    have = {k.split(":")[0] for k in rec.operations} | {p["operationId"] for p in rec.problems.values()}
+    have = rec.operation_ids()
     assert wanted - have == set(), f"no sample for {sorted(wanted - have)}"
     # A refusal that a client meets must be one that the operation's documentation names.
     by_id = {op["operationId"]: op for ops in spec["paths"].values() for op in ops.values()}

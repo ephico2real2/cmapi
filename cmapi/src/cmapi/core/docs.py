@@ -586,10 +586,9 @@ def metadata_merge_patch(keys: Any) -> dict[str, dict[str, str | None]]:
 
 
 def _accepted_patch(keys: Any, body: dict[str, Any]) -> bool:
-    """Whether this instance takes the labels and annotations of the patch body: the check of a change of a namespace that
-    is in Git (existing), which holds the namespace's own required keys."""
+    """Check a patch for an existing namespace: absent required keys may stay absent, but a patch cannot remove one."""
     return not keys.validate(body.get("labels") or {}, body.get("annotations") or {}, operator=False,
-                             require_governed=False, existing=True)
+                             existing=True)
 
 
 def example_namespace(keys: Any, default: str, environment: str | None = None) -> str:

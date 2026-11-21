@@ -84,7 +84,9 @@ def render() -> str:
                     out += block(lang, text)
                     out += [n for n in notes] + ([""] if notes else [])
                 if op_id not in samples["operations"]:
-                    refusals = [c for c, p in samples["problems"].items() if p["operationId"] == op_id]
+                    refusals = [p["response"]["body"]["code"]
+                                for p in [*samples["problems"].values(), *samples.get("operationProblems", {}).values()]
+                                if p["operationId"] == op_id]
                     out += [f"The run has no successful call of this operation. Its recorded answer is the problem `{refusals[0]}`, under \"Problems\"."
                             if refusals else "The run has no call of this operation.", ""]
     out += ["## Problems", "",
