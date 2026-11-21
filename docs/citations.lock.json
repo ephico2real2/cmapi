@@ -497,8 +497,8 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1326-1326": [
-  "            raise Problem.forbidden(\"Only an operator (namespaces:protect) may set \" +"
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
+  "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|136-138": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
@@ -545,7 +545,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|193-193": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|218-218": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|219-219": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
