@@ -167,6 +167,113 @@ jobs:
           npm run build
           FRONT_DOOR_IMAGE=cmapi-portal:ci FRONT_DOOR_ENGINE=docker FRONT_DOOR_PYTHON=python FRONT_DOOR_STATIC="$RUNNER_TEMP/static" node tests/front-door.test.mjs
 
+  images:
+    # Both images are built here and nowhere else (#545): a build on the Mac starved the shared CRC VM and restarted 58 containers in
+    # run 32. On a push to main each goes to GHCR as sha-<commit>, the 10-character commit that deploy/crc-image.sh, crc-proof.sh and the
+    # revision label use, and is attested by its digest (GitHub, "Publishing Docker images"). deploy/crc-image.sh imports that digest into
+    # CRC's image streams. A pull request builds both and pushes nothing: no step there uses the token.
+    # provenance and sbom are off so that each tag is one image manifest, not an index carrying attestation manifests (Docker,
+    # "Attestations"), which an image stream's Legacy import would resolve to a child's digest. GitHub's attestation is the provenance.
+    # A rerun on main pushes a new digest under the same tag (builds are not byte-reproducible, CRC-BUILD-STATUS.md item 11): every
+    # consumer pins the digest, and crc-image.sh refuses an image stream tag that no longer holds GHCR's.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cmapi
+            file: cmapi/Containerfile
+            context: cmapi
+          # The portal's build reads the mockup (scripts/extract-model.mjs), so its context is the root.
+          - name: cmapi-portal
+            file: cmapi-portal-ui/Containerfile
+            context: .
+    env:
+      IMAGE: ghcr.io/ephico2real2/${{ matrix.name }}
+      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The commit and the version
+        id: meta
+        run: |
+          commit=$(git rev-parse --short=10 HEAD)
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' cmapi/pyproject.toml | head -1)
+          [ -n "$version" ] || { echo "no version in cmapi/pyproject.toml"; exit 1; }
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "$IMAGE:sha-$commit, version $version, push: $PUSH"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Sign in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build, and push on main
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          build-args: |
+            GIT_COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ env.IMAGE }}:sha-${{ steps.meta.outputs.commit }}
+          push: ${{ env.PUSH == 'true' }}
+          provenance: false
+          sbom: false
+      - name: GHCR holds the image that was built, as one manifest labelled with the commit
+        if: env.PUSH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          ref="$IMAGE:sha-$COMMIT"
+          docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' >"$RUNNER_TEMP/manifest.json"
+          docker buildx imagetools inspect "$ref" --format '{{json .Image}}' >"$RUNNER_TEMP/image.json"
+          python3 - "$DIGEST" "$COMMIT" "$RUNNER_TEMP" <<'PY'
+          import json, sys
+          digest, commit, tmp = sys.argv[1:]
+          manifest, image = json.load(open(f"{tmp}/manifest.json")), json.load(open(f"{tmp}/image.json"))
+          single = ("application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json")
+          label = ((image.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")
+          checks = [(manifest.get("digest") == digest, f"the tag resolves to {manifest.get('digest')}, the build pushed {digest}"),
+                    (manifest.get("mediaType") in single, f"the tag is a {manifest.get('mediaType')}, not one image manifest"),
+                    (label == commit, f"the revision label is {label!r}, not {commit}")]
+          for ok, why in checks:
+              if not ok:
+                  sys.exit(why)
+          print(f"GHCR's tag is {digest}, one image manifest, labelled {commit}")
+          PY
+      - name: Attest the image by its digest
+        if: env.PUSH == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          # A storage record is an organization's artifact metadata; this package is a user's.
+          create-storage-record: false
+      - name: The digest, in the run's summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          if [ "$PUSH" = true ]; then
+            echo "Pushed \`$IMAGE:sha-$COMMIT\` as \`$IMAGE@$DIGEST\`, attested." >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "Built \`$IMAGE:sha-$COMMIT\` (\`${DIGEST:-no digest: not pushed}\`). A pull request pushes nothing." >>"$GITHUB_STEP_SUMMARY"
+          fi
+
   api-contract:
     # The API contract gates (docs/01 "API documentation"). Gate 1 (#143): Spectral lints cmapi/contract/openapi.json with cmapi's
     # ruleset. Gate 3 (#131): a pull request that breaks the contract of its base branch fails here, by oasdiff. The service job

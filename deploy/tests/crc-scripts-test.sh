@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2015  # ok and bad here never fail, so A && ok || bad is if-then-else
-# deploy/tests/crc-scripts-test.sh [<deploy dir>]: deploy/crc-{image,trust,reader-import,backup,rollback,proof}.sh on stubs of oc, podman, skopeo, curl and tmutil, for each thing they claim
+# deploy/tests/crc-scripts-test.sh [<deploy dir>]: deploy/crc-{image,trust,reader-import,backup,rollback,proof}.sh on stubs of oc, curl and tmutil, for each thing they claim
 # they can stop on, and for what they must never do: a credential on an argument list, a delete that does not name one object, a dump's path or content in the output. No cluster.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
+REAL_KUBECTL=$(command -v kubectl) || { echo "kubectl is needed: the stub renders the API's answers with its jsonpath"; exit 1; }; export REAL_KUBECTL
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
 mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
 mkdir -p "$W/repo/cmapi/src/cmapi/core"
@@ -23,12 +24,20 @@ cat >"$W/bin/oc" <<'OC'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$ARGV_LOG"
 s="$*"
+# The object as the API returns it, printed with the caller's -o jsonpath=... by the real client: no cluster, no kubeconfig.
+render() { KUBECONFIG=/dev/null "$REAL_KUBECTL" label --local -f "$1" cmapi-stub=1 -o "$2"; }
 case "$s" in
   "get secret keycloak-tls -n keycloak -o jsonpath={.data.ca\.crt}") base64 <"$STUB_CA"; exit 0;;
   "get cm default-ingress-cert"*) cat "$STUB_INGRESS"; exit 0;;
-  "get istag cmapi:"*"--ignore-not-found"*|"get istag cmapi-portal:"*"--ignore-not-found"*) printf '%s' "${STUB_ISTAG:-}"; exit 0;;
-  "get istag cmapi:"*|"get istag cmapi-portal:"*) printf '%s' "${STUB_REGISTRY_DIGEST:-sha256:aaaa}"; exit 0;;
-  "get route default-route"*) printf 'registry.stub'; exit 0;;
+  # crc-image.sh (#545): the pull secret's type, GHCR's answer through the cluster's importer, the import, and the image stream tag. Each answer
+  # is the object the API returns, rendered with the script's own jsonpath by a real kubectl, offline, so a wrong path in the script fails here.
+  "get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}") [ -n "${STUB_NO_PULL_SECRET:-}" ] || printf '%s' "${STUB_PULL_SECRET_TYPE:-kubernetes.io/dockerconfigjson}"; exit 0;;
+  "create -f - -o jsonpath="*) python3 "$STUB_IMAGES_PY" isi >"$ARGV_LOG.response" || exit 1; render "$ARGV_LOG.response" "${*: -1}"; exit;;
+  "import-image cmapi:sha-"*|"import-image cmapi-portal:sha-"*) [ "${STUB_IMPORT_RC:-0}" = 0 ] || { echo "error: tag failed: stub" >&2; exit "$STUB_IMPORT_RC"; }
+    printf '%s\n' "$@" >"$ARGV_LOG.imported"; echo "imagestream.image.openshift.io/stub imported"; exit 0;;
+  "get istag cmapi:sha-"*|"get istag cmapi-portal:sha-"*)
+    if python3 "$STUB_IMAGES_PY" istag "$3" >"$ARGV_LOG.response"; then render "$ARGV_LOG.response" "${*: -1}"; exit; fi
+    case "$s" in *--ignore-not-found*) exit 0;; esac; echo "Error from server (NotFound): imagestreamtags.image.openshift.io \"${3%% *}\" not found" >&2; exit 1;;
   "get route thanos-querier"*) printf 'thanos.stub'; exit 0;;
   "whoami -t") printf '%s\n' "$TOKEN"; exit 0;;
   "get secret cmapi-cluster-crc -n cmapi-imports --ignore-not-found -o jsonpath={.metadata.resourceVersion}") echo 1; exit 0;;
@@ -120,16 +129,45 @@ print(json.dumps({"items":items}))'; exit 0;;
 esac
 echo "stub oc: unhandled $s" >&2; exit 3
 OC
-cat >"$W/bin/podman" <<'P'
-#!/usr/bin/env bash
-printf 'podman %s\n' "$*" >>"$ARGV_LOG"
-case "$1" in image) echo "${STUB_LABEL:-$(git -C "$REPO" rev-parse --short=10 HEAD)}";; esac; exit 0
-P
-cat >"$W/bin/skopeo" <<'P'
-#!/usr/bin/env bash
-printf 'skopeo %s\n' "$*" >>"$ARGV_LOG"
-while [ $# -gt 0 ]; do case "$1" in --digestfile) printf 'sha256:aaaa' >"$2"; shift;; --dest-authfile) cp "$2" "$ARGV_LOG.auth"; stat -c '%a' "$2" 2>/dev/null >"$ARGV_LOG.mode" || stat -f '%Lp' "$2" >"$ARGV_LOG.mode"; shift;; esac; shift; done; exit "${STUB_SKOPEO_RC:-0}"
-P
+# Nothing may build or push an image on this Mac (#545): each tool is a stub that records its call and does nothing, so a call is seen, never run.
+for tool in podman skopeo docker buildah; do
+  # shellcheck disable=SC2016  # "$*" and $ARGV_LOG are the stub's own, expanded when it runs
+  printf '#!/usr/bin/env bash\nprintf "%s %%s\\n" "$*" >>"$ARGV_LOG"\nexit 0\n' "$tool" >"$W/bin/$tool"
+done
+# The registry's side of crc-image.sh, as the API returns it. isi: the ImageStreamImport (import: false) answered with GHCR's image, or the importer's
+# NotFound or Unauthorized (openshift-apiserver importer.go). istag: the image stream tag, before the import (STUB_ISTAG digest|policy|label) or
+# after it (the imported digest, unless STUB_REGISTRY_DIGEST; the policy the import asked for, unless STUB_IMPORT_POLICY); absent otherwise.
+cat >"$W/images.py" <<'PY'
+import json, os, subprocess, sys
+log = os.environ["ARGV_LOG"]; e = os.environ.get
+commit = subprocess.run(["git", "-C", os.environ["REPO"], "rev-parse", "--short=10", "HEAD"], capture_output=True, text=True).stdout.strip()
+def image(digest, label):
+    return {"metadata": {"name": digest}, "dockerImageMetadata": {"kind": "DockerImage", "apiVersion": "image.openshift.io/1.0", "Config": {"Labels": {"org.opencontainers.image.revision": label}}}}
+if sys.argv[1] == "isi":
+    req = json.load(sys.stdin); json.dump(req, open(log + ".isi", "w"))
+    ref = req["spec"]["images"][0]["from"]["name"]; mode = e("STUB_GHCR", "found")
+    if mode == "found":
+        st = {"metadata": {}, "status": "Success"}; img = image(e("STUB_GHCR_DIGEST", "sha256:aaaa"), e("STUB_GHCR_LABEL", commit))
+        img["dockerImageReference"] = ref.rsplit(":", 1)[0] + "@" + img["metadata"]["name"]
+    elif mode == "missing":
+        st = {"metadata": {}, "status": "Failure", "reason": "NotFound", "code": 404, "message": 'dockerimage.image.openshift.io "%s" not found' % ref}; img = None
+    else:
+        st = {"metadata": {}, "status": "Failure", "reason": "Unauthorized", "code": 401, "message": 'you may not have access to the container image "%s"' % ref}; img = None
+    req["status"] = {"images": [{"tag": "", "status": st, **({"image": img} if img else {})}]}
+    json.dump(req, sys.stdout); raise SystemExit
+name = sys.argv[2] if len(sys.argv) > 2 else "cmapi:sha-x"
+if os.path.exists(log + ".imported"):
+    args = open(log + ".imported").read().split("\n"); frm = next(a for a in args if a.startswith("--from=")); pol = next(a for a in args if a.startswith("--reference-policy="))
+    digest, policy, label = e("STUB_REGISTRY_DIGEST", frm.rsplit("@", 1)[1]), e("STUB_IMPORT_POLICY", pol.split("=", 1)[1].capitalize()), e("STUB_LABEL", commit)
+elif e("STUB_ISTAG"):
+    digest, policy, label = e("STUB_ISTAG").split("|")
+else:
+    raise SystemExit(1)
+obj = {"apiVersion": "image.openshift.io/v1", "kind": "ImageStreamTag", "metadata": {"name": name, "namespace": "cmapi"}, "image": image(digest, label)}
+if policy: obj["tag"] = {"name": name.split(":")[1], "referencePolicy": {"type": policy}}
+json.dump(obj, sys.stdout)
+PY
+export STUB_IMAGES_PY=$W/images.py
 cat >"$W/bin/curl" <<'P'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >>"$ARGV_LOG"
@@ -255,22 +293,45 @@ mkdir "$W/mac4"; want "trust --mac-ca with an extra CA in the trust file" 0 "$(r
 cp "$W/keep-trust" "$TRUST"
 if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; then bad "TLS verification off in a script"; else ok "no script turns TLS verification off"; fi
 
-# crc-image.sh
-want "image: pushes and prints" 0 "$(run "$D/crc-image.sh")"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi@sha256:' && ok "the last line is the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
-no_secret "$W/out" "image"; [ "$(cat "$ARGV_LOG.mode")" = 600 ] && ok "the auth file is 0600" || bad "the auth file's mode"
-grep -qF -f <(printf 'unused:%s' "$TOKEN" | base64) "$ARGV_LOG.auth" && ok "the auth file holds the session's token" || bad "the auth file's content"
-grep -q -- '--dest-cert-dir' "$ARGV_LOG" && ok "skopeo verifies against the ingress CA" || bad "no --dest-cert-dir"
-want "image cmapi-portal: pushes and prints" 0 "$(run "$D/crc-image.sh" cmapi-portal)"; tail -1 "$W/out" | grep -qE '^image-registry\.openshift-image-registry\.svc:5000/cmapi/cmapi-portal@sha256:' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
-grep -qE '^podman build .* -t localhost/cmapi-portal:sha-[0-9a-f]{10} -f cmapi-portal-ui/Containerfile \.$' "$ARGV_LOG" && ok "the front door is built from its Containerfile at the root" || bad "the portal build: $(grep '^podman build' "$ARGV_LOG")"
-grep -qE '^skopeo copy .* docker://registry\.stub/cmapi/cmapi-portal:sha-' "$ARGV_LOG" && ok "and pushed to its own image stream" || bad "the portal push: $(grep '^skopeo' "$ARGV_LOG")"
-no_secret "$W/out" "image cmapi-portal"
-want "image: an unknown name stops" 2 "$(run "$D/crc-image.sh" cmapi-other)"; if grep -qE '^(podman|skopeo)' "$ARGV_LOG"; then bad "an unknown name built or pushed"; else ok "and builds and pushes nothing"; fi
-want "image: a pushed digest the image stream does not know stops" 1 "$(STUB_REGISTRY_DIGEST=sha256:bbbb run "$D/crc-image.sh")"
-want "image: a wrong label stops" 1 "$(STUB_LABEL=other run "$D/crc-image.sh")"
-want "image: a failed push stops" 1 "$(STUB_SKOPEO_RC=1 run "$D/crc-image.sh")"
-want "image: an existing tag of this commit is reused" 0 "$(STUB_ISTAG="sha256:cccc $(git rev-parse --short=10 HEAD)" run "$D/crc-image.sh")"; if grep -q '^skopeo' "$ARGV_LOG"; then bad "it pushed again"; else ok "and not pushed again"; fi
-want "image: an existing tag of another commit stops" 1 "$(STUB_ISTAG="sha256:cccc other" run "$D/crc-image.sh")"
-printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tree stops" 1 "$(run "$D/crc-image.sh")"; git -c user.email=t@t -c user.name=t commit -q -m t2
+# crc-image.sh (#545): CI's image, imported by digest; nothing built or pushed from here.
+irun() { rm -f "$ARGV_LOG.imported" "$ARGV_LOG.isi"; run "$@"; }
+HEAD10=$(git rev-parse --short=10 HEAD)
+built() { if grep -qE '^(podman|skopeo|docker|buildah) ' "$ARGV_LOG"; then bad "$1: an image tool ran: $(grep -E '^(podman|skopeo|docker|buildah) ' "$ARGV_LOG" | head -1)"; else ok "$1: no podman, skopeo, docker or buildah"; fi; }
+imported() { if [ -e "$ARGV_LOG.imported" ]; then bad "$1: it imported"; else ok "$1: and imports nothing"; fi; }
+want "image: imports CI's image and prints" 0 "$(irun "$D/crc-image.sh")"
+tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa' && ok "the last line is GHCR's digest, in the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
+built "image"; no_secret "$W/out" "image"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); i=d["spec"]["images"][0]["from"]; sys.exit(0 if d["kind"]=="ImageStreamImport" and d["spec"]["import"] is False and d["metadata"]["namespace"]=="cmapi" and i=={"kind":"DockerImage","name":"ghcr.io/ephico2real2/cmapi:sha-"+sys.argv[2]} else 1)' "$ARGV_LOG.isi" "$HEAD10" \
+  && ok "GHCR's sha-<commit> is resolved with import: false" || bad "the lookup: $(cat "$ARGV_LOG.isi")"
+grep -qxF -e '--from=ghcr.io/ephico2real2/cmapi@sha256:aaaa' "$ARGV_LOG.imported" && grep -qxF -e '--reference-policy=local' "$ARGV_LOG.imported" && grep -qxF "cmapi:sha-$HEAD10" "$ARGV_LOG.imported" \
+  && ok "the import is of that digest, never the tag, with referencePolicy local" || bad "the import: $(tr '\n' ' ' <"$ARGV_LOG.imported")"
+if grep -qE '^oc (whoami -t|get route default-route|get cm default-ingress-cert)' "$ARGV_LOG"; then bad "image: it read a token or the registry's route"; else ok "image: no session token and no registry route"; fi
+grep -q '^oc get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}$' "$ARGV_LOG" && ! grep -E '^oc get secret' "$ARGV_LOG" | grep -qv 'jsonpath={.type}$' \
+  && ok "image: the pull secret's type is read, never a value" || bad "image: the secret reads: $(grep '^oc get secret' "$ARGV_LOG")"
+want "image cmapi-portal: imports and prints" 0 "$(irun "$D/crc-image.sh" cmapi-portal)"
+tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:aaaa' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
+grep -qxF -e '--from=ghcr.io/ephico2real2/cmapi-portal@sha256:aaaa' "$ARGV_LOG.imported" && grep -qxF "cmapi-portal:sha-$HEAD10" "$ARGV_LOG.imported" && ok "into its own image stream, from its own package" || bad "the portal import: $(tr '\n' ' ' <"$ARGV_LOG.imported")"
+built "image cmapi-portal"
+want "image: an unknown name stops" 2 "$(irun "$D/crc-image.sh" cmapi-other)"; if grep -q . "$ARGV_LOG"; then bad "an unknown name called $(head -1 "$ARGV_LOG")"; else ok "and calls nothing"; fi
+want "image: no image for this commit in GHCR stops" 1 "$(STUB_GHCR=missing irun "$D/crc-image.sh")"; imported "no image"; built "no image"
+grep -q "GHCR has no ghcr.io/ephico2real2/cmapi:sha-$HEAD10" "$W/out" && ok "and says that CI has not pushed it" || bad "the no-image message: $(cat "$W/out")"
+want "image: GHCR refusing the pull secret stops" 1 "$(STUB_GHCR=denied irun "$D/crc-image.sh")"; imported "refused"
+grep -q "Secret cmapi-ghcr-pull cannot read the package" "$W/out" && ok "and names the secret" || bad "the refused message: $(cat "$W/out")"
+want "image: no pull secret stops" 1 "$(STUB_NO_PULL_SECRET=1 irun "$D/crc-image.sh")"; imported "no pull secret"
+grep -q 'Secret cmapi-ghcr-pull is not in namespace cmapi' "$W/out" && ok "and says the owner creates it" || bad "the no-secret message: $(cat "$W/out")"
+if grep -q '^oc create' "$ARGV_LOG"; then bad "no pull secret: it asked GHCR anyway"; else ok "no pull secret: and asks GHCR nothing"; fi
+want "image: a pull secret of another type stops" 1 "$(STUB_PULL_SECRET_TYPE=Opaque irun "$D/crc-image.sh")"; imported "an Opaque secret"
+want "image: an image stream digest that is not GHCR's stops" 1 "$(STUB_REGISTRY_DIGEST=sha256:bbbb irun "$D/crc-image.sh")"
+grep -q 'holds sha256:bbbb, GHCR.s is sha256:aaaa' "$W/out" && ok "and names both digests" || bad "the digest message: $(cat "$W/out")"
+want "image: an image stream revision label that is not this commit stops" 1 "$(STUB_LABEL=other irun "$D/crc-image.sh")"
+want "image: GHCR's image labelled with another commit stops before the import" 1 "$(STUB_GHCR_LABEL=other irun "$D/crc-image.sh")"; imported "GHCR's label"
+want "image: an imported tag whose reference policy is not Local stops" 1 "$(STUB_IMPORT_POLICY=Source irun "$D/crc-image.sh")"
+want "image: a failed import stops" 1 "$(STUB_IMPORT_RC=1 irun "$D/crc-image.sh")"
+want "image: an existing tag holding GHCR's digest is reused" 0 "$(STUB_ISTAG="sha256:aaaa|Local|$HEAD10" irun "$D/crc-image.sh")"; imported "reused"
+tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa' && ok "and printed" || bad "the reused line: $(tail -1 "$W/out")"
+want "image: an existing tag of this commit built elsewhere stops" 1 "$(STUB_ISTAG="sha256:cccc||$HEAD10" irun "$D/crc-image.sh")"; imported "built elsewhere"
+grep -q 'oc delete istag cmapi:sha-' "$W/out" && ok "and says how to clear it" || bad "the stale-tag message: $(cat "$W/out")"
+printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tree stops" 1 "$(irun "$D/crc-image.sh")"; git -c user.email=t@t -c user.name=t commit -q -m t2
 
 # crc-reader-import.sh
 want "reader import" 0 "$(run "$D/crc-reader-import.sh")"; no_secret "$W/out" "reader import"
