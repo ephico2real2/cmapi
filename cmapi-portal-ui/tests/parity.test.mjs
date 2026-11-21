@@ -43,10 +43,13 @@ const mockStrings = (page) => page.evaluate(() => {
   document.querySelectorAll("#dc-root input, #dc-root textarea").forEach((el) => { if (el.value) found.add(el.value); });
   return [...found];
 });
+// The page is #root and each open list that one of its comboboxes controls: PatternFly's Popper puts the list in
+// document.body, outside #root, so that no card clips it (#535). The same lookup runs inside each page.evaluate below.
 const pageText = (page) => page.evaluate(() => {
   const root = document.getElementById("root");
+  const lists = [...root.querySelectorAll("[role=combobox][aria-controls]")].map((box) => document.getElementById(box.getAttribute("aria-controls"))).filter((list) => list && !root.contains(list)).map((list) => list.closest(".pf-v6-c-menu") ?? list);
   const values = [...root.querySelectorAll("input, textarea")].map((el) => el.value);
-  return root.textContent + values.join(" ");
+  return [root, ...lists].map((el) => el.textContent).join("") + values.join(" ");
 });
 
 // Words PatternFly itself adds for screen readers, and the names blank table headings carry for them.
@@ -56,6 +59,8 @@ const LIBRARY_TEXT = /^((Info|Success|Warning|Danger|Custom) alert:|Action|Used 
 function readPage({ rootSelector, mock }) {
   const squeezeText = (text) => text.replace(/\s+/g, "");
   const root = document.querySelector(rootSelector);
+  const lists = [...root.querySelectorAll("[role=combobox][aria-controls]")].map((box) => document.getElementById(box.getAttribute("aria-controls"))).filter((list) => list && !root.contains(list)).map((list) => list.closest(".pf-v6-c-menu") ?? list);
+  const all = (selector) => [root, ...lists].flatMap((el) => [...el.querySelectorAll(selector)]);
   const hidden = mock ? "[aria-hidden=true]" : ".pf-v6-screen-reader, .pf-v6-u-screen-reader";
   const textOf = (el) => {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -63,16 +68,16 @@ function readPage({ rootSelector, mock }) {
     while (walker.nextNode()) if (!walker.currentNode.parentElement.closest(hidden) && walker.currentNode.parentElement.localName !== "option") text += walker.currentNode.nodeValue;
     return squeezeText(text);
   };
-  const values = [...root.querySelectorAll("input, textarea, select")].map((el) => el.value);
-  const tables = [...root.querySelectorAll("table")].map((table) => [...table.querySelectorAll("tbody tr")].map((row) => [...row.children].map(textOf)));
+  const values = all("input, textarea, select").map((el) => el.value);
+  const tables = all("table").map((table) => [...table.querySelectorAll("tbody tr")].map((row) => [...row.children].map(textOf)));
   const TONES = mock
     ? [["ok", "success"], ["warn", "warning"], ["bad", "danger"], ["info", "info"]]
     : [["pf-m-success", "success"], ["pf-m-warning", "warning"], ["pf-m-danger", "danger"], ["pf-m-info", "info"]];
-  const pills = [...root.querySelectorAll(mock ? ".pill" : ".pf-v6-c-label")].map((el) => `${(TONES.find(([cls]) => el.classList.contains(cls)) ?? [null, "none"])[1]}:${textOf(el)}`);
-  const pressed = [...root.querySelectorAll(mock ? ".segbtn[aria-pressed=true], .chip[aria-pressed=true], .scn[aria-pressed=true]" : ".pf-v6-c-toggle-group__button.pf-m-selected")].map(textOf);
-  const disabled = [...root.querySelectorAll("button:disabled, button[aria-disabled=true]")].map(textOf);
-  const meters = [...root.querySelectorAll(mock ? "[role=meter]" : "[role=progressbar]")].map((el) => el.getAttribute("aria-valuenow"));
-  return { text: textOf(root) + squeezeText(values.join("")), tables, pills, pressed, disabled, meters };
+  const pills = all(mock ? ".pill" : ".pf-v6-c-label").map((el) => `${(TONES.find(([cls]) => el.classList.contains(cls)) ?? [null, "none"])[1]}:${textOf(el)}`);
+  const pressed = all(mock ? ".segbtn[aria-pressed=true], .chip[aria-pressed=true], .scn[aria-pressed=true]" : ".pf-v6-c-toggle-group__button.pf-m-selected").map(textOf);
+  const disabled = all("button:disabled, button[aria-disabled=true]").map(textOf);
+  const meters = all(mock ? "[role=meter]" : "[role=progressbar]").map((el) => el.getAttribute("aria-valuenow"));
+  return { text: [root, ...lists].map(textOf).join("") + squeezeText(values.join("")), tables, pills, pressed, disabled, meters };
 }
 
 const counts = (items) => {
@@ -100,9 +105,13 @@ async function compare(name) {
     return root.textContent + [...root.querySelectorAll("input, textarea")].map((el) => el.value).join(" ");
   }));
   const added = (await real.page.evaluate(() => {
-    const walker = document.createTreeWalker(document.getElementById("root"), NodeFilter.SHOW_TEXT);
+    const root = document.getElementById("root");
+    const lists = [...root.querySelectorAll("[role=combobox][aria-controls]")].map((box) => document.getElementById(box.getAttribute("aria-controls"))).filter((list) => list && !root.contains(list)).map((list) => list.closest(".pf-v6-c-menu") ?? list);
     const found = new Set();
-    while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.add(walker.currentNode.nodeValue.trim());
+    for (const el of [root, ...lists]) {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.add(walker.currentNode.nodeValue.trim());
+    }
     return [...found];
   })).filter((s) => !mockText.includes(squeeze(s)) && !LIBRARY_TEXT.test(s));
 

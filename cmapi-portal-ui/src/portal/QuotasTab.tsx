@@ -12,7 +12,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { SUGGEST_MIN, useCatalog, useClusters, useExport, useMe, useNamespace, usePatchPlan, useQuotas, useSubmitPatch, useSuggest } from "../api/hooks";
 import type { ChangeRequest, ExportQuery, NamespacePatch, NamespaceView, Outcome, Plan, PlannedChange, QuotaRow, QuotasQuery, TierCatalog } from "../api/hooks";
 import { PERMISSION } from "../api/permissions.generated";
-import { Callout, Checks, Choices, Code, DataTable, Empty, Filter, Head, Hint, Meter, Pager, Panel, Pill, Small } from "../components/ui";
+import { Callout, Checks, Choices, Code, ComboBox, DataTable, Empty, Filter, Head, Hint, Meter, Pager, Panel, Pill, Small } from "../components/ui";
 import type { Check, Choice } from "../components/ui";
 import { grantsIn, operatorIn, PROTECT_KEY, PROTECT_VALUE } from "./access";
 import { barOf, countsOf, fmt, GIB, isoDay, policyOf, quantityOf } from "./format";
@@ -330,38 +330,39 @@ function Search({ applied, onApply, onPick, onExport }: { applied: string; onApp
   return (
     <form role="search" onSubmit={onSubmit}>
       <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }}>
-        <div className="cp-combo">
-          <TextInputGroup>
-            <TextInputGroupMain
-              inputId="q-search"
-              type="search"
-              role="combobox"
-              aria-label="Find a namespace, team or app"
-              aria-controls="q-sug"
-              isExpanded={listed}
-              placeholder="Find a namespace, team or app (type 2+ characters)"
-              value={text}
-              onChange={(_, v) => { setText(v); setOpenList(true); setActive(-1); }}
-              inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-activedescendant": idx >= 0 ? `q-opt-${idx}` : undefined, onKeyDown: onKey }}
-            />
-          </TextInputGroup>
-          {listed && (
-            <div className="cp-combo-menu">
-              <Menu role="listbox">
-                <MenuContent>
-                  <MenuList id="q-sug" aria-label="Matching namespaces">
-                    {items.map((s, k) => (
-                      <MenuItem key={keyOf(s)} id={`q-opt-${k}`} itemId={keyOf(s)} isFocused={k === idx} isSelected={k === idx} description={<>{s.clusterId} {s.why}</>} onClick={() => choose(s)}>{s.name}</MenuItem>
-                    ))}
-                    {settled && items.length === 0 && <MenuItem isDisabled>No namespace matches "{text}".</MenuItem>}
-                    {!settled && suggestions.state !== "error" && suggestions.state !== "forbidden" && <MenuItem isDisabled>Searching…</MenuItem>}
-                    {(suggestions.state === "error" || suggestions.state === "forbidden") && <MenuItem isDisabled>The matches did not load.</MenuItem>}
-                  </MenuList>
-                </MenuContent>
-              </Menu>
-            </div>
+        <ComboBox
+          isOpen={listed}
+          input={(
+            <TextInputGroup>
+              <TextInputGroupMain
+                inputId="q-search"
+                type="search"
+                role="combobox"
+                aria-label="Find a namespace, team or app"
+                aria-controls="q-sug"
+                isExpanded={listed}
+                placeholder="Find a namespace, team or app (type 2+ characters)"
+                value={text}
+                onChange={(_, v) => { setText(v); setOpenList(true); setActive(-1); }}
+                inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-activedescendant": idx >= 0 ? `q-opt-${idx}` : undefined, onKeyDown: onKey }}
+              />
+            </TextInputGroup>
           )}
-        </div>
+          list={(
+            <Menu role="listbox">
+              <MenuContent>
+                <MenuList id="q-sug" aria-label="Matching namespaces">
+                  {items.map((s, k) => (
+                    <MenuItem key={keyOf(s)} id={`q-opt-${k}`} itemId={keyOf(s)} isFocused={k === idx} isSelected={k === idx} description={<>{s.clusterId} {s.why}</>} onClick={() => choose(s)}>{s.name}</MenuItem>
+                  ))}
+                  {settled && items.length === 0 && <MenuItem isDisabled>No namespace matches "{text}".</MenuItem>}
+                  {!settled && suggestions.state !== "error" && suggestions.state !== "forbidden" && <MenuItem isDisabled>Searching…</MenuItem>}
+                  {(suggestions.state === "error" || suggestions.state === "forbidden") && <MenuItem isDisabled>The matches did not load.</MenuItem>}
+                </MenuList>
+              </MenuContent>
+            </Menu>
+          )}
+        />
         <Button variant="secondary" type="submit">Show all matches</Button>
         {applied && <Button variant="tertiary" onClick={() => onApply("")}>matching "{applied}" ✕</Button>}
         <Button variant="secondary" onClick={onExport}>Export CSV</Button>

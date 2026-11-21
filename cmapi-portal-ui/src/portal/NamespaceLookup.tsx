@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { SUGGEST_MIN, useNamespaceList } from "../api/hooks";
 import type { Cluster, NamespaceView } from "../api/hooks";
-import { Choices, Hint, Small } from "../components/ui";
+import { Choices, ComboBox, Hint, Small } from "../components/ui";
 
 /** How long the lookup waits after the last key before it asks (design T1). */
 export const LOOKUP_DELAY_MS = 250;
@@ -129,43 +129,44 @@ export function NamespaceLookup({ clusters, clusterId, chipTitle, onCluster, onO
           </FormGroup>
         )}
         <FormGroup label="Namespace" fieldId="nsx-ns">
-          <div className="cp-combo">
-            <TextInputGroup isDisabled={!clusterId}>
-              <TextInputGroupMain
-                inputId="nsx-ns"
-                role="combobox"
-                // TextInputGroupMain names its input "Type to filter" unless told: the field's own label names it here.
-                aria-label="Namespace"
-                aria-controls="nsx-list"
-                isExpanded={listed}
-                placeholder="Type 2+ letters"
-                value={text}
-                onChange={(_, v) => { setText(v); setOpenList(true); setActive(-1); }}
-                inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-describedby": "nsx-ns-help",
-                  "aria-activedescendant": idx >= 0 ? `nsx-opt-${idx}` : undefined, onKeyDown: onKey }}
-              />
-            </TextInputGroup>
-            {listed && (
-              <div className="cp-combo-menu">
-                <Menu role="listbox">
-                  <MenuContent>
-                    <MenuList id="nsx-list" aria-label="Matching namespaces">
-                      {items.map((n, k) => (
-                        <MenuItem key={n.name} id={`nsx-opt-${k}`} itemId={n.name} isFocused={k === idx} isSelected={k === idx}
-                          description={`team ${n.team ?? "—"} · ${stateWords(n)}`} onClick={() => choose(n.name)}>{n.name}</MenuItem>
-                      ))}
-                      {settled && items.length === 0 && <MenuItem isDisabled>{`No namespace matches${chip ? ` in ${chip}` : ""}.`}</MenuItem>}
-                      {!settled && lookup.state !== "error" && lookup.state !== "forbidden" && <MenuItem isDisabled>Searching…</MenuItem>}
-                      {(lookup.state === "error" || lookup.state === "forbidden") && <MenuItem isDisabled>The matches did not load.</MenuItem>}
-                    </MenuList>
-                  </MenuContent>
-                  {settled && lookup.state === "ok" && (
-                    <MenuFooter><Small>{`${items.length} of ${lookup.data.total} in ${clusterId}${chip ? ` · ${title} ${chip}` : ""} · ↑↓ Enter`}</Small></MenuFooter>
-                  )}
-                </Menu>
-              </div>
+          <ComboBox
+            isOpen={listed}
+            input={(
+              <TextInputGroup isDisabled={!clusterId}>
+                <TextInputGroupMain
+                  inputId="nsx-ns"
+                  role="combobox"
+                  // TextInputGroupMain names its input "Type to filter" unless told: the field's own label names it here.
+                  aria-label="Namespace"
+                  aria-controls="nsx-list"
+                  isExpanded={listed}
+                  placeholder="Type 2+ letters"
+                  value={text}
+                  onChange={(_, v) => { setText(v); setOpenList(true); setActive(-1); }}
+                  inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-describedby": "nsx-ns-help",
+                    "aria-activedescendant": idx >= 0 ? `nsx-opt-${idx}` : undefined, onKeyDown: onKey }}
+                />
+              </TextInputGroup>
             )}
-          </div>
+            list={(
+              <Menu role="listbox">
+                <MenuContent>
+                  <MenuList id="nsx-list" aria-label="Matching namespaces">
+                    {items.map((n, k) => (
+                      <MenuItem key={n.name} id={`nsx-opt-${k}`} itemId={n.name} isFocused={k === idx} isSelected={k === idx}
+                        description={`team ${n.team ?? "—"} · ${stateWords(n)}`} onClick={() => choose(n.name)}>{n.name}</MenuItem>
+                    ))}
+                    {settled && items.length === 0 && <MenuItem isDisabled>{`No namespace matches${chip ? ` in ${chip}` : ""}.`}</MenuItem>}
+                    {!settled && lookup.state !== "error" && lookup.state !== "forbidden" && <MenuItem isDisabled>Searching…</MenuItem>}
+                    {(lookup.state === "error" || lookup.state === "forbidden") && <MenuItem isDisabled>The matches did not load.</MenuItem>}
+                  </MenuList>
+                </MenuContent>
+                {settled && lookup.state === "ok" && (
+                  <MenuFooter><Small>{`${items.length} of ${lookup.data.total} in ${clusterId}${chip ? ` · ${title} ${chip}` : ""} · ↑↓ Enter`}</Small></MenuFooter>
+                )}
+              </Menu>
+            )}
+          />
           <Hint id="nsx-ns-help">{!clusterId ? "Choose a cluster first."
             : total === null ? "Loading the cluster's namespaces…"
               : `${total} managed namespaces in ${clusterId}. Type 2+ letters${chipTitle ? `, or start with a ${title.toLowerCase()}` : ""}.`}</Hint>

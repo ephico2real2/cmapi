@@ -328,6 +328,9 @@ const MUTANTS = [
 `, ``, "portal", "484-T8 412"],
   ["484-T9 a 202 leaves the strip as it was", "src/portal/NamespacesTab.tsx", `      setDone(request);
       view.reload();`, `      setDone(request);`, "portal", "484-T9"],
+  // #535: the type-ahead's list back inside its card (Popper inline, not in document.body), where the card clips it.
+  ["#535 the Namespaces lookup list is back inside its card", "src/components/ui.tsx", `appendTo={() => document.body}`, `appendTo="inline"`, "portal", "484-T1 cluster"],
+  ["#535 the Quotas type-ahead list is back inside its card", "src/components/ui.tsx", `appendTo={() => document.body}`, `appendTo="inline"`, "portal", "11 Quotas type-ahead"],
   ["484-K Enter opens nothing", "src/portal/NamespaceLookup.tsx", `e.preventDefault(); choose(items[idx].name); }`, `e.preventDefault(); }`, "portal", "484-K"],
   ["484-L the change box falls below the table at md", "src/portal/NamespacesTab.tsx", `<GridItem md={5} className="cp-sticky">`, `<GridItem className="cp-sticky">`, "portal", "484-L the Namespaces tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: drift"],
   ["Try again is connected to nothing", "src/portal/RequestsTab.tsx", `<AlertActionLink onClick={retry}>`, `<AlertActionLink onClick={() => {}}>`, "portal"],

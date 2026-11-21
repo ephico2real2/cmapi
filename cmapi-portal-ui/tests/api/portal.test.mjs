@@ -70,6 +70,15 @@ async function waitRange(page, want) {
   }
 }
 const calls = (path) => api.state.seen.filter((c) => c.path === path);
+/**
+ * The options of an open list that are not the element at their own centre (document.elementFromPoint): shown in the DOM
+ * but hidden on the screen, for example by a card that clips its overflow (#535). An empty array is every option seen.
+ */
+const hiddenOptions = (page, list) => page.evaluate((list) => [...document.querySelectorAll(`${list} [role=option]`)].filter((option) => {
+  const box = option.getBoundingClientRect();
+  const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  return !at || !option.contains(at);
+}).map((option) => option.innerText.split("\n")[0]), list);
 const tabNames = (page) => page.getByRole("tab").allInnerTexts();
 
 // Start on a middle page so that both cursors would work with the old answer.
@@ -1729,13 +1738,19 @@ try {
     const texts = block.replace(/<[^>]+>/g, "\n").split(/\n|\{\{[^}]+\}\}/).map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean);
     return [...new Set([...texts, ...attrs])];
   };
-  const shownText = (page) => panel(page).evaluate((root) => {
+  // The tab's text, and the text of each open list that one of its comboboxes controls: the list is in document.body, outside
+  // the tab panel, so that no card clips it (#535), and its menu holds it with any footer.
+  const shownText = (page) => panel(page).evaluate((tab) => {
+    const lists = [...tab.querySelectorAll("[role=combobox][aria-controls]")].map((box) => document.getElementById(box.getAttribute("aria-controls")))
+      .filter((list) => list && !tab.contains(list)).map((list) => list.closest(".pf-v6-c-menu") ?? list);
     const found = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.push(walker.currentNode.nodeValue.replace(/\s+/g, " ").trim());
-    root.querySelectorAll("[placeholder]").forEach((el) => found.push(el.getAttribute("placeholder")));
-    root.querySelectorAll("[aria-label]").forEach((el) => found.push(el.getAttribute("aria-label")));
-    root.querySelectorAll("input, textarea, select").forEach((el) => el.value && found.push(el.value));
+    for (const root of [tab, ...lists]) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) found.push(walker.currentNode.nodeValue.replace(/\s+/g, " ").trim());
+      root.querySelectorAll("[placeholder]").forEach((el) => found.push(el.getAttribute("placeholder")));
+      root.querySelectorAll("[aria-label]").forEach((el) => found.push(el.getAttribute("aria-label")));
+      root.querySelectorAll("input, textarea, select").forEach((el) => el.value && found.push(el.value));
+    }
     return found;
   });
   /** Both directions: each string of the mockup's block is shown (but those listed as mockup only), and each string shown is known. */
@@ -2242,6 +2257,7 @@ try {
     assert.deepEqual(calls("/api/v1/quotas:suggest").map((c) => c.query), [{ q: "pay" }], "one call, for the text when the typing stopped");
     assert.equal(await box.getAttribute("aria-expanded"), "true");
     assert.deepEqual((await options.allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), want.map((s) => `${s.name} ${s.clusterId} ${s.why}`));
+    assert.deepEqual(await hiddenOptions(page, "#q-sug"), [], "every match is on the screen, not clipped by the card (#535)");
     await box.press("ArrowDown");
     await box.press("ArrowDown");
     assert.equal(await box.getAttribute("aria-activedescendant"), "q-opt-1", "the second match is active");
@@ -4121,6 +4137,7 @@ try {
       assert.deepEqual((await nsOptions(page).allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()),
         ["abc-paylater-dev team billing · pending req-20261120-0011", "abc-payments-dev team payments · unknown"], "team and state; the list reads no Git, so a state is pending or unknown");
       await page.getByText("2 of 2 in CRC · Mnemonic abc · ↑↓ Enter").waitFor();
+      assert.deepEqual(await hiddenOptions(page, "#nsx-list"), [], "every option is on the screen, not clipped by the card (#535)");
       // Typed text is not a target: Enter with no option chosen opens nothing.
       await box.fill("abc-payments-dev");
       await page.waitForTimeout(400);
@@ -4566,6 +4583,8 @@ try {
       await page.keyboard.press("ArrowDown");
       assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-1");
       assert.equal(await nsOptions(page).nth(1).getAttribute("aria-selected"), "true");
+      // The ARIA APG combobox: DOM focus stays on the input while the list, in document.body (#535), shows the active option.
+      assert.equal(await page.evaluate(() => document.activeElement?.id), "nsx-ns", "focus stays on the combobox");
       await page.keyboard.press("ArrowUp");
       await page.keyboard.press("ArrowDown");
       await page.keyboard.press("Enter");

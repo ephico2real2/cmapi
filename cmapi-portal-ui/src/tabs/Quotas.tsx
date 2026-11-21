@@ -1,40 +1,41 @@
 import { ActionGroup, Button, Flex, FlexItem, Form, FormGroup, Grid, GridItem, Menu, MenuContent, MenuItem, MenuList, Stack, TextArea, TextInput, TextInputGroup, TextInputGroupMain } from "@patternfly/react-core";
-import { Callout, Checks, Choices, Code, DataTable, Empty, Filter, Head, Hint, KV, Meter, Pager, Panel, Pill, RowButton, Small } from "../components/ui";
+import { Callout, Checks, Choices, Code, ComboBox, DataTable, Empty, Filter, Head, Hint, KV, Meter, Pager, Panel, Pill, RowButton, Small } from "../components/ui";
 import type { TabProps } from "../model/types";
 
 function Search({ v }: TabProps) {
   const s = v.qSug;
   return (
-    <div className="cp-combo">
-      <TextInputGroup>
-        <TextInputGroupMain
-          inputId="q-search"
-          type="search"
-          role="combobox"
-          aria-label="Find a namespace, team or app"
-          aria-controls="q-sug"
-          isExpanded={s.expanded === "true"}
-          placeholder="Find a namespace, team or app (type 2+ characters)"
-          value={s.text}
-          onChange={(e) => s.onType(e)}
-          inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-activedescendant": s.active || undefined, onKeyDown: s.onKey }}
-        />
-      </TextInputGroup>
-      {s.open && (
-        <div className="cp-combo-menu">
-          <Menu role="listbox">
-            <MenuContent>
-              <MenuList id="q-sug" aria-label="Matching namespaces">
-                {s.items.map((x: any) => (
-                  <MenuItem key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} isSelected={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
-                ))}
-                {s.none && <MenuItem isDisabled>No namespace matches "{s.text}".</MenuItem>}
-              </MenuList>
-            </MenuContent>
-          </Menu>
-        </div>
+    <ComboBox
+      isOpen={s.open}
+      input={(
+        <TextInputGroup>
+          <TextInputGroupMain
+            inputId="q-search"
+            type="search"
+            role="combobox"
+            aria-label="Find a namespace, team or app"
+            aria-controls="q-sug"
+            isExpanded={s.expanded === "true"}
+            placeholder="Find a namespace, team or app (type 2+ characters)"
+            value={s.text}
+            onChange={(e) => s.onType(e)}
+            inputProps={{ autoComplete: "off", "aria-autocomplete": "list", "aria-activedescendant": s.active || undefined, onKeyDown: s.onKey }}
+          />
+        </TextInputGroup>
       )}
-    </div>
+      list={(
+        <Menu role="listbox">
+          <MenuContent>
+            <MenuList id="q-sug" aria-label="Matching namespaces">
+              {s.items.map((x: any) => (
+                <MenuItem key={x.id} id={x.id} itemId={x.id} isFocused={x.sel === "true"} isSelected={x.sel === "true"} description={<>{x.where} {x.why}</>} onClick={x.pick}>{x.ns}</MenuItem>
+              ))}
+              {s.none && <MenuItem isDisabled>No namespace matches "{s.text}".</MenuItem>}
+            </MenuList>
+          </MenuContent>
+        </Menu>
+      )}
+    />
   );
 }
 
