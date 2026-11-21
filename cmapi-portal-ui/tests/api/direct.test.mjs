@@ -311,6 +311,20 @@ test("407 retained rows have the same visible timestamps across UTC midnight", a
 // #479 (Phase 4): the pure parts of the New namespace form, on the answer of the configuration of design section 3.1.
 const KEYS_479 = JSON.parse(readFileSync(new URL("metadata-keys.company-479.json", import.meta.url), "utf8"));
 
+test("512 the stand-in checks the desired middle on the suffix key", async () => {
+  const { createMetadata } = await import("./standin.mjs");
+  for (const [namespace, accepted] of [
+    ["abc-dev", true], ["abc--dev", false], ["abc--x-dev", false], ["abc-x--dev", false],
+    ["abc---dev", false], ["abc-x-y-dev", true], ["abc-x--y-dev", true], ["abc-1-dev", true],
+  ]) {
+    const { errors } = createMetadata(KEYS_479, { labels: { "company.net/mnemonic": "abc" } },
+      { namespace, environment: "dev" });
+    assert.deepEqual(errors.map(({ code, key, kind }) => ({ code, key, kind })), accepted ? [] : [
+      { code: "invalid_value", key: "company.net/app-environment", kind: "label" },
+    ], namespace);
+  }
+});
+
 test("479-P2 the name's ends: the prefix and suffix keys of the answer, their values, the name and its checks", async () => {
   const { checkName, endValue, fieldsOf, joinName, nameEnds } = await import("../../src/portal/metadataForm.ts");
   const form = fieldsOf(KEYS_479);
