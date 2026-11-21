@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -40,9 +41,8 @@ def tools() -> None:
 
 
 def cmapi_tools() -> str:
-    """The console script of the cmapi installed beside this Python."""
-    found = Path(sys.executable).with_name("cmapi-tools")
-    return str(found) if found.exists() else "cmapi-tools"
+    """The console entry point with this Python; the report splits the command with shlex."""
+    return shlex.join([sys.executable, "-c", "from cmapi.tools import run; run()"])
 
 
 def tree(path: Path, crc_text: str | None) -> Path:
@@ -84,7 +84,7 @@ def report(tmp_path: Path, head: str | None, base: str | None = "crc", env: dict
                         "--chart-base", str(CHART), "--chart-head", str(CHART), "--helm-args", HELM_ARGS,
                         "--summary", str(summary)],
                        capture_output=True, text=True, timeout=600, cwd=cwd or tmp_path,
-                       env={**os.environ, "CMAPI_TOOLS": cmapi_tools(), **(env or {})})
+                       env={**os.environ, "PYTHONPATH": str(ROOT / "src"), "CMAPI_TOOLS": cmapi_tools(), **(env or {})})
     return r, summary.read_text() if summary.exists() else ""
 
 
