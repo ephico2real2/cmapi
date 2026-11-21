@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """docs/13's run, read: what it says is what the wave's rulings and the owner's requirements say, and every path and subcommand it names exists. A runbook is run by hand, so nothing else holds it.
 Then its blocks, run: each step in a plain bash, as pasted, on stubs of oc, git, sleep and every script, with each command it runs failing in turn. Each failure must end the step, leave the shell alive, write the stop
-file and make the next step refuse. Then the same checks on mutants of the document: a mutant that passes is a rule this test cannot fail on. Then step 12 again with its background watch logging late (#118). No cluster. usage: doc13-test.py [<docs/13 file>]. DOC13_BASH names another bash. Exit 1 on any failure."""
+file and make the next step refuse. Then the same checks on mutants of the document: a mutant that passes is a rule this test cannot fail on. Then step 12 again with its background watch logging late (#118). No cluster. usage: doc13-test.py [<docs/13 file>] [--namespaces-only]. DOC13_BASH names another bash. Exit 1 on any failure."""
 import os, re, select, shutil, stat, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs/13-crc-deployment.md")
+ARGS = [arg for arg in sys.argv[1:] if arg != "--namespaces-only"]
+PATH = ARGS[0] if ARGS else os.path.join(ROOT, "docs/13-crc-deployment.md")
 DOC = open(PATH).read()
 GUARD = open(os.path.join(ROOT, "deploy/crc-guard.py")).read()
 PROOF = open(os.path.join(ROOT, "deploy/crc-proof.sh")).read()
@@ -327,6 +328,41 @@ def bundle_problems(doc):
     return out
 
 
+def namespace_problems(doc):
+    """New test names, including the dry-run plan, obey CRC's configured name rules (#546).
+    Historical measurements and infrastructure namespaces are outside these two passages."""
+    import yaml
+    sys.path.insert(0, os.path.join(ROOT, "cmapi/src"))
+    from cmapi.core.metadata import MetadataKeys, value_matches, value_regex
+
+    with open(os.path.join(MANIFESTS, "environments/crc/20-config.yaml")) as f:
+        data = next(d["data"] for d in yaml.safe_load_all(f) if d and d.get("metadata", {}).get("name") == "cmapi-config")
+    # The same loader as MetadataKeys.load, with the ConfigMap's embedded YAML instead of a file.
+    keys = MetadataKeys(yaml.safe_load(data["metadata-keys.yaml"]))
+    prefix, suffix = keys.prefix_key(), keys.suffix_key()
+    assert prefix and suffix, "CRC must declare namespacePrefix and namespaceSuffix"
+    prefix_rule, suffix_rule = keys.rules[prefix[0]][prefix[1]], keys.rules[suffix[0]][suffix[1]]
+    pattern = value_regex(prefix_rule, keys.email_domains)
+    assert pattern and suffix_rule.derived == "environment", "CRC's name rules changed"
+    environment = yaml.safe_load(data["clusters.yaml"])["clusters"]["CRC"]["environment"]
+
+    out = []
+    name = r"([A-Za-z0-9]+(?:-[A-Za-z0-9]*)+)"
+    for passage, examples in ((r"^\*\*Which test namespaces\.\*\* [\s\S]*?(?=\n\s*\n|\Z)", rf"`{name}`"),
+                              (r"^\| A plan reads GitHub and writes nothing \|.*$", rf"(?:for |namespace )`{name}`")):
+        found = re.search(passage, doc, re.M)
+        names = set(re.findall(examples, found[0])) if found else set()
+        if not names:
+            out.append(f"no test namespace names in {passage}")
+        for name in sorted(names):
+            mnemonic = name.partition("-")[0]
+            if not value_matches(pattern, mnemonic):
+                out.append(f"test namespace {name}: {prefix[1]} must match {prefix_rule.pattern}")
+            if not name.endswith(f"-{environment}"):
+                out.append(f"test namespace {name}: {suffix[1]} requires the suffix -{environment}")
+    return out
+
+
 def steps_of(doc):
     steps = {}
     for m in re.finditer(r"^### Step (\d+):[^\n]*\n(.*?)(?=^##|\Z)", doc, re.S | re.M):
@@ -336,7 +372,7 @@ def steps_of(doc):
 
 def problems(doc, only=None):
     """One string per broken rule."""
-    out = []
+    out = namespace_problems(doc)
     def need(ok, label):
         if not ok:
             out.append(label)
@@ -422,6 +458,11 @@ def problems(doc, only=None):
 
 
 MUTANTS = {
+    "a five-letter test mnemonic": ("`cmap-live-g-dev`", "`cmapi-live-g-dev`"),
+    "a test name without the environment": ("`cmap-live-g-dev`", "`cmap-live-g`"),
+    "a test name in another environment": ("`cmap-live-g-dev`", "`cmap-live-g-rnd`"),
+    "another invalid test name beside the valid one": ("`cmap-live-g-dev`, created protected", "`cmap-live-g-dev` or `cmapi-live-h`, created protected"),
+    "the dry-run plan's second name is stale": ("afterwards no namespace `abc-proof-plan-dev`", "afterwards no namespace `cmapi-proof-plan`"),
     "an apply with no field manager": (' --field-manager=cmapi-wave1 -f "$R/environment/"', ' -f "$R/environment/"'),
     "an apply not server-side": ('oc apply --server-side --field-manager=cmapi-wave1 -f "$R/environment/"', 'oc apply --field-manager=cmapi-wave1 -f "$R/environment/"'),
     "-R on the environment": ('--field-manager=cmapi-wave1 -f "$R/environment/"', '--field-manager=cmapi-wave1 -R -f "$R/environment/"'),
@@ -497,6 +538,13 @@ LATE_MUTANTS = {
 }
 # 0.02 s lands after the step's end in the same case, and 0.1 and 0.3 s in later cases, measured on the shipped harness (#118).
 LATE_DELAYS = ("0.02", "0.1", "0.3")
+
+if "--namespaces-only" in sys.argv:
+    fails = namespace_problems(DOC)
+    for f in fails:
+        print("  FAIL " + f)
+    print(f"doc13 namespace rules: {len(fails)} failures")
+    sys.exit(1 if fails else 0)
 
 fails = problems(DOC)
 for f in fails:
