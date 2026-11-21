@@ -5,6 +5,9 @@ const compiled = new Map<string, RegExp>();
 
 self.onmessage = (event: MessageEvent<{ id: number; pattern: string; value: string }>) => {
   const { id, pattern, value } = event.data;
+  // The page starts the pattern's time limit when it reads this message, not when it posted the test: the time this
+  // worker took to start is not the pattern's (#508).
+  self.postMessage({ id, started: true });
   let ok: boolean | null;
   try {
     let re = compiled.get(pattern);

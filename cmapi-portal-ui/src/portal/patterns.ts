@@ -4,16 +4,26 @@
 // time ends its worker, marks the pattern slow for the session and answers null: "not checked here". The form then shows
 // no error for it, and cmapi's dry run decides. The worker is its own file of the build, so the portal's CSP
 // (script-src 'self', which worker-src falls back to) allows it with no blob: URL.
+//
+// The limit is the pattern's own time: it starts when the worker says that it has started the test (#508). A test posted
+// to a worker that is still loading waits in the worker's queue (HTML, "run a worker": the port's message queue is
+// enabled after the script runs), and a cold start on a loaded machine took more than 200 ms (Chrome at CPU throttling
+// 25: spawned at 11880 ms, timed out at 12118 ms). Timed from the post, that start-up marked a plain pattern slow for the
+// session, and its errors stopped showing. A worker that does not start at all is a worker the page does not have.
 import type { PatternTest } from "./metadataForm";
 
-/** How long the page waits for one pattern test. A check that takes longer is not checked here. */
+/** How long the page waits for one pattern test, from its start in the worker. A check that takes longer is not checked here. */
 export const PATTERN_LIMIT_MS = 200;
+/** How long the page waits for the worker to start a test. A worker that has not started by then is treated as none. */
+export const WORKER_START_LIMIT_MS = 5000;
 
-interface Reply { id: number; ok: boolean | null }
+/** The worker's two messages for one test: that it started it, then its verdict. */
+type Reply = { id: number; started: true } | { id: number; ok: boolean | null };
 
 /** One worker at a time, one test at a time: a test that runs out of time ends only its own worker. */
-export function patternChecker(limitMs: number = PATTERN_LIMIT_MS,
-  spawn: () => Worker = () => new Worker(new URL("./patternWorker.ts", import.meta.url), { type: "module" })): { test: PatternTest; dispose: () => void } {
+export function patternChecker({ limitMs = PATTERN_LIMIT_MS, startLimitMs = WORKER_START_LIMIT_MS,
+  spawn = () => new Worker(new URL("./patternWorker.ts", import.meta.url), { type: "module" }) }:
+  { limitMs?: number; startLimitMs?: number; spawn?: () => Worker } = {}): { test: PatternTest; dispose: () => void } {
   const slow = new Set<string>();
   const known = new Map<string, boolean>();
   let worker: Worker | null = null;
@@ -41,15 +51,22 @@ export function patternChecker(limitMs: number = PATTERN_LIMIT_MS,
         resolve(ok);
       };
       const onMessage = (e: MessageEvent<Reply>) => {
-        if (e.data.id !== id) return;
-        if (e.data.ok !== null) {
-          if (known.size > 2000) known.clear();
-          known.set(`${pattern}\u0000${value}`, e.data.ok);
+        const reply = e.data;
+        if (reply.id !== id) return;
+        if ("started" in reply) {
+          clearTimeout(timer);
+          timer = setTimeout(() => { slow.add(pattern); end(); done(null); }, limitMs);
+          return;
         }
-        done(e.data.ok);
+        if (reply.ok !== null) {
+          if (known.size > 2000) known.clear();
+          known.set(`${pattern}\u0000${value}`, reply.ok);
+        }
+        done(reply.ok);
       };
       const onError = () => { end(); done(null); };
-      const timer = setTimeout(() => { slow.add(pattern); end(); done(null); }, limitMs);
+      // Until the worker starts the test, only its start-up is timed; the pattern is not at fault for it.
+      let timer = setTimeout(() => { broken = true; end(); done(null); }, startLimitMs);
       w.addEventListener("message", onMessage);
       w.addEventListener("error", onError);
       w.postMessage({ id, pattern, value });
