@@ -148,7 +148,9 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
     ns = tried["namespace"]
     got = client.get(f"{URL}/{ns}", headers=auth(keys, "ola", **OLA))
     assert got.status_code == 200, got.text
-    for body in (patch["requestBody"]["content"]["application/json"]["example"], curl_body(patch)):
+    # Every named PATCH example (mergePatch first, #485) and the curl sample must be bodies this instance accepts.
+    named = [e["value"] for e in patch["requestBody"]["content"]["application/json"]["examples"].values()]
+    for body in (*named, curl_body(patch)):
         assert check.validator(body_schema(spec, "NamespacePatch")).is_valid(body), body
         headers = {**auth(keys, "ola", **OLA), "If-Match": f'"{got.json()["etag"]}"'}
         r = client.patch(f"{URL}/{ns}?dryRun=true", json=body, headers=headers)
@@ -159,7 +161,8 @@ def test_each_example_of_a_namespace_write_is_a_body_that_this_instance_accepts(
     # The curl sample sends the "Try it out" body: the recorded request, with this instance's labels and annotations.
     for op in (create, patch):
         media = op["requestBody"]["content"]["application/json"]
-        expected = media["example"] if "example" in media else media["examples"]["permanent"]["value"]
+        # "Try it out" sends the first named example: permanent for the create, mergePatch for the change (#485).
+        expected = media["example"] if "example" in media else next(iter(media["examples"].values()))["value"]
         assert curl_body(op) == expected, op["operationId"]
 
 

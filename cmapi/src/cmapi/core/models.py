@@ -39,7 +39,7 @@ class ProblemDetail(BaseModel):
     status: int = Field(description="HTTP status", examples=[422])
     detail: str = Field(description="What went wrong, for a person", examples=["Metadata refused"])
     code: str = Field(description="The problem code, the last segment of type", examples=["policy-violation"])
-    errors: list[dict[str, Any]] | None = Field(default=None, description="Per-item codes", examples=[[{"code": "reserved_key", "key": "cmapi.net/tier"}]])
+    errors: list[dict[str, Any]] | None = Field(default=None, description="One entry for each key or limit that a policy-violation refuses: `code` (reserved_key, invalid_key, invalid_value, derived_key, missing_required_key, too_many_keys or annotations_too_large) and, where they apply, `key`, `kind` (label or annotation) and `detail`, the rule in words", examples=[[{"code": "reserved_key", "key": "cmapi.net/tier"}]])
 
 
 # --------------------------------------------------------------------------- identity
