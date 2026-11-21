@@ -98,6 +98,7 @@ def test_limit_order_violation_is_never_held(kyverno, catalog, company, tmp_path
 
 @pytest.mark.parametrize('status', ['warn', 'unknown', None])
 def test_non_pass_skip_results_are_errors(catalog, company, tmp_path, monkeypatch, status):
+    monkeypatch.setattr('cmapi.core.validate.shutil.which', lambda cmd: cmd)
     files = folder(owners_sample(catalog, company))
     v = validator(catalog, company, tmp_path, policy=PolicySettings(default_mode='audit'))
     name = next(p for p in v.index if p.endswith('requests-cpu-max'))
@@ -113,6 +114,7 @@ def test_non_pass_skip_results_are_errors(catalog, company, tmp_path, monkeypatc
 @pytest.mark.parametrize('stdout,code', [('{"results":[]}', 2), ('', 2), ('{}', 0),
                                          ('{"results":{}}', 0), ('{"results":[null]}', 0)])
 def test_cli_faults_fail_closed(catalog, company, tmp_path, monkeypatch, stdout, code):
+    monkeypatch.setattr('cmapi.core.validate.shutil.which', lambda cmd: cmd)
     files = folder(owners_sample(catalog, company))
     v = validator(catalog, company, tmp_path)
     monkeypatch.setattr(v, '_run', lambda cmd: subprocess.CompletedProcess(cmd, code, stdout, 'probe'))
@@ -265,6 +267,7 @@ def test_cel_error_with_same_previous_value_is_never_held(kyverno, catalog, comp
 
 def test_exit_two_with_complete_passing_report_is_error(catalog, company, tmp_path, monkeypatch):
     from cmapi.core.validate import _matched_kinds
+    monkeypatch.setattr('cmapi.core.validate.shutil.which', lambda cmd: cmd)
     files = folder(owners_sample(catalog, company))
     v = validator(catalog, company, tmp_path)
     results = []
