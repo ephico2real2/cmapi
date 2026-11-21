@@ -9,8 +9,16 @@ from fastapi import Response
 from cmapi.core.authz import RolePolicy
 from cmapi.core.errors import Problem
 from cmapi.core.metadata import MetadataKeys
+from cmapi.core.identity.claims import Identity
 from cmapi.plugins.namespaces import router
-from conftest import person
+
+
+# In tests/service, not tests/core: it drives the namespaces router, whose imports need the service's dependencies
+# (prometheus_client), and tests/core is also the reference-code job's suite (examples/tests links to it).
+def person(username, *, roles=()):
+    return Identity(sub=f"sub-{username}", username=username, kind="user", client_id="cmapi-portal",
+                    email=f"{username}@ephico2real.com", given_name=username.title(), family_name="Doe",
+                    employee_id="E100", roles=frozenset(roles), groups=frozenset())
 
 
 @pytest.mark.parametrize("environment, reason", [
