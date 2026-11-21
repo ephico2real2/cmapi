@@ -1,5 +1,5 @@
 """#479, review of PR #488 (F03): the generated Kyverno bundle checks the end of the namespace name as cmapi does: on a
-create, the name ends with "-<environment>" after a desired name; a change of a namespace named before the rule passes,
+create, the name ends with "-<environment>" with or without a desired name; a change of a namespace named before the rule passes,
 at plan time and at admission alike. Run through the real Kyverno CLI, as test_policygen.py does."""
 from __future__ import annotations
 
@@ -31,11 +31,13 @@ def rendered(catalog, keys, name: str) -> dict[str, str]:
 def failures_on_create(kyverno, catalog, keys, tmp_path, name: str) -> list[str]:
     bundle = write(tmp_path / "bundle", render_bundle(catalog, keys, PolicySettings(), {"rnd"}, "nonprod"))
     doc = yaml.safe_load(rendered(catalog, keys, name)[f"clusters/OCP_GF15/namespaces/{name}/namespace.yaml"])
-    failed = apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"namespace.yaml": doc})).get("fail", [])
-    return [message for _, message in failed]
+    results = apply(kyverno, bundle / "env/rnd", resources(tmp_path, {"namespace.yaml": doc}))
+    assert results.get("pass") and not results.get("error"), results
+    return [message for _, message in results.get("fail", [])]
 
 
-SUFFIX_REFUSAL = f"the namespace name must end with '-' and the value of the label {ENV_KEY}, after a desired name"
+SUFFIX_REFUSAL = (f"the namespace name must end with '-' and the value of the label {ENV_KEY}, "
+                  "joined to the prefix directly or with a desired name between them")
 
 
 def test_the_generated_policy_refuses_a_name_that_ends_with_another_environment(kyverno, catalog, tmp_path):
@@ -44,8 +46,10 @@ def test_the_generated_policy_refuses_a_name_that_ends_with_another_environment(
     assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-payments-dev") == [SUFFIX_REFUSAL]
 
 
-def test_the_generated_policy_refuses_a_name_with_no_desired_name_between_its_ends(kyverno, catalog, tmp_path):
-    assert failures_on_create(kyverno, catalog, suffix_keys(), tmp_path, "abc-rnd") == [SUFFIX_REFUSAL]
+def test_the_generated_policy_allows_a_team_wide_name_and_refuses_an_empty_segment(kyverno, catalog, tmp_path):
+    keys = suffix_keys()
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-rnd") == []
+    assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc--rnd") == [SUFFIX_REFUSAL]
 
 
 def test_a_change_of_a_namespace_named_before_the_rule_passes_the_plan_time_check(kyverno, catalog, tmp_path):

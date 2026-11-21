@@ -248,6 +248,7 @@ const MUTANTS = [
   // section 7 (P1-P12), and the check named for it must fail.
   ["#479 the name's start is typed, not locked", "src/portal/NamespaceNameField.tsx", `{start && <InputGroupItem><Locked id="ns-name-start"`, `{false && <InputGroupItem><Locked id="ns-name-start"`, "portal", "479-P2"],
   ["#479 the name's end does not follow the cluster", "src/portal/metadataForm.ts", `const value = f.derivedFrom !== null ? target[f.derivedFrom] : shown[valueKey(f)] ?? "";`, `const value = f.derivedFrom !== null ? "dev" : shown[valueKey(f)] ?? "";`, "portal", "479-P2"],
+  ["#479 an empty middle creates a double hyphen", "src/portal/metadataForm.ts", 'if (start && end && desired === "") return', 'if (false) return', "portal", "479-P2 a team-wide namespace"],
   ["#479 the name's length is not checked", "src/portal/metadataForm.ts", "if (length(name) > NAME_MAX) return", "if (false) return", "portal", "479-P2"],
   ["#479 the default does not copy its source", "src/portal/metadataForm.ts", "out[valueKey(f)] = source?.derivedFrom ? target[source.derivedFrom] : typed[`${f.kind}:${f.defaultFrom}`] ?? \"\";", "out[valueKey(f)] = \"\";", "portal", "479-P3"],
   ["#479 an edited default is written over", "src/portal/metadataForm.ts", "if (f.defaultFrom === null || valueKey(f) in typed) continue;", "if (f.defaultFrom === null) continue;", "portal", "479-P3"],

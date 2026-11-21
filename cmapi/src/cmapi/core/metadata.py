@@ -1063,7 +1063,7 @@ class MetadataKeys:
                   change of an existing namespace, the keys that the name is made of keep what Git holds instead
                   (_check_sent_keys, _fixed_key_error)
             4     on a create: the namespace name ends with "-" and the value of the namespaceSuffix key (_check_suffix),
-                  with a desired name between the two ends (_check_desired_name)
+                  with either one hyphen or a hyphen-delimited desired name between the values (_check_desired_name)
             5     each key sent: its syntax, its class and its rule (_check_sent_keys); each required key (_check_required)
             6     the extra keys of allowOther: their count and bytes (_check_other_keys)
 
@@ -1169,8 +1169,8 @@ class MetadataKeys:
 
     def _check_desired_name(self, sent: Mapping[str, Mapping[str, str | None]],
                             sources: Mapping[str, str]) -> list[dict[str, Any]]:
-        """Step 4, after both ends passed: the name has a desired name between "<prefix>-" and "-<suffix>", so abc-dev
-        and abc--dev are refused for abc and dev (rule 1 of #479). The refusal is on the suffix key, as the end's is."""
+        """Step 4, after both ends passed: accept <prefix>-<suffix> or <prefix>-<desired>-<suffix>.
+        Report an empty segment or overlapping ends on the suffix key."""
         prefix, suffix, namespace = self.prefix_key(), self.suffix_key(), sources.get("namespace")
         if prefix is None or suffix is None or not namespace:
             return []
@@ -1180,7 +1180,7 @@ class MetadataKeys:
         if self._breaks_own_rule(prefix[1], start, prefix[0], sources) or \
                 self._breaks_own_rule(suffix[1], end, suffix[0], sources):
             return []                       # step 5 refuses that value on its key: no name error is built on it
-        if len(namespace) > len(start) + len(end) + 2:
+        if namespace == f"{start}-{end}" or len(namespace) > len(start) + len(end) + 2:
             return []
         return [{"code": "invalid_value", "key": suffix[1], "kind": suffix[0],
                  "detail": f"{namespace} has no desired name between {start}- and -{end}"}]

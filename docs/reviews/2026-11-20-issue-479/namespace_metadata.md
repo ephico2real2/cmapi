@@ -22,7 +22,7 @@ Swagger and the portal show as hints, and nothing enforces them.
 | R7 | The portal is reactive: it shows what will be created before the request is submitted; no straight submit (2026-11-20) | Partly: the form plans with a dry run; no live preview |
 | R8 | Setting the mnemonic fills `cmapi.net/team` with the same value, which can then be changed (e.g. to `payments`) (2026-11-20) | **No** |
 | R9 | The Swagger page has the clean look of the owner's reference: every parameter with its type and location, the body with **Example Value** and **Model/Schema** tabs, every field shown with its type and format, required fields marked (2026-11-20) | Partly |
-| R10 | The name ends with the cluster's environment: a cluster onboarded as `rnd` takes only `abc-payments-rnd`, a `dev` cluster only `abc-payments-dev`. The portal locks both ends: `<mnemonic>-<desired name>-<cluster env>` (2026-11-20) | **No** |
+| R10 | The name ends with the cluster's environment: a cluster onboarded as `rnd` takes `abc-payments-rnd` or `abc-rnd`, a `dev` cluster takes `abc-payments-dev` or `abc-dev`. The portal locks both ends (2026-11-20) | **No** |
 | R12 | An optional expiration date chosen from a calendar in the portal; the form shows the date and the number of days until it. For production a flag turns expiration off, so the field is blank. The date is written on the namespace (2026-11-20) | Partly: `expiresAt` exists in the API (`expiration.yaml`); the portal has no calendar on the create form |
 | R11 | The portal sets additional labels and annotations as part of the payload, in two separate key/value tables, as the API already allows; people open them with a toggle (2026-11-20) | **No** (filed earlier as #365) |
 
@@ -30,8 +30,10 @@ Swagger and the portal show as hints, and nothing enforces them.
 
 ## 2. The rules
 
-1. **Name.** Every namespace name is `<mnemonic>-<desired name>-<cluster env>`, for example `abc-payments-dev` on a
-   `dev` cluster and `abc-payments-rnd` on an `rnd` cluster. The mnemonic is the value of the key that has
+1. **Name.** Use `<mnemonic>-<desired name>-<cluster env>` (for example, `abc-payments-dev`) or
+   `<mnemonic>-<cluster env>` for a team-wide namespace (for example, `abc-dev`). An empty segment such as
+   `abc--dev` is refused. The owner wrote on 2026-11-20, “There are some teams that will just create a global namespace like `<mnemonic>-<environment>`.”
+   The mnemonic is the value of the key that has
    `namespacePrefix: true` (`company.net/mnemonic`: 3 or 4 lowercase letters). The environment is the value of the key
    that has `namespaceSuffix: true` (`company.net/app-environment`, filled from the cluster's environment). The whole
    name is a DNS-1123 label of at most 63 characters.
@@ -211,12 +213,12 @@ same two maps. What changes is what the schema says about the keys, one endpoint
 |---|---|---|---|
 | A1 | `labels`, `annotations` schemas (per instance, from `metadata:`) | Filled-in keys (`value: {from: …}`) become **required and shown**: drop `readOnly`, keep `x-cmapi-derived-from`, description "cmapi fills it in; you may leave it out" | **Breaking** for the contract gate (new required properties): one line each in `cmapi/contract/accepted-breaking.txt`, with its reason and #479 |
 | A2 | Same | A key with `default: {from: K}`: listed in `required`, description "default: the value of K", `x-cmapi-default-from: K` | Additive |
-| A3 | `NamespaceCreate.namespace` | Description and extensions for the name: `x-cmapi-prefix-from: company.net/mnemonic`, `x-cmapi-suffix-from: company.net/app-environment`; "`<mnemonic>-<desired name>-<cluster env>`, at most 63"; the example built from the configuration's examples and the instance's first environment | Additive |
+| A3 | `NamespaceCreate.namespace` | Description and extensions for the name: `x-cmapi-prefix-from: company.net/mnemonic`, `x-cmapi-suffix-from: company.net/app-environment`; `<mnemonic>-<desired name>-<cluster env>` or `<mnemonic>-<cluster env>`, at most 63 characters; the example built from the configuration's examples and the instance's first environment | Additive |
 | A4 | The environment key's schema | `x-cmapi-namespace-suffix: true`, beside the existing prefix marker on the mnemonic key | Additive |
 | A5 | `GET /api/v1/metadata-keys` | It returns the same two schemas, so A1–A4 reach the portal by themselves, and `x-cmapi-expiration` of A11 beside them (D15), so its ETag changes when `expiration.yaml` does. Its contract test checks they stay equal to `NamespaceCreate`'s | Additive |
 | A6 | Request examples (Swagger, ReDoc, docs/04, the recorded samples) | Generated from the configuration's `example:` values: every required key, the optional keys that have an example, and **one extra label and one extra annotation** from a new optional `allowOther.example` in the configuration, so the Example Value shows that extra keys go in the same maps | Additive |
 | A7 | Dry-run answer (`?dryRun=true`) | `metadata.labels` and `metadata.annotations` give each final value with its `source`: `request`, `namespace`, `environment`, or `default:<key>`. Extra keys are `request` | Additive |
-| A8 | Validation (`core/metadata.py`) | New: the suffix check on a create (the name must end with `-<env>`, with a desired name between the two ends); `default: {from: K}` filled before the checks. The loader refuses a `from` naming no key, a chain of defaults, a key of the other kind, more than one key with `namespacePrefix` or with `namespaceSuffix`, or one key with both | Behaviour |
+| A8 | Validation (`core/metadata.py`) | New: the suffix check on a create (the name must end with `-<env>`, with the mnemonic joined to the environment directly or with a desired name between them); `default: {from: K}` filled before the checks. The loader refuses a `from` naming no key, a chain of defaults, a key of the other kind, more than one key with `namespacePrefix` or with `namespaceSuffix`, or one key with both | Behaviour |
 | A9 | Errors | No new code. A name that does not end with the environment is `invalid_value` on the environment key ("abc-payments-rnd does not end with -dev"); the rest as today | Behaviour |
 | A11 | `NamespaceCreate.expiresAt` | Description from `expiration.yaml` (optional; never in prod; up to `maxLifetimeDays` from creation, more needs one approver-platform approval) and `x-cmapi-expiration: {environments: {<env>: {enabled, allowedAtCreate, maxLifetimeDays, notifyDaysBefore, graceDays}}}` for each environment the instance serves (an unlisted one appears with `enabled: false`), so the portal's calendar reads its limits, and whether it is shown at all, from the contract. `expiration.yaml` gains `enabled` (default `true`); `prod: {enabled: false}` now loads, `prod: {enabled: true}` is refused | Additive |
 | A10 | Kyverno bundle | Re-rendered from the new configuration (the new required keys, the prefix and suffix rules); delivered to `cmapi-cluster-configs` | Config repository |
@@ -277,7 +279,7 @@ required marker, and the body with two tabs. The body's **Example Value** is one
 
 ```
 NamespaceCreate {
-  namespace*      string   DNS-1123 label, ≤ 63; <mnemonic>-<desired name>-<cluster env>   e.g. abc-payments-dev
+  namespace*      string   DNS-1123 label, ≤ 63; <mnemonic>-<desired name>-<cluster env> or <mnemonic>-<cluster env>
   tier            string   a tier from the catalog, or custom                       default: small
   justification   string
   expiresAt       string($date)   optional; after today; never in prod; > 180 days from creation adds one approval
@@ -516,7 +518,7 @@ A minimal API client may send less: cmapi fills `name`, `company.net/app-environ
 | # | Behaviour |
 |---|---|
 | P1 | The form is built from `GET /api/v1/metadata-keys` (A5): fields, titles, rules, order. Nothing about a company is written in the portal's code |
-| P2 | The key with `namespacePrefix` (Mnemonic) comes first. The Namespace field is a PatternFly input group: a locked prefix `<mnemonic>-`, an input for the desired name, and a locked suffix `-<cluster env>`. The prefix follows Mnemonic and the suffix follows the chosen cluster; the full name and its length (≤ 63) are shown under it |
+| P2 | The key with `namespacePrefix` (Mnemonic) comes first. The Namespace field is a PatternFly input group: a locked prefix `<mnemonic>-`, an input for the optional desired name, and a locked suffix `-<cluster env>`. The prefix follows Mnemonic and the suffix follows the chosen cluster; the full name and its length (≤ 63) are shown under it |
 | P3 | Filled-in keys (`name`, app environment) are shown, pre-filled and locked, marked "automatic" |
 | P4 | A key with `default: {from: K}` (Team) copies K until the person edits it; after that a change of K leaves it alone |
 | P5 | Each field checks its rule as you type (pattern, enum, email domain), in a Web Worker as today for patterns |
@@ -537,7 +539,7 @@ Owner's decisions (2026-11-20):
 | Item | Decision |
 |---|---|
 | Configuration | Use section 3.1 with `company.net` keys and `emailDomains: [ephico2real.com]` (the test users' domain); the Team DL example uses that email domain too |
-| Namespace names | Follow the designed rule `<mnemonic>-<desired>-<env>`, for example `abc-payments-dev` on CRC (`dev`); no CRC-specific variant |
+| Namespace names | Follow either form of the name rule, for example `abc-payments-dev` or `abc-dev` on CRC (`dev`) |
 | Existing namespaces | Keep `cmapi-live-a` … `cmapi-live-f` as they are and report their missing keys and naming violations as findings; rename or delete nothing |
 | `company.net/cl` in `sensitiveKeys` | Include it: a change of critical level needs one extra approver-platform approval |
 
@@ -572,7 +574,7 @@ All three are claude.ai artifacts, private to the owner's account until shared f
 | D1 | Keep the current keys (`cmapi.net/team`, `cmapi.net/team-dl`, the optional `cmapi.net/` keys) and add `name`, `company.net/app-environment`, `company.net/mnemonic`, `company.net/lob`, `company.net/cl` as required (R4) |
 | D2 | The owner's reference Swagger gives the **format** only (typed fields, Example Value and Model/Schema tabs, required marks, filled examples); none of its fields are copied |
 | D3 | The request keeps the real Kubernetes keys inside `labels` and `annotations`; extra keys go in the same maps |
-| D4 | The name is `<mnemonic>-<desired name>-<cluster env>`; the API takes the full name and checks both ends; the portal locks both ends (R5, R6, R10) |
+| D4 | The name is `<mnemonic>-<desired name>-<cluster env>` or `<mnemonic>-<cluster env>`. The API takes the full name and checks both ends; the portal locks both ends (R5, R6, R10) |
 | D5 | Filled-in keys (`name`, app environment) are required and shown; cmapi still fills them when an API client leaves them out; a wrong value is refused (`derived_key`) |
 | D6 | `cmapi.net/team` defaults to the mnemonic (`default: {from: …}`) and can be changed (R8) |
 | D7 | The portal is reactive: live preview, Check (dry run) before Submit, Submit off again after any change (R7) |

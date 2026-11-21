@@ -598,7 +598,7 @@ try {
   /** The required fields of the form of design section 3.1 (KEYS_479), with the mockup's values. */
   const fill479 = async (page, { mnemonic = "abc", desired = "payments" } = {}) => {
     await page.getByLabel("Mnemonic (required)").fill(mnemonic);
-    await page.getByLabel("Namespace (required)").fill(desired);
+    await page.getByLabel("Namespace", { exact: true }).fill(desired);
     await page.getByLabel("Line of business (required)").fill("amgsst");
     await page.getByLabel("Critical level (required)").selectOption("1");
     await page.getByLabel("Team DL (required)").fill("payments-team@company.net");
@@ -1133,13 +1133,14 @@ try {
 
   await check("479-P2 the name: both ends locked and filled from the mnemonic and the cluster's environment, the full name and its length", async () => {
     await atEachView(async (page, view) => {
-      const name = page.getByLabel("Namespace (required)");
+      const name = page.getByLabel("Namespace", { exact: true });
       const start = page.locator("#ns-name-start"), end = page.locator("#ns-name-end");
       // The first environment with a cluster to write to is rnd here.
       assert.deepEqual([(await start.innerText()).trim(), (await end.innerText()).trim()], ["…-", "-rnd"], "nothing typed: the start waits for the mnemonic");
       assert.equal(await page.locator("#ns-name-start input, #ns-name-end input").count(), 0, "neither end is an input");
       await page.getByLabel("Mnemonic (required)").fill("abc");
       assert.equal((await start.innerText()).trim(), "abc-", "the start follows the mnemonic");
+      assert.match(await page.locator("#ns-name-help").innerText(), /Leave empty for a team-wide namespace: abc-rnd\./);
       await name.fill("payments");
       assert.equal((await page.locator("#ns-name-full").innerText()).trim(), "Will be created as abc-payments-rnd (16 of 63 characters)");
       assert.equal(await name.inputValue(), "payments", "the person types the middle only");
@@ -1164,6 +1165,20 @@ try {
       assert.equal(sent.body.namespace, "abc-payments-dev");
       assert.equal(["name", "company.net/app-environment"].filter((k) => k in sent.body.labels).length, 0, "cmapi fills in the keys that it sets");
     }, { setup: () => { api.state.clusters = [...api.state.clusters, RND_CLUSTER]; api.state.tiers = TIERS_RND; } });
+  });
+
+  await check("479-P2 a team-wide namespace with an empty middle is previewed and sent in the dry run", async () => {
+    await atEachView(async (page) => {
+      await fill479(page, { desired: "" });
+      assert.equal(await page.getByLabel("Namespace", { exact: true }).evaluate((input) => input.required), false);
+      assert.match(await page.locator("#ns-name-help").innerText(), /Leave empty for a team-wide namespace: abc-dev\./);
+      assert.equal((await page.locator("#ns-name-full").innerText()).trim(), "Will be created as abc-dev (7 of 63 characters)");
+      assert.match(await code(page), /^  name: "abc-dev"$/m);
+      assert.equal(await section(page, "Labels").getByLabel("Name", { exact: true }).inputValue(), "abc-dev");
+      await checkButton(page).click();
+      await passed(page).waitFor();
+      assert.equal(dryRuns().at(-1).body.namespace, "abc-dev");
+    });
   });
 
   await check("479-P3-P5 the keys that cmapi sets are locked and marked automatic; Team copies Mnemonic until edited; each field checks as it is typed", async () => {
@@ -1462,7 +1477,7 @@ try {
       api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 409, body: exists });
       await checkButton(page).click();
       await panel(page).getByText("The check failed: namespace-exists").waitFor();
-      await waitError(page.getByLabel("Namespace (required)"), new RegExp(`^${exists.detail}`));
+      await waitError(page.getByLabel("Namespace", { exact: true }), new RegExp(`^${exists.detail}`));
       await page.getByLabel("Expires (optional)").fill(isoAfter(3));
       api.state.answers.push({ route: "POST /api/v1/clusters/CRC/namespaces", status: 422,
         body: { type: "https://cmapi.ephico2real.com/problems/expiration-in-past", title: "expiration in past", status: 422, code: "expiration-in-past", detail: "The expiry must be after today" } });
@@ -1753,7 +1768,7 @@ try {
         await newTab(page);
         shown.push(...await shownText(page));
         await page.getByLabel("Mnemonic (required)").fill("abc");
-        await page.getByLabel("Namespace (required)").fill("payments");
+        await page.getByLabel("Namespace", { exact: true }).fill("payments");
         await page.getByLabel("Line of business (required)").fill("amgsst");
         await page.getByLabel("Critical level (required)").selectOption("1");
         await page.getByLabel("Cost center (optional)").fill("cc-4410");
@@ -1824,7 +1839,7 @@ try {
       // rules from x-cmapi-expiration, the additional keys' rules from the answer, and the plan's own namespace.yaml.
       const ADDED = ["Environment", "Region", "Any region", "From clusters.yaml metadata.", "This is the Non-production portal: it serves rnd, dev only.",
         "The dev clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
-        "cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.", "Namespace (required)", "Expires (optional)", "Open the calendar",
+        "cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.", "Leave empty for a team-wide namespace: abc-dev.", "Expires (optional)", "Open the calendar",
         "Requested by ola (ola@ephico2real.com), from your sign-in.", "Filled from Mnemonic; you can change it.", "Environment served", "Capacity", "fits on fresh data", "Expiry",
         "Approval", "Lands in Git", "Nothing is written yet.", "Check (dry run) asks cmapi which approval applies.", "Self-approval is allowed in dev.", "Key", "Value",
         "Not a reserved prefix, a key that cmapi sets, or a key that has its own field above.", "Allowed: no prefix, or *.company.net/.", "Notices to the team DL 14, 7 and 1 days before. It keeps running 7 days after the date.",

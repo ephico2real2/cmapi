@@ -592,7 +592,10 @@ def namespace_description(keys: Any) -> str | None:
     if suffix is not None:
         shape = f"{shape}-<{suffix[1]}>"
         rules.append(f'ends with "-" and the value of {suffix[1]}')
-    return (f"The name is `{shape}`, at most 63 characters: it {' and '.join(rules)}. cmapi refuses another name with "
+    forms = f"`{shape}`"
+    if prefix is not None and suffix is not None:
+        forms += f" or `<{prefix[1]}>-<{suffix[1]}>` for a team-wide namespace"
+    return (f"The name is {forms}, at most 63 characters: it {' and '.join(rules)}. cmapi refuses another name with "
             "invalid_value on that key.")
 
 

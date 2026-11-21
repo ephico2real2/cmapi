@@ -336,9 +336,11 @@ export function endValue(f: MetaField | null, shown: Record<string, string>, tar
   return value === "" && !f.required ? null : value;
 }
 
-/** `<start>-<desired>-<end>`: the ends that the instance has, around the part that the person types. */
-export const joinName = (start: string | null, desired: string, end: string | null): string =>
-  [start, desired, end].filter((part): part is string => part !== null).join("-");
+/** With both values, an empty middle gives the team-wide name. The preview marks missing inputs with a placeholder. */
+export function joinName(start: string | null, desired: string, end: string | null, placeholder = ""): string {
+  if (start && end && desired === "") return `${start}-${end}`;
+  return [start, desired, end].filter((part): part is string => part !== null).map((part) => part || placeholder).join("-");
+}
 
 /** The shortest and the longest namespace name: a DNS-1123 label of 2 to 63 characters (core/naming.py). */
 export const NAME_MIN = 2;
@@ -351,7 +353,7 @@ const DNS_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
  */
 export function checkName(start: string | null, desired: string, end: string | null): string | null {
   const ends = start !== null || end !== null;
-  if (desired === "") return ends ? "Type the middle of the name." : "Required: a namespace name";
+  if (desired === "" && (start === null || end === null)) return ends ? "Type the middle of the name." : "Required: a namespace name";
   if (start === "" || end === "") return null;
   const name = joinName(start, desired, end);
   if (length(name) < NAME_MIN) return `The name has at least ${NAME_MIN} characters.`;

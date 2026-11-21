@@ -586,7 +586,8 @@ const fingerprint = (value) => JSON.stringify(sorted(value));
 /**
  * The create's metadata as cmapi/src/cmapi/core/metadata.py builds it (#479): steps 1 and 2 fill each key that cmapi sets
  * (x-cmapi-derived-from) and each default (x-cmapi-default-from) that the request leaves out (filled), then the name's two
- * ends are checked on their keys (_check_prefix, _check_suffix, _check_desired_name), and the dry run gives each value its
+ * ends are checked on their keys (_check_prefix, _check_suffix, _check_desired_name): <prefix>-<suffix> is allowed, but an
+ * empty desired segment or overlapping ends are refused. The dry run gives each value its
  * source (value_sources, A7). The stand-in runs no configured pattern: an operator's pattern can backtrack, and cmapi
  * matches with RE2.
  */
@@ -613,7 +614,7 @@ export function createMetadata(keys, body, sources) {
   const ns = sources.namespace, start = startKey && filled[startKind][startKey], end = endKey && filled[endKind][endKey];
   if (start && !ns.startsWith(`${start}-`)) errors.push({ code: "invalid_value", key: startKey, kind: startKind, detail: `${ns} does not start with ${start}-` });
   if (end && !ns.endsWith(`-${end}`)) errors.push({ code: "invalid_value", key: endKey, kind: endKind, detail: `${ns} does not end with -${end}` });
-  if (start && end && !errors.length && ns.length <= start.length + end.length + 2) {
+  if (start && end && !errors.length && ns !== `${start}-${end}` && ns.length <= start.length + end.length + 2) {
     errors.push({ code: "invalid_value", key: endKey, kind: endKind, detail: `${ns} has no desired name between ${start}- and -${end}` });
   }
   const view = (kind) => Object.fromEntries(Object.entries(filled[kind]).filter(([, v]) => v !== null).map(([k, v]) => [k, { value: v, source: origin[kind][k] }]));

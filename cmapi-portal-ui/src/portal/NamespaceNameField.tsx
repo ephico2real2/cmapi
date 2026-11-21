@@ -28,7 +28,7 @@ const Locked = ({ id, text }: { id: string; text: string }) => (
   <InputGroupText id={id}><LockIcon aria-hidden="true" /> {text}</InputGroupText>
 );
 
-export function NamespaceNameField({ start, end, startValue, endValue, desired, error, onChange }: {
+export function NamespaceNameField({ start, end, startValue, endValue, desired, full, error, onChange }: {
   start: MetaField | null;
   end: MetaField | null;
   /** The ends' values; null where the instance has no such end. */
@@ -36,17 +36,18 @@ export function NamespaceNameField({ start, end, startValue, endValue, desired, 
   endValue: string | null;
   /** The part that the person types: the middle, or the whole name when the instance has neither end. */
   desired: string;
+  full: string;
   error: string | null;
   onChange: (desired: string) => void;
 }) {
-  const full = joinName(startValue === null ? null : startValue || "…", desired || "…", endValue === null ? null : endValue || "…");
+  const required = start === null || end === null;
   const described = ["ns-name-help", "ns-name-full", ...(start ? ["ns-name-start"] : []), ...(end ? ["ns-name-end"] : []), ...(error ? ["ns-name-error"] : [])];
   const input = (
-    <TextInput id="ns-name" isRequired value={desired} validated={error ? "error" : "default"} aria-describedby={described.join(" ")}
+    <TextInput id="ns-name" isRequired={required} value={desired} validated={error ? "error" : "default"} aria-describedby={described.join(" ")}
       spellCheck={false} autoComplete="off" onChange={(_, v) => onChange(v)} />
   );
   return (
-    <FormGroup label="Namespace (required)" fieldId="ns-name">
+    <FormGroup label={required ? "Namespace (required)" : "Namespace"} fieldId="ns-name">
       {start || end ? (
         <InputGroup>
           {start && <InputGroupItem><Locked id="ns-name-start" text={`${startValue || "…"}-`} /></InputGroupItem>}
@@ -57,7 +58,10 @@ export function NamespaceNameField({ start, end, startValue, endValue, desired, 
       <FormHelperText>
         <HelperText>
           {error && <HelperTextItem id="ns-name-error" variant="error">{error}</HelperTextItem>}
-          <HelperTextItem id="ns-name-help">{hintOf(start, end)}</HelperTextItem>
+          <HelperTextItem id="ns-name-help">
+            {hintOf(start, end)}
+            {startValue && endValue && ` Leave empty for a team-wide namespace: ${joinName(startValue, "", endValue)}.`}
+          </HelperTextItem>
           <HelperTextItem id="ns-name-full">
             Will be created as <code>{full}</code> {`(${[...full].length} of ${NAME_MAX} characters)`}
           </HelperTextItem>
