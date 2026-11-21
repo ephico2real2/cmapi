@@ -140,6 +140,70 @@ test("each KPI card has the name of a KPI of docs/17-kpis.md (#175)", () => {
   assert.deepEqual(cards.filter((name) => !known(name)), []);
 });
 
+// #537: the Policies tab's sections open and close, and Results by policy, the long list, is last, closed and paged.
+const pageSlots = new Function("DCLogic", `${script}\n;return pageSlots;`)(DCLogic);
+const pol = (c) => c.renderVals().pol;
+
+test("#537 the numbered pages: every page up to 7, then the first, the last, the current page's neighbours and a gap", () => {
+  assert.deepEqual(pageSlots(1, 1), [1]);
+  assert.deepEqual(pageSlots(2, 4), [1, 2, 3, 4]);
+  assert.deepEqual(pageSlots(7, 7), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(pageSlots(1, 10), [1, 2, 3, 4, 5, 0, 10]);
+  assert.deepEqual(pageSlots(4, 10), [1, 2, 3, 4, 5, 0, 10]);
+  assert.deepEqual(pageSlots(5, 10), [1, 0, 4, 5, 6, 0, 10]);
+  assert.deepEqual(pageSlots(7, 10), [1, 0, 6, 7, 8, 9, 10]);
+  assert.deepEqual(pageSlots(10, 10), [1, 0, 6, 7, 8, 9, 10]);
+  for (let last = 1; last <= 30; last++) {
+    for (let page = 1; page <= last; page++) {
+      const slots = pageSlots(page, last);
+      assert.ok(slots.length <= 7 && slots.includes(page) && slots[0] === 1 && slots.at(-1) === last, `${page} of ${last}: ${slots}`);
+    }
+  }
+});
+
+test("#537 each section opens and closes and shows its count; Results by policy starts closed", () => {
+  const c = make("nonprod", "policies");
+  const sec = pol(c).sec;
+  assert.deepEqual(Object.fromEntries(Object.entries(sec).map(([k, s]) => [k, [s.show, s.open]])),
+    { clusters: [true, "true"], fails: [true, "true"], refused: [true, "true"], policies: [false, "false"] });
+  assert.deepEqual([sec.clusters.count, sec.fails.count, sec.refused.count, sec.policies.count], [String(pol(c).clusters.length), String(pol(c).fails.length), String(pol(c).rejections.length), String(pol(c).policies.length)]);
+  sec.policies.toggle();
+  assert.equal(pol(c).sec.policies.open, "true");
+  pol(c).sec.clusters.toggle();
+  assert.equal(pol(c).sec.clusters.show, false);
+  assert.equal(pol(c).sec.clusters.count, sec.clusters.count, "a closed section keeps its count");
+});
+
+test("#537 Results by policy: 25 a page, the numbered pages, 25, 50 or 100 a page, and page 1 again after a new cluster or page size", () => {
+  const c = make("nonprod", "policies");
+  const all = pol(c).policies.map((p) => p.name);
+  assert.ok(all.length > 25, `the sample has more than one page of policies (${all.length})`);
+  assert.deepEqual(pol(c).pageRows.map((p) => p.name), all.slice(0, 25));
+  assert.equal(pol(c).pg.range, `1–25 of ${all.length}`);
+  assert.deepEqual(pol(c).pg.slots.map((s) => [s.text, s.current]), [["1", "page"], ["2", null]]);
+  assert.equal(pol(c).pg.prevDis, "true");
+  pol(c).pg.slots[1].pick();
+  assert.deepEqual(pol(c).pageRows.map((p) => p.name), all.slice(25, 50));
+  assert.equal(pol(c).pg.range, `26–${Math.min(50, all.length)} of ${all.length}`);
+  assert.equal(pol(c).pg.nextDis, "true");
+  pol(c).pg.prev();
+  assert.equal(pol(c).pg.page, 1);
+  pol(c).pg.next();
+  // A new cluster starts at page 1.
+  pol(c).clusterOpts[1].pick();
+  assert.equal(pol(c).pg.page, 1);
+  pol(c).pg.next();
+  assert.equal(pol(c).pg.page, 2);
+  // So does a new page size. The sample has under 51 policies, so page 2 of 25 has no page 2 at 50: the state says it went back.
+  pol(c).pg.sizes.find((o) => o.label === "50").pick();
+  assert.equal(c.state.ppage, 1, "a new page size starts at page 1");
+  assert.deepEqual([pol(c).pg.page, pol(c).pg.perPage, pol(c).pageRows.length], [1, 50, Math.min(50, all.length)]);
+  assert.deepEqual(pol(c).pg.sizes.map((o) => [o.label, o.on]), [["25", "false"], ["50", "true"], ["100", "false"]]);
+  pol(c).pg.sizes.find((o) => o.label === "100").pick();
+  assert.equal(pol(c).pageRows.length, Math.min(100, all.length));
+  assert.deepEqual(pol(c).pg.slots.map((s) => s.text), ["1"]);
+});
+
 test("the standalone runtime parses as ES2019", () => {
   parse(readFileSync(join(portal, "runtime", "dc-lite.js"), "utf8"), { ecmaVersion: 2019 });
 });

@@ -10,7 +10,7 @@ import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
 import { checkComboBoxLifecycle } from "../combobox.mjs";
-import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespacesOfMockup, policyCluster, policyFleet, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespacesOfMockup, policyCluster, policyFleet, policyFleetWith, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
   recordEtag, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, syncRecord, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -3519,6 +3519,16 @@ try {
     await open(page, hash);
     await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
   };
+  // #537: Results by policy is last and starts closed, 25 rows a page. The checks that read every policy open it with 100 a page.
+  const polToggle = (page, title) => polCard(page, title).locator(".pf-v6-c-card__header-toggle button");
+  const openPolicies = async (page, perPage = 25) => {
+    await polToggle(page, "Results by policy").click();
+    await page.locator("table[aria-label='Results by policy']").waitFor();
+    if (perPage !== 25) {
+      await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: String(perPage), exact: true }).click();
+      await page.waitForFunction((n) => document.querySelector("[aria-label='Per page'] .pf-m-selected")?.innerText === String(n), perPage);
+    }
+  };
   // The mockup's cluster row: id, env, the mode, the bundle, ready, the four counts ("—", never 0, when unknown) and the state's word.
   const STATE_WORD = { ok: () => "ok", "not-installed": () => "Kyverno not installed", forbidden: () => "no access to the reports", "not-imported": () => "not imported", unreachable: (c) => `unreachable since ${c.asOf.slice(11, 16)}`,
     stale: (c) => `stale since ${c.asOf.slice(11, 16)}`, capped: (c) => `${c.dropped} rows not listed`, drift: () => "off the bundle", loading: () => "loading", "mode-off": () => "mode off", "engine-off": () => "Kyverno off" };
@@ -3547,6 +3557,7 @@ try {
     const failing = fleet.clusters.reduce((t, c) => t + (c.counts?.fail ?? 0), 0);
     await panel(page).getByText(`${failing} failing · 1 cluster off the bundle`).waitFor();
     // The policies: the API's, from the bundle, each with what it checks and its counts. None is named by the page.
+    await openPolicies(page, 100);
     await panel(page).getByText("1840 results on namespaces that cmapi does not manage, 41 of other policies and 2 of policies no longer on the cluster are counted and not shown.").waitFor();
     const policyRows = await tableRows(page, "Results by policy");
     assert.equal(policyRows.length, fleet.policies.length);
@@ -3606,6 +3617,7 @@ try {
   await check("407 Policies results keep both cursors off while a cluster loads", async () => {
     const { context, page } = await fresh({ policies: policyFleet(policyRowsFrom(61)) });
     await openPol(page);
+    await openPolicies(page);
     await checkHeldPage(page, {
       label: "Failing resources", path: "/api/v1/policies/results",
       change: () => panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click(),
@@ -3718,6 +3730,7 @@ try {
       const { context, page, errors } = await fresh({ policies: none });
       await openPol(page);
       await panel(page).getByText("— failing · 0 clusters off the bundle").waitFor();
+      await openPolicies(page, 100);
       const rows = await tableRows(page, "Results by policy");
       assert.equal(rows.length, none.policies.length);
       assert.ok(rows.every((r) => r.slice(3, 7).every((v) => v === "—")), `a policy with no known count shows —, never 0: ${JSON.stringify(rows[0])}`);
@@ -3738,6 +3751,7 @@ try {
       const [row] = await tableRows(page, "Clusters");
       assert.deepEqual(row, ["CRC", "dev", "audit", `${names.length} missing`, `0 / ${names.length}`, "0", "0", "0", "0", "off the bundle"]);
       await panel(page).getByText("0 failing · 1 cluster off the bundle").waitFor();
+      await openPolicies(page, 100);
       assert.ok((await tableRows(page, "Results by policy")).every((r) => r.slice(3, 7).every((v) => v === "—")), "a policy not on the cluster has no count");
       assert.deepEqual(errors, []);
       await context.close();
@@ -3752,6 +3766,7 @@ try {
     await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
     assert.deepEqual(await panel(page).getByRole("heading", { level: 1 }).allInnerTexts(), ["Policies"], "the mockup's heading");
     shown.push(...await shownText(page));
+    await openPolicies(page);
     await polCard(page, "Results by policy").locator("tbody tr").first().getByRole("button", { name: "Show failures" }).click();
     await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).waitFor();
     shown.push(...await shownText(page));
@@ -3769,7 +3784,8 @@ try {
         r.count > 1 && `${r.findings[0].message} (${r.count} times that day)`])].filter(Boolean);
     // The mockup's logic builds these (policiesView()).
     const FROM_LOGIC = [/^\d+$/, /^—$/, /^\d+ \/ \d+$/, /^\d+ failing · \d+ clusters? off the bundle$/, /^Failing, warning and erroring resources( · [\w-]+)?( · [A-Z0-9_]+)?$/, /^(plan \(422\)|plan, warned|CI)$/,
-      /^([A-Z][a-z]{2} \d{1,2} )?\d{2}:\d{2}$/, "All clusters", "Show failures", "Showing", "ok", "Kyverno not installed", /^unreachable since \d{2}:\d{2}$/];
+      /^([A-Z][a-z]{2} \d{1,2} )?\d{2}:\d{2}$/, "All clusters", "Show failures", "Showing", "ok", "Kyverno not installed", /^unreachable since \d{2}:\d{2}$/,
+      /^\d+–\d+ of \d+$/, /^Page \d+$/];
     // The portal's own words, each in MOCKUP-CONTRACT.md.
     const ADDED = ["Mode", "By", "current", "off the bundle", "no access to the reports", "not imported", /^\d+ rows not listed$/, /^stale since \d{2}:\d{2}$/, /^\d+ missing(, \d+ differ)?$/, /^rule [\w-]+$/,
       /^(label|annotation|quota|limit) [\w./-]+: [\w-]+$/, /^(label|annotation) keys that no stanza declares: [\w-]+$/, /^\d+–\d+ of \d+ · (by namespace|newest first)$/, "0 results",
@@ -3786,42 +3802,352 @@ try {
     assert.deepEqual(errors, []);
   });
 
-  await check("7 the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width", async () => {
+  // Each view is its own check, with the same lines, so neither nears the 90 s limit (the precedent of #508 and #521; #537 measured
+  // the one check at 47.1 s in npm test).
+  {
     const VIEWS = [
       ["policies", async (page) => { await openPol(page); await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor(); }],
       ["policies-policy", async (page) => {
         await openPol(page, `#policies?cluster=CRC&policy=${policyFleet().items[0].policy}`);
+        await openPolicies(page);
         await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).waitFor();
       }]
     ];
-    let scans = 0;
     for (const [view, reach] of VIEWS) {
+      await check(`7 the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${view}`, async () => {
+        let scans = 0;
+        for (const width of [390, 820, 1440]) {
+          const { context, page, errors } = await fresh({ width });
+          await reach(page);
+          for (const theme of ["light", "dark"]) {
+            await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+            await settle(page);
+            assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+            const layout = await page.evaluate(() => {
+              const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+              return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+            });
+            assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+            assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
+            await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+            if (width !== 820) {
+              const scan = await new AxeBuilder({ page }).analyze();
+              scans++;
+              assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+            }
+          }
+          assert.deepEqual(errors, []);
+          await context.close();
+        }
+        console.log(`  ${view}: 3 widths, 2 themes, ${scans} axe scans`);
+      });
+    }
+  }
+
+  // #537, the owner's layout: the header pill, then Clusters, the failing resources and the refusals, each open, and Results by
+  // policy last and closed. Each section shows its count; Results by policy shows 25 rows a page with numbered pages, and 25, 50
+  // or 100 a page. The fleet has 80 policies, as CRC had on 2026-11-21 (ob1-run31, l5a-policies-1440-light-chrome.png).
+  const EIGHTY = () => policyFleetWith(80);
+  const SECTIONS = ["Clusters", "Failing, warning and erroring resources", "Refused by cmapi before Git · last 7 days", "Results by policy"];
+  const sectionsOf = (page) => panel(page).locator(".pf-v6-c-card").evaluateAll((cards) => cards.map((card) => ({
+    title: card.querySelector("h2")?.innerText, count: card.querySelector(".pf-v6-c-card__header .pf-v6-c-badge")?.innerText,
+    expanded: card.querySelector(".pf-v6-c-card__header-toggle button")?.getAttribute("aria-expanded") })));
+  const policyNames = (page) => page.locator("table[aria-label='Results by policy'] tbody tr td:first-child").allInnerTexts();
+  const policyPager = (page) => panel(page).getByRole("navigation", { name: "Results by policy pages" });
+  /** The page buttons as they read: "‹", each page ("…" for a gap), "›"; the current page in brackets. */
+  const pagesOf = (page) => policyPager(page).evaluate((nav) => [...nav.querySelectorAll("button, span[aria-hidden=true]")].map((el) => {
+    const text = el.innerText.trim();
+    return el.getAttribute("aria-current") === "page" ? `[${text}]` : text;
+  }));
+  const policyRange = (page) => polCard(page, "Results by policy").getByText(/^\d+–\d+ of \d+$/).innerText();
+  const themes = async (page, each) => {
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+      await each(theme);
+    }
+  };
+
+  await check("537-O the Policies sections in the owner's order, each with its count, and Results by policy closed until opened, at 390, 820 and 1440 px in each theme", async () => {
+    const fleet = EIGHTY();
+    for (const width of [390, 820, 1440]) {
+      const { context, page, errors } = await fresh({ width, policies: fleet });
+      await openPol(page);
+      await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
+      await themes(page, async (theme) => {
+        const where = `${width} ${theme}`;
+        assert.deepEqual(await sectionsOf(page), [
+          { title: "Clusters", count: String(fleet.clusters.length), expanded: "true" },
+          { title: SECTIONS[1], count: String(fleet.items.length), expanded: "true" },
+          { title: SECTIONS[2], count: String(api.state.rejections.length), expanded: "true" },
+          { title: SECTIONS[3], count: String(fleet.policies.length), expanded: "false" }], `${where}: the order, the counts and what is open`);
+        // The header pill stays above the sections.
+        const [pill, first] = await Promise.all([panel(page).getByText(/ failing · \d+ clusters? off the bundle$/).boundingBox(), polCard(page, "Clusters").boundingBox()]);
+        assert.ok(pill.y < first.y, `${where}: the pill is above Clusters`);
+        assert.equal(await page.locator("table[aria-label='Results by policy']").count(), 0, `${where}: Results by policy is closed`);
+        assert.equal(await panel(page).getByRole("group", { name: "Cluster" }).count(), 0, `${where}: the cluster filter is with Results by policy`);
+      });
+      await openPolicies(page);
+      assert.equal((await sectionsOf(page))[3].expanded, "true");
+      assert.equal((await policyNames(page)).length, 25, `${width}: page 1 has 25 rows`);
+      assert.equal(await panel(page).getByRole("group", { name: "Cluster" }).count(), 1, `${width}: the cluster filter shows with the list`);
+      // Closing a section keeps its count in the header.
+      await polToggle(page, "Clusters").click();
+      assert.deepEqual((await sectionsOf(page))[0], { title: "Clusters", count: String(fleet.clusters.length), expanded: "false" });
+      assert.equal(await page.locator("table[aria-label=Clusters]").count(), 0);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  await check("537-P Results by policy pages: 25 rows, page 2 is rows 26–50, 50 and 100 a page, page 1 again after a new cluster or page size, and a gap past seven pages", async () => {
+    const fleet = EIGHTY(), names = fleet.policies.map((p) => p.name);
+    for (const width of [390, 820, 1440]) {
+      const { context, page, errors } = await fresh({ width, policies: fleet });
+      await openPol(page);
+      await openPolicies(page);
+      await themes(page, async (theme) => {
+        const where = `${width} ${theme}`;
+        await policyPager(page).getByRole("button", { name: "Page 1", exact: true }).click();
+        assert.deepEqual(await policyNames(page), names.slice(0, 25), `${where}: page 1`);
+        assert.equal(await policyRange(page), "1–25 of 80");
+        assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "3", "4", "›"]);
+        assert.equal(await policyPager(page).getByRole("button", { name: "Previous page" }).getAttribute("aria-disabled"), "true", `${where}: no page before 1`);
+        await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click();
+        assert.deepEqual(await policyNames(page), names.slice(25, 50), `${where}: page 2 is rows 26–50`);
+        assert.equal(await policyRange(page), "26–50 of 80");
+        assert.deepEqual(await pagesOf(page), ["‹", "1", "[2]", "3", "4", "›"]);
+        await policyPager(page).getByRole("button", { name: "Next page" }).click();
+        assert.deepEqual(await policyNames(page), names.slice(50, 75), `${where}: Next is page 3`);
+        await policyPager(page).getByRole("button", { name: "Page 4", exact: true }).click();
+        assert.deepEqual(await policyNames(page), names.slice(75), `${where}: the last page`);
+        assert.equal(await policyRange(page), "76–80 of 80");
+        assert.equal(await policyPager(page).getByRole("button", { name: "Next page" }).getAttribute("aria-disabled"), "true", `${where}: no page after the last`);
+      });
+      // 50 a page starts at page 1, then 100 a page shows all 80 on one page.
+      await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "50", exact: true }).click();
+      assert.equal(await policyRange(page), "1–50 of 80", `${width}: a new page size starts at page 1`);
+      assert.deepEqual(await policyNames(page), names.slice(0, 50));
+      assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "›"]);
+      await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click();
+      assert.deepEqual(await policyNames(page), names.slice(50));
+      await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "100", exact: true }).click();
+      assert.deepEqual(await policyNames(page), names, `${width}: 100 a page`);
+      assert.deepEqual(await pagesOf(page), ["‹", "[1]", "›"]);
+      // A new cluster, from its chip or from the address, starts at page 1.
+      await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).click();
+      await policyPager(page).getByRole("button", { name: "Page 3", exact: true }).click();
+      await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click();
+      await page.waitForFunction(() => location.hash === "#policies?cluster=CRC");
+      assert.equal(await policyRange(page), "1–25 of 80", `${width}: a new cluster starts at page 1`);
+      assert.deepEqual(await policyNames(page), names.slice(0, 25));
+      await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click();
+      await page.evaluate(() => { location.hash = "#policies"; });
+      await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "All clusters", pressed: true }).waitFor();
+      assert.equal(await policyRange(page), "1–25 of 80", `${width}: a cluster changed in the address starts at page 1`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    // Past seven pages, the first and the last page stay, with the current page's neighbours and a gap.
+    const { context, page, errors } = await fresh({ policies: policyFleetWith(250) });
+    await openPol(page);
+    await openPolicies(page);
+    assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "3", "4", "5", "…", "10", "›"]);
+    await policyPager(page).getByRole("button", { name: "Page 5", exact: true }).click();
+    assert.deepEqual(await pagesOf(page), ["‹", "1", "…", "4", "[5]", "6", "…", "10", "›"]);
+    await policyPager(page).getByRole("button", { name: "Page 10", exact: true }).click();
+    assert.deepEqual(await pagesOf(page), ["‹", "1", "…", "6", "7", "8", "9", "[10]", "›"]);
+    assert.equal(await policyRange(page), "226–250 of 250");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("540-R switching clusters twice resets every time, including a smaller or empty policy list", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    await openPol(page);
+    await openPolicies(page);
+    for (const via of ["chip", "address"]) {
+      const clusterId = via === "chip" ? "CRC" : "OCP_GF6";
+      await policyPager(page).getByRole("button", { name: "Page 4", exact: true }).click();
+      api.state.policies = policyFleetWith(10);
+      if (via === "chip") await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: clusterId, exact: true }).click();
+      else await page.evaluate((id) => { location.hash = `#policies?cluster=${id}`; }, clusterId);
+      await polCard(page, "Results by policy").getByText("1–10 of 10", { exact: true }).waitFor();
+      assert.equal((await policyNames(page)).length, 10, `${via}: fewer pages than page 4`);
+      api.state.policies = EIGHTY();
+      // Do not page in CRC: that would overwrite the old cluster and mask the regression.
+      if (via === "chip") await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "All clusters", exact: true }).click();
+      else await page.evaluate(() => { location.hash = "#policies"; });
+      await polCard(page, "Results by policy").getByText("1–25 of 80", { exact: true }).waitFor();
+      assert.equal(await policyRange(page), "1–25 of 80", `${via}: returning to All clusters also resets`);
+    }
+    api.state.policies = policyFleetWith(0);
+    await page.evaluate(() => { location.hash = "#policies?cluster=OCP_GF10"; });
+    await panel(page).getByText("No policy runs in the environments of these clusters.", { exact: true }).waitFor();
+    assert.deepEqual(await policyNames(page), []);
+    assert.equal(await policyPager(page).count(), 0, "zero policies has an empty state, no phantom page");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("540-S chip wrapping stays scoped to chip strips in Policies and other cards", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    for (const hash of ["#policies", "#quotas"]) {
+      await open(page, hash);
+      if (hash === "#policies") {
+        await page.locator("table[aria-label=Clusters]").waitFor();
+        await openPolicies(page);
+      }
+      await panel(page).locator(".cp-wrap").first().waitFor();
+      const wraps = await panel(page).locator(".cp-wrap, .cp-wrap .cp-scroll").evaluateAll((els) => els.map((el) => ({
+        chips: el.classList.contains("cp-scroll"), wrap: getComputedStyle(el).overflowWrap
+      })));
+      assert.ok(wraps.some((w) => w.chips), `${hash}: exercise the shared Choices component`);
+      for (const w of wraps) assert.equal(w.wrap, w.chips ? "normal" : "anywhere", `${hash}: text outside chip strips keeps its wrapping`);
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("540-A every disclosure controls a persistent uniquely named region", async () => {
+    const { context, page, errors } = await fresh({ policies: EIGHTY() });
+    await openPol(page);
+    for (const title of SECTIONS) {
+      const toggle = polToggle(page, title);
+      const targetId = await toggle.getAttribute("aria-controls");
+      assert.ok(targetId, `${title}: aria-controls`);
+      const target = page.locator(`[id=${JSON.stringify(targetId)}]`);
+      assert.equal(await target.count(), 1, `${title}: one persistent target`);
+      assert.equal(await target.getAttribute("aria-labelledby"), await toggle.getAttribute("id"));
+      for (const key of ["Enter", "Space"]) {
+        await toggle.focus();
+        await page.keyboard.press(key);
+        const expanded = await toggle.getAttribute("aria-expanded") === "true";
+        assert.equal(await target.isVisible(), expanded, `${title}: ${key} synchronizes visibility`);
+        assert.equal(await target.count(), 1, `${title}: closing keeps the target`);
+      }
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("537-K the section toggles, the page buttons and the page sizes work from the keyboard, and focus stays on the button pressed, at 390, 820 and 1440 px in each theme", async () => {
+    const fleet = EIGHTY(), names = fleet.policies.map((p) => p.name);
+    for (const width of [390, 820, 1440]) {
+      const { context, page, errors } = await fresh({ width, policies: fleet });
+      await openPol(page);
+      await themes(page, async (theme) => {
+        const where = `${width} ${theme}`;
+        const toggle = polToggle(page, "Results by policy");
+        await toggle.focus();
+        await page.keyboard.press("Enter");
+        await page.locator("table[aria-label='Results by policy']").waitFor();
+        assert.equal(await toggle.getAttribute("aria-expanded"), "true", `${where}: Enter opens`);
+        await page.keyboard.press("Space");
+        await page.locator("table[aria-label='Results by policy']").waitFor({ state: "detached" });
+        assert.equal(await toggle.getAttribute("aria-expanded"), "false", `${where}: Space closes`);
+        await page.keyboard.press("Space");
+        await page.locator("table[aria-label='Results by policy']").waitFor();
+        // Tab moves from the toggle into the list, to its first chip.
+        await page.keyboard.press("Tab");
+        assert.equal(await page.evaluate(() => document.activeElement?.innerText), "All clusters", `${where}: Tab reaches the cluster filter`);
+        const two = policyPager(page).getByRole("button", { name: "Page 2", exact: true });
+        await two.focus();
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.querySelector("nav[aria-label='Results by policy pages'] [aria-current=page]")?.innerText === "2");
+        assert.deepEqual(await policyNames(page), names.slice(25, 50), `${where}: Enter on page 2`);
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Page 2", `${where}: focus stays on page 2`);
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Space");
+        assert.deepEqual(await policyNames(page), names.slice(50, 75), `${where}: Tab, then Space on page 3`);
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Page 3", `${where}: focus stays on page 3`);
+        await policyPager(page).getByRole("button", { name: "Previous page" }).focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await policyRange(page), "26–50 of 80", `${where}: Enter on Previous`);
+        await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "50", exact: true }).focus();
+        await page.keyboard.press("Space");
+        assert.equal(await policyRange(page), "1–50 of 80", `${where}: Space on 50`);
+        await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await policyRange(page), "1–25 of 80", `${where}: Enter on 25`);
+        await toggle.focus();
+        await page.keyboard.press("Enter");
+        await page.locator("table[aria-label='Results by policy']").waitFor({ state: "detached" });
+      });
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
+
+  // The committed screenshots are the pull request's evidence, captured once: a run writes them only when asked to (#530).
+  const shots537 = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "537-policies-paged", "after") : join(out, "537-policies-paged");
+  mkdirSync(shots537, { recursive: true });
+  // [state, how to reach it, the fleet's policies]: 250 policies are 10 pages; the last has the widest row of page buttons (‹ 1 … 6 7 8 9 10 ›).
+  const LAYOUT_537 = [
+    ["closed", async () => {}, 80],
+    ["open-page-2", async (page) => { await openPolicies(page); await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click(); }, 80],
+    ["open-100", async (page) => { await openPolicies(page, 100); }, 80],
+    ["open-page-10-of-10", async (page) => { await openPolicies(page); await policyPager(page).getByRole("button", { name: "Page 10", exact: true }).click(); }, 250]
+  ];
+  /** The words of the chip labels that break over two lines (#538): each word's range has one line box. A chip may wrap between words. */
+  const brokenChips = (page) => panel(page).locator(".pf-v6-c-toggle-group__text").evaluateAll((spans) => spans.flatMap((span) => {
+    const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT), broken = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      for (const word of node.nodeValue.matchAll(/\S+/g)) {
+        const range = document.createRange();
+        range.setStart(node, word.index);
+        range.setEnd(node, word.index + word[0].length);
+        if (new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))).size > 1) broken.push(word[0]);
+      }
+    }
+    return broken;
+  }));
+  const outsideCards = (page) => panel(page).locator(".pf-v6-c-card").evaluateAll((cards) => cards.flatMap((card) => {
+    const box = card.getBoundingClientRect();
+    return [...card.querySelectorAll("*")].filter((el) => !el.closest(".pf-v6-c-scroll-inner-wrapper, .cp-scroll") || el.matches(".pf-v6-c-scroll-inner-wrapper, .cp-scroll"))
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.left < box.left - 1 || r.right > box.right + 1); })
+      .map((el) => `${card.querySelector("h2")?.innerText}: ${el.localName}.${[...el.classList].join(".")} ${el.getAttribute("aria-label") ?? el.innerText?.slice(0, 20)}`);
+  }));
+  for (const [state, reach, count] of LAYOUT_537) {
+    await check(`537-L the Policies tab at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${state}`, async () => {
+      let scans = 0;
+      const heights = {};
       for (const width of [390, 820, 1440]) {
-        const { context, page, errors } = await fresh({ width });
+        const { context, page, errors } = await fresh({ width, policies: policyFleetWith(count) });
+        await openPol(page);
+        await page.locator("table[aria-label='Refused by cmapi'] tbody tr").first().waitFor();
         await reach(page);
-        for (const theme of ["light", "dark"]) {
-          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+        assert.deepEqual(await brokenChips(page), [], `${state} ${width}: no chip's label breaks inside a word`);
+        // The page's main container scrolls, not the document: the window grows to the tallest element, as in 484-L.
+        const height = await page.evaluate(() => Math.max(...[...document.querySelectorAll("*")].map((el) => el.scrollHeight)));
+        heights[width] = height;
+        await page.setViewportSize({ width, height: height + 200 });
+        await themes(page, async (theme) => {
           await settle(page);
-          assert.equal(await running(page), 0, `${view} ${width} ${theme}: no colour transition still runs when the page is read`);
+          assert.equal(await running(page), 0, `${state} ${width} ${theme}: no colour transition still runs when the page is read`);
           const layout = await page.evaluate(() => {
             const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
             return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
           });
-          assert.ok(layout.doc <= 0 && layout.main <= 0, `${view} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
-          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object/, `${view} ${width} ${theme}: no leftover placeholder`);
-          await page.screenshot({ path: join(out, `${view}-${width}-${theme}.png`), fullPage: true });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${state} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object|null/, `${state} ${width} ${theme}: no leftover placeholder`);
+          // A card can hide what sticks out of it, which the page's scroll width does not see: nothing in a section reaches past its
+          // card, but in a table's or a chip strip's own scroll area.
+          assert.deepEqual(await outsideCards(page), [], `${state} ${width} ${theme}: everything stays inside its card`);
+          // As 484-L: 1440 and 390 are the evidence, 820 goes to test-output.
+          await page.screenshot({ path: join(width === 820 ? out : shots537, width === 820 ? `537-${state}-${width}-${theme}.png` : `${state}-${width}-${theme}.png`), fullPage: true });
           if (width !== 820) {
             const scan = await new AxeBuilder({ page }).analyze();
             scans++;
-            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${view} at ${width} ${theme}`);
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${state} at ${width} ${theme}`);
           }
-        }
+        });
         assert.deepEqual(errors, []);
         await context.close();
       }
-    }
-    console.log(`  ${VIEWS.length} views, 3 widths, 2 themes, ${scans} axe scans`);
-  });
+      console.log(`  ${state}: 3 widths, 2 themes, ${scans} axe scans; the tab's height ${JSON.stringify(heights)} px`);
+    });
+  }
 
   // Portal slice 4, the Capacity part (#302). The fleet is CRC as the arbitration says it must show, a second dev cluster, and a
   // cluster in each other state of the API. Each expectation is written from the mockup's forms (CAPACITY, the capacity view of

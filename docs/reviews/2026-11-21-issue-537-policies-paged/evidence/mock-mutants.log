@@ -1,0 +1,9 @@
+killed   Results by policy starts open (logic.test.mjs): AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+killed   a new cluster keeps the page (logic.test.mjs): AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+SURVIVED a new page size keeps the page (logic.test.mjs)
+killed   no gap past seven pages (logic.test.mjs): AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+killed   the toggle does not say it is open (interactions.test.mjs): AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+killed   page 2 shows page 1 (interactions.test.mjs): AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+ 1 file changed, 105 insertions(+), 38 deletions(-)
+killed   a new page size keeps the page (logic.test.mjs): AssertionError [ERR_ASSERTION]: a new page size starts at page 1
+ 1 file changed, 105 insertions(+), 38 deletions(-)

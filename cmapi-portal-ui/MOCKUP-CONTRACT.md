@@ -277,6 +277,8 @@ arbitration are in `docs/reviews/2026-11-17-issue-302-policies/`.
 | The stages are "plan (422)", "plan, warned" and "CI" | The API stores Kyverno's warnings on a plan that went on to a request as `warned` (design B, D7) |
 | With `policy.engine: none`, an info callout "Kyverno is off on this instance" and the refusals only | The owner, #302 |
 | No "Replay a policy rejection" | It opens a sample scenario of the mockup |
+| Each section's toggle is PatternFly's expandable Card toggle beside the title, named by the title and its count; the page shown is a primary button | PatternFly's card accessibility (#537, `docs/reviews/2026-11-21-issue-537-policies-paged/decisions.md`). The mockup has a disclosure button in the heading and an outlined current page; the words, the order, the counts and what is open are the same |
+| Results by policy is paged in the browser, and its page and page size are not in the address | The API gives every policy in one answer (#537); as the cursors, the page belongs to one view, and a new cluster or page size starts at page 1 |
 
 ### Where the portal's Capacity tab differs from the mockup
 
@@ -356,7 +358,7 @@ Consequences in the demo build:
 | Expiration | `xstate`, `xenv`, `xq`, `xcursor`, `xsel`, `xact`, `xuntil`, `xsent` | `exp`: `GET /api/v1/expirations`; the change: `POST .../expiration:extend`, `:set`, `:makePermanent` | Extend, set a date, make permanent |
 | Requests | `filter`, `rq`, `rcursor` | `requests`: `GET /api/v1/requests` (with `state=`, `q=` and `cursor=`) | Open at current step, replay |
 | Approvals | `apvDone`, `apvRejecting`, `apvComment` | `apv`: approvals on `/api/v1/requests` | Approve, reject with a reason, open |
-| Policies | `pcluster`, `ppolicy` | `pol`: `GET /api/v1/policies/results`, `GET /api/v1/policies/rejections?since=7d` | Choose cluster, choose policy |
+| Policies | `pcluster`, `ppolicy`, `popenClusters`, `popenFails`, `popenRefused`, `popenPolicies`, `ppage`, `prows` (#537) | `pol`: `GET /api/v1/policies/results`, `GET /api/v1/policies/rejections?since=7d` | Choose cluster, choose policy, open or close a section, choose a page of Results by policy, 25, 50 or 100 a page |
 | Capacity | none | `groups`, `clusters`: `GET /api/v1/capacity` (live from the watch; the snapshots of #21 fill usage and history later) | None |
 | KPIs | none | `sys`, `db`, `kpis`, `dashboards`: `GET /api/v1/admin/kpi` | None |
 

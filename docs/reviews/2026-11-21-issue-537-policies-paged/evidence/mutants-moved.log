@@ -1,0 +1,2 @@
+ok   a list of policies of the page's own - killed: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 
+1 mutants, 1 killed, 0 survived, 0 unverified. The source is restored and the portal is built again.
