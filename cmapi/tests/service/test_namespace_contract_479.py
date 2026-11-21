@@ -384,8 +384,9 @@ def test_the_namespace_says_the_keys_that_start_and_end_it(design_world):
     namespace = create_schema(client.get("/openapi.json").json())["properties"]["namespace"]
     assert namespace["x-cmapi-prefix-from"] == "company.net/mnemonic"
     assert namespace["x-cmapi-suffix-from"] == "company.net/app-environment"
-    assert "`<company.net/mnemonic>-<desired name>-<company.net/app-environment>`" in namespace["description"]
-    assert "`<company.net/mnemonic>-<company.net/app-environment>` for a team-wide namespace" in namespace["description"]
+    assert ("`<company.net/mnemonic>-<desired name>-<company.net/app-environment>` or "
+            "`<company.net/mnemonic>-<company.net/app-environment>` for a team-wide namespace, at most 63 characters") \
+        in namespace["description"]
     # The example cluster CRC is dev, though the instance serves rnd first: "Try it out" on CRC must be accepted.
     assert namespace["examples"] == ["abc-payments-dev"]
 
