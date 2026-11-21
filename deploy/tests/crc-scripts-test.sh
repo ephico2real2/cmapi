@@ -6,7 +6,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=$(cd "${1:-$HERE/..}" && pwd); W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fails=0; bad() { echo "  FAIL $*"; fails=$((fails+1)); }; ok() { echo "  ok   $*"; }
 want() { local label=$1 rc=$2 got=$3; if [ "$got" = "$rc" ]; then ok "$label"; else bad "$label: rc $got, not $rc"; fi; }
-REAL_KUBECTL=$(command -v kubectl) || { echo "kubectl is needed: the stub renders the API's answers with its jsonpath"; exit 1; }; export REAL_KUBECTL
+REAL_KUBECTL=$(command -v kubectl) || { echo "kubectl is needed: the stub renders the API's answers with its output templates"; exit 1; }; export REAL_KUBECTL
 TOKEN=sha256~stub-token-value-never-to-be-seen; SECRETVAL=stub-client-secret-never-to-be-seen; DUMP_MARK=stub-dump-content-never-to-be-seen
 mkdir -p "$W/bin" "$W/repo/deploy" "$W/repo/examples"; cp "$SRC"/crc-*.sh "$W/repo/deploy/"; cp -R "$SRC/manifests" "$W/repo/deploy/"; cp -R "$SRC/../examples/cmapi-sso" "$W/repo/examples/"; export ARGV_LOG=$W/argv.log TOKEN SECRETVAL DUMP_MARK
 mkdir -p "$W/repo/cmapi/src/cmapi/core"
@@ -24,16 +24,16 @@ cat >"$W/bin/oc" <<'OC'
 #!/usr/bin/env bash
 printf 'oc %s\n' "$*" >>"$ARGV_LOG"
 s="$*"
-# The object as the API returns it, printed with the caller's -o jsonpath=... by the real client: no cluster, no kubeconfig.
+# The object as the API returns it, printed with the caller's output template by the real client: no cluster, no kubeconfig.
 render() { KUBECONFIG=/dev/null "$REAL_KUBECTL" label --local -f "$1" cmapi-stub=1 -o "$2"; }
 case "$s" in
   "get secret keycloak-tls -n keycloak -o jsonpath={.data.ca\.crt}") base64 <"$STUB_CA"; exit 0;;
   "get cm default-ingress-cert"*) cat "$STUB_INGRESS"; exit 0;;
   # crc-image.sh (#545): the pull secret's type, GHCR's answer through the cluster's importer, the import, and the image stream tag. Each answer
-  # is the object the API returns, rendered with the script's own jsonpath by a real kubectl, offline, so a wrong path in the script fails here.
+  # is the object the API returns, rendered with the script's own output template by a real kubectl, offline, so a wrong path in the script fails here.
   "get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}") [ -n "${STUB_NO_PULL_SECRET:-}" ] || printf '%s' "${STUB_PULL_SECRET_TYPE:-kubernetes.io/dockerconfigjson}"; exit 0;;
-  "create -f - -o jsonpath="*) python3 "$STUB_IMAGES_PY" isi >"$ARGV_LOG.response" || exit 1; render "$ARGV_LOG.response" "${*: -1}"; exit;;
-  "import-image cmapi:sha-"*|"import-image cmapi-portal:sha-"*) [ "${STUB_IMPORT_RC:-0}" = 0 ] || { echo "error: tag failed: stub" >&2; exit "$STUB_IMPORT_RC"; }
+  "create -f - -o jsonpath="*|"create -f - -o go-template="*) [ -z "${STUB_CREATE_ERROR:-}" ] || { echo "$STUB_CREATE_ERROR" >&2; exit 1; }; python3 "$STUB_IMAGES_PY" isi >"$ARGV_LOG.response" || exit 1; render "$ARGV_LOG.response" "${*: -1}"; exit;;
+  "import-image cmapi:sha-"*|"import-image cmapi-portal:sha-"*) [ "${STUB_IMPORT_RC:-0}" = 0 ] || { echo "error: tag failed: ${STUB_REGISTRY_ERROR:-stub}" >&2; exit "$STUB_IMPORT_RC"; }
     printf '%s\n' "$@" >"$ARGV_LOG.imported"; echo "imagestream.image.openshift.io/stub imported"; exit 0;;
   "get istag cmapi:sha-"*|"get istag cmapi-portal:sha-"*)
     if python3 "$STUB_IMAGES_PY" istag "$3" >"$ARGV_LOG.response"; then render "$ARGV_LOG.response" "${*: -1}"; exit; fi
@@ -147,12 +147,12 @@ if sys.argv[1] == "isi":
     req = json.load(sys.stdin); json.dump(req, open(log + ".isi", "w"))
     ref = req["spec"]["images"][0]["from"]["name"]; mode = e("STUB_GHCR", "found")
     if mode == "found":
-        st = {"metadata": {}, "status": "Success"}; img = image(e("STUB_GHCR_DIGEST", "sha256:aaaa"), e("STUB_GHCR_LABEL", commit))
+        st = {"metadata": {}, "status": "Success"}; img = image(e("STUB_GHCR_DIGEST", os.environ["IMAGE_DIGEST"]), e("STUB_GHCR_LABEL", commit))
         img["dockerImageReference"] = ref.rsplit(":", 1)[0] + "@" + img["metadata"]["name"]
     elif mode == "missing":
         st = {"metadata": {}, "status": "Failure", "reason": "NotFound", "code": 404, "message": 'dockerimage.image.openshift.io "%s" not found' % ref}; img = None
     else:
-        st = {"metadata": {}, "status": "Failure", "reason": "Unauthorized", "code": 401, "message": 'you may not have access to the container image "%s"' % ref}; img = None
+        st = {"metadata": {}, "status": "Failure", "reason": "Unauthorized", "code": 401, "message": e("STUB_REGISTRY_ERROR", 'you may not have access to the container image "%s"' % ref)}; img = None
     req["status"] = {"images": [{"tag": "", "status": st, **({"image": img} if img else {})}]}
     json.dump(req, sys.stdout); raise SystemExit
 name = sys.argv[2] if len(sys.argv) > 2 else "cmapi:sha-x"
@@ -295,22 +295,23 @@ if grep -rqE -- '(^|[^-])(-k |--insecure|--tls-verify=false)' "$D"/crc-*.sh; the
 
 # crc-image.sh (#545): CI's image, imported by digest; nothing built or pushed from here.
 irun() { rm -f "$ARGV_LOG.imported" "$ARGV_LOG.isi"; run "$@"; }
+IMAGE_DIGEST=sha256:$(printf '%064d' 1); export IMAGE_DIGEST
 HEAD10=$(git rev-parse --short=10 HEAD)
 built() { if grep -qE '^(podman|skopeo|docker|buildah) ' "$ARGV_LOG"; then bad "$1: an image tool ran: $(grep -E '^(podman|skopeo|docker|buildah) ' "$ARGV_LOG" | head -1)"; else ok "$1: no podman, skopeo, docker or buildah"; fi; }
 imported() { if [ -e "$ARGV_LOG.imported" ]; then bad "$1: it imported"; else ok "$1: and imports nothing"; fi; }
 want "image: imports CI's image and prints" 0 "$(irun "$D/crc-image.sh")"
-tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa' && ok "the last line is GHCR's digest, in the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
+tail -1 "$W/out" | grep -qxF "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@$IMAGE_DIGEST" && ok "the last line is GHCR's digest, in the reference render.sh takes" || bad "the image line: $(tail -1 "$W/out")"
 built "image"; no_secret "$W/out" "image"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); i=d["spec"]["images"][0]["from"]; sys.exit(0 if d["kind"]=="ImageStreamImport" and d["spec"]["import"] is False and d["metadata"]["namespace"]=="cmapi" and i=={"kind":"DockerImage","name":"ghcr.io/ephico2real2/cmapi:sha-"+sys.argv[2]} else 1)' "$ARGV_LOG.isi" "$HEAD10" \
   && ok "GHCR's sha-<commit> is resolved with import: false" || bad "the lookup: $(cat "$ARGV_LOG.isi")"
-grep -qxF -e '--from=ghcr.io/ephico2real2/cmapi@sha256:aaaa' "$ARGV_LOG.imported" && grep -qxF -e '--reference-policy=local' "$ARGV_LOG.imported" && grep -qxF "cmapi:sha-$HEAD10" "$ARGV_LOG.imported" \
+grep -qxF -e "--from=ghcr.io/ephico2real2/cmapi@$IMAGE_DIGEST" "$ARGV_LOG.imported" && grep -qxF -e '--reference-policy=local' "$ARGV_LOG.imported" && grep -qxF "cmapi:sha-$HEAD10" "$ARGV_LOG.imported" \
   && ok "the import is of that digest, never the tag, with referencePolicy local" || bad "the import: $(tr '\n' ' ' <"$ARGV_LOG.imported")"
 if grep -qE '^oc (whoami -t|get route default-route|get cm default-ingress-cert)' "$ARGV_LOG"; then bad "image: it read a token or the registry's route"; else ok "image: no session token and no registry route"; fi
 grep -q '^oc get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}$' "$ARGV_LOG" && ! grep -E '^oc get secret' "$ARGV_LOG" | grep -qv 'jsonpath={.type}$' \
   && ok "image: the pull secret's type is read, never a value" || bad "image: the secret reads: $(grep '^oc get secret' "$ARGV_LOG")"
 want "image cmapi-portal: imports and prints" 0 "$(irun "$D/crc-image.sh" cmapi-portal)"
-tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:aaaa' && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
-grep -qxF -e '--from=ghcr.io/ephico2real2/cmapi-portal@sha256:aaaa' "$ARGV_LOG.imported" && grep -qxF "cmapi-portal:sha-$HEAD10" "$ARGV_LOG.imported" && ok "into its own image stream, from its own package" || bad "the portal import: $(tr '\n' ' ' <"$ARGV_LOG.imported")"
+tail -1 "$W/out" | grep -qxF "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@$IMAGE_DIGEST" && ok "the last line is the front door's reference" || bad "the portal image line: $(tail -1 "$W/out")"
+grep -qxF -e "--from=ghcr.io/ephico2real2/cmapi-portal@$IMAGE_DIGEST" "$ARGV_LOG.imported" && grep -qxF "cmapi-portal:sha-$HEAD10" "$ARGV_LOG.imported" && ok "into its own image stream, from its own package" || bad "the portal import: $(tr '\n' ' ' <"$ARGV_LOG.imported")"
 built "image cmapi-portal"
 want "image: an unknown name stops" 2 "$(irun "$D/crc-image.sh" cmapi-other)"; if grep -q . "$ARGV_LOG"; then bad "an unknown name called $(head -1 "$ARGV_LOG")"; else ok "and calls nothing"; fi
 want "image: no image for this commit in GHCR stops" 1 "$(STUB_GHCR=missing irun "$D/crc-image.sh")"; imported "no image"; built "no image"
@@ -321,16 +322,31 @@ want "image: no pull secret stops" 1 "$(STUB_NO_PULL_SECRET=1 irun "$D/crc-image
 grep -q 'Secret cmapi-ghcr-pull is not in namespace cmapi' "$W/out" && ok "and says the owner creates it" || bad "the no-secret message: $(cat "$W/out")"
 if grep -q '^oc create' "$ARGV_LOG"; then bad "no pull secret: it asked GHCR anyway"; else ok "no pull secret: and asks GHCR nothing"; fi
 want "image: a pull secret of another type stops" 1 "$(STUB_PULL_SECRET_TYPE=Opaque irun "$D/crc-image.sh")"; imported "an Opaque secret"
+for invalid in sha256: sha256:abcd "${IMAGE_DIGEST}0" "${IMAGE_DIGEST%?}z"; do
+  want "image: malformed GHCR digest $invalid stops" 1 "$(STUB_GHCR_DIGEST="$invalid" irun "$D/crc-image.sh")"
+  imported "malformed digest"
+done
 want "image: an image stream digest that is not GHCR's stops" 1 "$(STUB_REGISTRY_DIGEST=sha256:bbbb irun "$D/crc-image.sh")"
-grep -q 'holds sha256:bbbb, GHCR.s is sha256:aaaa' "$W/out" && ok "and names both digests" || bad "the digest message: $(cat "$W/out")"
+grep -qF "holds sha256:bbbb, GHCR's is $IMAGE_DIGEST" "$W/out" && ok "and names both digests" || bad "the digest message: $(cat "$W/out")"
 want "image: an image stream revision label that is not this commit stops" 1 "$(STUB_LABEL=other irun "$D/crc-image.sh")"
 want "image: GHCR's image labelled with another commit stops before the import" 1 "$(STUB_GHCR_LABEL=other irun "$D/crc-image.sh")"; imported "GHCR's label"
+wrong_label="$HEAD10"$'\nextra'
+want "image: the whole GHCR label must match" 1 "$(STUB_GHCR_LABEL="$wrong_label" irun "$D/crc-image.sh")"; imported "multiline GHCR label"
+want "image: the whole stream label must match" 1 "$(STUB_LABEL="$wrong_label" irun "$D/crc-image.sh")"
+want "image: a failed lookup stops" 1 "$(STUB_CREATE_ERROR="error: You must be logged in to the server (Unauthorized)" irun "$D/crc-image.sh")"; imported "failed lookup"
+grep -qF "You must be logged in to the server" "$W/out" && ok "and shows oc's own reason" || bad "the failed-lookup message: $(cat "$W/out")"
+want "image: a registry error is safe to log" 1 "$(STUB_GHCR=denied STUB_REGISTRY_ERROR="$SECRETVAL" irun "$D/crc-image.sh")"
+no_secret "$W/out" "registry error"
 want "image: an imported tag whose reference policy is not Local stops" 1 "$(STUB_IMPORT_POLICY=Source irun "$D/crc-image.sh")"
-want "image: a failed import stops" 1 "$(STUB_IMPORT_RC=1 irun "$D/crc-image.sh")"
-want "image: an existing tag holding GHCR's digest is reused" 0 "$(STUB_ISTAG="sha256:aaaa|Local|$HEAD10" irun "$D/crc-image.sh")"; imported "reused"
-tail -1 "$W/out" | grep -qxF 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa' && ok "and printed" || bad "the reused line: $(tail -1 "$W/out")"
+want "image: a failed import stops" 7 "$(STUB_IMPORT_RC=7 STUB_REGISTRY_ERROR="$SECRETVAL" irun "$D/crc-image.sh")"
+no_secret "$W/out" "failed import"
+want "image: an existing tag holding GHCR's digest is reused" 0 "$(STUB_ISTAG="$IMAGE_DIGEST|Local|$HEAD10" irun "$D/crc-image.sh")"; imported "reused"
+tail -1 "$W/out" | grep -qxF "image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@$IMAGE_DIGEST" && ok "and printed" || bad "the reused line: $(tail -1 "$W/out")"
 want "image: an existing tag of this commit built elsewhere stops" 1 "$(STUB_ISTAG="sha256:cccc||$HEAD10" irun "$D/crc-image.sh")"; imported "built elsewhere"
 grep -q 'oc delete istag cmapi:sha-' "$W/out" && ok "and says how to clear it" || bad "the stale-tag message: $(cat "$W/out")"
+printf 'broken index' >"$W/invalid-index"
+want "image: git status failing stops" 128 "$(GIT_INDEX_FILE="$W/invalid-index" irun "$D/crc-image.sh")"
+if [ -s "$ARGV_LOG" ]; then bad "failed status: contacted the cluster"; else ok "failed status: no cluster call"; fi
 printf x >>cmapi/pyproject.toml; git add -A >/dev/null; want "image: a dirty tree stops" 1 "$(irun "$D/crc-image.sh")"; git -c user.email=t@t -c user.name=t commit -q -m t2
 
 # crc-reader-import.sh

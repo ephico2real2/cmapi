@@ -168,9 +168,24 @@ GHCR takes only a classic token ("GitHub Packages only supports authentication u
 The token goes from the clipboard to the Secret on stdin, as `cmapi-git-bot`'s does: on no command line, in no shell history and on no screen. Put the token's account in place of `<github-user>`:
 
 ```bash
-pbpaste | tr -d '\r\n' | python3 -c 'import base64,json,sys; print(json.dumps({"auths": {"ghcr.io": {"auth": base64.b64encode((sys.argv[1] + ":" + sys.stdin.read()).encode()).decode()}}}))' '<github-user>' \
-  | oc create secret generic cmapi-ghcr-pull -n cmapi --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=/dev/stdin
-pbcopy </dev/null
+(
+  set -eu
+  trap 'pbcopy </dev/null || exit 1' EXIT
+  python3 - '<github-user>' <<'PY'
+import base64, json, subprocess, sys
+
+token = subprocess.check_output(["pbpaste"]).rstrip(b"\r\n")
+if not token:
+    sys.exit("Copy the read-only GHCR token before creating the Secret.")
+auth = base64.b64encode(sys.argv[1].encode() + b":" + token).decode()
+config = json.dumps({"auths": {"ghcr.io": {"auth": auth}}})
+subprocess.run(
+    ["oc", "create", "secret", "generic", "cmapi-ghcr-pull", "-n", "cmapi",
+     "--type=kubernetes.io/dockerconfigjson", "--from-file=.dockerconfigjson=/dev/stdin"],
+    input=config.encode(), check=True,
+)
+PY
+)
 ```
 
 A new token: `oc delete secret cmapi-ghcr-pull -n cmapi`, then the same lines. `crc-image.sh` asks for the Secret even if the packages are later made public.

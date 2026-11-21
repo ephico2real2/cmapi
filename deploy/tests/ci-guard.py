@@ -47,15 +47,34 @@ check([n for n, j in ci["jobs"].items() if "permissions" in j] == ["images"], "i
 check(bool(isteps) and all(re.search(r"@[0-9a-f]{40}$", s["uses"]) for s in isteps if "uses" in s), "images: actions by full SHA")
 ico = next((s for s in isteps if s.get("uses", "").startswith("actions/checkout")), {})
 check((ico.get("with") or {}).get("persist-credentials") is False, "images: persist-credentials: false")
-check((images.get("env") or {}).get("PUSH") == "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}", "images: PUSH means a push to main, never a pull request")
-bw = next((s for s in isteps if s.get("uses", "").startswith("docker/build-push-action")), {}).get("with") or {}
-check(bw.get("push") == "${{ env.PUSH == 'true' }}", "images: the build pushes only when PUSH")
+publish_if = "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ephico2real2/cmapi'"
+check(images.get("if") == publish_if, "only a main push in the upstream repository starts the write-enabled job")
+pr = ci["jobs"].get("images-pr", {})
+check(pr.get("if") == "github.event_name == 'pull_request'" and "permissions" not in pr, "PR builds inherit contents: read")
+matrix = (images.get("strategy") or {}).get("matrix", {}).get("include", [])
+check({entry["name"] for entry in matrix} == {"cmapi", "cmapi-portal"} and pr.get("strategy") == images.get("strategy"), "PR and publisher build both images")
+def build_step(steps):
+    return next((s for s in steps if s.get("uses", "").startswith("docker/build-push-action@")), {})
+pr_build = build_step(pr.get("steps", [])).get("with", {})
+check(pr_build.get("push") is False and "outputs" not in pr_build, "PR builds have no registry export")
+bw = build_step(isteps).get("with", {})
+check(bw.get("outputs") == "type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true"
+      and "tags" not in bw, "the build exports by digest before making a deployable tag")
 check(bw.get("provenance") is False and bw.get("sbom") is False, "images: no buildx attestations, so a tag is one manifest")
 check(bw.get("platforms") == "linux/amd64", "images: linux/amd64, CRC's platform")
 check(all(a in bw.get("build-args", "") for a in ("GIT_COMMIT=${{ steps.meta.outputs.commit }}", "BUILD_VERSION=${{ steps.meta.outputs.version }}")), "images: the build args of the revision label and the version")
 check("commit=$(git rev-parse --short=10 HEAD)" in "\n".join(s.get("run", "") for s in isteps), "images: the commit is the 10-character one crc-image.sh and crc-proof.sh compare")
-gated = [s for s in isteps if s.get("uses", "").split("@")[0] in ("docker/login-action", "actions/attest") or s.get("name", "").startswith("GHCR holds")]
-check(len(gated) == 3 and all(s.get("if") == "env.PUSH == 'true'" for s in gated), "images: the sign-in, the registry check and the attestation run only when PUSH")
 attest = next((s for s in isteps if s.get("uses", "").startswith("actions/attest@")), {}).get("with") or {}
 check(attest.get("subject-digest") == "${{ steps.build.outputs.digest }}" and attest.get("subject-name") == "${{ env.IMAGE }}", "images: the attestation is of the pushed digest")
+verify = next((s for s in isteps if "imagetools inspect" in s.get("run", "")), {})
+verify_run = verify.get("run", "")
+check('ref="$IMAGE@$DIGEST"' in verify_run and verify_run.count('imagetools inspect "$ref"') == 2
+      and verify.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}",
+      "the descriptor and label are read from the same pushed digest")
+sign = next((s for s in isteps if s.get("uses", "").startswith("actions/attest@")), {})
+publish = next((s for s in isteps if "imagetools create" in s.get("run", "")), {})
+check(bool(sign and verify and publish) and isteps.index(build_step(isteps)) < isteps.index(verify) < isteps.index(sign) < isteps.index(publish)
+      and 'imagetools create --prefer-index=false --tag "$tag" "$IMAGE@$DIGEST"' in publish["run"]
+      and publish.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}" and "if" not in publish,
+      "only a verified, successfully attested digest becomes the deployment tag")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)
