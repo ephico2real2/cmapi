@@ -14,6 +14,7 @@ k create ns sect1 >/dev/null 2>&1 || true; k create ns sect2 >/dev/null 2>&1 || 
 # run of this harness split it and secrets.sh refused "--kubeconfig=..." as an unknown argument).
 A=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --no-issuer-check)
 B=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-issuer-check)
+# Bash reads the freshly written mutant without execing it (ETXTBSY in the threaded harness).
 S="$HERE/secrets.sh"
 T=$(mktemp); ALL=$(mktemp); VALUES=$(mktemp); W=$(mktemp -d)
 trap 'rm -rf "$T" "$ALL" "$VALUES" "$W"; k delete ns sect1 sect2 --wait=false >/dev/null 2>&1' EXIT
@@ -51,11 +52,11 @@ WRAP
 chmod +x "$W/kubectl-failing"
 runf() { # the reads named in $1 fail; the writes still work
   local reads=$1; shift
-  FAIL_READS="$reads" "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$W/kubectl-failing" --no-ldap-bind --no-issuer-check "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+  FAIL_READS="$reads" bash "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$W/kubectl-failing" --no-ldap-bind --no-issuer-check "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
 h() { k get secret cmapi-keycloak -n sect1 -o json 2>/dev/null | python3 -c 'import sys,json,hashlib; d=json.load(sys.stdin)["data"]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:12])' 2>/dev/null || echo none; }
 fails=0
-run() { "$S" "${A[@]}" "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
-runb() { "$S" "${B[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+run() { bash "$S" "${A[@]}" "$@" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+runb() { bash "$S" "${B[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
 same() { # label, expected, actual
   [ "$2" = "$3" ] || { echo "  FAIL $1: expected $2, got $3"; fails=$((fails+1)); }; }
 said() { # label, text the last run must have printed. The rc alone cannot tell which guard stopped it.
@@ -184,9 +185,9 @@ CURL
 chmod +x "$W/bin/curl"; export CURL_LOG="$W/curl.log"; : >"$CURL_LOG"
 printf 'not a real CA\n' >"$W/ca.pem"
 I=(--namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer https://kc.test/realms/cmapi --ca-file "$W/ca.pem")
-runi() { PATH="$W/bin:$PATH" ISSUER_CODE=$1 ISSUER_BODY=$2 ISSUER_RC=${3:-0} "$S" "${I[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
+runi() { PATH="$W/bin:$PATH" ISSUER_CODE=$1 ISSUER_BODY=$2 ISSUER_RC=${3:-0} bash "$S" "${I[@]}" >"$T" 2>&1; local rc=$?; cat "$T" >>"$ALL"; echo "rc=$rc $(tail -1 "$T" | cut -c1-140)"; }
 k delete secret cmapi-keycloak cmapi-keys -n sect1 >/dev/null 2>&1; k delete secret cmapi-realm-secrets -n sect2 >/dev/null 2>&1
-r=$("$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind >"$T" 2>&1; echo "rc=$? $(tail -1 "$T")"); expect "11a neither --issuer nor --no-issuer-check stops" 2 "$r"; none_written 11a
+r=$(bash "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind >"$T" 2>&1; echo "rc=$? $(tail -1 "$T")"); expect "11a neither --issuer nor --no-issuer-check stops" 2 "$r"; none_written 11a
 r=$(runi 200 '{"realm":"cmapi","public_key":"x"}'); expect "11b the realm exists, both Secrets gone: stops" 1 "$r"; said "11b it says so" "exists at"; none_written 11b
 r=$(runi 503 '<html>Application is not available</html>'); expect "11c a router's 503 during a restart is not absent" 1 "$r"; said "11c it cannot tell" "cannot tell"; none_written 11c
 r=$(runi 404 '<html>not found</html>'); expect "11d a 404 that is not Keycloak's is not absent" 1 "$r"; said "11d it cannot tell" "cannot tell"; none_written 11d
@@ -197,7 +198,7 @@ grep -q -- '--cacert' "$CURL_LOG" || { echo "  FAIL 11: the CA file was not used
 if grep -qE -- '(^| )(-k|--insecure)( |$)' "$CURL_LOG"; then echo "  FAIL 11: TLS verification was turned off"; fails=$((fails+1)); fi
 # Keycloak's own 404 is what a request for any other realm gets too, so the URL itself has to name this realm. The curl stub would say "absent" to each.
 for bad in https://kc.test/realms/not-cmapi https://kc.test/realms/cmapi/ 'https://kc.test/realms/not-cmapi?x=/realms/cmapi' 'https://kc.test/realms/not-cmapi#/realms/cmapi' http://kc.test/realms/cmapi https://kc.test/x/realms/cmapi; do
-  : >"$CURL_LOG"; r=$(PATH="$W/bin:$PATH" ISSUER_CODE=404 ISSUER_BODY='{"error":"Realm does not exist"}' "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer "$bad" --ca-file "$W/ca.pem" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)")
+  : >"$CURL_LOG"; r=$(PATH="$W/bin:$PATH" ISSUER_CODE=404 ISSUER_BODY='{"error":"Realm does not exist"}' bash "$S" --namespace sect1 --realm-namespace sect2 --kubectl "$KUBECTL" --no-ldap-bind --issuer "$bad" --ca-file "$W/ca.pem" >"$T" 2>&1; echo "rc=$? $(tail -1 "$T" | cut -c1-140)")
   expect "11j --issuer $bad stops" 2 "$r"; none_written "11j $bad"; [ ! -s "$CURL_LOG" ] || { echo "  FAIL 11j: it asked $bad"; fails=$((fails+1)); }
 done
 r=$(runi 404 '{"error":"Realm does not exist"}'); expect "11h Keycloak's own 404: generates" 0 "$r"; [ "$(h)" != none ] || { echo "  FAIL 11h: nothing written"; fails=$((fails+1)); }
