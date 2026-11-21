@@ -487,6 +487,7 @@ at 67.1 s (#521), and is split the same way. Each `ok` line now prints its time 
 | 7 the Workflow, New namespace and Approvals tabs | `CHECK="7 "` | one check, 67.1 s | workflow 8.5 s, new 10.8 s, approvals 7.8 s, new-company 10.8 s, new-479-problems 14.3 s, new-479-checked 15.7 s (in `npm test`) |
 | The assertions of both checks | the lines with `assert`, the scan, the screenshot and the waits, before and after (`check7*-assert-*.txt`) | 14 and 18 lines | identical |
 | Everything | `npm test` | | exit 0; portal 100 checks, the longest 39.7 s ("7 the Policies tab") |
+| The installed Chrome | `PW_CHANNEL=chrome node tests/api/portal.test.mjs` | | exit 0; Chrome 158.0.8127.36, 100 of 100, the longest 34.5 s; 479-P9-P11 25.1 s; the Quotas and KPIs parts 27.0, 28.1, 28.1 and 8.5 s |
 
 ## What testing found
 
