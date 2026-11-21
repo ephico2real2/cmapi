@@ -36,6 +36,8 @@ def test_a_create_without_the_environment_suffix_is_still_refused_on_the_environ
 @pytest.mark.parametrize("namespace,environment,accepted", [
     ("abc-dev", "dev", True), ("abc--dev", "dev", False), ("abc-payments-dev", "dev", True),
     ("abc-dev", "rnd", False), ("abc-x-dev", "dev", True), ("abc-payments-api-dev", "dev", True),
+    ("abc--x-rnd", "rnd", False), ("abc-x--rnd", "rnd", False), ("abc---rnd", "rnd", False),
+    ("abc-x-y-rnd", "rnd", True), ("abc-x--y-rnd", "rnd", True), ("abc-1-rnd", "rnd", True),
 ])
 def test_a_create_accepts_team_wide_and_named_namespaces(namespace, environment, accepted):
     assert create(MetadataKeys(NAME_KEYS), {"mnemonic": "abc"}, namespace, environment) == \

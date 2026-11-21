@@ -1170,7 +1170,7 @@ class MetadataKeys:
     def _check_desired_name(self, sent: Mapping[str, Mapping[str, str | None]],
                             sources: Mapping[str, str]) -> list[dict[str, Any]]:
         """Step 4, after both ends passed: accept <prefix>-<suffix> or <prefix>-<desired>-<suffix>.
-        Report an empty segment or overlapping ends on the suffix key."""
+        Report an invalid middle or overlapping ends on the suffix key."""
         prefix, suffix, namespace = self.prefix_key(), self.suffix_key(), sources.get("namespace")
         if prefix is None or suffix is None or not namespace:
             return []
@@ -1180,10 +1180,13 @@ class MetadataKeys:
         if self._breaks_own_rule(prefix[1], start, prefix[0], sources) or \
                 self._breaks_own_rule(suffix[1], end, suffix[0], sources):
             return []                       # step 5 refuses that value on its key: no name error is built on it
-        if namespace == f"{start}-{end}" or len(namespace) > len(start) + len(end) + 2:
+        if namespace == f"{start}-{end}":
+            return []
+        middle = namespace[len(start) + 1:-(len(end) + 1)]
+        if len(namespace) > len(start) + len(end) + 2 and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", middle):
             return []
         return [{"code": "invalid_value", "key": suffix[1], "kind": suffix[0],
-                 "detail": f"{namespace} has no desired name between {start}- and -{end}"}]
+                 "detail": f"the desired name between {start}- and -{end} must start and end with a letter or digit"}]
 
     def _check_sent_keys(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
                          operator: bool, sources: Mapping[str, str], existing: bool) -> list[dict[str, Any]]:

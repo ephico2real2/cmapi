@@ -195,9 +195,15 @@ def _metadata_checks(keys: MetadataKeys, env: str, instance: str) -> list[Check]
                 if (prefix_key := keys.prefix_key()) is not None:
                     # As in _check_desired_name, allow the two values alone or a desired name between them.
                     pk, pm = cel(prefix_key[1]), _meta(prefix_key[0])
-                    end += (f" && (!({pk} in {pm}) || object.metadata.name == {pm}[{pk}] + '-' + {value}"
-                            f" || size(object.metadata.name) > size({pm}[{pk}]) + size({value}) + 2)")
-                    message += ", joined to the prefix directly or with a desired name between them"
+                    middle = (f"object.metadata.name.substring(size({pm}[{pk}]) + 1, "
+                              f"size(object.metadata.name) - size({value}) - 1)")
+                    # A name that does not start with the prefix has its error on the prefix key, as in the API.
+                    starts = f"object.metadata.name.startsWith({pm}[{pk}] + '-')"
+                    end += (f" && (!({pk} in {pm}) || !{starts} || object.metadata.name == {pm}[{pk}] + '-' + {value}"
+                            f" || (size(object.metadata.name) > size({pm}[{pk}]) + size({value}) + 2"
+                            f" && {middle}.matches({cel('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')})))")
+                    message += (", joined to the prefix directly or with a desired name between them"
+                                " that starts and ends with a letter or digit")
                 good = f"{present} && {end}" if rule.required else f"!({present}) || {end}"
                 checks.append(Check(kind, key, "namespaceSuffix", f"variables.update || ({good})", cel(message), message))
             if rule.derived:

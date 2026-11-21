@@ -311,6 +311,20 @@ test("407 retained rows have the same visible timestamps across UTC midnight", a
 // #479 (Phase 4): the pure parts of the New namespace form, on the answer of the configuration of design section 3.1.
 const KEYS_479 = JSON.parse(readFileSync(new URL("metadata-keys.company-479.json", import.meta.url), "utf8"));
 
+test("512 the stand-in checks the desired middle on the suffix key", async () => {
+  const { createMetadata } = await import("./standin.mjs");
+  for (const [namespace, accepted] of [
+    ["abc-dev", true], ["abc--dev", false], ["abc--x-dev", false], ["abc-x--dev", false],
+    ["abc---dev", false], ["abc-x-y-dev", true], ["abc-x--y-dev", true], ["abc-1-dev", true],
+  ]) {
+    const { errors } = createMetadata(KEYS_479, { labels: { "company.net/mnemonic": "abc" } },
+      { namespace, environment: "dev" });
+    assert.deepEqual(errors.map(({ code, key, kind }) => ({ code, key, kind })), accepted ? [] : [
+      { code: "invalid_value", key: "company.net/app-environment", kind: "label" },
+    ], namespace);
+  }
+});
+
 test("479-P2 the name's ends: the prefix and suffix keys of the answer, their values, the name and its checks", async () => {
   const { checkName, endValue, fieldsOf, joinName, nameEnds } = await import("../../src/portal/metadataForm.ts");
   const form = fieldsOf(KEYS_479);
@@ -331,9 +345,21 @@ test("479-P2 the name's ends: the prefix and suffix keys of the answer, their va
   assert.equal(checkName("abc", "x".repeat(56), "dev"), "The full name is longer than 63 characters.");
   assert.equal(checkName("abc", "x".repeat(55), "dev"), null, "63 characters is the limit, not past it");
   assert.match(checkName("abc", "Pay_ments", "dev"), /^The middle of the name: lowercase letters/);
-  assert.equal(checkName("abc", "-x", "dev"), null, "abc--x-dev is a DNS-1123 label, and cmapi takes it: the form never refuses more");
   assert.equal(checkName("", "payments", "dev"), null, "a missing start: the start's own field says so");
   assert.equal(fieldsOf(RULES.reference).fields.some((f) => f.namespacePrefix || f.namespaceSuffix), false, "the reference file has neither end");
+});
+
+test("512 a desired middle starts and ends with a letter or digit", async () => {
+  const { checkName } = await import("../../src/portal/metadataForm.ts");
+  for (const desired of ["-x", "x-", "-"]) {
+    assert.equal(checkName("abc", desired, "dev"), "Start and end with a letter or digit.", desired);
+  }
+  for (const desired of ["", "x", "1", "x-y", "x--y"]) {
+    assert.equal(checkName("abc", desired, "dev"), null, desired);
+  }
+  assert.equal(checkName(null, "abc--x-dev", null), null, "without locked ends, only the whole name is checked");
+  assert.equal(checkName("abc", "-x", null), null, "a prefix alone does not declare a middle");
+  assert.equal(checkName(null, "x-", "dev"), null, "a suffix alone does not declare a middle");
 });
 
 test("479-P4 a default copies its source until the person edits it, and an unedited default is never sent", async () => {
