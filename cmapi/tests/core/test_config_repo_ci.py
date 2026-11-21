@@ -164,7 +164,8 @@ BOT = "cmapi-git-bot"
 TRAILER = "Cmapi-Request-Id: req-1"
 
 
-def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org", merge_head=False):
+def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer_email="user@example.org", merge_head=False,
+                change=None, checkout_depth=None):
     """Run the template's check step on a merge checkout with GitHub's PR metadata."""
     def git(*args):
         return subprocess.check_output(
@@ -174,9 +175,13 @@ def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer
 
     shutil.copytree(TEMPLATE, root / ".github")
     git("init", "-q", "-b", "main")
+    if change is not None:
+        git("add", ".")
     git("commit", "-q", "--allow-empty", "-m", "base")
     branch = "cmapi/CRC/req-1"
     git("switch", "-qc", branch)
+    if change is not None:
+        change(root)
     git("add", ".")
     for author, body in commits:
         git("-c", f"user.name={committer or author}", "-c", f"user.email={committer_email}", "commit", "-q",
@@ -197,7 +202,7 @@ def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer
     git("switch", "-q", "main")
     git("merge", "--no-ff", "-qm", "synthetic merge", head)
     steps = yaml.safe_load((TEMPLATE / "workflows/ci.yml").read_text())["jobs"]["kyverno"]["steps"]
-    depth = steps[0].get("with", {}).get("fetch-depth", 1)
+    depth = steps[0].get("with", {}).get("fetch-depth", 1) if checkout_depth is None else checkout_depth
     checkout = root.parent / "checkout"
     git("clone", "-q", *([f"--depth={depth}"] if depth else []), root.as_uri(), str(checkout))
     event = root.parent / "event.json"
@@ -208,6 +213,67 @@ def run_pr_step(root, kyverno, commits, *, fork=False, committer=None, committer
     path = os.pathsep.join((str(Path(sys.executable).parent), str(Path(kyverno).parent), os.environ["PATH"]))
     return subprocess.run(["bash", "-e", "-c", steps[-1]["run"]], cwd=checkout, capture_output=True, text=True, timeout=300,
                           env={**os.environ, "PATH": path, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+
+
+@pytest.fixture
+def audit_pr(tmp_path):
+    """Existing audit violations and a CLI stub returning a per-resource report."""
+    root = tmp_path / "origin"
+    for name in (NS, NS + "-other"):
+        namespace = root / "clusters/CRC/namespaces" / name
+        namespace.mkdir(parents=True)
+        (namespace / "namespace.yaml").write_text(yaml.safe_dump({
+            "apiVersion": "v1", "kind": "Namespace",
+            "metadata": {"name": name, "labels": {"cmapi.net/env": "dev", "cmapi.net/team": "BAD_Team"}},
+        }))
+    policies = root / "policies/env/dev"
+    policies.mkdir(parents=True)
+    (policies / "team.yaml").write_text(yaml.safe_dump({
+        "apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy", "metadata": {"name": "team"},
+        "spec": {"validationActions": ["Audit", "Warn"],
+                 "matchConstraints": {"resourceRules": [{"resources": ["namespaces"]}]},
+                 "validations": [{"expression": "object.metadata.labels['cmapi.net/team'] == 'platform'"}]},
+    }))
+    report = {"results": [{"policy": "team", "resources": [{"kind": "Namespace", "name": NS}],
+                           "result": "fail", "message": "invalid team"}]}
+    cli = tmp_path / "bin/kyverno"
+    cli.parent.mkdir()
+    cli.write_text(f"#!{sys.executable}\nimport json, sys\nfrom pathlib import Path\n"
+                   f"report = {report!r}\n"
+                   "report['results'][0]['resources'][0]['name'] = Path(sys.argv[sys.argv.index('--resource') + 1]).parent.name\n"
+                   "print(json.dumps(report))\n")
+    cli.chmod(0o755)
+    return root, str(cli)
+
+
+def test_policy_only_pr_warns_for_an_unchanged_namespace(audit_pr):
+    root, cli = audit_pr
+    r = run_pr_step(root, cli, [("Maintainer", "")],
+                    change=lambda p: (p / "policies/README.md").write_text("Policy maintenance\n"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"::warning file=clusters/CRC/namespaces/{NS}/namespace.yaml::team (audit)" in r.stdout
+    assert "2 namespace folders, 0 errors, 2 warnings" in r.stdout
+
+
+def test_hand_pr_fails_audit_in_a_changed_namespace(audit_pr):
+    root, cli = audit_pr
+    r = run_pr_step(root, cli, [("Maintainer", "")],
+                    change=lambda p: (folder(p) / "README.md").write_text("Namespace maintenance\n"))
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"::error file=clusters/CRC/namespaces/{NS}/namespace.yaml::team:" in r.stdout
+    assert f"::warning file=clusters/CRC/namespaces/{NS}-other/namespace.yaml::team (audit)" in r.stdout
+    assert "2 namespace folders, 1 errors, 1 warnings" in r.stdout
+
+
+def test_hand_pr_fails_closed_when_first_parent_diff_is_unavailable(audit_pr):
+    root, cli = audit_pr
+    # A fork is outside cmapi's flow without inspecting the head commit, which depth 1 also omits.
+    r = run_pr_step(root, cli, [("Maintainer", "")], fork=True, checkout_depth=1,
+                    change=lambda p: (p / "policies/README.md").write_text("Policy maintenance\n"))
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"::error file=clusters/CRC/namespaces/{NS}/namespace.yaml::team:" in r.stdout
+    assert "2 namespace folders, 2 errors, 0 warnings" in r.stdout
+    assert "first-parent diff unavailable; treating every namespace folder as changed" in r.stdout
 
 
 @pytest.mark.parametrize(("commits", "fork", "warn"), [

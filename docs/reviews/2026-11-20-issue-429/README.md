@@ -2,7 +2,7 @@
 
 **Decision.** Fail `ci/kyverno` when a rendered policy reports a violation on a PR outside cmapi's request flow, including in `[Audit, Warn]`. Report the policy, file and Kyverno message on the PR. On a cmapi request PR, its approvers have already seen the plan's findings. An audit violation remains a warning there, and a Deny violation fails. A policy that cannot compile or gives no result for a matched file fails in either flow. An environment with no rendered bundle still reports that Kyverno is off.
 
-The check evaluates the proposed merge tree, including all namespace folders. A pre-existing violation can therefore make a hand-made PR red, including a PR that only changes policy. A clean policy-maintenance PR can pass without a cmapi request. Local runs and pushes to main continue to report according to the rendered cluster mode. Issue #227 tracks enforcement of merge restrictions. A failed check gives the reviewer evidence to decline a merge even while a writer can override it.
+The check evaluates the proposed merge tree, including all namespace folders. As corrected by #516, audit violations fail a hand-made PR only in namespace folders changed between the test merge and its first parent (`git diff --name-only HEAD^1 HEAD`); unchanged folders warn, and an unavailable diff treats every folder as changed and says so in the output. A clean policy-maintenance PR can pass without a cmapi request. Local runs and pushes to main continue to report according to the rendered cluster mode. Issue #227 tracks enforcement of merge restrictions. A failed check gives the reviewer evidence to decline a merge even while a writer can override it.
 
 ## Options considered
 
