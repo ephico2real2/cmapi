@@ -318,17 +318,21 @@ export interface paths {
          *     **Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):
          *     a key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,
          *     in `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,
-         *     says how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (cmapi
-         *     fills it in), `required` (it changes and is never removed) or `optional`. A key that no rule admits can be removed,
+         *     says how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;
+         *     a change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)
+         *     or `optional`. A key that no rule admits can be removed,
          *     never set. A `sensitive` key adds one approval to the request.
          *
          *     **Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`
          *     lists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`
          *     is `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).
          *
-         *     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). Without it the answer
-         *     is 428 `precondition-required` (RFC 6585, section 3). When Git has moved since, it is 412 `precondition-failed`
+         *     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,
+         *     a namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,
+         *     missing If-Match is 428 `precondition-required` (RFC 6585, section 3), then a mismatch is 412 `precondition-failed`
          *     (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change to it and send it.
+         *     An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag
+         *     returns the stored answer even after Git moves. A non-dry-run submission also requires Idempotency-Key (400 without it).
          *     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
          *
          *     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
