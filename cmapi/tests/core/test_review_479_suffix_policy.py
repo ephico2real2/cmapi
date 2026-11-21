@@ -4,6 +4,7 @@ at plan time and at admission alike. Run through the real Kyverno CLI, as test_p
 from __future__ import annotations
 
 import yaml
+import pytest
 
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.policy import PolicySettings
@@ -50,6 +51,15 @@ def test_the_generated_policy_allows_a_team_wide_name_and_refuses_an_empty_segme
     keys = suffix_keys()
     assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc-rnd") == []
     assert failures_on_create(kyverno, catalog, keys, tmp_path, "abc--rnd") == [SUFFIX_REFUSAL]
+
+
+@pytest.mark.parametrize("name,accepted", [
+    ("abc--x-rnd", False), ("abc-x--rnd", False), ("abc---rnd", False),
+    ("abc-x-y-rnd", True), ("abc-x--y-rnd", True), ("abc-1-rnd", True),
+])
+def test_the_generated_policy_requires_alphanumeric_middle_ends(kyverno, catalog, tmp_path, name, accepted):
+    assert failures_on_create(kyverno, catalog, suffix_keys(), tmp_path, name) == \
+        ([] if accepted else [SUFFIX_REFUSAL])
 
 
 def test_a_change_of_a_namespace_named_before_the_rule_passes_the_plan_time_check(kyverno, catalog, tmp_path):
