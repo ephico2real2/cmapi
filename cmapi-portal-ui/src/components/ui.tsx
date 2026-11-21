@@ -2,10 +2,11 @@
 import {
   Alert, Button, Card, CardBody, CardHeader, CardTitle, CodeBlock, CodeBlockCode, Content, DescriptionList, DescriptionListDescription,
   DescriptionListGroup, DescriptionListTerm, EmptyState, Flex, FlexItem, FormHelperText, HelperText, HelperTextItem, Icon, Label, List, ListItem,
-  Progress, Split, SplitItem, Stack, StackItem, Title, ToggleGroup, ToggleGroupItem
+  Popper, Progress, Split, SplitItem, Stack, StackItem, Title, ToggleGroup, ToggleGroupItem
 } from "@patternfly/react-core";
 import { InnerScrollContainer, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
-import type { ReactNode } from "react";
+import { useRef } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 const STATUS = { ok: "success", warn: "warning", bad: "danger", info: "info", fail: "danger", pass: "success" } as const;
 type Tone = keyof typeof STATUS;
@@ -79,6 +80,34 @@ export function Panel({ title, pill, children }: { title?: ReactNode; pill?: Rea
       )}
       <CardBody><Stack hasGutter className="cp-wrap">{children}</Stack></CardBody>
     </Card>
+  );
+}
+
+/** The mockup's gap between a type-ahead's input and its list (`.sugg { top: calc(100% + 4px) }`), in px as Popper takes it. */
+const COMBO_GAP_PX = 4;
+
+/**
+ * A type-ahead: its input, and under it the list while `isOpen`. A Card clips what overflows it (PatternFly 6.7.0 card.css:
+ * `.pf-v6-c-card { overflow: auto }`), so a list placed inside the card showed only its first option (#535). The list is a
+ * PatternFly Popper appended to document.body instead, as PatternFly's own Select typeahead is. DOM focus stays on the input
+ * and aria-activedescendant names the active option (the ARIA APG combobox), so the list needs no focus or keys of its own.
+ */
+export function ComboBox({ input, list, isOpen, onClose }: { input: ReactNode; list: ReactElement; isOpen: boolean; onClose: () => void }) {
+  const anchor = useRef<HTMLDivElement>(null);
+  return (
+    <div className="cp-combo" ref={anchor} onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) onClose();
+    }}>
+      {input}
+      {isOpen && <Popper triggerRef={anchor}
+        // A pointer selection must reach onClick without blurring the input and unmounting the option first.
+        popper={<div onMouseDownCapture={(event) => event.preventDefault()}>{list}</div>}
+        appendTo={() => document.body} width="trigger" distance={COMBO_GAP_PX}
+        onDocumentClick={(event, trigger, popup) => {
+          const target = event?.target as Node | null;
+          if (target && !trigger?.contains(target) && !popup?.contains(target)) onClose();
+        }} />}
+    </div>
   );
 }
 

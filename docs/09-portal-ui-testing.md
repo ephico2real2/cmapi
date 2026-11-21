@@ -540,6 +540,50 @@ writes the committed folder (#530).
 pattern (cmapi matches with RE2), so a value that only the pattern refuses is refused in the browser and by cmapi, not by the
 stand-in.
 
+## The type-ahead lists outside their cards (#535)
+
+OB1 run 31 on CRC found the Namespaces lookup showing only its first match
+(`workbench/cmapi/ob1-run31/screens/n1-req-lookup-1440-light-chrome.png`); the committed `lookup-1440-light.png` of #484
+showed the same. The cause, read in the installed PatternFly 6.7.0: `card.css` l.88-92 gives `.pf-v6-c-card` `overflow: auto`,
+and the list was `position: absolute` (`.cp-combo-menu`) inside the card of `Panel`, so the card clipped it. The Quotas
+type-ahead, on the API and in the demo build, sat in a `Panel` too and was clipped the same way. The New namespace tab has no
+type-ahead (its region and cluster are native selects), so nothing else was affected.
+
+The fix, one component (`ComboBox` in `src/components/ui.tsx`) used by the three type-aheads: the list is a PatternFly
+`Popper` with `appendTo={() => document.body}` and `width="trigger"`, mounted only while the list is open. The sources, read
+2026-11-21:
+
+- PatternFly's Select puts its menu in a `Popper` (`@patternfly/react-core` 6.7.0 `Select.tsx`: `<Popper trigger=… popper={menu}
+  isVisible={isOpen} … {...popperProps} />`), and the Popper's default in the code is `appendTo = () => document.body`
+  (`helpers/Popper/Popper.tsx` l.196). The documentation still says "The container to append the popper to. Defaults to
+  'inline'." (https://www.patternfly.org/components/menus/select, PopperOptions), so the component passes `appendTo` itself
+  rather than rely on either.
+- `MenuContainer` was not used: it is a Popper plus key handling where, "when the toggle has focus and the menu is open,
+  pressing the up/down arrow keys will focus a valid non-disabled menu item" (`MenuContainer.d.ts`, `onToggleKeydown`), and it
+  closes on Tab. That moves DOM focus off the input.
+- The ARIA APG combobox (https://www.w3.org/WAI/ARIA/apg/patterns/combobox/): "When a descendant of a listbox, grid, or tree
+  popup is focused, DOM focus remains on the combobox", and "The combobox element has aria-controls set to a value that refers
+  to the element that serves as the popup." Both are ID references, so they hold wherever the list is in the document; the
+  type-aheads keep their own keys and `aria-activedescendant`.
+
+| What | How | Before the fix | After |
+|---|---|---|---|
+| Each option is on the screen, not only in the DOM | `CHECK="484-T1 cluster"`: `document.elementFromPoint` at the centre of each option of `#nsx-list` returns it or its child, at 390, 820 and 1440 px in each theme | fails at the first view, 390 light: `abc-payments-dev` hidden | passes, 6 views |
+| The same for the Quotas type-ahead | `CHECK="11 Quotas type-ahead"`, at 1440 | fails: `payments-web-rnd` and `payments-worker-rnd` hidden | passes |
+| The same in the demo build | `node tests/behaviour.test.mjs` | fails: `q-opt-2` to `q-opt-5` hidden | passes; axe now scans the list too (`.include("#q-sug")`) |
+| Focus stays on the input | `CHECK="484-K"`: `document.activeElement` is `#nsx-ns` after ↓ ↓ | (new assertion) | passes |
+| Mutants | `node tests/api/mutants.mjs "#535"`: `appendTo="inline"` in `ComboBox` | | 2 of 2 killed, by 484-T1 and by check 11 |
+
+Two content checks read the tab panel or `#root` only, and so lost the list's text: portal check 6 (Quotas) and
+`tests/parity.test.mjs`. Each now also reads each list that a combobox of the page controls (`aria-controls`), where it is.
+
+The full suite, `npm test` in `cmapi-portal-ui/` against the stand-ins: exit 0 in 933.0 s; the portal suite 128 checks, the
+longest 36.5 s of the 90 s limit (check 7, Quotas and KPIs layout), the direct tests 42 of 42, behaviour and parity pass (98
+states, 15,938 strings, none missing, none added). Not run on CRC in this change.
+
+Screenshots: `UPDATE_COMMITTED_SCREENSHOTS=1 CHECK="484-L … lookup"` rewrote the four `lookup-*` files of
+`cmapi-portal-ui/screenshots/484-namespaces-tab/`, which now show both matches and the footer.
+
 ## What testing found
 
 | Found by | Problem | Fix |
@@ -553,6 +597,7 @@ stand-in.
 | Installed Chrome | `/favicon.ico` 404 reported as a console error; a dev server hid it | An inline icon |
 | Repeated runs under CPU throttle and API delay | Check 7 read the page in the gap before PatternFly's tab scroll buttons started their transitions (#347); the Quotas pager said the new sort over the old rows (#392) | The check waits for the tab bar at rest; the pager says the shown rows' sort and the table is `aria-busy` |
 | A probe of the pattern worker under a CPU throttle | The first pattern test of a page also timed the worker's start-up, so a cold start past 200 ms marked a plain pattern slow and its errors stopped showing (#508) | The limit starts when the worker starts the test; a separate start limit |
+| OB1 run 31 on CRC | A Card clips its overflow (`overflow: auto`), so the type-ahead lists inside cards showed only their first match (#535) | The lists are a Popper in document.body; a check of `elementFromPoint` on every option |
 | Independent review | 17 defects the suites had passed, including forms submitting what the mockup refuses and a footnote about a tick that did not exist | See `docs/reviews/2026-11-05-portal-ui.md` |
 
 Mockup behaviour worth a decision, left unchanged in `Main.dc.html`: the Team DL field has a value and no handler, so typing

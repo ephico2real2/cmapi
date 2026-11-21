@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
+import { checkComboBoxLifecycle } from "./combobox.mjs";
 import { serve } from "../../tests/portal/views.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -85,8 +86,17 @@ try {
     return { role: active.getAttribute("role"), selected: active.getAttribute("aria-selected"), popup: popup.getAttribute("role"), inside: popup.contains(active) };
   });
   assert.deepEqual(option, { role: "option", selected: "true", popup: "listbox", inside: true }, "the combobox points at its listbox and the active option says so");
-  const open1 = await new AxeBuilder({ page }).include(".cp-combo").analyze();
+  // Each option is the element at its own centre: on the screen, not only in the DOM under a card that clips it (#535).
+  const hidden = await page.evaluate(() => [...document.querySelectorAll("#q-sug [role=option]")].filter((o) => {
+    const box = o.getBoundingClientRect();
+    const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return !at || !o.contains(at);
+  }).map((o) => o.id));
+  assert.deepEqual(hidden, [], "every option of the open type-ahead is on the screen");
+  // The list is in document.body, outside .cp-combo (#535), so axe is pointed at both.
+  const open1 = await new AxeBuilder({ page }).include(".cp-combo").include("#q-sug").analyze();
   assert.deepEqual(open1.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id), [], "axe on the open type-ahead");
+  await checkComboBoxLifecycle(page, page.locator("#q-search"), "#q-sug", "pay", "#nonprod/requests");
 
   // Workflow: which lane is acting, and what has not happened yet.
   await open("#nonprod/workflow");
