@@ -20,7 +20,7 @@ from cmapi.core.config import load_instance
 from cmapi.core.policy import PolicySettings
 from cmapi.core.policygen import render_bundle
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
-from conftest import EX
+from conftest import EX, crc_config_dir
 
 ROOT = EX.parent
 TEMPLATE = EX / "cluster-configs/.github"
@@ -46,10 +46,7 @@ def kyverno() -> str:
 @pytest.fixture(scope="module")
 def crc(tmp_path_factory):
     """CRC's instance files, from deploy/manifests/environments/crc/20-config.yaml."""
-    d = tmp_path_factory.mktemp("crc-config")
-    data = next(yaml.safe_load_all((ROOT / "deploy/manifests/environments/crc/20-config.yaml").read_text()))["data"]
-    for name, text in data.items():
-        (d / name).write_text(text)
+    d = crc_config_dir(tmp_path_factory.mktemp("crc-config"))
     return load_instance(d, d / "metadata-keys.yaml")
 
 
