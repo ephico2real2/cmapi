@@ -346,10 +346,33 @@ class NamespaceSync(Api):
         examples=[[{"kind": "label", "key": "cmapi.net/cost-center", "git": "cc-4410", "live": "cc-9999"}]])
 
 
+class KeyEdit(Api):
+    """x-cmapi-edit of one key (#481 design section 3): how it may change on an existing namespace."""
+    mode: Literal["fixed", "automatic", "required", "optional"] = Field(
+        description="fixed (kept as Git holds it), automatic (filled in by cmapi), required (changed, never removed) or optional",
+        examples=["fixed"])
+    reason: str | None = Field(description="What a person sees beside the key; null for none", examples=["Managed by cmapi."])
+    sensitive: bool = Field(description="A change of it adds one approval (sensitiveKeys)", examples=[False])
+    removable: bool = Field(default=False, description="A key that no rule admits: a change may remove it (null) and never set "
+                                                       "or change it (#492 M2)", examples=[False])
+
+
+class GitKeyEdits(Api):
+    labels: dict[str, KeyEdit] = Field(description="Each label of Git that metadata-keys.yaml does not declare, by key",
+                                       examples=[{"cmapi.net/managed": {"mode": "fixed", "reason": "Managed by cmapi.",
+                                                                        "sensitive": False, "removable": False}}])
+    annotations: dict[str, KeyEdit] = Field(description="Each annotation of Git that metadata-keys.yaml does not declare, by key",
+                                            examples=[{}])
+
+
 class GitMetadata(Api):
     labels: dict[str, str] = Field(description="The labels of namespace.yaml in Git", examples=[{"cmapi.net/team": "payments"}])
     annotations: dict[str, str] = Field(description="The annotations of namespace.yaml in Git",
                                         examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
+    edits: GitKeyEdits = Field(description="x-cmapi-edit of each key that Git holds and metadata-keys.yaml does not declare "
+                                           "(the declared keys' are in GET /api/v1/metadata-keys): a system, reserved or adoption "
+                                           "key is fixed, a key that allowOther admits is optional, and a key that no rule admits "
+                                           "is fixed and removable (#484)")
 
 
 class NamespaceView(ClusterScoped):

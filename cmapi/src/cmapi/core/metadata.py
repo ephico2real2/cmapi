@@ -930,7 +930,19 @@ class MetadataKeys:
         sensitive = key in self.sensitive
         if sensitive:
             reason = " ".join(r for r in (reason, EDIT_REASONS["sensitive"]) if r)
-        return {"mode": mode, "reason": reason, "sensitive": sensitive}
+        rule = {"mode": mode, "reason": reason, "sensitive": sensitive}
+        # Design section 3, row 3 (#492 M2): a key that no rule admits may be removed, never set or changed. A declared key
+        # is never disallowed, so GET /api/v1/metadata-keys never carries this member.
+        if self.classify(key, kind) == "disallowed":
+            rule["removable"] = True
+        return rule
+
+    def undeclared_edits(self, maps: Mapping[str, Mapping[str, str]]) -> dict[str, dict[str, dict[str, Any]]]:
+        """GitKeyEdits (#484): edit_rule of each key in `maps` that the file does not declare, so a client can tell a system
+        key from a team key or a disallowed one. Operator-only keys are declared: their rule is in metadata-keys."""
+        return {name: {key: self.edit_rule(kind, key) for key in sorted(maps[kind])
+                       if key not in self.rules[kind] and key not in self.operator_only}
+                for kind, name in (("label", "labels"), ("annotation", "annotations"))}
 
     def _edit_mode(self, kind: str, key: str) -> tuple[str, str | None]:
         """The design's order, first match wins: system, reserved or adoption or not allowed, operator-only, filled in by

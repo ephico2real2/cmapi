@@ -152,7 +152,8 @@ def test_the_detail_read_gives_the_git_metadata_from_the_same_read_as_its_etag(d
     client, ctx, git, kube, validator, keys = design_world
     view = create(design_world)
     in_git = yaml.safe_load(git.branches["main"][NS_FILE])["metadata"]
-    assert view["git"] == {"labels": in_git["labels"], "annotations": in_git["annotations"]}
+    # #528 adds `edits` beside the two maps; the maps are still the folder's.
+    assert {k: view["git"][k] for k in ("labels", "annotations")} == {"labels": in_git["labels"], "annotations": in_git["annotations"]}
     files = {p: t for p, t in git.branches["main"].items() if p.startswith(f"clusters/CRC/namespaces/{NS}/")}
     assert view["etag"] == folder_etag(files) and view["mnemonic"] == "abc"
 
