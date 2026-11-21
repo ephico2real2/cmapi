@@ -734,6 +734,10 @@ CRC's dev policies use `[Audit, Warn]`. In the config repository template, `ci/k
 
 **Who and when.** The platform admin, as kubeadmin, from a checkout of `cmapi-cluster-configs` at the merged commit. Apply it after each pull request that changes `policies/env/dev/` merges, and after each Kyverno install. CRC is in `dev`, so its bundle is `policies/env/dev/`. Name the three YAML files: `-f .` would also send `index.json`, the bundle's index of its checks, which is not a Kubernetes object.
 
+**A configuration change needs its bundle pull request before the deploy** (#510). The API renders the bundle it expects for CRC from its own configuration, `metadata-keys.yaml`, `tiers.yaml` and `instance.yaml` `policy` in `deploy/manifests/environments/crc/20-config.yaml`, through `core/policygen.py`. So a change to any of them, or to the renderer, changes the bundle the Policies tab holds CRC to. Before the deploy that brings such a change, render the bundle again from the new configuration, check it, and merge it in a `cmapi-cluster-configs` pull request, with `policies/metadata-keys.yaml` taking the instance's file (that repository's README gives `cmapi-tools policies render` and `policies check`). After step 21, apply it as below. Without it, CRC reads off the bundle from step 21 on: #505 changed `metadata-keys.yaml` with no bundle pull request, and on 2026-11-20 the tab read "1 cluster off the bundle", with 40 expected, 30 live, 10 missing and 6 differing.
+
+Such a pull request is not a cmapi request, so `ci/kyverno` holds it to the policies (#429), in the namespace folders it changes. Before #516 it failed every audit violation in the merged tree, also in folders the pull request does not touch, so a new required key that the existing namespaces lack made it red. Measured on cmapi-cluster-configs #19 (the bundle at cmapi cd01af1, 2026-11-21): `6 namespace folders, 42 errors, 0 warnings`, all on `cmapi-live-a` to `-f`, which predate #505. With #516 (cmapi #517, cmapi-cluster-configs #20) those 42 are warnings, and #19's `ci/kyverno` passed.
+
 Set `MERGED` to the merge commit of the bundle's pull request, then:
 
 ```bash
@@ -747,9 +751,9 @@ oc apply --server-side --field-manager=cmapi-policies --dry-run=server -f cmapi-
   && oc apply --server-side --field-manager=cmapi-policies -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml
 ```
 
-The server dry run goes through the API server's validation and its admission webhooks, Kyverno's policy webhook among them, which fails closed. The apply runs only when the dry run exits 0 (`&&`), so a policy that Kyverno would refuse stops the step before anything is written. Both commands print 31 ValidatingPolicies. The field manager `cmapi-policies` is the bundle's own, apart from the run's `cmapi-wave1` and the worker's.
+The server dry run goes through the API server's validation and its admission webhooks, Kyverno's policy webhook among them, which fails closed. The apply runs only when the dry run exits 0 (`&&`), so a policy that Kyverno would refuse stops the step before anything is written. Both commands print each ValidatingPolicy of the three files: 40 at cmapi cd01af1, 31 before #505. The field manager `cmapi-policies` is the bundle's own, apart from the run's `cmapi-wave1` and the worker's.
 
-An apply prunes nothing. After a bundle change, the cmapi policies of `dev` that the files no longer hold stay on the cluster: this lists them, and each is deleted by its name (`oc delete validatingpolicy.policies.kyverno.io/<name>`). On the first apply it lists none.
+An apply prunes nothing. After a bundle change, the cmapi policies of `dev` that the files no longer hold stay on the cluster: this lists them, and each is deleted by its name (`oc delete validatingpolicy.policies.kyverno.io/<name>`). On the first apply it lists none. Against the bundle at cmapi cd01af1 it lists `cmapi-metadata-dev-label-cmapi-net-rightsizing-pattern`, which became `...-rightsizing-enum`.
 
 ```bash
 comm -23 <(oc get validatingpolicies.policies.kyverno.io -o name | grep -E '/cmapi-(metadata|quota|limits)-dev-' | sort) \
@@ -759,7 +763,7 @@ comm -23 <(oc get validatingpolicies.policies.kyverno.io -o name | grep -E '/cma
 **Verify**, in the same folder:
 
 ```bash
-# 31 policies, each with validationActions [Audit, Warn] and ready: prints "31 policies" and nothing else
+# each policy with validationActions [Audit, Warn] and ready: prints "<N> policies", N the files' count (40 at cd01af1), and nothing else
 oc get validatingpolicies.policies.kyverno.io -o go-template='{{range .items}}{{.metadata.name}} {{.spec.validationActions}} {{.status.conditionStatus.ready}}{{"\n"}}{{end}}' \
   | grep -E '^cmapi-(metadata|quota|limits)-dev-' \
   | awk '{ n++ } !/ \[Audit Warn\] true$/ { print "NOT AUDIT OR NOT READY: " $0 } END { print n + 0 " policies" }'
@@ -776,13 +780,13 @@ oc get pods -n kyverno
 oc adm top pods -n kyverno
 ```
 
-- The digests are the render's. `cmapi-tools policies check` holds the files to cmapi's render in the pull request, and the API compares the cluster's digests with its own render. `GET /api/v1/policies/results?clusterId=CRC` (in `/docs`, signed in) must answer, for CRC, `state: ok`, `liveActions: [Audit, Warn]` and `bundle` with `expected`, `live`, `current` and `ready` all 31, `missing`, `differing` and `actionsDiffer` empty, and `actionsDifferTotal: 0`.
+- The digests are the render's. `cmapi-tools policies check` holds the files to cmapi's render in the pull request, and the API compares the cluster's digests with its own render. `GET /api/v1/policies/results?clusterId=CRC` (in `/docs`, signed in) must answer, for CRC, `state: ok`, `liveActions: [Audit, Warn]` and `bundle` with `expected`, `live`, `current` and `ready` all equal to the files' count (40 at cd01af1), `missing`, `differing` and `actionsDiffer` empty, and `actionsDifferTotal: 0`.
 - The digests' template reads the annotation under `with`: oc's go-template stops at the first ValidatingPolicy with no annotations (`index of untyped nil`), and another team's policy sorted before `cmapi-` would leave no line of cmapi's to compare.
 - A `vpol-*` ValidatingAdmissionPolicy would be Kyverno's native copy of a policy. CRC's admission controller runs `--generateValidatingAdmissionPolicy=true` (read on 2026-11-18). The rendered policies do not ask for one (no `autogenConfiguration`, whose default is off), so none appears.
-- Kyverno rescans every resource when a ValidatingPolicy is added (its background report controller, `addVP`). The 10 policies that leave `evaluation` unset, so the background scan is on by Kyverno's default report on the managed namespaces' LimitRanges in `policyreports` and on the Namespaces in `clusterpolicyreports`. The other 21 are admission-only. The Kyverno CLI on the bundle and an export of CRC's 6 managed namespaces (2026-11-18, #428) predicted 84 pass and no fail, warn or error from the scan. That is a prediction, not a measurement on CRC.
+- Kyverno rescans every resource when a ValidatingPolicy is added (its background report controller, `addVP`). The 10 policies that leave `evaluation` unset, so the background scan is on by Kyverno's default report on the managed namespaces' LimitRanges in `policyreports` and on the Namespaces in `clusterpolicyreports`. The other 21 were admission-only then; at cmapi cd01af1 the other 30 are, the 10 scanned ones unchanged. The Kyverno CLI on the bundle and an export of CRC's 6 managed namespaces (2026-11-18, #428) predicted 84 pass and no fail, warn or error from the scan. That was a prediction. Measured on CRC after the cd01af1 bundle (2026-11-21, `GET /api/v1/policies/results`): 84 pass and no fail, warn or error, the bundle 40 expected, live, current and ready, `hashState: current`; the Kyverno pods' RESTARTS did not change (18 and 10).
 - Stop and roll back if a Kyverno pod's RESTARTS rises after the apply, or if `kyverno-reports-controller` goes above 192 Mi, three quarters of its 256 Mi limit. On 2026-11-18 (#428) it used 46 Mi before the bundle, 96 Mi at the first background scan and 88 Mi four minutes later, under the chart's 128 Mi limit then; `deploy/kyverno/crc-values.yaml` now sets 128 Mi requested and 256 Mi limit.
 
-**The Policies tab** then shows CRC with mode `audit`, Bundle running `current`, Policies ready `31 / 31`, the scan's pass count, and the state `ok`. The header reads `0 failing · 0 clusters off the bundle`. `KIND_CMAPI_TEST` is in `rnd` and runs `rnd`'s bundle ("Kyverno and the `rnd` bundle on kind", below, #430).
+**The Policies tab** then shows CRC with mode `audit`, Bundle running `current`, Policies ready `40 / 40` (at cd01af1), the scan's pass count, and the state `ok`. The header reads `0 failing · 0 clusters off the bundle`. `KIND_CMAPI_TEST` is in `rnd` and runs `rnd`'s bundle ("Kyverno and the `rnd` bundle on kind", below, #430).
 
 **Rollback**, from the same checkout:
 
@@ -791,7 +795,7 @@ cd "$CCFG/policies/env/dev"
 oc delete -f cmapi-metadata-dev.yaml -f cmapi-quota-dev.yaml -f cmapi-limits-dev.yaml
 ```
 
-This deletes the 31 policies by the names in the files, and nothing else. Kyverno drops their results at its next reconcile, and the tab reads CRC off the bundle, `31 missing`, as before.
+This deletes the policies by the names in the files (40 at cd01af1), and nothing else. Kyverno drops their results at its next reconcile, and the tab reads CRC off the bundle, with every policy missing.
 
 ## Memory
 
