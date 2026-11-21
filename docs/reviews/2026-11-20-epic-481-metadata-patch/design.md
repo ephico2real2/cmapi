@@ -50,7 +50,7 @@ Decided per (kind, key) from `metadata-keys.yaml`, never from a list in code. Ch
 |---|---|---|---|
 | 1 | The namespace name (the path) | Fixed | "A namespace cannot be renamed." |
 | 2 | `system` | Fixed, for everyone | "Managed by cmapi." (expiry: "Change it with Extend, Set expiry or Make permanent.") |
-| 3 | `reservedPrefixes`, `adoptionLabels`, or a key no stanza allows | Fixed; kept as it is in Git. A key no stanza allows may be **removed** (`null`), never set or changed (coordinator ruling on #492 M2: otherwise, with Kyverno enforcing, a namespace holding one could never be changed; #497 adds the policy ratchet) | "Reserved for the platform." / "Marks how the namespace was first made." / "Not allowed by this instance's rules." |
+| 3 | `reservedPrefixes`, `adoptionLabels`, or a key no stanza allows | Fixed; kept as it is in Git. A key no stanza allows may be **removed** (`null`), never set or changed (coordinator ruling on #492 M2: otherwise, with Kyverno enforcing, a namespace holding one could never be changed). Since #497 the policy keeps such a key while its value is unchanged, so a change that leaves it passes too | "Reserved for the platform." / "Marks how the namespace was first made." / "Not allowed by this instance's rules." |
 | 4 | `operatorOnly` | Changeable only with `namespaces:protect` in that environment; fixed otherwise | "Needs namespaces:protect in dev." |
 | 5 | `value: {from: …}` (`name`, app-environment) | Automatic: fixed; an exact echo is accepted | "Copied from the namespace name." / "Copied from the cluster's environment." |
 | 6 | `namespacePrefix` (mnemonic), `namespaceSuffix` | Fixed; an exact echo is accepted | "Part of the namespace's fixed name." |

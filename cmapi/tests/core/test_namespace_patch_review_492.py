@@ -117,9 +117,9 @@ def test_a_disallowed_key_that_git_holds_can_be_removed_but_never_set():
     assert diff["labels"] == {"old.invalid/key": {"before": "legacy", "after": None, "source": "request"}}
 
 
-def test_the_plan_time_policy_reports_a_disallowed_key_that_git_holds_on_every_change(kyverno, catalog, tmp_path):
-    """Why the removal must be possible: the other-keys policy has no ratchet, so a kept key is a warning in audit (which
-    stops auto-approval) and a refusal in enforce, on every change of the namespace (PATCH and the expiry calls)."""
+def test_the_plan_time_policy_keeps_a_disallowed_key_that_git_holds(kyverno, catalog, tmp_path):
+    """Before #497 the other-keys policy had no ratchet, so a kept key was a warning in audit (which stopped auto-approval)
+    and a refusal in enforce, on every change of the namespace. Now an unchanged held key gives no finding in either."""
     from cmapi.core.policy import PolicySettings
     from test_policygen import validator
     from test_review_479_suffix_policy import rendered, suffix_keys
@@ -133,5 +133,4 @@ def test_the_plan_time_policy_reports_a_disallowed_key_that_git_holds_on_every_c
     for mode, severity in (("audit", "warning"), ("enforce", "error")):
         found = validator(catalog, keys, tmp_path / mode, policy=PolicySettings(default_mode=mode)).validate(
             now, "OCP_GF15", "rnd", previous=dict(now))                # unchanged from Git
-        assert [(f.rule, f.severity) for f in found if f.source == "kyverno"] == [
-            ("cmapi-metadata-rnd-label-other-keys-prefix", severity)], mode
+        assert [(f.rule, f.severity) for f in found if f.source == "kyverno"] == [], (mode, severity)

@@ -16,7 +16,9 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Mapping
+from itertools import count
+from pathlib import PurePosixPath
+from typing import Any, Iterator, Mapping
 
 from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
 from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchMoved, BranchRefused, request_branch
@@ -25,6 +27,7 @@ from cmapi.core.ports import PrRef, PrStatus
 
 class GiteaProvider(HostGitProvider):
     name = "gitea"
+    object_id_lengths = (40, 64)        # a Gitea repository is SHA-1 or SHA-256, as the Git layer's _OID reads both
 
     def _repo(self) -> str:
         return f"/repos/{self.repository}"
@@ -33,24 +36,44 @@ class GiteaProvider(HostGitProvider):
         r = self._call("branch_head", "GET", f"{self._repo()}/branches/{branch}", ok=(200, 404))
         return r.json()["commit"]["id"] if r.status_code == 200 else None
 
-    def _entries(self, path: str, ref: str) -> list[dict[str, Any]]:
-        r = self._call("read_folder", "GET", f"{self._repo()}/contents/{path.strip('/')}", params={"ref": ref},
-                       ok=(200, 404))
-        if r.status_code == 404:
-            return []
-        body = r.json()
-        return body if isinstance(body, list) else [body]
+    def _tree_entries(self, oid: str) -> Iterator[dict[str, Any]]:
+        for page in count(1):
+            r = self._call("read_folder", "GET", f"{self._repo()}/git/trees/{oid}", params={"page": page})
+            if r.status_code != 200:
+                raise GitUnavailable(f"read tree {oid}: HTTP {r.status_code}")
+            body = r.json()
+            entries = body["tree"] or []
+            if body["truncated"] and (not entries or body["page"] != page):
+                raise GitUnavailable(f"incomplete page {page} of tree {oid}")
+            yield from entries
+            if not body["truncated"]:
+                return
 
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
-        ref = ref or self.default_branch
-        head = self.branch_head(ref) if not _is_sha(ref) else ref
-        if head is None:
-            raise GitUnavailable(f"branch {ref} does not exist")
+        head = self._folder_head(ref)
+        # Gitea Contents resolves a branch or tag before a commit. Trees and blobs accept object IDs.
+        directory = PurePosixPath(path.strip("/"))
+        tree = head
+        for i, part in enumerate(directory.parts):
+            entry = next((e for e in self._tree_entries(tree) if e["path"] == part), None)
+            if entry is None:
+                return {}, head
+            if entry["type"] != "tree":
+                if i + 1 < len(directory.parts):
+                    return {}, head
+                entries = [entry]       # Contents also supports a direct file path.
+                directory = directory.parent
+                break
+            tree = entry["sha"]
+        else:
+            entries = self._tree_entries(tree)
         files: dict[str, str] = {}
-        for e in self._entries(path, head):
-            if e.get("type") == "file" and e["name"].endswith(".yaml"):
-                r = self._call("read_file", "GET", f"{self._repo()}/contents/{e['path']}", params={"ref": head})
-                files[e["path"]] = base64.b64decode(r.json()["content"]).decode()
+        for e in entries:
+            if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml"):
+                r = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{e['sha']}")
+                if r.status_code != 200:
+                    raise GitUnavailable(f"read blob {e['sha']}: HTTP {r.status_code}")
+                files[str(directory / e["path"])] = base64.b64decode(r.json()["content"]).decode()
         return files, head
 
     def push_request_branch(self, req: BranchRequest) -> PushResult:
@@ -236,10 +259,6 @@ class GiteaProvider(HostGitProvider):
 
 def _b64(text: str) -> str:
     return base64.b64encode(text.encode()).decode()
-
-
-def _is_sha(ref: str) -> bool:
-    return len(ref) == 40 and all(c in "0123456789abcdef" for c in ref)
 
 
 def _common_folder(files: Mapping[str, Any]) -> str:

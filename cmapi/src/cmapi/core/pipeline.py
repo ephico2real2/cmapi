@@ -100,6 +100,15 @@ def folder_etag(files: Mapping[str, str]) -> str:
     return hashlib.sha256(plan_hash(files).encode()).hexdigest()[:16] if files else "0"
 
 
+def require_if_match(if_match: str | None, write: str) -> None:
+    """428 when a write to an existing namespace has no If-Match (RFC 6585 section 3). The plan checks it after the
+    namespace is found (404 first, as RFC 9110 section 13.2.1 orders a precondition after the resource). The routes also
+    check it on an Idempotency-Key replay, which never reaches the plan (#495). The ETag comparison is not repeated
+    there, so a retry carrying its first ETag still gets its stored answer after Git moved."""
+    if if_match is None:
+        raise Problem(428, "precondition-required", f"If-Match is required on a {write}; GET the namespace for its etag")
+
+
 def approval_view(req: Requirement | None, ledger: ApprovalLedger | None) -> dict[str, Any] | None:
     if req is None:
         return None
@@ -205,8 +214,7 @@ class Pipeline:
             raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         etag = folder_etag(prev_files)
         if action != "create":
-            if if_match is None:
-                raise Problem(428, "precondition-required", "If-Match is required on a change; GET the namespace for its etag")
+            require_if_match(if_match, "change")
             if if_match.strip('"') != etag:
                 raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
                               extra={"etag": etag})
@@ -417,17 +425,14 @@ class Pipeline:
         self.check_plugin_offered("namespaces", env)
         requester = self.requester_for(who, None)
         prev, base_sha = self._read_folder(cluster_id, ns)
-        if not prev:
-            raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
-        etag = folder_etag(prev)
-        if reason != "expired":
-            if if_match is None:
-                raise Problem(428, "precondition-required", "If-Match is required on a delete; GET the namespace for its etag")
-            if if_match.strip('"') != etag:
-                raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
         ns_doc = namespace_doc(prev)
         if ns_doc is None:
             raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
+        etag = folder_etag(prev)
+        if reason != "expired":
+            require_if_match(if_match, "delete")
+            if if_match.strip('"') != etag:
+                raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:

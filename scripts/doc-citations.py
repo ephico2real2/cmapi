@@ -23,15 +23,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ("docs/14-authorization.md", "docs/15-keycloak-integration.md", "docs/16-data-model.md")
 LOCK = "docs/citations.lock.json"
+PENDING = "docs/.citations-relocation.json"      # the journal of a relocation that has not finished
 # `path:12`, `path:12-18` or the continuation `:12`, each in backticks. A path ends in a file extension that starts with a letter,
 # so `127.0.0.1:55432` is not a citation.
 CITATION = re.compile(r"`(?P<path>[A-Za-z0-9_./-]+\.[A-Za-z][A-Za-z0-9]*)?:(?P<start>\d+)(?:-(?P<end>\d+))?`")
@@ -119,8 +122,56 @@ def load_lock(root: Path) -> dict[str, list[str]]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+def lock_text(lock: dict[str, list[str]]) -> str:
+    return json.dumps(dict(sorted(lock.items())), indent=1) + "\n"
+
+
 def write_lock(root: Path, lock: dict[str, list[str]]) -> None:
-    (root / LOCK).write_text(json.dumps(dict(sorted(lock.items())), indent=1) + "\n")
+    (root / LOCK).write_text(lock_text(lock))
+
+
+def _atomic_text(target: Path, text: str) -> None:
+    """Write the text to a temporary file beside the target, then move it into place (os.replace is atomic for one file).
+    The target keeps its mode: mkstemp makes a file that only its owner can read."""
+    fd, tmp = tempfile.mkstemp(prefix=".citations-", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w") as out:
+            if target.exists():
+                os.fchmod(fd, target.stat().st_mode & 0o777)
+            out.write(text)
+        os.replace(tmp, target)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _finish_relocation(root: Path) -> None:
+    """Move each text of the journal into place, then remove the journal. A file that already holds its new text is left
+    as it is, so this also finishes the relocation of a process that died between two moves (#491). A file that holds
+    neither its old text nor its new one was edited since: it is named, and nothing is written."""
+    journal = root / PENDING
+    entries = json.loads(journal.read_text())
+    if not isinstance(entries, dict) or LOCK not in entries or entries.keys() - {*DOCS, LOCK}:
+        raise CitationError(f"{PENDING} is not a relocation journal: remove it, and restore docs/ from git")
+    todo = {}
+    for rel, (before, after) in entries.items():
+        current = (root / rel).read_text()
+        if current == before:
+            todo[rel] = after
+        elif current != after:
+            raise CitationError(f"{rel} was edited while a relocation was not finished: reconcile it with {PENDING}, "
+                                "then run --relocate")
+    for rel, text in todo.items():
+        _atomic_text(root / rel, text)
+    journal.unlink()
+
+
+def _replace_all(root: Path, texts: dict[str, str]) -> None:
+    """Write a journal of each file's text before and after, then move each new text into place. os.replace is atomic for
+    one file only: a process that dies between two moves leaves the journal, and the next --relocate finishes from it.
+    Every text is built before the journal is written, so a failure while building leaves every file as it was (#491)."""
+    entries = {rel: [(root / rel).read_text(), text] for rel, text in texts.items()}
+    _atomic_text(root / PENDING, json.dumps(entries))
+    _finish_relocation(root)
 
 
 def check(root: Path) -> list[str]:
@@ -149,7 +200,10 @@ def check(root: Path) -> list[str]:
 
 
 def relocate(root: Path) -> tuple[int, list[str]]:
-    """Move each citation whose text is at one other place. Returns the count moved and what still needs a person."""
+    """Move each citation whose text is at one other place. Returns the count moved and what still needs a person.
+
+    The documents and the lock are built in memory, then written together. Two citations of one range share a lock key,
+    so the lock is rewritten through a map of old key to new key, never by popping a key once per citation (#491)."""
     lock, moved, left = load_lock(root), 0, []
     by_doc: dict[str, list[tuple[Citation, int]]] = {}
     for c in citations(root):
@@ -161,6 +215,8 @@ def relocate(root: Path) -> tuple[int, list[str]]:
             by_doc.setdefault(c.doc, []).append((c, at[0]))
         else:
             left.append(f"{c.doc}:{c.line}: `{c.path}:{c.start}`")
+    texts: dict[str, str] = {}
+    new_key: dict[str, str] = {}
     for doc, changes in by_doc.items():
         lines = (root / doc).read_text().split("\n")
         # From the right of each line to its left, so that an earlier span keeps its place.
@@ -169,11 +225,18 @@ def relocate(root: Path) -> tuple[int, list[str]]:
             text = lines[c.line - 1]
             numbers = f"{new_start}" if new_end == new_start else f"{new_start}-{new_end}"
             lines[c.line - 1] = text[:c.span[0]] + f"`{c.written}:{numbers}`" + text[c.span[1]:]
-            lock[f"{c.doc}|{c.path}|{new_start}-{new_end}"] = lock.pop(c.key)
+            new_key[c.key] = f"{c.doc}|{c.path}|{new_start}-{new_end}"
             moved += 1
-        (root / doc).write_text("\n".join(lines))
+        texts[doc] = "\n".join(lines)
     if moved:
-        write_lock(root, lock)
+        relocated = {}
+        for key, recorded in lock.items():
+            target = new_key.get(key, key)
+            if target in relocated and relocated[target] != recorded:
+                return 0, [*left, f"{target}: two citations would record different text at this range"]
+            relocated[target] = recorded
+        texts[LOCK] = lock_text(relocated)
+        _replace_all(root, texts)
     return moved, left
 
 
@@ -197,6 +260,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     root = Path(args.root)
     try:
+        if (root / PENDING).exists():
+            # A relocation did not finish. Only --relocate goes on, and it finishes that one first.
+            if not args.relocate:
+                raise CitationError(f"a relocation did not finish ({PENDING} is there): run --relocate")
+            _finish_relocation(root)
         if args.list:
             for c in citations(root):
                 print(f"{c.doc}:{c.line}\t{c.path}:{c.start}-{c.end}")

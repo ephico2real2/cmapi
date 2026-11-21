@@ -117,11 +117,14 @@ def test_a_policy_that_reads_oldobject_is_not_run_by_the_background_scan(catalog
             reads_old = "oldObject" in used or "variables.update" in used
             assert background is not reads_old, doc["metadata"]["name"]
             (ratchet if reads_old else scanned).add(doc["metadata"]["name"])
-    # Every declared key, the system keys and the bounds keep their value through oldObject; the order of a LimitRange,
-    # production's expiry and the keys that no stanza declares do not.
+    # Every declared key, the system keys and the bounds keep their value through oldObject, and so does a key outside
+    # allowOther.prefixes that Git holds (#497: cmapi keeps it on a change, #492's ruling on M2, so a scan would report a
+    # false failure). The order of a LimitRange, production's expiry, and the count and bytes of the other keys do not.
     index = index_of(files)
-    assert {n for n in ratchet} == {n for n, c in index.items() if c["rule"] not in ("order", "absent") and c["key"]}
-    assert {index[n]["rule"] for n in scanned} >= {"order", "prefix", "max"}
+    assert {n for n in ratchet} == {n for n, c in index.items()
+                                    if (c["rule"] not in ("order", "absent") and c["key"]) or c["rule"] == "prefix"}
+    assert {index[n]["rule"] for n in scanned} >= {"order", "max"}
+    assert "prefix" not in {index[n]["rule"] for n in scanned}
 
 
 # ----------------------------------------------------------------------------------------------- #333, with the CLI

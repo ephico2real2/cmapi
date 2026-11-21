@@ -100,6 +100,11 @@ class MergeCheck:
         return "clean"
 
 
+def is_commit_id(ref: str, lengths: tuple[int, ...] = (40,)) -> bool:
+    """Whether an explicit ref has the spelling of a full lowercase object ID of one of these lengths (SHA-1 has 40)."""
+    return len(ref) in lengths and all(c in "0123456789abcdef" for c in ref)
+
+
 def credential_values(token: str | None, basic_auth: tuple[str, str] | None) -> tuple[str, ...]:
     """Each value of the bot's credential that a host could echo: the token, and with Basic auth the password and the header's
     value as httpx sends it, base64 of user:password in UTF-8 (RFC 7617)."""
@@ -179,6 +184,19 @@ class HostGitProvider:
             return r
 
     # ---- the Git side: a Git layer, or the host's REST API
+    # How long a full object ID is on this host: 40 hex characters (SHA-1). A host with SHA-256 repositories adds 64.
+    object_id_lengths: tuple[int, ...] = (40,)
+
+    def _folder_head(self, ref: str | None) -> str:
+        """An omitted ref selects the configured branch. An explicit object ID pins the read."""
+        if ref and is_commit_id(ref, self.object_id_lengths):
+            return ref
+        branch = ref or self.default_branch
+        head = self.branch_head(branch)
+        if head is None:
+            raise GitUnavailable(f"branch {branch} does not exist")
+        return head
+
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         """Files under path at ref (default branch head), keyed by repository path, and the commit sha."""
         raise NotImplementedError

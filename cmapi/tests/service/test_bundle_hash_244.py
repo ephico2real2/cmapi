@@ -12,7 +12,8 @@ from conftest import build_world
 from test_policies_302 import KYVERNO, RESULTS, _config, get, live_bundle, ns_report, pick, put_ns, result, sync
 
 DEV = Path(__file__).resolve().parents[3] / "examples/cluster-configs/policies/env/dev"
-DEV_HASH = "1d05d32730f241fc36287e6b97780dc60f1844c074b33661876bb4cc561c573f"
+# The example dev bundle as rendered since #497 (its held-key ratchet changed cmapi-metadata-dev.yaml).
+DEV_HASH = "cb135714e86c14914098c9113b95f7dabf65bef09d4e0586db890143a319e861"
 
 
 def test_versioned_hash_orders_pairs_and_changes_with_one_digest():

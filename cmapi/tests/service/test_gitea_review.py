@@ -48,8 +48,18 @@ class Host:
             return httpx.Response(200, json={"sha": HEAD, "commit": {"message": self.message}, "parents": [{"sha": MAIN}]})
         if method == "GET" and path == "/pulls":
             return httpx.Response(200, json=[{"number": 1, "head": {"ref": BRANCH, "sha": HEAD}}] if self.open_pr else [])
-        if method == "GET" and path == f"/contents/{FOLDER.rstrip('/')}":
-            return httpx.Response(200, json=[{"type": "file", "name": p.rsplit("/", 1)[1], "path": p} for p in self.files])
+        if method == "GET" and path.startswith("/git/trees/"):
+            parts = FOLDER.strip("/").split("/")
+            trees = [self.branch, *(str(i) * 40 for i in range(len(parts)))]
+            depth = trees.index(path.rsplit("/", 1)[1])
+            if depth < len(parts):
+                entries = [{"type": "tree", "path": parts[depth], "sha": trees[depth + 1]}]
+            else:
+                entries = [{"type": "blob", "mode": "100644", "path": p.rsplit("/", 1)[1], "sha": "f" * 40}
+                           for p in self.files]
+            return httpx.Response(200, json={"tree": entries, "truncated": False})
+        if method == "GET" and path == "/git/blobs/" + "f" * 40:
+            return httpx.Response(200, json={"content": self.b64(self.files[REL])})
         if method == "GET" and path.startswith("/contents/"):
             return httpx.Response(200, json={"content": self.b64(self.files.get(path[len("/contents/"):], "")), "sha": "f" * 40})
         if method == "DELETE" and path == f"/branches/{BRANCH}":

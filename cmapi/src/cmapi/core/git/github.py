@@ -66,10 +66,7 @@ class GitHubProvider(HostGitProvider):
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         if self.workspace is not None:
             return self.workspace.read_folder(path, ref)
-        ref = ref or self.default_branch
-        head = ref if len(ref) == 40 else self.branch_head(ref)
-        if head is None:
-            raise GitUnavailable(f"branch {ref} does not exist")
+        head = self._folder_head(ref)
         r = self._call("read_folder", "GET", f"{self._repo()}/contents/{path.strip('/')}", params={"ref": head}, ok=(200, 404))
         files: dict[str, str] = {}
         if r.status_code == 200:

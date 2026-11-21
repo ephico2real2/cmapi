@@ -38,7 +38,7 @@ import yaml
 
 from cmapi.core.policy import PolicySettings
 from cmapi.core.policybundle import bundle_files
-from cmapi.core.policygen import environment_of, index_of
+from cmapi.core.policygen import environment_of, index_of, outside_keys
 from cmapi.core.ports import Finding
 from cmapi.core.tiers import LIMIT_KINDS, limit_key_parts, qty
 
@@ -215,7 +215,8 @@ class CliValidator:
                                    f"kyverno returned unexpected result {res.get('result')!r}: {res.get('message') or ''}"[:300]))
                 continue
             check = self.index.get(res.get("policy", ""))
-            if check and check.get("key") and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check)):
+            # The full message, before the Finding cuts it: the outside-keys policy names its keys in it (#497).
+            if check and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check), res.get("message")):
                 continue
             rule = res.get("rule")
             out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300],
@@ -255,9 +256,15 @@ def _previous_version(before: list[dict[str, Any]], doc: Mapping[str, Any],
     return holders[0] if len(holders) == 1 else None
 
 
-def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[str, Any] | None) -> bool:
-    """True when the key that a rendered policy checks has the same value in the previous version of the object."""
-    if old is None or not check.get("key") or check.get("rule") == "order":
+def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[str, Any] | None,
+          message: str | None = None) -> bool:
+    """True when the key that a rendered policy checks has the same value in the previous version of the object. The
+    policy on keys outside allowOther.prefixes checks no one key: it is held when each key its message names is (#497)."""
+    if old is None or check.get("rule") == "order":
+        return False
+    if check.get("rule") == "prefix" and not check.get("key"):
+        return _held_outside(str(check["kind"]), message, new, old)
+    if not check.get("key"):
         return False
     if check.get("rule") == "namespaceSuffix":
         return True             # the name was chosen at create and a change cannot rename it, as cmapi checks it (#479)
@@ -279,6 +286,22 @@ def _held(check: Mapping[str, str | None], new: Mapping[str, Any], old: Mapping[
         a, b = _limit(new, *parts), _limit(old, *parts)
         return a is not None and b is not None and _same_amount(a, b)
     return False
+
+
+def _held_outside(kind: str, message: str | None, new: Mapping[str, Any], old: Mapping[str, Any]) -> bool:
+    """Each key that a failure of the outside-keys policy names has the same value in the previous version (#497). A
+    message that names no key (another text, Kyverno's static fallback) keeps the failure."""
+    named = outside_keys(message, kind)
+    if not named:
+        return False
+    field = "labels" if kind == "label" else "annotations"
+    a = (new.get("metadata") or {}).get(field) or {}
+    b = (old.get("metadata") or {}).get(field) or {}
+    # An offline manifest can contain a malformed key even before Kubernetes validates it.
+    # If a key contains a list separator, the report cannot identify its elements uniquely.
+    if any(not isinstance(k, str) or ", " in k for k in a):
+        return False
+    return all(isinstance(a.get(k), str) and a.get(k) == b.get(k) for k in named)
 
 
 def _same_amount(a: str, b: str) -> bool:

@@ -8,13 +8,13 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 
 | Table | One row is | Written by | Read by |
 |---|---|---|---|
-| `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:155`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:180`) | The request routes, the worker jobs, the KPI report |
-| `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:175-180`) | `GET /api/v1/requests/{request_id}/events` |
-| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:223`) | The approval ledger (`repo.py:209`) |
-| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:239`) | The worker: `JobRepo.claim` (`repo.py:252`) |
-| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:311`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:315`) |
-| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:346`) | `DbKeyStore.load` (`repo.py:341`), when a pod starts while Keycloak does not answer |
-| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:327`) | `SwitchRepo.get` (`repo.py:323`) |
+| `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:155`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:185`) | The request routes, the worker jobs, the KPI report |
+| `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:180-185`) | `GET /api/v1/requests/{request_id}/events` |
+| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:228`) | The approval ledger (`repo.py:214`) |
+| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:244`) | The worker: `JobRepo.claim` (`repo.py:257`) |
+| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:316`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:320`) |
+| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:351`) | `DbKeyStore.load` (`repo.py:346`), when a pod starts while Keycloak does not answer |
+| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:332`) | `SwitchRepo.get` (`repo.py:328`) |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 | `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |
@@ -53,8 +53,8 @@ These indexes and constraints carry correctness. The code relies on each of them
 | One request for each idempotency key of a caller | The partial unique index `uq_cr_idempotency` on `(requester_sub, idempotency_key)` | Migration `0001`, line 60 |
 | One approval for each person on a request | The unique index `uq_approvals_person` on `(request_id, approver_sub)` | Migration `0002` |
 | An approval says which approving group it counted for | `approvals.counted_for`. Each new approval writes the column again for each approval of the request, because the ledger can move an earlier approval to another slot. It is null for an approval from before the column | Migration `0004` |
-| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:239`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
-| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:265`) |
+| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:244`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
+| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:270`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
 The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:18`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
