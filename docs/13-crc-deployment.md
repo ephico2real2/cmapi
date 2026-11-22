@@ -121,13 +121,12 @@ To make the token, signed in as `cmapi-git-bot`:
 2. **Token name:** `cmapi-crc`. **Resource owner:** `ephico2real2`. **Expiration:** 30 days, or whatever you prefer.
 3. Under **Repository access**, choose **Only select repositories**, then pick `ephico2real2/cmapi-cluster-configs`.
 4. Under **Repository permissions**, set **Contents** and **Pull requests** to Read and write. **Metadata** → Read-only is set by GitHub.
-5. Click **Generate token** and copy it. GitHub shows it only once.
+5. Click **Generate token** and leave the page open. GitHub shows it only once.
 
-The token goes from the clipboard to the Secret on stdin, so it is on no command line, in no shell history and on no screen:
+Run this command from the repository's root in **Terminal.app**, because it prompts. When the hidden prompt appears, type the token, or copy it from GitHub and paste it at that prompt, then press Return. Input is invisible. The script sends the token to the Secret on stdin: on no command line, in no process's argv, in no shell history and on no screen. It stops on an empty token, an `oc` login failure, or an existing Secret; for an existing Secret it prints the delete command to use before rerunning.
 
 ```bash
-pbpaste | tr -d '\r\n' | oc create secret generic cmapi-git-bot -n cmapi --from-file=token=/dev/stdin
-pbcopy </dev/null
+python3 deploy/owner-secret.py git-bot
 ```
 
 **The SSH key, when it is added.** An ed25519 key with no passphrase, its public key added to the `cmapi-git-bot` account's SSH keys, and GitHub's host keys checked against the fingerprints GitHub publishes (<https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints>):
@@ -152,9 +151,9 @@ rm ./cmapi-git-bot
 
 On every host `main` is protected, so that only a merged PR changes it: the host enforces "cmapi never pushes to `main`" too. CRC's repository cannot: it is private on GitHub's free plan, which refuses branch protection (#227).
 
-**Upgrading from `cmapi-git`.** Before #286 the token was Secret `cmapi-git`. Nothing migrates it: the owner loads the bot account's new token into `cmapi-git-bot` with the two lines above, and the rollback removes the old `cmapi-git` by name (`deploy/crc-rollback.sh`).
+**Upgrading from `cmapi-git`.** Before #286 the token was Secret `cmapi-git`. Nothing migrates it: the owner loads the bot account's new token into `cmapi-git-bot` with the command above, and the rollback removes the old `cmapi-git` by name (`deploy/crc-rollback.sh`).
 
-Give the token an expiry, and put a new one in before then: an expired token makes every request fail at the host, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. A new token: `oc delete secret cmapi-git-bot -n cmapi`, the same two lines, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since the API client reads the token at start. Git over HTTPS reads the file at each call. Step 11 checks that the token is there, and reads no value.
+Give the token an expiry, and put a new one in before then: an expired token makes every request fail at the host, retried and then failed, and `cmapi_git_operations_total{result="refused"}` climbs. A new token: `oc delete secret cmapi-git-bot -n cmapi`, the same command, then `oc rollout restart deploy/cmapi-api deploy/cmapi-worker -n cmapi`, since the API client reads the token at start. Git over HTTPS reads the file at each call. Step 11 checks that the token is there, and reads no value.
 
 **4. A read-only GHCR credential, before step 5.** CI builds both images and pushes them to GHCR (#545), and GHCR makes a package private when it is first published ("When you first publish a package, the default visibility is private", [GitHub, Working with the Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), read on 2026-11-21). So CRC needs a credential to read `ghcr.io/ephico2real2/cmapi` and `ghcr.io/ephico2real2/cmapi-portal`: Secret `cmapi-ghcr-pull` in namespace `cmapi`, of type `kubernetes.io/dockerconfigjson`. An import reads it ("During the import process, OKD picks up the secrets and provides them to the remote party", [OKD, Managing image streams](https://docs.okd.io/latest/openshift_images/image-streams-manage.html), read on 2026-11-21), and so does the integrated registry when a pod pulls ("`Local` allows the credentials used to pull this image to be managed from the image stream's namespace", the `TagReferencePolicy` type in [openshift/api `image/v1/types.go`](https://github.com/openshift/api/blob/master/image/v1/types.go), read on 2026-11-21). It is linked to no ServiceAccount: the pods pull from the integrated registry, never from GHCR. `deploy/crc-image.sh` stops when it is missing, and reads only its type.
 
@@ -163,32 +162,15 @@ GHCR takes only a classic token ("GitHub Packages only supports authentication u
 1. Open <https://github.com/settings/tokens/new>.
 2. **Note:** `cmapi-crc-ghcr-read`. **Expiration:** 30 days, or whatever you prefer.
 3. Tick **`read:packages`** and nothing else: it reads, and cannot write or delete.
-4. Click **Generate token** and copy it.
+4. Click **Generate token** and leave the page open.
 
-The token goes from the clipboard to the Secret on stdin, as `cmapi-git-bot`'s does: on no command line, in no shell history and on no screen. Put the token's account in place of `<github-user>`:
+Put the token's account in place of `<github-user>`, then run this command from the repository's root in **Terminal.app**, because it prompts. When the hidden prompt appears, type the token, or copy it from GitHub and paste it at that prompt, then press Return. Input is invisible. As for `cmapi-git-bot`, the script sends the token to the Secret on stdin: on no command line, in no process's argv, in no shell history and on no screen. It stops on an empty token, an `oc` login failure, or an existing Secret; for an existing Secret it prints the delete command to use before rerunning.
 
 ```bash
-(
-  set -eu
-  trap 'pbcopy </dev/null || exit 1' EXIT
-  python3 - '<github-user>' <<'PY'
-import base64, json, subprocess, sys
-
-token = subprocess.check_output(["pbpaste"]).rstrip(b"\r\n")
-if not token:
-    sys.exit("Copy the read-only GHCR token before creating the Secret.")
-auth = base64.b64encode(sys.argv[1].encode() + b":" + token).decode()
-config = json.dumps({"auths": {"ghcr.io": {"auth": auth}}})
-subprocess.run(
-    ["oc", "create", "secret", "generic", "cmapi-ghcr-pull", "-n", "cmapi",
-     "--type=kubernetes.io/dockerconfigjson", "--from-file=.dockerconfigjson=/dev/stdin"],
-    input=config.encode(), check=True,
-)
-PY
-)
+python3 deploy/owner-secret.py ghcr '<github-user>'
 ```
 
-A new token: `oc delete secret cmapi-ghcr-pull -n cmapi`, then the same lines. `crc-image.sh` asks for the Secret even if the packages are later made public.
+A new token: `oc delete secret cmapi-ghcr-pull -n cmapi`, then the same command. `crc-image.sh` asks for the Secret even if the packages are later made public.
 
 ## The run
 
