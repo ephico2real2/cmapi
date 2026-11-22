@@ -541,12 +541,15 @@ try {
     assert.equal(await counter(), "6 / 6");
     assert.equal(await panel(page).getByRole("button", { name: "Next step" }).isDisabled(), true, "Next is off at the last step");
     await panel(page).getByRole("button", { name: "Reset" }).click();
+    await panel(page).getByText("1 / 6", { exact: true }).waitFor();
     assert.equal(await counter(), "1 / 6");
     assert.equal(await panel(page).getByRole("button", { name: "Back", exact: true }).isDisabled(), true, "Back is off at the first step");
     await panel(page).getByRole("button", { name: "Next step" }).click();
+    await panel(page).getByText("2 / 6", { exact: true }).waitFor();
     assert.equal(await counter(), "2 / 6");
     assert.equal(await panel(page).locator("article h2").innerText(), upToApplied[1].event, "the detail shows the step in view");
     await banner(page).getByRole("button", { name: "Back to current step" }).click();
+    await panel(page).getByText("6 / 6", { exact: true }).waitFor();
     assert.equal(await counter(), "6 / 6");
 
     // The request moves on. The tab reads its events again while it is open, and follows it to synced.
@@ -646,6 +649,7 @@ try {
     assert.match(await panel(page).innerText(), /prod → prod portal/, "the other instances' portals, from config.json");
     assert.match(await panel(page).innerText(), /Requested by ola \(ola@ephico2real\.com\), from your sign-in\./, "the requester comes from /me");
     await fillForm(page);
+    await waitValue(page.getByLabel("Namespace (required)"), "payments-dev");
     assert.equal(await page.getByLabel("Namespace (required)").inputValue(), "payments-dev", "no key makes an end of the name here: the suggestion, team and environment");
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true", "Submit is off until a check passes (#479 P7)");
 
@@ -665,8 +669,8 @@ try {
     assert.deepEqual(dry[0].body, { namespace: "payments-dev", tier: "medium", labels: { "cmapi.net/team": "payments" }, annotations: { "cmapi.net/team-dl": "payments-team@ephico2real.com" }, justification: "Payments service dev namespace" });
     // A change to the form hides the plan and closes Submit, as in the mockup: the form must be checked again.
     await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: /^small/ }).click();
-    assert.equal(await callout.count(), 0, "the plan is of the old form");
     await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
+    assert.equal(await callout.count(), 0, "the plan is of the old form");
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true");
     await submitButton(page).click({ force: true });
     await page.waitForTimeout(300);
@@ -830,6 +834,7 @@ try {
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), null);
     // A change after the check: Submit is off again until the new form is checked.
     await panel(page).getByRole("group", { name: "Tier" }).getByRole("button", { name: /^small/ }).click();
+    await passed.waitFor({ state: "detached" });
     assert.equal(await passed.count(), 0, "the plan is of the old form");
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true");
     await submitButton(page).click({ force: true });
@@ -1162,18 +1167,24 @@ try {
       assert.deepEqual([(await start.innerText()).trim(), (await end.innerText()).trim()], ["…-", "-rnd"], "nothing typed: the start waits for the mnemonic");
       assert.equal(await page.locator("#ns-name-start input, #ns-name-end input").count(), 0, "neither end is an input");
       await page.getByLabel("Mnemonic (required)").fill("abc");
+      await start.filter({ hasText: "abc-" }).waitFor();
       assert.equal((await start.innerText()).trim(), "abc-", "the start follows the mnemonic");
       assert.match(await page.locator("#ns-name-help").innerText(), /Leave empty for a team-wide namespace: abc-rnd\./);
       await name.fill("payments");
+      await page.locator("#ns-name-full").filter({ hasText: "Will be created as abc-payments-rnd (16 of 63 characters)" }).waitFor();
       assert.equal((await page.locator("#ns-name-full").innerText()).trim(), "Will be created as abc-payments-rnd (16 of 63 characters)");
       assert.equal(await name.inputValue(), "payments", "the person types the middle only");
       assert.match(await name.getAttribute("aria-describedby"), /ns-name-start.*ns-name-end/, "a screen reader hears both ends");
       // The suffix follows the cluster's environment at once (plan R6), and so do the keys that cmapi fills in.
       assert.equal(await page.getByLabel("Cluster").inputValue(), "KIND_CMAPI_TEST");
       await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
+      await end.filter({ hasText: "-dev" }).waitFor();
       assert.equal((await end.innerText()).trim(), "-dev");
+      await waitValue(page.getByLabel("Cluster"), "CRC");
       assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
+      await waitValue(section(page, "Labels").getByLabel("Name", { exact: true }), "abc-payments-dev");
       assert.equal(await section(page, "Labels").getByLabel("Name", { exact: true }).inputValue(), "abc-payments-dev");
+      await waitValue(section(page, "Labels").getByLabel("App environment", { exact: true }), "dev");
       assert.equal(await section(page, "Labels").getByLabel("App environment", { exact: true }).inputValue(), "dev");
       // The whole name is a DNS-1123 label of at most 63 characters (core/naming.py): checked as it is typed.
       await name.fill("x".repeat(56));
@@ -1193,6 +1204,7 @@ try {
   await check("479-P2 a team-wide namespace with an empty middle is previewed and sent in the dry run", async () => {
     await atEachView(async (page) => {
       await fill479(page, { desired: "" });
+      await page.locator("#ns-name-full").filter({ hasText: "Will be created as abc-dev (7 of 63 characters)" }).waitFor();
       assert.equal(await page.getByLabel("Namespace", { exact: true }).evaluate((input) => input.required), false);
       assert.match(await page.locator("#ns-name-help").innerText(), /Leave empty for a team-wide namespace: abc-dev\./);
       assert.equal((await page.locator("#ns-name-full").innerText()).trim(), "Will be created as abc-dev (7 of 63 characters)");
@@ -1237,14 +1249,18 @@ try {
       const chip = () => groupOf(page, "Team (required)").getByText("from Mnemonic", { exact: true });
       assert.equal(await team.inputValue(), "");
       await mnemonic.fill("abc");
+      await waitValue(team, "abc");
       assert.equal(await team.inputValue(), "abc", "the default copies the mnemonic");
+      await chip().waitFor();
       assert.equal(await chip().count(), 1);
       await mnemonic.fill("xyz");
+      await waitValue(team, "xyz");
       assert.equal(await team.inputValue(), "xyz", "and follows it while not edited");
       // Each field checks as it is typed, before any Check (P5): the validator's words.
       await page.getByLabel("Line of business (required)").fill("amg sst");
       await waitError(page.getByLabel("Line of business (required)"), /^Not a valid label value/);
       await fill479(page);
+      await panel(page).locator(".pf-v6-c-code-block").filter({ hasText: /cmapi\.net\/team: "abc" {3}# from Mnemonic/ }).waitFor();
       assert.match(await code(page), /cmapi\.net\/team: "abc" {3}# from Mnemonic/);
       await checkButton(page).click();
       await passed(page).waitFor();
@@ -1252,6 +1268,7 @@ try {
       assert.match(await statusText(page), /cmapi\.net\/team = abc default from company\.net\/mnemonic/, "the dry run says where the value comes from (A7)");
       // An edit is the person's: the chip goes, and a later change of the mnemonic leaves it alone (plan R5).
       await team.fill("payments");
+      await chip().waitFor({ state: "detached" });
       assert.equal(await chip().count(), 0);
       await mnemonic.fill("abcd");
       assert.equal(await team.inputValue(), "payments");
@@ -1266,6 +1283,7 @@ try {
     await atEachView(async (page) => {
       assert.match(await code(page), /^apiVersion: v1\nkind: Namespace\nmetadata:\n {2}name: "…-…-dev"/);
       await fill479(page);
+      await panel(page).locator(".pf-v6-c-code-block").filter({ hasText: 'cmapi.net/team-dl: "payments-team@company.net"' }).waitFor();
       const yaml = await code(page);
       for (const line of ['name: "abc-payments-dev"', 'name: "abc-payments-dev"   # automatic', 'company.net/app-environment: "dev"   # automatic', 'company.net/mnemonic: "abc"',
         'company.net/lob: "amgsst"', 'company.net/cl: "1"', 'cmapi.net/team: "abc"   # from Mnemonic', 'cmapi.net/team-dl: "payments-team@company.net"']) {
@@ -1325,8 +1343,11 @@ try {
       await panel(page).getByRole("button", { name: "+ Add annotation" }).click();
       await page.getByLabel("Key of additional annotation 1").fill("runbook.company.net/url");
       await page.getByLabel("Value of additional annotation 1").fill("https://wiki.company.net/abc/runbook");
+      // The counter is rendered from the new value; count() itself does not retry (#552).
+      await panel(page).getByText("1 of 50 · 36 of 65536 bytes").waitFor();
       assert.equal(await panel(page).getByText("1 of 50 · 36 of 65536 bytes").count(), 1, "the bytes of the values, as cmapi counts them");
       await toggle.click();
+      await toggle.and(page.locator("[aria-expanded=false]")).waitFor();
       assert.equal(await toggle.getAttribute("aria-expanded"), "false");
       assert.match(await toggle.innerText(), /1 label, 1 annotation$/, "closed, it counts what it holds");
       assert.match(await code(page), /team\.company\.net\/squad: "checkout" {3}# additional/);
@@ -1365,6 +1386,7 @@ try {
       await calendar.locator(".pf-v6-c-calendar-month__dates-cell:not(.pf-m-adjacent-month) button").filter({ hasText: /^15$/ }).click();
       const next = new Date(now.getFullYear(), now.getMonth() + 1, 15);
       const picked = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-15`;
+      await waitValue(date, picked);
       assert.equal(await date.inputValue(), picked, "the calendar writes the date");
       const days = Math.round((Date.parse(picked) - Date.parse(isoAfter(0))) / 864e5);
       assert.equal(await page.locator("#ns-exp-days").innerText(), `Expires on ${picked}, in ${days} days.`);
@@ -1372,6 +1394,7 @@ try {
       assert.match(await code(page), new RegExp(`cmapi\\.net/expires-at: "${picked}" {3}# from Expires`));
       // Past maxLifetimeDays (180 here): a warning that one more approval is needed; the check runs and the API decides.
       await date.fill(isoAfter(200));
+      await page.locator("#ns-exp-days").filter({ hasText: `Expires on ${isoAfter(200)}, in 200 days. More than 180 days: needs one more approval.` }).waitFor();
       assert.ok((await page.locator("#ns-exp-days").innerText()).startsWith(`Expires on ${isoAfter(200)}, in 200 days. More than 180 days: needs one more approval.`));
       assert.match(await page.locator("#ns-exp-days").getAttribute("class"), /pf-m-warning/);
       await fill479(page);
@@ -1396,6 +1419,7 @@ try {
       // rnd, the first environment here, keeps its date field: the flag is per environment.
       await page.getByLabel("Expires (optional)").waitFor();
       await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
+      await page.getByLabel("Expires (optional)").waitFor({ state: "detached" });
       assert.equal(await page.getByLabel("Expires (optional)").count(), 0, "no date field");
       assert.equal(await page.locator("#ns-exp-off").innerText(), "Expiration is turned off for this environment (expiration.yaml: enabled: false). The namespace is permanent.");
       assert.match(await approvalCard(page).innerText(), /Expires\s+never \(expiration off here\)/);
@@ -1542,7 +1566,9 @@ try {
       await newTab(page);
       await page.getByLabel("Region").selectOption("rnd-only");
       await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
+      await waitValue(page.getByLabel("Region"), "any");
       assert.equal(await page.getByLabel("Region").inputValue(), "any");
+      await waitValue(page.getByLabel("Cluster"), "CRC");
       assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
       assert.equal(await checkButton(page).isEnabled(), true);
       assert.deepEqual(errors, []);
@@ -1561,6 +1587,7 @@ try {
       assert.equal(await date.getAttribute("aria-invalid"), "true");
       await date.fill("2099-03-02");
       await date.press("Tab");
+      await pickerError.waitFor({ state: "detached" });
       assert.equal(await pickerError.count(), 0, "a real day: no error");
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
@@ -2261,6 +2288,7 @@ try {
     assert.deepEqual(await hiddenOptions(page, "#q-sug"), [], "every match is on the screen, not clipped by the card (#535)");
     await box.press("ArrowDown");
     await box.press("ArrowDown");
+    await box.and(page.locator('[aria-activedescendant="q-opt-1"]')).waitFor();
     assert.equal(await box.getAttribute("aria-activedescendant"), "q-opt-1", "the second match is active");
     assert.equal(await options.nth(1).getAttribute("aria-selected"), "true");
     await box.press("Enter");
@@ -2275,6 +2303,7 @@ try {
     await box.fill("zzz");
     await page.getByRole("listbox").getByText('No namespace matches "zzz".').waitFor();
     await box.press("Escape");
+    await box.and(page.locator("[aria-expanded=false]")).waitFor();
     assert.equal(await box.getAttribute("aria-expanded"), "false");
     await checkComboBoxLifecycle(page, box, "#q-sug", "pay", "#requests");
     assert.deepEqual(errors, []);
@@ -2298,6 +2327,7 @@ try {
     assert.equal(download.suggestedFilename(), file);
     assert.equal(readFileSync(await download.path(), "utf8"), csv, "the file is the API's CSV, every row");
     await panel(page).getByRole("button", { name: "Close" }).click();
+    await callout.waitFor({ state: "detached" });
     assert.equal(await callout.count(), 0);
     assert.equal(calls("/api/v1/quotas:export").length, 1, "the file came from the one export");
     assert.deepEqual(errors, []);
@@ -3892,6 +3922,7 @@ try {
       assert.equal(await panel(page).getByRole("group", { name: "Cluster" }).count(), 1, `${width}: the cluster filter shows with the list`);
       // Closing a section keeps its count in the header.
       await polToggle(page, "Clusters").click();
+      await page.locator("table[aria-label=Clusters]").waitFor({ state: "detached" });
       assert.deepEqual((await sectionsOf(page))[0], { title: "Clusters", count: String(fleet.clusters.length), expanded: "false" });
       assert.equal(await page.locator("table[aria-label=Clusters]").count(), 0);
       assert.deepEqual(errors, []);
@@ -3908,29 +3939,34 @@ try {
       await themes(page, async (theme) => {
         const where = `${width} ${theme}`;
         await policyPager(page).getByRole("button", { name: "Page 1", exact: true }).click();
+        await polCard(page, "Results by policy").getByText("1–25 of 80", { exact: true }).waitFor();
         assert.deepEqual(await policyNames(page), names.slice(0, 25), `${where}: page 1`);
         assert.equal(await policyRange(page), "1–25 of 80");
         assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "3", "4", "›"]);
         assert.equal(await policyPager(page).getByRole("button", { name: "Previous page" }).getAttribute("aria-disabled"), "true", `${where}: no page before 1`);
         await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click();
+        await polCard(page, "Results by policy").getByText("26–50 of 80", { exact: true }).waitFor();
         assert.deepEqual(await policyNames(page), names.slice(25, 50), `${where}: page 2 is rows 26–50`);
         assert.equal(await policyRange(page), "26–50 of 80");
         assert.deepEqual(await pagesOf(page), ["‹", "1", "[2]", "3", "4", "›"]);
         await policyPager(page).getByRole("button", { name: "Next page" }).click();
         assert.deepEqual(await policyNames(page), names.slice(50, 75), `${where}: Next is page 3`);
         await policyPager(page).getByRole("button", { name: "Page 4", exact: true }).click();
+        await polCard(page, "Results by policy").getByText("76–80 of 80", { exact: true }).waitFor();
         assert.deepEqual(await policyNames(page), names.slice(75), `${where}: the last page`);
         assert.equal(await policyRange(page), "76–80 of 80");
         assert.equal(await policyPager(page).getByRole("button", { name: "Next page" }).getAttribute("aria-disabled"), "true", `${where}: no page after the last`);
       });
       // 50 a page starts at page 1, then 100 a page shows all 80 on one page.
       await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "50", exact: true }).click();
+      await polCard(page, "Results by policy").getByText("1–50 of 80", { exact: true }).waitFor();
       assert.equal(await policyRange(page), "1–50 of 80", `${width}: a new page size starts at page 1`);
       assert.deepEqual(await policyNames(page), names.slice(0, 50));
       assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "›"]);
       await policyPager(page).getByRole("button", { name: "Page 2", exact: true }).click();
       assert.deepEqual(await policyNames(page), names.slice(50));
       await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "100", exact: true }).click();
+      await polCard(page, "Results by policy").getByText("1–80 of 80", { exact: true }).waitFor();
       assert.deepEqual(await policyNames(page), names, `${width}: 100 a page`);
       assert.deepEqual(await pagesOf(page), ["‹", "[1]", "›"]);
       // A new cluster, from its chip or from the address, starts at page 1.
@@ -3953,8 +3989,10 @@ try {
     await openPolicies(page);
     assert.deepEqual(await pagesOf(page), ["‹", "[1]", "2", "3", "4", "5", "…", "10", "›"]);
     await policyPager(page).getByRole("button", { name: "Page 5", exact: true }).click();
+    await polCard(page, "Results by policy").getByText("101–125 of 250", { exact: true }).waitFor();
     assert.deepEqual(await pagesOf(page), ["‹", "1", "…", "4", "[5]", "6", "…", "10", "›"]);
     await policyPager(page).getByRole("button", { name: "Page 10", exact: true }).click();
+    await polCard(page, "Results by policy").getByText("226–250 of 250", { exact: true }).waitFor();
     assert.deepEqual(await pagesOf(page), ["‹", "1", "…", "6", "7", "8", "9", "[10]", "›"]);
     assert.equal(await policyRange(page), "226–250 of 250");
     assert.deepEqual(errors, []);
@@ -4019,8 +4057,10 @@ try {
       assert.equal(await target.count(), 1, `${title}: one persistent target`);
       assert.equal(await target.getAttribute("aria-labelledby"), await toggle.getAttribute("id"));
       for (const key of ["Enter", "Space"]) {
+        const wasExpanded = await toggle.getAttribute("aria-expanded") === "true";
         await toggle.focus();
         await page.keyboard.press(key);
+        await toggle.and(page.locator(wasExpanded ? "[aria-expanded=false]" : "[aria-expanded=true]")).waitFor();
         const expanded = await toggle.getAttribute("aria-expanded") === "true";
         assert.equal(await target.isVisible(), expanded, `${title}: ${key} synchronizes visibility`);
         assert.equal(await target.count(), 1, `${title}: closing keeps the target`);
@@ -4062,12 +4102,15 @@ try {
         assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Page 3", `${where}: focus stays on page 3`);
         await policyPager(page).getByRole("button", { name: "Previous page" }).focus();
         await page.keyboard.press("Enter");
+        await polCard(page, "Results by policy").getByText("26–50 of 80", { exact: true }).waitFor();
         assert.equal(await policyRange(page), "26–50 of 80", `${where}: Enter on Previous`);
         await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "50", exact: true }).focus();
         await page.keyboard.press("Space");
+        await polCard(page, "Results by policy").getByText("1–50 of 80", { exact: true }).waitFor();
         assert.equal(await policyRange(page), "1–50 of 80", `${where}: Space on 50`);
         await panel(page).getByRole("group", { name: "Per page" }).getByRole("button", { name: "25", exact: true }).focus();
         await page.keyboard.press("Enter");
+        await polCard(page, "Results by policy").getByText("1–25 of 80", { exact: true }).waitFor();
         assert.equal(await policyRange(page), "1–25 of 80", `${where}: Enter on 25`);
         await toggle.focus();
         await page.keyboard.press("Enter");
@@ -4698,6 +4741,7 @@ try {
       // Reverting an unchecked edit cannot resurrect the previous pass.
       await page.getByLabel("Critical level (required)").selectOption("4");
       await page.getByLabel("Critical level (required)").selectOption("3");
+      await panel(page).getByText("Changed since the last check. Press Check (dry run) again.").waitFor();
       assert.equal(await nsSubmit(page).getAttribute("aria-disabled"), "true");
       await nsCheck(page).click();
       await nsPassed(page).waitFor();
@@ -4908,8 +4952,10 @@ try {
       const box = lookupBox(page);
       assert.deepEqual(await hiddenOptions(page, "#nsx-list"), [], "keyboard matches are on the screen before any arrow key can scroll them (#535)");
       await page.keyboard.press("ArrowDown");
+      await box.and(page.locator('[aria-activedescendant="nsx-opt-0"]')).waitFor();
       assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-0");
       await page.keyboard.press("ArrowDown");
+      await box.and(page.locator('[aria-activedescendant="nsx-opt-1"]')).waitFor();
       assert.equal(await box.getAttribute("aria-activedescendant"), "nsx-opt-1");
       assert.equal(await nsOptions(page).nth(1).getAttribute("aria-selected"), "true");
       // The ARIA APG combobox: DOM focus stays on the input while the list, in document.body (#535), shows the active option.
@@ -4922,6 +4968,7 @@ try {
       await box.fill("xyz o");
       await page.waitForFunction(() => document.querySelectorAll("#nsx-list [role=option]:not(:disabled)").length === 1);
       await page.keyboard.press("Escape");
+      await box.and(page.locator("[aria-expanded=false]")).waitFor();
       assert.equal(await box.getAttribute("aria-expanded"), "false", "Escape closes the list");
       await checkComboBoxLifecycle(page, box, "#nsx-list", "abc pay", "#requests");
     });
