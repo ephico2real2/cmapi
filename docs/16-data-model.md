@@ -255,7 +255,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0006`. Tables: 10.
+Migration head: `0007`. Tables: 10.
 
 ### `admin_switches`
 
@@ -471,7 +471,7 @@ Migration head: `0006`. Tables: 10.
 |---|---|---|---|
 | `id` | bigint | no | `nextval('request_events_id_seq'::regclass)` |
 | `request_id` | varchar(40) | no |  |
-| `at` | timestamptz | no | `now()` |
+| `at` | timestamptz | no | `clock_timestamp()` |
 | `event` | varchar(40) | no |  |
 | `status` | varchar(20) | yes |  |
 | `by` | varchar(100) | no |  |
