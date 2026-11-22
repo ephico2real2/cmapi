@@ -1,10 +1,54 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-21. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-22. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-21, 08:30Z
+## Resume here: 2026-11-22, after 05:05Z
+
+Drafted by Sonnet 5.5 from `origin/main`, `gh` and OB1's run 32 record (`workbench/cmapi/ob1-run32/resume.md`); checked by the coordinator. Supersedes the 2026-11-21 08:30Z section below.
+
+| Item | State |
+|---|---|
+| `main` | `8f387bf` (PR #553). No open PRs |
+| CRC | Runs `4999dee` (OB1 run 32, steps 0 to 22 between 22:47Z and 22:57Z on 2026-11-21). api and worker `cmapi@sha256:67f43526...`, portal `cmapi-portal@sha256:a18734ce...`, both imported from GHCR by digest (#545). alembic `0006`. keycloak-0 restarts unchanged (4). Import token expires 2026-11-28T22:55:21Z |
+| Not yet deployed | #550, #553 (migration `0007`, run by step 21) and #554 (test-only). Run 33 deploys `8f387bf` |
+| CRC policies | The dev bundle is 40/40, `hashState: current`, hash `a2603db2...`, no bundle apply needed (run 32, `logs/clusters-hash-after.txt`) |
+| Test namespace | `cmap-live-g-dev` (protected, cost-center `cc-4410`, team `cmapi-live`), kept. `cmapi-live-a` to `-f` untouched. 0 open requests |
+| Keycloak | CPU request 2 (was 1); memory 1 Gi request, 2 Gi limit. Ready 23:42:07Z with all five realms at 200 |
+| Monitoring | Off (the owner, 2026-11-20). Steps 23 to 25 wait for it (#489) |
+| Guard | Step 5 no longer builds on the Mac (#545). The watch must be read before each live scenario: run 32 ran scenarios after its stop file (23:11:29Z) |
+
+**What happened on 2026-11-21 evening (facts, with sources):**
+- Run 31 and run 32's first attempt were stopped by the guard in step 5, the local image build. In the first attempt, 58 containers in 42 namespaces had a last termination between 18:03Z and 18:31Z (resume.md, "STOP"). #545 (PR #548, `4999dee`): CI builds and attests both images; step 5 imports the digest. Second attempt: step 5 rc 0, no build, no restart outside cmapi.
+- Keycloak CPU: the owner asked for more resources. First patch 23:30:13Z; **the coordinator's watcher bug (zsh word splitting) rolled it back**, so the five realms had **two outages, not one**. Re-applied 23:41:12Z, Ready 23:42:07Z, all five realms 200 (`tasks/bu7aebp1k.output`, `bhsovz54t.output`).
+- The guard's stop at 23:11:29Z, one missed 3-s check of realm inkcast-prod: scenario 1's revert and scenarios 2 to 4 ran after it. All ended clean (#484 comment, 23:30Z).
+- Defect found live and fixed: #551 (`request_events.at` was the transaction's start), PR #553, migration `0007`.
+
+**Merged since the last tracker update (`2997652`, PR #539):**
+- #541: the project rules: Sonnet 5.5 drafts documentation and the coordinator oversees it; "Research, then ask". diagram-kit PR #82 is merged (the `/decide` skill and the `agile` as-built method).
+- #542 (#485): Swagger and ReDoc docs for the namespace-change operations.
+- #544 (#543): the secrets mutation harness runs scripts through Bash (ETXTBSY).
+- #540 (#537, #538): the Policies tab, collapsible and paged.
+- #547 (#546): docs/13's test namespace names follow CRC's name rule.
+- #548 (#545): CI builds the images; step 5 imports by digest.
+- #550 (#549): owner secret steps prompt for the token (`deploy/owner-secret.py`).
+- #554 (#552): portal checks wait for what an action renders.
+- #553 (#551): request events record their own time.
+
+**Waiting for the owner (each comment is a draft posted 2026-11-22T04:12Z):**
+1. #484: approval of the Namespaces tab, and whether the gaps (axe, 820 px, keyboard, Remove and Undo, a Submit-side 412 on CRC) may stay on the stand-in and CI.
+2. #483: approval of the PATCH contract, and whether 428 may stay CI-proven or needs a live request without `If-Match`.
+3. #485: approval of Swagger and ReDoc, and whether the three observations (no dark theme, Swagger UI sideways scroll at 390 px, ReDoc logo refused by the CSP) are accepted or need a follow-up.
+
+**Next, in order:**
+1. The owner's approvals above. A story closes only after the owner approves, with a comment citing the proof for each acceptance criterion and the cluster it ran on.
+2. Run 33: deploy `8f387bf` on CRC (step 21 runs migration `0007`), with the watch read before each live scenario. Steps 23 to 25 wait for monitoring.
+3. The open defects (`gh issue list -R ephico2real2/cmapi --state open --label bug`, 53 on 2026-11-22). In-Progress: #509, #507, #504, #493, #489, #487, #486, #235, #149, #62. Blocked on the owner: #157, #36, #35. In-QA: #169. The rest are Backlog: #474, #473, #461, #376, #373, #372, #321, #315, #314, #309, #292, #291, #287, #276, #273, #266, #265, #264, #263, #260, #259, #258, #257, #256, #250, #248, #243, #237, #236, #220, #207, #189, #170, #167, #150, #147, #60, #59, #33. Each goes through `fix-defect`, in the session it is found.
+
+**Keycloak rollback time (coordinator's measurement):** the watcher started at 23:30:13Z with a 600 s limit, so it patched the CPU request back at about 23:40:13Z; the replacement pod started at 23:40:19Z (read with `oc` at 23:40:45Z). The zsh cause is the coordinator's own diagnosis (memory `feedback-zsh-word-splitting`). This section is written after 05:05Z, the merge of #553.
+
+## Resume here: 2026-11-21, 08:30Z (superseded by the section above)
 
 Supersedes the 2026-11-20 10:15Z section below.
 
