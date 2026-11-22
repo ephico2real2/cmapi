@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-21 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-22 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,28 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-21, 15:40Z
+## Current: 2026-11-22, after 05:05Z
+
+`main` is `8f387bf` (PR #553). CRC runs `4999dee` (OB1 run 32, deployed 22:47Z to 22:57Z on 2026-11-21): api and worker `cmapi@sha256:67f43526...`, portal `cmapi-portal@sha256:a18734ce...`, alembic `0006`, the dev bundle 40/40 `current` (hash `a2603db2...`). Monitoring is off (#489). Merged after `4999dee` and **not yet deployed**: #550, #553 (migration `0007`) and #554. No open PRs. Run 33 deploys `8f387bf`.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| CRC deploy step 5 built both images on the Mac and starved the cluster | #545 | Merged #548 (`4999dee`): CI builds both images, pushes them to GHCR by digest with an artifact attestation; step 5 imports the digest and builds nothing | Run 31 and run 32's first attempt were stopped by the guard in step 5; in run 32's first attempt 58 containers in 42 namespaces restarted (18:03Z to 18:31Z), among them kube-apiserver, Kyverno and cmapi's own. **CRC run 32, second attempt:** step 5 rc 0 in about 20 s, no `podman build` process in any 5-s sample, no restart outside cmapi after it, 0 BREACH from the first watch line to step 22. CI on `4999dee`: success |
+| Test names in docs/13 broke CRC's name rule | #546 | Merged #547 (`e03898c`) | Dry run of `cmapi-live-g` answered 422 on CRC; docs/13 now names `cmap-live-g-dev`; `doc13-test.py` rejects 70 mutants (65 before) |
+| Policies tab: collapsible sections, Results by policy last and paged | #537, #538 | Merged #540 (`20be856`); **live on CRC** | **CRC run 32**, Chrome 158, 10 checks, console 0: Results by policy closed, page height at 1440 px 1122 (run 31: 5662); at 50 a page, "1–50 of 80" and "51–80 of 80", rows in the answer's order |
+| Namespaces tab type-ahead lists, operator-only reason names the environment | #535, #532 | Merged #536, #534; **live on CRC** | **CRC run 32**, requester, 8 checks, console 0: each option seen at its own centre by `elementFromPoint`, none inside a card; reason "Needs namespaces:protect in dev. Changing this key needs one more approval." The key shows only on a protected namespace (resume l.80-84) |
+| Swagger UI and ReDoc for the namespace-change operations | #485 (story) | Merged #542 (`93fa9da`, "Part of #485"); **live on CRC**; waits for the owner's approval | **CRC run 32**, 36 of 36 checks for 409, 412, 428, the `mergePatch` body example and the Extensions, at 1440 and 390 px in both schemes. Observed, not defects: no dark theme in either page, Swagger UI scrolls sideways 149 px at 390, ReDoc's logo is refused by the CSP |
+| Namespaces tab live scenarios | #484 (story) | The four scenarios ran on `cmap-live-g-dev` (protected, created through the form: req-20261121-0001, PR #22); the story waits for the owner's approval | **CRC run 32**: (1) Submit to In sync, req-20261121-0002, PR #23, revert req-20261121-0003 (PR #24); (2) drift by `oc label` shown and cleared; (3) 412 on a Check, "now cc-4412, yours cc-4413", Keep my edit then a new Check 200 (req-20261121-0004, 0005, PRs #25, #26); (4) 409 change-pending on Submit, A's req-20261121-0006 cancelled. 0 open requests at the end. Not proven live: axe, a Submit-side 412, a human approval (dev changes need none: `change: 0`) |
+| PATCH contract | #483 (story) | Reopened 2026-11-21; the story waits for the owner's approval and for the 428 question | **CRC run 32**: a real PATCH (no `dryRun`) went from request to In sync four times; 409 and 412 live. **428 not proven live**: the portal always sends `If-Match`, so no request without it was sent |
+| `request_events.at` was the transaction's start, so a timeline ran out of order | #551 | Merged #553 (`8f387bf`); next deploy, step 21 runs migration `0007` | Found live in run 32: req-20261121-0001 `applied` before `apply_started`. On a fresh PostgreSQL 16, 2 tests failed before; 43 passed after, with the migration round trip |
+| Owner secret steps read the token from the clipboard | #549 | Merged #550 (`fd60926`); docs only until the next deploy | `doc13-test.py` failed 44 cases before, passes after; the owner's `cmapi-ghcr-pull` Secret was made by hand and the coordinator checked its type, registry and user |
+| Portal checks read a value once after an action | #552 | Merged #554 (`128e38e`), part of #508 | Test-only. 972 assertions before and after, verbatim; full `npm test` exit 0 in 976 s, 139 portal checks |
+| Secrets mutation harness ETXTBSY race | #543 | Merged #544 (`adfcdad`) | 32 mutants, 0 wrong; new `mutate-secrets-test.py` passes with both scripts held open for writing |
+| Project rules | — | Merged #541 (`ce81e5e`): Sonnet 5.5 drafts the documentation and the coordinator oversees it; "Research, then ask" (diagram-kit PR #82, merged, holds the `/decide` skill and the `agile` as-built method) | Docs only |
+| Run 32's guard stop | — | The first attempt stopped at step 5 at 18:14:25Z; the second attempt's watch wrote `$STOP` at 23:11:29Z (one missed 3-s check of realm inkcast-prod, answered 1 s later) while Part 3 ran. Scenario 1's revert and scenarios 2 to 4 ran after it, against the owner's rule; all ended clean and reverted (#484 comment, 23:30Z) | Snapshot at 23:16:22Z against s0: "no difference"; keycloak-0 restarts 4 throughout; no restart outside cmapi from before step 0 to the end |
+| Keycloak CPU request raised from 1 to 2 (the owner's request); memory stays 1 Gi request, 2 Gi limit | — | Applied. **The realms had two outages, not one; the second was caused by the coordinator's watcher bug** (a zsh word-splitting fault) | First patch 23:30:13Z; the watcher then reported "NOT READY in 10 min" and rolled the change back, and all five realms answered 000. Re-applied 23:41:12Z; `keycloak-0` Ready 23:42:07Z (53 s), all five realms 200 (`tasks/bu7aebp1k.output`, `bhsovz54t.output`). When the rollback was applied is not found in either file |
+
+## Previous: 2026-11-21, 15:40Z
 
 `main` is `6066ec3`. CRC runs `a909074` (OB1 run 31, since 13:04Z), with the dev bundle 40/40 `current` (cmapi-cluster-configs merge `5926fa2`). Monitoring is off (#489). Open: #537 in build. Run 32 (#534, #536, #537) waits for #537.
 
