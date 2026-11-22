@@ -52,6 +52,30 @@ def test_migrations_from_an_empty_database_up_down_up(empty_schema):
         assert p.returncode == 0, out[-800:]
 
 
+def test_request_event_default_upgrade_and_downgrade_preserve_history(empty_schema):
+    p = migrate(empty_schema, "0006")
+    out = p.communicate()[0]
+    assert p.returncode == 0, out[-800:]
+    with psycopg.connect(empty_schema, autocommit=True) as c:
+        assert c.execute("SELECT column_default FROM information_schema.columns WHERE table_schema='mig' "
+                         "AND table_name='request_events' AND column_name='at'").fetchone()[0] == "now()"
+        c.execute("INSERT INTO change_requests (request_id, instance, cluster_id, namespace, env, plugin, action, status, "
+                  "plan, plan_hash, requester, requester_sub, requester_kind, requester_client, requester_username) "
+                  "VALUES ('req-history', 'test', 'CRC', 'history-dev', 'dev', 'namespace', 'create', 'pr_open', "
+                  "'{}', 'hash', '{}', 'test', 'user', 'test', 'test')")
+        c.execute('INSERT INTO request_events (request_id, event, "by") VALUES (%s, %s, %s)',
+                  ("req-history", "apply_started", "test"))
+        original = c.execute("SELECT * FROM request_events ORDER BY id").fetchall()
+        for args, default in ((["head"], "clock_timestamp()"), (["0006", "--downgrade"], "now()"),
+                              (["head"], "clock_timestamp()")):
+            p = migrate(empty_schema, *args)
+            out = p.communicate()[0]
+            assert p.returncode == 0, out[-800:]
+            assert c.execute("SELECT column_default FROM information_schema.columns WHERE table_schema='mig' "
+                             "AND table_name='request_events' AND column_name='at'").fetchone()[0] == default
+            assert c.execute("SELECT * FROM request_events ORDER BY id").fetchall() == original
+
+
 def test_two_migrators_at_once_both_succeed(empty_schema, capsys):
     results = []
     for round_ in range(5):

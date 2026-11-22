@@ -61,7 +61,7 @@ class RequestEventRow(Base):
     __tablename__ = "request_events"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     request_id: Mapped[str] = mapped_column(String(40), ForeignKey("change_requests.request_id"), nullable=False)
-    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp())
     event: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str | None] = mapped_column(String(20))
     by: Mapped[str] = mapped_column(String(100), nullable=False)
