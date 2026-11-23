@@ -32,8 +32,10 @@ from conftest import build_world
 
 CMAPI = Path(__file__).resolve().parents[2]
 CONTRACT = CMAPI / "contract" / "openapi.json"
-# docs.enabled and docs.public govern each of these; /docs/redoc-start.js starts ReDoc (#235).
-DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/docs/changelog", "/docs/redoc-start.js")
+# docs.enabled and docs.public govern each of these; /docs/redoc-start.js starts ReDoc (#235), /docs/swagger.css is
+# Swagger UI's stylesheet (#556).
+DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/docs/changelog", "/docs/redoc-start.js",
+              "/docs/swagger.css")
 
 
 @pytest.fixture
@@ -482,3 +484,20 @@ def test_redoc_starts_with_the_options_of_the_standard(bundles, test_config, fre
         options = redoc_options(client.get("/docs/redoc-start.js").text)
     assert options == {"disableTelemetry": True, "showExtensions": True, "sortRequiredPropsFirst": True,
                        "hideDownloadButtons": False}
+
+
+# ---------------------------------------------------------------- #556 and #558: Swagger UI at phone width
+
+def test_swagger_ui_loads_the_bundles_stylesheet_through_cmapis(bundles, test_config, fresh_db, keys, monkeypatch):
+    """/docs links one stylesheet, cmapi's, which imports the bundle's first, then wraps the Extensions values (#556) and
+    lets the Responses table scroll in its box (#558). The browser check of the layout is
+    cmapi-portal-ui/tests/front-door.test.mjs (390 and 1440 px, every operation open); this one holds the order, since a
+    rule placed before the @import would make the browser drop the import."""
+    with build_world(test_config, keys, monkeypatch) as (client, *_):
+        page = client.get("/docs").text
+        css = client.get("/docs/swagger.css")
+    assert re.findall(r'<link[^>]*rel="stylesheet"[^>]*>', page) == ['<link type="text/css" rel="stylesheet" href="/docs/swagger.css">']
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    assert css.text.startswith('@import url("/static/swagger/swagger-ui.css");\n')
+    assert ".opblock-section > .table-container > table > tbody > tr > td:last-child {\n  overflow-wrap: anywhere;\n}" in css.text
+    assert ".responses-inner {\n  overflow-x: auto;\n}" in css.text

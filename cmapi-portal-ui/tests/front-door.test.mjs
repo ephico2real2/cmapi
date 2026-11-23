@@ -14,7 +14,7 @@
 // "Authorize" popup, which needs a client cmapi-docs at the issuer.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -34,6 +34,8 @@ assert.ok(STATIC && existsSync(join(STATIC, "swagger-ui", "swagger-ui-bundle.js"
 assert.ok(existsSync(join(app, "dist", "index.html")), "run npm run build first");
 const MOCKUP_HOST = "cmapi-mockup.test";
 const CHECK_TIMEOUT_MS = 60_000;
+// Swagger UI with each of its 40 operations open: Chromium took 85 s to render them on a loaded Mac (#556).
+const OPEN_DOCS_TIMEOUT_MS = 300_000;
 
 const freePort = () => new Promise((resolve) => { const s = createServer().listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 async function waitPort(port, what, child) {
@@ -92,8 +94,8 @@ try {
   closers.unshift(() => browser.close());
 
   /** A new profile that records each CSP violation and each CSP message of the console. */
-  async function page() {
-    const context = await browser.newContext();
+  async function page(options = {}) {
+    const context = await browser.newContext(options);
     await context.addInitScript(() => {
       window.__csp = [];
       document.addEventListener("securitypolicyviolation", (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
@@ -116,8 +118,8 @@ try {
     }
   }
 
-  async function check(name, fn) {
-    const timer = new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out after ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS));
+  async function check(name, fn, timeoutMs = CHECK_TIMEOUT_MS) {
+    const timer = new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out after ${timeoutMs / 1000} s`)), timeoutMs));
     try {
       await Promise.race([fn(), timer]);
       console.log(`  ok   ${name}`);
@@ -152,6 +154,49 @@ try {
     assert.deepEqual(await violations(), []);
     await context.close();
   });
+
+  // #556: Swagger UI 5.34.1 shows each x- field of an operation in its Extensions table as one JSON string, and without
+  // cmapi's stylesheet (/docs/swagger.css) the x-codeSamples value made the table wider than a 390 px page, which then
+  // scrolled sideways; so did the Responses table of two operations (#558). With every operation open, the page must be no wider than the window; whatever passes its right
+  // edge must be in a box that scrolls sideways itself, so nothing is cut off; and each x- value of the contract must be
+  // on the page whole, wrapped inside the page's width. Rendering 40 open operations takes Chromium a while.
+  const contract = JSON.parse(readFileSync(join(repo, "cmapi/contract/openapi.json"), "utf8"));
+  const contractRows = Object.values(contract.paths).flatMap((ops) => Object.values(ops))
+    .flatMap((op) => Object.entries(op).filter(([k]) => k.startsWith("x-")).map(([k, v]) => `${k} ${JSON.stringify(v)}`)).sort();
+  for (const width of [390, 1440]) {
+    await check(`Swagger UI at ${width} px, every operation open: no sideways scroll, each x- value shown whole`, async () => {
+      const { context, p, violations } = await page({ viewport: { width, height: 900 } });
+      await p.goto(`${origin}/docs`);
+      await shows(p, ".opblock", violations);
+      const operations = await p.locator(".opblock").count();
+      // All the toggles in one step in the page: Playwright's own click waits on each, too slow for 40 operations.
+      await p.evaluate(() => document.querySelectorAll(".opblock-summary-control").forEach((b) => b.click()));
+      const extensionsHeaders = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions");
+      await p.waitForFunction(`(${extensionsHeaders})().length >= ${operations}`, null, { polling: 1000, timeout: 0 });
+      const seen = await p.evaluate(() => {
+        const page = document.documentElement;
+        const scrolls = (e) => { for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) if (/auto|scroll/.test(getComputedStyle(a).overflowX)) return true; return false; };
+        const sections = [...document.querySelectorAll(".opblock-section")].filter((s) => s.querySelector(":scope > .opblock-section-header h4")?.textContent === "Extensions");
+        const cells = sections.flatMap((s) => [...s.querySelectorAll("tbody tr")].map((tr) => [...tr.cells]));
+        return {
+          scrollWidth: page.scrollWidth, clientWidth: page.clientWidth, sections: sections.length,
+          beyond: [...document.querySelectorAll("#swagger-ui *")].filter((e) => e.getBoundingClientRect().right > page.clientWidth && !scrolls(e))
+            .map((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join(".")} "${e.textContent.slice(0, 40)}"`).slice(0, 10),
+          rows: cells.map(([field, value]) => `${field.textContent} ${value.textContent}`).sort(),
+          // A cell that is hidden, whose text is cut off, or that runs past the page's right edge.
+          unseen: cells.flat().filter((td) => !td.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+            || td.scrollWidth > td.clientWidth || td.getBoundingClientRect().right > page.clientWidth).map((td) => td.textContent.slice(0, 60)),
+        };
+      });
+      assert.ok(seen.scrollWidth <= seen.clientWidth, `the page is ${seen.scrollWidth} px wide in a ${seen.clientWidth} px window`);
+      assert.deepEqual(seen.beyond, [], "these pass the page's right edge, and no box scrolls to them");
+      assert.equal(seen.sections, operations, "each operation shows its Extensions table");
+      assert.deepEqual(seen.rows, contractRows, "the Extensions tables show each x- field of the contract, whole");
+      assert.deepEqual(seen.unseen, [], "an Extensions cell is hidden, cut off, or runs past the page");
+      assert.deepEqual(await violations(), []);
+      await context.close();
+    }, OPEN_DOCS_TIMEOUT_MS);
+  }
 
   // ReDoc 3 loads its "API docs by Redocly" logo from cdn.redoc.ly, and no option removes it (docs/reviews/2026-11-14-issue-229/).
   // The policy refuses it, and the bundle hides the image. Any other refused request fails the check.
