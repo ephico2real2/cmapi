@@ -175,7 +175,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:198`, `:424` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:223` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:232` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:91`, `:104`, `:118` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:139`, `:170`, `:188`, `:213`, `:245` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |

@@ -298,7 +298,12 @@ class PlanMetadataDiff(Api):
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
-    etag: str | None = Field(description="Git commit the plan was made against; send it as If-Match", examples=["0a1b2c3d"])
+    # An entity tag is opaque (RFC 9110, 8.8.3.1): say how to use it, never what it is made of (#565).
+    etag: str | None = Field(description="The entity tag of the namespace that the plan was made against, as `GET "
+                                         ".../namespaces/{ns}` gives it. On a change it is the one that `If-Match` sent: "
+                                         "send the same `If-Match` when you submit the change. A create takes no "
+                                         "`If-Match`, so ignore it there. Compare it; never parse it",
+                             examples=["3f9a1c0b7e2d4a68"])
     requester: RequesterView = Field(description="Who the request would be for")
     capacity: CapacityView = Field(description="The capacity check")
     approval: ApprovalView = Field(description="The approval that would apply")
@@ -385,7 +390,11 @@ class NamespaceView(ClusterScoped):
     annotations: dict[str, str] = Field(description="Annotations", examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
     managed: bool = Field(description="Whether cmapi manages it", examples=[True])
     expires_at: str | None = Field(description="cmapi.net/expires-at", examples=[None])
-    etag: str | None = Field(description="Git commit of its folder; send as If-Match on a change", examples=["0a1b2c3d"])
+    etag: str | None = Field(description="The namespace's entity tag: the `ETag` header without its quotes. Send it back "
+                                         "unchanged, in double quotes, as `If-Match` on a change or a delete; another "
+                                         "value is 412 `precondition-failed`. It changes whenever the namespace's folder "
+                                         "in Git changes. Compare it; never parse it. Null on the list, which reads no Git",
+                             examples=["3f9a1c0b7e2d4a68"])
     open_request: str | None = Field(description="Request holding the namespace lock", examples=[None])
     protected: bool | None = Field(default=None, description="Whether cmapi refuses a delete request for it (422 "
                                    "namespace-protected): its labels in Git, which a delete checks, match protected.labels of "

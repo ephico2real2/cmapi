@@ -584,7 +584,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|193-193": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|223-223": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|232-232": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
