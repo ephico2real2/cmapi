@@ -960,6 +960,8 @@ export function apiHandler({ issuer, portalOrigin }) {
       state.items = state.items.map((x) => (x === r ? next : x));
       return next;
     };
+    // The replays keep the API's rules for what the portal sends, as the header says: a new crypto.randomUUID key for each
+    // request or change (src/portal/*Tab.tsx), its etag in quotes as If-Match, dryRun=true, and no DELETE.
     // plugins/namespaces/router.py _replay: a replay answers request_view of the stored row, the request as it is now. The key
     // map holds the first object, and a decision replaces it in state.items, so the replay looks it up there (#595).
     const replayed = (held) => ok(find(held.request.requestId), 202);

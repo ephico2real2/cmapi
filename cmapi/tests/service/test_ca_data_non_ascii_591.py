@@ -8,7 +8,7 @@ RFC 7468 (https://www.rfc-editor.org/rfc/rfc7468.html, read 2026-11-23), section
 boundaries are permitted, and parsers MUST NOT malfunction when processing such data"; section 5.2: "Many tools are known to
 emit explanatory text before the BEGIN and after the END lines". OpenSSL and Go's x509.CertPool (client-go's) load such a
 value, and curl's Mozilla bundle has a title in UTF-8 (measured, recorded on the pull request). So the check loads it; a
-character that is not ASCII inside a CERTIFICATE block is still refused as `invalid caData`.
+character that is not ASCII inside a block, CERTIFICATE or X509 CERTIFICATE, is still refused as `invalid caData`.
 
 Each case goes through `ClusterRegistry._check_import` with a client factory that calls `Trust.verify()`, the real loader.
 """
@@ -74,8 +74,8 @@ def _second_ca() -> str:
 
 
 def test_an_x509_certificate_block_beside_such_text_still_loads():
-    """OpenSSL's PEM_read_bio_X509 also reads the older label `X509 CERTIFICATE`, and loads it today beside a CERTIFICATE
-    block. The loader keeps it: only the lines that are not ASCII are left out, never a block, so both CAs are anchors."""
+    """OpenSSL's PEM_read_bio_X509 also reads the older label `X509 CERTIFICATE` (check_pem, PEM_STRING_X509_OLD), and loads
+    it today beside a CERTIFICATE block. Text that is not ASCII outside both blocks is skipped, so both CAs are anchors."""
     old_label = _second_ca().replace("BEGIN CERTIFICATE", "BEGIN X509 CERTIFICATE").replace("END CERTIFICATE",
                                                                                               "END X509 CERTIFICATE")
     assert _check_import(CA + "# Issuer: CN=Zürich Root CA\n" + old_label) == ("connected", [], 2)
@@ -88,6 +88,58 @@ def test_a_character_that_is_not_ascii_inside_a_block_is_invalid_ca_data(inside)
     lines = CA.split("\n")
     lines[2] = lines[2][:10] + inside + lines[2][10:]
     assert _check_import("\n".join(lines)) == ("invalid-secret", ["invalid caData"], None)
+
+
+def test_two_distinct_certificates_beside_such_text_are_both_anchors():
+    """Two different CAs, so a loader that kept one block of two would count one."""
+    assert _check_import(CA + "# Zürich\n" + _second_ca()) == ("connected", [], 2)
+
+
+def _inside(cert: str, where: str) -> str:
+    """`cert` with text that is not ASCII in its body: a line of it, a mixed line, or the end of a base64 line."""
+    lines = cert.split("\n")
+    if where == "own-line":
+        lines.insert(2, "\u00a0")
+    elif where == "mixed-line":
+        lines.insert(2, "Issuer: Zürich")
+    else:
+        lines[2] += "\u00a0"
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("where", ["own-line", "mixed-line", "end-of-line"])
+@pytest.mark.parametrize("label", ["CERTIFICATE", "X509 CERTIFICATE"])
+def test_text_that_is_not_ascii_inside_either_label_is_never_repaired(label, where):
+    """Beside one good CERTIFICATE block, a second CA, under either label the loader takes, with text that is not ASCII in its
+    body. Leaving that line out loaded a certificate that OpenSSL refuses from the same file, and the import said connected
+    (#599, reviewer 1). The import is now invalid caData, and the loader by itself never makes the second CA an anchor."""
+    import ssl
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    from cmapi.core.clients.trust import ca_data_context
+
+    second = _second_ca()
+    bundle = CA + _inside(second.replace(" CERTIFICATE-----", f" {label}-----"), where)
+    assert _check_import(bundle) == ("invalid-secret", ["invalid caData"], None)
+    try:
+        anchors = ca_data_context(bundle).get_ca_certs(binary_form=True)
+    except ssl.SSLError:
+        anchors = []
+    assert x509.load_pem_x509_certificate(second.encode()).public_bytes(Encoding.DER) not in anchors
+
+
+@pytest.mark.parametrize("begin, end", [("CERTIFICATE", "X509 CERTIFICATE"), ("X509 CERTIFICATE", "CERTIFICATE")])
+def test_a_block_closed_by_the_other_label_is_invalid_ca_data(begin, end):
+    """OpenSSL needs the END line of the block's own label (pem_lib.c, get_header_and_data: PEM_R_BAD_END_LINE)."""
+    second = _second_ca().replace("BEGIN CERTIFICATE", f"BEGIN {begin}").replace("END CERTIFICATE", f"END {end}")
+    assert _check_import(CA + second) == ("invalid-secret", ["invalid caData"], None)
+
+
+def test_bare_base64_with_a_no_break_space_is_invalid_ca_data():
+    """A value with no boundary is read as bare base64: a no-break space in it is no base64, though str.split() drops it."""
+    assert _check_import("TQ\u00a0==") == ("invalid-secret", ["invalid caData"], None)
 
 
 def test_an_ascii_value_reaches_the_loader_unchanged(monkeypatch):

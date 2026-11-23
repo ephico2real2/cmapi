@@ -33,8 +33,7 @@ async function reject({ call }, requestId) {
 async function replays(send, decided, tag) {
   const again = await send(tag);
   assert.equal(again.status, 202);
-  assert.equal(again.body.status, decided.status, "the request in its current state, not the first answer");
-  assert.deepEqual(again.body.events, decided.events);
+  assert.deepEqual(again.body, decided, "the whole request in its current state, not the first answer");
   for (const value of [undefined, "*", " \t*\t "]) {
     const answer = await send(value);
     assert.equal(answer.status, 428, `If-Match ${JSON.stringify(value)} on a replay`);
@@ -92,11 +91,13 @@ test("a create replay answers the request as it is now; a create takes no If-Mat
   const first = await send();
   assert.equal(first.status, 202, JSON.stringify(first.body));
   // The API moves an approved request on (the bot opens its pull request); the stand-in has no bot, so the test moves it.
-  const moved = { ...first.body, status: "pr_open", pr: 42 };
+  // ChangeRequest.pr is a PrView (cmapi/src/cmapi/core/models.py), not a number.
+  const moved = { ...first.body, status: "pr_open",
+    pr: { number: 42, url: "https://git.test/pulls/42", branch: "cmapi/CRC/orders-dev", head: "abcdef12" } };
   api.state.items = api.state.items.map((r) => (r.requestId === moved.requestId ? moved : r));
   const again = await send();
   assert.equal(again.status, 202);
-  assert.deepEqual([again.body.status, again.body.pr], ["pr_open", 42]);
+  assert.deepEqual(again.body, moved);
 });
 
 test("an expiry replay with another justification is the same request, as the API's fingerprint leaves it out", async () => {
@@ -115,4 +116,29 @@ test("an expiry replay with another justification is the same request, as the AP
   assert.equal(other.status, 409);
   assert.equal(other.body.code, "idempotency-replay");
   assert.equal(other.body.requestId, first.body.requestId, "the 409 names the request that holds the key, as _replay's does");
+});
+
+test("a first write takes `*` as 428 and an empty If-Match as 412, on each write that needs one", async () => {
+  // check_if_match (core/pipeline.py): require_if_match refuses `*` first; an empty value then lists no strong tag, so 412.
+  const writes = {
+    quota: async () => ["PATCH", "/api/v1/clusters/CRC/namespaces/payments-dev", "requester", { tier: "large" }],
+    metadata: async (api) => {
+      api.state.namespaces = [namespaceRecord({ name: "abc-ledger-dev", prefix: "abc", team: "ledger", extraLabels: { "cmapi.net/protected": "true" } })];
+      return ["PATCH", "/api/v1/clusters/CRC/namespaces/abc-ledger-dev", "operator", { labels: { "cmapi.net/protected": null } }];
+    },
+    expiry: async (api) => {
+      api.state.expirations = [{ clusterId: "CRC", name: "notes-dev", env: "dev", expiresAt: "2027-01-01", openRequest: null }];
+      api.state.etags.set("CRC/notes-dev", "abc");
+      return ["POST", "/api/v1/clusters/CRC/namespaces/notes-dev/expiration:extend", "requester", { days: 7 }];
+    }
+  };
+  for (const [name, setUp] of Object.entries(writes)) {
+    for (const [ifMatch, status, code] of [["*", 428, "precondition-required"], [" \t*\t ", 428, "precondition-required"], ["", 412, "precondition-failed"]]) {
+      const api = standIn();
+      const [method, path, user, body] = await setUp(api);
+      const answer = await api.call(method, path, user, { body, key: `fresh-${name}`, ifMatch });
+      assert.deepEqual([answer.status, answer.body.code], [status, code], `${name}, If-Match ${JSON.stringify(ifMatch)}`);
+      assert.equal(api.state.keys.size, 0, "a refused first write holds no key");
+    }
+  }
 });
