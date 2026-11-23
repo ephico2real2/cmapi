@@ -7720,7 +7720,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -7882,7 +7882,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -8824,7 +8824,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -9829,7 +9829,7 @@
         "x-plugin-version": "0.2.0"
       },
       "post": {
-        "description": "Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it\nis approved. `dryRun=true` answers 200 with the plan, the capacity check and the approval that would apply,\nand writes nothing. The environment is the cluster's and must be one this instance serves.\n\n**Requires** `namespaces:create`.",
+        "description": "Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it\nis approved. `dryRun=true` answers 200 with the plan, the capacity check and the approval that would apply,\nand opens no request. The environment is the cluster's and must be one this instance serves.\n\n**Requires** `namespaces:create`.",
         "operationId": "namespaces_create_namespace",
         "parameters": [
           {
@@ -9847,13 +9847,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -10060,7 +10060,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -10532,7 +10532,7 @@
     },
     "/api/v1/clusters/{cluster_id}/namespaces/{ns}": {
       "delete": {
-        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n`dryRun=true` answers 200 with the plan, and writes nothing: `changes` lists each file of the folder as `removed`,\n`files` is empty, and `approval` is the approval that the delete would need. It makes the delete's checks, so it is\nrefused where the delete would be: If-Match, a protected namespace (422 `namespace-protected`), the permission.\n\n**Requires** `namespaces:write`.",
+        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n`dryRun=true` answers 200 with the plan and opens no request: `changes` lists each `.yaml` file directly in the\nnamespace's folder as `removed`, `files` is empty, and `approval` is the approval that the delete would need now. It makes\nthe delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, and a protected\nnamespace (422 `namespace-protected`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while\nanother request holds the namespace the plan is still 200, and the delete is 409 `change-pending`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_delete_namespace",
         "parameters": [
           {
@@ -10564,13 +10564,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -10685,7 +10685,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -11434,7 +11434,7 @@
         "x-plugin-version": "0.2.0"
       },
       "patch": {
-        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
+        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_update_namespace",
         "parameters": [
           {
@@ -11466,13 +11466,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -11630,7 +11630,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -12169,13 +12169,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -12297,7 +12297,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -12799,13 +12799,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -12938,7 +12938,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -13434,13 +13434,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -13562,7 +13562,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -14091,7 +14091,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -19056,7 +19056,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -19379,7 +19379,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -19688,7 +19688,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -20029,7 +20029,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
@@ -20372,7 +20372,7 @@
                   "dry-run-not-supported": {
                     "value": {
                       "code": "dry-run-not-supported",
-                      "detail": "This call has no dry run: send it without dryRun",
+                      "detail": "This call has no dry run, and nothing was done",
                       "status": 400,
                       "title": "dry run not supported",
                       "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"

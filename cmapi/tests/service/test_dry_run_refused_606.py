@@ -41,6 +41,9 @@ def test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing(worl
     before = rows(ctx)
     for value in ("true", "false", "All", ""):            # any dryRun: the call has none (Kubernetes' isDryRun)
         refused(client.post(f"/api/v1/requests/{rid}:approve?dryRun={value}", json={}, headers=auth(keys, "amy", **AMY)))
+    # Repeated too, in either order: the guard tests that the parameter is present, not that it is there once.
+    for query in ("dryRun=true&dryRun=false", "dryRun=false&dryRun=true"):
+        refused(client.post(f"/api/v1/requests/{rid}:approve?{query}", json={}, headers=auth(keys, "amy", **AMY)))
     refused(client.post(f"/api/v1/requests/{rid}:reject?dryRun=true", json={"comment": "no"}, headers=auth(keys, "amy", **AMY)))
     refused(client.post(f"/api/v1/requests/{rid}:cancel?dryRun=true", json={}, headers=auth(keys, "ola", **OLA)))
     assert rows(ctx) == before
@@ -78,6 +81,7 @@ def test_every_write_without_a_dry_run_refuses_one(world):
         if "dryRun" in query:
             planned.append(route.path_format)
             assert "refuse_dry_run" not in calls and "dry-run-not-supported" not in declared, route.path_format
+            assert "refuse_repeated_dry_run" in calls, f"{route.path_format} takes dryRun and does not refuse it repeated"
         else:
             guarded.append(route.path_format)
             assert "refuse_dry_run" in calls, f"{route.path_format} takes no dryRun and does not refuse one"
@@ -89,3 +93,20 @@ def test_the_writes_that_have_a_dry_run_still_answer_it(world):
     client, ctx, git, kube, validator, keys = world
     r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
     assert r.status_code == 200 and "planHash" in r.json(), r.text
+
+
+def test_sign_in_comes_first_then_the_guard_then_the_permission(world):
+    """The router's sign-in runs before a route's own dependencies (main.py, include_router), so a call without a token is
+    401 with or without dryRun. A signed-in caller meets the guard before the route's permission check (#607 review)."""
+    client, ctx, git, kube, validator, keys = world
+    rid = pending(client, keys)
+    path = f"/api/v1/requests/{rid}:approve"
+    for query in ("", "?dryRun=true", "?dryRun=true&dryRun=false"):
+        r = client.post(f"{path}{query}", json={})
+        assert (r.status_code, r.json()["code"]) == (401, "unauthenticated"), (query, r.text)
+        assert "www-authenticate" in r.headers
+    requester = auth(keys, "ola", **OLA)                  # no requests:approve
+    refused(client.post(f"{path}?dryRun=true", json={}, headers=requester))
+    r = client.post(path, json={}, headers=requester)
+    assert (r.status_code, r.json()["code"]) == (403, "forbidden"), r.text
+    assert client.get(f"/api/v1/requests/{rid}", headers=requester).json()["status"] == "pending_approval"

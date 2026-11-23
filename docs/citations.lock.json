@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|285-290": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|301-306": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -590,7 +590,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|45-57": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|46-58": [
   "def require(permission: str, env_from: Callable[..., str | None] | None = None) -> Callable[..., Identity]:",
   "    \"\"\"A dependency that checks one permission (the route's x-cmapi-permission).\"\"\"",
   "",
@@ -605,7 +605,7 @@
   "",
   "    return dep"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|50-54": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|51-55": [
   "        try:",
   "            c.cfg.roles.require(who, permission)",
   "        except Problem:",

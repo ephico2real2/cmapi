@@ -42,11 +42,18 @@ declare. The create, the change and the three expiry calls each declare `dry_run
 
 Chosen: the delete plan. The dry run runs the delete's own path up to the submit: the permission (`require`), `_idem`
 with `dry_run`, `plan_delete` (cluster, environment, If-Match, protection, the approval rules), and `refusals` with
-`dry_run=True`, so a refusal of a dry run is counted and not stored, as on the other writes. It answers before `_submit`,
-so it opens no request, writes no event, audit row or job, and pushes nothing to Git. An Idempotency-Key sent with it is not
-read, as on the other dry runs, so the same key opens the real delete afterwards.
+`dry_run=True`, so a refusal of `RECORDED` (`policy-violation` and `CMAPI_REFUSALS`, `core/rejections.py`) is counted in
+`cmapi_plan_refusals_total` and not stored, as on the other writes; `namespace-protected` is not one of them, so the counter
+does not count it either way (measured: delta 0). It answers before `_submit`, so it takes no lock or reservation, opens no
+request, writes no event, audit row or job, and pushes nothing to Git. An Idempotency-Key sent with it is not read, as on the
+other dry runs, so the same key opens the real delete afterwards. Like every dry run it skips the idempotency and lock steps
+(docs/01, "A dry run ... skips the idempotency and lock steps"): while another request holds the namespace the preview is
+200 and the delete is 409 `change-pending` (measured on the delete, the change and the expiry writes, and a create of a held
+name). What a dry run does write is what any signed-in call writes: the signing keys on a cold key cache (`jwks_keys`,
+`DbKeyStore`, measured: one row), the metrics and the access log.
 
-The plan of a delete: `changes` lists each file of the folder as `removed`, `files` is empty (`Plan.view` keeps only the
+The plan of a delete: `changes` lists each `.yaml` file directly in the folder as `removed` (the providers list no other
+file and no subfolder: `core/git/github.py` and `gitea.py`, `read_folder`), `files` is empty (`Plan.view` keeps only the
 files that have content), `etag` is the one If-Match matched, `approval` the approval the delete would need, `capacity`
 `fits` with `source: delete`, and `metadata` and `metadataDiff` are null.
 
@@ -89,9 +96,27 @@ request's content, and `dryRun` is in the query.
 | 422 `validation-failed` | The status of a body that is wrong. Kubernetes and RFC 9110 point to 400 for a query the call cannot take |
 
 FastAPI 0.115.6 (the pin in `cmapi/pyproject.toml`) puts a route's `dependencies` before the endpoint's own
-(`fastapi/routing.py`, `APIRoute.__init__`: `self.dependant.dependencies.insert(0, ...)`), so the guard answers before
-the token is checked: an unauthenticated `?dryRun=true` gets 400, not 401. It reveals only that the call has no dry run,
-which the document says.
+(`fastapi/routing.py`, `APIRoute.__init__`: `self.dependant.dependencies.insert(0, ...)`), and `include_router` puts the
+router's sign-in before both. So a call without a token is 401 first, with or without `dryRun` (measured on `:approve` and
+`auto-approval:pause`); a signed-in caller then gets the guard's 400 before the route's permission check, where it would
+get 403 (measured: a requester on `:approve`). A body that is not JSON is 422 `validation-failed` before either, because
+FastAPI decodes the body before it solves any dependency (`fastapi/routing.py`, `get_request_handler`). The 400 tells a
+signed-in caller only that the call has no dry run, which the document says.
+
+A client that must not act on an unsupported write stops at `dry-run-not-supported`, and sends the call without `dryRun`
+only to do the action. A client that always sent `dryRun=false` to one of the nine writes now gets 400 and must drop it.
+
+## #607 review: one `dryRun` at most
+
+Measured by reviewer 2 of #607 on `f6206e9` against PostgreSQL, with `_submit` counted: FastAPI binds a scalar query
+parameter to the last value (Starlette's `QueryParams`), so `dryRun=true&dryRun=false` opened a real request (202, one
+submit) on each of the six writes, and `dryRun=false&dryRun=true` was a preview. A preview client whose HTTP layer adds
+`dryRun=false` would have written. Each write with a dry run now refuses more than one `dryRun` with 422
+`validation-failed` (`refuse_repeated_dry_run`, added by `DocumentedRouter._register`), the status that cmapi already gives
+`dryRun=maybe` and `dryRun=` (FastAPI's Boolean binding), and the status Kubernetes gives a dryRun value that a call does
+not accept: `ValidateCreateOptions` then `errors.NewInvalid` (`staging/src/k8s.io/apiserver/pkg/endpoints/handlers/create.go`,
+branch `master`, fetched 2026-11-23), whose `Code` is `http.StatusUnprocessableEntity` (`apimachinery/pkg/api/errors/errors.go`).
+`dryRun=1` stays a preview and `dryRun=0` a write, as FastAPI's Boolean reads them.
 
 | Test (`test_dry_run_refused_606.py`) | Before (`3746ad7`, #602's fix only) | After |
 |---|---|---|

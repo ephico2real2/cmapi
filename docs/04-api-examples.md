@@ -3687,7 +3687,7 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
 ```json
 {
   "code": "dry-run-not-supported",
-  "detail": "This call has no dry run: send it without dryRun",
+  "detail": "This call has no dry run, and nothing was done",
   "status": 400,
   "title": "dry run not supported",
   "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"

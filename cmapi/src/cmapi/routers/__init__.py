@@ -20,8 +20,9 @@ NamespaceName = Annotated[str, Path(description="The name of the namespace on th
 RequestId = Annotated[str, Path(description="The request's ID, as the write that opened the request returned it.",
                                 examples=["req-20261105-0001"])]
 DryRun = Annotated[bool, Query(alias="dryRun", examples=[True],
-                               description="With `true`, the call returns the plan with status 200, writes nothing and needs no "
-                                           "Idempotency-Key.")]
+                               description="With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. "
+                                           "It opens no change request, takes no lock or reservation and opens no pull "
+                                           "request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.")]
 Limit = Annotated[int, Query(examples=[50],
                              description="The number of rows in one page: 25, 50 or 100, and never more than 200. A larger "
                                          "result is not cut: `page.nextCursor` gives the next page.")]

@@ -264,7 +264,7 @@ def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
                      c: AppContext = Depends(ctx)):
     """Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it
     is approved. `dryRun=true` answers 200 with the plan, the capacity check and the approval that would apply,
-    and writes nothing. The environment is the cluster's and must be one this instance serves."""
+    and opens no request. The environment is the cluster's and must be one this instance serves."""
     raw = body.model_dump(by_alias=True, exclude_none=True)
     raw["expiresAt"] = body.expires_at.isoformat() if body.expires_at else None
     raw["clusterId"] = cluster_id     # in the fingerprint: one key on two clusters is two requests, not a replay
@@ -296,7 +296,7 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     or `optional`. A key that no rule admits can be removed,
     never set. A `sensitive` key adds one approval to the request.
 
-    **Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`
+    **Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`
     lists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`
     is `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).
 
@@ -343,9 +343,11 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, dry_run: DryRun =
     until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is
     the current etag, and `*` is 428 `precondition-required`.
 
-    `dryRun=true` answers 200 with the plan, and writes nothing: `changes` lists each file of the folder as `removed`,
-    `files` is empty, and `approval` is the approval that the delete would need. It makes the delete's checks, so it is
-    refused where the delete would be: If-Match, a protected namespace (422 `namespace-protected`), the permission."""
+    `dryRun=true` answers 200 with the plan and opens no request: `changes` lists each `.yaml` file directly in the
+    namespace's folder as `removed`, `files` is empty, and `approval` is the approval that the delete would need now. It makes
+    the delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, and a protected
+    namespace (422 `namespace-protected`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while
+    another request holds the namespace the plan is still 200, and the delete is 409 `change-pending`."""
     raw = {"namespace": ns, "action": "delete", "clusterId": cluster_id}
     key = _idem(key, dry_run)
     replay = _replay(c, who, key, raw)

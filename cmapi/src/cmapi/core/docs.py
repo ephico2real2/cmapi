@@ -76,7 +76,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-cursor": (400, "The cursor is not valid"),
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
-    "dry-run-not-supported": (400, "This call has no dry run: send it without dryRun"),
+    "dry-run-not-supported": (400, "This call has no dry run, and nothing was done"),
     "rate-limited": (429, "Too many requests"),
     "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
@@ -108,7 +108,8 @@ PROBLEM_STATUS_TEXT: dict[int, str] = {
 # The success answer of a write that opens a request (status 202), unless the route says otherwise.
 WRITE_ACCEPTED = ("The request is created. It waits for approval unless a policy approves it at once: `status` and "
                   "`approval` say which, and `links.events` follows it.")
-DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+DRY_RUN_RETURNS = ("Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, "
+                   "queues no job and opens no pull request.")
 
 # A read that answers 304 to a matching If-None-Match, and 412 to a false If-Match (core/etag.py, not_modified, #590), passed
 # to read() as **CONDITIONAL_READ; FastAPI merges it into the operation (openapi_extra). RFC 9110, 15.4.5: a 304 "cannot
@@ -245,6 +246,16 @@ def refuse_dry_run(request: Request) -> None:
         raise Problem.bad_request("dry-run-not-supported", PROBLEMS["dry-run-not-supported"][1])
 
 
+def refuse_repeated_dry_run(request: Request) -> None:
+    """The guard of a write that has a dry run (#607 review). FastAPI binds a scalar query parameter to one value, the last
+    (Starlette's QueryParams), so `dryRun=true&dryRun=false` ran the write. More than one `dryRun` is not one Boolean, so it is
+    the 422 `validation-failed` that `dryRun=maybe` gets, in the same form. Kubernetes also answers 422 Invalid to a dryRun
+    value that a call does not accept (apiserver, endpoints/handlers/create.go, ValidateCreateOptions and errors.NewInvalid)."""
+    if len(request.query_params.getlist("dryRun")) > 1:
+        raise Problem(422, "validation-failed", "The request is not valid: query.dryRun: send it at most once",
+                      [{"field": "query.dryRun", "message": "send it at most once", "code": "too_many_values"}])
+
+
 class DocumentedRouter(APIRouter):
     """An APIRouter whose routes must say what they need and what they can refuse."""
 
@@ -272,11 +283,16 @@ class DocumentedRouter(APIRouter):
         codes = list(problems)
         if permission is not None:
             codes = ["unauthenticated", "forbidden", *codes]
-        # A write without a dry run refuses one (#606). FastAPI solves a route's `dependencies` before the endpoint's own,
-        # so the guard answers before the token, the body and the action are looked at.
+        # A write without a dry run refuses one (#606), and a write with one refuses it repeated (#607 review). The router's
+        # sign-in (main.py, include_router) runs first, so a call without a token is 401. The guard follows it, before the
+        # endpoint's own dependencies: the permission (403), the Idempotency-Key, If-Match and the action. A body that is not
+        # JSON is 422 before both, because FastAPI decodes the body before it solves any dependency.
         guarded = method in WRITE_METHODS and dry_run_model is None
+        single = method in WRITE_METHODS and dry_run_model is not None
         if guarded:
             codes.append("dry-run-not-supported")
+        if single and "validation-failed" not in codes:
+            codes.append("validation-failed")
 
         def deco(fn: Callable) -> Callable:
             desc = inspect.getdoc(fn) or ""
@@ -293,6 +309,8 @@ class DocumentedRouter(APIRouter):
                                           response_description=returns, openapi_extra=x)
             if guarded:
                 kwargs["dependencies"] = [Depends(refuse_dry_run)]
+            elif single:
+                kwargs["dependencies"] = [Depends(refuse_repeated_dry_run)]
             if media_type:
                 # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
                 # type of its own stops FastAPI from adding application/json beside it (#179).

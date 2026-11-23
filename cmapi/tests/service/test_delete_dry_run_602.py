@@ -1,8 +1,9 @@
 """#602: `DELETE .../namespaces/{ns}?dryRun=true` is a dry run, as on every other write.
 
 Before the fix the route declared no `dryRun`, FastAPI ignored the parameter, and the call opened a real delete request
-(202, a row). Now it answers 200 with the delete's plan and writes nothing: no request, no audit, no Git. It runs the same
-checks as the real delete, so it fails where the real one would (Kubernetes' dry run on DELETE; Google AIP-163).
+(202, a row). Now it answers 200 with the delete's plan and opens no request: no row, no audit, no Git. It runs the real
+delete's planning checks, so it fails where they would (Kubernetes' dry run on DELETE; Google AIP-163). Like every dry run it
+skips the Idempotency-Key and the namespace's lock (docs/01, "skips the idempotency and lock steps").
 """
 from __future__ import annotations
 
@@ -83,6 +84,9 @@ def test_a_delete_dry_run_fails_where_the_delete_would(world):
         assert (r.status_code, r.json()["code"]) == (status, code), (extra, r.text)
     missing = client.delete(f"{URL}/not-there-dev?dryRun=true", headers={**bearer(keys), "If-Match": f'"{etag}"'})
     assert (missing.status_code, missing.json()["code"]) == (404, "object-not-found"), missing.text
+    # The namespace is looked up before If-Match is read, as on the delete: an unknown one is 404, not 428 (GLOSSARY, 428).
+    missing = client.delete(f"{URL}/not-there-dev?dryRun=true", headers=bearer(keys))
+    assert (missing.status_code, missing.json()["code"]) == (404, "object-not-found"), missing.text
     approver = client.delete(f"{ONE}?dryRun=true", headers={**bearer(keys, "amy", {"roles": ["cmapi-approver"]}),
                                                              "If-Match": f'"{etag}"'})
     assert approver.status_code == 403, approver.text          # the same permission as the delete: namespaces:write
@@ -117,3 +121,53 @@ def test_the_document_declares_the_delete_dry_run(world):
     assert "202" in op["responses"]
     key = next(p for p in op["parameters"] if p["name"] == "Idempotency-Key")["description"]
     assert "except with `dryRun=true`" in key, key
+
+
+def test_a_delete_dry_run_skips_the_lock_as_every_dry_run_does(world):
+    """docs/01: a dry run "skips the idempotency and lock steps". While a request holds the namespace, the preview still
+    answers the plan, and the delete itself is 409 `change-pending`, naming the holder (#607 review)."""
+    client, ctx, git, kube, validator, keys = world
+    etag = created(world)
+    opened = client.delete(ONE, headers={**auth(keys, "ola", **OLA), "If-Match": f'"{etag}"'})
+    assert opened.status_code == 202 and opened.json()["status"] == "pending_approval", opened.text
+    before = rows(ctx)
+
+    preview = client.delete(f"{ONE}?dryRun=true", headers={**bearer(keys), "If-Match": f'"{etag}"'})
+    assert preview.status_code == 200 and preview.json()["changes"] == {p: "removed" for p in FILES}, preview.text
+    real = client.delete(ONE, headers={**auth(keys, "ola", **OLA), "If-Match": f'"{etag}"'})
+    assert (real.status_code, real.json()["code"], real.json()["requestId"]) == \
+        (409, "change-pending", opened.json()["requestId"]), real.text
+    assert rows(ctx) == before
+
+
+def test_a_delete_dry_run_counts_a_recorded_refusal_and_stores_none(world, monkeypatch):
+    """`refusals(..., dry_run=dry_run)`: a refusal of RECORDED in a dry run is counted with dry_run="true" and not stored in
+    policy_rejections; the same refusal on the delete is stored. plan_delete raises none of RECORDED today, so one is injected:
+    the test holds the route's wiring, which a future delete rule would rely on (#607 review)."""
+    from prometheus_client import REGISTRY
+
+    from cmapi.core.errors import Problem
+
+    client, ctx, git, kube, validator, keys = world
+    etag = created(world)
+
+    def refused(*args, **kwargs):
+        raise Problem.policy_violation("Injected planning refusal", [{"code": "injected", "detail": "a test refusal"}])
+
+    monkeypatch.setattr(ctx.pipeline, "plan_delete", refused)
+
+    def counted(dry: str) -> float:
+        return REGISTRY.get_sample_value("cmapi_plan_refusals_total", {"code": "policy-violation", "dry_run": dry}) or 0.0
+
+    def stored() -> int:
+        with ctx.db.session() as s:
+            return s.execute(text("SELECT coalesce(sum(count), 0) FROM policy_rejections")).scalar_one()
+
+    before = (counted("true"), counted("false"), stored())
+    r = client.delete(f"{ONE}?dryRun=true", headers={**bearer(keys), "If-Match": f'"{etag}"'})
+    assert (r.status_code, r.json()["code"]) == (422, "policy-violation"), r.text
+    assert (counted("true"), counted("false"), stored()) == (before[0] + 1, before[1], before[2])
+
+    r = client.delete(ONE, headers={**auth(keys, "ola", **OLA), "If-Match": f'"{etag}"'})
+    assert (r.status_code, r.json()["code"]) == (422, "policy-violation"), r.text
+    assert (counted("true"), counted("false"), stored()) == (before[0] + 1, before[1] + 1, before[2] + 1)
