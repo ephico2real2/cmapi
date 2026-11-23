@@ -128,7 +128,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | Async | POST, PUT, PATCH and DELETE return 202 with a ChangeRequest and a Location header for GET /requests/{requestId} |
 | Dry run | ?dryRun=true returns 200 with the Plan (validations, rendered YAML, diff, approval requirement, capacity check); no PR, no row |
 | Idempotency | Idempotency-Key header required on writes; the same key and caller return the original ChangeRequest for 24 hours |
-| Optimistic concurrency | GET of a namespace returns an ETag: the first 16 hexadecimal characters of the SHA-256 of the namespace's Git folder (the path and content of every file in it), or `0` for a folder with no files (`folder_etag`, `cmapi/src/cmapi/core/pipeline.py:98-100`). The caller treats it as opaque (RFC 9110, section 8.8.3). It is in the `ETag` header and the `etag` field of the body. PUT, PATCH and DELETE need If-Match, else 428; a stale ETag returns 412 with the current `etag`. The plan compares the value with its surrounding double quotes removed. A weak tag (`W/"..."`) never matches, as RFC 9110, section 13.1.1 requires: If-Match uses the strong comparison (`cmapi/src/cmapi/core/pipeline.py:218`) |
+| Optimistic concurrency | GET of a namespace returns an ETag: the first 16 hexadecimal characters of the SHA-256 of the `.yaml` files directly in the namespace's Git folder (each path and its content), or `0` for a folder with no such file (`folder_etag`, `cmapi/src/cmapi/core/pipeline.py:99-101`). The caller treats it as opaque (RFC 9110, section 8.8.3). It is in the `ETag` header and the `etag` field of the body. PUT, PATCH and DELETE need If-Match, else 428, and `If-Match: *` is 428 too: cmapi refuses it on purpose, where RFC 9110, section 13.1.1 lets it match any resource that exists, because it proves no read (RFC 6585, section 3; #571). A list of tags passes when one of them is the current ETag; otherwise 412 with the current `etag`. One strong tag sent without its quotes is still read as that tag. A weak tag (`W/"..."`) never matches, as RFC 9110, section 13.1.1 requires: If-Match uses the strong comparison (`check_if_match`, `cmapi/src/cmapi/core/pipeline.py:120-130`; the list is read by `if_match_tags`, `cmapi/src/cmapi/core/etag.py:36-56`). An Idempotency-Key replay returns its stored answer without comparing the tag |
 | One open change per object | A second write to an object with an open request returns 409 with a link to it |
 | Patch format | application/merge-patch+json; null removes a key |
 
@@ -163,7 +163,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | cluster-not-found | 404 | clusterId not in the registry |
 | object-not-found | 404 | Live object missing |
 | change-pending | 409 | An open request already targets this object |
-| precondition-required / failed | 428 / 412 | Missing or stale If-Match |
+| precondition-required / failed | 428 / 412 | Missing If-Match, or `If-Match: *` (428); no strong tag it lists is the current ETag (412) |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
 | git-unavailable | 502 | Git host error; the request row is marked failed |
 | internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error |

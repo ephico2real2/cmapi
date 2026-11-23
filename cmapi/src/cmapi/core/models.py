@@ -300,9 +300,11 @@ class PlanView(Api):
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
     # An entity tag is opaque (RFC 9110, 8.8.3.1): say how to use it, never what it is made of (#565).
     etag: str | None = Field(description="The entity tag of the namespace that the plan was made against, as `GET "
-                                         ".../namespaces/{ns}` gives it. On a change it is the one that `If-Match` sent: "
-                                         "send the same `If-Match` when you submit the change. A create takes no "
-                                         "`If-Match`, so ignore it there. Compare it; never parse it",
+                                         ".../namespaces/{ns}` gives it. On a change it is the one that `If-Match` "
+                                         "matched: send the same `If-Match` when you submit the change. A list of tags "
+                                         "passes when one of them is this one; `*` is 428 `precondition-required`, and a "
+                                         "weak tag (`W/\"...\"`) never matches. A create takes no `If-Match`, so ignore "
+                                         "it there. Compare it; never parse it",
                              examples=["3f9a1c0b7e2d4a68"])
     requester: RequesterView = Field(description="Who the request would be for")
     capacity: CapacityView = Field(description="The capacity check")
@@ -391,9 +393,11 @@ class NamespaceView(ClusterScoped):
     managed: bool = Field(description="Whether cmapi manages it", examples=[True])
     expires_at: str | None = Field(description="cmapi.net/expires-at", examples=[None])
     etag: str | None = Field(description="The namespace's entity tag: the `ETag` header without its quotes. Send it back "
-                                         "unchanged, in double quotes, as `If-Match` on a change or a delete; another "
-                                         "value is 412 `precondition-failed`, except on an Idempotency-Key replay, which "
-                                         "returns the request that key opened. It changes when the `.yaml` files directly "
+                                         "unchanged, in double quotes, as `If-Match` on a change or a delete. A list of "
+                                         "tags passes when one of them is this one; another value is 412 "
+                                         "`precondition-failed`, except on an Idempotency-Key replay, which returns the "
+                                         "request that key opened. A weak tag (`W/\"...\"`) never matches, and `*` is "
+                                         "428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly "
                                          "in the namespace's folder in Git change. Compare it; never parse it. Null on the "
                                          "list, which reads no Git",
                              examples=["3f9a1c0b7e2d4a68"])
