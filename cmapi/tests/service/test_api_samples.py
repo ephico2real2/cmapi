@@ -402,6 +402,10 @@ def test_each_operation_has_a_sample_from_a_run(world):
     capacity = rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola)
     assert capacity.status_code == 200 and capacity.json()["clusters"][0]["state"] == "ok", capacity.text
 
+    # ---- a conditional read's If-Match (#590): a tag that is not the answer's is 412, with the current etag
+    rec.call("core_metadata_keys", "GET", "/api/v1/metadata-keys", ola, headers={"If-Match": '"stale"'})       # 412
+    rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola, headers={"If-Match": '"stale"'})            # 412
+
     # ---- the refusals of a change and of its reads (#485): one answer for each, recorded for its own operation
     patch_url = f"{base}/payments-dev"
     now = client.get(patch_url, headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"})

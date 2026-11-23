@@ -217,7 +217,8 @@ def test_each_operation_has_one_curl_sample_that_the_app_accepts(world):
         assert ("Authorization" in headers) == bool(op.get("security")), f"{method} {path}"
         names = {p["name"] for p in op.get("parameters", [])}
         for header in ("Idempotency-Key", "If-Match"):
-            assert (header in headers) == (header in names), f"{method} {path}: {header}"
+            # A write is refused without them; a read's If-Match is an optional condition (#590), not in its sample.
+            assert (header in headers) == (header in names and method != "get"), f"{method} {path}: {header}"
         if "Authorization" in headers:
             assert headers["Authorization"] == "Bearer $TOKEN"
             headers["Authorization"] = f"Bearer {token}"

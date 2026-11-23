@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from cmapi import __version__
 from cmapi.core.errors import BASE, Problem
+from cmapi.core.etag import STALE_READ
 from cmapi.core.models import ProblemDetail
 
 # Every problem code a route may declare, with its status and an example detail (docs/02, API contract).
@@ -109,25 +110,44 @@ WRITE_ACCEPTED = ("The request is created. It waits for approval unless a policy
                   "`approval` say which, and `links.events` follows it.")
 DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
 
-# A read that answers 304 to a matching If-None-Match, passed to read() as **CONDITIONAL_READ; FastAPI merges it into the
-# operation (openapi_extra). RFC 9110, 15.4.5: a 304 "cannot contain content", and it repeats the ETag of the 200.
+# A read that answers 304 to a matching If-None-Match, and 412 to a false If-Match (core/etag.py, not_modified, #590), passed
+# to read() as **CONDITIONAL_READ; FastAPI merges it into the operation (openapi_extra). RFC 9110, 15.4.5: a 304 "cannot
+# contain content", and it repeats the ETag of the 200. The 412's example is replaced by the recorded one
+# (add_recorded_examples) when contract/samples.json has it.
 ETAG_HEADER = {"ETag": {"description": "The strong ETag of this answer, to send back in If-None-Match.",
                         "schema": {"type": "string"}}}
+# An ETag of a read is 32 hex characters (etag_of); the examples have that form.
+READ_ETAG_EXAMPLE = "1f774baf9bf093f8d4ebc497eb0d5b96"
+READ_PRECONDITION_FAILED = Problem(412, "precondition-failed", STALE_READ, extra={"etag": READ_ETAG_EXAMPLE})
 CONDITIONAL_READ: dict[str, Any] = {
     "parameters": [{"name": "If-None-Match", "in": "header", "required": False,
                     "description": "The ETag of the answer the caller holds. If it is still the current one, the answer is "
                                    "304 with no body.",
-                    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}],
+                    "schema": {"type": "string", "examples": [f'"{READ_ETAG_EXAMPLE}"']}},
+                   {"name": "If-Match", "in": "header", "required": False,
+                    "description": "Optional on a read. The answer is sent only if one strong tag listed here is its "
+                                   "current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with "
+                                   "the current tag in `etag`. A weak tag (`W/\"...\"`) never matches. If-Match is read "
+                                   "before If-None-Match (RFC 9110, section 13.2.2). Send the tags in one comma-separated "
+                                   "If-Match field (`If-Match: \"a\", \"b\"`): the front door answers 400 to a second "
+                                   "If-Match line.",
+                    "schema": {"type": "string", "examples": [f'"{READ_ETAG_EXAMPLE}"']}}],
     "responses": {"200": {"headers": ETAG_HEADER},
                   "304": {"description": "Not modified: the ETag in If-None-Match is still the current one. Use the answer "
-                                         "you hold; this one has no body.", "headers": ETAG_HEADER}},
+                                         "you hold; this one has no body.", "headers": ETAG_HEADER},
+                  "412": {"description": f"{PROBLEM_STATUS_TEXT[412]}\n\nCodes: `precondition-failed`.",
+                          "content": {"application/problem+json": {
+                              "schema": {"$ref": "#/components/schemas/ProblemDetail"},
+                              "examples": {"precondition-failed": {"value": READ_PRECONDITION_FAILED.body()}}}}}},
 }
 
 
 def takes_validated_input(op: dict[str, Any]) -> bool:
     """Whether FastAPI checks an input of the operation, so it can answer 422 validation-failed: a body, or a parameter.
-    If-None-Match does not count: the conditional reads take it from the raw request and compare it, never refuse it."""
-    params = [p for p in op.get("parameters") or () if p.get("name") != "If-None-Match"]
+    If-None-Match and If-Match do not count: the conditional reads take them from the raw request and compare them, never
+    refuse them as input (core/etag.py, not_modified), and a write's If-Match is a plain optional string (routers/__init__.py,
+    if_match) that core/pipeline.py checks."""
+    params = [p for p in op.get("parameters") or () if p.get("name") not in ("If-None-Match", "If-Match")]
     return bool(params or op.get("requestBody"))
 
 
@@ -438,7 +458,8 @@ def sample_request(method: str, path: str, op: dict[str, Any], components: dict[
         example = p["example"] if "example" in p else _example_of(p.get("schema") or {}, components)
         if p["in"] == "path":
             url = url.replace("{" + p["name"] + "}", str(example))
-        elif p["in"] == "header" and (p.get("required") or p["name"] in ("Idempotency-Key", "If-Match")):
+        elif p["in"] == "header" and (p.get("required") or (method != "get" and p["name"] in ("Idempotency-Key", "If-Match"))):
+            # A write is refused without these two. A read's If-Match is an optional condition (CONDITIONAL_READ): not sent.
             headers.append((p["name"], str(example)))
         elif p["in"] == "query" and p.get("required"):
             query.append(f"{p['name']}={example}")

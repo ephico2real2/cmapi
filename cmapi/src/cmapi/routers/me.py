@@ -9,7 +9,7 @@ from fastapi import Depends, Request, Response
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CONDITIONAL_READ, CORE, DocumentedRouter, metadata_keys_view
 from cmapi.core.errors import Problem
-from cmapi.core.etag import etag_matches, etag_of
+from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.identity.claims import Identity
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.models import ClusterList, ClusterView, Me, MetadataKeysView
@@ -73,12 +73,13 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
     `sensitive` when a change of it adds one approval. One answer, the same for a create and a change.
 
     cmapi checks every request against the file itself: this answer describes the rules, it does not replace them. The
-    answer is the instance's, the same for every caller; it has a strong ETag, and If-None-Match answers 304."""
+    answer is the instance's, the same for every caller; it has a strong ETag. If-None-Match answers 304, and an If-Match
+    that does not list the ETag answers 412."""
     body, etag = metadata_keys_document(c.cfg.metadata, c.cfg.expiration,
                                         tuple(c.cfg.raw_instance["instance"]["allowedEnvironments"]))
     # private: the request carries Authorization (RFC 9111, 3.5); no-cache: revalidated before each reuse (5.2.2.4).
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
-    if etag_matches(", ".join(request.headers.getlist("if-none-match")), etag):
+    if not_modified(request.headers, etag):
         return Response(status_code=304, headers=headers)
     return Response(body, media_type="application/json", headers=headers)
 

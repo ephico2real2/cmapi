@@ -88,7 +88,8 @@ class OriginVaryCORSMiddleware(CORSMiddleware):
     """Starlette's CORS middleware, with `Vary: Origin` on each answer.
 
     Starlette adds it only to an answer for a listed origin. An answer for another origin, or for no origin, then has no
-    Vary, and a shared cache can give that copy, which has no CORS header, to the listed origin (review finding F2).
+    Vary, and a shared cache can give that copy, which has no CORS header, to the listed origin (review finding F2). Here
+    vary_send adds it to each answer, for a listed origin too, and keeps every Vary line of the answer (#596).
     """
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -99,9 +100,21 @@ class OriginVaryCORSMiddleware(CORSMiddleware):
         async def vary_send(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                varied = {v.strip().lower() for v in headers.get("vary", "").split(",")}
+                # Every Vary line: several lines are one list (RFC 9110, section 5.3). Starlette 0.41.3's add_vary_header
+                # reads only the first and replaces them all, so the list is written here, also for an allowed origin
+                # (allow_explicit_origin below), as Starlette's main branch does (#596). OWS is SP and HTAB only (section
+                # 5.6.3): str.strip() would also take U+00A0 and U+0085, which a latin-1 decode gives for the bytes A0 and
+                # 85, and read "<A0>Origin<A0>" as the Origin token (#593).
+                lines = headers.getlist("vary")
+                varied = {v.strip(" \t").lower() for line in lines for v in line.split(",")}
                 if "origin" not in varied and "*" not in varied:
-                    headers.add_vary_header("Origin")
+                    headers["vary"] = ", ".join([*lines, "Origin"])
             await send(message)
 
         await super().__call__(scope, receive, vary_send)
+
+    @staticmethod
+    def allow_explicit_origin(headers: MutableHeaders, origin: str) -> None:
+        """Only the allowed origin. Starlette 0.41.3 also calls add_vary_header("Origin") here, which keeps the first Vary
+        line and drops the others, before vary_send sees them (#596); vary_send adds Origin to every answer instead."""
+        headers["Access-Control-Allow-Origin"] = origin
