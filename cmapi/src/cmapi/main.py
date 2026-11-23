@@ -27,7 +27,7 @@ from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
 from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
-from cmapi.core.etag import etag_matches, etag_of
+from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
@@ -259,7 +259,7 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def serve(kind: str, media_type: str, request: Request) -> Response:
         body, etag = document(kind)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
-        if etag_matches(", ".join(request.headers.getlist("if-none-match")), etag):
+        if not_modified(request.headers, etag):
             return Response(status_code=304, headers=headers)
         return Response(body, media_type=media_type, headers=headers)
 
