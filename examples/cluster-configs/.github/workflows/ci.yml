@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: kubeconform v0.6.7
         run: |
-          curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          curl -fsSL --retry 5 -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
           tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
       - name: Every object under clusters/
@@ -44,7 +44,7 @@ jobs:
       - name: PyYAML and the Kyverno CLI v1.20.0
         run: |
           python -m pip install pyyaml==6.0.2
-          curl -sSfL -o kyverno.tgz https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz
+          curl -sSfL --retry 5 -o kyverno.tgz https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz
           echo "06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2  kyverno.tgz" | sha256sum -c -
           tar xzf kyverno.tgz kyverno && sudo mv kyverno /usr/local/bin/
           kyverno version
