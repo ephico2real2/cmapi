@@ -108,6 +108,8 @@ Read the actual file in full before writing from it: never memory or truncated o
 source for the portal mockup, and `docs/01` and `docs/02` are the source for the design. Both docs export live Claude Docs.
 Edit the live docs first when those tools are available, then the exports.
 
+`docs/GLOSSARY.md` explains cmapi's names and abbreviations; a change that adds a name adds its row.
+
 ## Shared services on CRC
 
 cmapi uses an existing Keycloak and an existing LDAP server, and installs neither.
