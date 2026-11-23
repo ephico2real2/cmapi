@@ -531,9 +531,9 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|123-124": [
-  "    app.include_router(health.version_router)",
-  "    # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py)."
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|122-123": [
+  "    app.include_router(health.router)",
+  "    app.include_router(health.version_router)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|125-127": [
   "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
