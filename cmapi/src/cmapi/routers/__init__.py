@@ -74,6 +74,16 @@ def delete_idempotency_key(idempotency_key: str | None = Header(default=None, al
     return idempotency_key
 
 
-def if_match(if_match: str | None = Header(default=None, alias="If-Match", examples=['"3f9a1c0b7e2d4a68"'],
-                                           description="The namespace's etag from GET; required on a change or delete")) -> str | None:
-    return if_match
+def if_match(request: Request,
+             if_match: str | None = Header(default=None, alias="If-Match", examples=['"3f9a1c0b7e2d4a68"'],
+                                           description="The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as "
+                                                       "its `ETag` header gives it. Required on a change or a delete. A list "
+                                                       "of tags passes when one of them is the current etag (RFC 9110, section "
+                                                       "13.1.1). `*` is 428 `precondition-required`: If-Match must name the "
+                                                       "etag that was read. A weak tag (`W/\"...\"`) never matches. An "
+                                                       "Idempotency-Key replay returns the request that its key opened without "
+                                                       "comparing the tag.")) -> str | None:
+    """If-Match as one list: a field sent on several lines is the same list joined with commas (RFC 9110, section 5.3),
+    and FastAPI's Header gives only the first line. The Header parameter stays, so the document describes the field."""
+    lines = request.headers.getlist("If-Match")
+    return ", ".join(lines) if lines else if_match

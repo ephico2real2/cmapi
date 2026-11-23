@@ -23,6 +23,7 @@ from cmapi.core.config import InstanceConfig
 from cmapi.core.db.models import ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
 from cmapi.core.errors import Problem
+from cmapi.core.etag import if_match_tags
 from cmapi.core.git.base import GitUnavailable, HostGitProvider
 from cmapi.core.identity.checks import Requester, resolve_requester
 from cmapi.core.identity.claims import Identity, label_value_of
@@ -101,12 +102,32 @@ def folder_etag(files: Mapping[str, str]) -> str:
 
 
 def require_if_match(if_match: str | None, write: str) -> None:
-    """428 when a write to an existing namespace has no If-Match (RFC 6585 section 3). The plan checks it after the
-    namespace is found (404 first, as RFC 9110 section 13.2.1 orders a precondition after the resource). The routes also
+    """428 when a write to an existing namespace has no If-Match (RFC 6585 section 3), or has `*`. The plan checks it after
+    the namespace is found (404 first, as RFC 9110 section 13.2.1 orders a precondition after the resource). The routes also
     check it on an Idempotency-Key replay, which never reaches the plan (#495). The ETag comparison is not repeated
-    there, so a retry carrying its first ETag still gets its stored answer after Git moved."""
+    there, so a retry carrying its first ETag still gets its stored answer after Git moved.
+
+    `*` departs on purpose from RFC 9110 section 13.1.1, step 1, where it holds for any resource that exists (the owner,
+    #571): it proves no read, and cmapi requires If-Match so that clients "are working with the correct copies" (RFC 6585
+    section 3). So it is refused here, on a replay as on a first request."""
     if if_match is None:
         raise Problem(428, "precondition-required", f"If-Match is required on a {write}; GET the namespace for its etag")
+    if if_match.strip() == "*":
+        raise Problem(428, "precondition-required", f"If-Match must name the namespace's etag, not *, on a {write}; "
+                                                    "GET the namespace for its etag")
+
+
+def check_if_match(if_match: str | None, etag: str, write: str) -> None:
+    """The precondition of a change or a delete of an existing namespace (RFC 9110 section 13.1.1): 428 without If-Match or
+    with `*` (require_if_match), then 412 unless one strong tag it lists is the namespace's etag. Each 412 carries the
+    current `etag`; its detail says whether the value listed no tag that could match, or the namespace changed."""
+    require_if_match(if_match, write)
+    tags = if_match_tags(if_match or "")
+    if not tags:
+        raise Problem(412, "precondition-failed", "If-Match lists no strong entity tag: send the namespace's etag from GET "
+                                                  "in double quotes", extra={"etag": etag})
+    if etag not in tags:
+        raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
 
 
 def approval_view(req: Requirement | None, ledger: ApprovalLedger | None) -> dict[str, Any] | None:
@@ -214,10 +235,7 @@ class Pipeline:
             raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         etag = folder_etag(prev_files)
         if action != "create":
-            require_if_match(if_match, "change")
-            if if_match.strip('"') != etag:
-                raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it",
-                              extra={"etag": etag})
+            check_if_match(if_match, etag, "change")
         cur_l, cur_a = self._kept_metadata(prev_ns, "label"), self._kept_metadata(prev_ns, "annotation")
         labels, anns = dict(body.get("labels") or {}), dict(body.get("annotations") or {})
         sent = {"label": dict(labels), "annotation": dict(anns)}
@@ -430,9 +448,7 @@ class Pipeline:
             raise Problem(404, "object-not-found", f"{ns} is not managed on {cluster_id}")
         etag = folder_etag(prev)
         if reason != "expired":
-            require_if_match(if_match, "delete")
-            if if_match.strip('"') != etag:
-                raise Problem(412, "precondition-failed", "The namespace changed in Git since you read it", extra={"etag": etag})
+            check_if_match(if_match, etag, "delete")
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:
