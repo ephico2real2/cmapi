@@ -2,7 +2,7 @@
 
 RFC 6585 section 3: 428 means the server requires the request to be conditional, a property of the request itself, so
 a replay without If-Match is refused as the first request would be. The ETag *comparison* is not repeated on a replay,
-so a retry that carries the ETag it was first sent with still gets its stored answer after Git moved (a lost response,
+so a retry that carries the ETag it was first sent with still gets the original request after Git moved (a lost response,
 retried). Other paths keep their order: 404 for an unknown namespace comes before 428 (RFC 9110 section 13.2.1)."""
 from __future__ import annotations
 

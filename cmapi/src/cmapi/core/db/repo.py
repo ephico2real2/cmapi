@@ -46,7 +46,7 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
                        auto_fallback=d.get("autoFallback"), group_path=d.get("groupPath", LEGACY_GROUP_PATH))
 
 
-IDEMPOTENCY_HOURS = 24      # how long an Idempotency-Key returns its first response (docs/02, API contract)
+IDEMPOTENCY_HOURS = 24      # how long an Idempotency-Key returns its original request (docs/02, API contract)
 
 
 class LeaseLost(RuntimeError):

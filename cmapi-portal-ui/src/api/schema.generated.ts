@@ -331,11 +331,12 @@ export interface paths {
          *     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,
          *     a namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,
          *     missing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi
-         *     refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags passes when one of them
-         *     is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches. Otherwise the answer is 412
-         *     `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change
-         *     to it and send it. An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its
-         *     original ETag returns the stored answer even after Git moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).
+         *     refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match
+         *     field, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches.
+         *     Otherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the
+         *     namespace again, apply the change to it and send it. An Idempotency-Key replay still requires If-Match, but does not
+         *     compare it again: a retry with its original ETag returns the original request in its current state even after Git
+         *     moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).
          *     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
          *
          *     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
@@ -3090,7 +3091,7 @@ export interface components {
             env: string | null;
             /**
              * Etag
-             * @description The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete. A list of tags passes when one of them is this one; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. A weak tag (`W/"..."`) never matches, and `*` is 428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git
+             * @description The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete. A list of tags passes when one of them is this one; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the original request in its current state. A weak tag (`W/"..."`) never matches, and `*` is 428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git
              * @example 3f9a1c0b7e2d4a68
              */
             etag: string | null;
@@ -5968,7 +5969,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
             };
             path: {
@@ -6528,11 +6529,11 @@ export interface operations {
     namespaces_delete_namespace: {
         parameters: {
             query?: never;
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -6772,11 +6773,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7105,11 +7106,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7414,11 +7415,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7746,11 +7747,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */

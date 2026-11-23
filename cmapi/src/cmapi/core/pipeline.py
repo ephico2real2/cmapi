@@ -105,14 +105,18 @@ def require_if_match(if_match: str | None, write: str) -> None:
     """428 when a write to an existing namespace has no If-Match (RFC 6585 section 3), or has `*`. The plan checks it after
     the namespace is found (404 first, as RFC 9110 section 13.2.1 orders a precondition after the resource). The routes also
     check it on an Idempotency-Key replay, which never reaches the plan (#495). The ETag comparison is not repeated
-    there, so a retry carrying its first ETag still gets its stored answer after Git moved.
+    there, so a retry carrying its first ETag still gets the original request, in its current state, after Git moved.
 
     `*` departs on purpose from RFC 9110 section 13.1.1, step 1, where it holds for any resource that exists (the owner,
     #571): it proves no read, and cmapi requires If-Match so that clients "are working with the correct copies" (RFC 6585
-    section 3). So it is refused here, on a replay as on a first request."""
+    section 3). So it is refused here, on a replay as on a first request.
+
+    Only SP and HTAB pad `*` (OWS, RFC 9110 section 5.6.3). str.strip() with no argument would also take U+0085 and U+00A0,
+    which Starlette's latin-1 decode gives for the obs-text octets 0x85 and 0xA0, and those are opaque data (section 5.5),
+    not whitespace (#581)."""
     if if_match is None:
         raise Problem(428, "precondition-required", f"If-Match is required on a {write}; GET the namespace for its etag")
-    if if_match.strip() == "*":
+    if if_match.strip(" \t") == "*":
         raise Problem(428, "precondition-required", f"If-Match must name the namespace's etag, not *, on a {write}; "
                                                     "GET the namespace for its etag")
 

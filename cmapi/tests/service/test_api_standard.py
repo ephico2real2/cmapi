@@ -389,6 +389,12 @@ def test_the_document_keeps_what_each_route_declares(declared, spec):
         published = {(p["name"], p["in"]): p for p in op.get("parameters") or ()}
         for p in route.get("parameters") or ():
             mine = published.get((p["name"], p["in"]), {})
+            if (p["name"], p["in"]) == ("If-Match", "header"):
+                # The one parameter that the document tightens (#586): the route keeps it optional so that 404 comes before
+                # 428, and the document says what the route enforces, required and a string (_document_if_match_required).
+                if mine.get("required") is not True or (mine.get("schema") or {}).get("type") != "string":
+                    out.append(f"{label}: parameter If-Match is not required with a string schema")
+                continue
             rules = {k: v for k, v in p["schema"].items() if k not in ("examples", "description", "title")}
             kept = {k: v for k, v in (mine.get("schema") or {}).items() if k in rules}
             if kept != rules or mine.get("required") != p.get("required"):

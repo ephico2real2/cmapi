@@ -496,6 +496,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
         _document_expiry(spec, instance)
     _document_validation_problem(spec)
     _document_token_problems(spec)
+    _document_if_match_required(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     samples = load_samples()
     add_recorded_examples(spec, samples, metadata, instance)
@@ -814,6 +815,26 @@ def _document_token_problems(spec: dict[str, Any]) -> None:
             if isinstance(op, dict) and op.get("security"):
                 add_problem(op, "unauthenticated")
                 add_problem(op, "idp-unavailable")
+
+
+def _document_if_match_required(spec: dict[str, Any]) -> None:
+    """If-Match is required on each operation that takes it (#586). The runtime parameter keeps `Header(default=None)`
+    (routers/__init__.py, if_match), so that a namespace missing from Git answers 404 before 428, as RFC 9110 section
+    13.2.1 orders a precondition after the resource; FastAPI's own check of a required header would answer 422 before
+    the route runs. So only the document says what the route enforces, and a generated client cannot leave it out.
+
+    OpenAPI 3.1.0, Parameter Object: `required` "Determines whether this parameter is mandatory" (default false). A
+    header that is sent has a string value, never null, so the schema is the string alone."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if not isinstance(op, dict):
+                continue
+            for param in op.get("parameters") or ():
+                if param.get("in") == "header" and param.get("name") == "If-Match":
+                    param["required"] = True
+                    schema = param["schema"]
+                    schema.pop("anyOf", None)
+                    schema["type"] = "string"
 
 
 def _without_none(value: Any) -> Any:

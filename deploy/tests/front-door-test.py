@@ -692,6 +692,47 @@ def case_fable_review(ng: Nginx) -> None:
             p.stop()
 
 
+def raw_request(port: int, method: str, path: str, lines: list[tuple[str, str]]) -> tuple[int, bytes]:
+    """A request whose header lines are sent as given, a name more than once included, which request() cannot do."""
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=TIMEOUT)
+    try:
+        c.putrequest(method, path, skip_host=True)
+        c.putheader("Host", PORTAL_HOST)
+        for name, value in lines:
+            c.putheader(name, value)
+        c.putheader("Content-Length", "0")
+        c.endheaders()
+        r = c.getresponse()
+        return r.status, r.read()
+    finally:
+        c.close()
+
+
+def case_if_match_lines(ng: Nginx) -> None:
+    """#582: nginx registers If-Match with ngx_http_process_unique_header_line, which answers 400 to a second line (nginx
+    1.30.6, src/http/ngx_http_request.c, lines 93-95 and 1835-1856). RFC 9110 section 5.3 lets a sender split a list
+    over lines, but through this front door a caller sends the tags in one comma-separated field, as the API's If-Match
+    description says."""
+    print("#582: If-Match on two lines is 400 at the front door; one comma-separated field reaches the API unchanged")
+    pod = Pod("if-match")
+    port = free_port()
+    d = ng.write(GOOD_ENV, port, [f"127.0.0.1:{pod.port}"])
+    proc = ng.start(d, port)
+    path = "/api/v1/clusters/CRC/namespaces/payments-dev?dryRun=true"
+    try:
+        status, _b = raw_request(port, "PATCH", path, [("If-Match", '"0"'), ("If-Match", '"3f9a1c0b7e2d4a68"')])
+        check(status == 400, f"two If-Match lines are 400 ({status})")
+        # nginx logs "client sent duplicate header line" at info, below the image's "error_log stderr notice".
+        check(not pod.seen, "the two-line request never reaches the API")
+        joined = '"0", "3f9a1c0b7e2d4a68"'
+        status, _b = raw_request(port, "PATCH", path, [("If-Match", joined)])
+        check(status == 200 and len(pod.seen) == 1, f"one If-Match field with two tags reaches the API ({status})")
+        check(pod.seen and pod.seen[-1]["headers"].get("If-Match") == joined, "the API gets the field unchanged")
+    finally:
+        ng.stop(proc)
+        pod.stop()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group(required=True)
@@ -724,6 +765,7 @@ def main() -> int:
         case_review_error_headers(ng)
         case_review_retry_matrix(ng)
         case_fable_review(ng)
+        case_if_match_lines(ng)
         if args.image:
             case_image(args)
     print(f"front door cases failed: {len(failures)}")
