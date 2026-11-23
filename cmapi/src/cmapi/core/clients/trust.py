@@ -92,10 +92,20 @@ def _client_context(server_name: str | None = None) -> ssl.SSLContext:
     return ctx
 
 
+def _ascii(ca_data: str) -> str:
+    """caData as Python's loader takes it: "an ASCII string of one or more PEM-encoded certificates" (the ssl docs); a str that
+    is not ASCII raised TypeError (#591). Each character that is not ASCII becomes "?", so OpenSSL reads the value as it reads
+    the same file, line for line: "?" is no boundary, and EVP_DecodeUpdate refuses it as it refuses a byte with the high bit set
+    (OpenSSL 3.6 crypto/evp/encode.c, conv_ascii2bin and data_ascii2bin). Outside a block it is skipped, as explanatory text is
+    (RFC 7468 section 5.2); inside a block of any label, CERTIFICATE and X509 CERTIFICATE among them, the load fails, so no
+    certificate is repaired by leaving a line out. An ASCII value is unchanged."""
+    return ca_data.encode("ascii", "replace").decode("ascii")
+
+
 def ca_data_context(ca_data: str, server_name: str | None = None) -> ssl.SSLContext:
     """The caData of an import Secret as the only anchors, in memory. ssl.SSLError when it holds no certificate."""
     ctx = _client_context(server_name)
-    ctx.load_verify_locations(cadata=ca_data)
+    ctx.load_verify_locations(cadata=_ascii(ca_data))
     return ctx
 
 

@@ -960,6 +960,16 @@ export function apiHandler({ issuer, portalOrigin }) {
       state.items = state.items.map((x) => (x === r ? next : x));
       return next;
     };
+    // The replays keep the API's rules for what the portal sends, as the header says: a new crypto.randomUUID key for each
+    // request or change (src/portal/*Tab.tsx), its etag in quotes as If-Match, dryRun=true, and no DELETE.
+    // plugins/namespaces/router.py _replay: a replay answers request_view of the stored row, the request as it is now. The key
+    // map holds the first object, and a decision replaces it in state.items, so the replay looks it up there (#595).
+    const replayed = (held) => ok(find(held.request.requestId), 202);
+    // Problem.conflict("idempotency-replay", ..., requestId=row.request_id): a held key with another body names its request.
+    const replayRefused = (held) => ({ ...refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), requestId: held.request.requestId });
+    // core/pipeline.py require_if_match: no If-Match, or `*` with only SP or HTAB around it, is 428 precondition-required, on a
+    // first write and on a replay alike (#495, #571). An empty value lists no tag, so it is a 412 on a first write.
+    const preconditionMissing = (ifMatch) => ifMatch == null || /^[ \t]*\*[ \t]*$/.test(ifMatch);
 
     if (url.pathname === "/api/v1/me") {
       const me = SAMPLES.operations.core_me.response.body;
@@ -1087,7 +1097,7 @@ export function apiHandler({ issuer, portalOrigin }) {
       const key = call.key;
       if (!key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
       const held = state.keys.get(`${user.sub} ${key}`);
-      if (held) return held.fingerprint === fingerprint(body) ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+      if (held) return held.fingerprint === fingerprint(body) ? replayed(held) : problem(res, replayRefused(held), cors);
       const now = new Date().toISOString();
       const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-9${String(++state.created).padStart(3, "0")}`;
       const request = requestWith(created, { requestId, namespace: body.namespace, status: "approved", pr: null, mergeSha: null,
@@ -1155,19 +1165,24 @@ export function apiHandler({ issuer, portalOrigin }) {
       const [, clusterId, ns, route] = expiry;
       const denied = lacks("namespaces:write");
       if (denied) return problem(res, denied, cors);
-      const row = state.expirations.find((r) => r.clusterId === clusterId && r.name === ns);
-      if (!row) return problem(res, refuse(404, "object-not-found", `${ns} is not managed on ${clusterId}`), cors);
       const dry = url.searchParams.get("dryRun") === "true";
       if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
-      // The replay, before the If-Match check: the same key and caller with the same route and body get the request as first
-      // answered. The API returns it in its current state and still requires If-Match without `*`; this stand-in does neither
-      // yet (#595).
-      const print = fingerprint({ ...body, route, clusterId, namespace: ns });
+      // The API's replay comes first (_expiry_write), before the namespace is looked up: the same key and caller with the same
+      // route and body is the stored request again, if its If-Match is there and not `*`. The API's fingerprint holds the
+      // route's inputs and not the justification, which it passes to the submission apart (#597).
+      const { justification: _, ...asked } = body ?? {};
+      const print = fingerprint({ ...asked, route, clusterId, namespace: ns });
       const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
-      if (held) return held.fingerprint === print ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
+      if (held) {
+        if (held.fingerprint !== print) return problem(res, replayRefused(held), cors);
+        if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+        return replayed(held);
+      }
+      const row = state.expirations.find((r) => r.clusterId === clusterId && r.name === ns);
+      if (!row) return problem(res, refuse(404, "object-not-found", `${ns} is not managed on ${clusterId}`), cors);
       const etag = state.etags.get(`${clusterId}/${ns}`) ?? createHash("sha256").update(`${clusterId}/${ns}`).digest("hex").slice(0, 16);
       state.etags.set(`${clusterId}/${ns}`, etag);
-      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
       if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
       // cmapi/src/cmapi/plugins/expiration/rules.py: plan_extend, plan_set and plan_make_permanent.
       const max = EXP_RULES.dev.maxExtensionDays;
@@ -1227,14 +1242,14 @@ export function apiHandler({ issuer, portalOrigin }) {
       const print = fingerprint({ ...raw, clusterId: record.clusterId, namespace: record.name });
       const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
       if (held) {
-        if (held.fingerprint !== print) return problem(res, { ...refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), requestId: held.request.requestId }, cors);
-        if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
-        return ok(held.request, 202);
+        if (held.fingerprint !== print) return problem(res, replayRefused(held), cors);
+        if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+        return replayed(held);
       }
       const scope = ROLE_ENVIRONMENTS[user.role];
       if (scope && !scope.includes(record.env)) return problem(res, refuse(403, "environment-forbidden", `Your roles do not cover ${record.env}`), cors);
       const etag = recordEtag(record);
-      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
       if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
       const operatorKeys = MAPS.flatMap(([, map]) => Object.keys(body?.[map] ?? {})
         .filter((key) => state.metadataKeys[map].properties[key]?.["x-cmapi-operator-only"]));
@@ -1290,8 +1305,19 @@ export function apiHandler({ issuer, portalOrigin }) {
           expiresAt: row.expiresAt ?? null, protected: protectedBy.length > 0, protectedBy,
           labels: { ...view.labels, "cmapi.net/cluster-id": clusterId, "cmapi.net/env": row.env, "cmapi.net/team": row.team, "cmapi.net/tier": row.tier } }));
       }
+      // router.py update_namespace: the Idempotency-Key and its replay come before the plan, so a retry with its first ETag is
+      // the stored request even after Git moved; it still needs If-Match, and `*` is 428 (#495, #595).
+      const dry = url.searchParams.get("dryRun") === "true";
+      if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const print = fingerprint({ ...body, clusterId, namespace: ns });
+      const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
+      if (held) {
+        if (held.fingerprint !== print) return problem(res, replayRefused(held), cors);
+        if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+        return replayed(held);
+      }
       // cmapi/src/cmapi/core/pipeline.py: If-Match is required, and it must be the folder's etag now (quotes are taken off).
-      if (!call.ifMatch) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
+      if (preconditionMissing(call.ifMatch)) return problem(res, SAMPLES.problems["precondition-required"].response.body, cors);
       if (call.ifMatch.replace(/^"|"$/g, "") !== etag) return problem(res, { ...SAMPLES.problems["precondition-failed"].response.body, etag }, cors);
       const tiers = state.tiers.environments[row.env]?.tiers ?? [];
       const named = tiers.find((t) => t.name === body?.tier);
@@ -1310,15 +1336,10 @@ export function apiHandler({ issuer, portalOrigin }) {
       // Removing the protection label is a sensitiveKeys change: one approver-platform (test_protected_366.py, measured).
       const unprotect = body.labels && PROTECT_KEY in body.labels && body.labels[PROTECT_KEY] === null;
       const approval = unprotect ? UNPROTECT_APPROVAL : newCpu > hardCpu ? state.updated.approval : state.planUpdate.approval;
-      if (url.searchParams.get("dryRun") === "true") {
+      if (dry) {
         const changes = Object.fromEntries(Object.entries(state.planUpdate.changes).map(([path, what]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${ns}/`).replaceAll("payments-dev", ns).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), what]));
         return ok({ ...state.planUpdate, etag, changes, approval, capacity: { ...state.planUpdate.capacity, clusterId } });
       }
-      const key = call.key;
-      if (!key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
-      const held = state.keys.get(`${user.sub} ${key}`);
-      const print = fingerprint({ ...body, clusterId, namespace: ns });
-      if (held) return held.fingerprint === print ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);
       // cmapi/src/cmapi/core/db/repo.py: one open request for each namespace.
       if (row.openRequest) return problem(res, refuse(409, "change-pending", `${row.openRequest} holds ${ns}`), cors);
       const now = new Date().toISOString();
@@ -1329,7 +1350,7 @@ export function apiHandler({ issuer, portalOrigin }) {
       Object.assign(request, { clusterId, approval, justification: body.justification ?? null });
       state.items = [request, ...state.items];
       state.quotas = state.quotas.map((r) => (r === row ? { ...r, openRequest: requestId } : r));
-      state.keys.set(`${user.sub} ${key}`, { fingerprint: print, request });
+      state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
       return ok(request, 202);
     }
     if (url.pathname === "/api/v1/admin/kpi") {
