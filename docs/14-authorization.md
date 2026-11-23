@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:268-273`).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:301-306`).
 
 | Permission | Routes |
 |---|---|
@@ -160,13 +160,13 @@ Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.
 
 ### Step 3: the permission
 
-Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:45-57`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
+Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:46-58`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
 
 1. The policy collects the roles of the caller that it knows (`authz.py:141-142`). It ignores an unknown role.
 2. If one of them has the permission, the request continues.
 3. If none has it, the answer is 403 `forbidden`: "Missing permission namespaces:create: no role in your token grants it (roles: [...])".
 
-Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:50-54`).
+Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:51-55`).
 
 ### Step 4: the environment limit
 
