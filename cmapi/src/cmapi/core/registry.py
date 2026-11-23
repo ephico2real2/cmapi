@@ -293,25 +293,36 @@ class HubImportSource(ImportSource):
 
 def _valid_ca_data(ca_data: str) -> bool:
     """Each PEM block by itself: a service account's ca.crt is usually a bundle, and base64 padding may end any block, so
-    the blocks joined are not base64 even when each one is. Every BEGIN line needs an END line after it (#585): OpenSSL
-    refuses a block that is not closed. Text before, between and after the blocks is ignored, as RFC 7468 section 2 and
-    OpenSSL allow. A value with no BEGIN line is read as bare base64, as before, unless it has an END line, which only a
-    broken block leaves; the client finds no certificate in bare base64 and says so (#419). split and partition read the
-    value once, in linear time: the regex this replaces rescanned the rest of the value from every BEGIN line."""
-    preamble, *blocks = ca_data.split(PEM_BEGIN)
-    if blocks:
-        parts = [block.partition(PEM_END) for block in blocks]
-        if not all(end for _, end, _ in parts):
+    the blocks joined are not base64 even when each one is. A boundary is a whole line: PEM_BEGIN or PEM_END, then only SP
+    or HTAB (RFC 7468 sections 2 and 3, whose lines end in CRLF, CR or LF). Each BEGIN line needs an END line before the
+    next BEGIN, and each END line an open BEGIN (#585): OpenSSL refuses a block that is not closed. Other text before,
+    between and after the blocks is ignored, as RFC 7468 and OpenSSL allow, even a sentence that quotes a boundary. A value
+    with no boundary line is read as bare base64, as before; the client finds no certificate in it and says so (#419).
+    One pass over the lines, in linear time: the regex this replaces rescanned the rest of the value from every BEGIN."""
+    def decodes(lines: list[str]) -> bool:
+        try:
+            return bool(base64.b64decode("".join("".join(lines).split()), validate=True))
+        except (binascii.Error, ValueError):
             return False
-        bodies = [body for body, _, _ in parts]
-    elif PEM_END in preamble:
-        return False
-    else:
-        bodies = ["".join(l for l in ca_data.splitlines() if not l.startswith("-----"))]
-    try:
-        return all(base64.b64decode("".join(b.split()), validate=True) for b in bodies)
-    except (binascii.Error, ValueError):
-        return False
+
+    lines = re.split(r"\r\n|\r|\n", ca_data)
+    body: list[str] | None = None          # the lines of the open block; None outside a block
+    blocks = 0
+    for line in lines:
+        boundary = line.rstrip(" \t")
+        if boundary == PEM_BEGIN:
+            if body is not None:
+                return False               # a BEGIN inside an open block
+            body = []
+        elif boundary == PEM_END:
+            if body is None or not decodes(body):
+                return False               # an END with no open BEGIN, or a body that is not base64
+            body, blocks = None, blocks + 1
+        elif body is not None:
+            body.append(line)
+    if body is not None:
+        return False                       # the last BEGIN is never closed
+    return blocks > 0 or decodes([line for line in lines if not line.startswith("-----")])
 
 
 def _secret(doc: Mapping[str, Any]) -> dict[str, Any]:
