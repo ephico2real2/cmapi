@@ -59,7 +59,7 @@ The CRC data, read-only (#592): 19 rows, 0 live keys, 0 collisions, 0 ambiguous 
 |---|---|
 | Keep `uq_cr_idempotency (requester_sub, key)` | 0007 pods look up, and map their 409, by it. The mixed-version probe, which ran 0007's own code (`8a5b41c`) on the 0008 schema, shows them working: `outputs/mixed-version-probe.txt`, step 2 |
 | Add a second unique index, `uq_cr_idempotency_caller (idempotency_sub, key) WHERE idempotency_key IS NOT NULL` | Without it, one service can hold one key for two persons. Mutant 2 makes only this index non-unique, and the second person's request then gets 202 (a second request) where 409 is expected: `outputs/mutants-unique-indexes.txt`. NULLs are distinct, so a 0007 pod's inserts with no `idempotency_sub` still succeed (probe, step 2) |
-| The 409 for both indexes | `RequestRepo.insert` maps either index (`IDEMPOTENCY_INDEXES`) to 409 `idempotency-replay`, and `_submit` then looks the key up again under the caller. If the caller holds the key, the answer is its request. If only the requester's index refused, for example a person using a key that a service holds for them, the second lookup misses and the answer stays 409, "Idempotency-Key is in use for another request", naming no request. This is measured: `test_the_person_cannot_replay_the_service_request_with_its_key`, and probe step 3. Release 2 drops that index (#603). When the namespace lock and an idempotency index both refuse, the answer is the conflict that PostgreSQL reports first. The test accepts either 409 and requires that neither names the service's request |
+| The 409 for both indexes | `RequestRepo.insert` maps either index (`IDEMPOTENCY_INDEXES`) to 409 `idempotency-replay`, and `_submit` then looks the key up again under the caller. If the caller holds the key, the answer is its request. If only the requester's index refused, for example a person using a key that a service holds for them, the second lookup misses and the answer stays 409, "Idempotency-Key is in use for another request", naming no request. This is measured: `test_the_person_cannot_replay_the_service_request_with_its_key`, and probe step 3. Release 2 drops that index (#603). When the namespace lock and an idempotency index both refuse, the answer is the conflict that PostgreSQL reports first. The test accepts either 409. `idempotency-replay` names no request. `change-pending` names the namespace's holder, here the service's request, as it does for anyone who writes to a held namespace (#496); neither replays it. `insert` picks the branch by PostgreSQL's `diag.constraint_name`, not by the message, whose DETAIL quotes the key (reviewer 2, finding 3) |
 | A new pod reads a keyed row with no `idempotency_sub` (written by a 0007 pod in the window) | `key_owner()` = `COALESCE(idempotency_sub, requester->>'submittedBySub', requester_sub)`, the same rule as 0008's backfill. 0007's `Requester.record` writes `submittedBySub` exactly when a service sent for a person, so the rule names the true caller. `by_idempotency` looks up and expires by it, oldest row first. Measured: `test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller`, and probe step 3, which replays 0007-written `req-20261123-0002` for the service and `req-20261123-0003` for ola |
 | Refuse, never drop | Before any update, the upgrade checks under the table's ACCESS EXCLUSIVE lock. It raises, naming the rows, on a live delegated row with no string `submittedBySub`, and on one caller's key held by two live rows. The transaction rolls back, so the revision stays 0007 and no row changes. It succeeds once the rows are over 24 hours old. Tests: `test_the_upgrade_refuses_a_live_collision_and_succeeds_once_it_expires` and `test_the_upgrade_refuses_a_live_delegated_row_without_its_caller` |
 | Keep clearing expired keys | Still needed. Without it, expired rows that share a caller and a key would be backfilled into the new unique index, and its build would fail on rows that can never replay anyway. `by_idempotency` already clears an expired key before it looks one up, so clearing them changes nothing that a caller can observe |
@@ -114,10 +114,28 @@ The tests are in `cmapi/tests/service/test_idempotency_caller_592.py`. The befor
   PR).
 - **Inferred from the code:**
   - The backfill and `key_owner` name each 0007 row's true caller (`Requester.record`, core/identity/checks.py).
-  - `key_owner` is an expression lookup that neither unique index serves. That costs one scan of `change_requests` for
-    each keyed write until #603 removes it. The cost is not measured; CRC has 19 rows.
+  - `key_owner` is an expression that neither unique index leads with. Each lookup runs the expiry UPDATE and the
+    SELECT, and a submit's 409 runs both again. Reviewer 2 measured the plans on 200,000 synthetic rows
+    (`workbench/cmapi/review-601b/r2-outputs/plan-probe.txt`). The UPDATE scans `uq_cr_idempotency` on its trailing
+    column (1,960 buffers, 23 ms), and the SELECT is a parallel sequential scan (6,504 buffers, 57 ms). The cost grows
+    with the table; CRC has 19 rows. #603 looks up by `(idempotency_sub, idempotency_key)`, which the caller's index
+    serves.
 - **Not tested:**
   - The migration on CRC's data. It runs in a later deploy run, and the read-only count on #592 shows nothing it would
     refuse.
   - A real rolling update on a cluster.
-  - Concurrent races between a 0007 pod and a new pod. The `.first()` ordering covers them but was not exercised.
+  - Concurrent races between a 0007 pod and a new pod. The `.first()` ordering makes the answer deterministic; it cannot
+    undo two accepted writes. Those come from a 0007 insert, sequential or not: the risk that release 1 accepts
+    (docs/12, and the section below).
+
+## The second review (Codex astra on 030c656, then reviewer 2 on 2c663b8)
+
+Reviewer 2 (Opus 5.5 at `high`) ran every case on PostgreSQL 16.15 with 0007's own code (`8a5b41c`) for the old pod:
+`workbench/cmapi/review-601b/r2-report.md` and `r2-outputs/` beside it.
+
+| Finding | Ruling | Proof |
+|---|---|---|
+| A 0007 insert has no `idempotency_sub`, so one service's key for two persons is two requests, 202 twice | Accepted for release 1, not fixed with a trigger: only a client that reuses a key for a different request meets it, a 0007 pod does the same today, and a retry of the same body is still caught by the requester's index. `0009` refuses while such pairs are live (#603). docs/12 states the risk | Mixed probe, steps f1a and f1b. `test_a_0007_insert_in_the_window_escapes_the_caller_index` pins it, and inverts in #603 |
+| A service's expired key refused the person for good, and a person's expired key refused a service | Fixed: the lookup frees an expired key from every row, not only the caller's | `test_the_person_can_use_a_key_that_a_service_held_for_them_once_it_expires`, `test_a_service_can_use_a_key_that_the_person_held_once_it_expires`: fail on 2c663b8, pass. Mixed probe f2a, f2b |
+| A key named `uq_cr_open_namespace` got `change-pending` | Fixed: the branch comes from `diag.constraint_name` | `test_a_key_named_after_an_index_is_an_opaque_key`: fails on 2c663b8, passes |
+| Tests that passed with their defect present | Strengthened: one lookup for a replay, the exact 24-hour instant, a dropped (not emptied) column, a number or empty `submittedBySub` | Each fails on its mutant: `r2-outputs/mutants-r2.txt` |

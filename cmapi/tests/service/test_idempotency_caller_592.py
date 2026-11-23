@@ -10,10 +10,13 @@ combining the idempotency key sent by the client with other client specific attr
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 
 import psycopg
-from sqlalchemy import text
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
 
 import conftest
 from cmapi.core.db.repo import RequestRepo
@@ -62,9 +65,23 @@ def _first_lookup_misses(monkeypatch):
     return calls
 
 
-def test_a_service_retry_on_behalf_of_a_person_replays_its_request(world):
+def _spy(monkeypatch, name):
+    """The calls to `RequestRepo.<name>` from here on, by their first argument."""
+    real, calls = getattr(RequestRepo, name), []
+
+    def spied(self, *args, **kw):
+        calls.append(args[0])
+        return real(self, *args, **kw)
+
+    monkeypatch.setattr(RequestRepo, name, spied)
+    return calls
+
+
+def test_a_service_retry_on_behalf_of_a_person_replays_its_request(world, monkeypatch):
     """Before: 202, then 409 `idempotency-replay` "Idempotency-Key is in use for another request". After: the same request,
-    in its current state, before and after a cancel."""
+    in its current state, before and after a cancel. The retry is answered by the route's lookup, with no INSERT: an
+    INSERT's conflict and `_submit`'s lookup also give 202, so the status alone does not show that the first lookup
+    found it."""
     client, ctx, *_rest, keys = world
     _directory(ctx)
     body = {**NS, "onBehalfOf": "ola"}
@@ -72,8 +89,10 @@ def test_a_service_retry_on_behalf_of_a_person_replays_its_request(world):
     assert first.status_code == 202, first.text
     rid = first.json()["requestId"]
 
+    lookups, inserts = _spy(monkeypatch, "by_idempotency"), _spy(monkeypatch, "insert")
     retry = client.post(URL, json=body, headers=_service(keys, "svc-key-1"))
     assert retry.status_code == 202 and retry.json()["requestId"] == rid, retry.text
+    assert lookups == [SVC_SUB] and inserts == [], "one lookup, under the service's subject, and no INSERT"
     assert _keys_of(ctx.db, rid) == ("sub-ola", SVC_SUB, "svc-key-1")
 
     cancel = client.post(f"/api/v1/requests/{rid}:cancel", json={}, headers=auth(keys, "ola", sub="sub-ola", **OLA))
@@ -194,6 +213,79 @@ def test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller(world):
     assert _keys_of(ctx.db, by_service) == ("sub-ola", None, None), "the expiry found the row by its owner and cleared it"
 
 
+def test_the_person_can_use_a_key_that_a_service_held_for_them_once_it_expires(world):
+    """The service's expired row still holds (person, key) in the requester's index. Before (2c663b8): the lookup cleared
+    only the caller's own expired rows, so the person got 409 "in use" on every try, for good, with no 0007 pod involved.
+    A 0007 pod, which expires by requester, gave 202 (reviewer 2's mixed probe)."""
+    client, ctx, *_rest, keys = world
+    _directory(ctx)
+    rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "svc-expired")).json()["requestId"]
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = :r"),
+                  {"r": rid})
+
+    own = client.post(URL, json=OTHER, headers=_ola(keys, "svc-expired"))
+    assert own.status_code == 202 and own.json()["requestId"] != rid, own.text
+    assert _keys_of(ctx.db, rid) == ("sub-ola", None, None), "the expired row keeps its request and loses only its key"
+    assert _keys_of(ctx.db, own.json()["requestId"]) == ("sub-ola", "sub-ola", "svc-expired")
+
+
+def test_a_service_can_use_a_key_that_the_person_held_once_it_expires(world):
+    """The other direction, a second caller: the person's own expired key, then a service sends it for her. Clearing the
+    caller's rows, or the rows whose requester is the caller, leaves the person's row in the requester's index. Before
+    (2c663b8): 409 "in use"."""
+    client, ctx, *_rest, keys = world
+    _directory(ctx)
+    rid = client.post(URL, json=NS, headers=_ola(keys, "ola-expired")).json()["requestId"]
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = :r"),
+                  {"r": rid})
+
+    by_service = client.post(URL, json={**OTHER, "onBehalfOf": "ola"}, headers=_service(keys, "ola-expired"))
+    assert by_service.status_code == 202 and by_service.json()["requestId"] != rid, by_service.text
+    assert _keys_of(ctx.db, rid) == ("sub-ola", None, None)
+
+
+def test_a_key_named_after_an_index_is_an_opaque_key(world):
+    """PostgreSQL's DETAIL quotes the key. Before (2c663b8): the 409 branch was chosen by a substring of the message, so
+    this key, refused by the requester's index, was answered as a namespace conflict whose holder "has just finished"."""
+    client, ctx, *_rest, keys = world
+    _directory(ctx)
+    key = "uq_cr_open_namespace"
+    first = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, key))
+    assert first.status_code == 202, first.text
+
+    other = client.post(URL, json=OTHER, headers=_ola(keys, key))
+    assert other.status_code == 409 and other.json()["code"] == "idempotency-replay", other.text
+    assert other.json()["detail"] == IN_USE and "requestId" not in other.json(), other.text
+
+
+def _migration_0008():
+    path = conftest.ROOT / "src/cmapi/core/db/migrations/versions/0008_idempotency_key_of_the_caller.py"
+    spec = importlib.util.spec_from_file_location("migration_0008", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_key_exactly_24_hours_old_is_still_held_by_the_lookup_and_the_migration(world):
+    """One transaction, so `now()` does not move: a row created exactly 24 hours ago is live for the lookup and for 0008's
+    predicates, and expired a moment later. A `<=` in either place would pass every other test."""
+    client, ctx, *_rest, keys = world
+    _directory(ctx)
+    rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "edge")).json()["requestId"]
+    mig = _migration_0008()
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE change_requests SET created_at = now() - interval '24 hours' WHERE request_id = :r"),
+                  {"r": rid})
+        assert s.execute(text(f"SELECT ({mig._LIVE}), ({mig._EXPIRED}) FROM change_requests WHERE request_id = :r"),
+                         {"r": rid}).one() == (True, False)
+        row = RequestRepo(s).by_idempotency(SVC_SUB, "edge")
+        assert row is not None and row.request_id == rid, "exactly 24 hours old is still held"
+        s.rollback()
+    assert _keys_of(ctx.db, rid) == ("sub-ola", SVC_SUB, "edge")
+
+
 # ---- migration 0008 on real PostgreSQL, in the schema `mig`
 
 
@@ -226,11 +318,14 @@ def _insert(c, rid, *, requester_sub, key, submitted_by=None, hours_ago=0, sub=N
     c.execute(f"INSERT INTO change_requests ({cols}) VALUES ({marks})", [*values, hours_ago, *([sub] if with_sub else [])])
 
 
+def _has_caller_column(c):
+    return c.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'mig' AND "
+                     "table_name = 'change_requests' AND column_name = 'idempotency_sub'").fetchone()[0] == 1
+
+
 def _state(c):
     """Each row's key, fingerprint and caller (None when there is no column), the idempotency indexes, and the revision."""
-    has_sub = c.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'mig' AND "
-                        "table_name = 'change_requests' AND column_name = 'idempotency_sub'").fetchone()[0]
-    sub = "idempotency_sub" if has_sub else "NULL"
+    sub = "idempotency_sub" if _has_caller_column(c) else "NULL"
     rows = c.execute(f"SELECT request_id, idempotency_key, idempotency_fingerprint, {sub} FROM change_requests "
                      "ORDER BY request_id").fetchall()
     indexes = dict(c.execute("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'mig' AND "
@@ -321,6 +416,39 @@ def test_the_upgrade_refuses_a_live_delegated_row_without_its_caller(empty_schem
         assert rows == {"x-delegated": (None, None, None), "y-null-caller": (None, None, None)}, rows
 
 
+@pytest.mark.parametrize("subject", [42, ""], ids=["a-number", "empty"])
+def test_the_upgrade_refuses_a_live_delegated_row_whose_caller_is_not_a_subject(empty_schema, subject):
+    """The other two shapes of an unknown caller: `submittedBySub` that is not a string, or is empty. The test above has a
+    missing and a JSON-null one only, so a broken type or empty check passed it."""
+    _run(empty_schema, "0007")
+    with psycopg.connect(empty_schema, autocommit=True) as c:
+        _insert(c, "z-invalid", requester_sub="sub-ola", key="k8", hours_ago=1,
+                requester={"requester": {"sub": "sub-ola"}, "submittedBy": "svc", "submittedBySub": subject})
+        before = _state(c)
+        out = _refused(empty_schema, "head")
+        assert "the live delegated requests z-invalid hold an Idempotency-Key" in out, out[-800:]
+        assert _state(c) == before
+
+
+def test_a_0007_insert_in_the_window_escapes_the_caller_index(empty_schema):
+    """The risk that release 1 accepts (docs/12, #603), with the column list of a 0007 pod (no `idempotency_sub`): one
+    service's key for two persons is two rows, because NULLs are distinct in `uq_cr_idempotency_caller`, and the lookup
+    answers with the older one, the same caller's request. Reviewer 2's mixed probe measured it with 0007's own code. 0009
+    must refuse such pairs while they are live, and this test then inverts."""
+    _run(empty_schema, "head")
+    with psycopg.connect(empty_schema, autocommit=True) as c:
+        _insert(c, "a-svc-for-ola", requester_sub="sub-ola", key="k9", submitted_by="sub-svc", hours_ago=1)
+        _insert(c, "b-svc-for-amy", requester_sub="sub-amy", key="k9", submitted_by="sub-svc")
+        rows, _indexes, _version = _state(c)
+        assert rows == {"a-svc-for-ola": ("k9", "fp-a-svc-for-ola", None), "b-svc-for-amy": ("k9", "fp-b-svc-for-amy", None)}
+    engine = create_engine(empty_schema.replace("postgresql://", "postgresql+psycopg://", 1))
+    try:
+        with Session(engine) as s:
+            assert RequestRepo(s).by_idempotency("sub-svc", "k9").request_id == "a-svc-for-ola"
+    finally:
+        engine.dispose()
+
+
 def test_the_downgrade_keeps_every_key_and_the_old_index(empty_schema):
     """At 0008 the requester's index was in force, so no two rows share a person and a key: the downgrade only drops the
     caller's index and the column. Rows from this code and from a 0007 pod in the window (no caller) keep their keys.
@@ -336,6 +464,7 @@ def test_the_downgrade_keeps_every_key_and_the_old_index(empty_schema):
         _run(empty_schema, "0007", "--downgrade")
         rows, indexes, version = _state(c)
         assert version == "0007" and indexes == {"uq_cr_idempotency": REQUESTER_INDEX}, indexes
+        assert not _has_caller_column(c), "the column is dropped, not only emptied: _state reads a missing column as NULL"
         assert rows == {
             "a-person-own": ("k1", "fp-a-person-own", None),
             "b-service-for-ola": ("k2", "fp-b-service-for-ola", None),

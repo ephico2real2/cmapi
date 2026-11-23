@@ -88,9 +88,17 @@ server certificate's name is the one the pods will connect to (`verify-full` che
       a service's retry for a person is 409. This was measured with 0007's code on the 0008 schema (PR #601).
     - An 0008 pod keys a lookup on the caller. For a keyed row with no `idempotency_sub` it takes the caller from
       `requester`, as `0008` does, so it replays the requests that 0007 pods wrote for their callers. Both indexes are in
-      force, so a person cannot use a key that a service holds for them (409) until release 2.
+      force, so a person cannot use a key that a service holds for them (409) while it is held, until release 2. Past
+      24 hours the lookup frees the key from every row, whoever's it was.
+    - **The risk accepted in release 1.** A 0007 pod's insert has no `idempotency_sub`, and NULLs are distinct in a
+      unique index, so the caller's index cannot refuse it. A service that sends one key for two persons through a 0007
+      pod, or once through each version, gets two requests (202 twice), as it does on 0007 today. An 0008 pod then
+      answers that key with the older request, the same service's: its retry of the second body is 409 naming the first.
+      Only a client that reuses a key for a different request meets this; a retry of the same body is caught by the
+      requester's index. Measured with 0007's code on the 0008 schema (review of PR #601, reviewer 2's mixed probe).
   - **Release 2, `0009` (#603).** It ships only after no 0007 pod runs. It fills the keyed rows that 0007 pods wrote,
-    and keeps only the caller's index.
+    and keeps only the caller's index. Like `0008`, it refuses while two such rows are one caller's live key, and
+    succeeds once all but one are more than 24 hours old.
   - **Back to 0007.** `cmapi-migrate 0007 --downgrade` drops the caller's index and the column, and keeps every key.
 - **Locks of `0008`.** The upgrade acquires ACCESS EXCLUSIVE on `change_requests` when it adds the column. The downgrade
   acquires it when it drops the index. Reads and writes of this table wait through the checks, the updates and the index
