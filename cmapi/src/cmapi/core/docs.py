@@ -496,6 +496,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
         _document_expiry(spec, instance)
     _document_validation_problem(spec)
     _document_token_problems(spec)
+    _document_if_match_required(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     samples = load_samples()
     add_recorded_examples(spec, samples, metadata, instance)
@@ -814,6 +815,41 @@ def _document_token_problems(spec: dict[str, Any]) -> None:
             if isinstance(op, dict) and op.get("security"):
                 add_problem(op, "unauthenticated")
                 add_problem(op, "idp-unavailable")
+
+
+# The five writes whose route requires If-Match (plugins/namespaces/router.py): the change, the delete and the three
+# expiry writes. A create takes none.
+IF_MATCH_OPERATIONS = frozenset({"namespaces_update_namespace", "namespaces_delete_namespace", "namespaces_extend",
+                                 "namespaces_set_expiry", "namespaces_make_permanent"})
+
+
+def _document_if_match_required(spec: dict[str, Any]) -> None:
+    """If-Match is required on the five writes of IF_MATCH_OPERATIONS (#586). The runtime parameter keeps
+    `Header(default=None)` (routers/__init__.py, if_match), so that a namespace missing from Git answers 404 before 428, as
+    RFC 9110 section 13.2.1 orders a precondition after the resource; FastAPI's own check of a required header would answer
+    422 before the route runs. So only the document says what the route enforces, and a generated client cannot leave it
+    out. Another operation's If-Match keeps what its route declares.
+
+    OpenAPI 3.1.0, Parameter Object: `required` "Determines whether this parameter is mandatory" (default false). A
+    header that is sent has a string value, never null, so the schema drops the null of `str | None` and keeps the string
+    with each of its rules (a maxLength or a pattern, when the route declares one)."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if not isinstance(op, dict) or op.get("operationId") not in IF_MATCH_OPERATIONS:
+                continue
+            for param in op.get("parameters") or ():
+                if param.get("in") != "header" or param.get("name") != "If-Match":
+                    continue
+                schema = param["schema"]
+                variants = schema.pop("anyOf", None)
+                if variants is not None:
+                    strings = [v for v in variants if v != {"type": "null"}]
+                    if len(variants) != 2 or len(strings) != 1:
+                        raise RuntimeError(f"{op['operationId']}: If-Match is not declared as `str | None`: {variants}")
+                    schema.update(strings[0])
+                if schema.get("type") != "string":
+                    raise RuntimeError(f"{op['operationId']}: If-Match is not a string: {schema}")
+                param["required"] = True
 
 
 def _without_none(value: Any) -> Any:

@@ -217,3 +217,18 @@ GET /api/v1/policies/results added the new `not-imported` enum value to the `clu
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/name` became required
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `labels/company.net/app-environment` became required
 POST /api/v1/clusters/{cluster_id}/namespaces the request property `annotations/company.net/app-environment` became required
+
+# #586, accepted on 2026-11-23, before the first release: If-Match is now required, with a string schema, in the document of
+# the five namespace writes that take it. The route already refuses a write to an existing namespace without it with 428
+# precondition-required (core/pipeline.py, require_if_match), so no request that worked stops working: only a generated
+# client can no longer leave it out. The runtime parameter keeps Header(default=None), so 404 still comes before 428.
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} the `header` request parameter `if-match` became required
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns} `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} the `header` request parameter `if-match` became required
+PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns} `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend the `header` request parameter `if-match` became required
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent the `header` request parameter `if-match` became required
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set the `header` request parameter `if-match` became required
+POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set `header` request parameter `if-match` list-of-types was narrowed by removing types `null`

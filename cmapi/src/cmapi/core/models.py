@@ -396,10 +396,10 @@ class NamespaceView(ClusterScoped):
                                          "unchanged, in double quotes, as `If-Match` on a change or a delete. A list of "
                                          "tags passes when one of them is this one; another value is 412 "
                                          "`precondition-failed`, except on an Idempotency-Key replay, which returns the "
-                                         "request that key opened. A weak tag (`W/\"...\"`) never matches, and `*` is "
-                                         "428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly "
-                                         "in the namespace's folder in Git change. Compare it; never parse it. Null on the "
-                                         "list, which reads no Git",
+                                         "original request in its current state. A weak tag (`W/\"...\"`) never "
+                                         "matches, and `*` is 428 `precondition-required`, on a replay too. It changes "
+                                         "when the `.yaml` files directly in the namespace's folder in Git change. "
+                                         "Compare it; never parse it. Null on the list, which reads no Git",
                              examples=["3f9a1c0b7e2d4a68"])
     open_request: str | None = Field(description="Request holding the namespace lock", examples=[None])
     protected: bool | None = Field(default=None, description="Whether cmapi refuses a delete request for it (422 "
