@@ -107,6 +107,13 @@ server certificate's name is the one the pods will connect to (`verify-full` che
   limit the work done after acquisition, or the total migration time. The migrator takes its session advisory lock
   before it sets this timeout. CRC held 19 rows on 2026-11-23 (the read-only count on #592). Measure the transaction on a production-sized copy when
   you schedule the release.
+- **Reading a migration's times (#614).** Each migrator writes one JSON event `migrated` to its log
+  (`oc logs <pod> -c migrate`): `from_revision`, `revision`, and `applied`, each revision it ran in order with its
+  `seconds` inside the transaction. `transaction_seconds` runs from the transaction's begin to its commit, so it bounds how
+  long any table lock of the run, such as `0008`'s ACCESS EXCLUSIVE, is held. `lock_wait_seconds` is the time spent
+  waiting for the other pod's migrator on the advisory lock, and `total_seconds` is the run after the wait for the server.
+  Of the api's and the worker's migrators, the one with a non-empty `applied` ran the revisions, and the other found the
+  database at its target (`applied` is `[]`).
 - **A changed password.** The pods read `cmapi-db-app` at start. A pod started from a Secret the server no longer
   accepts waits on the stale password until the 540 s wait runs out and then crash-loops (measured on kind with a CNPG
   cluster recreated under running pods): after a rotation, update the Secret and restart the api and the worker.
@@ -170,4 +177,4 @@ Section 5's restore ran from the CNPG image's pg_restore and psql 17.11, without
 PostgreSQL 16.15 and 17.11 targets: a complete copy, and a failure on the last table leaving the target as it was. Not run:
 that restore of a dump from a real CNPG cluster, or Argo CD's automated sync being turned off around it. No
 run against a real external server on a cluster exists yet: the first site that does one records `pg_stat_ssl`, the
-migration time and the connection count here.
+migration time (the `migrated` event's `transaction_seconds` and `total_seconds`, section 4) and the connection count here.
