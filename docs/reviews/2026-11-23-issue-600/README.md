@@ -56,4 +56,7 @@ clusters"`, chromium 156, on this machine:
 | `npm test` in `cmapi-portal-ui/` | 2 | both exit 0; `portal on the API: 139 checks` |
 
 Not changed: other checks' reads. Each other `tableRows` read in the file follows a first load, not a change of filters or
-page.
+page, except the Capacity check's "a 304 keeps the figures" (`portal.test.mjs`, check "Capacity" on focus). That one reads
+after a refetch of the same key, whose rows are the same before and after the 304, so it cannot fail on the race. It may
+read before the browser has handled the 304, so it does not prove that the 304 kept the figures, only that nothing
+replaced them. That is a weak assertion, not a flake.
