@@ -1,0 +1,4 @@
+{"width":390,"timeout":0,"clicked":2130,"firstCall":[85997,40],"calls":1,"lastCall":[85997,40],"longTasksOver200ms":[[200,326,0],[588,255,0],[875,1207,0],[2183,83364,40]]}
+{"width":390,"timeout":240000,"clicked":2011,"firstCall":[89248,40],"calls":1,"lastCall":[89248,40],"longTasksOver200ms":[[108,309,0],[470,244,0],[745,1218,0],[2064,86521,40]]}
+
+[exited with code 0]

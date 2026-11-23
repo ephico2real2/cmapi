@@ -1,0 +1,21 @@
+--- /Users/olasumbo/gitRepos/workbench/cmapi/review-559/r2-70a/cmapi-portal-ui/tests/front-door.test.mjs	2026-11-23 00:22:29
++++ /Users/olasumbo/gitRepos/workbench/cmapi/review-559/mut/old-late/cmapi-portal-ui/tests/front-door.test.mjs	2026-11-23 00:55:54
+@@ -19,6 +19,7 @@
+ import { connect } from "node:net";
+ import { tmpdir } from "node:os";
+ import { dirname, join } from "node:path";
++import { setTimeout as sleep } from "node:timers/promises";
+ import { fileURLToPath } from "node:url";
+ import { chromium } from "playwright";
+ import { startApi, startIssuer, USERS } from "./api/standin.mjs";
+@@ -177,7 +178,9 @@
+         await shows(p, ".opblock", violations);
+         const operations = await p.locator(".opblock").count();
+         // All the toggles in one step in the page: Playwright's own click waits on each, too slow for 40 operations.
+-        await p.evaluate(() => document.querySelectorAll(".opblock-summary-control").forEach((b) => b.click()));
++        await p.evaluate(() => [...document.querySelectorAll(".opblock-summary-control")].slice(0, -1).forEach((b) => b.click()));
++        // #561 proof only: the last operation opens 5 s later, so the wait sees fewer than all on its first poll.
++        sleep(5000).then(() => p.evaluate(() => [...document.querySelectorAll(".opblock-summary-control")].at(-1).click())).catch(() => {});
+         const extensionsHeaders = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions");
+         await p.waitForFunction(`(${extensionsHeaders})().length >= ${operations}`, null, { polling: 1000, timeout: OPEN_DOCS_WAIT_MS });
+         const seen = await p.evaluate(() => {

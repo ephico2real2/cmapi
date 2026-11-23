@@ -1,0 +1,13 @@
+--- /Users/olasumbo/gitRepos/workbench/cmapi/review-559/r2-561/cmapi-portal-ui/tests/front-door.test.mjs	2026-11-23 00:53:44
++++ /Users/olasumbo/gitRepos/workbench/cmapi/review-559/mut/new-late/cmapi-portal-ui/tests/front-door.test.mjs	2026-11-23 00:55:54
+@@ -178,7 +178,9 @@
+         await shows(p, ".opblock", violations);
+         const operations = await p.locator(".opblock").count();
+         // All the toggles in one step in the page: Playwright's own click waits on each, too slow for 40 operations.
+-        await p.evaluate(() => document.querySelectorAll(".opblock-summary-control").forEach((b) => b.click()));
++        await p.evaluate(() => [...document.querySelectorAll(".opblock-summary-control")].slice(0, -1).forEach((b) => b.click()));
++        // #561 proof only: the last operation opens 5 s later, so the wait sees fewer than all on its first poll.
++        sleep(5000).then(() => p.evaluate(() => [...document.querySelectorAll(".opblock-summary-control")].at(-1).click())).catch(() => {});
+         // Polled from Node with page.evaluate, not page.waitForFunction (#561). Playwright 1.64.1 runs a string predicate with
+         // eval() on each poll; the first poll runs inside the DevTools call, which CSP exempts, but the later ones run from a
+         // timer in the page, and the docs' CSP (no 'unsafe-eval') refuses them. Each page.evaluate is a DevTools call.

@@ -1,0 +1,7 @@
+E               assert (404 == 401)
+E           assert [200, 200, 20...200, 200, ...] == [200, 200, 20...200, 200, ...]
+E       assert ['<link type=...ger-ui.css">'] == ['<link type=...wagger.css">']
+FAILED tests/service/test_api_docs.py::test_docs_public_false_puts_the_docs_paths_behind_a_token
+FAILED tests/service/test_api_docs.py::test_docs_are_public_by_default_and_when_public_is_true
+FAILED tests/service/test_api_docs.py::test_swagger_ui_loads_the_bundles_stylesheet_through_cmapis
+3 failed, 23 passed in 25.66s

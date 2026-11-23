@@ -343,7 +343,7 @@ def case_routes(ng: Nginx) -> None:
 
         for path in ("/api/v1/version", "/api/v1/requests?state=open&limit=5", "/openapi.json", "/openapi.yaml",
                      "/problems", "/problems/policy-violation", "/docs", "/docs/oauth2-redirect", "/docs/changelog",
-                     "/redoc", "/static/swagger/swagger-ui-bundle.js", "/static/redoc/redoc.standalone.js"):
+                     "/docs/swagger.css", "/redoc", "/static/swagger/swagger-ui-bundle.js", "/static/redoc/redoc.standalone.js"):
             check(where(path) == "api", f"{path} goes to the API")
         seen = [s["path"] for p in pods for s in p.seen]
         check("/api/v1/requests?state=open&limit=5" in seen, "the API gets the path and the query string unchanged")

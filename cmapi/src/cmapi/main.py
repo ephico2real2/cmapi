@@ -233,9 +233,10 @@ def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None
 
 
 def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any, problem_response: Any) -> None:
-    """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation").
+    """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation"), with the files of the
+    two pages: /docs/redoc-start.js and /docs/swagger.css.
 
-    Public unless instance.yaml says docs.public: false; then each of the five needs a valid bearer token and answers
+    Public unless instance.yaml says docs.public: false; then each of the seven needs a valid bearer token and answers
     401 with WWW-Authenticate without one. Swagger UI and ReDoc come from the image's bundles only, never a CDN: without
     the bundles the two pages answer 503 and name the command that fetches them (cmapi-tools docs-assets).
     """
@@ -281,9 +282,13 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
             return missing("Swagger UI")
         return get_swagger_ui_html(
             openapi_url="/openapi.json", title=f"cmapi ({ctx.cfg.name}) - API docs", oauth2_redirect_url="/docs/oauth2-redirect",
-            swagger_js_url="/static/swagger/swagger-ui-bundle.js", swagger_css_url="/static/swagger/swagger-ui.css",
+            swagger_js_url="/static/swagger/swagger-ui-bundle.js", swagger_css_url=SWAGGER_CSS,
             swagger_favicon_url="/static/swagger/favicon-32x32.png",
             init_oauth=app.swagger_ui_init_oauth, swagger_ui_parameters=SWAGGER_UI_PARAMETERS)
+
+    @app.get(SWAGGER_CSS, include_in_schema=False, dependencies=guard)
+    def docs_css() -> Response:
+        return Response(SWAGGER_CSS_TEXT, media_type="text/css", headers={"Cache-Control": "no-cache"})
 
     @app.get("/docs/oauth2-redirect", include_in_schema=False)
     def docs_redirect() -> Response:
@@ -338,6 +343,36 @@ SWAGGER_UI_PARAMETERS: dict[str, Any] = {
     "defaultModelExpandDepth": 3,
     "tryItOutEnabled": False,
 }
+# /docs's stylesheet (#556): Swagger UI's own, then cmapi's rules. get_swagger_ui_html takes one stylesheet URL, so this
+# one imports the bundle's first; an imported sheet's rules count "as if they were written literally into the stylesheet
+# at the point of the import" (https://developer.mozilla.org/en-US/docs/Web/CSS/@import), so the rules after it win a tie.
+# Swagger UI 5.34.1 shows an operation's x- fields in a table of its own (OperationExt, the only .table-container that is
+# a direct child of .opblock-section) and each value as one JSON.stringify string. The x-codeSamples value has no break
+# narrower than its longest run, so at 390 px the table grew past the page and the page scrolled sideways (539 px on CRC).
+# overflow-wrap: anywhere lets the Value cell break that run, and its break points count in the cell's min-content
+# width (https://www.w3.org/TR/css-text-3/#overflow-wrap-property), which is what lets an auto-layout table shrink to
+# its container; break-word would wrap the text but leave the column as wide. Only the Value cells get the rule; the
+# Field cells keep Swagger UI's wrapping, which at 390 px still breaks an x- name at its hyphens. Because the Value
+# column's min-content is now small, the auto layout also moves the Field/Value split at 1440 px, by 1 to 5 px
+# (docs/reviews/2026-11-22-issue-556/outputs/layout-1440-before-after.txt).
+# The Responses table (#558) is a table, not one long string: its Code and Links columns are held at min-width 6em by
+# Swagger UI, and an operation that documents a response header nests a three-column headers table in Description, so in
+# a 332 px box it needs 349 px. Breaking its words would not make it readable, so its box scrolls sideways instead, the
+# usual pattern for a wide table on a phone (https://getbootstrap.com/docs/5.3/content/tables/#responsive-tables). A
+# box with overflow-x auto that fits "looks the same as with visible, but still establishes a new block-formatting
+# context" (https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-x), and its overflow-y computes to auto; it has
+# no height limit, and the 1440 px screenshots of a Responses section are byte-identical before and after.
+SWAGGER_CSS = "/docs/swagger.css"
+SWAGGER_CSS_TEXT = """@import url("/static/swagger/swagger-ui.css");
+
+.opblock-section > .table-container > table > tbody > tr > td:last-child {
+  overflow-wrap: anywhere;
+}
+
+.responses-inner {
+  overflow-x: auto;
+}
+"""
 # ReDoc's options for /redoc (#480, S9), from https://redocly.com/docs/redoc/v3.x/config and the 2.x-to-3.x table at
 # https://redocly.com/docs/redoc/config-migration (read 2026-11-20; the image pins ReDoc 3.1.0). showExtensions lists the x-
 # fields beside each operation and field; sortRequiredPropsFirst (2.x's requiredPropsFirst, renamed) puts required fields
