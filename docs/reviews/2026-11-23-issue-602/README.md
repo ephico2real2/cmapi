@@ -1,6 +1,6 @@
 # #602: `DELETE .../namespaces/{ns}?dryRun=true` is a dry run
 
-The implementer's record: Opus 5.5 at `high`, 2026-11-23, on `fix/602-delete-dryrun` from `8a5b41c`. The reviews go
+The implementer's record: Opus 5.5 at `high`, 2026-11-23, on `fix/602-delete-dryrun`, from `8a5b41c` and rebased onto `e5ac180` (#599 merged). The reviews go
 beside it when they are done.
 
 ## The defect, as measured
@@ -63,3 +63,42 @@ files that have content), `etag` is the one If-Match matched, `approval` the app
 `test_api_standard.py`, `test_the_delete_key_is_described_as_the_delete_checks_it`, asserted the old design (no `dryRun`
 in the delete key's description); it now asserts the new one. `test_api_samples.py` records the delete's dry run as
 `namespaces_delete_namespace:dryRun`, which fills the 200 of the document.
+
+## #606: a write with no dry run refuses `dryRun`
+
+Found while fixing #602 and filed at once. Measured on `e5ac180` (probe
+`workbench/cmapi/wt-602-outputs/probe/test_probe_dry_run_on_actions.py`): `POST .../req-20261123-0001:approve?dryRun=true`
+answered 200 and approved the request, and `:cancel?dryRun=true` answered 200 and cancelled one. The same cause as #602:
+the nine other writes (`:approve`, `:reject`, `:cancel`, `:retry`, `:revert`, `prune:confirm`, `auto-approval:pause` and
+`:resume`, `:probe`) declare no `dryRun`, so FastAPI ignored it.
+
+Source, fetched 2026-11-23: the Kubernetes API server, `staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go` in
+`kubernetes/kubernetes`, branch `master`. `ConnectResource`, the handler of the calls that cannot be dry-run (exec,
+attach, port-forward), starts with `if isDryRun(req.URL) { scope.err(errors.NewBadRequest("dryRun is not supported"), w,
+req); return }`, and `isDryRun` is `len(url.Query()["dryRun"]) != 0`: any `dryRun`, whatever its value, is a 400. KEP-576
+(`kubernetes/enhancements`, `keps/sig-api-machinery/576-dry-run/README.md`) does the same for a webhook that cannot honour
+one: "If dry-run is requested on a non-supported webhook, the request will be completely rejected, as a 400: Bad Request."
+RFC 9110, section 15.5.1: 400 is for "something that is perceived to be a client error"; 422 (15.5.21) is about the
+request's content, and `dryRun` is in the query.
+
+| Option | Why not, or why |
+|---|---|
+| **Refuse any `dryRun` on a write that has none: 400 `dry-run-not-supported`** | Chosen. The caller asked for no side effect, and the call cannot give one, so it fails closed. It is Kubernetes' rule, to the value (`isDryRun`). `DocumentedRouter._register` already knows which writes have a dry run (`dry_run_model`), so the guard is one dependency that it adds, with the 400 declared, and a new write cannot forget it |
+| Refuse only `dryRun=true` | A client that sends `dryRun=All` (Kubernetes' value) or `dryRun` alone would still run the action |
+| Refuse every undeclared query parameter on every route | The general rule, but a wider change of the contract (every read too) than this defect needs; not done here |
+| 422 `validation-failed` | The status of a body that is wrong. Kubernetes and RFC 9110 point to 400 for a query the call cannot take |
+
+FastAPI 0.115.6 (the pin in `cmapi/pyproject.toml`) puts a route's `dependencies` before the endpoint's own
+(`fastapi/routing.py`, `APIRoute.__init__`: `self.dependant.dependencies.insert(0, ...)`), so the guard answers before
+the token is checked: an unauthenticated `?dryRun=true` gets 400, not 401. It reveals only that the call has no dry run,
+which the document says.
+
+| Test (`test_dry_run_refused_606.py`) | Before (`3746ad7`, #602's fix only) | After |
+|---|---|---|
+| `test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing` | fails: `:approve?dryRun=true` 200, the request approved | passes: 400 for `true`, `false`, `All` and empty, on `:approve`, `:reject`, `:cancel`; no row in six tables; the request still `pending_approval` |
+| `test_the_admin_writes_with_dry_run_are_refused_and_change_nothing` | fails: `auto-approval:pause?dryRun=true` 200, paused | passes: 400 on `:pause`, `prune:confirm`, `:probe`; not paused; nothing written |
+| `test_every_write_without_a_dry_run_refuses_one` | fails: `:probe` has no guard | passes: each write route of the app either takes `dryRun` (six) or has the guard and declares the 400 |
+| `test_the_writes_that_have_a_dry_run_still_answer_it` | passes | passes |
+
+The contract change is additive: oasdiff 1.37.0 reports 11 `info` lines and no breaking change (the gate exits 0): the
+delete's new query parameter and 200, and `response-non-success-status-added` (400) on nine writes.

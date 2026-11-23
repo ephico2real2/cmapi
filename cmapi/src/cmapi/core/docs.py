@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import Any, Callable, Sequence
 
-from fastapi import APIRouter, FastAPI, Response
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
@@ -75,6 +75,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-cursor": (400, "The cursor is not valid"),
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
+    "dry-run-not-supported": (400, "This call has no dry run: send it without dryRun"),
     "rate-limited": (429, "Too many requests"),
     "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
@@ -213,6 +214,17 @@ CORE: dict[str, str] = {"version": __version__, "group": "Operations",
                                        "and the version of the running build."}
 
 
+WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def refuse_dry_run(request: Request) -> None:
+    """The guard of a write that has no dry run (#606). FastAPI ignores a query parameter that a route does not declare, so
+    without it `?dryRun=true` would do the action. Any `dryRun` is refused, whatever its value, as the Kubernetes API server
+    refuses one on a call that cannot honour it (apiserver, endpoints/handlers/rest.go, ConnectResource and isDryRun)."""
+    if "dryRun" in request.query_params:
+        raise Problem.bad_request("dry-run-not-supported", PROBLEMS["dry-run-not-supported"][1])
+
+
 class DocumentedRouter(APIRouter):
     """An APIRouter whose routes must say what they need and what they can refuse."""
 
@@ -240,6 +252,11 @@ class DocumentedRouter(APIRouter):
         codes = list(problems)
         if permission is not None:
             codes = ["unauthenticated", "forbidden", *codes]
+        # A write without a dry run refuses one (#606). FastAPI solves a route's `dependencies` before the endpoint's own,
+        # so the guard answers before the token, the body and the action are looked at.
+        guarded = method in WRITE_METHODS and dry_run_model is None
+        if guarded:
+            codes.append("dry-run-not-supported")
 
         def deco(fn: Callable) -> Callable:
             desc = inspect.getdoc(fn) or ""
@@ -254,6 +271,8 @@ class DocumentedRouter(APIRouter):
             kwargs: dict[str, Any] = dict(summary=summary, description=desc, response_model=response_model,
                                           status_code=status_code, operation_id=op_id, responses=responses,
                                           response_description=returns, openapi_extra=x)
+            if guarded:
+                kwargs["dependencies"] = [Depends(refuse_dry_run)]
             if media_type:
                 # A streamed body (CSV): declared by media type, since it has no JSON model. The response class with no media
                 # type of its own stops FastAPI from adding application/json beside it (#179).

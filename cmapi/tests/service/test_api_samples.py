@@ -338,6 +338,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     # ---- the refusals a client meets most
     rec.call("core_me", "GET", "/api/v1/me", None)                                                            # 401
     rec.call("admin_pause", "POST", "/api/v1/admin/auto-approval:pause", ola, json_body={"reason": "x"})     # 403
+    rec.call("admin_pause", "POST", "/api/v1/admin/auto-approval:pause?dryRun=true", admin, json_body={"reason": "x"})  # 400: no dry run
     rec.call("requests_get_request", "GET", "/api/v1/requests/req-00000000-0000", ola)                        # 404
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS)                                  # 400: no Idempotency-Key
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS, key=True)                        # 409: exists
