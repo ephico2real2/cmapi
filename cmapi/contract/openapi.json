@@ -4734,7 +4734,7 @@
                 "type": "null"
               }
             ],
-            "description": "The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete; another value is 412 `precondition-failed`. It changes whenever the namespace's folder in Git changes. Compare it; never parse it. Null on the list, which reads no Git",
+            "description": "The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git",
             "examples": [
               "3f9a1c0b7e2d4a68"
             ],
@@ -11080,7 +11080,7 @@
             "description": "The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with the ETag that a change sends in If-Match.",
             "headers": {
               "ETag": {
-                "description": "The namespace's entity tag, quoted: the `etag` of the body. Send it unchanged as `If-Match` on a change or a delete. It changes whenever the namespace's folder in Git changes.",
+                "description": "The namespace's entity tag, quoted: the `etag` of the body. Send it unchanged as `If-Match` on a change or a delete. It changes when the `.yaml` files directly in the namespace's folder in Git change.",
                 "schema": {
                   "examples": [
                     "\"3f9a1c0b7e2d4a68\""

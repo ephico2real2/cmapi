@@ -204,7 +204,7 @@ def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemo
 # (RFC 9110, 8.8.3.1), so the description says how to use it, not what it is made of; the example has the real form.
 NAMESPACE_ETAG_HEADER = {"ETag": {
     "description": "The namespace's entity tag, quoted: the `etag` of the body. Send it unchanged as `If-Match` on a change "
-                   "or a delete. It changes whenever the namespace's folder in Git changes.",
+                   "or a delete. It changes when the `.yaml` files directly in the namespace's folder in Git change.",
     "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}}
 
 

@@ -97,9 +97,46 @@ def test_a_real_etag_has_the_form_of_the_documented_example_and_works_as_documen
     header_example = _get_namespace_etag_header(spec)["schema"]["examples"][0]
     assert got.headers["etag"] == f'"{etag}"' and len(got.headers["etag"]) == len(header_example)
 
+    # The create plan's "0" is a tag this folder really had, and folder_etag never returns it for a folder with files: it can
+    # never match, whatever value the documented example takes.
     stale = client.patch(f"{URL}?dryRun=true", json={"tier": "medium"},
-                         headers={**auth(keys, "ola", **OLA), "If-Match": header_example})
+                         headers={**auth(keys, "ola", **OLA), "If-Match": f'"{plan.json()["etag"]}"'})
     assert stale.status_code == 412 and stale.json()["etag"] == etag, stale.text
     fresh = client.patch(f"{URL}?dryRun=true", json={"tier": "medium"},
                          headers={**auth(keys, "ola", **OLA), "If-Match": got.headers["etag"]})
     assert fresh.status_code == 200 and fresh.json()["etag"] == etag, fresh.text
+
+
+def test_the_namespace_etag_says_a_replay_is_not_compared(world):
+    """#576 review: a replay returns its request without comparing If-Match, so "another value is 412" names the exception.
+    The behaviour is proven in test_if_match_before_replay_495.py
+    (test_a_patch_retry_with_its_first_etag_is_still_replayed_after_git_moved)."""
+    client, *_ = world
+    description = _namespace_etag_schemas(client.get("/openapi.json").json())["NamespaceView"]["description"]
+    assert "412 `precondition-failed`" in description and "Idempotency-Key replay" in description, description
+
+
+def test_the_etag_changes_with_the_yaml_files_of_the_folder_and_says_so(world):
+    """#576 review: every reader of a namespace's folder (core/git/github.py, gitea.py, workspace.py) takes only its `.yaml`
+    files, so another file leaves the tag as it was, and a `.yaml` file changes it. Both descriptions say which files."""
+    client, ctx, git, kube, validator, keys = world
+    assert client.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=auth(keys, "ola", **OLA)).status_code == 202
+    run_jobs(ctx)
+    folder = "clusters/CRC/namespaces/payments-dev/"
+    before = client.get(URL, headers=auth(keys, "ola", **OLA))
+    assert before.status_code == 200, before.text
+
+    git.branches["main"].update({folder + "README.md": "notes\n", folder + "notes.yml": "a: 1\n"})
+    git._sha("main")
+    other = client.get(URL, headers=auth(keys, "ola", **OLA))
+    assert (other.json()["etag"], other.headers["etag"]) == (before.json()["etag"], before.headers["etag"])
+
+    git.branches["main"][folder + "namespace.yaml"] += "# edited in Git\n"
+    git._sha("main")
+    edited = client.get(URL, headers=auth(keys, "ola", **OLA))
+    assert edited.json()["etag"] != before.json()["etag"] and edited.headers["etag"] == f'"{edited.json()["etag"]}"'
+
+    spec = client.get("/openapi.json").json()
+    for description in (_namespace_etag_schemas(spec)["NamespaceView"]["description"],
+                        _get_namespace_etag_header(spec)["description"]):
+        assert "`.yaml` files directly in the namespace's folder" in description, description
