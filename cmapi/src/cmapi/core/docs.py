@@ -127,7 +127,9 @@ CONDITIONAL_READ: dict[str, Any] = {
                     "description": "Optional on a read. The answer is sent only if one strong tag listed here is its "
                                    "current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with "
                                    "the current tag in `etag`. A weak tag (`W/\"...\"`) never matches. If-Match is read "
-                                   "before If-None-Match (RFC 9110, section 13.2.2).",
+                                   "before If-None-Match (RFC 9110, section 13.2.2). Send the tags in one comma-separated "
+                                   "If-Match field (`If-Match: \"a\", \"b\"`): the front door answers 400 to a second "
+                                   "If-Match line.",
                     "schema": {"type": "string", "examples": [f'"{READ_ETAG_EXAMPLE}"']}}],
     "responses": {"200": {"headers": ETAG_HEADER},
                   "304": {"description": "Not modified: the ETag in If-None-Match is still the current one. Use the answer "

@@ -5494,7 +5494,7 @@ export interface operations {
             header?: {
                 /** @description The ETag of the answer the caller holds. If it is still the current one, the answer is 304 with no body. */
                 "If-None-Match"?: string;
-                /** @description Optional on a read. The answer is sent only if one strong tag listed here is its current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with the current tag in `etag`. A weak tag (`W/"..."`) never matches. If-Match is read before If-None-Match (RFC 9110, section 13.2.2). */
+                /** @description Optional on a read. The answer is sent only if one strong tag listed here is its current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with the current tag in `etag`. A weak tag (`W/"..."`) never matches. If-Match is read before If-None-Match (RFC 9110, section 13.2.2). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. */
                 "If-Match"?: string;
             };
             path?: never;
@@ -8672,7 +8672,7 @@ export interface operations {
             header?: {
                 /** @description The ETag of the answer the caller holds. If it is still the current one, the answer is 304 with no body. */
                 "If-None-Match"?: string;
-                /** @description Optional on a read. The answer is sent only if one strong tag listed here is its current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with the current tag in `etag`. A weak tag (`W/"..."`) never matches. If-Match is read before If-None-Match (RFC 9110, section 13.2.2). */
+                /** @description Optional on a read. The answer is sent only if one strong tag listed here is its current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with the current tag in `etag`. A weak tag (`W/"..."`) never matches. If-Match is read before If-None-Match (RFC 9110, section 13.2.2). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. */
                 "If-Match"?: string;
             };
             path?: never;
